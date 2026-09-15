@@ -1,6 +1,7 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# MessageGroupId is the SOURCE database.table, so repeated shares of one source serialize and
-# a heavy copy never overlaps itself.
+# MessageGroupId is the SOURCE database.table, so repeated shares of one source are STARTED in
+# order. ⚠ NOT SERIALIZED: the Pipe starts the machine FIRE_AND_FORGET, so a heavy copy can
+# overlap itself, and two same-name shares to one recipient can both pass the guard. README.md.
 #
 # content_based_deduplication is OFF here, unlike the table-builder queue: two byte-identical
 # share requests a user GENUINELY repeats (a re-share after deleting the copy) must not be

@@ -45,7 +45,9 @@ destination IAM then refuses at the write, turning a named refusal into an `Acce
 
 ## `MessageGroupId` is the actor's username
 
-One user's conversions are delivered in order while different users run in parallel. Raw rather
+One user's conversions are started in order while different users start independently; the runs
+themselves overlap, since the Pipe is `FIRE_AND_FORGET`, and the conditional write is what makes that
+harmless (`pipe.tf`). Raw rather
 than hashed, which is safe here and not on the space-keyed planes: a username is bounded at 63
 characters by the catalog identifier rule, well inside SQS's 128, where an S3 key reaches 1024.
 `MessageDeduplicationId` is the request id, so a browser retry of one submit is one execution.

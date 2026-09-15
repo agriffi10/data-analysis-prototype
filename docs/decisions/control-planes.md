@@ -56,6 +56,7 @@ entry you need, not the file.**
 - [Excel is bounded by cells, because the converter's memory is spent per cell (SPEC-230)](#excel-is-bounded-by-cells-because-the-converters-memory-is-spent-per-cell-spec-230)
 - [The logs queue is grouped per event, because a FIFO group is the sweep's ceiling (2026-09-11)](#the-logs-queue-is-grouped-per-event-because-a-fifo-group-is-the-sweeps-ceiling-2026-09-11)
 - [The notification sender bounds every dedup id, by digest rather than by dropping it (control-plane-wide)](#the-notification-sender-bounds-every-dedup-id-by-digest-rather-than-by-dropping-it-control-plane-wide)
+- [A group id orders the STARTS, not the runs, and what overlap costs on each plane (control-plane-wide)](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)
 
 ## Fences
 
@@ -120,6 +121,12 @@ inside the execution the Pipe starts.
 - **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
   denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
   request id identifies the message and Pipes delivery is at-least-once.
+- **A `MessageGroupId` orders the STARTS, not the runs, on every Pipe-fed plane.** The Pipe starts a
+  Standard machine `FIRE_AND_FORGET`, and the message leaves the queue when `StartExecution`
+  returns, so the next one in its group starts while the first still runs. A plane whose runs must
+  not overlap needs a guard of its own: a lock, a conditional write, or a key unique to the run.
+  Notifications and feedback are the exception: an event-source mapping drains them, and that does
+  hold a group to one invocation. [What overlap costs, plane by plane](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
   the record *is* the name lock.
@@ -1916,3 +1923,85 @@ before and nothing changes for an id the portal mints.
 collapses only byte-identical bodies, so two emits a plane keys alike on purpose — data-quality's two
 reports of one failure — would collapse only if they were also worded alike. The same key always
 digests to the same value, so every collapse a producer chose survives the bound.
+
+## A group id orders the STARTS, not the runs, and what overlap costs on each plane (control-plane-wide)
+
+Found 2026-09-15, auditing every plane's prose once the archive plane's claim that its group ids
+serialize runs turned out false. Six more planes said the same thing of their own: shared spaces,
+table builder, table share, file send, data quality and results conversion.
+
+**The mechanism.** Every Pipe starts its Standard machine `FIRE_AND_FORGET`, the only mode AWS allows
+a Standard workflow, and the message leaves the queue once `StartExecution` returns, after which
+the Pipe sends the group's next message. So a `MessageGroupId` orders the starts, and a start that
+fails holds the group's next one back until its retries run out; nothing stops a second run
+beginning while the first is still going. File-ops' live check watched exactly that on 2026-09-10
+(`docs/testing/owed.md`, *Two file operations in one space do not run at once*). The two queues a
+Lambda event-source mapping drains, notifications and feedback, are the exception: a mapping runs
+one invocation per FIFO group at a time, so their group ids do serialize their writers.
+
+**What overlap does, plane by plane.** File-ops holds a per-space lock and the table-builder refresh
+a per-table one, which is why neither appears below; the archive plane's arms are its own
+[entry](archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write).
+
+- **Shared spaces: the name is unique without the queue.** `registry.reserve` creates the record
+  with `If-None-Match: *`, so of two users submitting one name at once one is refused
+  `name already taken` and the winner's record is untouched; the constant group id adds nothing to
+  that. The registry's other writes, bar the final delete, the per-user cache and the membership
+  index re-read and write under ETag CAS, which keeps each document whole. What CAS does not
+  re-check is what the verb was authorized on. `save_members` and `empty_space` check no expected
+  owner, only `set_owner` does, so a former owner's add, remove or delete authorized before a
+  transfer still lands after it; and
+  `set_owner` does not check that the new owner is still on the fresh roster, so a transfer racing
+  that member's removal leaves an owner who is not a member. The Cognito membership slots are no
+  document at all: `assign_or_find_slot` reads the user's attributes and writes one slot with no
+  condition, so two spaces adding one user at once can pick the same free slot, and the user keeps
+  only one of the two grants while both rosters list them.
+- **Table builder: a create holds no lock, and a lost race reports success.** Two same-name creates
+  in one database both pass `check-table-absent`, a point-in-time `GetTable` with `InspectSource` and
+  `InferSchema` between it and the DDL. The first `CREATE EXTERNAL TABLE IF NOT EXISTS` makes the
+  table and the second is a no-op that `execute-ddl` still reports as created, so its requester is
+  told the table is ready to query when it carries whatever the first request defined. Nothing is
+  overwritten; the misreport is the cost, and the duplicate-name race is narrowed rather than closed.
+- **Table share: one table, told twice.** `check-target-absent` reads the catalog and then the
+  prefix, the copy is an unconditional `CopyObject` into `{recipient}/shared_tables/{table}/`, which
+  no run owns alone, and the create is `IF NOT EXISTS`. Two shares of one source to one recipient
+  under one name, the second guarded before the first has created the table or landed an object,
+  both clear the guard, copy the same keys and succeed, and each notifies; a double-submit that
+  straddles the 60-second dedup bucket is enough. Anything written at
+  those keys between the first copy and the second is overwritten. If the source is rewritten
+  between the two runs' listings, the two can copy different object sets into the one location —
+  each builds its manifest from whichever plan is at the shared plan key when it gets there — and the
+  table then reads both snapshots.
+- **File send: an overlapping send can overwrite what the recipient did with the first.** The guard
+  lists the names already in `shared_files/{sender}/`, and the copy is an unconditional `CopyObject`.
+  A second send of an item to one recipient, submitted before the first run's copy of that name
+  lands, clears the guard beside the first; it re-copies what the first delivered, and a file the
+  recipient edited in between is overwritten with versioning off. The window lasts as long as the
+  first run's copy, up to the three-hour ceiling, not only while two sends are "submitted close
+  together". Separately, the plan and the manifest are keyed by request id and this plane has no
+  `request_id_reused` refusal, so a hand-built request reusing an id past the five-minute dedup
+  window shares both keys with the first, and one run can copy the other's plan — names its own
+  guard never checked — over a recipient's files. The browser mints an id per submit and cannot.
+- **Data quality: nothing shared but the index.** Every per-run key — the temp tables, the manifest,
+  the report, the query results and the Athena tokens — is derived from the request id, so two
+  checks of one location with different ids are independent, and the runs index is written under
+  ETag CAS. One id sent twice past the dedup window collides on every one of them, and one run can
+  drop the other's temp table mid-query. A check never writes the user's data, so the cost is a
+  failed or garbled diagnostic.
+- **Results conversion: the write is the guard.** The one object is written with `If-None-Match: *`
+  unless the request asked to overwrite, so the loser of two overlapping saves to one name is
+  refused `destination_occupied`. Two overwrites of one key land in the order they finish rather
+  than the order they were submitted.
+
+**Decided 2026-09-15 (Andrew): record now, and repair file send and table share in the follow-up
+spec [decided the same day](archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
+for the archive restore's copy-back.** All three overwrite through the
+one copy engine, `cpcommon.transfer`, and the repair chosen there — `If-None-Match: *` on
+`CopyObject` and `CompleteMultipartUpload` — makes a send's "never overwrites" true at every write
+and turns table share's second run into a conflict. The same spec adds a `request_id_reused` refusal
+to file send, as archive and file-ops carry. Until it lands, the file-send and table-share arms above
+are live. The table builder's misreported create and the shared-space residuals are recorded and
+not yet scheduled.
+
+Every site that claimed a group id serializes runs is corrected, and each one this register or a
+delivery doc carries is marked in place rather than rewritten.

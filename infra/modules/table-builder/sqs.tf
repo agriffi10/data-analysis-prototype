@@ -1,7 +1,9 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# MessageGroupId is the TARGET DATABASE, so two creates against the same database serialize
-# and creates in different ones run in parallel. The duplicate-name race is closed by
-# check-table-absent plus CREATE … IF NOT EXISTS. README.md.
+# MessageGroupId is the TARGET DATABASE, so two creates against the same database are STARTED in
+# order and creates in different ones start independently.
+# ⚠ NOT SERIALIZED: the Pipe starts the machine FIRE_AND_FORGET, so the runs overlap. A refresh
+# holds a per-table lock; a create holds none, so check-table-absent plus CREATE … IF NOT EXISTS
+# narrows the duplicate-name race and does not close it. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name

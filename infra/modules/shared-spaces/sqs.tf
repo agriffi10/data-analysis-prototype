@@ -1,9 +1,10 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# FIFO with a SINGLE CONSTANT MessageGroupId, so requests are processed strictly one-at-a-time.
+# FIFO with a SINGLE CONSTANT MessageGroupId, so requests are STARTED one at a time, in order.
+# ⚠ THAT IS NOT SERIAL EXECUTION: the Pipe starts the machine FIRE_AND_FORGET, so runs overlap.
 #
-# DUPLICATE-NAME SAFETY DOES NOT DEPEND ON SQS CONTENT DEDUP — that only collapses
-# byte-identical bodies inside a 5-minute window. THE REGISTRY'S CONDITIONAL PUT
-# (If-None-Match) IS THE REAL GUARD, and serial intake is what makes it sufficient. README.md.
+# DUPLICATE-NAME SAFETY DOES NOT DEPEND ON THE QUEUE — content dedup only collapses
+# byte-identical bodies inside a 5-minute window, and the group orders only the starts. THE
+# REGISTRY'S CONDITIONAL PUT (If-None-Match) IS THE WHOLE GUARD. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name

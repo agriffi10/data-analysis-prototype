@@ -209,6 +209,12 @@ Reversible/technical choices made during build (per `docs/process/session-rhythm
   conditional `PutObject` (`If-None-Match: *`) on the registry object — added with the
   create action in **SPEC-051**, not here. `content_based_deduplication = true` absorbs a
   double-click; it is not the correctness guard.
+
+  > **SUPERSEDED 2026-09-15.** Serial intake is ordered STARTS, not serial processing: because the
+  > hop is `FIRE_AND_FORGET`, the Pipe sends the next message once `StartExecution` returns, so
+  > requests run in parallel and the requirement above, as worded, is not met. The conditional
+  > `PutObject` is the whole duplicate-name guard, not one half of it —
+  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
 - **One privileged orchestrator role for BOTH the Step Function and the Lambda**
   (trust = `states.amazonaws.com` + `lambda.amazonaws.com`), per FR-003's "the single
   privileged IAM role the Step Function/Lambda run under." A separate SFN execution role

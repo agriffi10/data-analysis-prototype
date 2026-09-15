@@ -2,7 +2,9 @@
 
 Guards against clobbering an existing table by asking the Glue Data Catalog whether the
 target name is already taken. Read-only; together with execute-ddl's
-``CREATE … IF NOT EXISTS`` this is the duplicate-name guard.
+``CREATE … IF NOT EXISTS`` this is the duplicate-name guard, and it narrows the race rather than
+closing it. The Pipe starts runs fire-and-forget and a create takes no lock, so two creates of one
+name can both pass here, and the second's no-op DDL is still reported as a created table.
 
 GetTable resolves under Lake Formation, and the target databases are LF-gated, so the shared
 execution role is an LF admin — without it, GetTable on a real user's database returns

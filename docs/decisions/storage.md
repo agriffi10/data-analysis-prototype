@@ -433,7 +433,11 @@ builder cannot report zero items while a recipient cleared the guard.
 
 **Not closed: the guard is TOCTOU.** Two sends of the same item name from the same sender to the
 same recipient, submitted close together, can both clear it. Inherent to check-then-copy with no
-lock, and table-share has the same shape.
+lock, and table-share has the same shape. **— Superseded in part 2026-09-15: "close together"
+means before the first run's copy of that name lands, which on a large send is up to the
+three-hour ceiling, because the group id orders only the starts; and the second run then
+overwrites what the first delivered, a file the recipient edited in between included. The repair
+is decided: [the group id entry](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).**
 
 ## The transfer caps are three, and each is measured against a different budget (SPEC-166)
 

@@ -675,7 +675,10 @@ user is already in.
 against a table that already exists — the two expensive verbs, one of which carries the 240 MB polars layer. So the arc
 extends the **existing** table-builder plane: same FIFO queue, same Pipe, same Step Function, same shared execution role,
 with a `mode: "create" | "refresh"` field on the envelope and a `Choice` around a shared spine. `MessageGroupId` stays the
-target database, so a refresh and a build on the same database serialize against each other for free.
+target database, so a refresh and a build on the same database serialize against each other for free
+**— superseded 2026-09-15: they are started in order and then overlap, as the note below this arc's
+build records for 144; `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the
+runs* —**.
 
 **Eligibility turns on shape, not on a marker.** A refresh must faithfully rebuild a table it did not create in this run, so
 `load-table-definition` refuses a view, a managed table, and a catalog-partitioned table whose partition metadata it would
@@ -1095,7 +1098,8 @@ Distributed-Map transfer and the terminals; **167** the UI and the notifications
 Three decisions are settled up front. **The destination is an inbox namespaced by sender** —
 `{target}/shared_files/{sender}/{item}` — mirroring `shared_tables/{table}/`, so two senders never
 collide and provenance is visible in the file browser without a metadata lookup. **A send is a push
-and never an overwrite**: no consent step (table share's recorded precedent), and a non-empty
+and never an overwrite** (**— by design; two overlapping sends still can, until the repair
+`docs/decisions/control-planes.md` records, 2026-09-15 —**): no consent step (table share's recorded precedent), and a non-empty
 destination is a per-recipient `conflict` that names the colliding item. And **the recipient field
 is the field we already built** — SPEC-147's combobox with SPEC-158's prop-supplied source,
 usernames from the directory and spaces from the user's own connections cache, which is precisely

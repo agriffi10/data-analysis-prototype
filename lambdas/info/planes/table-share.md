@@ -19,7 +19,10 @@ Distributed Map** over a `(recipient × object)` JSONL manifest, with batched co
 One recipient's failure never aborts its siblings — the guard by its per-item `Catch`, the copy by
 attribution after the fact. A conflict (the name exists, or the target prefix is non-empty) fails
 **that recipient only**, and nothing is overwritten. FIFO `MessageGroupId` is the source
-`database.table`, so a heavy copy never overlaps itself.
+`database.table`, which orders the starts and not the runs: the Pipe is `FIRE_AND_FORGET`, so a
+heavy copy can overlap itself, and a second same-name share guarded before the first lands clears
+the guard beside it and re-copies the same keys unconditionally — the conflict guard narrows that
+race and does not close it (`docs/decisions/control-planes.md`).
 
 ## What it accepts
 

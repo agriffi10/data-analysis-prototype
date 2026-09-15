@@ -78,6 +78,8 @@ One field selects the branch. It is optional so that every shipped producer keep
 - [ ] `validate-authorize` emits `mode` on its output payload, normalised to the literal string (never `None`), so the `Choice` state never evaluates a missing field.
 - [ ] `MessageGroupId` remains `space.database` and `MessageDeduplicationId` remains `requestId` for both modes — a refresh and a create against the same database serialize against each other, which is what makes a refresh safe to fire while a build is in flight.
 
+  > **SUPERSEDED 2026-09-15.** They are started in order and then overlap, because the Pipe is `FIRE_AND_FORGET`. A refresh is safe beside a build because it needs the table to exist and refuses otherwise, and refreshes of one table are serialized by their own lock — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+
 ### FR-002: Refresh requests carry no partition keys, and their prefix is still authorized
 
 #### Description

@@ -6,9 +6,10 @@ whatsoever. A recent-checks page would return runs in effectively random order, 
 properly would mean fetching every report in the space on every page load. The index makes the
 whole dashboard one read.
 
-The write is a compare-and-swap because checks of different locations run in parallel — the
-request queue serialises only same-location checks — so two report assemblies can
-read-modify-write this object at once and one would silently lose the other's run.
+The write is a compare-and-swap because any two checks in one space can run at once — checks of
+different locations are grouped apart, and checks of one location are only started in order, since
+the Pipe starts the machine fire-and-forget — so two report assemblies can read-modify-write this
+object at once and one would silently lose the other's run.
 
 The loop is ``cpcommon.cas``'s. It used to be duplicated here — the equivalent primitive lived in
 a Lambda layer these functions did not attach, so it was copied and labelled "a deliberate twin,

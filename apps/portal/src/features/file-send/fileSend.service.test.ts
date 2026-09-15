@@ -14,8 +14,8 @@ vi.mock('../../lib/apiClient', async (importOriginal) => ({
  * The file-send enqueue, now over the API.
  *
  * **The FIFO keys are deliberately absent from this file.** The group id — the digest of
- * `{sourceBucket}/{spaceRoot}`, which is what made two sends out of one space serialize and two
- * different spaces run in parallel — and the dedup id, which is the request id and this plane's
+ * `{sourceBucket}/{spaceRoot}`, which orders the starts of two sends out of one space and lets
+ * two different spaces run in parallel — and the dedup id, which is the request id and this plane's
  * only double-submit guard, are computed server-side now and replayed against vectors captured
  * from this service in `lambdas/api/test_fifo_derivations.py`, for a personal and a shared source
  * alike. So is the flat top-level token the shared DLQ drain reads and redacts.

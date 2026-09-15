@@ -49,13 +49,19 @@ statement — `Policy input list item 1 has invalid content`, verified with `sim
 
 ## `MessageGroupId` is the source `database.table`, and content dedup is OFF
 
-Repeated shares of the **same** source serialize strictly one-at-a-time, so a heavy copy never
-overlaps itself; shares of different sources run in parallel.
+Repeated shares of the **same** source are **started** in order; shares of different sources start
+independently. ⚠ **They are not serialized, and a heavy copy can overlap itself.** The Pipe starts
+the machine `FIRE_AND_FORGET`, so a second share of one source to one recipient under one name,
+guarded before the first has created the table or landed an object, clears `check-target-absent`
+beside it: both copy the same keys unconditionally, the second `IF NOT EXISTS` is a no-op, and both
+report success. `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*,
+has what that costs and the decided repair.
 
-**`content_based_deduplication` is off here, unlike the table-builder queue.** The producer sends an
-explicit `MessageDeduplicationId = requestId` as the double-submit guard, and **two byte-identical
-share requests a user genuinely repeats** — a re-share after deleting the copy — **must not be
-silently absorbed** by a 5-minute content-dedup window.
+**`content_based_deduplication` is off here, unlike the table-builder queue.** The API sends an
+explicit `MessageDeduplicationId` as the double-submit guard — this plane has no request id, so it is
+a digest of the verified actor, the source, the result name, the recipients and a 60-second window —
+and **two byte-identical share requests a user genuinely repeats** — a re-share after deleting the
+copy — **must not be silently absorbed** by a 5-minute content-dedup window.
 
 ## Two sizing numbers, and both are computed
 

@@ -198,6 +198,9 @@ the creator can query `database/{name}` and read/write `dat-prod-shared-space/{n
   `awsCredentials`. New dep `@aws-sdk/client-sqs`; new `VITE_SHARED_SPACE_QUEUE_URL`.
 - **FIFO send:** constant `MessageGroupId = "shared-space"` (serial intake, SPEC-050)
   + `MessageDeduplicationId = requestId`.
+
+  > **SUPERSEDED 2026-09-15.** The constant group orders the starts only; the runs overlap —
+  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
 - **Optimistic pending is LOCAL/in-memory** (FR-003) — the browser never writes the
   cache. The pipeline writes the per-user cache (active/failed); SPEC-052 reads it.
 - **DATA_LOCATION_ACCESS = a single Terraform grant** on the whole registered shared

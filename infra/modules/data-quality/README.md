@@ -105,8 +105,12 @@ container arc, nothing but a live invoke would have.
 
 ## `MessageGroupId` is a hash, and content dedup is OFF
 
-The SHA-256 hex digest of the canonical target location, so two checks of the **same** location
-serialize while different locations run in parallel. **The digest rather than the raw location is
+The SHA-256 hex digest of the canonical target location, so two checks of the **same** location are
+**started** in order while different locations start independently. They are not serialized — the
+Pipe starts the machine `FIRE_AND_FORGET`, so two same-location checks run at once — and nothing
+needs them to be: every per-run key is derived from the request id, and the runs index is written
+under ETag CAS (`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*).
+**The digest rather than the raw location is
 deliberate: SQS caps `MessageGroupId` at 128 characters and S3 keys reach 1024**, so a raw location
 would be rejected outright. The other producers get away with raw ids only because they group by a
 bounded catalog identifier.

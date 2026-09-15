@@ -61,6 +61,8 @@ One envelope, minted in the browser, carrying everything the pipeline needs and 
 - [ ] `MessageGroupId` is **never** the raw location. A test constructs a location whose raw form is **over 128 characters**, asserts the resulting group id is exactly 64 characters, and asserts the send succeeds.
 - [ ] A rationale comment records the failure this prevents: SQS's 128-character `MessageGroupId` cap versus S3's 1024-character keys, failing the send in the browser.
 - [ ] Two checks of the **same** location produce the **same** group id (they serialize); two different locations produce different group ids (they run in parallel). Both asserted.
+
+  > **SUPERSEDED 2026-09-15.** One group id orders the starts, not the runs: the Pipe is `FIRE_AND_FORGET`, so two same-location checks run at once, harmlessly, since every per-run key is the request id — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*. The "same-location-serializes case" below tests the same group id and nothing more.
 - [ ] `MessageDeduplicationId` = `requestId`.
 - [ ] The service returns a `ServiceResult<T>` and never throws, per CLAUDE.md's service convention.
 

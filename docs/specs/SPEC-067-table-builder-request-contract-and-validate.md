@@ -18,7 +18,7 @@ Define how a create-table request is expressed and prove the first, security-cri
 browser, using its existing scoped credentials, enqueues a **request envelope** describing the target space
 (bucket + prefix + the Glue database the space maps to), the desired table name, and the caller's Cognito **ID
 token** — onto the SPEC-066 FIFO queue with **`MessageGroupId` = the target database** (so same-DB requests
-serialize). The pipeline's first Lambda, **`validate-authorize`**, verifies the token offline against the User
+serialize **— superseded 2026-09-15: are started in order, and then overlap; `docs/decisions/control-planes.md` —**). The pipeline's first Lambda, **`validate-authorize`**, verifies the token offline against the User
 Pool JWKS and derives the **actor** server-side (never trusting a body username), then **authorizes** the
 request: for a **personal** target the DB must be the actor's own username; for a **shared** target the actor
 must be an **active member** per the shared-spaces registry (SPEC-056). It also validates that the table name is
@@ -85,7 +85,7 @@ validated, normalized request for the next steps.
 - [ ] The queue accepts a JSON body matching the **Data Model** envelope: `idToken`, `space` (`kind` ∈
   `personal|shared`, `bucket`, `prefix`, `database`), `tableName`, an optional **`partitionKeys`** array
   (user-declared; empty/absent = flat), and an optional client `requestId`.
-- [ ] Every message is sent with **`MessageGroupId` = `space.database`** (per-DB serialization, FR rationale in
+- [ ] Every message is sent with **`MessageGroupId` = `space.database`** (per-DB serialization **— superseded 2026-09-15: per-DB ordered starts —**, FR rationale in
   `table-builder-architecture.md` §2) and a `MessageDeduplicationId` (e.g. `requestId`) so a double-submit is
   collapsed by FIFO.
 - [ ] A message failing schema validation (missing/garbled fields) is a **terminal** failure (logged → recorded;
