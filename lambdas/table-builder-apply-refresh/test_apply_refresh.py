@@ -25,7 +25,9 @@ import datetime
 import pathlib
 
 import apply_refresh as m
+import pytest
 from cpcommon import clients, config
+from cpcommon.errors import TerminalError
 
 BUCKET = "dat-prod-user-space"
 LAMBDAS = pathlib.Path(__file__).resolve().parent.parent
@@ -246,6 +248,57 @@ def test_column_names_are_lowercased_like_the_create_path():
     m.handler(_event(columns=columns), None)
 
     assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
+
+
+def test_columns_differing_only_by_case_are_refused_before_the_update():
+    """Refuses a header whose names fold together, before Glue is asked to write anything.
+
+    The fold turns ``Amount`` and ``amount`` into one column name. An update does not reject
+    duplicate names the way Athena's ``CREATE`` does, and the read-back compares name sets, so
+    both spellings collapse on each side and a missing refusal would report success while the
+    table silently lost a column. The header also adds ``notes`` because a collision alone folds
+    back to the live columns, so diff-schema reports the table unchanged and this verb never
+    runs. The verb's other ``update_failed`` refusals come from the update call or the read-back
+    after it, so an untouched ``update_table`` and a detail naming the column are what pin this
+    one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [
+            {"Name": "amount", "Type": "string"},
+            {"Name": "region", "Type": "string"},
+        ],
+    }
+    glue, _sqs = _install(table=_live_table(StorageDescriptor=storage))
+    columns = [
+        {"name": "Amount", "type": "string"},
+        {"name": "region", "type": "string"},
+        {"name": "amount", "type": "string"},
+        {"name": "notes", "type": "string"},
+    ]
+    diff = {
+        "changed": True,
+        "added": [{"name": "notes", "type": "string"}],
+        "removed": [],
+        "retyped": [],
+        "unchanged": 2,
+    }
+
+    with pytest.raises(TerminalError) as raised:
+        m.handler(_event(columns=columns, diff=diff), None)
+
+    assert raised.value.reason == "update_failed"
+    assert "amount" in raised.value.detail, raised.value.detail
+    assert glue.update_calls == [], "the colliding definition was sent to Glue"
 
 
 def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():
