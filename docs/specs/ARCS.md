@@ -1603,6 +1603,12 @@ at a time from their laptop; closing it leaves the operation half-done with no r
 started. Six planes already exist for exactly this shape of work. This arc builds the **seventh**,
 and it is the plane whose absence is felt every day rather than one enabling a new feature.
 
+> **Superseded in part by SPEC-198 (2026-08-29):** `copyFolder`, `moveFolder` and `deleteFolder` — and
+> `deleteObjects` with them — are gone from the browser, deleted rather than ported. A folder copy,
+> move or delete runs only on this plane; with `asyncFileOperations` off the control refuses it
+> rather than falling back to the browser. Full entry: `docs/decisions/storage.md` → *The
+> folder-recursive functions are deleted, not ported, and the flag stops being a fallback*.
+
 **The arc has a second motive, and it is the reason it comes first.** The next arc moves every AWS
 SDK call out of the browser and behind an API. That API must be *thin* — tokens and service calls,
 no data operations inside it — or the one operation whose cost grows with object count lands in a

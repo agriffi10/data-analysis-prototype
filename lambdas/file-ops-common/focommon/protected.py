@@ -259,9 +259,9 @@ def marker_refusal(key: str) -> Refusal | None:
     under the copy prefix.
 
     **This is about a SELECTED item only.** A marker discovered inside a folder being expanded is
-    excluded from the plan rather than refused — the browser partitions the root marker out as a
-    per-key error and deletes everything else, and ``saved_queries/`` ships its own marker, so
-    failing a whole folder delete on a nested one would be a regression the browser never had.
+    excluded from the plan rather than refused — ``saved_queries/`` ships its own marker, and
+    failing a whole folder delete on a nested one would refuse everything in the folder for the
+    sake of the one file nobody can remove.
 
     Args:
       key: The selected item's key, absolute.
