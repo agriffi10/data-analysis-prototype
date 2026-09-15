@@ -27,9 +27,6 @@ export function contentBottomOf(box: Element | null): number | undefined {
   return box.getBoundingClientRect().top + box.clientTop + box.clientHeight;
 }
 
-/** The fewest px a capped menu is given: two items, so even a cramped grid shows something to scroll. */
-export const MENU_MIN_HEIGHT_PX = 80;
-
 /**
  * How tall a column header's menu may be before its items scroll. The grid is bounded to the
  * viewport and scrolls in its own box, which clips anything positioned inside it — a menu reaching
@@ -45,8 +42,10 @@ export const MENU_MIN_HEIGHT_PX = 80;
  */
 export function menuMaxHeightFor(triggerBottom: number, contentBottom: number | undefined): number | undefined {
   if (contentBottom === undefined) return undefined;
-  // A little short of the edge, which also covers the gap the popover keeps below its button.
-  return Math.max(MENU_MIN_HEIGHT_PX, Math.floor(contentBottom - triggerBottom - 8));
+  // A little short of the edge, which also covers the gap the popover keeps below its button. No
+  // floor: any floor pushes the popover past the edge by the amount it adds, and in a very short
+  // box that hid the last items for good — measured in a real browser at 1366×650.
+  return Math.max(0, Math.floor(contentBottom - triggerBottom - 8));
 }
 
 /**
