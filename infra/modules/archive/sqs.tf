@@ -1,16 +1,17 @@
 # ── Request Queue + DLQ ────────────────────────────────────
 # An ARCHIVE keys on the SHA-256 of "{bucket}/{sourceSpaceRoot}" — a HASH, never the raw path.
-# THAT SERIALISATION IS WANTED, not merely tolerated: two archives from one space may select
-# overlapping folders, and an archive DELETES its source, so two at once could have one
-# deleting objects the other is still copying.
+# A RESTORE keys on the archive root instead. The API derives that key when it enqueues, so no
+# caller chooses it; docs/testing/owed.md §2.2 spells it out for a hand-built request.
 #
-# A RESTORE KEYS ON THE ARCHIVE, NOT THE SPACE, or a double-submitted restore passes the
-# destination guard twice before either copy lands — the guard is a READ. The API derives that
-# key from the archive root when it enqueues, so no caller chooses it; docs/testing/owed.md §2.2
-# spells it out for a hand-built request.
+# ⚠ NEITHER KEY SERIALIZES EXECUTION. The Pipe starts the machine FIRE_AND_FORGET, so a group
+# orders the STARTS, and two archives from one space or two restores of one archive run at once.
+# The commit gate is what keeps overlapping archives safe. Overlapping restores are not safe: the
+# copy-back overwrites, so a second restore can land on a file the user edited after the first.
+# README.md says what each overlap does.
 #
 # content_based_deduplication is OFF; the explicit MessageDeduplicationId IS the archive's
-# permanent identity, so a resend cannot open a second archive under a second uuid.
+# permanent identity, so a resend cannot open a second archive under a second uuid. Past the
+# five-minute window it opens a second RUN under the same one, which the queue does not stop.
 #
 # Its OWN queue and its OWN DLQ, registered with the drain sweep. README.md.
 

@@ -144,7 +144,7 @@ def test_one_occupied_destination_refuses_the_whole_restore_and_notifies(_sink):
 
 
 def test_the_second_pass_after_the_retrieval_refuses_with_its_own_reason(_sink):
-    """**THE STATE THAT KEEPS SPEC-170'S GUARANTEE TRUE AT THE MOMENT OF THE WRITE.** SPEC-171
+    """**THE STATE THAT KEEPS SPEC-170'S GUARANTEE TRUE WHEN THE COPY-BACK STARTS.** SPEC-171
     puts three to five BILLED hours between this guard and the copy — during which the receipt
     tells the user a restore is in flight and they have every reason to be working in their own
     space. Re-creating a file in that window is not an exotic race; it is the ordinary case this

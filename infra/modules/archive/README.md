@@ -122,19 +122,40 @@ bucket.
 The multipart-abort rule carries no `expiration` and can only discard the **parts** of an upload that
 never completed, so **it cannot delete an object**.
 
-## Serialization is wanted here, not merely tolerated
+## ⚠ The group id orders the STARTS, not the runs
 
 `MessageGroupId` for an **archive** is the SHA-256 digest of `{bucket}/{sourceSpaceRoot}` — **a hash,
-never the raw path**, since SQS caps a group id at 128 characters and an S3 key reaches 1024.
+never the raw path**, since SQS caps a group id at 128 characters and an S3 key reaches 1024. **A
+restore keys on the ARCHIVE, not the space:** the SHA-256 of the archive root alone,
+`{kind}/{name}/archive/{archiveId}/`.
 
-**Two archives from one space may select overlapping folders, and an archive deletes its source — so
-two running at once could have one deleting objects the other is still copying.**
+**Neither key serializes execution.** The Pipe starts the machine `FIRE_AND_FORGET`, the only mode a
+Standard machine accepts, and the message leaves the queue once `StartExecution` returns — so the next
+message in the group starts a second run while the first is still going. What a group id buys is that
+the starts for one space, or for one archive, are made one at a time and in order, and that a failed
+start holds the next one back until its retries run out. File-ops holds a lock for exactly this, and
+its live check watched two runs in one group overlap on a Pipe identical to this one; **this plane has
+no lock**, so here is what overlap does.
 
-**A restore keys on the ARCHIVE, not the space:** the SHA-256 of the archive root alone,
-`{kind}/{name}/archive/{archiveId}/`, so
-two restores **of one archive** serialize while restores of different archives in the same space
-proceed in parallel. Without it **a double-submitted restore can pass the destination guard twice
-before either copy lands** — the guard is a read, and two of them see the same empty destinations.
+- **Two archives from one space may select overlapping folders, and an archive deletes its source.
+  The commit gate is what keeps that safe, not the queue.** Each run deletes only its own plan's keys,
+  only once every one is confirmed under its own archive id, and its rollback lists only that prefix.
+  An object both runs copy before either deletes is archived twice; an object one run deletes before
+  the other copies fails that copy, and the other run rolls back having deleted nothing.
+- **Two restores of one archive are not billed twice** — S3 answers the second `RestoreObject` with
+  `RestoreAlreadyInProgress`, which the verb tolerates, or bills it as a GET once the first has
+  finished. **But both pass the destination guard**, the first pass always, since nothing lands for
+  hours. A second pass that runs after the other restore has copied any file back refuses as
+  occupied, over files that are the restore itself. If both second passes run first, both copy back,
+  and the copy is an unconditional `CopyObject`: the run that finishes first deletes the vault copy,
+  and the other reports `restore_incomplete` over a restore that fully landed and points the user at
+  an archive that no longer exists. **A file the user edits after the first run restored it is
+  overwritten by the second run's copy** — silently, which is the loss the guard exists to prevent.
+- **One request id sent twice, past the five-minute dedup window, is the unrecoverable case.** The two
+  runs share one prefix, and a second run that fails its gate has its rollback delete the first
+  run's completed archive after the first has deleted the source. `assert_archive_unused` narrows
+  that and does not close it, and the queue does not close it either. The browser mints a fresh id per
+  submit, so reaching it takes a hand-built replay.
 
 > The restore's group id is derived server-side, by the API, since the queue moved behind it,
 > so the property the browser used to be trusted with is held where it is now computed.
@@ -146,7 +167,8 @@ before either copy lands** — the guard is a read, and two of them see the same
 `content_based_deduplication` is **off**: the producer sends an explicit
 `MessageDeduplicationId = requestId`, **and that id is also the archive's permanent identity**, which
 makes the two properties one — **a resend of the same request cannot open a second archive under a
-second uuid**.
+second uuid**. Inside the five-minute window a resend is absorbed outright; past it, it opens a second
+RUN under the same uuid, which is the last case above.
 
 Its own queue and its own DLQ, registered with the drain sweep, which names the feature by the DLQ a
 request lands on: a dead-lettered archive must never reach its user as a file send.

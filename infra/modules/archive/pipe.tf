@@ -1,6 +1,10 @@
 # ── EventBridge Pipe: request queue → Step Function ────────
 # Batch size 1. FIRE_AND_FORGET, and REQUEST_RESPONSE is IMPOSSIBLE for a Standard machine.
 #
+# ⚠ SO ORDERED DELIVERY DOES NOT SERIALIZE EXECUTION. The Pipe returns once StartExecution does,
+# and the next message in the group starts a second run while the first is still going. This
+# plane holds no lock; README.md says what overlap costs and why the archive arm survives it.
+#
 # At-least-once delivery gives no re-run: a redelivered message returns the original ARN or
 # fails with ExecutionAlreadyExists (measured 2026-08-10). RECOVERY IS THE DLQ DRAIN.
 # ../../info/control-plane-shape.md.

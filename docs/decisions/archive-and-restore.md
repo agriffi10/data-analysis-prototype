@@ -48,6 +48,7 @@ entry you need, not the file.**
 - [The write gate mirrors each bucket's own Deny, and averaging them gets one case wrong](#the-write-gate-mirrors-each-buckets-own-deny-and-averaging-them-gets-one-case-wrong)
 - [Only three outcomes needed a producer, and one of them had to be invented](#only-three-outcomes-needed-a-producer-and-one-of-them-had-to-be-invented)
 - [The restore's FIFO group id hashes the archive ROOT, not the bucket and the root](#the-restores-fifo-group-id-hashes-the-archive-root-not-the-bucket-and-the-root)
+- [The group id orders the STARTS, not the runs, and the restore guard is not absolute at the write](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
 
 ## Fences
 
@@ -55,7 +56,10 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
 3–5 hour wait + a copy.
 
 - **The restore guard is ABSOLUTE and runs before the bill:** any occupied destination refuses the
-  **whole** restore, and a **403 counts as occupied**.
+  **whole** restore, and a **403 counts as occupied**. **It is absolute at the CHECK, not yet at the
+  write:** the copy-back overwrites unconditionally for as long as its Map runs, and the FIFO group
+  orders only the STARTS, so two restores of one archive run at once. Conditional copy-back is the
+  decided repair.
 - **It runs TWICE**, and the second pass is the spec correcting itself: those billed hours are spent
   telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
   the copy-back would have overwritten it, reported success and swept the vault.
@@ -66,7 +70,8 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   them.**
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
   the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
-  unrecognisable verdict fails closed.
+  unrecognisable verdict fails closed. **It, not the queue, is what makes two overlapping archives of
+  one space safe** — the group id orders their starts and nothing else.
 
 ## The archive vault, and the four choices that shape the whole arc (SPEC-168)
 
@@ -611,7 +616,9 @@ reported **success**, and swept the vault.
 `ReCheckDestinationClear` invokes the same verb over the same plan immediately before the copy-back.
 It costs one round of heads (the guard's own 20,000-at-8 bound, ~250 s worst case) against a run
 that has already waited hours, and it is what makes "any occupied destination refuses the whole
-restore" true at the moment of the WRITE rather than only at the moment of the PROMISE.
+restore" true ~~at the moment of the WRITE~~ **— superseded 2026-09-15: when the copy-back STARTS,
+which is not every write ([the group id entry](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)) —**
+rather than only at the moment of the PROMISE.
 
 Two details are decisions rather than mechanics. **The refusal is worded differently**, because the
 two passes leave the user somewhere different: before the retrieval nothing has been spent, and
@@ -625,7 +632,11 @@ handler, and getting that wrong tells a user their retrieval is still warm when 
 It **narrows rather than closes**, as table-share's and file-send's guards do — two concurrent
 writers can still land a file between the second head and the copy. The difference in kind is what
 matters: seconds of overlap is a double-submit, and hours is the user acting on a message this plane
-sent them.
+sent them. **— Superseded 2026-09-15: the residual is not seconds.** The heads run once, before a
+copy-back Map that runs for as long as the archive copy it mirrors, so the window before a late
+object's write is most of that Map; and a second restore of the same archive runs beside this one,
+because the FIFO group orders only the starts. [The group id entry](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
+has both, and the repair.
 
 ## The retrieval Map tolerates NO failure, and the copy tolerates every one
 
@@ -917,8 +928,11 @@ queue, because the restore is enqueued through the API, which derives this group
 `test_archive_bucket_isolation.py` asserts that neither space's portal-role template names the
 archive bucket and that the browser's archive enqueue grant is retired.
 
-Including it would also buy nothing. The group id's one job here is that two restores of ONE archive
-serialize, and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168
+Including it would also buy nothing. The group id's one job here is ~~that two restores of ONE
+archive serialize~~ **— superseded 2026-09-15: that the restores of ONE archive share a group, which
+orders their starts and does not serialize them, since the Pipe starts executions
+`FIRE_AND_FORGET` ([the entry below](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)) —**
+and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168
 added precisely because nothing checks a space name against the User Pool — already makes it
 globally unique. The bucket is one constant across every restore this app can make.
 
@@ -927,3 +941,60 @@ archive_root`, and `docs/testing/e2e.md`'s hand-crafted command was corrected to
 match so the live check exercises the rule ~~the browser reproduces~~ **— superseded by SPEC-200:**
 the API reproduces (`apicommon.fifo`). A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.
+
+## The group id orders the STARTS, not the runs, and the restore guard is not absolute at the write
+
+Found 2026-09-15, auditing the module README's claim that two archives from one space, and two
+restores of one archive, serialize. Neither does, and the same audit found the guard's own residual
+understated.
+
+**The premise was false.** This plane's Pipe starts its Standard machine `FIRE_AND_FORGET`, as every
+plane's does — AWS allows a Standard workflow no other mode — and the message leaves the queue once
+`StartExecution` returns, after which the Pipe sends the group's next batch. A `MessageGroupId`
+therefore orders the starts, and a failed start holds the next one back until its retries run out;
+nothing stops a second run beginning while the first is still going. The table-builder refresh and
+file-ops each hold a lock for exactly this, and file-ops' live check watched two runs in one group
+overlap on a Pipe identical to this plane's. The archive specs gave serialization as the reason for
+both keys and this plane's prose carried it forward, while `arcommon.plan` already keyed each
+manifest by execution so that two overlapping executions of one request could not clobber each
+other.
+
+**What overlap does, arm by arm:**
+
+- **Two archives from one space, different ids: safe, and the commit gate is why.** Each run deletes
+  only its own plan's keys, only once every one is confirmed under its own `{uuid}` prefix, and its
+  rollback lists only that prefix. An overlapping object is either archived twice — two receipts,
+  two `GLACIER` copies at the 90-day minimum — or deleted by one run before the other copies it,
+  which fails the other's copy and rolls it back with nothing deleted. `DeleteObjects` reports a key
+  the other run already removed as deleted, so neither run fails on the other's work.
+- **One archive id twice, past the dedup window: unrecoverable, and already recorded.** [The reused-id
+  entry](#the-request-id-is-browser-supplied-so-a-reused-one-is-refused-twice-over) says
+  `request_id_reused` narrows it and does not close it. What it did not say is that the queue does
+  not close it either.
+- **Two restores of one archive: not billed twice, and not safe.** S3 answers the second
+  `RestoreObject` with `RestoreAlreadyInProgress` while the first is in flight, and bills it as a GET
+  once the first has finished, so the retrieval is spent once. Both runs pass the first guard, since
+  nothing lands for hours, and both see the retrieval finish within about one poll interval of each
+  other. A second pass that runs after the other run has copied a file back refuses as occupied, over
+  the restore's own files. If both second passes run before any copy lands, both copy back with an
+  unconditional `CopyObject`: the run that finishes first sweeps the vault, and the other reports
+  `restore_incomplete` over a restore that fully landed and rewrites the receipt to say the archive
+  is intact, when it is gone. A file the user edits after the first run restored it, and before the
+  second run's copy of it, is overwritten silently.
+
+**The guard's own residual was understated, with no overlap needed.** The second pass heads every
+destination once, before the copy-back Map, and the Map then runs for as long as the archive copy it
+mirrors. So the guard holds when the copy-back STARTS rather than at every write, and the residual
+the [guard-runs-twice entry](#the-destination-guard-runs-twice-because-this-spec-turned-a-guarantee-into-a-promise)
+called seconds is most of that Map for an object copied late in it: a file the user re-creates at a
+path not yet restored is overwritten by a single restore.
+
+**Decided 2026-09-15 (Andrew): repair it with conditional writes, not a lock.** `CopyObject` and
+`CompleteMultipartUpload` both take `If-None-Match: *` on the destination and answer `412` when the
+key exists, which would make the guard hold at every write, against the user and a second restore
+alike; and a create-only claim on the archive id would close the reused-id race that
+`assert_archive_unused` only narrows. A per-archive restore lock was weighed and not chosen: it stops
+the overlap and its misleading reports, but it brings acquire and release states and a staleness
+limit above the 12-hour ceiling, and it leaves the single-restore window open. The overlapping
+restore's duplicate and false-failure reports are the accepted cost. A follow-up spec carries the
+repair; until it lands, everything above is live.
