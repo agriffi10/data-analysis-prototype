@@ -491,7 +491,7 @@ What the follow-up spec should implement, per scanner.
 |---|---|---|
 | `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
 | `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
-| Semgrep | ~~`block` after excluding the Flask rule~~ **DONE 2026-08-09** | The one false positive is excluded by rule ID (`--exclude-rule`) on the Lambdas scan, and `GATE_SEMGREP` is `block`. The ruleset is otherwise unnarrowed — dropping `p/owasp-top-ten` to silence one rule would have dropped everything else it brings. A test asserts there is exactly **one** exclusion, so a second needs its own disposition here. |
+| Semgrep | ~~`block` after excluding the Flask rule~~ **DONE 2026-08-09** | The one false positive is excluded by rule ID (`--exclude-rule`) on the Lambdas scan, and `GATE_SEMGREP` is `block`. The ruleset is otherwise unnarrowed — dropping `p/owasp-top-ten` to silence one rule would have dropped everything else it brings. `test_semgrep_excludes_exactly_the_flask_rule` asserts it is the **only** `--exclude-rule` in any workflow, so a second is a deliberate edit to that test and needs its own disposition here. |
 | `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the accepted `dompurify` advisories — four of them as of 2026-08-30, which `.metadata.vulnerabilities.total` (the number the gate is actually fed) collapses to **2**. The two counts are easy to conflate; the gate reads the collapsed one. It becomes available when dompurify clears, which needs **monaco** to move: monaco vendors its own copy, so no override of the npm package clears the shipped code even though it would clear the gate. Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | ~~`block` only on an explicit allow-list of check IDs~~ **DONE 2026-08-09** | Implemented as an **enforce list**, `.github/checkov-enforced.txt` — 52 check IDs, every one measured at **zero failures** (checkov 3.3.9, 508 passed / 373 failed overall). `GATE_CHECKOV` is `block` and reads that narrowed count; the other 373 are still published and still do not block. The criterion is deliberately "passes today", not "matters most": picking the five that matter is an argument to re-litigate on every infra change, and holding everything already clean costs nothing to turn on. An enforced ID that gets evaluated against **nothing** is a hard error — a typo or a renamed check must not read as enforcement. |
@@ -735,8 +735,9 @@ and **Checkov**, and `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. What eac
 
 `--exclude-rule=python.flask.security.audit.directly-returned-format-string.directly-returned-format-string` on the Lambdas scan.
 That was the entire finding set. The ruleset is otherwise unnarrowed, because dropping
-`p/owasp-top-ten` to silence one rule would drop everything else it brings. A test asserts there is
-**exactly one** exclusion, so a second one cannot be added without landing a disposition here.
+`p/owasp-top-ten` to silence one rule would drop everything else it brings.
+`test_semgrep_excludes_exactly_the_flask_rule` asserts it is the **only** `--exclude-rule` in any
+workflow, so a second one is a deliberate edit to that test and needs its own disposition here.
 
 ## Checkov (`.tf`) — an enforce list, not a suppression list
 

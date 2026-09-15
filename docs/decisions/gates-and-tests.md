@@ -111,8 +111,9 @@ SPEC-138 shipped every scanner as `report` and `docs/security-baseline.md` propo
 each. Four now block: `gitleaks` and `pip-audit` at a true zero (2026-08-02), and **Semgrep** and
 **Checkov** here, plus `GATE_CHECKOV_PLAN` on the rendered-plan IAM scan. Semgrep needed one thing —
 `--exclude-rule` for a Flask template-injection rule in a fleet with no Flask, excluded **by rule ID**
-rather than by dropping `p/owasp-top-ten`, with a test asserting there is exactly one exclusion so a
-second cannot arrive without a disposition. Checkov needed a shape.
+rather than by dropping `p/owasp-top-ten`, with `test_semgrep_excludes_exactly_the_flask_rule`
+asserting it is the only `--exclude-rule` in any workflow, so a second cannot arrive without an
+edit to that test, whose failure asks for the disposition. Checkov needed a shape.
 
 **The shape is an ENFORCE list, not a suppression list.** Checkov reports 373 failures over 22 rules
 on `infra/`, nearly all of them documented accepts — no VPC, no CMK, no X-Ray, no WAF. Gating that
