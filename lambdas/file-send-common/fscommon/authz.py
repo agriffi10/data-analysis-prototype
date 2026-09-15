@@ -116,8 +116,8 @@ def assert_not_results_folder(root: str, key: str) -> str:
     The refusal is anchored at the SPACE ROOT — every location the results folder may occupy,
     which since the move is ``{root}system_settings/athenaresults/`` alone — leaving both
     ``alice/reports/athenaresults/`` and the depth-one ``alice/athenaresults/`` the folder left an
-    ordinary folder the user made and may send, the same anchoring ``isUndeletableRootFolder``
-    uses in the browser.
+    ordinary folder the user made and may send, the same anchoring
+    ``undeletableRootFolderRefusal`` uses in the browser.
 
     **The direct arms run over every home before the ancestor arm runs over any**, rather than
     both arms per home. It changes which sentence a caller reads: selecting ``{root}system_settings/``

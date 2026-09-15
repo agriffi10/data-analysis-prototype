@@ -849,7 +849,7 @@ folder names without opening anything at all.
 `isWriteLockedPrefix` is the app's first rule about the prefix the user is STANDING in, as opposed
 to a rule about a folder's name. It exists because IAM already denies writes beneath `archive/`, and
 without a browser counterpart every attempt produces a bare `AccessDenied` for a rule this
-application authored — the situation `isUndeletableRootFolder` exists to prevent for
+application authored — the situation `undeletableRootFolderRefusal` exists to prevent for
 `athenaresults/`.
 
 **The two space buckets are denied differently**, and that asymmetry is structural rather than an

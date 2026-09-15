@@ -121,7 +121,7 @@ way — but with abort left out, a half-started upload **cannot be tidied**, and
 billed and invisible to every listing until the bucket's abort rule catches them.
 
 **The UI mirrors this.** An IAM Deny with no UI counterpart produces a bare `AccessDenied` for a rule
-this application itself authored — exactly what `isUndeletableRootFolder` exists to prevent for
+this application itself authored — exactly what `undeletableRootFolderRefusal` exists to prevent for
 `athenaresults/`. Nothing gated Upload or New folder on the current *prefix*, so the browser carries
 the app's first prefix-based write gate for it.
 

@@ -1236,6 +1236,16 @@ lists (visible / pasteable / destroyable) and this folder answers **yes / yes / 
 the top of that file already argues against unioning them, and this is the second case that proves
 it.
 
+> **Superseded in part by SPEC-198 (2026-08-29):** `moveFolder` is gone from the browser. A folder
+> move or rename runs on the file-operations plane, whose own `UNDELETABLE_ROOT_FOLDERS` refuses
+> `saved_queries/` as a move source. The browser states the refusal first, through
+> `undeletableRootFolderRefusal(folderPrefix, rootPrefix, 'move')` — which SPEC-173's build put in
+> place of `isUndeletableRootFolder`, since deleted — and `undeletableSelectionRefusal` for a
+> selection made only of protected folders. Rename is still a move, so one refusal still covers both.
+> Full entry:
+> `docs/decisions/storage.md` → *The folder-recursive functions are deleted, not ported, and the
+> flag stops being a fallback*.
+
 **What keeps the load list coherent is a filter, not a write lock.** Because anyone may drop a CSV
 or a subfolder into `saved_queries/`, the store offers *top-level `.sql` files and nothing else* —
 that filter is a requirement with tests, not a precaution, and the `Delimiter: '/'` is load-bearing
