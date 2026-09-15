@@ -62,12 +62,22 @@ Attributes:
   ON_TRUNK: The comparison statuses that place a commit on the trunk — its tip, or behind it.
   OFF_TRUNK: The statuses that place a commit off it. Both sets are allowlists, so a status
     GitHub adds is no verdict rather than a guess at which runs count.
+  FULL_SHA: What a pinned ``--sha`` must be. The run list matches a full sha and nothing
+    shorter, while the comparison resolves a short one, so a short sha on the trunk was
+    watched, found no push runs, and was reported as a push that triggered nothing — the
+    answer a session is told to escalate. It is refused rather than expanded because
+    ``--sha`` is the one selector that pins a commit instead of resolving one, and both ways
+    to expand it fall short: local git cannot see a commit this clone has not fetched, and
+    GitHub's commit lookup answers an ambiguous prefix with the same "No commit found" as an
+    unknown one. An empty ``--sha`` is refused too, where it once fell through to local HEAD
+    and judged a commit nobody named.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -86,6 +96,7 @@ TRUNK = "main"
 TRUNK_EVENT = "push"
 ON_TRUNK = frozenset({"identical", "behind"})
 OFF_TRUNK = frozenset({"ahead", "diverged"})
+FULL_SHA = re.compile(r"[0-9a-fA-F]{40}")
 
 
 class WatchError(Exception):
@@ -408,7 +419,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--pr", type=int, help="watch this pull request's head commit")
     parser.add_argument("--branch", help="watch this branch's remote tip")
-    parser.add_argument("--sha", help="watch this commit explicitly")
+    parser.add_argument("--sha", help="watch this commit explicitly, by its full 40-character sha")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument("--once", action="store_true", help="one poll, no waiting")
@@ -416,6 +427,12 @@ def main() -> int:
     try:
         if args.sha and (args.pr is not None or args.branch is not None):
             raise WatchError("--sha pins a commit; --pr and --branch resolve one. Pass one of the three")
+        if args.sha is not None and not FULL_SHA.fullmatch(args.sha):
+            raise WatchError(
+                f"--sha takes a full 40-character commit sha, and {args.sha!r} is not one — the "
+                "run list matches a full sha only. `git rev-parse --verify <sha>` prints the full "
+                "one, once this clone has the commit"
+            )
         sha = args.sha or resolve_sha(args.pr, args.branch)
         event = build_event(sha, args.pr)
         return watch(sha, args.interval, args.timeout, args.once, args.pr, args.branch, event)

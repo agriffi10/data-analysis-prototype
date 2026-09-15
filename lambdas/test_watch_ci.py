@@ -309,6 +309,8 @@ class Case(NamedTuple):
         judging anything.
       compare: A comparison status to answer instead of the fixture's, or ``fails`` for a
         comparison GitHub does not answer.
+      offline: The watch must refuse before its first read of GitHub, so no query carries the
+        input it refused.
     """
 
     name: str
@@ -318,6 +320,34 @@ class Case(NamedTuple):
     exit: int
     scope: str | None
     compare: str | None = None
+    offline: bool = False
+
+
+def refused(name: str, sha: str) -> Case:
+    """Build a case where ``--sha`` is not a full sha, beside ``main``'s green push runs.
+
+    The runs are there so that anything but the refusal has something to judge: a watch that
+    reached GitHub with the full sha would print green, and with anything else, no verdict.
+
+    Args:
+      name: The case's name.
+      sha: What ``--sha`` is given.
+
+    Returns:
+      A case that must print the refusal naming ``sha`` and ask GitHub nothing.
+
+    Raises:
+      None.
+    """
+    return Case(
+        name,
+        ("--sha", sha),
+        (dependabot(), *(pushed(deploy) for deploy in DEPLOYS)),
+        f"watch failed: --sha takes a full 40-character commit sha, and {sha!r} is not one",
+        2,
+        None,
+        offline=True,
+    )
 
 
 CASES: tuple[Case, ...] = (
@@ -456,6 +486,24 @@ CASES: tuple[Case, ...] = (
         None,
         compare="unrelated",
     ),
+    *(
+        refused(name, sha)
+        for name, sha in (
+            ("a_short_sha_is_refused_rather_than_read_as_a_push_that_triggered_nothing", TIP[:8]),
+            ("an_empty_sha_is_refused_rather_than_judging_local_head", ""),
+            ("a_padded_sha_is_refused_before_github_is_asked", TIP + " "),
+            ("a_sha_longer_than_forty_characters_is_refused", TIP + "a"),
+            ("forty_characters_that_are_not_hex_are_refused", "g" * 40),
+        )
+    ),
+    Case(
+        "an_uppercase_sha_is_judged_since_github_matches_it",
+        ("--sha", TIP.upper()),
+        tuple(pushed(name) for name in DEPLOYS),
+        f"green on {TIP.upper()}",
+        0,
+        PUSH_ONLY,
+    ),
 )
 
 
@@ -553,8 +601,13 @@ class FakeGitHub:
     def status(self, sha: str, args: tuple[str, ...]) -> str:
         """Compare a commit with ``main``, as ``compare/main...<sha>`` reports it.
 
+        A short sha is resolved to the one commit it begins, and an ambiguous or unknown one
+        is Not Found, as GitHub's comparison answers both — while the run list matches a full
+        sha only, which is the gap a short ``--sha`` fell through. Both reads ignore case, as
+        GitHub's do.
+
         Args:
-          sha: The commit compared.
+          sha: The commit compared, in full or as a prefix.
           args: The whole call, for the error GitHub's refusal carries.
 
         Returns:
@@ -568,9 +621,10 @@ class FakeGitHub:
         if self.case.compare is not None:
             return self.case.compare
         known = {TIP: "identical", OLDER: "behind", BRANCH: "diverged", AHEAD: "ahead"}
-        if sha not in known:
+        begun = [full for full in known if full.startswith(sha.lower())]
+        if len(begun) != 1:
             raise self.module.WatchError(f"gh {' '.join(args)} failed: Not Found (HTTP 404)")
-        return known[sha]
+        return known[begun[0]]
 
     def runs(self, query: dict[str, list[str]]) -> dict[str, Any]:
         """List one commit's runs as ``actions/runs`` does: filter, count, then page.
@@ -584,7 +638,7 @@ class FakeGitHub:
         Raises:
           None.
         """
-        sha = query["head_sha"][0]
+        sha = query["head_sha"][0].lower()
         event = query.get("event", [None])[0]
         kept = [
             r for r in self.case.runs if r["head_sha"] == sha and event in (None, r["event"])
@@ -642,8 +696,8 @@ def drive(
 
     Asserts the printed line, never the exit status alone: RED and no verdict differ by one
     exit code, and "watch failed" and "the watch itself broke" by none. A case also fails if a
-    verdict other than its own was printed beside it, or if the first line misstates which runs
-    were judged.
+    verdict other than its own was printed beside it, if the first line misstates which runs
+    were judged, or if a case that must refuse offline asked GitHub anything.
 
     Args:
       module: The watcher, original or planted.
@@ -666,8 +720,12 @@ def drive(
     code = module.main()
     printed = capsys.readouterr()
     said = printed.out + printed.err
-    if fake.unfaked or not fake.reads:
-        return f"the fake answered {len(fake.reads)} reads and refused {fake.unfaked}"
+    if fake.unfaked or bool(fake.reads) == case.offline:
+        wanted = "none" if case.offline else "some"
+        return (
+            f"the fake answered {len(fake.reads)} reads, wanted {wanted}, and refused "
+            f"{fake.unfaked}: {said!r}"
+        )
     if code != case.exit:
         return f"exit {code}, wanted {case.exit}: {said!r}"
     if case.said not in said:
@@ -745,6 +803,7 @@ PLANTS: tuple[Plant, ...] = (
             "only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",
             "a_burst_of_dependabot_jobs_cannot_push_main_past_one_page",
             "more_push_runs_than_one_page_is_no_verdict",
+            "an_uppercase_sha_is_judged_since_github_matches_it",
         ),
     ),
     Plant(
@@ -812,6 +871,18 @@ PLANTS: tuple[Plant, ...] = (
         '— {cause}")\n            return 2',
         '— {cause}")\n            return 0',
         ("only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",),
+    ),
+    Plant(
+        "a_pinned_sha_must_be_a_full_one",
+        "        if args.sha is not None and not FULL_SHA.fullmatch(args.sha):\n",
+        "        if False:\n",
+        (
+            "a_short_sha_is_refused_rather_than_read_as_a_push_that_triggered_nothing",
+            "an_empty_sha_is_refused_rather_than_judging_local_head",
+            "a_padded_sha_is_refused_before_github_is_asked",
+            "a_sha_longer_than_forty_characters_is_refused",
+            "forty_characters_that_are_not_hex_are_refused",
+        ),
     ),
 )
 
