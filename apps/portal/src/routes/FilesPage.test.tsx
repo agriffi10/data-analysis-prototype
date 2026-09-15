@@ -1,5 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
+import type {UserEvent} from '@testing-library/user-event';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated} from '../test/authFixtures';
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../features/file-browser';
@@ -88,6 +89,21 @@ function rootCrumb() {
   return within(screen.getByRole('navigation', {name: 'breadcrumb'}));
 }
 
+/** Drives New folder from the page as seeded and returns the key the write lands at — a listing at
+ *  the root would not show where a folder went. */
+async function newFolderKey(user: UserEvent, name: string): Promise<string> {
+  const createFolder = vi
+    .mocked(fileService.createFolder)
+    .mockImplementation(async (params) => ok({prefix: `${params.prefix}${params.name}/`}));
+  await user.click(await screen.findByRole('button', {name: 'New folder'}));
+  const dialog = await screen.findByRole('dialog');
+  await user.type(within(dialog).getByRole('textbox'), name);
+  await user.click(within(dialog).getByRole('button', {name: /create/i}));
+  await waitFor(() => expect(createFolder).toHaveBeenCalledOnce());
+  const [{prefix, name: written}] = createFolder.mock.calls[0];
+  return `${prefix}${written}/`;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   window.innerWidth = 1024;
@@ -123,17 +139,19 @@ describe('FilesPage — personal space (SPEC-013/044)', () => {
   it('ignores a ?prefix= that stops mid-name, so New folder cannot finish the name it started', async () => {
     // The folder-name check reads the parent's last segment, and a folder's key is parent + name +
     // `/`. Seeded at `…/athena`, `results` passed the check and wrote the app's own results folder.
-    // Asserted on the key the write lands at: a listing at the root would not show where it went.
-    const createFolder = vi.mocked(fileService.createFolder).mockResolvedValue(ok({prefix: 'alice/results/'}));
     const {user} = renderAt('/files?prefix=alice%2Fsystem_settings%2Fathena');
-    await user.click(await screen.findByRole('button', {name: 'New folder'}));
-    const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByRole('textbox'), 'results');
-    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+    expect(await newFolderKey(user, 'results')).toBe('alice/results/');
+  });
 
-    await waitFor(() => expect(createFolder).toHaveBeenCalledOnce());
-    const [{prefix, name}] = createFolder.mock.calls[0];
-    expect(`${prefix}${name}/`).toBe('alice/results/');
+  it.each([
+    ['an empty segment', 'alice//docs/'],
+    ['a . segment', 'alice/./docs/'],
+    ['a .. segment', 'alice/../bob/']
+  ])('ignores a ?prefix= with %s, so New folder writes at the root', async (_shape, seeded) => {
+    // S3 resolves neither: `alice//docs/` is a look-alike the breadcrumbs render as `alice/docs/`,
+    // and a dot segment names a folder the API refuses every write into.
+    const {user} = renderAt(`/files?prefix=${encodeURIComponent(seeded)}`);
+    expect(await newFolderKey(user, 'notes')).toBe('alice/notes/');
   });
 });
 
@@ -157,6 +175,23 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
         expect.any(AbortSignal)
       )
     );
+  });
+
+  it('holds the browser back while a ?space= deep link resolves, so nothing opens in the personal bucket first', async () => {
+    // Resolved personal-first while the spaces loaded, the page mounted a writable browser on the
+    // user's own bucket and swapped it out afterwards; an upload started in between stayed there.
+    let resolveCache: (result: Awaited<ReturnType<typeof readSharedConnectionsCache>>) => void = () => {};
+    mockReadCache.mockReturnValue(new Promise((resolve) => (resolveCache = resolve)));
+    renderAt('/files?space=marketing_data&prefix=marketing_data%2Fr%2F');
+
+    expect(await screen.findByText('Loading files…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    resolveCache(ok(cache));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('shared-bucket', 'marketing_data/r/', undefined, expect.any(AbortSignal))
+    );
+    expect(listFiles.mock.calls.map(([bucket]) => bucket)).not.toContain('user-bucket');
   });
 
   it('falls back to the personal space with a notice for a ?space= that is gone or not yet usable', async () => {
