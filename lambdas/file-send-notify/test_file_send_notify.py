@@ -100,11 +100,12 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     """The link is minted in Python by ``fscommon.notify.received_files_link`` and honoured by
     TypeScript, and nothing else offline connects the two languages.
 
-    ``FilesPage`` keeps a ``?prefix=`` only when it starts with the resolved space's ``rootPrefix``
-    and ends in ``/``; any other prefix is discarded and the recipient lands at their space root, a
-    link that looks as if it worked. The route's path, its ``?prefix=`` and ``?space=`` parameters,
-    its whole gate, what ``rootPrefix`` is, the literal ``NotificationRow`` gates a space link on,
-    and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated: pinning
+    ``FilesPage`` keeps a ``?prefix=`` only when it starts with the resolved space's ``rootPrefix``,
+    ends in ``/`` and has no segment that is empty, ``.`` or ``..``; any other prefix is discarded
+    and the recipient lands at their space root, a link that looks as if it worked. The route's
+    path, its ``?prefix=`` and ``?space=`` parameters, its whole gate and the segment rule
+    ``isNamedPath`` applies, what ``rootPrefix`` is, the literal ``NotificationRow`` gates a space
+    link on, and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated: pinning
     only the gate leaves a rename of ``rootPrefix`` green while every link lands at a root. Each
     addressee's space and root come from who they are — ``bob`` is a user and ``finance-owner``
     receives for the space ``finance`` — never from the link, which would check the link against
@@ -123,9 +124,18 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     assert "const prefixParam = searchParams.get('prefix')" in route, "the route no longer reads ?prefix="
     assert re.search(
         r"const initialPrefix =\s*prefixParam\s*&&\s*prefixParam\.startsWith\((\w+)\.rootPrefix\)"
-        r"\s*&&\s*prefixParam\.endsWith\('/'\)\s*\?\s*prefixParam\s*:\s*\1\.rootPrefix;",
+        r"\s*&&\s*prefixParam\.endsWith\('/'\)\s*&&\s*isNamedPath\(prefixParam\)"
+        r"\s*\?\s*prefixParam\s*:\s*\1\.rootPrefix;",
         route,
     ), "the route's ?prefix= gate changed — re-derive the link"
+    helpers = (_PORTAL / "features" / "file-browser" / "fileBrowser.paths.ts").read_text()
+    named = re.search(
+        r"export function isNamedPath\(keyOrPrefix: string\): boolean \{\n(.*?)\n\}", helpers, re.DOTALL
+    )
+    assert named and ".replace(/\\/$/, '')" in named.group(1), "isNamedPath no longer trims one trailing slash"
+    assert "segment !== '' && segment !== '.' && segment !== '..'" in named.group(1), (
+        "isNamedPath's segment rule changed — re-derive what a link's prefix may contain"
+    )
     space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
     assert "searchParams.get('space')" in space, "the space is no longer chosen by ?space="
     assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
@@ -150,4 +160,7 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         assert prefix == paths.inbox_prefix(root, "alice"), f"{prefix!r} is not the inbox the copy writes to"
         assert prefix.startswith(root), f"{prefix!r} does not start with the root the route resolves, {root!r}"
         assert prefix.endswith("/"), f"{prefix!r} does not end at a folder boundary, so the route discards it"
+        assert all(part not in ("", ".", "..") for part in prefix[:-1].split("/")), (
+            f"{prefix!r} has a segment that is empty or a dot, so the route discards it"
+        )
         assert link[0] == "/" and link[1] not in ("/", "\\"), f"{link!r} is not a path isSafeInAppPath accepts"
