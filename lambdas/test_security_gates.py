@@ -33,6 +33,11 @@ ACCEPTED_LIST = ROOT / ".github" / "checkov-plan-accepted.txt"
 #: Excluding it is what let ``GATE_SEMGREP`` become ``block`` (docs/security-baseline.md).
 FLASK_RULE = "python.flask.security.audit.directly-returned-format-string.directly-returned-format-string"
 
+#: Any mention of a Semgrep rule exclusion, capturing the rule ID after it on the same line past
+#: any quotes, ``=`` or spaces; the ID is empty where nothing follows. Deliberately not anchored
+#: on ``--``, so a bare ``exclude-rule`` key is a mention too.
+EXCLUDE_RULE = re.compile(r"""exclude-rule[ \t"'=]*([^\s"']*)""")
+
 CHECK_ID = re.compile(r"^CKV[0-9]*_[A-Z]+_[0-9]+$")
 
 #: How many check IDs `.github/checkov-enforced.txt` holds at zero. Pinned so that removing an
@@ -46,10 +51,6 @@ ENFORCED_COUNT = 79
 #: 2 failed against checkov 3.3.9 on lambdas/Dockerfile; the two failures — no HEALTHCHECK and no
 #: USER — are dispositioned in docs/security-baseline.md rather than enforced.
 DOCKERFILE_ENFORCED_COUNT = 21
-
-#: The gate steps must default to a NON-NUMERIC sentinel. `${VAR:-0}` substitutes on empty as
-#: well as unset, so a numeric default turns "the narrowing step wrote nothing" into "clean".
-SENTINEL = "no-count"
 
 #: What a workflow line may say that contains "checkov" without running it: the gate's own four
 #: scripts by name, a scan output or list file, the pinned install, and the artifact's name in
@@ -461,4 +462,113 @@ def test_the_config_refusal_is_proven_before_each_job_scans():
             assert not proof.get("continue-on-error"), f"{where}: the corpus step may fail without failing the job"
     assert {("security.yml", "scan"), ("deploy-infra.yml", "plan")} <= checked, (
         f"expected the security scan job and the infra plan job among the scanning jobs, found {sorted(checked)}"
+    )
+
+
+def _rule_exclusions(node: object, where: str) -> list[tuple[str, str]]:
+    """Every mention of a Semgrep rule exclusion in a parsed workflow, keys included, with the step it sits in.
+
+    Every string is read, not only ``run`` scripts, so a ``with:`` input or an ``env:`` value is
+    seen too; a ``run`` script's comment lines are dropped, since they run nothing.
+
+    Args:
+      node: A parsed workflow, or any part of one.
+      where: The name of the step ``node`` sits in, or a label for text outside any step.
+
+    Returns:
+      One ``(where, rule ID)`` pair per mention, in document order; the ID is empty where the
+      mention is not followed by one.
+
+    Raises:
+      None.
+    """
+    if isinstance(node, dict):
+        found = []
+        for key, value in node.items():
+            found += [(where, rule) for rule in EXCLUDE_RULE.findall(str(key))]
+            if key == "steps" and isinstance(value, list):
+                for step in value:
+                    label = str(step.get("name") or step.get("uses") or "(unnamed step)") if isinstance(step, dict) else where
+                    found += _rule_exclusions(step, label)
+            elif key == "run" and isinstance(value, str):
+                script = "\n".join(_script_lines(node)).replace("\\\n", " ")
+                found += [(where, rule) for rule in EXCLUDE_RULE.findall(script)]
+            else:
+                found += _rule_exclusions(value, where)
+        return found
+    if isinstance(node, list):
+        return [pair for item in node for pair in _rule_exclusions(item, where)]
+    return [(where, rule) for rule in EXCLUDE_RULE.findall(str(node))]
+
+
+@pytest.mark.parametrize(
+    ("workflow", "exclusions"),
+    [
+        ({"steps": [{"name": "S", "run": "semgrep scan --exclude-rule=a lambdas"}]}, [("S", "a")]),
+        ({"steps": [{"name": "S", "run": 'semgrep scan "--exclude-rule" "b" lambdas'}]}, [("S", "b")]),
+        ({"steps": [{"name": "S", "run": "args=('--exclude-rule' \"$r\")"}]}, [("S", "$r")]),
+        ({"steps": [{"name": "S", "run": "semgrep scan --exclude-rule \\\n  c lambdas"}]}, [("S", "c")]),
+        ({"steps": [{"uses": "docker://semgrep/semgrep", "with": {"args": "scan --exclude-rule=d ."}}]}, [("docker://semgrep/semgrep", "d")]),
+        ({"env": {"ARGS": "--exclude-rule=e"}, "jobs": {}}, [("(outside any step)", "e")]),
+        ({"steps": [{"name": "K", "uses": "some/action@v1", "with": {"exclude-rule": "f"}}]}, [("K", "")]),
+        ({"steps": [{"name": "S", "run": "# --exclude-rule=g\nsemgrep scan --exclude=node_modules ."}]}, []),
+    ],
+)
+def test_an_exclusion_is_found_wherever_a_workflow_puts_it(workflow: dict, exclusions: list[tuple[str, str]]):
+    """The collector's reading of one workflow, against exclusions known to be in it.
+
+    The live sweep below finds the one exclusion the workflows hold, which proves nothing about
+    whether it would see a quoted flag, a ``with:`` input, an ``env:`` value or a bare key. These
+    rows are the positive control for each, and the last is the control for silence: a comment
+    line and a path ``--exclude`` are not rule exclusions.
+
+    Args:
+      workflow: A parsed workflow, or the part of one that matters.
+      exclusions: The ``(step, rule ID)`` pairs it holds.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the collector reads the workflow any other way.
+    """
+    assert _rule_exclusions(workflow, "(outside any step)") == exclusions
+
+
+def test_semgrep_excludes_exactly_the_flask_rule():
+    """The Flask false positive is the only Semgrep rule any workflow excludes, and only from the Lambdas scan.
+
+    An exclusion removes findings, so a second one arrives as green as the scan it narrowed, and
+    the disposition docs/security-baseline.md asks for is the only record it would leave. This
+    makes adding one a deliberate edit here too. Equality with the one known exclusion is its own
+    positive control: a collector that stopped matching would find none, and fail.
+
+    Any mention of ``exclude-rule`` counts as an exclusion, however it is quoted and wherever in
+    the workflow it sits. Unlike the Checkov sweep above, nothing is exempted as a harmless form,
+    so a harmless new mention fails loudly rather than a new quoting passing quietly. An inline
+    ``nosemgrep`` or a ``.semgrepignore`` narrows the scan without any workflow saying so, and is
+    not seen here. Nor can it tell a correct rule ID from a wrong one: it reads the string, not
+    what Semgrep matches.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a workflow excludes any other rule, excludes this one twice or from
+        another step, mentions an exclusion without a rule ID after it, or when no exclusion is
+        found at all.
+    """
+    found = []
+    workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    for workflow in workflows:
+        document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        found += [(workflow.name, where, rule) for where, rule in _rule_exclusions(document, "(outside any step)")]
+    assert found == [("security.yml", "Scan the Lambdas", FLASK_RULE)], (
+        f"Semgrep rule exclusions found: {found}. Each one narrows what SAST reports and needs its "
+        "own disposition in docs/security-baseline.md; once it has one, add it to this test. A "
+        "mention that is not a Semgrep exclusion (another tool's flag, prose in a step name or an "
+        "echo) is reworded instead, never added here."
     )

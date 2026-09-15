@@ -231,8 +231,8 @@ jobs:
         #
         # Excluded by RULE ID, not by narrowing the ruleset: dropping p/owasp-top-ten to
         # silence one rule would drop everything else it brings. If a second exclusion is
-        # ever needed it gets its own disposition in docs/security-baseline.md; a test
-        # asserts there is exactly one.
+        # ever needed it gets its own disposition in docs/security-baseline.md, and
+        # test_semgrep_excludes_exactly_the_flask_rule has to be edited to admit it.
         run: |
           set +e
           semgrep scan \
