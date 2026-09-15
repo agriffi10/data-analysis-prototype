@@ -314,7 +314,7 @@ The rule the table-share plane arrived at over three specs, stated once: **anyth
 
 `SHARE_MAX_DEFINITION_BYTES` survives at **64 KiB** as an object-size sanity check, and **what sizes it is now Athena, not Step Functions**: the definition renders into one `CREATE EXTERNAL TABLE`, and Athena's query-string quota is **262,144 bytes and not adjustable**. The rendered statement can be **twice** the serialised JSON — `ddl.literal` backslash-escapes, so a `'` costs one byte in the JSON and two in the DDL — and *where* those quotes sit decides the ratio: a table property or SerDe parameter carries ~9 bytes of JSON overhead and renders at nearly the full 2x, where a column comment carries ~40 and reaches only ~1.7x. At 128 KiB the property-shaped worst case measured **99.98%** of the quota; at 64 KiB it is 50%. Do not re-read it as a state bound, and do not raise it on the strength of a comment-shaped measurement.
 
-**Three keys, two disciplines, and the split is about what the content depends on.** The plan and the definition are **pure functions of the request** — the digest covers the source database and table, so two overlapping executions write byte-identical content and either object is correct for either run. The manifest is **execution-unique**, because its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent (SPEC-160's entry has the full argument). Do not "make them consistent" by giving the definition an execution segment; it would multiply objects under a lifecycle rule for no gain.
+**Three keys, two disciplines, and the split is about what the content depends on.** The plan and the definition are **pure functions of the request** — the digest covers the source database and table, so two overlapping executions write byte-identical content and either object is correct for either run **— superseded in part 2026-09-15: only while the source is unchanged between the two runs' reads of it ([the group id entry](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)) —**. The manifest is **execution-unique**, because its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent (SPEC-160's entry has the full argument). Do not "make them consistent" by giving the definition an execution segment; it would multiply objects under a lifecycle rule for no gain.
 
 **An unreadable definition fails THAT RECIPIENT, never the request, and never renders anyway.** `definition_unreadable` is terminal for the finish Map's item, and the reason the load refuses an object with no columns rather than passing it on is specific: an empty column list renders a `CREATE EXTERNAL TABLE` that **Athena accepts**, over the recipient's freshly-copied data — a table that reports success and returns nothing.
 
@@ -844,7 +844,9 @@ with no per-item failures, and every item in it would be reported as copied.
 **The manifest key is execution-unique; the copy plan beside it is deliberately not.** A plan is a
 pure function of the request, and two overlapping executions colliding on one plan key is harmless
 because both plans describe the same object set — that argument is written out in `plan_key`'s
-docstring and still holds. It does **not** carry to the manifest: its lines depend on which
+docstring and still holds **— superseded in part 2026-09-15: only while the source is unchanged
+between the two listings, the residual that docstring itself names; if it changes, the two runs
+copy different sets into one location ([the group id entry](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)) —**. It does **not** carry to the manifest: its lines depend on which
 recipients the **guard accepted**, which is time- and destination-dependent, so a shared key would
 let one execution's Map Run copy for a recipient the other's guard had just refused as `conflict`.
 The execution name is stamped by a **Pass** state (SPEC-157's measured pattern: reading `$$` in a
@@ -2012,5 +2014,7 @@ half-copied prefix with no table. The same spec adds a `request_id_reused` refus
 archive and file-ops carry. Until it lands, the file-send and table-share arms above are live. The table builder's misreported create and the shared-space residuals are recorded and
 not yet scheduled.
 
-Every site that claimed a group id serializes runs is corrected, and each one this register or a
-delivery doc carries is marked in place rather than rewritten.
+This audit corrected the sites it found claiming a group id serializes runs, and marked each one a
+register, delivery doc or spec carried in place rather than rewriting it; the cancelled
+file-converter spec, which never shipped, was left as it was. The Fences clause is what should catch
+the next one, at authoring.

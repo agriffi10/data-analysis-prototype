@@ -87,7 +87,8 @@ def transfer_manifest_key(request: dict, execution_name: str) -> str:
 
     That is the difference from ``plan_key`` beside it, and it is not stylistic. A copy plan
     is a pure function of the request, and two overlapping executions colliding on one plan
-    key is harmless because both plans describe the same object set. A manifest's lines depend
+    key is harmless because both plans describe the same object set, bar the source changing
+    between their listings, the residual ``plan_key`` names. A manifest's lines depend
     on which recipients the guard Map accepted — time- and destination-dependent — so on a
     shared key the later execution would overwrite the earlier one's manifest, and a Map Run
     could copy for a recipient its own guard had refused as ``conflict``.

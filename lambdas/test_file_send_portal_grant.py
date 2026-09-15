@@ -87,9 +87,9 @@ def test_the_browser_holds_no_file_send_privilege_at_all() -> None:
 def test_the_execution_role_cannot_delete_enumerate_or_reach_a_wildcard() -> None:
     """This role sits on the user-space bucket's principal allowlist, so its ceiling matters.
 
-    A send is a copy: it never deletes the sender's files and never overwrites at the
-    destination, and the Deny makes that a property of the role rather than an intention of the
-    code. ``cognito-idp:ListUsers`` would let it read every username, email and attribute in the
+    A send is a copy: it never deletes the sender's files, and the Deny makes that a property of
+    the role rather than an intention of the code. It cannot stop an overwrite, which only a
+    conditional write at the copy can. ``cognito-idp:ListUsers`` would let it read every username, email and attribute in the
     pool. A new ``Resource: "*"`` would be a third rendered-plan IAM finding, and the gate is
     keyed by check ID AND resource, so it fails the plan job rather than being absorbed.
 

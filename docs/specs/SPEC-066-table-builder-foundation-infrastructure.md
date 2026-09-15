@@ -82,7 +82,9 @@ a table.
   new `infra/modules/table-builder/` module; queue URL + ARN are module outputs.
 - [ ] An **EventBridge Pipe** consumes the queue (**batch size 1**) and targets the **Step Function**; the pipe's
   role can `sqs:ReceiveMessage`/`DeleteMessage`/`GetQueueAttributes` on the queue and `states:StartExecution` on
-  the machine. (Intake is serial per `MessageGroupId`; the producer sets it = target database — SPEC-067.)
+  the machine. (Intake is serial per `MessageGroupId`; the producer sets it = target database — SPEC-067.
+  **Superseded 2026-09-15: intake orders the starts only, and the runs overlap —
+  `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.**)
 - [ ] The **Step Function** (Standard) is created with explicit states wiring the five Lambda Tasks **in order**
   (`validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl`) plus `Retry`/`Catch`
   scaffolding and terminal **succeed** / **recorded-failure** states; here every Task invokes a **stub** Lambda
