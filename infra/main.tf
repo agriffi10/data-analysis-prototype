@@ -1046,14 +1046,14 @@ module "file_send" {
 
 # File-operations control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
 # Function pipeline running single-task verb Lambdas on ONE shared execution role. The
-# SEVENTH plane, and the one whose absence is felt daily rather than one enabling a new
-# feature: recursive folder copy, move and delete are the last bulk data operations this
-# product performs in the BROWSER.
+# SEVENTH plane, and the one whose absence was felt daily rather than one enabling a new
+# feature: recursive folder copy, move and delete were the last bulk data operations this
+# product performed in the BROWSER. The browser's recursive functions are deleted, so a
+# folder operation now runs here or not at all.
 #
-# The plane and its front door — the plumbing, the request contract, the per-space lock and
-# validate-authorize. Nothing is listed, planned, copied or deleted yet, and the execution
-# role holds NO grant on either data bucket; a test asserts the rendered policy names
-# neither, so the grant cannot arrive early and unreviewed.
+# The whole plane — the plumbing, the request contract, the per-space lock, and the verbs
+# that authorize, expand, guard, copy, delete and notify — so the execution role lists,
+# reads, writes and deletes in both space buckets, fenced by its own Denies.
 #
 # ITS OWN QUEUE AND ITS OWN DLQ, for file-send's recorded reason: the DLQ drain names the
 # feature by the DLQ, so a shared one would report a dead-lettered file operation as a send.

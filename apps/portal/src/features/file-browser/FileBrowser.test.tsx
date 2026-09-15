@@ -385,8 +385,8 @@ describe('FileBrowser — selection + delete', () => {
   });
 
   // ── SPEC-186 FR-002 ────────────────────────────────────────────────────────
-  // The service has always refused these, but only AFTER the user read "Delete the folder
-  // … and everything inside it? This can't be undone." and pressed Delete. Removing
+  // The file-operations plane refuses these too, per item, but only AFTER the user read "Delete
+  // the folder … and everything inside it? This can't be undone." and pressed Delete. Removing
   // `deleteDisabledReason`/`moveDisabledReason` from SelectionToolbar, or dropping
   // `undeletableSelectionRefusal`, reddens all three of these.
   describe('an undeletable root folder refuses BEFORE the confirm', () => {
