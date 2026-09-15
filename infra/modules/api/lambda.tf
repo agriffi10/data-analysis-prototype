@@ -30,8 +30,8 @@ resource "aws_iam_role_policy" "api" {
     # site and no root change.
     admin_bucket_arn = "arn:aws:s3:::${var.admin_bucket}"
 
-    # Exactly the eight request queues. The browser's grants come off in the same change, so at
-    # no point are there two writers with nothing asserting it.
+    # Exactly the eight request queues. The portal role holds no grant on any of them, so no
+    # user-scoped session can write one.
     request_queue_arns_json = jsonencode(var.request_queue_arns)
   })
 }

@@ -76,8 +76,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "user_space" {
   }
 }
 
-# Without this every browser SDK call fails preflight. Origins are ADDITIVE — narrowing to
-# one origin makes the other a rollback nobody can exercise.
+# Without this every presigned GET and PUT the browser redeems fails preflight. Origins are
+# ADDITIVE — narrowing to one origin makes the other a rollback nobody can exercise.
 resource "aws_s3_bucket_cors_configuration" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 

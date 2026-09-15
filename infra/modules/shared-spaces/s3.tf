@@ -76,7 +76,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "shared_space" {
   }
 }
 
-# Without this every browser SDK call fails preflight. Origins are ADDITIVE.
+# Without this every presigned GET and PUT the browser redeems fails preflight. Origins are
+# ADDITIVE.
 resource "aws_s3_bucket_cors_configuration" "shared_space" {
   bucket = aws_s3_bucket.shared_space.id
 
