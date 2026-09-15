@@ -13,6 +13,7 @@ import {getIdToken} from '../../lib/idToken';
 import * as dqService from '../data-quality/dataQuality.service';
 import * as sendService from '../file-send/fileSend.service';
 import {submitFileOperation} from './fileOps.service';
+import {apiRequest} from '../../lib/apiClient';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
@@ -62,6 +63,14 @@ vi.mock('../shared-spaces/sharedSpaces.service', () => ({
   }),
   enqueueSharedSpaceRequest: vi.fn()
 }));
+// The API client, watched but not replaced: every render already reads through it, and with no API
+// origin configured here the real client answers `ApiUnavailable` without sending anything. A test
+// that lets a REAL service write reads the attempted routes back, which is the only place a refused
+// write can be seen not to happen.
+vi.mock('../../lib/apiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/apiClient')>();
+  return {...actual, apiRequest: vi.fn(actual.apiRequest)};
+});
 
 const mock = vi.mocked(service);
 const mockQualityCheck = vi.mocked(dqService.enqueueQualityCheck);
@@ -741,6 +750,49 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
       overwrite: false
     });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  describe('inside system_settings, where the retry reaches the real createFolder', () => {
+    // The prompt checks the new name without its parent, so the refusal belongs to `createFolder`,
+    // which knows the prefix it writes into. Reached through `importActual` because this file
+    // mocks the module it lives in; the collision itself stays mocked.
+    async function collideOnceThenCreateForReal() {
+      const {createFolder: realCreateFolder} = await vi.importActual<typeof service>('./fileBrowser.service');
+      mock.createFolder
+        .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
+        .mockImplementation(realCreateFolder);
+    }
+    const attemptedRoutes = () => vi.mocked(apiRequest).mock.calls.map(([route]) => route);
+
+    it('refuses the app’s own folder name on the retry, says why, and writes nothing', async () => {
+      await collideOnceThenCreateForReal();
+
+      const {user} = renderBrowser({prefix: 'alice/system_settings/'});
+      await createAndRenameTo(user, 'archive');
+
+      expect(
+        await screen.findByText('“archive” is a folder the app manages inside system_settings. Pick another name.')
+      ).toBeInTheDocument();
+      expect(attemptedRoutes()).not.toContain('objects.writeContent');
+    });
+
+    it('still writes an ordinary new name there', async () => {
+      // The positive control, observed where the refusal above observes an absence — so that
+      // absence is the rule firing, not a route this harness can never see.
+      await collideOnceThenCreateForReal();
+
+      const {user} = renderBrowser({prefix: 'alice/system_settings/'});
+      await createAndRenameTo(user, 'notes-2');
+
+      await waitFor(() =>
+        expect(apiRequest).toHaveBeenCalledWith(
+          'objects.writeContent',
+          expect.objectContaining({
+            body: expect.objectContaining({key: 'alice/system_settings/notes-2/', overwrite: false})
+          })
+        )
+      );
+    });
   });
 });
 

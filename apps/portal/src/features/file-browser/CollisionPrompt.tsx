@@ -18,7 +18,8 @@ type Props = {
  *
  * The new name is validated here rather than by each caller, because every caller builds a key by
  * appending it to a prefix: a `/` in it would land the write in a subfolder instead of beside the
- * original. A file gets the leaf rules; a folder gets the create-folder rules.
+ * original. A file gets the leaf rules; a folder gets the folder-name rules, but not the one that
+ * depends on the parent — the prompt is not told where the write lands.
  *
  * @example
  * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
