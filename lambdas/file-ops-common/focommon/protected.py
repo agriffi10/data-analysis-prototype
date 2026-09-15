@@ -1,9 +1,16 @@
-"""The portal's own folders, refused server-side for the first time.
+"""The portal's own folders and markers, as the file-operations plane refuses them.
 
-Every rule here is enforced in the browser today and nowhere else. A control plane accepts a
-hand-crafted envelope, so the browser's refusals become the affordance and these become the
-enforcement — each verified by deliberate violation of the other, since neither runtime can reach
-the other's rule.
+These rules are enforcement, and the browser's side is only the affordance: the plane accepts a
+hand-crafted envelope, and nothing the browser hides, filters or disables is a permission. They are
+not the plane's only check on a selected item — the inspect-source verb and ``focommon.delete``
+apply rules of their own further on. The browser's rules also differ from these, so what it
+refuses is no measure of what this module needs. ``undeletableSelectionRefusal`` in
+``protectedFolders.ts`` disables Delete and Move only when EVERY selected item is refused, so a
+mixed selection arrives here with its protected items in it. ``user_settings/`` is hidden in the
+browser and never refused as a copy, move or delete source. A lone file goes from the browser to
+the API's object routes rather than coming here, and ``apicommon.protected`` holds their rules: a
+separate set, written for those routes, that guards nothing sent to this plane. ``config`` names
+the tests that hold its two folder lists and the archive rule, and what each is held against.
 
 **THE THREE BROWSER LISTS DIFFER ON PURPOSE AND MUST NOT BE UNIONED.** ``protectedFolders.ts``
 carries the note and this docstring repeats the warning, because unioning them looks like the tidy

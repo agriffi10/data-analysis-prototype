@@ -1,9 +1,9 @@
 """The per-item outcome vocabulary every file-ops verb reads and extends.
 
 An operation on a selection is not one result. Three of the selected items copy, one collides, one
-names a folder the portal manages — and that has to survive from the first verb to the notification
-or the partial execution the browser reports today is lost between specs. So each selected item
-carries a record, created here and CARRIED FORWARD by every later verb rather than re-created.
+names a folder the portal manages — and that has to survive from the first verb to the notification,
+which is where the user learns what happened to the selection. So each selected item carries a
+record, created here and CARRIED FORWARD by every later verb rather than re-created.
 
 **The record shape is fixed by the expansion spec and adopted here rather than invented**, because
 this is the first producer and a different shape now would force every later verb and test to be
@@ -136,11 +136,13 @@ __all__ = [
 class Refusal:
     """One protected-location rule's answer: why, and what to say about it.
 
-    A returned value rather than a raised error, because these refusals are PER ITEM — a protected
-    item fails alone and every other item proceeds, matching the browser, which refuses the gesture
-    only when every selected item is protected. A whole-request refusal would turn a select-all
-    delete at a space root, which today deletes what it may and reports the rest, into one that
-    deletes nothing.
+    A returned value rather than a raised error, because a source refusal is PER ITEM — a protected
+    item fails alone and every other item proceeds, which is why ``undeletableSelectionRefusal``
+    disables Delete and Move only when every selected item is an undeletable root folder. A
+    whole-request refusal would turn a select-all delete at a space root, which deletes what it may
+    and reports the rest, into one that deletes nothing. The destination rule answers with the same
+    value, and validate-authorize raises it as a whole-request terminal, because a request has one
+    destination.
 
     Attributes:
       reason: The stable reason code, distinct per rule so the notifier can word it without
