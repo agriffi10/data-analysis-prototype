@@ -220,6 +220,14 @@ and emails always out) applies to CI output for the same reason it applies to `l
 - [ ] A finding reports commit, file, line and rule — enough to act on without the value.
 - [ ] Known false positives, if any, are recorded in a committed `.gitleaks.toml` allowlist with a
       written reason per entry, not suppressed by narrowing the scan.
+
+> **Superseded in part (2026-09-15):** a committed `.gitleaks.toml` or `.gitleaksignore`, and both
+> the `.gitleaks.toml` and the `.checkov.yml` in the file list below, are now refused rather than
+> read: each scan runs through a wrapper that stops when the scanner reports configuration from
+> anywhere but its command line. A
+> false positive would be accepted on the invocation in `security.yml`, and the wrapper taught to
+> allow it. Full entry: `docs/decisions/gates-and-tests.md` → *A scanner's configuration is its
+> command line, and what it discovers is refused*.
 - [ ] The job concludes green when a finding is present.
 
 ### FR-006: IaC misconfiguration scanning over `infra/`, with the blind spot recorded

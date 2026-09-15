@@ -28,15 +28,19 @@ entry you need, not the file.**
 - **A gate blocks on a NARROWED count, never a total.** Checkov enforces check IDs measured at
   **zero** — enforcing what passes rather than suppressing what does not — and the plan scan
   accepts by check ID **and** resource. **A line matching no finding is a hard error.**
-- **A Checkov scan's configuration is its COMMAND LINE, and what it DISCOVERS is refused.**
-  Checkov reads a `.checkov.yml` from the `-d` directory, the working directory and `$HOME` even
-  under `-f`, and its flags' environment variables. One `skip-check` took a finding off the
-  blocking plan gate while the coverage check still passed, from a file no reviewer reads as part
-  of a gate. `--config-file` does not stop discovery; it is parsed beside what was found. So every
-  scan runs through `checkov-scan.sh`, which asks the scanner (`--show-config`) what it would use
-  and refuses anything but its command line, and a corpus plants a config against the installed
-  version before each job's scans. Refuse, never ignore: an ignored suppression file reads as one.
-  Variables Checkov reads without a flag go unreported and unrefused.
+- **A scanner's configuration is its COMMAND LINE, and what it DISCOVERS is refused.** Checkov
+  reads a `.checkov.yml` from the `-d` directory, the working directory and `$HOME`; Semgrep skips
+  whatever a `.semgrepignore` anywhere in the tree matches; gitleaks reads a `.gitleaks.toml` and a
+  `.gitleaksignore` from the repository, and never sees a path a `-diff` attribute hides from `git
+  log -p`; and all three read variables. Measured, each took a finding off a blocking gate while
+  the job read as clean, from a file no reviewer reads as part of a gate. So every Checkov, Semgrep
+  and gitleaks scan runs through its `*-scan.sh` wrapper, which asks the tool what decided the scan
+  (`--show-config`, the report's skip reasons, gitleaks's debug log, `git check-attr`) and refuses
+  anything but the command line and the defaults. A corpus plants each source against the
+  installed version before the job's scans. Refuse, never ignore: an ignored suppression file reads
+  as one. The empty root `.semgrepignore` only switches off Semgrep's built-in list, which skips
+  every `test/` directory under the same reason. Still open: Checkov's flagless variables, and
+  inline `nosemgrep` and `gitleaks:allow`.
 - **"Did not run" is never "clean."** A broken scanner fails the job even in report mode, and
   `--quiet` must never come back: without `passed_checks` the gate cannot tell a pass from a check
   that never ran.
@@ -685,18 +689,101 @@ records no skip, since Checkov reads a `.tf` file's comments into a plan scan on
 than resting on a flag nothing checks. The corpus plants a skip for each gate and asserts silence
 on one outside each count, and each check was planted once.
 
-**Not closed by this.** The environment variables Checkov reads directly rather than
-through a flag are a second route: `--show-config` cannot report them, and a review measured
+**Semgrep and gitleaks do it too (2026-09-15).** Against `semgrep==1.172.0` with the Lambdas
+scan's invocation, on a fixture holding one `subprocess` call with `shell=True`, a root
+`.semgrepignore` naming `lambdas/` took the count from 1 to 0, and a `lambdas/.semgrepignore`
+naming a subdirectory did the same. `SEMGREP_BASELINE_COMMIT` did it too, and recorded no skip at
+all. Each run exited 0 with no parse error. A `.semgrepignore` in `$HOME` is not read. Against
+gitleaks 8.30.1 with the workflow's invocation, on a repository holding two committed credentials,
+a `.gitleaks.toml` allowlist naming one of their files took the count from 2 to 1, one fingerprint
+in a `.gitleaksignore` did the same, and the same allowlist from `GITLEAKS_CONFIG` or
+`GITLEAKS_CONFIG_TOML` did the same. Each exited the way a scan with that many findings does. A
+fifth route is git's, not gitleaks's, and the first review found it
+by planting: gitleaks reads the history through `git log -p`, which prints "Binary files differ"
+instead of the content of any path whose `diff` attribute is unset. A committed `.gitattributes`
+holding `*.py -diff` or `*.py binary` took a single credential from 1 to 0, for every commit, and
+gitleaks's own report of what it loaded is byte for byte the same.
+
+**Their wrappers ask the tool that decides.** `semgrep-scan.sh` adds `--verbose`, which makes the
+report list every target Semgrep skipped and why, and refuses a skip whose reason names an ignore
+file. It matches on the word, so a reason renamed to another spelling that still says "ignore" is
+refused as well; a rename that dropped the word would stop the corpus's plants being refused, which
+fails the job there. Semgrep cannot report the
+variables it reads, so every `SEMGREP_*` name is refused except the workflow's own
+`SEMGREP_VERSION`. The pinned release holds no string by that name, and it is removed from
+Semgrep's environment anyway, since a search of strings cannot see a name built at run time.
+`gitleaks-scan.sh` asks two tools. Git is asked, with `git check-attr`, which `diff` attribute it
+gives every path in the history, so every attribute source git reads is covered, a nested
+`.gitattributes` and `.git/info/attributes` included, and a path it reports unset is refused. That
+includes a file that is binary anyway, such as a `*.png binary` line, because telling the two apart
+would mean reading every version of the path; the refusal says to write `-text -merge` where that
+is what the line is for. The count of answers against the paths asked is that check's positive
+control, since a loop over a misread answer finds nothing to refuse. The wrapper supplies `git` and
+`.` itself and runs only from the repository's top level, so the repository git is asked about is
+the one gitleaks scans, and `git check-attr`, which reads a path relative to where it runs, reads
+the history's paths as the paths they are. Then gitleaks is asked, with the same
+flags, at debug level. There it names its configuration's source and each ignore file it loads,
+before the line saying which `git log` it runs. The wrapper refuses any line in that stretch it
+does not know, and a log that never names the default configuration. The ask reads no commit
+(`--log-opts=--max-count=0`): at debug level gitleaks prints decoded fragments of what it scans,
+which `--redact` does not cover, so the real scan runs at its own level. Both wrappers own their
+report path and delete it first, so a refused scan leaves nothing to count, and the Semgrep one
+deletes it again on every exit but a scan that completed and was not refused. Its first draft
+printed a refusal's list through `head`, and more skips than a pipe holds killed the script with
+SIGPIPE before the report went. That closed a fail-open already in the workflow, where both
+summary steps read a missing report as 0. They now read it as no count.
+
+**Semgrep's built-in list is why the repository keeps an empty `.semgrepignore`.** With no root
+file, Semgrep applies a default list under the same skip reason a pattern gets, and the list skips
+every `test/` directory. At 77ae380a it was skipping all 15 files in `apps/portal/src/test/` while
+the workflow's comment said test files are scanned. The file switches the list off, so any such
+skip is a pattern somebody wrote. Scanning those files added no finding. `test_security_gates.py`
+asserts that the file exists and holds no pattern, since a pattern that matches nothing yet reads
+as a suppression until the day it matches.
+
+**What proves them.** `semgrep-scan-test.sh` and `gitleaks-scan-test.sh` run in the scan job,
+ahead of each scanner's scans, against the release that job installed. Each case starts from a
+stale report that reads as clean. Semgrep's corpus plants a root pattern, a nested file, the root
+file's absence, `SEMGREP_BASELINE_COMMIT` and five thousand ignored targets, and its clean case
+asserts both fixture findings, one of them under `test/`. The gitleaks corpus plants each of its
+four configuration sources and asserts that the refusal quotes gitleaks's own line about it,
+because the refusal message names every source anyway. It plants a `-diff` or `binary` attribute
+from a root `.gitattributes`, a nested one and `.git/info/attributes`, one naming a path only the
+history still holds, and one with the scan started below the top level, and asserts the refusal
+names the hidden path or the reason. Its clean cases, one with a `.gitattributes` naming only a
+diff driver, assert both credentials by rule ID, that the real scan printed no debug line, and that
+the wrapper left nothing in a temporary directory of its own. That last check first measured
+nothing on a Mac, where `mktemp -d` without a template ignores `TMPDIR`; the wrapper now names one.
+Stubs cover each log, report or attribute answer the installed release does not give. Every
+refusal in the two wrappers, and every line that deletes a report or a temporary directory, was
+planted once: twenty-two mutations, each reddening its own case, between green baseline runs. The
+guards that stop on a missing argument or scanner were not, since no scan runs past them. Ten more
+mutations went into the wiring, which now reads every
+workflow for all three scanners through one table and runs each summary and gate step the way the
+runner does: a refused scan, and a gate no step counted for, each fail for their reason, and a
+clean report passes. One plant survived and removed code instead of earning a case: stripping
+colour codes from gitleaks's log, which dropping each line's time already did.
+
+**Not closed by this.** An inline suppression is still a route in Semgrep and gitleaks, where no
+numerator reads what the scanner skipped. A `# nosemgrep` comment took a Semgrep finding off with no
+trace in the report (2 findings became 1), and `--disable-nosem` brings it back. A `gitleaks:allow`
+comment took a gitleaks finding off (1 became 0), and `--ignore-gitleaks-allow` brings it back.
+This change sets neither flag. The environment variables Checkov reads directly rather than through
+a flag are another route: `--show-config` cannot report them, and a review measured
 `CKV_IGNORED_DIRECTORIES` taking the finding of a resource in a subdirectory off a `-d` scan while
-the wrapper exited 0. Semgrep and gitleaks, two of the other three blocking scanners, pass no
-config file either, and whether they read ignore files from the repository (`.semgrepignore`,
-`.gitleaks.toml`, `.gitleaksignore`) the way Checkov reads its config has not been measured. And
-code the pull request controls runs in both scanning jobs before Checkov does: `npm ci` runs
-install scripts in the security scan job, and the plan job runs `lambdas/fleet.py` and
-`lambda_plan_guard.py`. A step can write `$GITHUB_ENV` for every later step, which is how a flagless
-variable above would arrive without a workflow edit. The review that found this measured an install
-script doing so. It also measured a fake `checkov` placed earlier on `PATH` that stripped one
-module's failures from a `-d` scan while this corpus still passed. That `$GITHUB_PATH` places it
-there for a later step is inferred. The wrapper cannot see either, and does not claim to. It closes
-a file added in good faith, not code written to defeat the gate, which a pull request that can edit
-the workflow could do more simply.
+the wrapper exited 0. And code the pull request controls runs in both scanning jobs before Checkov
+does: `npm ci` runs install scripts in the security scan job, and the plan job runs
+`lambdas/fleet.py` and `lambda_plan_guard.py`. A step can write `$GITHUB_ENV` for every later step,
+which is how a flagless variable above would arrive without a workflow edit. The review that found
+this measured an install script doing so. A `SEMGREP_*` variable arriving that way is refused,
+because the Semgrep wrapper reads the environment itself, and a `GITLEAKS_*` one because gitleaks
+reports it. Git's own settings reach gitleaks as well: the attribute check covers every source of
+attributes, but a setting that changes what `git log -p` prints by other means, such as a diff
+driver's `textconv`, lives in git configuration, which only the workflow or code the job runs can
+set. The same review measured a fake `checkov` placed earlier on `PATH` that stripped one module's
+failures from a `-d` scan while this corpus still passed. That `$GITHUB_PATH` places it there for a
+later step is inferred. No wrapper can see either, and none claims to. Each closes a file added in
+good faith, not code written to defeat the gate, which a pull request that can edit the workflow
+could do more simply. Nor is content closed: a file git detects as binary by itself, one with a
+NUL byte near its start, is not scanned (measured, 1 finding became 0), and Semgrep passes a file
+over its 1 MB default without a finding.
