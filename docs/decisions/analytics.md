@@ -53,7 +53,9 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
-  names; a refresh does not, or it strands pre-rule tables.
+  names. A refresh skips the check, or it would strand pre-rule tables; its write refuses a case
+  collision, but runs only when the case-folding diff reports a change, so a collision on its own
+  can pass as unchanged.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
@@ -875,6 +877,13 @@ would break every refresh of a table built before the rule and leave rewriting t
 the only repair. It selects on the storage descriptor, not on `mode` — a tripwire forbids the
 shared verbs reading that field, because the moment one does, "a refresh reuses these verbs
 unchanged" stops being true.
+
+**On a refresh, a case collision is refused by the write rather than by the rule, and only when
+the diff reports a change.** It is the write's own guard, not the rule applied again: apply-refresh
+lowercases every name it writes, so two that fold together would be written under one name, and it
+refuses them before the update. The write runs only when diff-schema, which also matches columns by
+folded name, reports a change, so a collision can pass as unchanged — the mechanism is on the
+[table-builder plane page](../../lambdas/info/planes/table-builder.md#the-fences).
 
 **The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
 backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because
