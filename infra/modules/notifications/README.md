@@ -101,6 +101,13 @@ render as `(known after apply)` and land correctly. Stated explicitly because an
 this note pointed a reader at rewriting `logs_queue_arn` as a constructed string, **which would break
 the writer's own logs grant**.
 
+**Landing correctly is not the same as being scanned.** A policy document that is `(known after
+apply)` is one the rendered-plan IAM gate cannot read, so it refuses a NEW `aws_iam_*` policy whose
+document is unknown, and only names an existing one updated that way (`checkov-plan-iam.sh`). The
+writer policy already exists, so a change like this to it reaches a warning, not a refusal. A new
+policy in a module shaped like this one needs its ARNs known at plan, or the resource they name
+landed a pull request earlier.
+
 There is **no `time_sleep` guard** here: the deploy-role grants these resource types need were
 applied and propagated in an earlier deploy, so there is no self-grant race for this apply. The
 two-PR split is exactly what removes the need for the in-module propagation pause the shared-spaces

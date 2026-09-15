@@ -8,7 +8,7 @@ on:
   # every script and list its steps read, the IAM gate's accept-list among them.
   # lambdas/test_config_workflows.py fails when a run block names a file this list omits; a
   # file only a script reaches is kept here by hand: lambdas/tf_blocks.py, and
-  # checkov-enforced.sh, which the Checkov corpus runs.
+  # checkov-enforced.sh and checkov-tf-population.sh, which the Checkov corpus runs.
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
@@ -16,7 +16,7 @@ on:
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
-            '.github/scripts/checkov-enforced.sh',
+            '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
@@ -26,7 +26,7 @@ on:
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
-            '.github/scripts/checkov-enforced.sh',
+            '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
@@ -319,7 +319,8 @@ jobs:
       # command line. That refusal never fires on a normal run, so this proves it still does,
       # against the scanner just installed, before the gate relies on it. It also proves the
       # numerator refuses an IAM finding Checkov reports skipped, which this scan records only
-      # if it is ever given --repo-root-for-plan-enrichment.
+      # if it is ever given --repo-root-for-plan-enrichment, and a new policy the plan marks
+      # unknown until apply, which Checkov scores without reading.
       - name: Prove the scan refuses configuration it was not given
         run: .github/scripts/checkov-scan-test.sh
 
@@ -367,7 +368,9 @@ jobs:
           # THE POINT OF THE EXERCISE, asserted rather than assumed. If the plan carries
           # IAM policies but no IAM check was evaluated against them, this has silently
           # regressed to the state SPEC-138 was stuck in — and a regressed run looks
-          # exactly like a clean one.
+          # exactly like a clean one. A policy unknown until apply still counts as evaluated
+          # here, because Checkov passes the checks it runs on one; the next step refuses a new
+          # one and names an updated one.
           # Select resource BLOCKS structurally (an object carrying both `type` and
           # `address`) rather than trusting any key named `resources` to hold them. The
           # first version walked `.. | .resources?` and blew up on a real plan —
@@ -414,7 +417,10 @@ jobs:
       # finding, including the non-IAM rules security.yml already reports and disposes of
       # (no VPC, no CMK, no X-Ray) — gating those here would fail this job for reasons that
       # have nothing to do with what the scan is for. This narrows to IAM findings that are
-      # not on .github/checkov-plan-accepted.txt.
+      # not on .github/checkov-plan-accepted.txt. It reads plan.json too: a NEW IAM policy the
+      # plan marks unknown until apply, which the scan scored without reading, is a hard error,
+      # and an UPDATED one is named in a warning and the job summary instead, because a module's
+      # depends_on defers documents whose content has not changed.
       #
       # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A failing command substitution
       # inside an argument to `echo` does not fail the step (echo exits 0), and the empty
@@ -423,7 +429,7 @@ jobs:
       - name: Narrow to unaccepted IAM findings
         working-directory: infra
         run: |
-          findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)
+          findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt plan.json)
           echo "CHECKOV_PLAN_FINDINGS=$findings" >> "$GITHUB_ENV"
 
       # The Checkov RESULT is publishable. The plan that produced it is not — see the

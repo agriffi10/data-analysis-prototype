@@ -143,7 +143,7 @@ GUARDED = {
     "checkov": _Guarded(
         word="checkov",
         harmless=re.compile(
-            r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam)\.sh(?![\w.-])"
+            r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam|tf-population)\.sh(?![\w.-])"
             r"|[\w./-]*checkov[\w-]*\.(?:json|txt)(?![\w.-])"
             r"""|\bpip3?\s+install\s+(["']?)checkov==[^\s"']+\1"""
             r"|\\?`checkov\\?`"
@@ -314,6 +314,74 @@ def test_the_checkov_tf_scan_does_not_pass_quiet():
     )
 
 
+def test_the_checkov_tf_scan_passes_no_skip_path():
+    """``--skip-path`` matches a substring of each path, so it hides files as well as directories.
+
+    The scan once passed ``--skip-path '.terraform'``. Checkov already skips a ``.terraform``
+    directory, as it does every hidden one, so the flag excluded nothing it needed to, and
+    measured against 3.3.9 it also hid a log group with no retention in ``logs.terraform.tf``
+    while CKV_AWS_66 passed on the compliant one beside it. Any value would do the same to a file
+    whose path contains it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the flag is anywhere in the invocation.
+    """
+    invocation = _invocation(SECURITY_WORKFLOW, "checkov-scan.sh -d infra")
+    assert "--skip-path" not in invocation, (
+        "the -d infra scan passes --skip-path, which excludes every file whose path contains its "
+        "value, so a file the gate should read can be named out of it."
+    )
+
+
+def test_the_tf_scan_refuses_a_file_it_cannot_read_before_scanning():
+    """The population check runs in the scan's own step, after the report is deleted and before the scan.
+
+    OpenTofu loads ``*.tofu``, ``*.tofu.json`` and ``*.tf.json`` files and merges override files,
+    none of which the terraform framework reads as OpenTofu does, so a finding in one reaches no
+    check and the enforced count reads zero. ``checkov-tf-population.sh`` refuses them. In the
+    scan's step, a refusal stops the step before the scan writes its JSON, and every later step
+    then fails closed on the missing report. Three spellings each let the gate read a count
+    anyway, measured by replaying the job's steps: a separate step, which fails the job while
+    the gate reads the scan's count; a report committed to the repository, which survives a
+    refusal unless the step deletes it first; and a refusal that rests on the shell's errexit,
+    which ``set +e`` or ``shell: bash {0}`` switches off, so the line exits by itself.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the scan step does not run the check, runs it after the scan, does
+        not delete the report before it, or runs it as anything but a line that exits on refusal.
+    """
+    steps = _steps_by_job(SECURITY_WORKFLOW)["scan"]
+    scan_steps = [step for step in steps if any("checkov-scan.sh -d infra" in line for line in _script_lines(step))]
+    assert len(scan_steps) == 1, f"expected one step scanning -d infra in security.yml, found {len(scan_steps)}"
+    lines = [line.strip() for line in _script_lines(scan_steps[0])]
+    scan_at = next(i for i, line in enumerate(lines) if "checkov-scan.sh -d infra" in line)
+    checks = [i for i, line in enumerate(lines) if "checkov-tf-population.sh" in line]
+    assert checks, "the -d infra scan step does not run checkov-tf-population.sh"
+    assert checks[0] < scan_at, "checkov-tf-population.sh runs after the scan it exists to guard"
+    assert lines[checks[0]] == ".github/scripts/checkov-tf-population.sh || exit 1", (
+        f"the population check runs as {lines[checks[0]]!r}. It must end the step itself, with "
+        "nothing else on the line: `|| true` refuses nothing, and without `|| exit 1` the refusal "
+        "rests on errexit, which `set +e` or `shell: bash {0}` switches off."
+    )
+    deletes = [i for i, line in enumerate(lines) if line == "rm -f checkov.json"]
+    assert deletes and deletes[0] < checks[0], (
+        "the -d infra scan step does not delete checkov.json before the population check, so a "
+        "report committed to the repository survives a refusal and the gate counts it."
+    )
+
+
 def test_the_enforced_gate_is_wired_to_the_list_and_blocks():
     """security.yml must call the narrowing script, name the list, and be set to block.
 
@@ -459,11 +527,12 @@ def _runs_outside_its_wrapper(line: str, guarded: _Guarded) -> bool:
         ("checkov", "../.github/scripts/checkov-scan.sh -f plan.json \\", False),
         ("checkov", "bash ./.github/scripts/checkov-scan.sh -d infra", False),
         ("checkov", ".github/scripts/checkov-scan-test.sh", False),
+        ("checkov", ".github/scripts/checkov-tf-population.sh", False),
         ("checkov", 'pip install "checkov==${CHECKOV_VERSION}"', False),
         ("checkov", "findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)", False),
         (
             "checkov",
-            "findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)",
+            "findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt plan.json)",
             False,
         ),
         ("checkov", 'echo "::error title=Checkov (plan)::output is not valid"', False),

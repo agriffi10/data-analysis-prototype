@@ -32,6 +32,16 @@
 # spelling Checkov honours is covered. It runs before the coverage check, whose message
 # would otherwise blame a typo and invite removing the ID when every instance is skipped.
 #
+# A MODULE THE SCAN COULD NOT READ IS A HARD ERROR. OpenTofu downloads a module whose source is
+# not a local path when it initialises, and applies what it declares. Checkov reads one only
+# under --download-external-modules, which no scan here passes, and otherwise only warns. A
+# review measured a git-sourced module declaring an SSH-open security group pass this gate with
+# a count of 0. Checkov's CKV_TF_1 scores every module call whose source does not start with
+# `./` or `../`, and returns UNKNOWN, which it records nowhere, for one that does (read from its
+# source and measured against 3.3.9), so any CKV_TF_1 result, whether passed, failed or skipped,
+# is Checkov's own statement that a module was not read. The ID need not be enforced for this,
+# and a skip of it is read too, since a skip would otherwise hide the only record.
+#
 # The scan JSON must carry passed_checks, so the caller must NOT pass --quiet to checkov —
 # the same constraint, for the same reason, that deploy-infra.yml's plan scan already states.
 #
@@ -58,6 +68,21 @@ fi
 
 if ! evaluated=$(jq -er "$norm | [((.results.passed_checks // [])[], (.results.failed_checks // [])[]).check_id] | unique | .[]" "$json" | sort -u); then
   err "could not read check results from $json — the scan did not complete."
+  exit 2
+fi
+
+# No `-e`, for the reason given at the skipped check below.
+if ! remote=$(jq -r "$norm"' | [(.results.passed_checks // [])[], (.results.failed_checks // [])[], (.results.skipped_checks // [])[]]
+    | .[] | select(.check_id == "CKV_TF_1")
+    | "module \"\(.resource // "?")\" (\(.file_path // "?"), lines \((.file_line_range // []) | map(tostring) | join("-")))"' "$json"); then
+  err "could not read module results from $json — the scan output is not readable."
+  exit 2
+fi
+if [ -n "$remote" ]; then
+  while IFS= read -r module; do
+    err "$module takes its source from outside the checkout, so the scan read none of what it declares."
+  done <<< "$remote"
+  err "OpenTofu downloads a module that is not called by a local path, and Checkov does not. Copy the module into the repository and call it by a path starting ./ or ../, so the scan reads it."
   exit 2
 fi
 

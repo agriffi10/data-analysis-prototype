@@ -41,6 +41,12 @@ entry you need, not the file.**
   as one. The empty root `.semgrepignore` only switches off Semgrep's built-in list, which skips
   every `test/` directory under the same reason. Still open: Checkov's flagless variables, and
   inline `nosemgrep` and `gitleaks:allow`.
+- **What a scanner cannot READ is refused too**, because a finding there reaches no count. For
+  Checkov: a file OpenTofu loads that the terraform framework does not parse (`.tofu`, `.tf.json`,
+  an override file), a variable file beside a module, a module called from outside the checkout,
+  and a NEW IAM policy the plan marks unknown until apply, which Checkov passes unread; an updated
+  one is only named. A value Checkov cannot resolve can score UNKNOWN, which it prints nowhere, or
+  PASSED, and that route is recorded, not closed.
 - **"Did not run" is never "clean."** A broken scanner fails the job even in report mode, and
   `--quiet` must never come back: without `passed_checks` the gate cannot tell a pass from a check
   that never ran.
@@ -676,7 +682,7 @@ in `$HOME`, and sets `CKV_SKIP_CHECK`. For each, it asserts that the refusal nam
 leaves nothing a caller could parse. With nothing planted, it asserts the fixture's `CKV_AWS_355`
 is reported by its ID. Each check was planted once: seven mutations of the wrapper and the
 numerator, and each reddened its own case for its own reason. `test_security_gates.py` holds the
-wiring. A workflow line may say `checkov` only in a form that cannot run it: the gate's four
+wiring. A workflow line may say `checkov` only in a form that cannot run it: the gate's own
 scripts by name, a scan output or list file, the pinned install, or the artifact's name. So a scan
 is caught however it is spelled. A first draft matched command positions and missed an environment
 prefix, `time`, `pipx run` and a container image. A table of lines is that sweep's positive
@@ -773,12 +779,113 @@ runner does: a refused scan, and a gate no step counted for, each fail for their
 clean report passes. One plant survived and removed code instead of earning a case: stripping
 colour codes from gitleaks's log, which dropping each line's time already did.
 
+**What the scanner cannot read is refused too (2026-09-15).** A review of the inline-skip change
+reproduced three routes by which a finding leaves a gate with no skip at all. Each was re-measured
+against 3.3.9 before anything was built. Two are closed here, and the third is recorded below.
+
+The `.tf` gate's population was a claim. OpenTofu loads `*.tf.json`, `*.tofu` and `*.tofu.json`,
+and a `.tofu` file shadows the `.tf` of its name, but the terraform framework parses `.tf` and
+`.hcl`. A log group with no retention in any of those three shapes, beside a compliant one in
+`main.tf`, left `CKV_AWS_66` passing on the compliant one and the numerator at 0. An override file
+is parsed, but OpenTofu merges it into the block it overrides while Checkov scores each block
+alone. And `--skip-path '.terraform'` matched a substring of the path, so it also hid
+`logs.terraform.tf`, while Checkov already skips a `.terraform` directory as it skips every hidden
+one. The flag is gone. `checkov-tf-population.sh` runs in the scan's own step and refuses a tracked
+file in any of those shapes anywhere in the repository, because a module source can name a
+directory outside `infra/` and OpenTofu loads it. A refusal leaves the scan no JSON, and every
+later step fails closed on that. A replay of the job's steps found two ways the gate still read a
+count after a refusal: a report committed to the repository survived it, and a refusal resting on
+errexit passed under `set +e`. So the step deletes the report first and exits by itself on a
+refusal, and the wiring test pins both. Nothing here used any of the shapes. A second review found three
+more ways past it, each reproduced end to end on a copy of `infra/`, and each is refused too. Git
+quotes a path holding a non-ASCII character unless it is asked for raw paths, so
+`infra/sécurité.tofu` passed every rule while OpenTofu loaded it; the check reads `ls-files -z`, as
+*Read paths RAW* above already said to. A variable file works the other way round: Checkov applies
+an `*.auto.tfvars.json` beside a child module to that module, while OpenTofu reads one only where it
+runs, and one turned `CKV_AWS_24` from failed to passed on a security group the plan still opened
+to `0.0.0.0/0`, so every tracked `*.tfvars` and `*.tfvars.json` is refused. And OpenTofu downloads a
+module called from outside the checkout, which Checkov reads only under
+`--download-external-modules`: a git-sourced module declaring an SSH-open security group passed
+with a count of 0. Checkov's `CKV_TF_1` scores every module call whose source does not start with
+`./` or `../` and records nothing for one that does, so the enforced numerator refuses any
+`CKV_TF_1` result, a skipped one included. Two alternatives were measured and rejected. Enforcing `checkov-enforced.txt` on the rendered-plan scan, which reads what
+OpenTofu loads, would fail: on the plan scan of run 34903502457, `CKV_AWS_45` failed 12 times and
+12 enforced IDs never ran. And adding the `terraform_json` framework would make the output a list of
+reports, of which both numerators read only the first.
+
+The plan gate scored a policy it could not see. A policy naming a resource created in the same
+apply is `(known after apply)`, the plan omits it, and every IAM check Checkov still runs on the
+resource passes. On a plan `tofu show -json` rendered, a role policy granting `s3:GetObject` on
+`"*"` failed `CKV_AWS_288` and `CKV_AWS_355`, and the same grant beside a statement naming a new
+queue ran two checks, both of which passed. This happened on #659: the results-conversion plane's
+`pipe` and `sfn` policies were `(known after apply)`, and the gate scored them clean, so a finding
+in them would first have blocked a later pull request that did not contain it. The plan numerator
+now takes the plan as a third argument. It refuses, by address, an `aws_iam_*` resource being
+created or replaced whose `policy` or `assume_role_policy` is unknown, and names one being updated
+in place in a warning and the job summary. The two attributes are named rather than matched by a
+suffix, because a real plan marks a new role's computed `inline_policy` unknown on every create,
+which no hand-built fixture had, so the corpus's fixtures are trimmed from real plans.
+
+The split was measured before it was chosen, by decision (2026-09-15), after a first draft that
+refused every unknown document. Over the hundred pull-request plan runs 33009167982 to
+34997976131 (2026-08-26 to 2026-09-15), a new document was unknown in 5 runs, all on the
+results-conversion and feedback planes. An existing one went `jsonencode(...) -> (known after
+apply)` on an in-place update in 27 runs across 22 branches, and 23 of those were the
+observability module's sweep role and policies: the module has
+`depends_on = [module.base]`, which defers the `aws_iam_policy_document` data sources they are built
+from whenever `module.base` has a change pending, with their content unchanged. Nothing in such a
+pull request can fix that, so refusing an update would block it for a document it did not touch.
+For a new document, the fix is in the pull request. An ARN a policy's `Resource` names is built
+from that resource's name in a local, so the plan knows it. A `Principal` must exist when IAM
+writes the policy (the note beside `api_execution_role_arn` in `infra/main.tf`), so a role it names
+needs an explicit dependency on that role, or lands in an earlier pull request, as does a resource
+whose ARN AWS generates, such as a KMS key or a Cognito pool.
+
+The corpus plants each refused file shape beside the ones allowed, and scans the allowed ones with
+the workflow's flags, which is what proves that "allowed" means "read". It plants a module from git,
+from the registry, pinned to a commit and under a skip of `CKV_TF_1`, and first asserts Checkov
+recorded `CKV_TF_1` on each. It plants each unknown document beside the unknowns the refusal must
+pass over: a computed `inline_policy`, a `policy_id`, a `policy_arn`, a queue policy and a data
+source read at apply, and an update beside both orders of replacement. Thirty mutations of the three
+scripts and seven of the wiring tests each reddened their own case.
+
 **Not closed by this.** An inline suppression is still a route in Semgrep and gitleaks, where no
 numerator reads what the scanner skipped. A `# nosemgrep` comment took a Semgrep finding off with no
 trace in the report (2 findings became 1), and `--disable-nosem` brings it back. A `gitleaks:allow`
 comment took a gitleaks finding off (1 became 0), and `--ignore-gitleaks-allow` brings it back.
-This change sets neither flag. The environment variables Checkov reads directly rather than through
-a flag are another route: `--show-config` cannot report them, and a review measured
+The workflow passes neither flag.
+
+A value Checkov cannot resolve can score the check UNKNOWN, which Checkov writes to no output
+format, or PASSED. An SSM parameter's value, or a `var.x` with no default, as an ECR repository's
+tag mutability left `CKV_AWS_51` scored only on a compliant repository beside it, and the numerator
+at 0. `CKV_AWS_274` passes an `AdministratorAccess` ARN built from an unresolved
+`data.aws_partition` and fails the literal one. The only way to see an UNKNOWN is to run Checkov
+in-process and patch its internal `Report.add_record`, and a pass of the second kind is invisible
+even to that. On `infra/` at `ae8008ce` the patch records none on an enforced Python check, and 79
+by design on two enforced graph checks, `CKV2_AWS_40` on 58 IAM resources and `CKV2_AWS_56` on 21,
+because the `.tf` scan cannot read a `templatefile()` policy; #797 has since taken `CKV2_AWS_40` off the list. A closure
+would rest on Checkov's internals and need an exemption for such a check, or its removal from the
+list, and it would refuse a change that leaves an
+enforced setting unresolvable even when the deployed value is fine. It was recorded rather than
+built, by decision (2026-09-15). Checkov also reads no `inline_policy` on an `aws_iam_role`, known
+or unknown. On a rendered plan, a role whose inline policy allowed `*` on `*` scored the five role
+checks, and all five passed. Nothing in `infra/` writes one, since roles take their policies from
+`aws_iam_role_policy`. A refusal would have to tell a written inline policy from a new role's
+computed one, and what an existing role's plan carries there was not measured. An unknown
+document on an in-place update is still only named. #797 has since built the observability
+documents without a data source, and run 35030771490 planned a change in `module.base` while
+Checkov read the sweep policies with all nine checks, so what an update now leaves unknown is a
+real edit: an existing policy gaining a new resource's ARN, as `module.api`'s did on both plane
+pull requests, or a function a plane replaces by design. Refusing those too was offered and
+declined by decision (2026-09-15), so they reach a warning, not a refusal. Nor is an unknown
+`policy_arn` refused, though `CKV_AWS_274` reads it to catch an `AdministratorAccess` attachment. It
+is unknown on every attachment of a customer-managed policy created in the same apply, which every
+deploy-grant pull request makes, so refusing it would block them all. A review reached it through a
+partition data source read at apply inside a module with `depends_on`, a shape
+`test_depends_on_defers_no_data_source.py` now refuses.
+
+The environment variables Checkov reads directly rather than through a flag are another route:
+`--show-config` cannot report them, and a review measured
 `CKV_IGNORED_DIRECTORIES` taking the finding of a resource in a subdirectory off a `-d` scan while
 the wrapper exited 0. And code the pull request controls runs in both scanning jobs before Checkov
 does: `npm ci` runs install scripts in the security scan job, and the plan job runs

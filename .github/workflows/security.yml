@@ -579,7 +579,8 @@ jobs:
       # environment variable. That refusal never fires on a normal run, so this proves it
       # still does, against the scanner just installed, before either gate relies on it. It
       # also plants an inline `checkov:skip` of an enforced ID in each framework and proves
-      # the numerator below refuses the finding Checkov reports skipped.
+      # the numerator below refuses the finding Checkov reports skipped, and plants each file
+      # shape checkov-tf-population.sh refuses beside the ones it allows, which the scan must read.
       - name: Prove the scans refuse configuration they were not given
         if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/checkov-scan-test.sh
@@ -591,7 +592,19 @@ jobs:
         # "did it actually run" question is answered by the JSON being parseable — not by
         # an exit code that means two different things.
         #
-        # OpenTofu's .tf parses as terraform; there is no separate framework for it.
+        # OpenTofu's .tf parses as terraform; there is no separate framework for it. What that
+        # framework cannot read, OpenTofu may still load: `*.tofu`, `*.tofu.json`, `*.tf.json`,
+        # and override files it merges into another block. A finding in one reaches no check,
+        # and a variable file beside a module changes what Checkov scores but not what OpenTofu
+        # applies, so checkov-tf-population.sh refuses any such file first. The report is deleted
+        # before it, since one committed to the repository would otherwise survive the refusal
+        # and be counted, and the refusal ends the step with its own `exit` rather than resting
+        # on the shell's errexit, which one `set +e` would switch off. So a refusal leaves no
+        # JSON for the check below, and the gate fails closed.
+        #
+        # NO --skip-path. Checkov already skips a `.terraform` directory, as it does every
+        # hidden one, and the flag matches a substring of the path, so `--skip-path '.terraform'`
+        # also hid a file named `logs.terraform.tf` (measured against 3.3.9).
         #
         # NO --quiet: it strips passed_checks, and the enforced gate below cannot tell "this
         # check passed" from "this check never ran" without them. Those two must never look
@@ -601,9 +614,10 @@ jobs:
         # THROUGH checkov-scan.sh, never bare, for the reason given at the corpus step above.
         # A refusal writes nothing, so the JSON check below fails the step.
         run: |
+          rm -f checkov.json
+          .github/scripts/checkov-tf-population.sh || exit 1
           .github/scripts/checkov-scan.sh -d infra \
             --framework terraform \
-            --skip-path '.terraform' \
             --output json --compact --soft-fail > checkov.json || true
           if ! jq -e '(if type=="array" then .[0] else . end) | .summary.failed' checkov.json >/dev/null 2>&1; then
             echo "::error title=Checkov::output is not valid — the scan did not complete."
@@ -651,8 +665,9 @@ jobs:
       # accepts (no VPC, no CMK, no X-Ray); blocking on it would mean suppressing twenty
       # rules to enforce five. This narrows it to the checks .github/checkov-enforced.txt
       # holds at zero. The script hard-errors if an enforced ID was evaluated against
-      # nothing, so a typo or a renamed check cannot read as enforcement, and if Checkov
-      # reports a finding on one SKIPPED, so an inline `checkov:skip` cannot take it off.
+      # nothing, so a typo or a renamed check cannot read as enforcement, if Checkov
+      # reports a finding on one SKIPPED, so an inline `checkov:skip` cannot take it off, and
+      # if a module is called from outside the checkout, which Checkov does not download.
       #
       # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A command substitution that fails
       # inside an argument to `echo` does NOT fail the step: `echo` exits 0, `set -e` sees
