@@ -42,10 +42,12 @@ The prefix is the **full key including the recipient's own space root**. `FilesP
 looks like it worked. A `space` recipient needs `?space=` as well, or the browser resolves the
 personal space and drops the prefix for the same reason.
 
-Two tests hold the two languages together: one reads the route's `startsWith` gate **and**
-`rootPrefix`'s own definition out of `useFileSpace.ts`, the other reads `isSafeInAppPath`'s accept
+Two tests held the two languages together: one read the route's `startsWith` gate **and**
+`rootPrefix`'s own definition out of `useFileSpace.ts`, the other read `isSafeInAppPath`'s accept
 rule. The first version pinned only the route's gate and compared against a hardcoded value, which
-would have stayed green through exactly the rename it existed to catch.
+would have stayed green through exactly the rename it existed to catch. Both were deleted with their
+file in `a41bda69d`; one test on the handler's side holds the rules now, described in
+`docs/decisions/storage.md` under *Why the link carries the recipient's root*.
 
 **The link is feature-gated too**, and that was a review finding rather than a design: with
 `files` off it was a live anchor into the unavailable page, and with `sharedWorkspaces` off the
