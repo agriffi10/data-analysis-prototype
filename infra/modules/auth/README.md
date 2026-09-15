@@ -46,20 +46,20 @@ were written and the drift is unavoidable. Here **nothing drifts** — the value
 constant, it was merely unknowable at plan time. Suppressing the diff would hide a real change to the
 provider name if the pool were ever recreated.
 
-## The principal-tag mapping
+## The claims the API turns into principal tags
 
-Per-user isolation is "attributes for access control": the mapping stamps a `username` principal tag
-**server-side, at credential issuance, never by the client**.
+Per-user isolation is "attributes for access control": the API stamps a `username` principal tag
+**server-side, from a claim of the verified ID token, never from anything the client sends**. This
+pool issues the claims; the API reads them.
 
-**The tag value must be `cognito:username`.** A first attempt mapping to `username` produced a
-CloudTrail `AssumeRoleWithWebIdentity` event with **no `principalTags` at all** — the `username`
-claim does not exist in a Cognito User Pool ID token — so the tag was never stamped. The map **key**
-is the tag *name* the role policy references; the **value** is the token *claim* it reads.
+**The tag value must be `cognito:username`.** A first attempt, under the Identity Pool, mapped the
+bare `username` claim and produced a CloudTrail `AssumeRoleWithWebIdentity` event with **no
+`principalTags` at all** — that claim does not exist in a Cognito User Pool ID token — so the tag
+was never stamped. The API reads `cognito:username` for the same reason (root's
+`oidc_username_claim`).
 
-**There is only one principal-tag map per (pool, provider)**, which is why the ten shared-space
-membership tags are merged into this same resource rather than declared separately. Tag
-`shared_space_k` reads the `custom:shared_space_k` claim. A slot the user is not in carries no claim,
-so the tag is not stamped and that slot's templated statement matches nothing — implicit deny.
+Tag `shared_space_k` reads the `custom:shared_space_k` claim. A slot the user is not in carries no
+claim, so the tag is not stamped and that slot's templated statement matches nothing — implicit deny.
 
 **Grant and revoke take effect on the next token refresh**, not instantly.
 

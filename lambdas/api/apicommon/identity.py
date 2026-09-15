@@ -742,14 +742,12 @@ def api_client(service: str) -> Any:
     about to be refused, and the refusal is the only thing standing between that route and the
     execution role's own identity.
 
-    **It has no caller in shipped code today, and that is a deviation worth naming rather than
-    leaving to be noticed.** The spec asks that the assume-role call itself be made "through the
-    API plane", and it is — on the execution role's credentials — but through the private
-    constructor rather than through this door. It cannot be otherwise: the guard refuses any route
-    that has not declared the plane, no route declares it, and assuming is framework work that
-    happens for every route including the ones that must never reach the execution role. So the
-    declaration mechanism ships with no live subject and is exercised by tests alone until the
-    first queue write arrives, which is the route-declared use it was built for.
+    **Its callers are the queue writers** — the shared sender in ``enqueue`` and the feedback
+    route — and every route that reaches them declares the API plane on its contract entry. The
+    assume-role call also runs on the execution role's credentials, but through the private
+    constructor rather than through this door, and it cannot be otherwise: the guard refuses any
+    route that has not declared the plane, and assuming is framework work that happens for every
+    route, including the ones that must never reach the execution role.
 
     Args:
       service: The AWS service name.

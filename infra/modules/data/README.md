@@ -79,9 +79,8 @@ to every policy.
 
 The key list is built from the same two variables the API function's own environment carries, so the
 set the API stamps and the set this statement admits **cannot drift apart by transcription**.
-`principal_tag_key` is **not** threaded into the permission templates, which hard-code the literal:
-editing those is forbidden while both credential paths run, so the agreement is **asserted by test
-rather than made structural**.
+`principal_tag_key` is **not** threaded into the permission template, which hard-codes the literal,
+so the agreement is **asserted by test rather than made structural**.
 
 ## The permission policy, and three things deliberately not granted
 

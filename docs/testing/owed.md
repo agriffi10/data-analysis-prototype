@@ -822,7 +822,7 @@ and with a staged body; the eight real dead-letters, and the JWT sweep over what
 
 **Archive and restore.** Two UUIDs per run, and they must **differ** — the plane refuses a restore
 whose `requestId` equals its `archiveId`. The group id is the digest of the **archive root alone**,
-which is the contract the browser reproduces:
+the same key the API derives for `POST /v1/enqueue/restore`:
 
 ```bash
 --message-group-id "$(printf 'personal/%s/archive/%s/' "$PORTAL_USER" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)"

@@ -508,8 +508,8 @@ module "auth" {
   account_id      = data.aws_caller_identity.current.account_id
   portal_role_arn = local.portal_role_arn
 
-  # Drives the ten custom:shared_space_1..N user-pool attributes + the
-  # Identity-Pool shared_space_1..N principal-tag mappings.
+  # Drives the custom:shared_space_1..N user-pool attributes, the claims the API reads to
+  # stamp the shared_space_1..N session tags.
   max_shared_memberships = var.max_shared_memberships
 
   # Both triggers import `cpcommon.observability` and emit
@@ -1523,9 +1523,10 @@ module "api" {
   # this provider rather than about the verifier. Keeping it at the composition root leaves the
   # module and every Python module downstream treating the URL as opaque — so swapping the
   # provider is this line plus the four beside it.
-  # The identity layer. The role is the EXISTING portal role, named by the same local the
-  # Identity Pool's role attachment uses -- reusing it is what keeps the user-space bucket
-  # policy's hand-maintained allowlist correct without a new entry.
+  # The identity layer. The role is the EXISTING portal role: module.data creates it under
+  # local.portal_role_name, and local.portal_role_arn is built from that same name. Reusing it
+  # is what keeps the user-space bucket policy's hand-maintained allowlist correct without a
+  # new entry.
   portal_role_arn        = local.portal_role_arn
   principal_tag_key      = var.principal_tag_key
   max_shared_memberships = var.max_shared_memberships

@@ -1,7 +1,7 @@
 """The preservation claim, checked artefact by artefact rather than asserted once.
 
 Why the no-change guard is a named-absence assertion plus a git baseline rather than a snapshot,
-and why the one template this change edits needs a literal second copy of its own, are in
+and why the one template this change edits needs a guard of its own, are in
 ``infra/info/deploy-role-iam.md``.
 
 Attributes:

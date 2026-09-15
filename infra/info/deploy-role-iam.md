@@ -95,8 +95,8 @@ role already holds and why it is split across one managed policy per resource fa
   break-glass shape (`put-bucket-policy` out-of-band, then merge).
 - **`depends_on` defers data sources (benign plan noise).** `module.auth`/`module.data` declare
   `depends_on = [module.base]`, so any PR touching `module.base` makes their data sources unknown at
-  plan → cascades to `(known after apply)` and can show the identity-pool principal tag as
-  *force-replace*. At apply these resolve to identical values (no-op / identical recreate). This is
+  plan → cascades to `(known after apply)` and can show a ForceNew attribute fed by one as
+  *force-replace* (the ForceNew data-source trap, below). At apply these resolve to identical values (no-op / identical recreate). This is
   **not** drift — don't panic at the plan.
 - **An unknown ARN inside `compact()`/a list silently drops the change.** A cross-module ARN that is
   unknown-at-plan (e.g. a role created in the same apply) inside `compact()` made OpenTofu plan *no*
@@ -245,11 +245,14 @@ copy of the answer with itself and passes whatever happens. So the byte comparis
 working tree with a length check passes a deletion, because the deleted file is simply not in the
 glob.
 
-**A template the change edits needs its own baseline, and that is the easy one to miss.** The blob
-comparison excludes the trust template, so "the existing statement is untouched" has nothing to
-compare against. Asserting that `sts:AssumeRoleWithWebIdentity` still appears would survive someone
-changing that statement's principal, its conditions, or dropping `sts:TagSession` from it — so it is
-asserted whole, against a literal second copy, for the same reason the CSP terms are.
+**A template the change edits needs its own guard, and that is the easy one to miss.** The blob
+comparison excludes the trust template, so nothing compares it against a baseline. While the
+Identity Pool's statement lived there it was asserted whole, against a literal second copy:
+asserting only that `sts:AssumeRoleWithWebIdentity` still appeared would have survived a changed
+principal, changed conditions or a dropped `sts:TagSession`. With the pool retired, the template's
+one statement is pinned by shape instead — exactly one, the API's, with no federated principal —
+because a re-added federated statement slides under every assertion that counts AWS-principal
+statements or reads tag keys.
 
 ## Domain variables: an empty one is not an unset one
 

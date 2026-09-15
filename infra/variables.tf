@@ -77,7 +77,7 @@ variable "archive_bucket_name" {
 }
 
 variable "max_shared_memberships" {
-  description = "Number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/architecture.md, Authorization)."
+  description = "Number of shared-space membership slots per user: the Cognito custom attributes custom:shared_space_1..N, the shared_space_1..N session tags the API stamps from them, and the portal-role policy slots. Single source for the slot count across auth/data/shared-spaces/api. Bounded because a session tag holds exactly one value and IAM cannot iterate a list inside a Resource ARN; raising it enlarges the portal-role policy (see docs/architecture.md, Authorization)."
   type        = number
   default     = 10
 

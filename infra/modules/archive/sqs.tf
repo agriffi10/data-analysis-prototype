@@ -5,8 +5,9 @@
 # deleting objects the other is still copying.
 #
 # A RESTORE KEYS ON THE ARCHIVE, NOT THE SPACE, or a double-submitted restore passes the
-# destination guard twice before either copy lands — the guard is a READ. ⚠ NOTHING ENFORCES
-# THIS YET: the producer is the browser. docs/testing/owed.md §2.2 types it.
+# destination guard twice before either copy lands — the guard is a READ. The API derives that
+# key from the archive root when it enqueues, so no caller chooses it; docs/testing/owed.md §2.2
+# spells it out for a hand-built request.
 #
 # content_based_deduplication is OFF; the explicit MessageDeduplicationId IS the archive's
 # permanent identity, so a resend cannot open a second archive under a second uuid.
