@@ -89,6 +89,50 @@ def test_all_four_classes_at_once():
     assert diff["changed"] is True
 
 
+def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
+    """Matches a header name to a live column or partition key only when Athena gives them one name.
+
+    Athena lowercases a name and never case-folds it. Against a live ``straße`` and the partition
+    key ``weiss``, ``Straße`` is the live column, ``STRASSE`` and ``Weiß`` are the new columns
+    ``strasse`` and ``weiß``, and ``Weiss`` and ``WEISS`` are the partition key, left out of the
+    comparison and of the collision check rather than refused. That is what apply-refresh writes
+    from this header. Matching on ``casefold()`` folded ``STRASSE`` onto ``straße`` and ``Weiß``
+    onto ``weiss``, and reported only ``notes`` added, so the write landed two columns the diff
+    never reported.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    event = _event(
+        _cols(("straße", "string")),
+        _cols(
+            ("Straße", "string"),
+            ("STRASSE", "string"),
+            ("Weiß", "string"),
+            ("Weiss", "string"),
+            ("WEISS", "string"),
+            ("notes", "string"),
+        ),
+        partition_keys=("weiss",),
+    )
+
+    out = m.handler(event, None)
+
+    assert out["diff"]["added"] == [
+        {"name": "STRASSE", "type": "string"},
+        {"name": "Weiß", "type": "string"},
+        {"name": "notes", "type": "string"},
+    ]
+    assert out["diff"]["removed"] == []
+    assert out["diff"]["unchanged"] == 1
+
+
 # ── The removal opt-in (FR-003) ──────────────────────────────────────────────
 
 
@@ -102,6 +146,46 @@ def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
     body = json.loads(queue.calls[0]["MessageBody"])
     assert "gone" in body["message"]
     assert body["link"] == "/query?refreshTable=alice.sales_2026&removed=gone"
+
+
+def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
+    """Refuses a header two of whose columns Athena would give one name, and names just those.
+
+    The header differs from the live table by nothing but the collision, which is the case the
+    refusal exists for: indexed on the fold, ``Amount,region,amount`` collapses back to the live
+    ``amount,region`` and was reported unchanged, so the collision reached the user as no change
+    at all. ``Straße`` and ``STRASSE`` are in both the live table and the header because Athena
+    keeps them apart, and naming them too would refuse a collision Athena does not have. The one
+    notification is the refusal, with no link, since there is nothing to opt into.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    queue = _arm_notifications()
+    event = _event(
+        _cols(("amount", "string"), ("region", "string"), ("straße", "string"), ("strasse", "string")),
+        _cols(
+            ("Amount", "string"),
+            ("region", "string"),
+            ("amount", "string"),
+            ("Straße", "string"),
+            ("STRASSE", "string"),
+        ),
+    )
+
+    exc = _expect_reason(event, "invalid_column_names")
+
+    assert exc.tokens["columns"] == '"Amount", "amount"'
+    assert len(queue.calls) == 1, "the refusal should be the run's only notification"
+    body = json.loads(queue.calls[0]["MessageBody"])
+    assert '"Amount", "amount"' in body["message"]
+    assert "link" not in body
 
 
 # ── Shape + observability ────────────────────────────────────────────────────

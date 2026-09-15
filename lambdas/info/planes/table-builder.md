@@ -91,13 +91,16 @@ statements, no window in which the table is absent, and **no verb on this plane 
   is **refused with a notification**, never queued.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names. A *refresh* skips that check at inference, or it would strand tables that predate the rule.
-  Its write still refuses a case collision: apply-refresh lowercases every name, so two that fold
-  together would be written under one name, and it raises `update_failed` before the update. But
-  the write runs only when diff-schema reports a change, and the diff matches columns by folded
-  name, keeping the last of a colliding pair — so a collision reaches the write only when what
-  survives that fold still differs from the live table. Against a live `amount,region`, a CSV
-  header of `Amount,region,amount` is reported unchanged and `Amount,region,amount,notes` is
-  refused.
+  It still refuses a fold collision: diff-schema raises `invalid_column_names` naming every
+  colliding name before it classifies anything, so a header of `Amount,region,amount` is refused
+  rather than reported unchanged. Apply-refresh keeps its own guard, `update_failed` before the
+  update, because nothing after its fold would notice a column collapsed.
+- **Every step of a refresh folds a name through `cpcommon.columns.fold`, which is `lower()`, never
+  `casefold()`.** That covers the diff's match and partition-key exclusion, the write's names,
+  comment carry and refusal, and both catalog reads around the update. Athena lowercases, so
+  `Straße` and `STRASSE` are two columns, `straße` and `strasse`. Full case folding makes them one.
+  When the diff casefolded and the write lowercased, a header of `Straße,notes` against a live
+  `strasse` reported only `notes` added and replaced `strasse` without the removal opt-in.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a `QUEUED` execution is a 400
   whose name maps to nothing, and it reached users as a generic "contact the administrator".

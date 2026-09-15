@@ -236,18 +236,51 @@ def test_the_read_only_fields_glue_rejects_are_not_sent():
 # ── Column names, comments and casing ────────────────────────────────────────
 
 
-def test_column_names_are_lowercased_like_the_create_path():
-    """AWS documents that Athena "automatically lowers any upper case names in DDL queries
-    when it creates databases, tables, or columns" — so the create path folds for free and
-    this one, which bypasses Athena entirely, has to do it in code. Without the fold a
-    refresh would leave a mixed-case catalog entry the create path could never produce.
+def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fold():
+    """Writes names the way Athena lowercases them, and carries, drops and verifies on that fold.
+
+    AWS documents that Athena "automatically lowers any upper case names in DDL queries when it
+    creates databases, tables, or columns", so the create path folds for free and this one,
+    which bypasses Athena entirely, has to do it in code. Lowercasing is not case folding:
+    against a live ``straße`` and the partition key ``weiss``, ``STRASSE`` and ``Weiß`` are the
+    new columns ``strasse`` and ``weiß``, and ``Weiss`` and ``WEISS`` are the partition key,
+    dropped rather than refused as a collision. Keyed on ``casefold()`` instead, ``strasse`` took
+    the live column's comment, ``Weiß`` was dropped as if it were the partition key, and the
+    read-back counted ``straße`` and ``strasse`` as one column. The live name is not ASCII so
+    that a carry keyed on one fold and looked up on the other loses the comment either way
+    round.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
-    glue, _sqs = _install()
-    columns = [{"name": "Order_ID", "type": "string"}, {"name": "Amount", "type": "string"}]
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "straße", "Type": "string", "Comment": "the street"}],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "weiss", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Straße", "type": "string"},
+        {"name": "STRASSE", "type": "string"},
+        {"name": "Weiß", "type": "string"},
+        {"name": "Weiss", "type": "string"},
+        {"name": "WEISS", "type": "string"},
+        {"name": "notes", "type": "string"},
+    ]
+    keys = [{"name": "weiss", "type": "string", "values": ["a", "b"]}]
 
-    m.handler(_event(columns=columns), None)
+    out = m.handler(_event(columns=columns, partitionKeys=keys), None)
 
-    assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [c["Name"] for c in written] == ["straße", "strasse", "weiß", "notes"]
+    assert [c.get("Comment") for c in written] == ["the street", None, None, None]
+    assert out["appliedColumnCount"] == 4
 
 
 def test_columns_differing_only_by_case_are_refused_before_the_update():
@@ -256,9 +289,10 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     The fold turns ``Amount`` and ``amount`` into one column name. An update does not reject
     duplicate names the way Athena's ``CREATE`` does, and the read-back compares name sets, so
     both spellings collapse on each side and a missing refusal would report success while the
-    table silently lost a column. The header also adds ``notes`` because a collision alone folds
-    back to the live columns, so diff-schema reports the table unchanged and this verb never
-    runs. The verb's other ``update_failed`` refusals come from the update call or the read-back
+    table silently lost a column. Diff-schema refuses this header before the verb runs, so this
+    is the backstop, pinned because nothing after the fold would notice it gone. The header also
+    adds ``notes`` so that the definition differs from the live one for more than the collision.
+    The verb's other ``update_failed`` refusals come from the update call or the read-back
     after it, so an untouched ``update_table`` and a detail naming the column are what pin this
     one.
 
@@ -347,8 +381,8 @@ def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
     is why 149 hard-codes the fold, but documentation is the same class of evidence that had
     SPEC-144 FR-001 reversed mid-build. The check that would discharge it is a live
     ``GetTable`` read-back after refreshing a table carrying a mixed-case column, and it is
-    recorded as owed. Note the comment survives the re-casing — the carry is keyed on
-    ``casefold()`` — so this is a rename, not a column swap.
+    recorded as owed. Note the comment survives the re-casing — the carry is keyed on the same
+    fold as the write — so this is a rename, not a column swap.
 
     If this starts failing, the fold changed: revisit the decision (docs/decisions/analytics.md, "Removing a
     column needs an opt-in" / SPEC-149's apply entry), do not delete the test.

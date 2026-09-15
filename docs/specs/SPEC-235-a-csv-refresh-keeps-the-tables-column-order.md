@@ -28,8 +28,8 @@ map each row's fields to the table's columns by position.
 
 - **One file decides the columns.** inspect-source keeps the first data key in the listing as the
   sample (`sample_by_format.setdefault`), and infer-schema reads only that file.
-- **The diff ignores order.** `compute_diff` matches names case-folded, so a header with the same
-  columns in another order is reported as unchanged.
+- **The diff ignores order.** `compute_diff` matches names through `cpcommon.columns.fold`, which
+  lowercases, so a header with the same columns in another order is reported as unchanged.
 - **The write takes the first file's order.** `_write_columns` iterates the inferred columns.
 - **CSV is positional and untyped.** CSV tables use `ddl.CSV_OPEN_SERDE` with the header skipped,
   and every CSV column is `string` (`lambdas/info/planes/table-builder.md`), so a shifted value
@@ -124,10 +124,11 @@ map each row's fields to the table's columns by position.
 When the refreshed table is CSV, apply-refresh writes the live table's columns in their existing
 order, leaving out any column the first file no longer has. After them it writes every column that
 is new to the table, in the order the first file lists them. Columns are matched to the live table
-case-folded, as today. Everything else `_write_columns` does is unchanged: names are lowercased,
-comments and column parameters are carried from the live column, a data column that collides with a
-partition key is dropped, and two names that fold to one are refused with `update_failed`. For JSON
-and Parquet the written order stays the first file's.
+through `cpcommon.columns.fold`, as today, and never through `casefold()`, which merges `ß` into
+`ss` where Athena keeps them apart. Everything else `_write_columns` does is unchanged: names are
+lowercased, comments and column parameters are carried from the live column, a data column that
+collides with a partition key is dropped, and two names that fold to one are refused with
+`update_failed`. For JSON and Parquet the written order stays the first file's.
 
 #### Acceptance Criteria:
 
@@ -139,14 +140,14 @@ and Parquet the written order stays the first file's.
   `update_table` receives `a,c`.
 - [ ] CSV, live `amount,region` with a comment on `region`, first file `Region,Amount,Notes`:
   `update_table` receives `amount,region,notes`, and `region` still carries its comment.
-- [ ] CSV, live `amount,region`, first file `Amount,region,amount,notes`: refused as
-  `update_failed`, and `update_table` is not called. The new `notes` is what brings the case here:
-  the collision alone folds back to the live columns, so diff-schema reports the table unchanged
-  and apply-refresh never runs. `test_columns_differing_only_by_case_are_refused_before_the_update`
-  in `test_apply_refresh.py` already asserts exactly this; keep it green through the reorder rather
-  than adding a second copy. It matters here because a reorder keyed on the case-folded name merges
-  the two columns silently while every other criterion here still passes. The read-back cannot
-  catch it either, because it compares name sets.
+- [ ] CSV, live `amount,region`, first file `Amount,region,amount,notes`: apply-refresh refuses it
+  as `update_failed`, and `update_table` is not called. In the pipeline diff-schema refuses this
+  header first, as `invalid_column_names`; apply-refresh's guard is the backstop.
+  `test_columns_differing_only_by_case_are_refused_before_the_update` in `test_apply_refresh.py`
+  already asserts exactly this; keep it green through the reorder rather than adding a second
+  copy. It matters here because a reorder keyed on the folded name merges the two columns silently
+  while every other criterion here still passes. The read-back cannot catch it either, because it
+  compares name sets.
 - [ ] Parquet, live `a,b,c`, first file `a,new,b,c`: `update_table` receives `a,new,b,c`. The same
   holds for JSON. Both tests set `format` explicitly, because apply-refresh's test event factory
   defaults it to `csv`, so a test that leaves it unset exercises only the CSV branch.

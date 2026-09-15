@@ -12,10 +12,15 @@ refusal is the warning, naming the columns in a notification and changing nothin
 This verb also owns the no-change notification. The state machine has no notification state,
 every notification on this plane is emitted in-Lambda, and on the unchanged path no Lambda
 runs after this one.
+
+It is also where a refresh refuses a header two of whose columns Athena would give one name.
+The write can land only one of them, so the refusal belongs before the classification, where
+a collision would otherwise read as no change at all.
 """
 
 import logging
 
+from cpcommon import columns as columns_mod
 from cpcommon import events, observability
 from cpcommon.errors import TerminalError
 from tbcommon import notify
@@ -26,41 +31,97 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-builder")
 
 
-def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
-    """Indexes columns by case-folded name, excluding the partition keys.
+def _data_columns(columns: list[dict], partition_key_names: set[str]) -> list[dict]:
+    """Drops the columns that name a partition key, matched on the name Athena gives each.
+
+    Apply-refresh drops the same columns from the definition it writes, so what this verb
+    compares and refuses is what the write would land.
 
     Args:
       columns: Column dicts, each carrying at least a name.
-      partition_key_names: Partition key names to exclude; matched case-folded too.
+      partition_key_names: Declared partition key names.
 
     Returns:
-      A mapping of case-folded column name to the original column dict.
+      The columns that are data rather than partition keys, in their original order.
 
     Raises:
       KeyError: If a column has no name.
     """
-    excluded = {name.casefold() for name in partition_key_names}
-    return {
-        c["name"].casefold(): c for c in columns if c["name"].casefold() not in excluded
-    }
+    excluded = {columns_mod.fold(name) for name in partition_key_names}
+    return [c for c in columns if columns_mod.fold(c["name"]) not in excluded]
+
+
+def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
+    """Indexes the data columns by the name Athena gives each, excluding the partition keys.
+
+    Args:
+      columns: Column dicts, each carrying at least a name.
+      partition_key_names: Partition key names to exclude.
+
+    Returns:
+      A mapping of folded column name to the original column dict.
+
+    Raises:
+      KeyError: If a column has no name.
+    """
+    return {columns_mod.fold(c["name"]): c for c in _data_columns(columns, partition_key_names)}
+
+
+def _refuse_fold_collisions(inferred: list[dict], partition_key_names: set[str]) -> None:
+    """Refuses a header two of whose data columns Athena would give one name.
+
+    A create gets this refusal from the column-name rule. A refresh skips that rule, or it would
+    strand tables built before it, but refusing a collision strands nothing: the write already
+    refuses any definition carrying one, so while a header collides a refresh could only ever
+    report no change. Left to the classification, ``Amount,region,amount`` against a live
+    ``amount,region`` indexes to the live table and reports exactly that, and with anything
+    else changed the write refuses with a message that says to try again, which cannot help.
+    Refused here, the user is told which names to change, in the words a create uses.
+
+    Args:
+      inferred: The columns the data now implies.
+      partition_key_names: Declared partition key names. A column naming one is dropped by the
+        write rather than written twice, so it collides with nothing.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``invalid_column_names``, naming every name in a collision.
+    """
+    names = [c["name"] for c in _data_columns(inferred, partition_key_names)]
+    colliding = list(dict.fromkeys(columns_mod.folded_duplicates(names)))
+    if colliding:
+        summary = columns_mod.describe(colliding)
+        raise TerminalError("invalid_column_names", summary, tokens={"columns": summary})
 
 
 def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names: set[str]) -> dict:
     """Classifies the change between a table's declared columns and its freshly inferred ones.
 
-    Pure — no AWS calls. Names are matched case-insensitively, because the create path issues
-    CREATE EXTERNAL TABLE through Athena, whose Hive-backed DDL folds column names: a CSV
-    header of ``Amount`` is stored in Glue as ``amount``. Nothing here normalises them, so a
+    Pure — no AWS calls. Names are matched on ``columns.fold``, the name Athena gives a column,
+    because the create path issues CREATE EXTERNAL TABLE through Athena, whose Hive-backed DDL
+    lowercases column names: a CSV header of ``Amount`` is stored in Glue as ``amount``. A
     case-sensitive match would report every column of every mixed-case table as both added and
     removed on a folder where nothing changed — and it would be inescapable, since opting into
     the removal rebuilds with the original casing, Athena folds it again, and the next refresh
     says the same thing. A true rename is still caught; the only thing this cannot see is a
     pure case change, which under those semantics is not a change at all.
 
+    The fold is the write's fold, not ``casefold()``. Full case folding matches ``Straße`` to a
+    live ``strasse``, while the write lowercases it to ``straße`` and lands a column this
+    classification never reported. Whenever something else changed, so that the write ran, it
+    replaced ``strasse`` without the removal opt-in.
+
     Partition keys are excluded here rather than assumed excluded upstream: infer-schema emits
     the full inferred list and the partition-collision drop happens inside the DDL builder,
     where it affects only the DDL body, so a data column named after a partition key does reach
     here and would otherwise be reported on every single refresh.
+
+    A header two of whose columns fold to one name is refused before anything is classified.
+    The index below would keep only the last of the pair, so no classification of such a header
+    is true, and a refusal that depended on one would miss the collision that changes nothing
+    else. It also puts the refusal ahead of the removal check, which opting in cannot satisfy.
 
     Args:
       existing: The columns the table currently declares.
@@ -75,7 +136,9 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
 
     Raises:
       KeyError: If a column is missing its name or type.
+      TerminalError: ``invalid_column_names`` when two inferred data columns fold to one name.
     """
+    _refuse_fold_collisions(inferred, partition_key_names)
     old = _by_folded_name(existing, partition_key_names)
     new = _by_folded_name(inferred, partition_key_names)
 
@@ -116,14 +179,15 @@ def handler(event: dict, context) -> dict:
       differs.
 
     Raises:
-      TerminalError: ``columns_removed`` when a removal was not opted into, or
-        ``malformed_event`` when a required field is missing.
+      TerminalError: ``invalid_column_names`` when two columns fold to one name,
+        ``columns_removed`` when a removal was not opted into, or ``malformed_event`` when a
+        required field is missing.
     """
     return _diff(event)
 
 
 def _diff(event: dict) -> dict:
-    """Classifies the change, refuses an un-opted-into removal, and notifies a no-op.
+    """Classifies the change, refuses a collision or an un-opted-into removal, and notifies a no-op.
 
     Column names are schema and are permitted in the record; column values and sampled rows
     are not and appear nowhere. The request id and verb ride as baggage from the span.
@@ -138,9 +202,11 @@ def _diff(event: dict) -> dict:
       verb that never runs.
 
     Raises:
-      TerminalError: ``columns_removed`` when a removal was not opted into. Nothing is changed,
-        and the tokens are what carry the column names into the notification and the link the
-        browser names them back from.
+      TerminalError: ``invalid_column_names`` when two columns fold to one name, from
+        ``compute_diff`` and so always ahead of a removal, which opting in cannot fix.
+        ``columns_removed`` when a removal was not opted into. Either way nothing is changed,
+        and the tokens are what carry the column names into the notification and, for a
+        removal, the link the browser names them back from.
     """
     existing = events.require(event, "existingColumns")
     inferred = events.require(event, "columns")
