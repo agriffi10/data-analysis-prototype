@@ -182,7 +182,7 @@ cd "$SCRATCH" && python3 - <<'PY'
 import csv
 regions = ["north","south","east","west"]
 def w(name, header, rows):
-    with open(name,"w",newline="") as f:
+    with open(name,"w",newline="",encoding="utf-8") as f:
         wr = csv.writer(f, lineterminator="\n")   # LF, NOT csv's default CRLF
         wr.writerow(header); wr.writerows(rows)
 
@@ -192,6 +192,9 @@ w("part2.csv", ["id","region","amount"], [[i,regions[i%4],i*7] for i in range(11
 w("part0.csv", ["id","region","amount","channel"],
   [[i,regions[i%4],i*7,"web" if i%2 else "store"] for i in range(21,31)])
 w("part00.csv", ["ID","Region","Amount"], [[i,regions[i%4],i*7] for i in range(31,41)])
+w("part0a.csv", ["ID","Region","Amount","AMOUNT"], [[i,regions[i%4],i*7,i] for i in range(41,51)])
+w("part0b.csv", ["ID","Region","Amount","Straße","STRASSE"],
+  [[i,regions[i%4],i*7,"a","b"] for i in range(51,61)])
 
 # data quality: agreeing pair, and one that disagrees on columns
 w("dq_a.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(1,21)])
@@ -480,6 +483,16 @@ the **first** partition.
    `year=2026/` is never read. It sorts before `part1.csv`, so it becomes the sample.
    → `already up to date` and the rail **unchanged** — the diff folds case rather than seeing 3
    added and 3 removed, and nothing is silently re-cased.
+7. **The collision control:** delete `part00.csv` and upload `part0a.csv` (`ID,Region,Amount,AMOUNT`)
+   into `year=2025/`, where it sorts before `part1.csv`. Refresh.
+   → A refusal naming **both** `Amount` and `AMOUNT`, in a create's words, and the rail unchanged.
+   `already up to date` here is the defect: the collision went unreported.
+8. **The sharp-s control:** delete `part0a.csv`, upload `part0b.csv`
+   (`ID,Region,Amount,Straße,STRASSE`), refresh.
+   → `2 columns added`, and the rail reads `id, region, amount, straße, strasse`. `1 column added`
+   over that same rail is the defect: a diff folding `ß` into `ss` while the write keeps it.
+9. Delete `part0b.csv` and refresh with the opt-in. → `2 columns removed`, and the fixture is back
+   to `id, region, amount`.
 
 > Refresh-lock contention is **not runnable from the UI** — two submits 2 s apart both return
 > independently, because a small table's refresh finishes inside that window. See `owed.md`.

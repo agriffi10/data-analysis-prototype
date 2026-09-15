@@ -53,9 +53,10 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
-  names. A refresh skips the check, or it would strand pre-rule tables; its write refuses a case
-  collision, but runs only when the case-folding diff reports a change, so a collision on its own
-  can pass as unchanged.
+  names. A refresh skips the check, or it would strand pre-rule tables, but its diff still refuses a
+  fold collision. **Every step folds through `columns.fold`, which is `lower()` and never
+  `casefold()`**: the second merges `ß` into `ss`, so a diff and a write folding differently removed
+  a column without the opt-in.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
@@ -878,12 +879,26 @@ the only repair. It selects on the storage descriptor, not on `mode` — a tripw
 shared verbs reading that field, because the moment one does, "a refresh reuses these verbs
 unchanged" stops being true.
 
-**On a refresh, a case collision is refused by the write rather than by the rule, and only when
-the diff reports a change.** It is the write's own guard, not the rule applied again: apply-refresh
-lowercases every name it writes, so two that fold together would be written under one name, and it
-refuses them before the update. The write runs only when diff-schema, which also matches columns by
-folded name, reports a change, so a collision can pass as unchanged — the mechanism is on the
-[table-builder plane page](../../lambdas/info/planes/table-builder.md#the-fences).
+**On a refresh, a fold collision is refused by the diff, in a create's words.** diff-schema raises
+`invalid_column_names` naming every colliding name before it classifies anything. Until then a
+collision was the write's to refuse, and the write runs only when the diff reports a change, so
+`Amount,region,amount` against a live `amount,region` read as unchanged, and with anything else
+changed it reached the user as "couldn't be updated, try again", which cannot help. Refusing it
+strands nothing: the write already refused every definition carrying one. The write keeps its
+own guard, because nothing after its fold would notice a column collapsed. The mechanism is on
+the [table-builder plane page](../../lambdas/info/planes/table-builder.md#the-fences).
+
+**The fold is Athena's, `lower()`, and one function applies it everywhere.** diff-schema matched on
+`casefold()` while apply-refresh wrote and refused on `lower()`. Full case folding maps `ß` to `ss`,
+so against a live `strasse` the header `Straße,notes` reported only `notes` added. The write then
+landed `straße` in place of `strasse`, removing a column without the opt-in, and the read-back
+passed because it compared casefolded sets. AWS documents that Athena lowers names, and Hive
+normalises an identifier with Java's `toLowerCase`, the same Unicode mapping as Python's `lower()`,
+which keeps `ß`. So `cpcommon.columns.fold` is `lower()`, and the create rule, the diff's match
+and partition-key exclusion, the write's names, comment carry and refusal, and both catalog reads
+around the update all call it. The two folds differ only on non-ASCII characters, which only a
+refresh sees, because only a refresh skips the name rule. The evidence is the documentation and
+the Hive source, not a live Athena run.
 
 **The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
 backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because
