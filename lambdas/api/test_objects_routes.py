@@ -861,6 +861,84 @@ class TestTheMarkerRuleIsAboutREMOVAL:
         assert fake.assumes == 0
 
 
+class TestTheResultsFolderTakesNothingItCouldNotGiveBack:
+    """IAM permits a write beneath the query results folder and denies the delete.
+
+    So a folder or file made there can never be removed, and the browser's disabled New folder is
+    not a permission. The refusal is asserted by its detail as well as its code, because the receipt
+    folder's lock answers ``AccessDenied`` too.
+    """
+
+    def test_making_a_folder_in_it_is_refused_before_any_aws_call(self, s3) -> None:
+        """The New folder write, as the browser sends it: a zero-byte key ending in a slash.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the write reached AWS or was refused by another rule.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/system_settings/athenaresults/x/",
+                "body": "",
+                "contentType": "application/x-directory",
+                "overwrite": False,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        error = json.loads(answer["body"])["error"]
+        assert (error["code"], error["detail"]) == (
+            "AccessDenied",
+            "the query results folder is not writable",
+        )
+        assert fake.calls == []
+        assert fake.assumes == 0
+
+    def test_copying_a_result_OUT_still_reaches_s3(self, s3) -> None:
+        """The control, and the reason the rule can be this strict: copying out is how results are
+        saved, and a copy's source is not a write.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the copy was refused.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "POST",
+            "/v1/objects/copy",
+            bearer(),
+            "rq",
+            {
+                "source": {"kind": "personal", "name": "alice"},
+                "sourceKey": "alice/system_settings/athenaresults/q-1.csv",
+                "destination": {"kind": "personal", "name": "alice"},
+                "destinationKey": "alice/q-1.csv",
+                "overwrite": True,
+            },
+        )
+
+        assert answer["statusCode"] == 200
+        assert [call[0] for call in fake.calls] == ["copy_object"]
+
+
 class TestEveryObjectRouteIsOnTheUserPlane:
     """FR-001 AC1 — the caller's own session authorizes every call."""
 

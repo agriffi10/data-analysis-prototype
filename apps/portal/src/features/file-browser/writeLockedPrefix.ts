@@ -50,7 +50,8 @@ export function isWriteLockedPrefix(prefix: string, rootPrefix: string, spaceKin
  * **IAM permits the write here and denies the DELETE**, so this is not part of
  * `isWriteLockedPrefix`: that one mirrors a `PutObject` Deny and says what S3 would refuse. Here S3
  * accepts a folder or an upload and then refuses every attempt to take it away — which is worse
- * than a refusal, and why the browser declines the write itself. The Denies have the
+ * than a refusal, and why the browser declines the write itself. The API refuses the same writes,
+ * beside its receipt lock, because a disabled button is not a permission. The Denies have the
  * receipt folder's shape, so the rule is the same one pointed at the other folder.
  *
  * @param prefix - The folder currently being viewed, trailing slash (or '' at the root).

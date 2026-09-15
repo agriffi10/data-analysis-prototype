@@ -879,6 +879,15 @@ must not refuse one it permits" — so the predicate takes the space kind. `arch
 turns each `Resource` into a key matcher and runs the app's own predicate over the same keys;
 deleting the shared branch reddens it (measured).
 
+**The query results folder is the one deliberate exception to the second half, and it is a separate
+predicate beside this one.** IAM permits a write beneath `system_settings/athenaresults/` and denies
+the delete, so whatever a user writes there can never be removed — the folder marker's reason,
+applied to a whole folder. `writeLockRefusal` refuses those writes in its own words and
+`protected.assert_writable` refuses them on the server, where nothing legitimate writes: Athena
+delivers its results itself and the browser only copies them out. `isWriteLockedPrefix` and
+`is_write_locked` still refuse only what the policy refuses, and the results rule is held against
+its `DeleteObject` Deny by the same matchers, in both trees.
+
 **The refusal is `aria-disabled`, not `disabled`.** A `disabled` control is skipped by the tab order,
 so its reason is reachable only by hovering — which is how "it's greyed out and I can't find out
 why" happens. `Button.disabledReason` renders the reason as the accessible DESCRIPTION and swallows

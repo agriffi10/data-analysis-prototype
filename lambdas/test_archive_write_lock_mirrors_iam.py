@@ -37,10 +37,23 @@ execution role's stricter rule and refuses before the first ``DeleteObjects``. R
 here as "the file-ops plane agrees with its own IAM" is the misreading to avoid; what it says is
 that the plane's affordance agrees with the browser's, against the policy that defines it.
 
+**The API's results-folder refusal is held the same way, against a DELETE Deny.** IAM permits a
+write beneath the query results folder and refuses its removal, so ``is_in_results_folder`` is
+pinned to where that Deny reaches — which is exactly where a write could never be undone. Its own
+key table carries the rows that tell its rule apart: the depth-one name the folder left, a file
+named like the folder, a sibling name, a split pair, and the nested pair on which the two buckets
+disagree.
+
 Attributes:
   ROOT: The repository root.
   PERSONAL_TEMPLATE: The user-space bucket's portal-role policy template.
   SHARED_TEMPLATE: The shared-space bucket's portal-role policy template.
+  ANALYTICS_TEMPLATE: The template holding the user-space results Deny, which names its tag key
+    through a template variable and is rendered to ``username`` before the matcher reads it.
+  PERSONAL_RESULTS_DENY: The user-space results Deny as a predicate over keys.
+  SHARED_RESULTS_DENY: The shared-space results Deny as a predicate over keys.
+  RESULTS_KEY_SUFFIXES: The results-folder keys under test, as suffixes of a space root.
+  RESULTS_BUCKETS: Each space kind with its root and its results Deny.
   PERSONAL_DENY: The user-space Deny as a predicate over keys, both statements unioned.
   SHARED_DENY: The shared-space Deny as a predicate over keys, both statements unioned.
   KEY_SUFFIXES: The keys under test, written once as suffixes of a space root so both kinds are
@@ -76,6 +89,9 @@ if TYPE_CHECKING:
 PERSONAL_TEMPLATE = ROOT / "infra" / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
 SHARED_TEMPLATE = (
     ROOT / "infra" / "modules" / "shared-spaces" / "policies" / "portal-role-shared-space.json.tftpl"
+)
+ANALYTICS_TEMPLATE = (
+    ROOT / "infra" / "modules" / "analytics" / "policies" / "portal-role-analytics.json.tftpl"
 )
 
 
@@ -274,6 +290,37 @@ BUCKETS = (
     pytest.param("finance/", "shared", SHARED_DENY, id="shared"),
 )
 
+_ANALYTICS_BODY = ANALYTICS_TEMPLATE.read_text()
+
+PERSONAL_RESULTS_DENY = _key_matcher(
+    _deny_resource_of(_ANALYTICS_BODY, "ResultsNoDeleteSystemSettings").replace(
+        "${principal_tag_key}", "username"
+    ),
+    "alice",
+)
+SHARED_RESULTS_DENY = _key_matcher(
+    _deny_resource_of(_SHARED_BODY, "SharedResultsNoDeleteSystemSettings"),
+    "finance",
+)
+
+RESULTS_KEY_SUFFIXES = (
+    "whatever.csv",
+    "athenaresults/whatever.csv",
+    "system_settings/whatever.csv",
+    "system_settings/athenaresults/q-1.csv",
+    "system_settings/athenaresults/x/",
+    "system_settings/athenaresults",
+    "system_settings/athenaresults-old/q.csv",
+    "system_settings/x/athenaresults/q.csv",
+    "backups/system_settings/athenaresults/q.csv",
+    "backups/system_settings/athenaresults",
+)
+
+RESULTS_BUCKETS = (
+    pytest.param("alice/", "personal", PERSONAL_RESULTS_DENY, id="personal"),
+    pytest.param("finance/", "shared", SHARED_RESULTS_DENY, id="shared"),
+)
+
 
 @pytest.mark.parametrize("root, kind, deny", BUCKETS)
 @pytest.mark.parametrize("suffix", KEY_SUFFIXES)
@@ -432,3 +479,69 @@ def test_the_surviving_deny_covers_the_home_and_NOT_the_one_it_left():
 
     assert shared("finance/system_settings/archive/x.csv") is True
     assert shared("finance/archive/x.csv") is False
+
+
+@pytest.mark.parametrize("root, kind, deny", RESULTS_BUCKETS)
+@pytest.mark.parametrize("suffix", RESULTS_KEY_SUFFIXES)
+def test_the_api_results_refusal_answers_where_the_delete_deny_reaches(suffix, root, kind, deny):
+    """``apicommon.protected.is_in_results_folder`` agrees with the results Deny, key by key.
+
+    A False where the Deny says True lets a caller make an object nobody can delete; a True where
+    it says False is a 403 for a write the user could have undone.
+
+    Args:
+      suffix: The key below the space root.
+      root: The space root.
+      kind: The space kind.
+      deny: The bucket's results Deny as a predicate.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the predicate and the Deny disagree on the key.
+    """
+    space = spaces.ResolvedSpace(kind, root.rstrip("/"), f"{kind}-bucket", root)
+    key = f"{root}{suffix}"
+
+    assert api_protected.is_in_results_folder(space, key) is deny(key)
+
+
+@pytest.mark.parametrize("root, kind, deny", RESULTS_BUCKETS)
+def test_the_results_table_exercises_both_answers(root, kind, deny):
+    """The positive control for the results rows, as ``test_the_key_table_exercises_both_answers``
+    is for the archive rows.
+
+    Args:
+      root: The space root.
+      kind: The space kind.
+      deny: The bucket's results Deny as a predicate.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If every results row is denied, or none is.
+    """
+    assert {deny(f"{root}{suffix}") for suffix in RESULTS_KEY_SUFFIXES} == {True, False}
+
+
+def test_the_two_results_denies_differ_on_the_table_so_its_asymmetry_is_exercised():
+    """The results Denies have the receipt folder's shape, and the table must hold a key on which
+    the two buckets disagree, or a predicate that averaged them would pass every row.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If no results row is answered differently by the two buckets.
+    """
+    assert PERSONAL_RESULTS_DENY("alice/backups/system_settings/athenaresults/q.csv") is False
+    assert SHARED_RESULTS_DENY("finance/backups/system_settings/athenaresults/q.csv") is True
+    assert any(
+        PERSONAL_RESULTS_DENY(f"alice/{s}") != SHARED_RESULTS_DENY(f"finance/{s}")
+        for s in RESULTS_KEY_SUFFIXES
+    )

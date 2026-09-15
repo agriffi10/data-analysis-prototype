@@ -15,7 +15,9 @@ import {
 /**
  * SPEC-172 FR-004's last acceptance criterion, executable on BOTH sides.
  *
- * The browser must not offer a write the policy refuses, and must not refuse one it permits.
+ * The browser must not offer a write the policy refuses, and must not refuse one it permits — with
+ * one deliberate exception, the query results folder held below, where the policy permits the
+ * write and refuses the delete.
  * That is not a claim about a string — it is a claim about two rules agreeing over keys — so the
  * IAM resource is turned into a matcher here and the app's own predicate is run against the same
  * keys. A test that merely asserted the `.tftpl` contains `archive` would pass with the predicate

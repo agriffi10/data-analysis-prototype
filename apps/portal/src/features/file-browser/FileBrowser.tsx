@@ -186,11 +186,12 @@ function FileBrowserContent({
   const move = useMove(bucket, currentPrefix, username);
   const copy = useCopy(bucket, username);
   const canModify = writable && !!username;
-  // The prefix-based write gate: IAM denies writes beneath the receipt folder, and deletes beneath
-  // the query results folder, so every control that would attempt one says why instead.
+  // The prefix-based write gate. IAM denies writes beneath the receipt folder, and deletes beneath
+  // the query results folder — where a write would therefore stay — so the controls that would
+  // write or destroy in either say why instead.
   const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
   // Archive is gated by the receipt folder's lock alone — an archive of an archive is not a thing.
-  // Inside the results folder it stays, refused by `archiveRefusal` with the folder named.
+  // In the app's own results folder it stays, and `archiveRefusal` refuses it naming the folder.
   const archiveEnabled =
     !!username && filesEnabled && !isWriteLockedPrefix(currentPrefix, rootPrefix, spaceKind ?? 'personal');
   // A RESTORE is not: it writes into the space root, never into the folder being browsed — and

@@ -303,7 +303,7 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 
 | Folder | Rule |
 |---|---|
-| `system_settings/athenaresults/` | Reached by **opening** `system_settings/`; undeletable; not a paste target; **Archive** disabled with a reason naming it. |
+| `system_settings/athenaresults/` | Reached by **opening** `system_settings/`; undeletable; not a paste target; **Archive** disabled with a reason naming it. Read-only **inside**: standing in it, **New folder** and **Upload** — and, for a result, **Move**, **Delete** and **Rename** — refuse with the reason naming query results, and the reason also shows as a visible note; **Copy** and **Download** still work. |
 | `saved_queries/` | At the space root, outside `system_settings/`; ordinary inside (upload, subfolders, delete a file); the **folder itself** refuses Delete and Rename. |
 | `system_settings/archive/` | Reached by **opening** `system_settings/`; read-only throughout — see §4.11. |
 | `system_settings/` | An ORDINARY folder row, sorted among the user's own, with no disclosure control and no caption. Opening it lists exactly `athenaresults/` and `archive/` — **not** `shared_tables/`, which stays at the space root because those tables were sent to the space and are the user's to edit. Selecting it disables Delete, Move and Archive, each with its own reason; the destination picker does not offer it; **New folder** refuses the name `system_settings` with a reason naming the app. |
