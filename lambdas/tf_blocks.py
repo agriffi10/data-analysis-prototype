@@ -17,7 +17,7 @@ import re
 
 
 def _declarations(text: str, blanked: str, original: str) -> dict[str, str]:
-    """Every top-level block whose header matches, keyed by the name ``original`` captures.
+    """Every top-level block whose header matches, keyed by the labels ``original`` captures.
 
     **Located over ``strip_noise`` and sliced from the original**, and that is not fastidiousness:
     a commented-out ``module "x" { … }`` is an ordinary Terraform idiom, and a bare scan reads it
@@ -33,10 +33,11 @@ def _declarations(text: str, blanked: str, original: str) -> dict[str, str]:
       text: The Terraform source to read.
       blanked: A shape regex that matches a header in noise-blanked source, ending just after the
         opening brace.
-      original: The same header with its literals spelled out, its one group the local name.
+      original: The same header with its literals spelled out, its groups the labels that name the
+        block: the local name alone, or a data source's type and name.
 
     Returns:
-      Each block's local name mapped to its body, braces excluded.
+      Each block's labels, joined by a dot, mapped to its body, braces excluded.
 
     Raises:
       None.
@@ -46,7 +47,7 @@ def _declarations(text: str, blanked: str, original: str) -> dict[str, str]:
         header = re.match(original, text[match.start() : match.end()])
         if header is None:
             continue
-        found[header.group(1)] = text[match.end() : _close(text, match.end()) - 1]
+        found[".".join(header.groups())] = text[match.end() : _close(text, match.end()) - 1]
     return found
 
 
@@ -126,6 +127,29 @@ def module_calls(text: str) -> dict[str, str]:
         text,
         r'(?<![\w-])module\s+"[^"]*"\s*\{',
         r'(?<![\w-])module\s+"([^"]+)"\s*\{',
+    )
+
+
+def data_sources(text: str) -> dict[str, str]:
+    """Splits Terraform source into top-level ``data`` blocks, keyed ``<type>.<name>``.
+
+    Keyed by both labels because a data source's local name is unique only within its type, so a
+    key of the name alone would let ``aws_region.current`` overwrite ``aws_caller_identity.current``
+    and report one where there are two.
+
+    Args:
+      text: The Terraform source to read.
+
+    Returns:
+      Each data source's ``type.name`` mapped to its body.
+
+    Raises:
+      None.
+    """
+    return _declarations(
+        text,
+        r'(?<![\w-])data\s+"[^"]*"\s+"[^"]*"\s*\{',
+        r'(?<![\w-])data\s+"([^"]+)"\s+"([^"]+)"\s*\{',
     )
 
 

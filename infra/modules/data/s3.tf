@@ -120,8 +120,6 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
 # makes `tofu refresh` report the bucket deleted and plan a destructive recreate.
 #
 # Every entry is the role's IAM ARN, NEVER the assumed-role session ARN. README.md.
-data "aws_caller_identity" "current" {}
-
 resource "aws_s3_bucket_policy" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
@@ -140,6 +138,6 @@ resource "aws_s3_bucket_policy" "user_space" {
     file_ops_execution_role_arn           = var.file_ops_execution_role_arn
     results_conversion_execution_role_arn = var.results_conversion_execution_role_arn
     user_directory_build_role_arn         = var.user_directory_build_role_arn
-    account_id                            = data.aws_caller_identity.current.account_id
+    account_id                            = var.account_id
   })
 }

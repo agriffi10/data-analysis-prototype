@@ -35,6 +35,7 @@ entry you need, not the file.**
 - [The SPA deploy decides from what is running, not from a path filter — and the Lambda image deliberately does not](#the-spa-deploy-decides-from-what-is-running-not-from-a-path-filter--and-the-lambda-image-deliberately-does-not)
 - [An account wildcard is a scoping decision nobody made](#an-account-wildcard-is-a-scoping-decision-nobody-made)
 - [A `TF_VAR_` variable reaches Terraform only if a run hands it over, so none renames the deployment](#a-tf_var_-variable-reaches-terraform-only-if-a-run-hands-it-over-so-none-renames-the-deployment)
+- [A module that waits on another reads no data source, because the wait defers the read](#a-module-that-waits-on-another-reads-no-data-source-because-the-wait-defers-the-read)
 
 ## Fences
 
@@ -86,8 +87,10 @@ only reads; the API enqueues on its behalf.
 - **The deploy role can lock itself out**: tighten or widen one of its own grants and plan, apply and
   **revert** all fail alike. `Deploy Infrastructure` takes `skip_refresh` to break it — always follow
   with a normal run. A green plan is not proof; IAM is eventually consistent.
-- **A module-level `depends_on` defers every data source in that module** — benign for a policy
-  document, a hard error where the value feeds a `for_each`.
+- **A module-level `depends_on` defers every data source in that module, so none sits behind one** —
+  a deferred document is `(known after apply)`, which no plan-time scan reads, and a deferred
+  `for_each` is a hard error. Keep the edge; render documents with `templatefile()` and pass other
+  reads from the root. A sweep refuses the shape.
 - **`COGNITO_USER_POOL_ID` is no longer fleet-wide** — a lazy `config.require` on the three planes
   resolving a recipient, so a missing one raises **mid-request**, not at cold start.
 - **An empty `TF_VAR_` is not an unset one.** It satisfies a required variable *and* overrides a
@@ -1125,3 +1128,37 @@ rather than on the first run someone sets the variable.
 **Do NOT reintroduce a `|| 'default'` read of a name variable** to keep a rename possible later.
 That fallback is what hid the drift: unset, it agrees with Terraform by coincidence, and set, it
 disagrees with no symptom.
+
+## A module that waits on another reads no data source, because the wait defers the read
+
+Besides an argument unknown at plan, OpenTofu defers a data source to apply when it carries a
+`depends_on`, its own or one inherited from a module call at any depth, and anything the edge names
+has a change pending: a create or an update (a deposed object's destroy was measured not to). Then
+everything built from it is `(known after apply)`. Nearly
+every module the root calls waits on `module.base`, so every pull request changing a deploy grant
+deferred whatever those modules read. Of the 111 readable pull-request plans run from 2026-08-26
+through run 35001183572 on 2026-09-15, 30, across 23 pull requests, showed the observability sweep's trust policy and both
+its role policies as `jsonencode(...) -> (known after apply)` on an in-place update, with their
+content unchanged: the three documents were `aws_iam_policy_document` data sources, the one module
+in the tree still building IAM that way. `module.data` had the same shape. An `aws_caller_identity`
+read inside it fed the user-space bucket policy, and the isolation policy itself went unknown in
+the same 30 runs and no others.
+
+The register used to call this benign for a policy document, since it resolves to the identical
+value at apply. It stopped being benign when the rendered plan became what the IAM gate reads. On
+a deferred run Checkov scored the sweep's policy with 2 of the 9 checks it runs on the known
+document, both passing, and the bucket policy with 1 of its 2, so a deferred document is
+indistinguishable from a changed one nobody scanned.
+
+**The edges stay and the reads go.** `depends_on = [module.base]` is what writes a deploy grant
+before the apply that first uses it, and the self-grant traps in `infra/info/deploy-role-iam.md`
+are what an apply without it risks. So the observability documents are `.tftpl` files rendered by
+`templatefile()`, which the plan computes whenever its inputs are known, and `module.data` takes the
+account ID from the root. `lambdas/test_depends_on_defers_no_data_source.py` walks every module
+call carrying a `depends_on`, root or nested, through every module it reaches, and refuses a data
+block there or a data block carrying its own `depends_on`. Planted once each, a data source in the
+observability module and one in `docker-lambda` reddened it by name; a planted tree asserts every
+deferring shape named and three reads nothing defers left silent.
+
+**Do NOT drop a module's `depends_on` to make its reads plan-time**, and do not reach for
+`ignore_changes` either: nothing drifts, so there is nothing to ignore.

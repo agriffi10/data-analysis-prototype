@@ -8,9 +8,10 @@ per service per day in the admin bucket under `logs/`.
 | `sqs.tf` | the logs queue |
 | `lambda.tf` | the sweep function, its log group, and the 10-minute schedule |
 | `alarm.tf` | the backlog alarm, on the age of the queue's oldest message |
-| `iam.tf` | the sweep's role, and the reusable **producer** policy document |
+| `iam.tf` | the sweep's role and its two policies, rendered from `policies/` with `templatefile()` |
+| `policies/` | the sweep's trust, permissions and producer documents |
 | `locals.tf` | names, and the `logs` prefix both the grant and the env read |
-| `outputs.tf` | queue URL/ARN and the producer policy JSON |
+| `outputs.tf` | queue URL/ARN, and the sweep's function name |
 
 Code: `lambdas/log-sweep/`. The client side is `cpcommon.observability`, the only way anything in
 this repo logs.
@@ -107,13 +108,25 @@ roles only.
 The sweep is itself a producer — it instruments itself through `cpcommon.observability`, which is
 what proves the whole path end to end without instrumenting a control plane.
 
+## The documents are templates, because this module waits on `module.base`
+
+The root calls this module with `depends_on = [module.base]`, so on an apply that changes the
+deploy role's grants, the grant is written before anything here uses it. That edge also defers
+every data source in the module until `module.base` has applied. The three documents were
+`aws_iam_policy_document` data sources, so on every pull request that changed `module.base` the
+plan showed them as `(known after apply)` with their content unchanged, and a document the plan
+cannot show is one no plan-time scan reads. They are `templatefile()` renders now, which the plan
+computes whenever its inputs are known, and the edge stays.
+`lambdas/test_depends_on_defers_no_data_source.py` refuses a data source in any module called with
+a `depends_on`.
+
 ## The cpcommon required union
 
-The sweep imports `cpcommon`, whose config requires `COGNITO_USER_POOL_ID`,
-`COGNITO_APP_CLIENT_ID`, `USER_SPACE_BUCKET`, `SHARED_SPACE_BUCKET` and `ATHENA_WORKGROUP`. The sweep
-reads none of them. That config once resolved **at import**, so a function missing one crashed at
-cold start with an error naming neither the module nor the variable; it resolves on **first read**
-now, so the failure lands on whichever branch reads it instead.
+The sweep imports `cpcommon`, whose config requires `ADMIN_BUCKET`, `USER_SPACE_BUCKET`,
+`SHARED_SPACE_BUCKET` and `ATHENA_WORKGROUP`. The sweep reads only the first. That config once
+resolved **at import**, so a function missing one crashed at cold start with an error naming
+neither the module nor the variable; it resolves on **first read** now, so the failure lands on
+whichever branch reads it instead.
 
 **Still set them.** The union is what any code path in `cpcommon` may demand, and "the function does
 not use it" is not a reason to remove one.

@@ -3,6 +3,11 @@ variable "project_name" {
   type        = string
 }
 
+variable "account_id" {
+  description = "AWS account ID, for the user-space bucket policy. Passed from the root rather than read by a data source here: the root calls this module with depends_on, which would defer that read to apply whenever module.base has a change pending, and the whole bucket policy with it."
+  type        = string
+}
+
 variable "user_space_bucket_name" {
   description = "Name of the user-space S3 bucket (Bucket 1). Computed by the root module (default {project_name}-prod-user-space, overridable via the root user_space_bucket_name variable if the global name is taken)."
   type        = string

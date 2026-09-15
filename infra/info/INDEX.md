@@ -96,8 +96,10 @@ Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket 
    type sit alone in a wildcard statement.
 3. **Cross-module ARNs are constructed strings from the root locals**, never another module's output —
    an unknown ARN inside `compact()` or a list **silently drops the change**.
-4. **A module-level `depends_on` defers every data source in that module** to apply time. Benign for a
-   policy document; a hard error where the value feeds a `for_each` or a ForceNew attribute.
+4. **A module-level `depends_on` defers every data source in that module** to apply time, so no
+   module behind one reads any: a deferred document is one the plan-time IAM scan cannot read, and a
+   deferred value feeding a `for_each` or a ForceNew attribute is a hard error or a replacement.
+   `lambdas/test_depends_on_defers_no_data_source.py` refuses the shape.
 5. **A role that touches the user-space bucket must join that bucket policy's allowlist in the same
    PR** — an explicit resource-policy Deny beats an identity-policy Allow, and the omission reads as a
    code bug.
