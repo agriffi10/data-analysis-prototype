@@ -1,11 +1,14 @@
 """Every FIFO key the enqueue routes send, derived in one module and nowhere else.
 
 Four derivation families over eleven routes, and none of them has an error path: a wrong
-``MessageGroupId`` still sends. It changes which requests serialize behind each other and which
-run in parallel, and the only symptom is a race nobody can reproduce. A wrong
-``MessageDeduplicationId`` stops collapsing double-submits, and the symptom is two shares, two
-archives, two builds. Every derivation here is pinned to a golden vector captured from the
-browser's own TypeScript before it was deleted.
+``MessageGroupId`` still sends. It changes which requests are STARTED in order behind each other,
+and the only symptom is a race nobody can reproduce. For a plane a Pipe feeds, that is all it does:
+every Pipe starts its machine fire-and-forget, so a plane whose runs must not overlap needs a guard
+of its own, a lock or a conditional write. The notifications queue is the exception: a Lambda event
+source mapping drains it, and on a FIFO queue that runs one invocation per group at a time, so its
+group id does serialize one user's writes. A wrong ``MessageDeduplicationId`` stops collapsing
+double-submits, and the symptom is two shares, two archives, two builds. Every derivation here is
+pinned to a golden vector captured from the browser's own TypeScript before it was deleted.
 
 The bucket a space lives in is read from this function's configuration by ``kind`` alone. It is
 deliberately NOT resolved through ``apicommon.spaces.resolve``, which also checks membership: the
@@ -228,7 +231,10 @@ def _group_data_quality(principal: Principal, payload: Mapping[str, Any]) -> str
 
 
 def _group_space_root(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes work against one space, for the three planes keyed that way.
+    """Groups one space's work, for the three planes keyed that way, so its starts are ordered.
+
+    It does not serialize the runs. File-ops holds a per-space lock for that; file-send and archive
+    hold none, and ``infra/modules/archive/README.md`` says what an overlapping archive does.
 
     Args:
       principal: The verified caller. Unused.
@@ -246,12 +252,14 @@ def _group_space_root(principal: Principal, payload: Mapping[str, Any]) -> str:
 
 
 def _group_archive_restore(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes two restores of ONE archive while restores of different archives proceed.
+    """Groups the restores of ONE archive, so their starts are ordered apart from other archives'.
 
-    Without it a double-submitted restore could pass the destination guard twice before either
-    copy lands. The archive bucket is deliberately absent: the browser had no relationship with
-    that bucket by decision, it is one constant across every restore this app can make, and the
-    ``personal/``/``shared/`` segment already makes the archive root globally unique.
+    It does not serialize them: the Pipe starts the machine fire-and-forget, so a double-submitted
+    restore still runs twice at once and can pass the destination guard twice, and
+    ``infra/modules/archive/README.md`` says what follows. The archive bucket is deliberately
+    absent: the browser had no relationship with that bucket by decision, it is one constant across
+    every restore this app can make, and the ``personal/``/``shared/`` segment already makes the
+    archive root globally unique.
 
     Args:
       principal: The verified caller. Unused.

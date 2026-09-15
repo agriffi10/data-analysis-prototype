@@ -55,6 +55,11 @@ something is already wrong.
   (SPEC-168 FR-004), so two archives from one space serialize; overlapping selections in *different*
   spaces cannot overlap by construction.
 
+  > **SUPERSEDED 2026-09-15.** Two archives from one space do not serialize — the Pipe starts
+  > executions `FIRE_AND_FORGET` — so the mid-flight case is reachable. This spec's commit gate is
+  > what makes it safe: `docs/decisions/archive-and-restore.md`, *The group id orders the STARTS,
+  > not the runs*.
+
 ---
 
 ## Functional Requirements

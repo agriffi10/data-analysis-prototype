@@ -88,7 +88,12 @@ because that is the term a later "just raise the concurrency" would skip.
 browser, which SPEC-172 builds. Nothing here enqueues, so there is no Python home for either rule
 and a test could only restate it. **SPEC-172 owes both.** Until then two concurrent restores of one
 archive are not serialized and both could pass the guard — the same TOCTOU table-share and file-send
-carry, and here neither run deletes anything.
+carry, and here neither run deletes anything. **— Superseded 2026-09-15: the group id did not change
+this.** The Pipe starts executions `FIRE_AND_FORGET`, so two restores of one archive still run at
+once — and "neither run deletes anything" no longer holds: the first to finish sweeps the vault, and
+the second's copy-back can overwrite a file the user edited after the first restored it.
+`docs/decisions/archive-and-restore.md` (*The group id orders the STARTS, not the runs*) has what
+follows.
 
 ## What changed from earlier specs
 

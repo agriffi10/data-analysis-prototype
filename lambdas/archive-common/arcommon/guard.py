@@ -19,8 +19,11 @@ file in that window is not an exotic race; it is the ordinary case the guard was
 arriving late. With versioning off, a single check at the start would have let the copy-back
 overwrite that file silently and report success. The second pass costs one round of heads
 against a run that has already waited hours, and it is the only thing that makes the guard's
-"any occupied destination refuses the whole restore" still TRUE at the moment of the write
-rather than only at the moment of the promise.
+"any occupied destination refuses the whole restore" still TRUE when the copy-back starts
+rather than only at the moment of the promise. **It is not true at every write.** The copy is
+unconditional and runs for as long as its Map does, and a second restore of the same archive can
+run beside this one because the Pipe starts executions fire-and-forget, so a file that lands at a
+path the copy has not reached yet is still overwritten.
 
 **A ``403`` counts as OCCUPIED.** A key this role cannot head is a key it must not overwrite —
 and on these buckets that is a live case rather than a hypothetical, because the execution
