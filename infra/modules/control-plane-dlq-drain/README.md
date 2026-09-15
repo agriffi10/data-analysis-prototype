@@ -55,8 +55,8 @@ The trade against the mappings is that a dead-lettered request now surfaces with
 The drain notifies the **`identity.actor` the API stamped** on the request, never a username or
 token the body asserts. A body with no usable identity block notifies nobody and is only logged.
 The flat `actor` field is never read, but the drain still **blanks the two legacy token fields**
-before it logs a parsed body, because a message from before the cutover can still arrive carrying a
-raw token.
+before it logs a parsed body, because every message enqueued before the API stopped sending a token
+carried one.
 
 Two DLQs are not swept, deliberately: notifications, because draining it is circular, and feedback,
 whose body carries no identity block to name a recipient.

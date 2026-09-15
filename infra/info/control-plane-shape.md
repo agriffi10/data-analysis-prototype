@@ -93,8 +93,9 @@ browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request que
 - **The actor travels in the API's NESTED `identity` block, and no token travels at all.** A plane
   reads it through `cpcommon.actor`, which cannot verify: who may write the queue is the
   authorization — the API, plus any producer the plane admits by `SenderId`. The DLQ drain takes its recipient from that block and redacts
-  only **legacy top-level** token fields, which a message enqueued before the trust flip can still
-  carry — pointed at `identity`, it would blank the logged recipient and remove nothing sensitive.
+  only **legacy top-level** token fields, one of which holds the token in any message enqueued
+  before the API stopped sending one — pointed at `identity`, it would blank the logged recipient
+  and remove nothing sensitive.
 - **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
   name the colliding item, and the user needs it named.
 - **One producer says every per-recipient outcome**, at the end of the machine — not each verb.

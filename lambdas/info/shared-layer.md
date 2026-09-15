@@ -101,7 +101,7 @@ file-ops that field holds the raw ID token in any message enqueued before the AP
 one, and a raw JWT and a username are both non-empty strings — so a reader shaped "take the block,
 fall back to the field" passes every well-formed fixture ever written and builds an S3 prefix, a
 Glue database name and a notification recipient out of a 900-character token on the first message
-from before the flip. The block goes into a local and nothing else is read at all.
+carrying the token and no block. The block goes into a local and nothing else is read at all.
 
 And the actor is checked against `config.CATALOG_IDENTIFIER_RE` rather than for presence, which is
 what makes the JWT case *fail* rather than merely be odd. Mutating that check to a truthiness test

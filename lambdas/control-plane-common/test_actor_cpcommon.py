@@ -135,7 +135,7 @@ def test_the_flat_actor_is_ignored_whether_or_not_the_block_is_present():
 
     With the block present the flat field must lose; with it absent the flat field must not win by
     default. One assertion alone passes against a reader that prefers the block but still falls
-    back, which is exactly the reader that breaks on the first stale message.
+    back, which is exactly the reader that breaks on the first message with no block.
     """
     both = {**block(), "actor": JWT}
     assert cpactor.trusted_actor(both).username == "alice"

@@ -38,11 +38,12 @@ somewhere nobody looks. Pinned by a test that checks it against the sweep's own 
 than against a human's reading of it.
 
 Attributes:
-  _LEGACY_TOKEN_FIELDS: The two top-level fields a PRE-CUTOVER envelope kept its raw ID token in.
-    The API stopped writing either once the planes read the identity block instead, so on a current
-    message this set matches nothing — it is kept because a 14-day queue plus three failed
-    receives means a stale body can still arrive, and that body is precisely what this drain
-    exists to surface into a log group with a far wider read audience than the queue.
+  _LEGACY_TOKEN_FIELDS: The two top-level fields a message enqueued before the API stopped sending
+    a token kept its raw ID token in — first in the browser's envelope, then beside the identity
+    block in the API's own. On a message enqueued since, this set matches nothing. It is kept
+    because an earlier body can reach this drain for as long as its queues retain it, and that
+    body is precisely what this drain exists to surface into a log group with a far wider read
+    audience than the queue.
   _MAX_BODY_CHARS: Cap on the serialised forensic body. It is unbounded, untrusted input, and
     every event is appended into a day object the sweep rewrites in full every ten minutes — one
     pathological body would be paid for again on every sweep for the rest of that day.
@@ -175,12 +176,12 @@ def _source_for(event_source_arn: str) -> Source | None:
 def _redacted(body: dict) -> dict:
     """Returns a copy of the body with any LEGACY top-level token field replaced by a marker.
 
-    The API no longer sends a token, so on a current envelope this changes nothing. It is not
-    therefore dead: a message enqueued before the trust flip still carries one, and a 14-day
-    queue plus three failed receives means a stale body can arrive here long after the producer
-    stopped writing them. That message is exactly the one this drain exists to surface, and
-    CloudWatch Logs has a far wider read audience than the SQS queue it came from — an expired
-    token is still a signed assertion about a real user.
+    The API no longer sends a token, so on a message enqueued since it stopped this changes
+    nothing. A message enqueued before then carries one — in the browser's envelope, or beside the
+    identity block in the API's — and such a body can arrive here for as long as its queues retain
+    it, after the producer has stopped writing tokens at all. That message is exactly the one this
+    drain exists to surface, and CloudWatch Logs has a far wider read audience than the SQS queue
+    it came from — an expired token is still a signed assertion about a real user.
 
     **It must not be pointed at ``identity`` instead.** The replacement is top-level only, so
     that would blank the block this function's caller has just taken its recipient from, while

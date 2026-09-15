@@ -1,9 +1,10 @@
 """A JWT-shaped string for test fixtures, ASSEMBLED rather than written out.
 
 Several suites need a value that *looks* exactly like the raw ID token the flat top-level
-``actor``/``idToken`` field carried before the trust flip. That realism is the whole point: a raw
-JWT and a username are both non-empty strings, so a reader that fell back to the flat field passes
-every well-formed fixture, and only a fixture holding a real token shape can show it does not.
+``actor``/``idToken`` field carried in any message enqueued before the API stopped sending one.
+That realism is the whole point: a raw JWT and a username are both non-empty strings, so a reader
+that fell back to the flat field passes every well-formed fixture, and only a fixture holding a
+real token shape can show it does not.
 
 **It is built at runtime because a literal here is a secret-scanner finding, and the scanner is
 right.** `gitleaks` runs as a blocking gate over the branch's FULL HISTORY, and it cannot tell a

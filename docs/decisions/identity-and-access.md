@@ -1075,11 +1075,11 @@ one was wrong, it was that nobody could say which one a request had used.
 any message enqueued before the API stopped sending one, and a raw JWT and a username are both
 non-empty strings — so a reader shaped "take the block, fall back to the field" passes every
 well-formed fixture ever written and builds an S3 prefix, a Glue database name and a notification
-recipient out of a 900-character token on the first stale message. The actor is checked against
-`config.CATALOG_IDENTIFIER_RE` (with `fullmatch`, since `$` also matches before a trailing newline),
-which is what makes the JWT case *fail* rather than merely look odd. Measured: mutating that check to
-a truthiness test reddens seven cases in the reader's own suite and leaves **every plane's suite
-green**.
+recipient out of a 900-character token on the first message carrying the token and no block. The
+actor is checked against `config.CATALOG_IDENTIFIER_RE` (with `fullmatch`, since `$` also matches
+before a trailing newline), which is what makes the JWT case *fail* rather than merely look odd.
+Measured: mutating that check to a truthiness test reddens seven cases in the reader's own suite and
+leaves **every plane's suite green**.
 
 ## `assurance` fails closed on an unknown value, including an absent one (SPEC-201)
 
@@ -1161,15 +1161,16 @@ than what is being rolled back. **Infra, then code.** After step two there is no
 all; recovery is forward.
 
 **The window between step one's deploy and the queue draining is real and its outcome is
-deliberate.** A message enqueued before carries a flat token and no block, so it is refused
-`unauthorized` with **no notification** — there is no trustworthy recipient and nothing in the
-message may be believed. It does **not** dead-letter: every plane's Pipe is `FIRE_AND_FORGET`, so
+deliberate.** A message the API enqueued before step one carries the block beside the token and
+is served as usual. A pre-cutover message — the browser's envelope, a flat token and no block — is
+refused `unauthorized` with **no notification**: there is no trustworthy recipient and nothing in
+the message may be believed. It does **not** dead-letter: every plane's Pipe is `FIRE_AND_FORGET`, so
 `StartExecution` succeeds, the Pipe deletes the message, and the refusal happens inside the
 execution. A request DLQ only ever receives what the Pipe could not *deliver*. The spec asked for a
 drain record for this case; there cannot be one, and looking for it reads as the drain being broken.
 
 **The plane allowed-field sets are NOT tightened**, and this is the easy thing to get wrong while
-making everything else green. Removing the legacy flat token field turns that staged message into
+making everything else green. Removing the legacy flat token field turns a pre-cutover message into
 `malformed_event` before the reader ever sees it — a different reason code, a different notification
 decision, and a criterion that silently stops testing what it names. The sets are pinned **per
 plane**; a fleet-level "at least one still admits it" passes while any single plane regresses.
