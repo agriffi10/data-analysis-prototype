@@ -139,8 +139,10 @@ and Parquet the written order stays the first file's.
   `update_table` receives `a,c`.
 - [ ] CSV, live `amount,region` with a comment on `region`, first file `Region,Amount,Notes`:
   `update_table` receives `amount,region,notes`, and `region` still carries its comment.
-- [ ] CSV, live `amount,region`, first file `Amount,region,amount`: refused as `update_failed`, and
-  `update_table` is not called. `test_columns_differing_only_by_case_are_refused_before_the_update`
+- [ ] CSV, live `amount,region`, first file `Amount,region,amount,notes`: refused as
+  `update_failed`, and `update_table` is not called. The new `notes` is what brings the case here:
+  the collision alone folds back to the live columns, so diff-schema reports the table unchanged
+  and apply-refresh never runs. `test_columns_differing_only_by_case_are_refused_before_the_update`
   in `test_apply_refresh.py` already asserts exactly this; keep it green through the reorder rather
   than adding a second copy. It matters here because a reorder keyed on the case-folded name merges
   the two columns silently while every other criterion here still passes. The read-back cannot

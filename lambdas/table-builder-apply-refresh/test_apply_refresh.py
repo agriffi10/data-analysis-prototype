@@ -256,9 +256,11 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     The fold turns ``Amount`` and ``amount`` into one column name. An update does not reject
     duplicate names the way Athena's ``CREATE`` does, and the read-back compares name sets, so
     both spellings collapse on each side and a missing refusal would report success while the
-    table silently lost a column. The verb's other ``update_failed`` refusals come from the
-    update call or the read-back after it, so an untouched ``update_table`` and a detail naming
-    the column are what pin this one.
+    table silently lost a column. The header also adds ``notes`` because a collision alone folds
+    back to the live columns, so diff-schema reports the table unchanged and this verb never
+    runs. The verb's other ``update_failed`` refusals come from the update call or the read-back
+    after it, so an untouched ``update_table`` and a detail naming the column are what pin this
+    one.
 
     Args:
       None.
@@ -281,10 +283,18 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
         {"name": "Amount", "type": "string"},
         {"name": "region", "type": "string"},
         {"name": "amount", "type": "string"},
+        {"name": "notes", "type": "string"},
     ]
+    diff = {
+        "changed": True,
+        "added": [{"name": "notes", "type": "string"}],
+        "removed": [],
+        "retyped": [],
+        "unchanged": 2,
+    }
 
     with pytest.raises(TerminalError) as raised:
-        m.handler(_event(columns=columns), None)
+        m.handler(_event(columns=columns, diff=diff), None)
 
     assert raised.value.reason == "update_failed"
     assert "amount" in raised.value.detail, raised.value.detail
