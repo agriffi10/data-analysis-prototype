@@ -65,7 +65,10 @@ export default function FilesPage() {
 
   // A `/files?space=…&prefix=…` deep-link seeds the browser. The prefix is
   // honoured only when it's within the resolved space's root (the navigation
-  // floor), so the param can never point outside it.
+  // floor), so the param can never point outside it — and only when it ends at a
+  // folder boundary, because every write appends a name to it and the folder-name
+  // check reads the parent's last segment: `…/system_settings/athena` + `results`
+  // would pass it and write the app's own results folder.
   const [searchParams] = useSearchParams();
   const prefixParam = searchParams.get('prefix') || undefined;
   // `?requestId=` — the run whose conflicts to review. Minted by a notification row's own control
@@ -130,7 +133,10 @@ export default function FilesPage() {
   // one the React Compiler declines to preserve, and `npm run lint` fails on it.
   useProvideNavRail(sharedSpacesEnabled ? spacesRail : null);
 
-  const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
+  const initialPrefix =
+    prefixParam && prefixParam.startsWith(target.rootPrefix) && prefixParam.endsWith('/')
+      ? prefixParam
+      : target.rootPrefix;
   const ready = !!target.bucket && !!user;
   // Resolved inside the component, not at module scope: `toUserMessage` logs the original
   // in a dev build, so a module-level call warns about an error that has not happened on

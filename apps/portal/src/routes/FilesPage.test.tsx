@@ -119,6 +119,22 @@ describe('FilesPage — personal space (SPEC-013/044)', () => {
       expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
     );
   });
+
+  it('ignores a ?prefix= that stops mid-name, so New folder cannot finish the name it started', async () => {
+    // The folder-name check reads the parent's last segment, and a folder's key is parent + name +
+    // `/`. Seeded at `…/athena`, `results` passed the check and wrote the app's own results folder.
+    // Asserted on the key the write lands at: a listing at the root would not show where it went.
+    const createFolder = vi.mocked(fileService.createFolder).mockResolvedValue(ok({prefix: 'alice/results/'}));
+    const {user} = renderAt('/files?prefix=alice%2Fsystem_settings%2Fathena');
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'results');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    await waitFor(() => expect(createFolder).toHaveBeenCalledOnce());
+    const [{prefix, name}] = createFolder.mock.calls[0];
+    expect(`${prefix}${name}/`).toBe('alice/results/');
+  });
 });
 
 describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
