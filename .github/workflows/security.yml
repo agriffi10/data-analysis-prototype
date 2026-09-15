@@ -647,12 +647,6 @@ jobs:
             exit 1
           fi
 
-          # The FULL count, published above. The gate reads the enforced subset instead,
-          # computed in the next step — this write exists so that a run which somehow ends
-          # between here and there leaves the gate holding a failing number rather than
-          # nothing. It is belt to the sentinel's braces, not the primary defence.
-          echo "CHECKOV_FINDINGS=$count" >> "$GITHUB_ENV"
-
       # THE GATE'S NUMERATOR. `count` above is every failure, most of them documented
       # accepts (no VPC, no CMK, no X-Ray); blocking on it would mean suppressing twenty
       # rules to enforce five. This narrows it to the checks .github/checkov-enforced.txt
@@ -662,9 +656,15 @@ jobs:
       #
       # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A command substitution that fails
       # inside an argument to `echo` does NOT fail the step: `echo` exits 0, `set -e` sees
-      # success, and the empty value it wrote wins over the pessimistic record above. An
-      # assignment is the one construct whose substitution failure `set -e` acts on. Every
-      # hard error this script raises reached the gate as a silent green until this changed.
+      # success, and the empty value it wrote stands as the count. An assignment is the one
+      # construct whose substitution failure `set -e` acts on. Every hard error this script
+      # raises reached the gate as a silent green until this changed.
+      #
+      # THE FIRST WRITE OF THE GATE'S COUNT, and nothing may write it earlier — not even the
+      # full count as a pessimistic fallback. A hard error here would leave that number
+      # standing as the enforced count: a failing number while it is above zero, and "no
+      # findings" at zero. A failure here writes nothing, and an unwritten count is what the
+      # dockerfile narrowing and the gate both refuse.
 
       - name: Narrow to the enforced checks
         if: always() && steps.gates.outcome == 'success'
@@ -703,21 +703,32 @@ jobs:
       # regression in either framework blocks. Assign-then-echo, never `echo "VAR=$(script)"`,
       # for the reason stated above the terraform narrowing.
       #
-      # NO NUMERIC DEFAULT ON THE RUNNING TOTAL. `${CHECKOV_FINDINGS:-0}` would substitute on
-      # EMPTY as well as unset, so a terraform narrowing that hard-errored — leaving the variable
-      # unwritten — would become "clean" here, which is precisely the shape apply-gate.sh's
-      # `no-count` sentinel exists to refuse. If the terraform half did not produce a number,
-      # this leaves it unproduced and the gate hard-errors on it.
+      # THE SENTINEL IS WRITTEN FIRST. The gate's `:-no-count` covers only a count nothing
+      # wrote, and the terraform half has already written one, so a failure below would leave
+      # that count standing as the total of both: a terraform zero read "no findings" over a
+      # dockerfile narrowing that hard-errored. A `$GITHUB_ENV` write reaches only later steps,
+      # so the terraform count this step reads is still the terraform half's.
+      #
+      # NO NUMERIC DEFAULT, AND A NUMBER RATHER THAN A VALUE. `${CHECKOV_FINDINGS:-0}` would
+      # substitute on EMPTY as well as unset, which is what a failed terraform narrowing
+      # leaves, and bash arithmetic reads an empty value or `no-count` as zero, so either would
+      # come out of the sum below as "clean". The terraform count is tested the way
+      # apply-gate.sh tests the total, and anything that is not a number is refused.
       - name: Narrow the dockerfile scan to its enforced checks
         if: always() && steps.gates.outcome == 'success'
         run: |
+          terraform="${CHECKOV_FINDINGS:-}"
+          echo "CHECKOV_FINDINGS=no-count" >> "$GITHUB_ENV"
           findings=$(.github/scripts/checkov-enforced.sh checkov-dockerfile.json .github/checkov-dockerfile-enforced.txt)
           echo "CHECKOV_DOCKERFILE_FINDINGS=$findings" >> "$GITHUB_ENV"
-          if [ -z "${CHECKOV_FINDINGS:-}" ]; then
-            echo "::error title=Checkov::the terraform narrowing produced no count, so the two frameworks cannot be totalled. Refusing to substitute a zero."
-            exit 1
-          fi
-          echo "CHECKOV_FINDINGS=$(( CHECKOV_FINDINGS + findings ))" >> "$GITHUB_ENV"
+          case "$terraform" in
+            '' | *[!0-9]*)
+              echo "::error title=Checkov::the terraform narrowing produced no count ('$terraform'), so the two frameworks cannot be totalled. Refusing to substitute a zero."
+              exit 1
+              ;;
+          esac
+          total=$(( terraform + findings ))
+          echo "CHECKOV_FINDINGS=$total" >> "$GITHUB_ENV"
 
       - name: Summarize (Checkov, dockerfile)
         if: always() && steps.gates.outcome == 'success'

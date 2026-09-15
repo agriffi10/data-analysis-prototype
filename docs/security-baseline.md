@@ -799,9 +799,12 @@ the gate as a **silent green**. Both are worth knowing before writing another ga
   the non-numeric sentinel `no-count`. ZAP's step already used `no-report` for exactly this reason,
   with a comment saying so; it was there to be copied and wasn't.
 
-Each workflow still records the full count before narrowing. That is belt to the sentinel's braces,
-not the primary defence — the claim in an earlier draft that it made the gate "fail closed" was
-wrong, since the failure mode it named is the one it did not cover.
+The full count recorded before narrowing was belt to the sentinel's braces, not the primary
+defence — the claim in an earlier draft that it made the gate "fail closed" was wrong, since the
+failure mode it named is the one it did not cover. `security.yml`'s Checkov scan has since dropped
+it. When the narrowing after it failed, the full count stood as the enforced one, a failing number
+while above zero and "no findings" at zero; with nothing written first, the same failure leaves the
+gate a count it refuses.
 
 ## What still does not block, and why it is not an oversight
 
@@ -885,7 +888,10 @@ The gate is the same shape as the `.tf` one and shares its script: an **enforce 
 zero (`.github/checkov-dockerfile-enforced.txt`, 21 IDs against checkov 3.3.9 on 2026-09-01,
 38 passed / 2 failed), narrowed rather than totalled, with an ID that evaluates against nothing
 treated as a hard error. Its findings are **added to** the Checkov numerator rather than gated
-separately, so one number still decides the job.
+separately, so one number still decides the job. The step that adds them writes `no-count` before
+it narrows, and refuses a terraform count that is not a number. Without that write, a failed
+Dockerfile narrowing left the terraform count on its own as the total, and a terraform zero printed
+"no findings" at the gate with the Dockerfile uncounted.
 
 | Count | Check | Disposition |
 |---|---|---|
