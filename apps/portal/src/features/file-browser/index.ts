@@ -50,6 +50,7 @@ export {
 } from './fileBrowser.service';
 export type {DownloadUrl, UploadResult, CreateFolderResult, ObjectMetadata} from './fileBrowser.types';
 export {maxUploadBytes, S3_SINGLE_PUT_MAX_BYTES} from './uploadLimits';
+export {isNamedPath} from './fileBrowser.paths';
 export {
   LISTING_PAGE_SIZE,
   PREFIX_MARKER_FILENAME,

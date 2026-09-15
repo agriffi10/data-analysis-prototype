@@ -22,9 +22,9 @@ export type FileSpaceTarget = {
 export type UseFileSpaceParams = {
   username: string | null;
   connections: Connection[];
-  // True while the connections cache is still loading — suppresses the
-  // vanished-space notice so a valid shared deep-link doesn't flash a fallback
-  // before the cache resolves.
+  // True while the page's first read of the connections list is outstanding — the first
+  // load, or the refetch a stale cached list triggers on mount. Holds a `?space=` deep link
+  // pending meanwhile, so neither the vanished-space notice nor the personal space flashes.
   isLoading: boolean;
   userSpaceBucket: string | undefined;
   sharedSpaceBucket: string | undefined;
@@ -40,9 +40,14 @@ export type UseFileSpaceParams = {
 };
 
 export type UseFileSpaceResult = {
-  // null only when the bucket env / username needed to target the space is
-  // missing — the page surfaces its existing configuration-error UI.
+  // null when the bucket env / username needed to target the space is missing —
+  // the page surfaces its existing configuration-error UI — and while `pending`.
   space: FileSpaceTarget | null;
+  // True while a `?space=` deep link waits on the connections cache. `space` is null
+  // meanwhile rather than the personal space: resolved personal-first, the page mounts
+  // a writable browser on the wrong bucket, and anything written in that window stays.
+  pending: boolean;
+  // The space shown — or, while `pending`, the one being opened, so no other reads as current.
   activeSpaceId: string;
   selectSpace: (id: string) => void;
   // True when the URL named a space the user can't browse (gone/revoked/not-yet-
@@ -128,20 +133,23 @@ export function useFileSpace({
   // the moment the flag flips back.
   const spaceParam = ignoreSpaceParam ? null : searchParams.get('space');
 
-  const {space, fellBack} = useMemo(() => {
-    if (!username) return {space: null, fellBack: false};
+  const {space, fellBack, pending} = useMemo(() => {
+    if (!username) return {space: null, fellBack: false, pending: false};
     const personalConn = connections.find((c) => c.kind === 'personal') ?? null;
 
     // Resolve the requested shared space; fall back to personal when it's absent
-    // or not yet usable (provisioning/failed/leaving). Suppress the fallback
-    // notice while the cache is still loading so a valid deep-link doesn't flash.
+    // or not yet usable (provisioning/failed/leaving). While the list is still being
+    // read the request is pending instead, so a valid deep link neither flashes the
+    // fallback notice nor opens the personal space first.
     let targetConn: Connection | null = personalConn;
     let didFallBack = false;
     if (spaceParam) {
       const match = connections.find((c) => c.id === spaceParam) ?? null;
       if (match && isConnectionUsable(match)) {
         targetConn = match;
-      } else if (!isLoading) {
+      } else if (isLoading) {
+        return {space: null, fellBack: false, pending: true};
+      } else {
         didFallBack = true;
       }
     }
@@ -149,7 +157,7 @@ export function useFileSpace({
     const target = targetConn
       ? connectionToSpaceTarget(targetConn, username, userSpaceBucket, sharedSpaceBucket)
       : null;
-    return {space: target, fellBack: didFallBack};
+    return {space: target, fellBack: didFallBack, pending: false};
   }, [username, connections, spaceParam, isLoading, userSpaceBucket, sharedSpaceBucket]);
 
   const selectSpace = useCallback(
@@ -185,7 +193,8 @@ export function useFileSpace({
 
   return {
     space,
-    activeSpaceId: space?.id ?? 'personal',
+    pending,
+    activeSpaceId: space?.id ?? (pending && spaceParam ? spaceParam : 'personal'),
     selectSpace,
     fellBack,
     dismissFellBack

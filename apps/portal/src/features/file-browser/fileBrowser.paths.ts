@@ -31,6 +31,20 @@ export function relativePath(keyOrPrefix: string, rootPrefix?: string): string {
 }
 
 /**
+ * Whether every segment of a key or prefix is a name — none empty, none `.` or `..`.
+ *
+ * S3 resolves neither: `alice//docs/` is a different folder from `alice/docs/` that the
+ * breadcrumbs render identically, and `alice/../bob/` names a folder the API refuses outright.
+ * One trailing slash is the folder boundary, not an empty segment.
+ */
+export function isNamedPath(keyOrPrefix: string): boolean {
+  return keyOrPrefix
+    .replace(/\/$/, '')
+    .split('/')
+    .every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+/**
  * Last path segment of a key OR folder prefix (trailing slash tolerated), for
  * naming items in result messages: `a/b/photos/` → `photos`, `a/b/c.txt` → `c.txt`.
  */

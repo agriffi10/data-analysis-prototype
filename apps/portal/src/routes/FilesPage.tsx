@@ -3,6 +3,7 @@ import {useSearchParams} from 'react-router';
 import {
   FileBrowser,
   ensurePrefixMarker,
+  isNamedPath,
   useFileSpace,
   usableSpaceTargets,
   type FileSpaceTarget
@@ -12,6 +13,7 @@ import {Sidebar} from '../features/connections/Sidebar';
 import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
 import {Banner} from '../components/Banner';
+import {LoadingState} from '../components/LoadingState';
 import {useAuth} from '../features/auth';
 import {useConnections} from '../features/connections/useConnections';
 import {useAcknowledgeMembership} from '../features/shared-spaces';
@@ -26,16 +28,16 @@ export default function FilesPage() {
   usePageTitle('Files');
   const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
 
-  const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
+  const {connections, isAwaitingFreshList} = useConnections(user?.username ?? null);
   // The spaces rail and the `?space=` parameter are shared-workspace
   // surfaces. With the flag off the page shows no rail and resolves to the personal space
   // with NO notice — the deep link is ignored, not refused.
   const {isEnabled, status: flagsStatus} = useFeatureSet();
   const sharedSpacesEnabled = isEnabled('sharedWorkspaces');
-  const {space, activeSpaceId, selectSpace, fellBack, dismissFellBack} = useFileSpace({
+  const {space, pending, activeSpaceId, selectSpace, fellBack, dismissFellBack} = useFileSpace({
     username: user?.username ?? null,
     connections,
-    isLoading: connectionsLoading,
+    isLoading: isAwaitingFreshList,
     userSpaceBucket,
     sharedSpaceBucket,
     // Gated on the RESOLVED answer, not on `sharedSpacesEnabled` — which reads false while the
@@ -68,7 +70,8 @@ export default function FilesPage() {
   // floor), so the param can never point outside it — and only when it ends at a
   // folder boundary, because every write appends a name to it and the folder-name
   // check reads the parent's last segment: `…/system_settings/athena` + `results`
-  // would pass it and write the app's own results folder.
+  // would pass it and write the app's own results folder. Every segment must be a
+  // name as well, since S3 resolves neither `//` nor a dot segment.
   const [searchParams] = useSearchParams();
   const prefixParam = searchParams.get('prefix') || undefined;
   // `?requestId=` — the run whose conflicts to review. Minted by a notification row's own control
@@ -134,7 +137,7 @@ export default function FilesPage() {
   useProvideNavRail(sharedSpacesEnabled ? spacesRail : null);
 
   const initialPrefix =
-    prefixParam && prefixParam.startsWith(target.rootPrefix) && prefixParam.endsWith('/')
+    prefixParam && prefixParam.startsWith(target.rootPrefix) && prefixParam.endsWith('/') && isNamedPath(prefixParam)
       ? prefixParam
       : target.rootPrefix;
   const ready = !!target.bucket && !!user;
@@ -170,7 +173,9 @@ export default function FilesPage() {
           </Banner>
         )}
 
-        {ready ? (
+        {pending ? (
+          <LoadingState label="Loading files…" />
+        ) : ready ? (
           <FileBrowser
             key={`${sidebarActiveId}:${initialPrefix}`}
             bucket={target.bucket as string}
