@@ -58,6 +58,7 @@ entry you need, not the file.**
 - [Layout boundaries reset by prop, never by `key`; a signed-in page's sits inside the shell (2026-09-10)](#layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits-inside-the-shell-2026-09-10)
 - [A failed status poll ends the Query tab's run, and the poll is disabled rather than left to answer (SPEC-233)](#a-failed-status-poll-ends-the-query-tabs-run-and-the-poll-is-disabled-rather-than-left-to-answer-spec-233)
 - [A long query settles at the ceiling, judged on a read after it, and says where its results go (SPEC-234)](#a-long-query-settles-at-the-ceiling-judged-on-a-read-after-it-and-says-where-its-results-go-spec-234)
+- [A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)](#a-space-the-cached-list-lacks-is-refused-only-on-a-read-after-the-link-2026-09-15)
 
 ## Fences
 
@@ -1417,3 +1418,41 @@ windows end between ticks.
 
 **Not done:** a live check. DML times out at 30 minutes here, so a statement that outlives the
 ceiling on demand is long DDL nobody has on hand (`docs/testing/owed.md`).
+
+## A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)
+
+A Files link naming a space missing from the cached connections list fell back at once, under
+"That shared space is no longer available", whenever no read of the list was due. That covered a
+list inside its 30-second `staleTime`, as when a notification is followed moments after joining,
+and a link followed on a Files page already open, which does not remount and so owes no read.
+Nothing read the list again, so the false notice stood until a manual Refresh.
+
+**A miss now waits for one read that settles after the link, and asks for it when none is due**
+(Andrew's ruling, over leaving it as it was). The link is `pending` meanwhile, showing "Loading
+files…" and no browser, and then opens the space or falls back with a notice that is now true. The
+cost is one extra read of the user's connections list for each link to a space that is really gone
+or not yet usable, plus one round trip of loading before its notice. Presence is still trusted at
+once, since only an absence is refused on the list's word. Offline, such a link waits on "Loading
+files…" until the connection returns and the read runs, as a cold load already did, where a cached
+list used to refuse it at once.
+
+**The wait is anchored at the link, and measured by count.** `useConnections` exposes TanStack's
+own update counters, the pair behind `isFetchedAfterMount`, as `listReadsSettled`. `useFileSpace`
+notes the count whenever a link is followed, noting it again during render. A link is the
+navigation as well as the `?space=` value: while the notice shows, the address still names the
+space, so following the same link again changes only the navigation, and keyed by the value alone
+that second follow was refused on the first follow's read. **A POP is not a follow**, and the
+exclusion is load-bearing: an in-page anchor — the shell's own skip link — is a same-document
+navigation whose entry carries no history state, so the key falls back to "default" and every such
+click would re-arm the wait, unmounting the browser and spending a read on the keyboard users the
+bypass link exists for. That was measured in Chromium and is driven in the test, because jsdom
+follows no in-page anchor on a click. The mount-anchored predicate this replaced cannot see a link
+that arrives after mount at all: keep the count but never re-anchor it, and the two tests that
+follow a link on an open page go red. A failed read counts too, so a failure ends the wait
+rather than loading for ever. The
+re-read passes `cancelRefetch: false`, so the read owed on mount answers the link rather than being
+cancelled and sent again, and the stale-list row counts reads to hold that.
+
+**Not done:** the Data Explorer's `?space=` and Data Quality's `:space` resolve against the same
+list and wait only on `isLoading`, so a cached list without a just-joined space refuses both links
+in the same way.

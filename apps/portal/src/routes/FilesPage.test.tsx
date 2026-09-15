@@ -1,4 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
+import type {ReactNode} from 'react';
+import {Link} from 'react-router';
 import {act, screen, within, waitFor} from '@testing-library/react';
 import type {UserEvent} from '@testing-library/user-event';
 import type {QueryClient} from '@tanstack/react-query';
@@ -73,12 +75,14 @@ vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 const {default: FilesPage} = await import('./FilesPage');
 
 // The UploadQueueProvider lives in the authenticated app layout above the route in
-// production; supply it here so the real FileBrowser subtree mounts.
-function renderAt(route: string, queryClient?: QueryClient) {
+// production; supply it here so the real FileBrowser subtree mounts. `beside` renders next to the
+// page under the same router, standing in for the shell around it — a notification row's link.
+function renderAt(route: string, queryClient?: QueryClient, beside?: ReactNode) {
   return renderWithProviders(
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
         <FilesPage />
+        {beside}
       </FileOpsInFlightProvider>
     </UploadQueueProvider>,
     {route, auth: authenticated('alice'), ...(queryClient && {queryClient})}
@@ -95,12 +99,13 @@ type CacheRead = Awaited<ReturnType<typeof readSharedConnectionsCache>>;
 const NO_SPACES: CacheRead = ok({version: 1, connections: []});
 const UNREADABLE: CacheRead = {success: false, error: {message: 'unreadable'}};
 
-/** A client already holding a spaces list without `marketing_data`, read `ageMs` ago under the app's
- *  30s staleTime rather than the harness's 0 — so whether the list is stale is the test's choice. */
-function clientWithCachedList(ageMs: number): QueryClient {
+/** A client already holding a spaces list — without `marketing_data` unless `list` says otherwise — read
+ *  `ageMs` ago under the app's 30s staleTime rather than the harness's 0, so whether the list is stale
+ *  is the test's choice. */
+function clientWithCachedList(ageMs: number, list: SharedConnectionsCache = {version: 1, connections: []}) {
   const client = createTestQueryClient();
   client.setQueryDefaults(connectionKeys.list('alice'), {gcTime: Infinity, staleTime: 30_000});
-  client.setQueryData(connectionKeys.list('alice'), {version: 1, connections: []}, {updatedAt: Date.now() - ageMs});
+  client.setQueryData(connectionKeys.list('alice'), list, {updatedAt: Date.now() - ageMs});
   return client;
 }
 
@@ -179,6 +184,15 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
     expect(rootCrumb().getByText('marketing_data')).toBeInTheDocument();
   });
 
+  it('opens a ?space= a fresh cached list already has, without reading the list', async () => {
+    // Only an absence waits for a read: a space the list names as usable is opened on its word.
+    renderAt('/files?space=marketing_data', clientWithCachedList(0, cache));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith('shared-bucket', 'marketing_data/', undefined, expect.any(AbortSignal))
+    );
+    expect(mockReadCache).not.toHaveBeenCalled();
+  });
+
   // The deep link the save-results toast and the rail's "View source files" both build.
   it('seeds a shared space at an in-space ?prefix= deep link', async () => {
     renderAt('/files?space=marketing_data&prefix=marketing_data%2Freports%2F');
@@ -194,13 +208,15 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
 
   it.each([
     ['nothing is cached yet', () => undefined],
-    ['a stale cached list predates the space', () => clientWithCachedList(60_000)]
+    ['a stale cached list predates the space', () => clientWithCachedList(60_000)],
+    ['a fresh cached list predates the space', () => clientWithCachedList(0)]
   ])(
     'holds the browser back while a ?space= deep link resolves (%s), so nothing opens in the personal bucket first',
     async (_cached, seededClient) => {
       // Resolved personal-first while the spaces were read, the page mounted a writable browser on the
       // user's own bucket and swapped it out afterwards; an upload started in between stayed there. A
-      // stale cached list counts, because `isLoading` is false as soon as anything is cached.
+      // cached list counts however fresh: a notification followed moments after joining names a space
+      // that list was read without, and trusted, it refused the space as "no longer available".
       let resolveCache: (result: CacheRead) => void = () => {};
       mockReadCache.mockReturnValue(new Promise((resolve) => (resolveCache = resolve)));
       renderAt('/files?space=marketing_data&prefix=marketing_data%2Fr%2F', seededClient());
@@ -219,11 +235,13 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
   );
 
   // Every state a page can mount in, settling without the space and then seeing a later refetch
-  // (opening Send, a reconnect). Only the read owed on mount is waited for, and never again once it
-  // settles: three of these rows reproduce a wait that came back and unmounted the browser, with the
-  // dialog open in it; the failed read would otherwise have loaded for ever.
+  // (opening Send, a reconnect). One read after the link is waited for — the one owed on mount, or
+  // the one the link asks for — and never again once it settles: three of these rows reproduce a
+  // wait that came back and unmounted the browser, with the dialog open in it; a failed read would
+  // otherwise have loaded for ever, and a second read on mount is one the link never needed.
   it.each([
-    ['fresh in the cache, so trusted without a read', () => clientWithCachedList(0), NO_SPACES, 0],
+    ['fresh in the cache, so read once for the link', () => clientWithCachedList(0), NO_SPACES, 1],
+    ['fresh in the cache, and that read fails', () => clientWithCachedList(0), UNREADABLE, 1],
     ['stale in the cache, so re-read once on mount', () => clientWithCachedList(60_000), NO_SPACES, 1],
     ['not cached, and the read finds no such space', () => undefined, NO_SPACES, 1],
     ['not cached, and the read fails', () => undefined, UNREADABLE, 1]
@@ -247,6 +265,94 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     }
   );
+
+  it('reads the spaces list again when a link followed on the open page names a space it lacks', async () => {
+    // A notification row links to `/files?space=…`. Followed with Files already open, the page does
+    // not remount, so no read is owed: checked against the list the page opened with, a space joined
+    // since was refused as "no longer available", and nothing ever read the list again.
+    mockReadCache.mockResolvedValueOnce(NO_SPACES);
+    const {user, queryClient} = renderAt(
+      '/files',
+      clientWithCachedList(60_000),
+      <Link to="/files?space=marketing_data">Open marketing_data</Link>
+    );
+    await waitFor(() => expect(mockReadCache).toHaveBeenCalledOnce());
+    await waitFor(() => expect(queryClient.isFetching({queryKey: connectionKeys.list('alice')})).toBe(0));
+
+    let resolveRead: (result: CacheRead) => void = () => {};
+    mockReadCache.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+    await user.click(screen.getByRole('link', {name: 'Open marketing_data'}));
+
+    expect(await screen.findByText('Loading files…')).toBeInTheDocument();
+    expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledTimes(2);
+
+    resolveRead(ok(cache));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenLastCalledWith('shared-bucket', 'marketing_data/', undefined, expect.any(AbortSignal))
+    );
+    expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a resolved link alone when the page moves to a fragment, as the skip link does', async () => {
+    // The shell's "Skip to main content" is a same-document navigation. Measured in Chromium: the
+    // new entry carries no history state and `popstate` fires, so react-router's location key falls
+    // back to "default" while the address still names the space. Read as a fresh follow, every
+    // skip-link click would unmount the browser and spend a read — on the keyboard users the bypass
+    // link exists for. jsdom follows no in-page anchor on a click (measured: the URL does not move),
+    // so the navigation is driven here, and the link is followed first because that is what puts a
+    // key on the entry for the fragment to lose.
+    mockReadCache.mockResolvedValue(NO_SPACES);
+    const {user} = renderWithProviders(
+      <UploadQueueProvider>
+        <FileOpsInFlightProvider>
+          <FilesPage />
+          <Link to="/files?space=marketing_data">Open marketing_data</Link>
+        </FileOpsInFlightProvider>
+      </UploadQueueProvider>,
+      {
+        route: '/files',
+        auth: authenticated('alice'),
+        queryClient: clientWithCachedList(0),
+        browserRouter: true
+      }
+    );
+    await user.click(screen.getByRole('link', {name: 'Open marketing_data'}));
+    expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}#main`);
+      window.dispatchEvent(new PopStateEvent('popstate', {state: null}));
+    });
+
+    expect(screen.getByRole('button', {name: 'New folder'})).toBeInTheDocument();
+    expect(screen.queryByText('Loading files…')).not.toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledOnce();
+  });
+
+  it('reads the list again when the same link is followed a second time', async () => {
+    // While the notice shows, the address still names the space, so following the link again changes
+    // only the navigation. That follow asks the question afresh, and a read before it cannot answer.
+    mockReadCache.mockResolvedValue(NO_SPACES);
+    const {user} = renderAt(
+      '/files',
+      clientWithCachedList(0),
+      <Link to="/files?space=marketing_data">Open marketing_data</Link>
+    );
+    await user.click(screen.getByRole('link', {name: 'Open marketing_data'}));
+    expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledOnce();
+
+    mockReadCache.mockResolvedValue(ok(cache));
+    await user.click(screen.getByRole('link', {name: 'Open marketing_data'}));
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenLastCalledWith('shared-bucket', 'marketing_data/', undefined, expect.any(AbortSignal))
+    );
+    expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument();
+    expect(mockReadCache).toHaveBeenCalledTimes(2);
+  });
 
   it('falls back to the personal space with a notice for a ?space= that is gone or not yet usable', async () => {
     // Unknown space → fallback; the browser targets the personal space and a
