@@ -17,10 +17,10 @@ expanding it would have the destination guard report every one of its objects as
 flip a reported success into a refusal.
 
 **A REFUSAL IS PER ITEM UNLESS IT IS A STATEMENT ABOUT THE REQUEST.** A missing file and an item
-that holds nothing fail alone and every other item proceeds — the browser has always carried on
-with the rest, and a select-all delete must still delete what it may. Two selected items where one
-contains the other, and every cap, fail the whole request: neither of the overlapping items is the
-wrong one, and a cap read per item would let a request approach the bound by attrition.
+that holds nothing fail alone and every other item proceeds, because a select-all delete must
+still delete what it may. Two selected items where one contains the other, and every cap, fail
+the whole request: neither of the overlapping items is the wrong one, and a cap read per item would
+let a request approach the bound by attrition.
 
 The service name is the control plane, not the function, so one operation's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.

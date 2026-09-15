@@ -15,7 +15,7 @@ actor could write into a space they may read nothing of.
 stylistic. A containment breach, a dot segment or two selected items whose destinations collide
 are statements about the REQUEST — there is no sensible partial execution of a request that names
 a key outside the actor's own space. A protected folder, an item copied into itself and a same-key
-no-op are statements about ONE item, and the browser has always carried on with the rest: a
+no-op are statements about ONE item, and the rest of the selection carries on without it: a
 select-all delete at a space root deletes what it may and reports the folders it may not, and
 turning that into a whole-request refusal would delete nothing.
 
