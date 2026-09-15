@@ -44,6 +44,11 @@ export type MenuProps = {
   className?: string;
   /** Extra classes for the popover panel (e.g. a wider `min-w-*`). */
   menuClassName?: string;
+  /**
+   * The most height the popover may take, in px, beyond which its items scroll. For a menu
+   * opened inside a scroll box that would otherwise clip its lower items; omit to size to content.
+   */
+  maxHeight?: number;
 };
 
 /**
@@ -70,7 +75,7 @@ export type MenuProps = {
 /** The popover's minimum width, which is its `min-w-[184px]` class below; a caller placing it measures against this. */
 export const MENU_MIN_WIDTH_PX = 184;
 
-export function Menu({trigger, items, ariaLabel, align = 'right', className, menuClassName}: MenuProps) {
+export function Menu({trigger, items, ariaLabel, align = 'right', className, menuClassName, maxHeight}: MenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -140,9 +145,11 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
               focusItem(-1);
             }
           }}
+          style={maxHeight === undefined ? undefined : {maxHeight}}
           className={cx(
             'absolute top-full z-50 mt-1 min-w-[184px] rounded-md border border-border bg-surface p-1 shadow-md',
             align === 'right' ? 'right-0' : 'left-0',
+            maxHeight !== undefined && 'overflow-y-auto',
             menuClassName
           )}>
           {items.map((item, i) => {

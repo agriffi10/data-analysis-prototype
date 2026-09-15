@@ -216,6 +216,7 @@ describe('column geometry', () => {
 
     await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
     expect(within(panel).getByRole('button', {name: 'Show all'})).toHaveAttribute('title', 'No column is hidden.');
+    expect(within(panel).getByRole('button', {name: 'Unpin all'})).toHaveAttribute('title', 'No column is pinned.');
   });
 
   it('pins a column to the front of the display order and unpins it back', async () => {

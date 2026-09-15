@@ -16,6 +16,40 @@ export function contentRightOf(box: Element | null): number | undefined {
 }
 
 /**
+ * The y of a scroll box's content bottom, above any horizontal scrollbar it shows. Undefined for
+ * a box with no measured height.
+ *
+ * @param box - The grid's scroll box element.
+ * @returns The viewport y a menu must not pass, or undefined.
+ */
+export function contentBottomOf(box: Element | null): number | undefined {
+  if (!box || box.clientHeight === 0) return undefined;
+  return box.getBoundingClientRect().top + box.clientTop + box.clientHeight;
+}
+
+/** The fewest px a capped menu is given: two items, so even a cramped grid shows something to scroll. */
+export const MENU_MIN_HEIGHT_PX = 80;
+
+/**
+ * How tall a column header's menu may be before its items scroll. The grid is bounded to the
+ * viewport and scrolls in its own box, which clips anything positioned inside it — a menu reaching
+ * past the box's bottom lost its last items, and the sticky header carries the menu along, so
+ * scrolling the grid never revealed them.
+ *
+ * @param triggerBottom - The menu button's bottom edge, in viewport px.
+ * @param contentBottom - The box's content bottom from {@link contentBottomOf}, or undefined.
+ * @returns The cap in px, or undefined to size the menu to its content.
+ *
+ * @example
+ * menuMaxHeightFor(button.getBoundingClientRect().bottom, contentBottomOf(box)); // 280
+ */
+export function menuMaxHeightFor(triggerBottom: number, contentBottom: number | undefined): number | undefined {
+  if (contentBottom === undefined) return undefined;
+  // A little short of the edge, which also covers the gap the popover keeps below its button.
+  return Math.max(MENU_MIN_HEIGHT_PX, Math.floor(contentBottom - triggerBottom - 8));
+}
+
+/**
  * Which way a column header's menu should open so it stays inside the grid's scroll box.
  *
  * Measured when the menu opens rather than fixed per column: a menu opening rightward from one

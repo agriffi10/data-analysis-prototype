@@ -192,6 +192,27 @@ describe('the column header menu', () => {
     );
   });
 
+  // The grid scrolls in a box bounded to the viewport, and a menu positioned inside it was
+  // clipped: rightward past the last column, and downward past the box on a laptop screen.
+  // jsdom lays nothing out, so the box and the button are given the sizes a 1366×650 window has.
+  it('opens a header menu inside the grid box: leftward at the right edge, no taller than the room below', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const trigger = screen.getByRole('button', {name: 'Column options: note'});
+    const box = trigger.closest('[data-grid-scroll-box]') as HTMLElement;
+    box.getBoundingClientRect = () => new DOMRect(0, 200, 800, 340);
+    Object.defineProperty(box, 'clientWidth', {configurable: true, value: 798});
+    Object.defineProperty(box, 'clientHeight', {configurable: true, value: 329});
+    trigger.getBoundingClientRect = () => new DOMRect(700, 205, 24, 24);
+
+    await user.click(trigger);
+
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveClass('right-0');
+    // 200 + 329 is the box's content bottom, 229 the button's, less the 8px kept clear.
+    expect(menu).toHaveStyle({maxHeight: '292px'});
+  });
+
   it('offers all six comparisons, and each one composes its own operator', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');

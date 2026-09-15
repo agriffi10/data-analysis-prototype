@@ -11,6 +11,7 @@ import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryRowCount, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {catalogKeys} from '../catalog/catalogKeys';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
@@ -57,8 +58,8 @@ const SHARED_SPACE: QuerySpace = {
 
 function render(route = '/explore') {
   const user = userEvent.setup(USER_EVENT_OPTIONS);
-  const {unmount} = renderWithProviders(<DataExplorerWorkspace />, {route, auth: authenticated('alice')});
-  return {user, unmount};
+  const {unmount, queryClient} = renderWithProviders(<DataExplorerWorkspace />, {route, auth: authenticated('alice')});
+  return {user, unmount, queryClient};
 }
 
 /** Seed the session's tabs the way a previous visit would have left them. */
@@ -486,6 +487,29 @@ describe('the results region', () => {
 
     expect(await screen.findByText(pager)).toBeInTheDocument();
     expect(getQueryRowCount).toHaveBeenCalledWith('exec-1');
+  });
+
+  // The Query workspace's two rules for a count that disagrees with the grid. Each waits for the
+  // count to land first: read before it, the pager says the same thing on unfixed code.
+  it.each([
+    {rule: 'a count below the rows loaded is not a total', nextToken: 't-2', count: 1, pager: 'Rows 1–2'},
+    {
+      rule: 'the pager’s own count wins once it holds the last page',
+      nextToken: undefined,
+      count: 5,
+      pager: 'Rows 1–2 of 2'
+    }
+  ])('shows $pager: $rule', async ({nextToken, count, pager}) => {
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({columns: [{name: 'id', type: 'varchar'}], rows: [['1'], ['2']], nextToken}) as never
+    );
+    vi.mocked(getQueryRowCount).mockResolvedValue(ok({rowCount: count, pending: false}) as never);
+    seedTabs([{id: 't1', table: 'orders'}]);
+
+    const {queryClient} = render();
+
+    await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('exec-1'))).toBe(count));
+    expect(await screen.findByText(pager)).toBeInTheDocument();
   });
 
   it('maps a failed execution through toUserMessage — no Athena text reaches the user', async () => {

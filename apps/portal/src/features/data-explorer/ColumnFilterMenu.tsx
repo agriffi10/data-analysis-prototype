@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
-import {contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor} from './menuAlign';
+import {contentBottomOf, contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor, menuMaxHeightFor} from './menuAlign';
 import {FILTER_OPERATORS, FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
 
@@ -68,7 +68,7 @@ export type ColumnFilterMenuProps = {
  * punched through. Nothing in jsdom can see that.
  */
 export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideRefusal}: ColumnFilterMenuProps) {
-  const [align, setAlign] = useState<'left' | 'right'>('left');
+  const [placement, setPlacement] = useState<{align: 'left' | 'right'; maxHeight?: number}>({align: 'left'});
   const sort = actions.sortOf(column);
   const filter = actions.filterOf(column);
   const refusal = actions.queryRefusalOf(column);
@@ -121,7 +121,8 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
       className="absolute right-3 top-1">
       <Menu
         ariaLabel={`Column options: ${column}`}
-        align={align}
+        align={placement.align}
+        maxHeight={placement.maxHeight}
         trigger={({open, toggle, ref, menuId}) => (
           <button
             ref={ref}
@@ -132,8 +133,13 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
             onClick={(event) => {
+              // Placed when it opens, inside the grid's scroll box, which would clip it otherwise.
               const box = event.currentTarget.closest(`[${GRID_SCROLL_BOX_ATTRIBUTE}]`);
-              setAlign(menuAlignFor(event.currentTarget.getBoundingClientRect().left, contentRightOf(box)));
+              const button = event.currentTarget.getBoundingClientRect();
+              setPlacement({
+                align: menuAlignFor(button.left, contentRightOf(box)),
+                maxHeight: menuMaxHeightFor(button.bottom, contentBottomOf(box))
+              });
               toggle();
             }}
             className={cx(

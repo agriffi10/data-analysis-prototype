@@ -192,6 +192,14 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
     });
 
+    it('offers Copy only when the tab has SQL to copy', async () => {
+      seedSingle('');
+      renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      expect(screen.getByRole('button', {name: 'Copy query'})).toBeDisabled();
+    });
+
     it('copies the whole of the active tab’s SQL from the toolbar', async () => {
       seedSingle('SELECT region, count(*)\nFROM alice.sales\nGROUP BY region');
       const {user} = renderWorkspace();

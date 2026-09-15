@@ -154,7 +154,9 @@ describe('the expression bar', () => {
   // supplies its own. The column `where_flag` is the case a looser pattern would eat.
   it.each([
     {typed: "WHERE status = 'open'", sent: `WHERE (status = 'open')`},
-    {typed: 'where_flag = 1', sent: 'WHERE (where_flag = 1)'}
+    {typed: 'where_flag = 1', sent: 'WHERE (where_flag = 1)'},
+    // Only a LEADING where comes off: one inside a value is the user's data.
+    {typed: "note LIKE '%where%'", sent: "WHERE (note LIKE '%where%')"}
   ])('sends "$typed" with the one WHERE the renderer supplies, and leaves the text as typed', async ({typed, sent}) => {
     const {user} = render();
     await screen.findAllByRole('gridcell');

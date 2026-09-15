@@ -159,6 +159,20 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
   });
 
+  it('says the total is still being counted on a phone too', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    mockGetResults.mockResolvedValue(
+      ok({columns: [{name: 'region', type: 'varchar'}], rows: [['us-east'], ['eu-west']], nextToken: 't-2'})
+    );
+    mockGetRowCount.mockImplementation(() => new Promise(() => {}) as never);
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    expect(await screen.findByText(/2\+ rows · counting… ·/)).toBeInTheDocument();
+  });
+
   // The mobile view is handed the workspace's one total, and its pager no longer combines a second
   // one of its own — so this wiring is the only thing keeping its strip and pager on the grid. The
   // default page is the last page (two rows, no token), so its own count must win over Athena's 5.
