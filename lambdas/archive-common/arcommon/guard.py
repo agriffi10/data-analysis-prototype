@@ -23,7 +23,7 @@ against a run that has already waited hours, and it is the only thing that makes
 rather than only at the moment of the promise. **It is not true at every write.** The copy is
 unconditional and runs for as long as its Map does, and a second restore of the same archive can
 run beside this one because the Pipe starts executions fire-and-forget, so a file that lands at a
-destination after the second head is still overwritten.
+path the copy has not reached yet is still overwritten.
 
 **A ``403`` counts as OCCUPIED.** A key this role cannot head is a key it must not overwrite —
 and on these buckets that is a live case rather than a hypothetical, because the execution

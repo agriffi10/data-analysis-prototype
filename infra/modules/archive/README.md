@@ -148,13 +148,15 @@ no lock**, so here is what overlap does.
   depends on timing, because each run polls every five minutes on its own clock. The first run to
   see the retrieval finish can restore a small archive and sweep the vault before the other polls
   again, and that poll then fails as `archive_object_unreadable`, telling the user to contact an
-  administrator. A second guard pass that runs after the other run has copied any file back refuses
-  as occupied, over files that are the restore itself. If both second passes run first, both copy
-  back with an unconditional `CopyObject`, and if one run sweeps the vault while the other is still
-  copying, the other reports `restore_incomplete` over a restore that fully landed, pointing the
-  user at an archive that no longer exists. **And a file the user edits after the first run restored
-  it is overwritten if the second run copies it while the vault copy still exists** — silently,
-  which is the loss the guard exists to prevent.
+  administrator — **this plane's own live run hit exactly that**, two restores 25 s apart
+  (`docs/testing/sessions.md`, *The archive and restore, run under §4.11's approval gate*). A
+  second guard pass that runs after the other run has copied any file back refuses as occupied,
+  over files that are the restore itself. If both second passes run before any copy lands, both
+  copy back with an unconditional `CopyObject`, and if one run sweeps the vault while the other is
+  still copying, the other reports `restore_incomplete` over a restore that fully landed, pointing
+  the user at an archive that no longer exists. **And a file the user edits after the first run
+  restored it is overwritten if the second run copies it while the vault copy still exists** —
+  silently, which is the loss the guard exists to prevent.
 - **One request id sent twice, past the five-minute dedup window, is the unrecoverable case.** The two
   runs share one prefix, and a second run that fails its gate has its rollback delete the first
   run's completed archive after the first has deleted the source. `assert_archive_unused` narrows

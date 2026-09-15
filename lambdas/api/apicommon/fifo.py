@@ -3,12 +3,12 @@
 Four derivation families over eleven routes, and none of them has an error path: a wrong
 ``MessageGroupId`` still sends. It changes which requests are STARTED in order behind each other,
 and the only symptom is a race nobody can reproduce. For a plane a Pipe feeds, that is all it does:
-every Pipe starts its machine fire-and-forget, so a plane whose runs must not overlap holds a lock
-of its own. The notifications queue is the exception: a Lambda event source mapping drains it,
-and on a FIFO queue that runs one invocation per group at a time, so its group id does serialize
-one user's writes. A wrong ``MessageDeduplicationId`` stops collapsing double-submits, and the
-symptom is two shares, two archives, two builds. Every derivation here is pinned to a golden vector
-captured from the browser's own TypeScript before it was deleted.
+every Pipe starts its machine fire-and-forget, so a plane whose runs must not overlap needs a guard
+of its own, a lock or a conditional write. The notifications queue is the exception: a Lambda event
+source mapping drains it, and on a FIFO queue that runs one invocation per group at a time, so its
+group id does serialize one user's writes. A wrong ``MessageDeduplicationId`` stops collapsing
+double-submits, and the symptom is two shares, two archives, two builds. Every derivation here is
+pinned to a golden vector captured from the browser's own TypeScript before it was deleted.
 
 The bucket a space lives in is read from this function's configuration by ``kind`` alone. It is
 deliberately NOT resolved through ``apicommon.spaces.resolve``, which also checks membership: the

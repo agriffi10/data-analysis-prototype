@@ -3,7 +3,8 @@
 #
 # ⚠ SO ORDERED DELIVERY DOES NOT SERIALIZE EXECUTION. The Pipe returns once StartExecution does,
 # and the next message in the group starts a second run while the first is still going. This
-# plane holds no lock; README.md says what overlap costs and why the archive arm survives it.
+# plane holds no lock; README.md says what overlap costs, and why two archives survive it only
+# when their request ids differ.
 #
 # At-least-once delivery gives no re-run: a redelivered message returns the original ARN or
 # fails with ExecutionAlreadyExists (measured 2026-08-10). RECOVERY IS THE DLQ DRAIN.

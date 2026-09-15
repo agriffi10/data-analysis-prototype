@@ -91,7 +91,11 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   *whole* restore, and a **403 counts as occupied**. The second pass (`ReCheckDestinationClear`) is
   the spec correcting itself: the billed 3–5 hours are spent telling the user a restore is in
   flight, so re-creating a file meanwhile is the ordinary case — and the copy-back would otherwise
-  have overwritten it, reported success, and swept the vault.
+  have overwritten it, reported success, and swept the vault. **It is absolute at the check, not yet
+  at every write**: the copy-back is unconditional, and two restores of one archive can run at once
+  because the Pipe starts executions `FIRE_AND_FORGET` —
+  [the register](../../../docs/decisions/archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
+  says what that does.
 - **Retrieval is the point of no return.** `RetrieveObjects` tolerates **no** failure, where
   `CopyBackObjects` tolerates 100% — a fault there means nothing was copied and the archive is
   untouched. What makes that free is that `archive-initiate-restore` tolerates two codes,

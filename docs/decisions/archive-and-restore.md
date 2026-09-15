@@ -71,7 +71,8 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
   the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
   unrecognisable verdict fails closed. **It, not the queue, is what makes two overlapping archives of
-  one space safe** — the group id orders their starts and nothing else.
+  one space safe when their ids differ** — the group id orders their starts and nothing else, and
+  one id sent twice is still the unrecoverable case.
 
 ## The archive vault, and the four choices that shape the whole arc (SPEC-168)
 
@@ -954,7 +955,10 @@ plane's does — AWS allows a Standard workflow no other mode — and the messag
 therefore orders the starts, and a failed start holds the next one back until its retries run out;
 nothing stops a second run beginning while the first is still going. The table-builder refresh and
 file-ops each hold a lock for exactly this, and file-ops' live check watched two runs in one group
-overlap on a Pipe identical to this plane's. The archive specs gave serialization as the reason for
+overlap on a Pipe identical to this plane's. **This plane's own live run already had**: two restores
+of one archive submitted 25 s apart on 2026-09-09, where the second failed after its poll met the
+vault the first had swept (`docs/testing/sessions.md`, *The archive and restore, run under §4.11's
+approval gate*). The archive specs gave serialization as the reason for
 both keys and this plane's prose carried it forward, while `arcommon.plan` already keyed each
 manifest by execution so that two overlapping executions of one request could not clobber each
 other.
@@ -999,5 +1003,6 @@ alike; and a create-only claim on the archive id would close the reused-id race 
 `assert_archive_unused` only narrows. A per-archive restore lock was weighed and not chosen: it stops
 the overlap and its misleading reports, but it brings acquire and release states and a staleness
 limit above the 12-hour ceiling, and it leaves the single-restore window open. The overlapping
-restore's duplicate and false-failure reports are the accepted cost. A follow-up spec carries the
-repair; until it lands, everything above is live.
+restore's duplicate and false-failure reports are the accepted cost. A follow-up spec will carry the
+repair and retire every site that states this entry's live claims; until it lands, everything above
+is live.
