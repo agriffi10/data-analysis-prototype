@@ -669,10 +669,23 @@ prefix, `time`, `pipx run` and a container image. A table of lines is that sweep
 control. The Checkov Action is refused, and each job runs the corpus before its first scan, under
 the same `if:`.
 
-**Not closed by this.** An inline `# checkov:skip=` comment is a second route. Measured, it moves
-an enforced finding to `skipped_checks` while the ID still passes on another resource, and the
-enforced numerator reads zero. The environment variables Checkov reads directly rather than
-through a flag are a third: `--show-config` cannot report them, and a review measured
+**The inline skip this entry first left open is refused by the numerators (2026-09-15).** An
+inline `# checkov:skip=` comment moves an enforced finding to `skipped_checks` while the ID still
+passes on another resource, and the enforced numerator read zero. The wrapper cannot see it,
+because the comment is in a scanned file rather than the configuration, so both numerators now
+read Checkov's own record of what it skipped and refuse a skipped finding their count would have
+held, naming the check and the resource: an enforced ID for the `.tf` and Dockerfile gates, any
+check on an IAM resource for the plan's. It is a hard error rather than a count because a skip is
+a suppression, not a finding: a skip on a resource that would have passed is recorded as skipped
+too. A skip the count would not have held changes nothing. The plan scan as the workflow runs it
+records no skip, since Checkov reads a `.tf` file's comments into a plan scan only under
+`--repo-root-for-plan-enrichment`. With that flag, a skip in a `.tf` beside the corpus's plan took
+`CKV_AWS_355` off and the IAM count fell from 2 to 1, so the plan numerator refuses one too rather
+than resting on a flag nothing checks. The corpus plants a skip for each gate and asserts silence
+on one outside each count, and each check was planted once.
+
+**Not closed by this.** The environment variables Checkov reads directly rather than
+through a flag are a second route: `--show-config` cannot report them, and a review measured
 `CKV_IGNORED_DIRECTORIES` taking the finding of a resource in a subdirectory off a `-d` scan while
 the wrapper exited 0. Semgrep and gitleaks, two of the other three blocking scanners, pass no
 config file either, and whether they read ignore files from the repository (`.semgrepignore`,

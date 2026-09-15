@@ -82,6 +82,25 @@ if ! raw=$(jq -r "$norm | [(.results.failed_checks // [])[] | select($iam) | .ch
 fi
 iam_failed=$(printf '%s\n' "$raw" | grep -v '^$' | sort -u || true)
 
+# A SKIPPED IAM FINDING IS REFUSED, for the reason checkov-enforced.sh gives: a skip moves the
+# finding out of failed_checks, so the count above cannot see it. The scan as the workflow runs
+# it records none, because Checkov reads a `.tf` file's `checkov:skip` comments into a plan scan
+# only under --repo-root-for-plan-enrichment. Measured against 3.3.9 on the corpus fixture: with
+# that flag, a skip beside the plan took CKV_AWS_355 off and this count went from 2 to 1. So the
+# gate held only because nobody had added a flag, which nothing checked. Checked before the
+# stale accepts, whose message would otherwise blame a fix or a rename.
+if ! skipped=$(jq -r "$norm | (.results.skipped_checks // [])[] | select($iam) | .check_id + \" on \" + (.resource // \"\")" "$json"); then
+  err "could not read skipped checks from $json — the scan output is not readable."
+  exit 2
+fi
+if [ -n "$skipped" ]; then
+  while IFS= read -r finding; do
+    err "$finding is SKIPPED — a suppression of an IAM finding is refused, not counted."
+  done <<< "$skipped"
+  err "Delete the skip. A finding that should be accepted gets a line in $accepted_file, by check ID and resource, where a reviewer reads it as a change to the gate."
+  exit 2
+fi
+
 if [ -n "$accepted" ]; then
   stale=$(comm -23 <(echo "$accepted") <(echo "$iam_failed") || true)
   if [ -n "$stale" ]; then

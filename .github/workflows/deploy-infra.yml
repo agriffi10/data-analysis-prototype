@@ -7,7 +7,8 @@ on:
   # executed, which is how a security check ships broken and looks fine. The same holds for
   # every script and list its steps read, the IAM gate's accept-list among them.
   # lambdas/test_config_workflows.py fails when a run block names a file this list omits; a
-  # file only a script reaches, as lambdas/tf_blocks.py is, is kept here by hand.
+  # file only a script reaches is kept here by hand: lambdas/tf_blocks.py, and
+  # checkov-enforced.sh, which the Checkov corpus runs.
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
@@ -15,6 +16,7 @@ on:
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
+            '.github/scripts/checkov-enforced.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
@@ -24,6 +26,7 @@ on:
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
+            '.github/scripts/checkov-enforced.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
@@ -314,7 +317,9 @@ jobs:
 
       # The scan below refuses any configuration Checkov reports taking from outside its
       # command line. That refusal never fires on a normal run, so this proves it still does,
-      # against the scanner just installed, before the gate relies on it.
+      # against the scanner just installed, before the gate relies on it. It also proves the
+      # numerator refuses an IAM finding Checkov reports skipped, which this scan records only
+      # if it is ever given --repo-root-for-plan-enrichment.
       - name: Prove the scan refuses configuration it was not given
         run: .github/scripts/checkov-scan-test.sh
 
