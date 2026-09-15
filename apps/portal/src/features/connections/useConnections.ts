@@ -1,4 +1,4 @@
-import {useCallback, useMemo, useRef} from 'react';
+import {useCallback, useMemo, useRef, useState} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {unwrap} from '../../lib/serviceResult';
@@ -19,6 +19,14 @@ const RECONCILE_POLL_MS = 4_000;
 export type UseConnectionsResult = {
   connections: Connection[];
   isLoading: boolean;
+  /**
+   * True while this mount's own first read of the list is outstanding — the first load, the refetch
+   * a stale cached list triggers on mount, or a read already running when it mounted. False from the
+   * start when none is (a list inside its staleTime), and false for good once that read settles,
+   * succeeded or failed, so no later refetch brings it back. `isLoading` clears on ANY cached list,
+   * however old, so a caller about to conclude that a space does NOT exist waits on this instead.
+   */
+  isAwaitingFreshList: boolean;
   /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
   error: unknown;
   /**
@@ -72,6 +80,8 @@ export function useConnections(username: string | null): UseConnectionsResult {
       return unwrap(result);
     }
   });
+  // Read on the first render only: a later background refetch is not the read this mount was owed.
+  const [owedReadOnMount] = useState(() => query.isPending || query.isFetching);
 
   const connections = useMemo<Connection[]>(() => {
     if (!username) return [];
@@ -127,11 +137,24 @@ export function useConnections(username: string | null): UseConnectionsResult {
       // The initial fetch is loading; once we have any data (incl. the empty cache)
       // the list is usable even while a background refetch runs.
       isLoading: query.isPending && username !== null,
+      isAwaitingFreshList:
+        username !== null && owedReadOnMount && !query.isFetchedAfterMount && (query.isPending || query.isFetching),
       error: query.error ?? null,
       refresh,
       isRefreshing: query.isRefetching,
       reconcile
     }),
-    [connections, username, query.isPending, query.error, query.isRefetching, refresh, reconcile]
+    [
+      connections,
+      username,
+      query.isPending,
+      query.isFetching,
+      query.isFetchedAfterMount,
+      owedReadOnMount,
+      query.error,
+      query.isRefetching,
+      refresh,
+      reconcile
+    ]
   );
 }

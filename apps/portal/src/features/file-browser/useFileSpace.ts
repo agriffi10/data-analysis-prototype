@@ -22,9 +22,9 @@ export type FileSpaceTarget = {
 export type UseFileSpaceParams = {
   username: string | null;
   connections: Connection[];
-  // True while the connections cache is still loading — holds a `?space=` deep link
-  // pending, so neither the vanished-space notice nor the personal space flashes
-  // before the cache resolves.
+  // True while the page's first read of the connections list is outstanding — the first
+  // load, or the refetch a stale cached list triggers on mount. Holds a `?space=` deep link
+  // pending meanwhile, so neither the vanished-space notice nor the personal space flashes.
   isLoading: boolean;
   userSpaceBucket: string | undefined;
   sharedSpaceBucket: string | undefined;
@@ -47,6 +47,7 @@ export type UseFileSpaceResult = {
   // meanwhile rather than the personal space: resolved personal-first, the page mounts
   // a writable browser on the wrong bucket, and anything written in that window stays.
   pending: boolean;
+  // The space shown — or, while `pending`, the one being opened, so no other reads as current.
   activeSpaceId: string;
   selectSpace: (id: string) => void;
   // True when the URL named a space the user can't browse (gone/revoked/not-yet-
@@ -137,9 +138,9 @@ export function useFileSpace({
     const personalConn = connections.find((c) => c.kind === 'personal') ?? null;
 
     // Resolve the requested shared space; fall back to personal when it's absent
-    // or not yet usable (provisioning/failed/leaving). While the cache is still
-    // loading the request is pending instead, so a valid deep link neither flashes
-    // the fallback notice nor opens the personal space first.
+    // or not yet usable (provisioning/failed/leaving). While the list is still being
+    // read the request is pending instead, so a valid deep link neither flashes the
+    // fallback notice nor opens the personal space first.
     let targetConn: Connection | null = personalConn;
     let didFallBack = false;
     if (spaceParam) {
@@ -193,7 +194,7 @@ export function useFileSpace({
   return {
     space,
     pending,
-    activeSpaceId: space?.id ?? 'personal',
+    activeSpaceId: space?.id ?? (pending && spaceParam ? spaceParam : 'personal'),
     selectSpace,
     fellBack,
     dismissFellBack
