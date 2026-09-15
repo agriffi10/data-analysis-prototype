@@ -186,6 +186,15 @@ jobs:
         if: always() && steps.gates.outcome == 'success'
         run: pip install "semgrep==${SEMGREP_VERSION}"
 
+      # Both Semgrep scans below go through .github/scripts/semgrep-scan.sh, which refuses a
+      # scan that an ignore file narrowed (a .semgrepignore anywhere in the tree, or the empty
+      # one at the root going missing) and one a SEMGREP_* variable could have changed. That
+      # refusal never fires on a normal run, so this proves it still does, against the Semgrep
+      # just installed, before either scan relies on it.
+      - name: Prove the Semgrep scans refuse configuration they were not given
+        if: always() && steps.gates.outcome == 'success'
+        run: .github/scripts/semgrep-scan-test.sh
+
       - name: Scan the SPA
         if: always() && steps.gates.outcome == 'success'
         # --metrics=off: semgrep's default ("auto") phones home when registry rules are
@@ -196,28 +205,32 @@ jobs:
         # npm audit's finding (FR-004), not SAST's, and scanning node_modules would bury
         # the handful of real results under thousands of them.
         #
-        # Test files ARE scanned. A hard-coded credential-shaped string in a test is worth
-        # seeing even if the disposition ends up "accepted".
+        # Test files ARE scanned, src/test/ included: the empty root .semgrepignore keeps
+        # Semgrep's built-in list, which skips every test/ directory, from applying. A
+        # hard-coded credential-shaped string in a test is worth seeing even if the
+        # disposition ends up "accepted".
+        #
+        # THROUGH semgrep-scan.sh, never bare, for the reason given at the corpus step above.
+        # It writes the JSON report named first, and deletes it on a refusal.
         run: |
           set +e
-          semgrep scan \
+          .github/scripts/semgrep-scan.sh semgrep-portal.json \
             --config p/owasp-top-ten \
             --config p/react \
             --config p/typescript \
             --config p/javascript \
             --metrics=off \
-            --json --output semgrep-portal.json \
             --exclude=node_modules --exclude=dist --exclude=coverage \
             apps/portal/src
           rc=$?
           set -e
-          # 0 = clean, 1 = findings, >=2 = semgrep itself failed. A scanner that could not
-          # run must fail the job even under gate=report: "0 findings" from a broken
-          # scanner is worse than no scanner, because it reads as evidence. This repo has
-          # already paid for that once — SPEC-137 shipped behind three gates that were all
-          # satisfied by an import that could never resolve.
+          # 0 = clean, 1 = findings, >=2 = semgrep itself failed or the wrapper refused. A
+          # scanner that could not run must fail the job even under gate=report: "0 findings"
+          # from a broken scanner is worse than no scanner, because it reads as evidence. This
+          # repo has already paid for that once — SPEC-137 shipped behind three gates that
+          # were all satisfied by an import that could never resolve.
           if [ $rc -ge 2 ]; then
-            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            echo "::error title=Semgrep::exited $rc — the scan did not complete."
             exit $rc
           fi
 
@@ -235,28 +248,31 @@ jobs:
         # test_semgrep_excludes_exactly_the_flask_rule has to be edited to admit it.
         run: |
           set +e
-          semgrep scan \
+          .github/scripts/semgrep-scan.sh semgrep-lambdas.json \
             --config p/owasp-top-ten \
             --config p/python \
             --metrics=off \
-            --json --output semgrep-lambdas.json \
             --exclude=__pycache__ \
             --exclude-rule=python.flask.security.audit.directly-returned-format-string.directly-returned-format-string \
             lambdas
           rc=$?
           set -e
           if [ $rc -ge 2 ]; then
-            echo "::error title=Semgrep::semgrep exited $rc — the scan did not complete."
+            echo "::error title=Semgrep::exited $rc — the scan did not complete."
             exit $rc
           fi
 
       - name: Summarize (Semgrep)
         if: always() && steps.gates.outcome == 'success'
+        # A MISSING REPORT IS NOT ZERO. The wrapper deletes the report of a scan it refused, so
+        # a missing file is a scan that did not run or was refused. Skipping it would add
+        # nothing to the total and the gate would read the other scan's count as the whole.
         run: |
           total=0
+          missing=
           for pair in "SPA:semgrep-portal.json" "Lambdas:semgrep-lambdas.json"; do
             label="${pair%%:*}"; file="${pair##*:}"
-            [ -f "$file" ] || { echo "::warning::$file missing — the $label scan did not produce output."; continue; }
+            [ -f "$file" ] || { echo "::error title=Semgrep::$file missing — the $label scan did not run or was refused, so it has no count."; missing=1; continue; }
 
             count=$(jq '.results | length' "$file")
             : > body.md
@@ -292,6 +308,10 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
+          if [ -n "$missing" ]; then
+            echo "SEMGREP_FINDINGS=no-report" >> "$GITHUB_ENV"
+            exit 1
+          fi
           echo "SEMGREP_FINDINGS=$total" >> "$GITHUB_ENV"
 
       - name: Upload raw output (Semgrep)
@@ -305,7 +325,7 @@ jobs:
 
       - name: Apply gate (Semgrep)
         if: always() && steps.gates.outcome == 'success'
-        run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
+        run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-no-count}"
 
   # ── DEPENDENCIES (npm) ───────────────────────────────────────────────────────────
   # Two scopes, reported SEPARATELY, because for a static SPA they mean different things:
@@ -460,17 +480,32 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
 
+      # The scan below goes through .github/scripts/gitleaks-scan.sh, which refuses to scan if
+      # gitleaks reports taking configuration from anywhere but its defaults (a .gitleaks.toml or
+      # .gitleaksignore in the repository, or GITLEAKS_CONFIG or GITLEAKS_CONFIG_TOML in the
+      # environment), or if git reports that an attribute such as a `-diff` line in a
+      # .gitattributes shows a path in the history to gitleaks as binary. That refusal never fires
+      # on a normal run, so this proves it still does, against the gitleaks just installed,
+      # before the scan relies on it.
+      - name: Prove the gitleaks scan refuses configuration it was not given
+        if: always() && steps.gates.outcome == 'success'
+        run: .github/scripts/gitleaks-scan-test.sh ./gitleaks
+
       - name: Scan (gitleaks)
         if: always() && steps.gates.outcome == 'success'
         # --redact: a secret scanner that prints the secret into a CI log has widened the
         # exposure, not closed it. The repo's own field rule (docs/decisions/control-planes.md — tokens and
         # emails never leave the process) applies to CI output for the same reason.
+        #
+        # THROUGH gitleaks-scan.sh, never bare, for the reason given at the corpus step above.
+        # It runs `gitleaks git` over this checkout with the flags given, writes the JSON report
+        # named first, and a refusal leaves none.
         run: |
           set +e
-          ./gitleaks git --redact --report-format json --report-path gitleaks.json .
+          .github/scripts/gitleaks-scan.sh gitleaks.json ./gitleaks --redact
           rc=$?
           set -e
-          # 0 = clean, 1 = leaks found, anything else = gitleaks failed.
+          # 0 = clean, 1 = leaks found, anything else = gitleaks failed or the wrapper refused.
           if [ $rc -gt 1 ]; then
             echo "::error title=gitleaks::exited $rc — the scan did not complete."
             exit $rc
@@ -478,9 +513,15 @@ jobs:
 
       - name: Summarize (gitleaks)
         if: always() && steps.gates.outcome == 'success'
+        # A MISSING REPORT IS NOT ZERO. gitleaks writes `[]` when it finds nothing, so a missing
+        # file is a scan that did not run or was refused.
         run: |
-          count=0
-          [ -f gitleaks.json ] && count=$(jq 'length' gitleaks.json)
+          if [ ! -f gitleaks.json ]; then
+            echo "::error title=gitleaks::gitleaks.json missing — the scan did not run or was refused, so it has no count."
+            echo "GITLEAKS_FINDINGS=no-report" >> "$GITHUB_ENV"
+            exit 1
+          fi
+          count=$(jq 'length' gitleaks.json)
           : > body.md
           if [ "$count" -gt 0 ]; then
             {
@@ -505,7 +546,7 @@ jobs:
 
       - name: Apply gate (gitleaks)
         if: always() && steps.gates.outcome == 'success'
-        run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-0}"
+        run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-no-count}"
 
   # ── IaC ──────────────────────────────────────────────────────────────────────────
   #

@@ -14,8 +14,12 @@ It lives under ``lambdas/`` because that is where pytest runs, alongside the oth
 read CI's own files as data for the same reason.
 """
 
+import dataclasses
+import os
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
 import yaml
@@ -52,33 +56,124 @@ ENFORCED_COUNT = 79
 #: USER — are dispositioned in docs/security-baseline.md rather than enforced.
 DOCKERFILE_ENFORCED_COUNT = 21
 
-#: What a workflow line may say that contains "checkov" without running it: the gate's own four
-#: scripts by name, a scan output or list file, the pinned install, and the artifact's name in
-#: backticks, as a job summary prints it. Anything else on a line that still says "checkov" is
-#: taken to run it, however it is spelled, which is why this lists the harmless forms rather than
-#: the invocations. A new script is added here by hand, because this sweep reads workflows and not
-#: the scripts they call.
-_NOT_A_SCAN = re.compile(
-    r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam)\.sh(?![\w.-])"
-    r"|[\w./-]*checkov[\w-]*\.(?:json|txt)(?![\w.-])"
-    r"""|\bpip3?\s+install\s+(["']?)checkov==[^\s"']+\1"""
-    r"|\\?`checkov\\?`"
-)
+#: The gate steps must default to a NON-NUMERIC sentinel. `${VAR:-0}` substitutes on empty as
+#: well as unset, so a numeric default turns "the narrowing step wrote nothing" into "clean".
+SENTINEL = "no-count"
 
-#: The wrapper that refuses configuration Checkov reports taking from outside its command line,
-#: however its path is spelled, capturing the scan's first two arguments.
-WRAPPED_CHECKOV = re.compile(r"(?<![\w-])checkov-scan\.sh\s+(\S+\s+\S+)")
+#: The empty ``.semgrepignore`` at the repository root. Without it Semgrep applies a built-in list
+#: that skips every ``test/`` directory, so its only job is to exist.
+ROOT_SEMGREPIGNORE = ROOT / ".semgrepignore"
 
-#: The fixture corpus that proves the wrapper's refusal still fires, however its path is spelled.
-CORPUS_CALL = re.compile(r"(?<![\w-])checkov-scan-test\.sh(?![\w.-])")
+#: The scripts the summary and gate steps call by path, copied into each run's checkout.
+STEP_SCRIPTS = ("summary-section.sh", "apply-gate.sh")
 
-#: Every scan that must be found going through the wrapper, as (workflow, first two arguments).
-#: The positive control for the sweep below: a collector that stopped matching would otherwise
-#: report no bare invocation and pass.
-KNOWN_WRAPPED_SCANS = {
-    ("security.yml", "-d infra"),
-    ("security.yml", "-f lambdas/Dockerfile"),
-    ("deploy-infra.yml", "-f plan.json"),
+#: For each scanner whose wrapper deletes the report of a refused scan: its summary step, its gate
+#: step, the variable the one hands the other, the reports of a clean scan, and the report a
+#: refusal leaves missing. Semgrep's refused report is one of two, because the realistic refusal
+#: stops one scan while the other reports cleanly, and a summary that skipped the missing one
+#: would hand the gate the clean one's zero.
+GATED_REPORTS = {
+    "semgrep": (
+        "Summarize (Semgrep)",
+        "Apply gate (Semgrep)",
+        "SEMGREP_FINDINGS",
+        {"semgrep-portal.json": '{"results": [], "errors": []}', "semgrep-lambdas.json": '{"results": [], "errors": []}'},
+        "semgrep-lambdas.json",
+    ),
+    "gitleaks": ("Summarize (gitleaks)", "Apply gate (gitleaks)", "GITLEAKS_FINDINGS", {"gitleaks.json": "[]"}, "gitleaks.json"),
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class _Guarded:
+    """One scanner whose every scan goes through a wrapper that refuses configuration it discovers.
+
+    Each wrapper exists because its scanner, measured, reads a file or variable from outside its
+    command line that removes a finding from a blocking gate. A scan added without the wrapper is
+    open to that again and looks exactly as green, so the sweep below reads every workflow line.
+
+    Attributes:
+      word: What a workflow line says, case-sensitively, when it may run the scanner.
+      harmless: The forms that say ``word`` without running the scanner: the gate's own scripts by
+        name, a report, list file or release archive, the pinned install, messages that name the
+        scanner, and the artifact's name in backticks, as a job summary prints it. Anything else
+        on a line that still says ``word`` is taken to run it, however it is spelled, which is why
+        this lists the harmless forms rather than the invocations. A new script is added here by
+        hand, because the sweep reads workflows and not the scripts they call.
+      wrapper: The wrapper's file name, as the messages below give it.
+      wrapped: The wrapper, however its path is spelled, capturing the arguments that tell one
+        scan from another.
+      corpus: The wrapper's fixture corpus, however its path is spelled.
+      known_scans: Every scan that must be found going through the wrapper, as (workflow,
+        identifying arguments). The sweep's positive control: a collector that stopped matching
+        would otherwise report no bare invocation and pass.
+      known_jobs: The jobs that must be found among those scanning through the wrapper.
+    """
+
+    word: str
+    harmless: re.Pattern[str]
+    wrapper: str
+    wrapped: re.Pattern[str]
+    corpus: re.Pattern[str]
+    known_scans: frozenset[tuple[str, str]]
+    known_jobs: frozenset[tuple[str, str]]
+
+
+#: Every scanner whose scans must go through a configuration refusal, by name.
+GUARDED = {
+    "checkov": _Guarded(
+        word="checkov",
+        harmless=re.compile(
+            r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam)\.sh(?![\w.-])"
+            r"|[\w./-]*checkov[\w-]*\.(?:json|txt)(?![\w.-])"
+            r"""|\bpip3?\s+install\s+(["']?)checkov==[^\s"']+\1"""
+            r"|\\?`checkov\\?`"
+        ),
+        wrapper="checkov-scan.sh",
+        wrapped=re.compile(r"(?<![\w-])checkov-scan\.sh\s+(\S+\s+\S+)"),
+        corpus=re.compile(r"(?<![\w-])checkov-scan-test\.sh(?![\w.-])"),
+        known_scans=frozenset(
+            {
+                ("security.yml", "-d infra"),
+                ("security.yml", "-f lambdas/Dockerfile"),
+                ("deploy-infra.yml", "-f plan.json"),
+            }
+        ),
+        known_jobs=frozenset({("security.yml", "scan"), ("deploy-infra.yml", "plan")}),
+    ),
+    "semgrep": _Guarded(
+        word="semgrep",
+        harmless=re.compile(
+            r"(?<![\w-])semgrep-scan(?:-test)?\.sh(?![\w.-])"
+            r"|[\w./*-]*semgrep[\w*-]*\.json(?![\w.-])"
+            r"""|\bpip3?\s+install\s+(["']?)semgrep==[^\s"']+\1"""
+            r"|\\?`semgrep\\?`"
+        ),
+        wrapper="semgrep-scan.sh",
+        wrapped=re.compile(r"(?<![\w-])semgrep-scan\.sh\s+(\S+)"),
+        corpus=re.compile(r"(?<![\w-])semgrep-scan-test\.sh(?![\w.-])"),
+        known_scans=frozenset({("security.yml", "semgrep-portal.json"), ("security.yml", "semgrep-lambdas.json")}),
+        known_jobs=frozenset({("security.yml", "scan")}),
+    ),
+    "gitleaks": _Guarded(
+        word="gitleaks",
+        harmless=re.compile(
+            r"(?<![\w-])gitleaks-scan\.sh\s+\S+\s+\S*gitleaks(?![\w.-])"
+            r"|(?<![\w-])gitleaks-scan-test\.sh\s+\S*gitleaks(?![\w.-])"
+            r"|[\w./-]*gitleaks[\w.-]*\.(?:json|tar\.gz)(?![\w.-])"
+            r"|https://github\.com/gitleaks/gitleaks/releases/download/\S+"
+            r"|\btar\s+-xzf\s+gitleaks\.tar\.gz\s+gitleaks(?![\w.-])"
+            r"|(?<![\w-])(?:\./)?gitleaks\s+version(?![\w.-])"
+            r"|\btitle=gitleaks::"
+            r'|\bsummary-section\.sh\s+"gitleaks\b'
+            r"|\bapply-gate\.sh\s+gitleaks(?![\w.-])"
+        ),
+        wrapper="gitleaks-scan.sh",
+        wrapped=re.compile(r"(?<![\w-])gitleaks-scan\.sh\s+(\S+\s+\S+)"),
+        corpus=re.compile(r"(?<![\w-])gitleaks-scan-test\.sh(?![\w.-])"),
+        known_scans=frozenset({("security.yml", "gitleaks.json ./gitleaks")}),
+        known_jobs=frozenset({("security.yml", "scan")}),
+    ),
 }
 
 
@@ -306,52 +401,88 @@ def _script_lines(step: dict) -> list[str]:
     return [line for line in str(step.get("run", "")).splitlines() if not line.lstrip().startswith("#")]
 
 
-def _runs_checkov_outside_the_wrapper(line: str) -> bool:
-    """Says whether one line of a ``run`` script runs Checkov other than through the wrapper.
+def _runs_outside_its_wrapper(line: str, guarded: _Guarded) -> bool:
+    """Says whether one line of a ``run`` script runs a guarded scanner other than through its wrapper.
 
-    It removes the forms that say "checkov" without running it (``_NOT_A_SCAN``) and reads what
+    It removes the forms that name the scanner without running it (``harmless``) and reads what
     is left, so a spelling nobody listed, such as an environment prefix, ``time``, ``pipx run``
     or a container image, is still caught. The cost is a false alarm on a new harmless form,
     which fails loudly and is fixed by naming it there.
 
     Args:
       line: One line of a step's ``run`` script, comment lines already removed.
+      guarded: The scanner to look for.
 
     Returns:
-      True when the line still says "checkov" once the harmless forms are gone.
+      True when the line still names the scanner once the harmless forms are gone.
 
     Raises:
       None.
     """
-    return "checkov" in _NOT_A_SCAN.sub("", line)
+    return guarded.word in guarded.harmless.sub("", line)
 
 
 @pytest.mark.parametrize(
-    ("line", "runs_it"),
+    ("name", "line", "runs_it"),
     [
-        ("checkov -d infra \\", True),
-        ("CKV_SKIP_CHECK=CKV_AWS_355 checkov -f plan.json", True),
-        ("env X=1 checkov -d infra", True),
-        ("if checkov -d infra; then", True),
-        ("time checkov -d infra", True),
-        ("pipx run checkov -d infra", True),
-        ('docker run --rm -v "$PWD:/w" bridgecrew/checkov -d /w/infra', True),
-        ("python3 -m checkov.main -d infra", True),
-        ("out=$(checkov -f plan.json)", True),
-        ("out=`checkov -f plan.json`", True),
-        (".github/scripts/checkov-scan.sh -d infra && checkov -f plan.json", True),
-        (".github/scripts/checkov-bare.sh -d infra", True),
-        ("../.github/scripts/checkov-scan.sh -f plan.json \\", False),
-        ("bash ./.github/scripts/checkov-scan.sh -d infra", False),
-        (".github/scripts/checkov-scan-test.sh", False),
-        ('pip install "checkov==${CHECKOV_VERSION}"', False),
-        ("findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)", False),
-        ("findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)", False),
-        ('echo "::error title=Checkov (plan)::output is not valid"', False),
-        ('echo "_Per-resource detail is in the \\`checkov\\` artifact._"', False),
+        ("checkov", "checkov -d infra \\", True),
+        ("checkov", "CKV_SKIP_CHECK=CKV_AWS_355 checkov -f plan.json", True),
+        ("checkov", "env X=1 checkov -d infra", True),
+        ("checkov", "if checkov -d infra; then", True),
+        ("checkov", "time checkov -d infra", True),
+        ("checkov", "pipx run checkov -d infra", True),
+        ("checkov", 'docker run --rm -v "$PWD:/w" bridgecrew/checkov -d /w/infra', True),
+        ("checkov", "python3 -m checkov.main -d infra", True),
+        ("checkov", "out=$(checkov -f plan.json)", True),
+        ("checkov", "out=`checkov -f plan.json`", True),
+        ("checkov", ".github/scripts/checkov-scan.sh -d infra && checkov -f plan.json", True),
+        ("checkov", ".github/scripts/checkov-bare.sh -d infra", True),
+        ("checkov", "../.github/scripts/checkov-scan.sh -f plan.json \\", False),
+        ("checkov", "bash ./.github/scripts/checkov-scan.sh -d infra", False),
+        ("checkov", ".github/scripts/checkov-scan-test.sh", False),
+        ("checkov", 'pip install "checkov==${CHECKOV_VERSION}"', False),
+        ("checkov", "findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)", False),
+        (
+            "checkov",
+            "findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)",
+            False,
+        ),
+        ("checkov", 'echo "::error title=Checkov (plan)::output is not valid"', False),
+        ("checkov", 'echo "_Per-resource detail is in the \\`checkov\\` artifact._"', False),
+        ("semgrep", "semgrep scan \\", True),
+        ("semgrep", "SEMGREP_BASELINE_COMMIT=HEAD semgrep scan --config p/python lambdas", True),
+        ("semgrep", "python3 -m semgrep scan lambdas", True),
+        ("semgrep", 'docker run --rm -v "$PWD:/src" semgrep/semgrep semgrep scan', True),
+        ("semgrep", "semgrep scan --json --output semgrep-lambdas.json lambdas", True),
+        ("semgrep", ".github/scripts/semgrep-scan.sh semgrep-lambdas.json lambdas && semgrep scan lambdas", True),
+        ("semgrep", ".github/scripts/semgrep-bare.sh semgrep-lambdas.json lambdas", True),
+        ("semgrep", ".github/scripts/semgrep-scan.sh semgrep-portal.json \\", False),
+        ("semgrep", ".github/scripts/semgrep-scan-test.sh", False),
+        ("semgrep", 'pip install "semgrep==${SEMGREP_VERSION}"', False),
+        ("semgrep", 'for pair in "SPA:semgrep-portal.json" "Lambdas:semgrep-lambdas.json"; do', False),
+        ("semgrep", 'echo "_Showing the first 100 of ${count}. The full set is in the \\`semgrep\\` artifact._"', False),
+        ("gitleaks", "./gitleaks git --redact --report-format json --report-path gitleaks.json .", True),
+        ("gitleaks", "GITLEAKS_CONFIG=allow.toml gitleaks detect --source .", True),
+        ("gitleaks", 'docker run -v "$PWD:/path" ghcr.io/gitleaks/gitleaks:latest git /path', True),
+        ("gitleaks", ".github/scripts/gitleaks-scan.sh gitleaks.json ./gitleaks --redact && ./gitleaks git .", True),
+        ("gitleaks", "tar -xzf gitleaks.tar.gz gitleaks && ./gitleaks git .", True),
+        ("gitleaks", "./gitleaks version && ./gitleaks dir .", True),
+        ("gitleaks", ".github/scripts/gitleaks-scan.sh gitleaks.json ./gitleaks --redact", False),
+        ("gitleaks", ".github/scripts/gitleaks-scan-test.sh ./gitleaks", False),
+        ("gitleaks", "curl -sSLo gitleaks.tar.gz \\", False),
+        (
+            "gitleaks",
+            '"https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"',
+            False,
+        ),
+        ("gitleaks", "tar -xzf gitleaks.tar.gz gitleaks", False),
+        ("gitleaks", "./gitleaks version", False),
+        ("gitleaks", 'echo "::error title=gitleaks::gitleaks.json missing — the scan did not run or was refused."', False),
+        ("gitleaks", '.github/scripts/summary-section.sh "gitleaks — full history" "$count" body.md', False),
+        ("gitleaks", '.github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-no-count}"', False),
     ],
 )
-def test_a_line_that_runs_checkov_is_found_however_it_is_spelled(line: str, runs_it: bool):
+def test_a_line_that_runs_a_scanner_is_found_however_it_is_spelled(name: str, line: str, runs_it: bool):
     """The sweep's reading of one line, against a line whose verdict is known.
 
     The sweep below passes on every workflow here, which proves the workflows pass and nothing
@@ -361,8 +492,9 @@ def test_a_line_that_runs_checkov_is_found_however_it_is_spelled(line: str, runs
     workflows use today.
 
     Args:
+      name: The scanner's key in ``GUARDED``.
       line: One line of a ``run`` script.
-      runs_it: Whether the line runs Checkov outside the wrapper.
+      runs_it: Whether the line runs the scanner outside its wrapper.
 
     Returns:
       None.
@@ -370,66 +502,115 @@ def test_a_line_that_runs_checkov_is_found_however_it_is_spelled(line: str, runs
     Raises:
       AssertionError: When the sweep reads the line the other way.
     """
-    assert _runs_checkov_outside_the_wrapper(line) is runs_it, (
-        f"{line!r} was read as {'running' if not runs_it else 'not running'} Checkov outside the wrapper"
+    assert _runs_outside_its_wrapper(line, GUARDED[name]) is runs_it, (
+        f"{line!r} was read as {'running' if not runs_it else 'not running'} {name} outside its wrapper"
     )
 
 
-def test_every_checkov_scan_goes_through_the_config_refusal():
-    """No workflow runs Checkov except through ``checkov-scan.sh``.
+@pytest.mark.parametrize("name", sorted(GUARDED))
+def test_every_scan_goes_through_its_config_refusal(name: str):
+    """No workflow runs a guarded scanner except through its wrapper.
 
     Checkov takes configuration from a ``.checkov.yml`` in the scanned directory, the working
-    directory or $HOME, and from its flags' environment variables. Measured: one such file took
-    CKV_AWS_355 off the blocking plan gate while every other IAM check still ran. The wrapper
-    refuses to scan when Checkov reports configuration from outside its command line. A scan
+    directory or $HOME, and from its flags' environment variables; Semgrep skips what a
+    ``.semgrepignore`` anywhere in the tree matches, and reads SEMGREP_* variables; gitleaks reads
+    a ``.gitleaks.toml`` and a ``.gitleaksignore`` from the repository it scans, and two
+    variables. Measured, one such file or variable took a finding off each blocking gate while
+    the job still read as a clean scan. Each wrapper refuses the scan when that happens. A scan
     added without it is open to the same file again and looks exactly as green, and so is the
-    Checkov GitHub Action, which runs the scanner where the wrapper cannot reach.
+    scanner's GitHub Action, which runs it where the wrapper cannot reach.
 
     Args:
-      None.
+      name: The scanner's key in ``GUARDED``.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: When a step runs Checkov outside the wrapper or through its Action, or when
-        a known scan is not found going through the wrapper, which is what a collector that
+      AssertionError: When a step runs the scanner outside its wrapper or through its Action, or
+        when a known scan is not found going through the wrapper, which is what a collector that
         stopped matching would look like.
     """
+    guarded = GUARDED[name]
     bare = []
     wrapped = set()
     workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
     for workflow in workflows:
         for job, steps in _steps_by_job(workflow).items():
             for step in steps:
-                if "checkov" in str(step.get("uses", "")).lower():
+                if guarded.word in str(step.get("uses", "")).lower():
                     bare.append(f"{workflow.name} / {job}: uses {step['uses']}")
                 for line in _script_lines(step):
-                    if _runs_checkov_outside_the_wrapper(line):
+                    if _runs_outside_its_wrapper(line, guarded):
                         bare.append(f"{workflow.name} / {job}: {line.strip()}")
-                    for match in WRAPPED_CHECKOV.finditer(line):
+                    for match in guarded.wrapped.finditer(line):
                         wrapped.add((workflow.name, " ".join(match.group(1).split())))
     assert not bare, (
-        "Checkov runs without .github/scripts/checkov-scan.sh, so a .checkov.yml or a CKV_* "
-        f"variable can change what its gate counts: {bare}"
+        f"{name} runs without .github/scripts/{guarded.wrapper}, so configuration it discovers can "
+        f"change what its gate counts: {bare}"
     )
-    missing = KNOWN_WRAPPED_SCANS - wrapped
+    missing = guarded.known_scans - wrapped
     assert not missing, (
-        f"scan(s) {sorted(missing)} not found going through checkov-scan.sh (found {sorted(wrapped)}). "
+        f"scan(s) {sorted(missing)} not found going through {guarded.wrapper} (found {sorted(wrapped)}). "
         "Either a scan moved or the collector stopped matching, and a collector matching nothing "
         "would also find no bare invocation."
     )
 
 
-def test_the_config_refusal_is_proven_before_each_job_scans():
-    """Every job that scans through the wrapper runs its fixture corpus first, under the same condition.
+@pytest.mark.parametrize("name", sorted(GUARDED))
+def test_each_config_refusal_is_proven_before_its_job_scans(name: str):
+    """Every job that scans through a wrapper runs that wrapper's fixture corpus first, under the same condition.
 
-    The refusal never fires on a normal run, so a Checkov or ConfigArgParse release that stopped
-    reporting a config file the scan still reads would switch every refusal off with nothing
-    going red. The corpus plants configuration against the Checkov the job installed. It has to
-    run in that job, before the job's first scan, under the scan's own ``if:`` so that it runs
-    whenever the scan does, and without ``continue-on-error``, which would make its failure as
-    quiet as the one it catches.
+    The refusal never fires on a normal run, so a scanner release that stopped reporting a file
+    the scan still reads, or renamed the line or reason its wrapper reads, would switch every
+    refusal off with nothing going red. The corpus plants configuration against the scanner the
+    job installed. It has to run in that job, before the job's first scan, under the scan's own
+    ``if:`` so that it runs whenever the scan does, and without ``continue-on-error``, which would
+    make its failure as quiet as the one it catches.
+
+    Args:
+      name: The scanner's key in ``GUARDED``.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a scanning job has no corpus step, runs it after its first scan,
+        runs it under another condition or lets it fail quietly, or when a known scanning job is
+        not found.
+    """
+    guarded = GUARDED[name]
+    checked = set()
+    workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    for workflow in workflows:
+        for job, steps in _steps_by_job(workflow).items():
+            scans = [i for i, step in enumerate(steps) if any(guarded.wrapped.search(line) for line in _script_lines(step))]
+            if not scans:
+                continue
+            checked.add((workflow.name, job))
+            corpus = [i for i, step in enumerate(steps) if any(guarded.corpus.search(line) for line in _script_lines(step))]
+            where = f"{workflow.name} / {job}"
+            assert corpus, f"{where} scans through {guarded.wrapper} without running its corpus"
+            assert corpus[0] < scans[0], f"{where} runs the {name} corpus after its first scan, which has already been read"
+            proof, first_scan = steps[corpus[0]], steps[scans[0]]
+            assert proof.get("if") == first_scan.get("if"), (
+                f"{where}: the {name} corpus runs under if={proof.get('if')!r} and the first scan under "
+                f"if={first_scan.get('if')!r}, so the scan can run without the proof"
+            )
+            assert not proof.get("continue-on-error"), f"{where}: the {name} corpus step may fail without failing the job"
+    assert guarded.known_jobs <= checked, (
+        f"expected {sorted(guarded.known_jobs)} among the jobs scanning through {guarded.wrapper}, found {sorted(checked)}"
+    )
+
+
+def test_the_root_semgrepignore_holds_no_pattern():
+    """The repository's root ``.semgrepignore`` exists and ignores nothing.
+
+    Without the file, Semgrep applies a built-in list that skips every ``test/`` directory, under
+    the same skip reason as a pattern somebody wrote, and ``semgrep-scan.sh`` refuses that reason.
+    The file is what switches the list off. A pattern in it that matches a file is refused by the
+    wrapper, but one that matches nothing yet reads as a suppression while suppressing nothing,
+    until the day it matches.
 
     Args:
       None.
@@ -438,30 +619,10 @@ def test_the_config_refusal_is_proven_before_each_job_scans():
       None.
 
     Raises:
-      AssertionError: When a scanning job has no corpus step, runs it after its first scan,
-        runs it under another condition or lets it fail quietly, or when the two known scanning
-        jobs are not both found.
+      AssertionError: When the file is missing or holds a line other than a comment or a blank.
     """
-    checked = set()
-    workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
-    for workflow in workflows:
-        for job, steps in _steps_by_job(workflow).items():
-            scans = [i for i, step in enumerate(steps) if any(WRAPPED_CHECKOV.search(line) for line in _script_lines(step))]
-            if not scans:
-                continue
-            checked.add((workflow.name, job))
-            corpus = [i for i, step in enumerate(steps) if any(CORPUS_CALL.search(line) for line in _script_lines(step))]
-            where = f"{workflow.name} / {job}"
-            assert corpus, f"{where} scans through checkov-scan.sh without running checkov-scan-test.sh"
-            assert corpus[0] < scans[0], f"{where} runs checkov-scan-test.sh after its first scan, which has already been read"
-            proof, first_scan = steps[corpus[0]], steps[scans[0]]
-            assert proof.get("if") == first_scan.get("if"), (
-                f"{where}: the corpus runs under if={proof.get('if')!r} and the first scan under "
-                f"if={first_scan.get('if')!r}, so the scan can run without the proof"
-            )
-            assert not proof.get("continue-on-error"), f"{where}: the corpus step may fail without failing the job"
-    assert {("security.yml", "scan"), ("deploy-infra.yml", "plan")} <= checked, (
-        f"expected the security scan job and the infra plan job among the scanning jobs, found {sorted(checked)}"
+    assert ROOT_SEMGREPIGNORE.is_file(), (
+        "the root .semgrepignore is missing, so Semgrep's built-in list applies and every scan is refused"
     )
 
 
@@ -572,3 +733,164 @@ def test_semgrep_excludes_exactly_the_flask_rule():
         "mention that is not a Semgrep exclusion (another tool's flag, prose in a step name or an "
         "echo) is reworded instead, never added here."
     )
+
+
+    patterns = [
+        line for line in ROOT_SEMGREPIGNORE.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")
+    ]
+    assert not patterns, (
+        f"the root .semgrepignore holds {patterns}. A path a scan must not cover goes on that scan's "
+        "invocation as --exclude, where the gate's reviewer reads it."
+    )
+
+
+def _step_named(name: str) -> dict:
+    """Returns the security scan job's step with the given name.
+
+    Args:
+      name: The step's ``name``.
+
+    Returns:
+      The step mapping, including its ``run`` script.
+
+    Raises:
+      AssertionError: If the job has no step, or more than one, with that name.
+    """
+    steps = [step for step in _steps_by_job(SECURITY_WORKFLOW)["scan"] if step.get("name") == name]
+    assert len(steps) == 1, f"security.yml's scan job has {len(steps)} step(s) named {name!r}, not one"
+    return steps[0]
+
+
+def _run_steps(root: pathlib.Path, names: list[str], reports: dict[str, str]) -> list[subprocess.CompletedProcess[str]]:
+    """Runs security.yml steps in order the way the runner does, carrying ``$GITHUB_ENV`` between them.
+
+    Each script runs under ``bash -e``, the command the runner uses for a step that names no
+    ``shell``, which is every step in this workflow: no ``pipefail``. It runs from a checkout
+    holding the reports given and the scripts the steps call, with the workflow's own ``env`` block
+    and every value an earlier step wrote to ``$GITHUB_ENV``. The script itself sits outside the
+    checkout, as the runner's does.
+
+    Args:
+      root: A directory private to this run.
+      names: The steps to run, by name, in order.
+      reports: The scan reports present in the checkout, by file name.
+
+    Returns:
+      Each step's completed process, in order.
+
+    Raises:
+      None.
+    """
+    checkout, scripts = root / "checkout", root / "checkout" / ".github" / "scripts"
+    scripts.mkdir(parents=True)
+    for script in STEP_SCRIPTS:
+        shutil.copy2(ROOT / ".github" / "scripts" / script, scripts / script)
+    for file, content in reports.items():
+        (checkout / file).write_text(content, encoding="utf-8")
+    github_env, summary = root / "github-env", root / "step-summary"
+    github_env.touch()
+    summary.touch()
+    workflow_env = {key: str(value) for key, value in yaml.safe_load(SECURITY_WORKFLOW.read_text(encoding="utf-8"))["env"].items()}
+    runs = []
+    for index, name in enumerate(names):
+        script = root / f"step-{index}.sh"
+        script.write_text(_step_named(name)["run"], encoding="utf-8")
+        written = dict(line.split("=", 1) for line in github_env.read_text(encoding="utf-8").splitlines() if "=" in line)
+        environment = {
+            key: value for key, value in os.environ.items() if not key.endswith("_FINDINGS") and not key.startswith("GATE_")
+        }
+        environment.update(workflow_env, **written, GITHUB_ENV=str(github_env), GITHUB_STEP_SUMMARY=str(summary), TMPDIR=str(root))
+        runs.append(
+            subprocess.run(  # noqa: S603
+                [shutil.which("bash") or "bash", "-e", str(script)],
+                cwd=checkout,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=60,
+                env=environment,
+            )
+        )
+    return runs
+
+
+@pytest.mark.parametrize("name", sorted(GATED_REPORTS))
+def test_a_refused_scan_reaches_its_gate_as_no_count(name: str, tmp_path: pathlib.Path):
+    """A scan whose report its wrapper deleted is counted as nothing, and its gate fails.
+
+    The wrapper deletes the report of a scan it refused, so the report being missing is what a
+    refusal looks like from the summary step. Measured before this was written: both summaries read
+    a missing report as zero, and the gate then printed "no findings" for a scan that never ran.
+
+    Args:
+      name: The scanner's key in ``GATED_REPORTS``.
+      tmp_path: A directory private to this test.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the summary counts the missing report, or the gate passes on it.
+    """
+    summarize, gate, variable, reports, refused = GATED_REPORTS[name]
+    left = {file: content for file, content in reports.items() if file != refused}
+
+    summary_run, gate_run = _run_steps(tmp_path, [summarize, gate], left)
+
+    assert summary_run.returncode != 0, f"{summarize} passed with {refused} missing: {summary_run.stdout}{summary_run.stderr}"
+    assert f"{refused} missing" in summary_run.stdout + summary_run.stderr
+    assert f"{variable}=no-report" in (tmp_path / "github-env").read_text(encoding="utf-8")
+    assert gate_run.returncode == 2, f"{gate} exited {gate_run.returncode}: {gate_run.stdout}{gate_run.stderr}"
+    assert "finding count 'no-report' is not a number" in gate_run.stdout + gate_run.stderr
+
+
+@pytest.mark.parametrize("name", sorted(GATED_REPORTS))
+def test_a_gate_with_no_count_written_fails(name: str, tmp_path: pathlib.Path):
+    """A gate that runs with no count written reads its non-numeric default and fails.
+
+    ``${VAR:-0}`` substitutes on empty as well as unset, so a numeric default turns "nothing was
+    counted" into "clean".
+
+    Args:
+      name: The scanner's key in ``GATED_REPORTS``.
+      tmp_path: A directory private to this test.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the gate passes, or fails for another reason.
+    """
+    _, gate, _, _, _ = GATED_REPORTS[name]
+
+    (gate_run,) = _run_steps(tmp_path, [gate], {})
+
+    assert gate_run.returncode == 2, f"{gate} exited {gate_run.returncode}: {gate_run.stdout}{gate_run.stderr}"
+    assert f"finding count '{SENTINEL}' is not a number" in gate_run.stdout + gate_run.stderr
+
+
+@pytest.mark.parametrize("name", sorted(GATED_REPORTS))
+def test_a_clean_scan_passes_its_gate(name: str, tmp_path: pathlib.Path):
+    """With every report present and empty, the summary counts zero and the gate passes.
+
+    The positive control for the two tests above: a harness that could not run these steps at all
+    would make every gate fail, and those tests would pass on it.
+
+    Args:
+      name: The scanner's key in ``GATED_REPORTS``.
+      tmp_path: A directory private to this test.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the summary or the gate fails on clean reports.
+    """
+    summarize, gate, variable, reports, _ = GATED_REPORTS[name]
+
+    summary_run, gate_run = _run_steps(tmp_path, [summarize, gate], reports)
+
+    assert summary_run.returncode == 0, f"{summarize} failed on clean reports: {summary_run.stdout}{summary_run.stderr}"
+    assert f"{variable}=0" in (tmp_path / "github-env").read_text(encoding="utf-8")
+    assert gate_run.returncode == 0, f"{gate} failed on a zero count: {gate_run.stdout}{gate_run.stderr}"
+    assert "no findings." in gate_run.stdout

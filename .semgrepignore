@@ -1,0 +1,6 @@
+# EMPTY ON PURPOSE. Semgrep reads this file, and without it applies a built-in ignore list that
+# skips every test/ directory, reporting those skips under the same reason a pattern here would get.
+# .github/scripts/semgrep-scan.sh refuses any skip with that reason, so this file's only job is to
+# exist and switch the built-in list off. A pattern added here is refused, and so is a
+# .semgrepignore anywhere else in the tree. A path a scan must not cover goes on that scan's
+# invocation in .github/workflows/security.yml as --exclude, where the gate's reviewer reads it.
