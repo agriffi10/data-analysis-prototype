@@ -1617,10 +1617,11 @@ def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
 
     A code span claims the name it begins with: ``name``, ``name(args)``, ``Name<T>``,
     ``Name.member`` and the JSX form ``<Name prop>`` all claim ``Name``, and the rest is for the
-    reader. A span that does not begin with a name claims nothing — a return shape ``{a, b}``, or
-    ``.list(…)`` continuing the span before it. A span that begins with a name and runs on past it,
-    as ``Role/Status`` and ``mock*`` do, is refused: read as its first name it checks half of what
-    it says, and skipped it checks none of it.
+    reader. Two spans that begin with no name claim nothing: a return shape ``{a, b}``, and
+    ``.list(…)`` continuing the span before it. Any other span is refused — one that begins with no
+    name, as ``*Props`` does, and one that begins with a name and runs on past it, as ``Role/Status``
+    and ``mock*`` do: read as its first name it checks half of what it says, and skipped it checks
+    none of it.
 
     Args:
       symbol_cell: The row's Symbol cell, stripped; empty when the table has none.
@@ -1636,6 +1637,10 @@ def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
     for span in CODE_SPAN_RE.findall(symbol_cell):
         match = INVENTORY_SYMBOL_RE.match(span)
         if not match:
+            if not span.startswith(("{", ".")):
+                problems.append(f"`{span}` in the Symbol column does not begin with a name, so what it "
+                                "claims cannot be read — write each name in full, one per code span; "
+                                "only a shape `{…}` or a member `.x` may go without one")
             continue
         rest = span[match.end():]
         bounds = ("(", "<", ".") + ((" ", ">", "/") if match.group(1) else ())
@@ -1707,13 +1712,15 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
     skipped, because a cell this check cannot read is a row it has quietly stopped checking.
 
     Then each name the Symbol cell claims (``_inventory_names``) must be exported
-    (``_exported_names``) by a file the row names: a file span, any source file directly in a
-    directory span, or, under ``(same folder)`` and ``*.tsx``, the name's own file. ONE of them is
+    (``_exported_names``) by a file the row names: a source file span, any source file directly in
+    a directory span, or, under ``(same folder)`` and ``*.tsx``, the name's own file. ONE of them is
     enough, since a row of several files puts each symbol in one, so a symbol moving between two
-    files of the same row is not caught. A name with no file to read — every span a tombstone, or
-    one not there, which is reported above — is not checked. And a row that names source must name
-    a symbol, or neither the derived forms nor residency has anything to read: that is also what
-    catches a table whose ``Symbol`` column was renamed, whose every row would otherwise pass.
+    files of the same row is not caught. A file outside ``SOURCE_SUFFIXES`` exports nothing, so a
+    name filed only in one is refused as such. A name with no file to read — every span a
+    tombstone, or one not there, which is reported above — is not checked. And a row that names
+    source must name a symbol, or neither the derived forms nor residency has anything to read:
+    that is also what catches a table whose ``Symbol`` column was renamed, whose every row would
+    otherwise pass.
 
     Args:
       file_cell: The row's File cell, stripped.
@@ -1738,6 +1745,7 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
                  "file of their own name")]
     names, problems = _inventory_names(symbol_cell)
     homes: list[tuple[str, list[pathlib.Path]]] = []
+    foreign: list[str] = []
     for span in spans:
         glob = INVENTORY_GLOB_RE.match(span)
         if glob:
@@ -1762,14 +1770,16 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
         elif span.endswith("/"):
             homes.append((f"any source file directly in `{span}`",
                           sorted(p for p in path.iterdir() if p.is_file())))
-        else:
+        elif span.endswith(SOURCE_SUFFIXES):
             homes.append((f"`{span}`", [path]))
+        else:
+            foreign.append(f"`{span}`")
     names_source = derived or any(span.endswith("/") or span.endswith(SOURCE_SUFFIXES)
                                   for span in spans if span not in gone)
     if names_source and not names:
-        problems.append(f"the Symbol cell {symbol_cell!r} has no code span that begins with a name, so "
-                        "nothing the row points at can be checked — write each symbol as `name`, "
-                        "`name(args)` or `<Name prop>` in a column headed `Symbol`")
+        problems.append(f"the Symbol cell {symbol_cell!r} names no symbol this check can read, so nothing "
+                        "the row points at can be checked — write each symbol as `name`, `name(args)` "
+                        "or `<Name prop>`, one per code span, in a column headed `Symbol`")
     for name in names:
         own: list[tuple[str, list[pathlib.Path]]] = []
         for form, suffixes in derived:
@@ -1779,20 +1789,27 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
                 files = " or ".join(name + suffix for suffix in suffixes)
                 problems.append(f"`{name}` is filed as {form}, but {files} is not in {where}")
             own += found
-        if (homes or own) and not any(name in _exported_names(p) for _, paths in homes + own for p in paths):
-            places = " or ".join(label for label, _ in homes + own)
-            problems.append(f"`{name}` is not exported from {places} — the row has outlived the symbol: "
-                            "delete the name, or point the row at the file that exports it now (a prop "
-                            "is not a symbol, and goes inside its component's JSX form, `<Name prop>`)")
+        places = homes + own
+        if places and not any(name in _exported_names(p) for _, paths in places for p in paths):
+            problems.append(f"`{name}` is not exported from {' or '.join(label for label, _ in places)} — "
+                            "the row has outlived the symbol: delete the name, or point the row at the "
+                            "file that exports it now (a prop is not a symbol, and goes inside its "
+                            "component's JSX form, `<Name prop>`)")
+        elif not places and foreign:
+            problems.append(f"`{name}` is filed only in {' or '.join(foreign)}, which is not source and "
+                            "exports nothing — point the row at the source file that exports it")
     return problems
 
 
 def check_inventory_files() -> list[str]:
-    """Refuse a component-inventory row whose File column names a file that is not there.
+    """Refuse a component-inventory row whose File column names a file that is not there, or
+    whose Symbol column names something that file does not export.
 
     The inventory is where a session looks for what to reuse, so a row for a deleted file sends
     it after code that does not exist. One for a floating upload panel outlived its file by
-    months, because nothing read the column against the tree.
+    months, because nothing read the column against the tree. A row whose symbol moved to a
+    sibling file does the same while its file is still there, which is why the Symbol column is
+    read against the file's exports too.
 
     Every page but the router declares the directory it covers in its H1, as ``# Title
     (`apps/portal/src/<dir>/`)``, and a deeper heading in the same form re-bases the tables under
@@ -1806,7 +1823,9 @@ def check_inventory_files() -> list[str]:
     with nothing wrong in it: the directory must yield pages, every table must have a ``File``
     column, and every page must yield at least one row. The per-table control is the one with
     teeth. One good table satisfies the per-page control, and before the per-table control existed
-    two tables that named their files only in a heading went unread without a word.
+    two tables that named their files only in a heading went unread without a word. The Symbol
+    column's control is per row, in ``_inventory_row_problems``: a row that names source must name
+    a symbol, which is also what a table whose ``Symbol`` column was renamed fails.
 
     Args:
       None.

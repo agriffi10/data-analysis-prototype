@@ -916,7 +916,7 @@ CASES = [
      1, "`Ghost` is filed as `*.tsx`, but Ghost.tsx is not in"),
     ("inventory_derived_form_without_symbols",
      lambda r: _inventory(r, "| — | (same folder) | Names nothing. |\n"),
-     1, "the Symbol cell '—' has no code span that begins with a name"),
+     1, "the Symbol cell '—' names no symbol this check can read"),
     # A tombstone claims ABSENCE, so it is checked the other way round.
     ("inventory_tombstone_for_a_file_that_is_back",
      lambda r: _inventory(r, "| — | `Widget.tsx` is **gone** | It came back. |\n"),
@@ -993,11 +993,15 @@ CASES = [
     ("inventory_directory_gone",
      lambda r: shutil.rmtree(r / INV("")),
      1, "component-inventory/ holds no pages"),
+    # The last row names a page beside its source. The page exports nothing, and the name's home
+    # is the source file, so the row holds.
     ("inventory_multi_name_cells_ok",
      lambda r: [_touch(r, DEMO + "/useWidget.ts"),
+                _write(r, DEMO + "/notes.md", "# Notes\n"),
                 _inventory(r, "| `Widget` / `useWidget` | `Widget.tsx` / `useWidget.ts` | Slash. |\n"
                               "| `Widget`, `useWidget` | `Widget.tsx`, `useWidget.ts` | Comma. |\n"
-                              "| `useWidget` | `useWidget.ts` (+ `Widget.tsx`) | Parenthesised. |\n")],
+                              "| `useWidget` | `useWidget.ts` (+ `Widget.tsx`) | Parenthesised. |\n"
+                              "| `useWidget` | `useWidget.ts` (+ `notes.md`) | Beside a page. |\n")],
      0, ""),
     # Rows spell paths from different roots, and each has to resolve.
     ("inventory_spelled_paths_ok",
@@ -1048,13 +1052,14 @@ CASES = [
                 _write(r, DEMO + "/rowCount.service.ts", "export function getQueryRowCount() {}\n"),
                 _inventory(r, "| `getQueryRowCount(id)` | `athena.service.ts` | Moved out. |\n")],
      1, "demo-feature.md:8: `getQueryRowCount` is not exported from `athena.service.ts`"),
-    # Named in a file is not exported from it. Every line here names `helper`, two of them after
-    # the word `export`; a reader that looks for the name, or for `export` anywhere on the line,
-    # passes the row.
+    # Named in a file is not exported from it. Every line here names `helper`, four of them after
+    # the word `export`, one in each form the reader knows; a reader that looks for the name, or
+    # for any of those forms anywhere on the line, passes the row.
     ("inventory_symbol_named_but_not_exported",
      lambda r: [_write(r, DEMO + "/util.ts",
                        "import {helper} from './other';\n/**\n * export function helper() moved out.\n */\n"
-                       "// export const helper = 1;\nconst local = helper;\nexport const other = local;\n"),
+                       "// export const helper = 1;\n// export {helper} from './helper';\n"
+                       "// export default helper;\nconst local = helper;\nexport const other = local;\n"),
                 _inventory(r, "| `helper()` | `util.ts` | Imported, not exported. |\n")],
      1, "`helper` is not exported from `util.ts`"),
     # An item exported `as` another name is exported by that name, and by no other.
@@ -1087,24 +1092,38 @@ CASES = [
     ("inventory_member_form_is_read",
      lambda r: _inventory(r, "| `Ghost.field` | `Widget.tsx` | A member. |\n"),
      1, "`Ghost` is not exported from `Widget.tsx`"),
-    # Read as its first name this row holds, and `Gadget` is never looked for.
+    # Read as its first name each of these rows holds, and `Gadget` is never looked for. A space
+    # ends a name only in the JSX form, where the props follow it.
     ("inventory_symbol_runs_on_past_its_name",
      lambda r: _inventory(r, "| `Widget/Gadget` | `Widget.tsx` | Two names in one span. |\n"),
      1, "`Widget/Gadget` in the Symbol column runs on past the name it begins with"),
+    ("inventory_symbol_runs_on_after_a_space",
+     lambda r: _inventory(r, "| `Widget Gadget` | `Widget.tsx` | Two names, a space apart. |\n"),
+     1, "`Widget Gadget` in the Symbol column runs on past the name it begins with"),
+    # Skipped, a leading wildcard checks none of what it claims, and beside a name the row's other
+    # span keeps the per-row control quiet.
+    ("inventory_symbol_span_without_a_name",
+     lambda r: _inventory(r, "| `Widget` / `*Props` | `Widget.tsx` | A family, unnamed. |\n"),
+     1, "`*Props` in the Symbol column does not begin with a name"),
+    # A stylesheet exports nothing, so "not exported" would be a true sentence with a false reason.
+    ("inventory_symbol_filed_only_in_a_non_source_file",
+     lambda r: [_write(r, DEMO + "/tokens.css", ":root {}\n"),
+                _inventory(r, "| `brand` | `tokens.css` | A token. |\n")],
+     1, "`brand` is filed only in `tokens.css`, which is not source and exports nothing"),
     # The positive control: a row that names source must name a symbol. A table whose Symbol
     # column was renamed reads an empty cell on every row, and passes exactly like a table whose
     # every symbol is at home unless this fires.
     ("inventory_table_with_its_symbol_column_renamed",
      lambda r: _inventory(r, after="\n### Hooks\n\n| Name | File | Purpose |\n|---|---|---|\n"
                                    "| `useGhost` | `Widget.tsx` | Not read as a symbol. |\n"),
-     1, "demo-feature.md:13: the Symbol cell '' has no code span that begins with a name"),
+     1, "demo-feature.md:13: the Symbol cell '' names no symbol this check can read"),
     ("inventory_symbol_cell_without_backticks",
      lambda r: _inventory(r, "| useGhost | `Widget.tsx` | Unquoted. |\n"),
-     1, "the Symbol cell 'useGhost' has no code span that begins with a name"),
+     1, "the Symbol cell 'useGhost' names no symbol this check can read"),
     ("inventory_directory_row_without_a_symbol",
      lambda r: [_touch(r, "apps/portal/src/features/other/Thing.ts"),
                 _inventory(r, "| — | moved to `features/other/` | Moved, but what? |\n")],
-     1, "the Symbol cell '—' has no code span that begins with a name"),
+     1, "the Symbol cell '—' names no symbol this check can read"),
     # Every export form the reader knows, each claimed by name, so a form it stops reading turns
     # this case red.
     ("inventory_export_forms_ok",
@@ -1133,7 +1152,9 @@ CASES = [
                               "| `widgetKeys.list(id)` / `.detail(id)` | `Widget.tsx` | Members. |\n"
                               "| `<Widget prop>` / `<Gadget>` / `<Gizmo/>` | `Widget.tsx` | JSX. |\n")],
      0, ""),
-    # A name re-exported by a directory's barrel is in the directory, beside a subdirectory.
+    # A name re-exported by a directory's barrel is in the directory. The subdirectory beside it
+    # is kept out by its missing suffix; the `is_file` test is for one named like a source file,
+    # which no case can plant, because `check_source_citations` raises on it first.
     ("inventory_symbol_in_a_named_directory_ok",
      lambda r: [_write(r, "apps/portal/src/features/other/index.ts", "export {Thing} from './impl';\n"),
                 _write(r, "apps/portal/src/features/other/impl/impl.ts", "export const Thing = 1;\n"),
