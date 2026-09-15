@@ -883,8 +883,9 @@ deleting the shared branch reddens it (measured).
 predicate beside this one.** IAM permits a write beneath `system_settings/athenaresults/` and denies
 the delete, so whatever a user writes there can never be removed — the folder marker's reason,
 applied to a whole folder. `writeLockRefusal` refuses those writes in its own words and
-`protected.assert_writable` refuses them on the server, where nothing legitimate writes: Athena
-delivers its results itself and the browser only copies them out. `isWriteLockedPrefix` and
+`protected.assert_writable` refuses them at the object routes, which nothing legitimate writes
+through: Athena delivers its results itself, under whichever role ran the query, and the browser
+only copies them out. `isWriteLockedPrefix` and
 `is_write_locked` still refuse only what the policy refuses, and the results rule is held against
 its `DeleteObject` Deny by the same matchers, in both trees.
 
