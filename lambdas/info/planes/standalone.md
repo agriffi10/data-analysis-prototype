@@ -25,8 +25,8 @@ directly — by Cognito, by a schedule, or by its own queue. They still use `cpc
   notifications, because draining it is circular, and feedback, whose body carries no identity
   block.
 - **The flat `actor` is never read, but the drain still blanks the two legacy token fields** before
-  it logs a parsed body, because a message from before the cutover can still arrive carrying a raw
-  token.
+  it logs a parsed body, because every message enqueued before the API stopped sending a token
+  carried one.
 - **The username directory is built from S3, not Cognito.** Today Cognito is complete and S3 is not,
   and the client transition reverses exactly that. It is readable by every authenticated user,
   accepted deliberately: usernames only, never emails.
