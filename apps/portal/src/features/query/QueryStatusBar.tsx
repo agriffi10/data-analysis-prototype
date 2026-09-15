@@ -23,6 +23,12 @@ type QueryStatusBarProps = {
   /** The workspace's exact total (the pager's own count, or Athena's); null while still counting. */
   totalRowCount?: number | null;
   /**
+   * The exact total is still being worked out, so the loaded count says so rather than looking
+   * final. Ignored once `totalRowCount` is known: the pager's own total can settle first, and
+   * "57 rows · counting…" would claim a wait that is already over.
+   */
+  countingRows?: boolean;
+  /**
    * Whether the displayed result is savable (row-returning, not pure DDL). Offered
    * alongside any verdict, not only success: a batch that failed or was stopped at a later
    * statement still shows an earlier statement's complete, already-billed result.
@@ -46,15 +52,16 @@ type QueryStatusBarProps = {
 /**
  * The row-count fragment for a succeeded, row-returning query. Shows the exact total
  * once the workspace has one; until then, the loaded count with a "+" when more
- * pages exist.
+ * pages exist, and "counting…" while the total is still on its way.
  */
 function rowCountLabel({
   rowCount,
   hasMoreRows,
-  totalRowCount
-}: Pick<QueryStatusBarProps, 'rowCount' | 'hasMoreRows' | 'totalRowCount'>): string {
+  totalRowCount,
+  countingRows
+}: Pick<QueryStatusBarProps, 'rowCount' | 'hasMoreRows' | 'totalRowCount' | 'countingRows'>): string {
   if (totalRowCount !== null && totalRowCount !== undefined) return `${formatCount(totalRowCount)} rows`;
-  return `${formatCount(rowCount ?? 0)}${hasMoreRows ? '+' : ''} rows`;
+  return `${formatCount(rowCount ?? 0)}${hasMoreRows ? '+' : ''} rows${countingRows ? ' · counting…' : ''}`;
 }
 
 /**
@@ -72,6 +79,7 @@ export function QueryStatusBar({
   hasMoreRows,
   hasResultSet = true,
   totalRowCount = null,
+  countingRows = false,
   canSaveResults = false,
   onSaveResults,
   batchFailed = false,
@@ -146,7 +154,7 @@ export function QueryStatusBar({
           </span>
           <span className="text-text-2">
             {batch && batch.current === batch.total && `Script finished · ${batch.total} statements · `}
-            {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount})} · `}
+            {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount, countingRows})} · `}
             {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
         </>

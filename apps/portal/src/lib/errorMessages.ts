@@ -1,17 +1,23 @@
 // The single source of truth for user-facing error wording.
 //
 // Every error a user can see (toast, banner, inline) is routed through
-// `toUserMessage`. Raw AWS / Cognito / Athena text is NEVER shown to a user:
-// the mapper resolves a friendly message from a stable app `code`, a known AWS
-// error `name`, or an Athena engine-message pattern, and otherwise returns a
-// generic "Contact the Administrator." fallback. The original error is logged to
-// the console in dev builds only (see `logOriginal`) so developers can still
-// debug — it never reaches the DOM or a production console.
+// `toUserMessage`. Raw AWS / Cognito text is never shown to a user, and Athena's
+// is shown only as the `detail` of a failed query whose error is in the user's
+// own SQL (see `queryFailureDetail`): the mapper resolves a friendly message from
+// a stable app `code`, a known AWS error `name`, or an Athena engine-message
+// pattern, and otherwise returns a generic "Contact the Administrator." fallback.
+// The original error is logged to the console in dev builds only (see
+// `logOriginal`) so developers can still debug.
 
-/** What a surface renders: an optional bold title + one short sentence. */
+/** What a surface renders: an optional bold title, one short sentence, and sometimes the engine's own words. */
 export type UserFacingMessage = {
   title?: string;
   message: string;
+  /**
+   * Athena's own message, beneath the sentence behind a closed "Details" disclosure. Present only
+   * for a FAILED query whose text {@link queryFailureDetail} judged to describe the user's own SQL.
+   */
+  detail?: string;
 };
 
 /** Accepts a thrown value or a `ServiceResult` error object `{message, code}`. */
@@ -448,6 +454,58 @@ export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
 
 const UNQUALIFIED_FIX = 'Add a database to each table, like `mydb.sales`.';
 
+/** An Athena or Lake Formation refusal on permissions, rather than on what the SQL says. */
+const PERMISSION_FAILURE = /(access denied|not authorized|insufficient (lake formation )?permissions)/i;
+
+/**
+ * The Trino error classes whose message describes the user's own SQL. A pattern such as `[A-Z_]+:`
+ * would admit `HIVE_*` split errors, which name S3 objects. `NOT_SUPPORTED` stays out: it is the
+ * connectors' catch-all, so its wording is unbounded, and a user cannot act on it anyway.
+ */
+const USER_SQL_ERROR_CLASSES: readonly string[] = [
+  'SYNTAX_ERROR',
+  'COLUMN_NOT_FOUND',
+  'TABLE_NOT_FOUND',
+  'SCHEMA_NOT_FOUND',
+  'TYPE_MISMATCH',
+  'FUNCTION_NOT_FOUND',
+  'AMBIGUOUS_NAME',
+  'INVALID_CAST_ARGUMENT',
+  'INVALID_FUNCTION_ARGUMENT',
+  'INVALID_LITERAL',
+  'DIVISION_BY_ZERO',
+  'NUMERIC_VALUE_OUT_OF_RANGE',
+  'EXPRESSION_NOT_AGGREGATE',
+  'MISSING_COLUMN_ALIASES',
+  'DUPLICATE_COLUMN_NAME'
+];
+
+/** A parse error Athena reports with no class in front of it: `line 1:23: mismatched input …`. */
+const BARE_PARSE_POSITION = /^line \d+:\d+: /;
+
+/** What marks a message as carrying more than the user's SQL, whatever its class says. */
+const ENGINE_LOCATOR = /s3:\/\/|arn:|\b\d{12}\b|Service:|Request ID/i;
+
+/**
+ * The clause Athena appends to every COLUMN_NOT_FOUND. It names no resource, and without removing
+ * it before the permission check every missing column would lose its Details.
+ */
+const COLUMN_NOT_FOUND_AUTHZ_CLAUSE = /\s*or requester is not authorized to access requested resources/i;
+
+/** Long enough for a parse error's expected-token list to start; a message past it is cut, not hidden. */
+const DETAIL_MAX_CHARS = 500;
+
+/** The class an engine message opens with, when it opens with one from the closed list. */
+function userSqlErrorClass(msg: string): string | undefined {
+  const errorClass = /^([A-Z_]+):/.exec(msg)?.[1];
+  return errorClass !== undefined && USER_SQL_ERROR_CLASSES.includes(errorClass) ? errorClass : undefined;
+}
+
+/** True when an engine message opens with a class from the closed list, or with a bare parse position. */
+function isUserSqlError(msg: string): boolean {
+  return userSqlErrorClass(msg) !== undefined || BARE_PARSE_POSITION.test(msg);
+}
+
 /** True when Athena reported a missing table referenced WITHOUT a `database.` prefix. */
 function isUnqualifiedTable(msg: string): boolean {
   // Queries carry no active database, so an unqualified `FROM sales`
@@ -482,9 +540,21 @@ const MATCH_RULES: readonly ErrorRule[] = [
   // Trigger: Athena/Lake-Formation permission failure running the query. Not the
   // user's to fix. ──
   {
-    match: (m) => /(access denied|not authorized|insufficient (lake formation )?permissions)/i.test(m),
+    match: (m) => PERMISSION_FAILURE.test(m),
     message: `You don’t have permission to run that query. ${CONTACT_ADMIN}`,
     userFixable: false
+  },
+  // Trigger: any other error class that describes the user's own SQL — a type mismatch, an
+  // unknown function, a bad cast. User-fixable, and the Details beneath say how. Ahead of the
+  // syntax rule, which reads any `line N:M` as a syntax error and so called a type mismatch one;
+  // without either, these fell to the generic sentence, reserved for what a user cannot act on. ──
+  {
+    match: (m) => {
+      const errorClass = userSqlErrorClass(m);
+      return errorClass !== undefined && errorClass !== 'SYNTAX_ERROR';
+    },
+    message: 'Athena couldn’t run this query. Check the SQL and try again.',
+    userFixable: true
   },
   // Trigger: a SQL parse/analysis error. User-fixable — fix the SQL. ──
   {
@@ -493,6 +563,24 @@ const MATCH_RULES: readonly ErrorRule[] = [
     userFixable: true
   }
 ];
+
+/**
+ * Athena's own words for a failed query, when they are safe and useful to show, else undefined.
+ *
+ * The CLOSED list of classes is the boundary: each one's message echoes only what the user typed
+ * or a value their query produced, never an engine locator. A second check fails closed on what a
+ * message could still carry beyond its class — Athena appends causes — and runs on the full text
+ * before the length cap, so a path past the cap still refuses.
+ *
+ * @param engineText - The execution's `stateChangeReason`, as the API relayed it.
+ * @returns The text, cut to {@link DETAIL_MAX_CHARS}, or undefined.
+ */
+function queryFailureDetail(engineText: string): string | undefined {
+  const text = engineText.trim();
+  if (!isUserSqlError(text) || ENGINE_LOCATOR.test(text)) return undefined;
+  if (PERMISSION_FAILURE.test(text.replace(COLUMN_NOT_FOUND_AUTHZ_CLAUSE, ''))) return undefined;
+  return text.length > DETAIL_MAX_CHARS ? `${text.slice(0, DETAIL_MAX_CHARS)}…` : text;
+}
 
 /** Pull `{name, message, code}` out of a thrown value or a `ServiceResult` error. */
 function normalize(error: MappableError): {
@@ -529,9 +617,11 @@ function logOriginal(code: string | undefined, original: {name?: string; message
  *   2. known Athena engine-message pattern
  *   3. generic "Something went wrong. Contact the Administrator." fallback.
  *
- * Never returns raw AWS/Athena text: the only path that echoes a service
- * message is a `passthrough` app code, whose message our own service layer
- * authored as user-safe. Logs the original to the console in dev only.
+ * The `message` never carries raw AWS/Athena text: the only path that echoes a
+ * service message is a `passthrough` app code, whose message our own service
+ * layer authored as user-safe. Athena's text travels separately, as `detail`,
+ * and only for a `FAILED` execution whose error is in the user's own SQL. Logs
+ * the original to the console in dev only.
  */
 export function toUserMessage(error: MappableError): UserFacingMessage {
   const {name, message, code, params} = normalize(error);
@@ -545,7 +635,9 @@ export function toUserMessage(error: MappableError): UserFacingMessage {
 
   if (message) {
     for (const rule of MATCH_RULES) {
-      if (rule.match?.(message)) return fromRule(rule, message);
+      if (!rule.match?.(message)) continue;
+      const detail = code === 'FAILED' ? queryFailureDetail(message) : undefined;
+      return detail === undefined ? fromRule(rule, message) : {...fromRule(rule, message), detail};
     }
   }
 

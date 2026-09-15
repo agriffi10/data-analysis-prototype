@@ -80,9 +80,8 @@ export function MembersList({owner, members, onRemove, onTransfer, busy = false,
           )}
           {onRemove && (
             <Button
-              variant="ghost"
+              variant="dangerOutline"
               size="sm"
-              className="text-danger hover:bg-danger-soft hover:text-danger"
               // The visible text is "Remove" on every row, so a screen-reader user hearing the
               // list of controls gets N identical buttons with no way to tell which member each
               // one acts on. Naming the member is the accessible fix and it is also what makes

@@ -121,7 +121,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
   return (
     <aside
       aria-label="Grouping"
-      className="flex flex-none flex-col gap-3 rounded-lg border border-border bg-surface p-3 tablet:w-72"
+      className="flex flex-none flex-col gap-3 rounded-lg border border-border bg-surface p-3 tablet:min-h-0 tablet:w-72 tablet:overflow-y-auto"
       onDragOver={(event) => {
         if (draggedColumnRef.current) event.preventDefault();
       }}
@@ -234,7 +234,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
             </li>
           ))}
         </ul>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <select
             aria-label="Aggregate function"
             className={`${SELECT_CLASS} flex-none`}
@@ -305,7 +305,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
         Show percentage of the rows on this page
       </label>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="primary"

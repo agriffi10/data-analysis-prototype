@@ -30,7 +30,8 @@ export function useQuerySpaces(): QuerySpace[] {
     if (!userSpaceBucket || !username) return [];
     const personal: QuerySpace = {
       id: 'personal',
-      label: 'My files',
+      // The database name, as a shared space's label already is: it is the name a query types.
+      label: username,
       bucket: userSpaceBucket,
       rootPrefix: `${username}/`,
       rootLabel: 'My Files'

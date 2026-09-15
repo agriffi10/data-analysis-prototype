@@ -49,6 +49,26 @@ export function ColumnsPanel({open, onClose, geometry}: ColumnsPanelProps) {
         className="sr-only">
         {announcement}
       </p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          disabledReason={all.some((column) => column.hidden) ? undefined : 'No column is hidden.'}
+          onClick={() => {
+            geometry.showAll();
+            setAnnouncement('Every column shown.');
+          }}>
+          Show all
+        </Button>
+        <Button
+          size="sm"
+          disabledReason={all.some((column) => column.pinned) ? undefined : 'No column is pinned.'}
+          onClick={() => {
+            geometry.unpinAll();
+            setAnnouncement('Every column unpinned.');
+          }}>
+          Unpin all
+        </Button>
+      </div>
       <ul className="flex flex-col gap-1">
         {all.map((column) => (
           <li

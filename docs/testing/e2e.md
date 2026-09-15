@@ -403,7 +403,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | Broken SQL / missing table / a permission failure | Three distinct readable messages, editor intact, **no raw AWS/Athena text anywhere**. |
 | Open the schema rail | Your own database plus every shared space; expand shows columns; the per-table **⋮** offers source files, DDL, refresh, share, drop, **Explore data**. |
 | History | Records and re-runs. |
-| **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **My files only** — a colleague's space must never be a write target. |
+| **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **the personal space only** (listed under your username) — a colleague's space must never be a write target. |
 | **Save results after a script FAILS part-way** — run three statements with **Run Multiple Queries** where the first is a `SELECT` and the third has a syntax error | The bar shows **Failed** and, beside it, "N rows from an earlier statement" plus **Save results to my files**. Saving writes the FIRST statement's full CSV — check the row count against that statement run alone, not the batch. The point is that no re-run is needed to get it, so an absent button is the regression. |
 | **Save results in each format** — run `SELECT * FROM explorer150`, then **Save results to my files** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you’ll get a notification when {name}.parquet is ready."* (a curly apostrophe — this is the portal's own authored wording, not the plane's). Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
 | **Read each converted file back** | Parquet and JSON through **Create table** on their folder — each table builds and `SELECT count(*)` returns **150**, the fixture's full row count, not the page's 100. Excel opens in a spreadsheet with 150 data rows plus a header. JSON is **one object per line**, not a JSON array — open it and check the first two lines each parse alone. |
@@ -600,7 +600,7 @@ as honestly as a succeeding one.
 | Save to another space | A **copy** — the original stays. |
 | Load it back | Byte-identical, and it appears in `saved_queries/` in the file browser. |
 | Save a `.SQL`-cased name | Stem case is kept, extension is lowercased — no second object rendering identically. |
-| From the Data Explorer: **Save as query** → `explorer-roundtrip` → My files | Exactly **one** `PutObject` after a HEAD on the exact key. No sidecar. |
+| From the Data Explorer: **Save as query** → `explorer-roundtrip` → your own space (listed under your username) | Exactly **one** `PutObject` after a HEAD on the exact key. No sidecar. |
 | Open it in **Query** → **Saved queries** | The **rendered** statement — the filters and the ORDER BY, **not** a bare `SELECT *`. Run it: the same rows. |
 | Save from Query, load in Query | Works. The Explorer offers **no** affordance to load a `.sql` as a source — confirming that absence *is* the check. |
 | Save to a **shared space** | Cross-bucket write succeeds; the file appears in that space's `saved_queries/`. |

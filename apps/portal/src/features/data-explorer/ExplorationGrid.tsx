@@ -9,6 +9,7 @@ import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
 import type {PageFormatting} from './formatting';
 import {CURSOR_CELL_ATTRIBUTE} from './useCellSelection';
+import {GRID_SCROLL_BOX_ATTRIBUTE} from './menuAlign';
 import type {UseCellSelectionResult} from './useCellSelection';
 
 export type ExplorationGridProps = {
@@ -81,7 +82,9 @@ export function ExplorationGrid({
   );
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+    <div
+      {...{[GRID_SCROLL_BOX_ATTRIBUTE]: 'true'}}
+      className="max-h-[70dvh] min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface [scrollbar-gutter:stable] tablet:max-h-none">
       <table
         ref={gridRef}
         role="grid"
@@ -129,6 +132,8 @@ export function ExplorationGrid({
           onSelectColumn={selection.selectColumn}
           actions={actions}
           onRequestFilterValue={onRequestFilterValue}
+          onHideColumn={geometry.toggleHidden}
+          hideRefusal={geometry.hideRefusal}
         />
         {/* Array-index keys: result rows are plain strings with no identity, and the whole
             body is replaced on every page and every execution. */}

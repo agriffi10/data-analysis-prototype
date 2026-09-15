@@ -643,16 +643,16 @@ describe('useResultRowCount', () => {
       }
     );
 
-    it('leaves the total unknown when the request fails, and walks nothing', async () => {
+    it('leaves the total unknown when the request fails, stops counting, and walks nothing', async () => {
       mockGetRowCount.mockResolvedValue({success: false, error: {message: '', code: 'AccessDenied'}});
       mockGetQueryResults.mockResolvedValue(page(7));
 
       const {result, queryClient} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
-      // Wait on the error itself: `isCounting` stays true after one, so there is nothing else to
-      // wait on — and a walk-on-error hook would reach `success` here instead.
+      // Wait on the error itself — a walk-on-error hook would reach `success` here instead.
       await waitFor(() => expect(queryClient.getQueryState(catalogKeys.rowCount('q-1'))?.status).toBe('error'));
       expect(result.current.total).toBeNull();
+      expect(result.current.isCounting).toBe(false);
       expect(mockGetQueryResults).not.toHaveBeenCalled();
     });
   });

@@ -91,8 +91,8 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await chooseExplorationOption(user, 'Colours');
-    const dialog = screen.getByRole('dialog', {name: 'Colours'});
+    await chooseExplorationOption(user, 'Colors');
+    const dialog = screen.getByRole('dialog', {name: 'Colors'});
     // A match rule and a gradient rule render DIFFERENT controls, so one of each is what
     // it takes to have every control in this dialog on screen at once.
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
@@ -110,8 +110,8 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await chooseExplorationOption(user, 'Colours');
-    const dialog = screen.getByRole('dialog', {name: 'Colours'});
+    await chooseExplorationOption(user, 'Colors');
+    const dialog = screen.getByRole('dialog', {name: 'Colors'});
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 column'}), 'status');
     await user.type(within(dialog).getByRole('textbox', {name: 'Rule 1 value'}), 'ok');
@@ -120,7 +120,7 @@ describe('the formatting surfaces are accessible', () => {
     await user.click(within(dialog).getByRole('checkbox', {name: 'id'}));
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
 
-    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Colours'})).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Colors'})).not.toBeInTheDocument());
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
 

@@ -4,6 +4,7 @@ import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
+import {DestinationIcon} from './DestinationIcon';
 import {BrandMark} from './BrandMark';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 
@@ -43,91 +44,55 @@ export type AppNavDrawerProps = {
 
 type NavDest = {to: string; label: string; icon: ReactNode};
 
-// Stroke-icon glyphs mirror PrimaryNav (Files/Query/Connections) so the two nav
-// surfaces read the same; Notifications/Help reuse the shared icon components.
-function GlyphSvg({children}: {children: ReactNode}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-[18px] w-[18px] flex-none"
-      aria-hidden="true">
-      {children}
-    </svg>
-  );
-}
-
 const DESTS: NavDest[] = [
   {
     to: '/files',
     label: 'Files',
     icon: (
-      <GlyphSvg>
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      </GlyphSvg>
+      <DestinationIcon
+        destination="files"
+        className="h-[18px] w-[18px] flex-none"
+      />
     )
   },
   {
     to: '/query',
     label: 'Query',
     icon: (
-      <GlyphSvg>
-        <ellipse
-          cx="12"
-          cy="6"
-          rx="8"
-          ry="3"
-        />
-        <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-        <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-      </GlyphSvg>
+      <DestinationIcon
+        destination="query"
+        className="h-[18px] w-[18px] flex-none"
+      />
     )
   },
   {
     to: '/explore',
     label: 'Data Explorer',
     icon: (
-      <GlyphSvg>
-        <rect
-          x="3"
-          y="4"
-          width="18"
-          height="16"
-          rx="2"
-        />
-        <path d="M3 9h18M9 9v11" />
-      </GlyphSvg>
+      <DestinationIcon
+        destination="explore"
+        className="h-[18px] w-[18px] flex-none"
+      />
     )
   },
   {
     to: '/connections',
     label: 'Connections',
     icon: (
-      <GlyphSvg>
-        <circle
-          cx="7"
-          cy="7"
-          r="3"
-        />
-        <circle
-          cx="17"
-          cy="17"
-          r="3"
-        />
-        <path d="M10 7h4a3 3 0 0 1 3 3v4M7 10v4a3 3 0 0 0 3 3h4" />
-      </GlyphSvg>
+      <DestinationIcon
+        destination="connections"
+        className="h-[18px] w-[18px] flex-none"
+      />
     )
   },
   {
     to: '/data-quality',
     label: 'Data quality',
     icon: (
-      <GlyphSvg>
-        <path d="M9 12l2 2 4-4" />
-        <path d="M21 12a9 9 0 1 1-3.5-7.1" />
-      </GlyphSvg>
+      <DestinationIcon
+        destination="dataQuality"
+        className="h-[18px] w-[18px] flex-none"
+      />
     )
   },
   {to: '/notifications', label: 'Notifications', icon: <BellIcon className="h-[18px] w-[18px] flex-none" />},

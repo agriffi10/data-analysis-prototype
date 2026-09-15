@@ -128,9 +128,14 @@ function renderProjection(grouping: Grouping | null): string {
   return [...columns, ...aggregates].join(', ');
 }
 
+/** A `WHERE` the user typed in front of their condition; `where_flag = 1` keeps its column, since `\b` needs a non-word character. */
+const TYPED_WHERE = /^\s*where\b/i;
+
 function renderWhere(filters: ColumnFilter[], expression: string | null): string | null {
   const filterSql = filters.map(renderFilter);
-  const trimmed = expression?.trim();
+  // The expression bar asks for a condition, and this supplies the WHERE; one typed in front
+  // anyway would reach Athena as `WHERE (WHERE …)` and fail, so it is taken off here.
+  const trimmed = expression?.replace(TYPED_WHERE, '').trim();
 
   // Both sides parenthesized when both are present, so an expression
   // containing a top-level OR cannot capture a filter. `a = 1 AND b OR c` is not

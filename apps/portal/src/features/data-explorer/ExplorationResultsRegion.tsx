@@ -7,6 +7,8 @@ import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
+import {useResultRowCount} from '../catalog/useResultRowCount';
+import {formatCount} from '../../lib/format';
 import {isQueryStillRunning} from '../catalog/useQueryExecution';
 import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE, PLAIN_COPY_OPTIONS} from './dataExplorer.constants';
 import {AdvancedCopyDialog} from './AdvancedCopyDialog';
@@ -170,8 +172,9 @@ export const NOTHING_TO_EXPORT = 'Run a query first — there are no results to 
  * banner rather than emptying the grid. `useQueryResults` is pointed at that execution
  * while the current one is failed; paging it costs nothing, as paging never does.
  *
- * Errors go through `ErrorBanner`: Athena's own text never reaches a user, and
- * neither does an `ExplorationRenderError`, whose message names a column for an operator.
+ * Errors go through `ErrorBanner`: Athena's own text reaches a user only as the closed Details
+ * of a failure in their own SQL, and an `ExplorationRenderError`, whose message names a column
+ * for an operator, never does.
  */
 export function ExplorationResultsRegion({
   tabId,
@@ -250,6 +253,13 @@ export function ExplorationResultsRegion({
   const shownExecutionId = failed ? lastGoodExecutionId : state === 'SUCCEEDED' ? queryExecutionId : null;
 
   const results = useQueryResults(shownExecutionId, EXPLORATION_PAGE_SIZE);
+  // The Query workspace's total, by the same rule: the pager's own count once it holds the last
+  // page, else Athena's, and never a number below the rows already loaded — that is not a total.
+  const rowCount = useResultRowCount(shownExecutionId);
+  const pagerTotal = results.columns.length > 0 ? results.totalRowCount : null;
+  const shownTotal =
+    pagerTotal ?? (rowCount.total !== null && rowCount.total >= results.loadedRowCount ? rowCount.total : null);
+  const totalLabel = shownTotal !== null ? ` of ${formatCount(shownTotal)}` : rowCount.isCounting ? ' · counting…' : '';
   // Recorded during render (React's "adjust state when a prop changes" pattern, as
   // `useCellSelection` and `useQueryResults` do) rather than in an effect: an effect would
   // paint one frame in which a failure had emptied the grid before the fallback arrived.
@@ -597,7 +607,7 @@ export function ExplorationResultsRegion({
             onPrev={results.goPrev}
             onNext={results.goNext}
             nextBusy={results.isFetchingNext}
-            label={`Rows ${results.rangeStart}–${results.rangeEnd}`}
+            label={`Rows ${results.rangeStart}–${results.rangeEnd}${totalLabel}`}
             className="min-w-0 flex-1 basis-64"
           />
           {/* The Query workspace's own control, by name and by rule: present only once

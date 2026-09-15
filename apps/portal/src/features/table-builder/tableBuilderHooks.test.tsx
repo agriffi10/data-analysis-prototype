@@ -5,6 +5,7 @@ import {renderHookWithProviders, renderWithProviders} from '../../test/renderWit
 import {CreateTableButton} from './CreateTableButton';
 import {
   CREATE_TABLE_AT_ROOT_REFUSAL,
+  CREATE_TABLE_FILE_AT_ROOT_REFUSAL,
   CREATE_TABLE_FILE_SELECTED_REFUSAL,
   CREATE_TABLE_MANY_SELECTED_REFUSAL,
   CREATE_TABLE_NOTHING_SELECTED_REFUSAL
@@ -126,6 +127,13 @@ describe('CreateTableButton', () => {
     it('refuses when the one selected item is a file', async () => {
       const {user} = renderButton({selected: [{type: 'file', key: 'alice/sales/jan.csv'}]});
       await expectRefused(user, CREATE_TABLE_FILE_SELECTED_REFUSAL);
+    });
+
+    // "Select the folder that holds this file" named the space root, which is refused in turn —
+    // a tester at the top of their space was sent round in a circle.
+    it('tells a user whose file is at the top of the space to put it in a folder first', async () => {
+      const {user} = renderButton({selected: [{type: 'file', key: 'alice/jan.csv'}], rootPrefix: 'alice/'});
+      await expectRefused(user, CREATE_TABLE_FILE_AT_ROOT_REFUSAL);
     });
 
     // A table's LOCATION is read recursively, so a build at the space root SUCCEEDS and

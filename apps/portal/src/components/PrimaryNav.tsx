@@ -1,76 +1,15 @@
-import {type ReactNode} from 'react';
 import {NavLink} from 'react-router';
 import {cx} from '../lib/cx';
+import {DestinationIcon, type Destination} from './DestinationIcon';
 
-type Tab = {to: string; label: string; icon: ReactNode};
+type Tab = {to: string; label: string; icon: Destination};
 
 const TABS: Tab[] = [
-  {
-    to: '/files',
-    label: 'Files',
-    icon: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-  },
-  {
-    to: '/query',
-    label: 'Query',
-    icon: (
-      <>
-        <ellipse
-          cx="12"
-          cy="6"
-          rx="8"
-          ry="3"
-        />
-        <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-        <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-      </>
-    )
-  },
-  {
-    to: '/explore',
-    label: 'Data Explorer',
-    icon: (
-      <>
-        <rect
-          x="3"
-          y="4"
-          width="18"
-          height="16"
-          rx="2"
-        />
-        <path d="M3 9h18M9 9v11" />
-      </>
-    )
-  },
-  {
-    to: '/connections',
-    label: 'Connections',
-    icon: (
-      <>
-        <circle
-          cx="7"
-          cy="7"
-          r="3"
-        />
-        <circle
-          cx="17"
-          cy="17"
-          r="3"
-        />
-        <path d="M10 7h4a3 3 0 0 1 3 3v4M7 10v4a3 3 0 0 0 3 3h4" />
-      </>
-    )
-  },
-  {
-    to: '/data-quality',
-    label: 'Data quality',
-    icon: (
-      <>
-        <path d="M9 12l2 2 4-4" />
-        <path d="M21 12a9 9 0 1 1-3.5-7.1" />
-      </>
-    )
-  }
+  {to: '/files', label: 'Files', icon: 'files'},
+  {to: '/query', label: 'Query', icon: 'query'},
+  {to: '/explore', label: 'Data Explorer', icon: 'explore'},
+  {to: '/connections', label: 'Connections', icon: 'connections'},
+  {to: '/data-quality', label: 'Data quality', icon: 'dataQuality'}
 ];
 
 export type PrimaryNavProps = {
@@ -122,15 +61,10 @@ export function PrimaryNav({isPathEnabled}: PrimaryNavProps) {
               isActive ? 'border-accent text-accent-text' : 'border-transparent text-text-2 hover:text-text'
             )
           }>
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+          <DestinationIcon
+            destination={tab.icon}
             className="hidden h-4 w-4 flex-none desktop:block"
-            aria-hidden="true">
-            {tab.icon}
-          </svg>
+          />
           {tab.label}
         </NavLink>
       ))}

@@ -73,14 +73,12 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
     <section
       aria-label="Choose a table to explore"
       className="flex min-h-0 flex-1 flex-col tablet:flex-row">
-      <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:w-64 tablet:border-b-0 tablet:border-r">
+      <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:min-h-0 tablet:w-64 tablet:overflow-y-auto tablet:border-b-0 tablet:border-r">
         <h2 className={`px-2 pb-1 ${SECTION_CAPTION}`}>Space</h2>
-        {/* ONE name per row. Showing the space label beside its Glue database printed the
-            name twice for a shared space, whose label IS its database; suppressing it only
-            there left the personal row reading "My files alice", and users reported that as a
-            doubled name too. The database is not lost — the generated SQL qualifies every
-            source as `database.table`, so the disclosure below the grid still says it, and
-            the Query editor, where a name is actually typed, is a separate surface. */}
+        {/* ONE name per row, and it is the database: every space's label is its database
+            name now, the personal one included, so the row reads as the name a query types.
+            Showing a label beside its database printed "My files alice", which testers
+            reported as a doubled name. */}
         {spaces.map((space) => (
           <button
             key={space.id}

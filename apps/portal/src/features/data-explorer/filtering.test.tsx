@@ -213,7 +213,8 @@ describe('the column header menu', () => {
       'Filter: less than or equal to…',
       'Filter: is null',
       'Filter: is not null',
-      'Clear filter'
+      'Clear filter',
+      'Hide column'
     ]);
 
     await user.click(screen.getByRole('menuitem', {name: 'Filter: does not equal…'}));

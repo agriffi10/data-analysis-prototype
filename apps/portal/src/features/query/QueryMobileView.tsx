@@ -228,7 +228,10 @@ export function QueryMobileView({
                     type="button"
                     onClick={() => setPendingDelete(q)}
                     aria-label={`Delete saved query ${q.name}`}
-                    className={cx(cardAction, 'text-danger hover:bg-danger-soft focus-visible:ring-danger')}>
+                    className={cx(
+                      cardAction,
+                      'border border-danger text-danger hover:bg-danger-soft focus-visible:ring-danger'
+                    )}>
                     Delete
                   </button>
                 </div>

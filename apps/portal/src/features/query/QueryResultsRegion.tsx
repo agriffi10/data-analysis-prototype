@@ -1,4 +1,5 @@
 import {Banner, type BannerVariant} from '../../components/Banner';
+import {ErrorDetails} from '../../components/ErrorDetails';
 import {cx} from '../../lib/cx';
 import {ResultTabs} from './ResultTabs';
 import {ResultsPageSizeControl} from './ResultsPageSizeControl';
@@ -30,6 +31,8 @@ type Props = {
   displayExecutionId: string | null;
   hasResultSet: boolean;
   totalRowCount: number | null;
+  /** The exact total is still on its way; the status bar says so beside the loaded count. */
+  countingRows?: boolean;
   results: UseQueryResultsResult;
   pageSize: UseResultsPageSizeResult;
   colWidths: UseColumnWidthsResult;
@@ -37,6 +40,8 @@ type Props = {
   showResultTabs: boolean;
   showError: boolean;
   errorMessage: string | null;
+  /** Athena's own message for a failure in the user's SQL, shown under the sentence behind Details. */
+  errorDetail?: string;
   /** The banner's title and variant, which follow the message shown. Default to a failure's. */
   errorTitle?: string;
   errorVariant?: BannerVariant;
@@ -62,12 +67,14 @@ export function QueryResultsRegion({
   displayExecutionId,
   hasResultSet,
   totalRowCount,
+  countingRows = false,
   results,
   pageSize,
   colWidths,
   showResultTabs,
   showError,
   errorMessage,
+  errorDetail,
   errorTitle = 'Query failed.',
   errorVariant = 'danger',
   onDismissError,
@@ -89,6 +96,7 @@ export function QueryResultsRegion({
           hasMoreRows={results.hasMoreServer}
           hasResultSet={hasResultSet}
           totalRowCount={totalRowCount}
+          countingRows={countingRows}
           canSaveResults={canSaveResults}
           onSaveResults={onSaveResults}
           batchFailed={!!run?.failure}
@@ -102,9 +110,8 @@ export function QueryResultsRegion({
             variant={errorVariant}
             title={errorTitle}
             onDismiss={onDismissError}>
-            {/* friendly, mapped guidance — no raw Athena
-          engine text (the raw reason is dev-logged + kept in history). */}
             <p className="text-sm">{errorMessage}</p>
+            <ErrorDetails detail={errorDetail} />
           </Banner>
         </div>
       )}

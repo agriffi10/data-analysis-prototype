@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useId, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 
@@ -25,8 +25,13 @@ export type ExpressionBarProps = {
  * gating this input would buy nothing and cost the feature the filters people actually
  * write. The accepted cost is stated plainly in the spec: an environment that turns
  * `query` off to tidy SQL away still offers a SQL input here.
+ *
+ * The renderer wraps the fragment in its own `WHERE (…)` and takes off one the user typed in
+ * front, so the hint beneath says it is not needed, and that any condition works — `LIKE` and
+ * `IN` included.
  */
 export function ExpressionBar({expression, onApply}: ExpressionBarProps) {
+  const hintId = useId();
   const applied = expression ?? '';
   const [text, setText] = useState(applied);
 
@@ -42,22 +47,32 @@ export function ExpressionBar({expression, onApply}: ExpressionBarProps) {
   const submit = () => onApply(text.trim() === '' ? null : text);
 
   return (
-    <div className="flex flex-none items-end gap-2">
-      <div className="min-w-0 flex-1">
-        <Input
-          className="font-mono text-sm"
-          label="Filter expression"
-          placeholder="status = 'open' AND qty > 100"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            submit();
-          }}
-        />
+    <div className="flex flex-none flex-col gap-1">
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <Input
+            className="font-mono text-sm"
+            label="Filter expression"
+            placeholder="status = 'open' AND qty > 100"
+            aria-describedby={hintId}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              submit();
+            }}
+          />
+        </div>
+        <Button onClick={submit}>Apply expression</Button>
       </div>
-      <Button onClick={submit}>Apply expression</Button>
+      <p
+        id={hintId}
+        className="text-xs text-text-3">
+        Type just the condition, without <code>where</code>. Any condition works, such as{' '}
+        <code>name LIKE '%sample%'</code> or <code>state IN ('NY', 'NJ')</code>, and conditions join with{' '}
+        <code>AND</code> or <code>OR</code>.
+      </p>
     </div>
   );
 }

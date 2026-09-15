@@ -1,4 +1,5 @@
 import {Banner, type BannerVariant} from '../../components/Banner';
+import {ErrorDetails} from '../../components/ErrorDetails';
 import {IconButton} from '../../components/IconButton';
 import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
@@ -21,6 +22,8 @@ type QueryResultsMobileProps = {
   /** False for DDL / no-result statements, so no row-count stat is claimed. */
   hasResultSet: boolean;
   totalRowCount: number | null;
+  /** The exact total is still on its way; the status bar says so beside the loaded count. */
+  countingRows?: boolean;
   /** True while this view's own run is in flight or settled — drives the status strip. */
   hasRun: boolean;
   /** This view's run ended on a failure, which owns the strip's verdict whatever `status` says. */
@@ -29,6 +32,8 @@ type QueryResultsMobileProps = {
   stillRunning: boolean;
   /** Friendly, already-mapped failure text; null when there's nothing to show. */
   errorMessage: string | null;
+  /** Athena's own message for a failure in the user's SQL, shown under the sentence behind Details. */
+  errorDetail?: string;
   /** The banner's title and variant, which follow the message shown. Default to a failure's. */
   errorTitle?: string;
   errorVariant?: BannerVariant;
@@ -58,10 +63,12 @@ export function QueryResultsMobile({
   startedAt,
   hasResultSet,
   totalRowCount,
+  countingRows = false,
   hasRun,
   batchFailed,
   stillRunning,
   errorMessage,
+  errorDetail,
   errorTitle = 'Query failed.',
   errorVariant = 'danger',
   onDismissError,
@@ -104,6 +111,7 @@ export function QueryResultsMobile({
           hasMoreRows={results.hasMoreServer}
           hasResultSet={hasResultSet}
           totalRowCount={totalRowCount}
+          countingRows={countingRows}
           canSaveResults={false}
           onSaveResults={() => {}}
           batchFailed={batchFailed}
@@ -118,6 +126,7 @@ export function QueryResultsMobile({
             title={errorTitle}
             onDismiss={onDismissError}>
             <p className="text-sm">{errorMessage}</p>
+            <ErrorDetails detail={errorDetail} />
           </Banner>
         )}
 

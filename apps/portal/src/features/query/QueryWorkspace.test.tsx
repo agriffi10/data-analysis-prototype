@@ -192,6 +192,17 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
     });
 
+    it('copies the whole of the active tab’s SQL from the toolbar', async () => {
+      seedSingle('SELECT region, count(*)\nFROM alice.sales\nGROUP BY region');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Copy query'}));
+
+      expect(await navigator.clipboard.readText()).toBe('SELECT region, count(*)\nFROM alice.sales\nGROUP BY region');
+      expect(await screen.findByText('Query copied')).toBeInTheDocument();
+    });
+
     it('surfaces a runQuery error in a danger banner and keeps Run available', async () => {
       seedSingle('SELECT bad');
       // `InvalidRequestException` is the name Athena actually returns for a rejected
@@ -209,6 +220,24 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText(/A column in your query wasn’t found/)).toBeInTheDocument();
       expect(screen.queryByText(/COLUMN_NOT_FOUND/)).not.toBeInTheDocument();
       expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
+    });
+
+    it('shows Athena’s own words for a failed statement once Details is opened', async () => {
+      const engineText = 'TYPE_MISMATCH: line 1:28: Cannot apply operator: varchar = integer';
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'FAILED', stateChangeReason: engineText};
+      seedSingle('SELECT * FROM alice.t WHERE name = 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      const banner = (await screen.findByText('Athena couldn’t run this query. Check the SQL and try again.')).closest(
+        '[role="alert"]'
+      ) as HTMLElement;
+      await user.click(within(banner).getByText('Details'));
+
+      expect(within(banner).getByText(engineText).closest('details')).toHaveAttribute('open');
+      expect(within(banner).queryByText(/Contact the Administrator/)).not.toBeInTheDocument();
     });
 
     it('restores tabs from persisted state on mount, showing the active tab', async () => {
@@ -877,10 +906,13 @@ describe('QueryWorkspace', () => {
 
       await runScriptSingle(user);
 
-      // SPEC-106: the position is named; the reason is friendly, mapped text.
+      // The position is named and the sentence is friendly; Athena's own words exist only inside
+      // the closed Details beneath it, never in the sentence.
       expect(await screen.findByText(/Statement 2 of 3 failed\. There’s a syntax error/)).toBeInTheDocument();
       expect(screen.getByText(/Statement 3 did not run/)).toBeInTheDocument();
-      expect(screen.queryByText(/SYNTAX_ERROR/)).not.toBeInTheDocument();
+      const engineText = screen.getAllByText(/SYNTAX_ERROR/);
+      expect(engineText).toHaveLength(1);
+      expect(engineText[0].closest('details')).not.toHaveAttribute('open');
       expect(mockRunQuery).toHaveBeenCalledTimes(2);
       expect(mockAppend).toHaveBeenCalledTimes(2);
     });
@@ -1524,7 +1556,7 @@ describe('QueryWorkspace', () => {
       await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
       const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
       const spaceSelect = within(dialog).getByLabelText('Save to');
-      expect(within(spaceSelect).getByRole('option', {name: 'My files'})).toBeInTheDocument();
+      expect(within(spaceSelect).getByRole('option', {name: 'alice'})).toBeInTheDocument();
       expect(within(spaceSelect).getByRole('option', {name: 'salesdata'})).toBeInTheDocument();
 
       await user.selectOptions(spaceSelect, 'salesdata');
@@ -1859,6 +1891,32 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('q-1'))).toBe(count));
       expect(await screen.findByText(bar)).toBeInTheDocument();
       expect(screen.getByText(pager)).toBeInTheDocument();
+    });
+
+    // "100+" alone read as the whole answer to testers, who then assumed the total was unavailable.
+    it('says the total is still being counted while Athena’s count is on its way', async () => {
+      const hundred = Array.from({length: 100}, (_, i) => [`r${i}`]);
+      mockGetResults.mockResolvedValue(ok(page(hundred, 't-2')));
+      mockGetRowCount.mockImplementation(() => new Promise(() => {}) as never);
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+
+      await runOnce(user);
+
+      expect(await screen.findByText(/100\+ rows · counting… ·/)).toBeInTheDocument();
+      expect(screen.getByText(/^Rows 1–100$/)).toBeInTheDocument();
+    });
+
+    it('stops saying it is counting once the pager holds the last page, whatever Athena’s count is doing', async () => {
+      mockGetResults.mockResolvedValue(ok(page([['a'], ['b'], ['c']])));
+      mockGetRowCount.mockImplementation(() => new Promise(() => {}) as never);
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+
+      await runOnce(user);
+
+      expect(await screen.findByText(/3 rows ·/)).toBeInTheDocument();
+      expect(screen.queryByText(/counting/)).not.toBeInTheDocument();
     });
   });
 

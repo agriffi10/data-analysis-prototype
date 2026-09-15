@@ -49,7 +49,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
   return (
     <aside
       aria-label="Calc"
-      className="flex flex-none flex-col gap-3 rounded-lg border border-border bg-surface p-3 tablet:w-72">
+      className="flex flex-none flex-col gap-3 rounded-lg border border-border bg-surface p-3 tablet:min-h-0 tablet:w-72 tablet:overflow-y-auto">
       <div className="flex flex-none items-center gap-2">
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">Calc</h3>
         <IconButton

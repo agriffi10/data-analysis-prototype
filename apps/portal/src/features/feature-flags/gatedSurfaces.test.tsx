@@ -492,7 +492,7 @@ const RECIPES: Record<string, Recipe> = {
     },
     // The PERSONAL space — always offered, so it settles the picker without depending on the
     // row under test.
-    anchor: async () => screen.findByRole('button', {name: /^My files/}),
+    anchor: async () => screen.findByRole('button', {name: /^alice/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
   },
   'Create view…': {
@@ -645,6 +645,7 @@ const RECIPES: Record<string, Recipe> = {
           canRun
           canClear
           canSave
+          sql="SELECT 1"
           onClear={vi.fn()}
           onSave={vi.fn()}
           onCreateView={vi.fn()}
@@ -845,7 +846,7 @@ const RECIPES: Record<string, Recipe> = {
     },
     // The PERSONAL option — always offered, so it settles the selector without depending on
     // the row under test.
-    anchor: async () => screen.findByRole('option', {name: 'My files'}),
+    anchor: async () => screen.findByRole('option', {name: 'alice'}),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
   'Shared spaces in the save-query dialog': {

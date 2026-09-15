@@ -1,7 +1,8 @@
 import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {cx} from '../../lib/cx';
-import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
+import {CheckIcon, CopyIcon, EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
+import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
 import {FeatureGate} from '../feature-flags';
 
 // The editor toolbar is icon-only in the tablet band so its
@@ -13,8 +14,10 @@ type Props = {
   isInFlight: boolean;
   canRun: boolean;
   canClear: boolean;
-  /** Gates Save query and Create view alike: both are disabled only when the buffer is empty. */
+  /** Gates Copy, Save query and Create view alike: each is disabled only when the buffer is empty. */
   canSave: boolean;
+  /** The active tab's SQL, which Copy writes to the clipboard whole. */
+  sql: string;
   onClear: () => void;
   onSave: () => void;
   onCreateView: () => void;
@@ -24,7 +27,7 @@ type Props = {
 };
 
 /**
- * The editor toolbar: Clear, Save and Create view, and the run split
+ * The editor toolbar: Clear, Copy, Save and Create view, and the run split
  * button — which is replaced by a single Stop while a batch is in flight. The
  * actions sit to the right; the editor/results split is dragged at its own
  * divider, not chosen here.
@@ -34,6 +37,7 @@ export function QueryToolbar({
   canRun,
   canClear,
   canSave,
+  sql,
   onClear,
   onSave,
   onCreateView,
@@ -41,16 +45,30 @@ export function QueryToolbar({
   onRunStatement,
   onRunScript
 }: Props) {
+  const {copied, copy} = useCopyToClipboard();
   return (
     <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
       <div className="flex-1" />
       <Button
-        variant="ghost"
+        variant="dangerOutline"
         onClick={onClear}
         disabled={!canClear}
         aria-label="Clear query">
         <TrashLidIcon />
         <span className={TOOLBAR_LABEL}>Clear</span>
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={() => void copy(sql)}
+        disabled={!canSave}
+        aria-label="Copy query">
+        {copied ? <CheckIcon className="h-4 w-4 text-success" /> : <CopyIcon className="h-4 w-4" />}
+        <span className={TOOLBAR_LABEL}>Copy</span>
+        <span
+          role="status"
+          className="sr-only">
+          {copied ? 'Query copied' : ''}
+        </span>
       </Button>
       <Button
         variant="ghost"

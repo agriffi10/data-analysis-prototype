@@ -9,7 +9,7 @@ import {resolveExploreParams, spaceDatabase} from './exploreSources';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
-import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
+import {getQueryResults, getQueryRowCount, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
@@ -27,7 +27,8 @@ vi.mock('../catalog/athena.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../catalog/athena.service')>()),
   runQuery: vi.fn(),
   getQueryStatus: vi.fn(),
-  getQueryResults: vi.fn()
+  getQueryResults: vi.fn(),
+  getQueryRowCount: vi.fn()
 }));
 vi.mock('../shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn(),
@@ -122,8 +123,8 @@ describe('the source picker', () => {
     // ONE name per row. Printing the label beside the Glue database doubled a shared space's
     // name, and suppressing it only there still left the personal row reading `My filesalice`.
     await waitFor(() =>
-      expect(screen.getAllByRole('button', {name: /^(My files|teamspace)/}).map((b) => b.textContent)).toEqual([
-        'My files',
+      expect(screen.getAllByRole('button', {name: /^(alice|teamspace)/}).map((b) => b.textContent)).toEqual([
+        'alice',
         'teamspace'
       ])
     );
@@ -200,7 +201,7 @@ describe('the source picker', () => {
     const labels = [...screen.getAllByRole('button'), ...screen.queryAllByRole('link')].map(
       (el) => el.textContent ?? ''
     );
-    expect(labels).toEqual(expect.arrayContaining(['My files', 'orders']));
+    expect(labels).toEqual(expect.arrayContaining(['alice', 'orders']));
     expect(labels.filter((label) => /create/i.test(label))).toEqual([]);
   });
 
@@ -261,7 +262,7 @@ describe('the source picker', () => {
     expect(await screen.findByText(/tables aren’t available right now/)).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'orders'})).not.toBeInTheDocument();
     // …and the space itself is still selectable, so another one is one click away.
-    expect(screen.getByRole('button', {name: /^My files/})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /^alice/})).toBeInTheDocument();
   });
 });
 
@@ -468,6 +469,23 @@ describe('the results region', () => {
     expect(screen.getByRole('columnheader', {name: 'total'})).toBeInTheDocument();
     expect(screen.getByRole('gridcell', {name: '9.99'})).toBeInTheDocument();
     expect(screen.getByText(/Rows 1–2/)).toBeInTheDocument();
+  });
+
+  // Testers read "Rows 1–100" as all there was. The total is Athena's count, as on the Query tab.
+  it.each([
+    {count: new Promise(() => {}), pager: 'Rows 1–2 · counting…'},
+    {count: Promise.resolve(ok({rowCount: 12_345, pending: false})), pager: 'Rows 1–2 of 12,345'}
+  ])('says $pager while more pages remain', async ({count, pager}) => {
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({columns: [{name: 'id', type: 'varchar'}], rows: [['1'], ['2']], nextToken: 't-2'}) as never
+    );
+    vi.mocked(getQueryRowCount).mockReturnValue(count as never);
+    seedTabs([{id: 't1', table: 'orders'}]);
+
+    render();
+
+    expect(await screen.findByText(pager)).toBeInTheDocument();
+    expect(getQueryRowCount).toHaveBeenCalledWith('exec-1');
   });
 
   it('maps a failed execution through toUserMessage — no Athena text reaches the user', async () => {

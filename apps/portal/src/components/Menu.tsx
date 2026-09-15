@@ -67,6 +67,9 @@ export type MenuProps = {
  *   ]}
  * />
  */
+/** The popover's minimum width, which is its `min-w-[184px]` class below; a caller placing it measures against this. */
+export const MENU_MIN_WIDTH_PX = 184;
+
 export function Menu({trigger, items, ariaLabel, align = 'right', className, menuClassName}: MenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);

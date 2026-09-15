@@ -202,6 +202,71 @@ describe('errorMessages', () => {
     });
   });
 
+  describe('a failed query’s own message, shown as Details', () => {
+    const failed = (message: string) => toUserMessage({code: 'FAILED', message});
+
+    it.each([
+      [
+        'a class no sentence names',
+        'TYPE_MISMATCH: line 1:28: Cannot apply operator: varchar = integer',
+        'Athena couldn’t run this query. Check the SQL and try again.'
+      ],
+      [
+        'a missing column, whose generic authorisation clause is not a permission failure',
+        "COLUMN_NOT_FOUND: line 1:8: Column 'amont' cannot be resolved or requester is not authorized to access requested resources",
+        'A column in your query wasn’t found. Check the column names.'
+      ],
+      [
+        'a parse error with no class in front',
+        "line 3:36: mismatched input '>'. Expecting: ')', ','",
+        'There’s a syntax error in your query. Check the SQL and try again.'
+      ]
+    ])('keeps the sentence friendly and carries the engine text for %s', (_case, engineText, sentence) => {
+      const shown = failed(engineText);
+
+      expect(shown.message).toBe(sentence);
+      expect(shown.detail).toBe(engineText);
+    });
+
+    it.each([
+      ['a Lake Formation refusal', 'Insufficient Lake Formation permission(s) on mydb.sales'],
+      ['a split error naming an S3 object', 'HIVE_CANNOT_OPEN_SPLIT: Error opening Hive split s3://bucket/alice/a.csv'],
+      ['an allowed class carrying an S3 path', 'TYPE_MISMATCH: line 1:1: Cannot read s3://bucket/alice/a.csv'],
+      ['an allowed class carrying an account number', 'TYPE_MISMATCH: line 1:1: role in 123456789012 cannot cast'],
+      ['an allowed class carrying an ARN', 'SYNTAX_ERROR: line 1:1: arn:aws:glue:us-east-1:table/x'],
+      [
+        'an allowed class carrying a service cause',
+        'SYNTAX_ERROR: line 1:1: failed (Service: AmazonS3; Status Code: 403)'
+      ],
+      ['an allowed class carrying a request id', 'SYNTAX_ERROR: line 1:1: failed (Request ID: 7F3A)'],
+      ['an allowed class with a permission failure', 'SYNTAX_ERROR: line 1:1: Access Denied'],
+      ['an allowed class only mid-string', 'Query aborted after SYNTAX_ERROR: line 1:1: x'],
+      ['a parse position only mid-string', 'HIVE_BAD_DATA: bad value at line 4:2: x'],
+      ['the connectors’ catch-all class', 'NOT_SUPPORTED: line 1:1: unsupported thing']
+    ])('shows no Details for %s', (_case, engineText) => {
+      expect(failed(engineText).detail).toBeUndefined();
+    });
+
+    it('shows no Details for engine text that did not arrive as a FAILED execution', () => {
+      const engineText = 'TYPE_MISMATCH: line 1:28: Cannot apply operator: varchar = integer';
+
+      expect(toUserMessage({code: 'CANCELLED', message: engineText}).detail).toBeUndefined();
+      expect(toUserMessage({message: engineText}).detail).toBeUndefined();
+    });
+
+    it('cuts a long message at the cap rather than hiding it, and judges the whole text first', () => {
+      const expected = `SYNTAX_ERROR: line 1:8: mismatched input 'FORM'. Expecting: ${"'ALTER', ".repeat(80)}`;
+      const withPathPastTheCap = `${expected}s3://bucket/alice/a.csv`;
+
+      const detail = failed(expected).detail ?? '';
+
+      expect(detail).toHaveLength(501);
+      expect(detail.startsWith("SYNTAX_ERROR: line 1:8: mismatched input 'FORM'")).toBe(true);
+      expect(detail.endsWith('…')).toBe(true);
+      expect(failed(withPathPastTheCap).detail).toBeUndefined();
+    });
+  });
+
   describe('toUserText (SPEC-155 FR-008)', () => {
     it('is exactly toUserMessage(...).message', () => {
       // One delegation, no second rule table — the property that makes the 40-site

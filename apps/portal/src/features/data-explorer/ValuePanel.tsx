@@ -54,7 +54,7 @@ export function ValuePanel({column, value, type, transformed, onClose}: ValuePan
   return (
     <aside
       aria-label="Value"
-      className="fixed inset-x-0 bottom-0 z-30 flex max-h-[50dvh] flex-col gap-2 border-t border-border bg-surface p-3 shadow-lg tablet:static tablet:z-auto tablet:max-h-none tablet:w-80 tablet:flex-none tablet:rounded-lg tablet:border tablet:shadow-none">
+      className="fixed inset-x-0 bottom-0 z-30 flex max-h-[50dvh] flex-col gap-2 border-t border-border bg-surface p-3 shadow-lg tablet:static tablet:z-auto tablet:max-h-none tablet:min-h-0 tablet:w-80 tablet:overflow-y-auto tablet:flex-none tablet:rounded-lg tablet:border tablet:shadow-none">
       <div className="flex flex-none items-center gap-2">
         <span className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-text">{column ?? 'Value'}</h3>
