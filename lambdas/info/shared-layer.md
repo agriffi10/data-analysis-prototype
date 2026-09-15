@@ -96,12 +96,12 @@ that can write the queue can write the block.
 
 **Two rules earn their keep against fixtures that all look alike.**
 
-The flat top-level `actor` field is never consulted. On four planes that field held the raw ID
-token during the cutover, and a raw JWT and a username are both non-empty strings — so a reader
-shaped "take the block, fall back to the field" passes every well-formed fixture ever written and
-builds an S3 prefix, a Glue database name and a notification recipient out of a 900-character
-token on the first message from before the flip. The block goes into a local and nothing else is
-read at all.
+The flat top-level `actor` field is never consulted. On table-share, file-send, archive and
+file-ops that field holds the raw ID token in any message enqueued before the API stopped sending
+one, and a raw JWT and a username are both non-empty strings — so a reader shaped "take the block,
+fall back to the field" passes every well-formed fixture ever written and builds an S3 prefix, a
+Glue database name and a notification recipient out of a 900-character token on the first message
+from before the flip. The block goes into a local and nothing else is read at all.
 
 And the actor is checked against `config.CATALOG_IDENTIFIER_RE` rather than for presence, which is
 what makes the JWT case *fail* rather than merely be odd. Mutating that check to a truthiness test

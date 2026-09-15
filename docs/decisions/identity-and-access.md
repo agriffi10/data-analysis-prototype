@@ -941,11 +941,13 @@ Every control-plane message the API sends carries one extra top-level key, `iden
 `{actor, delegated_by, assurance}` — the verified username, `null`, and the literal `interactive`.
 
 **Nesting is forced, not stylistic.** On table-share, file-send, archive and file-ops the top-level
-field named `actor` **is the raw ID token today**. A flat verified `actor` would overwrite the very
-field those four planes verify, which is precisely the ordering failure the two-spec rollout exists
-to avoid. It stays nested after the cutover: SPEC-201 removes the token field rather than moving the
-block into its place, so there is no second migration and no window in which one plane's `actor` is a
-username while another's is still a JWT.
+field named `actor` ~~**is the raw ID token today**~~ **— superseded by SPEC-201:** was the raw ID
+token when this was decided, and now holds one only in a message enqueued before the API stopped
+sending one. A flat verified `actor` would have overwritten the very field those four planes then
+verified, which is precisely the ordering failure the two-spec rollout existed to avoid. It stays
+nested after the cutover: SPEC-201 took the token off the wire rather than moving the block into its
+place, so there is no second migration and no window in which one plane's `actor` is a username
+while another's is still a JWT.
 
 `delegated_by` is **present rather than omitted** — an absent key and a null key are different to a
 strict parser, and the planes are written to refuse the absent one. `assurance` names the assurance
@@ -1059,14 +1061,15 @@ and is the opposite: a second answer to a settled question, in a module whose pr
 settled elsewhere. The fleet had five such readers and they had drifted; the cost was never that any
 one was wrong, it was that nobody could say which one a request had used.
 
-**The flat top-level `actor` is never consulted.** On four planes that field held the raw token
-during the cutover, and a raw JWT and a username are both non-empty strings — so a reader shaped
-"take the block, fall back to the field" passes every well-formed fixture ever written and builds an
-S3 prefix, a Glue database name and a notification recipient out of a 900-character token on the
-first stale message. The actor is checked against `config.CATALOG_IDENTIFIER_RE` (with `fullmatch`,
-since `$` also matches before a trailing newline), which is what makes the JWT case *fail* rather
-than merely look odd. Measured: mutating that check to a truthiness test reddens seven cases in the
-reader's own suite and leaves **every plane's suite green**.
+**The flat top-level `actor` is never consulted.** On four planes that field holds the raw token in
+any message enqueued before the API stopped sending one, and a raw JWT and a username are both
+non-empty strings — so a reader shaped "take the block, fall back to the field" passes every
+well-formed fixture ever written and builds an S3 prefix, a Glue database name and a notification
+recipient out of a 900-character token on the first stale message. The actor is checked against
+`config.CATALOG_IDENTIFIER_RE` (with `fullmatch`, since `$` also matches before a trailing newline),
+which is what makes the JWT case *fail* rather than merely look odd. Measured: mutating that check to
+a truthiness test reddens seven cases in the reader's own suite and leaves **every plane's suite
+green**.
 
 ## `assurance` fails closed on an unknown value, including an absent one (SPEC-201)
 
