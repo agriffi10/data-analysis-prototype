@@ -176,6 +176,11 @@ The infrastructure, following the shared control-plane pattern.
       the raw path (SQS caps the group id at 128 characters while S3 keys reach 1024, the reason
       recorded for data quality). Two archives from the same space therefore serialize, which is the
       wanted behaviour: they may select overlapping folders.
+
+      > **SUPERSEDED 2026-09-15.** They do not serialize: the Pipe starts executions
+      > `FIRE_AND_FORGET`, so the group orders only the starts and two archives from one space run
+      > at once. The commit gate is what keeps that safe — `docs/decisions/archive-and-restore.md`,
+      > *The group id orders the STARTS, not the runs*.
 - [ ] `MessageDeduplicationId` is `requestId`; content dedup is off on the queue, so that id is the
       only double-submit guard.
 - [ ] A malformed or unparseable body fails before any AWS call and reaches `NotifyFailure`.

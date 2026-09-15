@@ -974,13 +974,16 @@ other.
 - **Two restores of one archive: not billed twice, and not safe.** S3 answers the second
   `RestoreObject` with `RestoreAlreadyInProgress` while the first is in flight, and bills it as a GET
   once the first has finished, so the retrieval is spent once. Both runs pass the first guard, since
-  nothing lands for hours, and both see the retrieval finish within about one poll interval of each
-  other. A second pass that runs after the other run has copied a file back refuses as occupied, over
-  the restore's own files. If both second passes run before any copy lands, both copy back with an
-  unconditional `CopyObject`: the run that finishes first sweeps the vault, and the other reports
+  nothing lands for hours, and each then polls on its own five-minute clock, so what follows depends
+  on timing. The first to see the retrieval finish can restore a small archive and sweep the vault
+  before the other polls again, and that poll then heads a missing object and fails as
+  `archive_object_unreadable`, telling the user to contact an administrator. A second guard pass that
+  runs after the other run has copied a file back refuses as occupied, over the restore's own files.
+  If both second passes run before any copy lands, both copy back with an unconditional `CopyObject`,
+  and if one sweeps the vault while the other is still copying, the other reports
   `restore_incomplete` over a restore that fully landed and rewrites the receipt to say the archive
-  is intact, when it is gone. A file the user edits after the first run restored it, and before the
-  second run's copy of it, is overwritten silently.
+  is intact, when it is gone. A file the user edits after the first run restored it is overwritten
+  silently if the second run copies it while the vault copy still exists.
 
 **The guard's own residual was understated, with no overlap needed.** The second pass heads every
 destination once, before the copy-back Map, and the Map then runs for as long as the archive copy it

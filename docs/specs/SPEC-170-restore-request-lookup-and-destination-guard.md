@@ -77,6 +77,12 @@ means a restore still works when the manifest is missing and refuses when it dis
       them. Consequence while they are unmet: two concurrent restores of one archive are not
       serialized, so both could pass the guard — the same TOCTOU table-share and file-send both
       carry, and here neither run deletes anything.
+
+      > **SUPERSEDED 2026-09-15, both bullets.** The group id does not serialize two restores of one
+      > archive once it is met: the Pipe starts executions `FIRE_AND_FORGET`, so both still run and
+      > can both pass the guard. Nor does neither run delete: the first to finish sweeps the vault,
+      > and the second's copy-back can overwrite a file the user edited after the first restored
+      > it. `docs/decisions/archive-and-restore.md`, *The group id orders the STARTS, not the runs*.
 - [x] **The space comes from the request, not from the archive.** The route the user is standing in
       names the space, exactly as the data-quality report view takes its space from the route rather
       than deriving it (SPEC-113). Authorization is then a question about *that* space, and an

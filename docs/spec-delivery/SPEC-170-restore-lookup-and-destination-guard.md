@@ -90,8 +90,10 @@ and a test could only restate it. **SPEC-172 owes both.** Until then two concurr
 archive are not serialized and both could pass the guard — the same TOCTOU table-share and file-send
 carry, and here neither run deletes anything. **— Superseded 2026-09-15: the group id did not change
 this.** The Pipe starts executions `FIRE_AND_FORGET`, so two restores of one archive still run at
-once, and each DOES delete: the first to finish sweeps the vault. `docs/decisions/archive-and-restore.md`
-(*The group id orders the STARTS, not the runs*) has what follows.
+once — and "neither run deletes anything" no longer holds: the first to finish sweeps the vault, and
+the second's copy-back can overwrite a file the user edited after the first restored it.
+`docs/decisions/archive-and-restore.md` (*The group id orders the STARTS, not the runs*) has what
+follows.
 
 ## What changed from earlier specs
 
