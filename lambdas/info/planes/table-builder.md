@@ -90,7 +90,14 @@ statements, no window in which the table is absent, and **no verb on this plane 
 - **The apply is a read-modify-write on the live table**, serialized by a per-table lock whose loser
   is **refused with a notification**, never queued.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
-  names. A *refresh* does not — or it would strand tables that predate the rule.
+  names. A *refresh* skips that check at inference, or it would strand tables that predate the rule.
+  Its write still refuses a case collision: apply-refresh lowercases every name, so two that fold
+  together would be written under one name, and it raises `update_failed` before the update. But
+  the write runs only when diff-schema reports a change, and the diff matches columns by folded
+  name, keeping the last of a colliding pair — so a collision reaches the write only when what
+  survives that fold still differs from the live table. Against a live `amount,region`, a CSV
+  header of `Amount,region,amount` is reported unchanged and `Amount,region,amount,notes` is
+  refused.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a `QUEUED` execution is a 400
   whose name maps to nothing, and it reached users as a generic "contact the administrator".

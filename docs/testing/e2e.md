@@ -454,7 +454,7 @@ gates.
 | Build from a folder whose CSV header has `Order ID` | Refused by notification, **naming the column**. Refused deliberately even though it would work today — one rule everywhere. |
 | Build from a folder whose header has `Total` and `TOTAL` | Refused, naming **both**: Athena lowercases, so they are one column to it and two to everything else. |
 | Build from a header with `_id`, `2024_total`, `select` | **Builds.** Leading underscores, leading digits and reserved words are quoted, not refused. |
-| Refresh a table whose header the rule would now refuse | **Refreshes.** Creates only — refusing would strand a table already in the catalog. |
+| Refresh a table whose header the rule would now refuse for anything but a case collision, such as `Order ID` | **Refreshes.** Creates only — refusing would strand a table already in the catalog. |
 | Build from `partfix/` with key `year` (string, `2025, 2026`) | **One** Athena statement, no repair step, and `WHERE year = '2025'` returns rows immediately. |
 | Build from an empty folder, a mixed-format folder, a layout contradicting the declared keys, a name already taken | One notification each, naming which. |
 
