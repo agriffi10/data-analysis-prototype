@@ -1052,14 +1052,15 @@ CASES = [
                 _write(r, DEMO + "/rowCount.service.ts", "export function getQueryRowCount() {}\n"),
                 _inventory(r, "| `getQueryRowCount(id)` | `athena.service.ts` | Moved out. |\n")],
      1, "demo-feature.md:8: `getQueryRowCount` is not exported from `athena.service.ts`"),
-    # Named in a file is not exported from it. Every line here names `helper`, four of them after
-    # the word `export`, one in each form the reader knows; a reader that looks for the name, or
-    # for any of those forms anywhere on the line, passes the row.
+    # Named in a file is not exported from it. Every line here names `helper`, most after the word
+    # `export`, one in each form the reader knows, and one at the start of a line inside a block
+    # comment; a reader that looks for the name, or for any of those forms anywhere, passes the row.
     ("inventory_symbol_named_but_not_exported",
      lambda r: [_write(r, DEMO + "/util.ts",
                        "import {helper} from './other';\n/**\n * export function helper() moved out.\n */\n"
                        "// export const helper = 1;\n// export {helper} from './helper';\n"
-                       "// export default helper;\nconst local = helper;\nexport const other = local;\n"),
+                       "// export default helper;\n/*\nexport function helper() {}\n*/\n"
+                       "const local = helper;\nexport const other = local;\n"),
                 _inventory(r, "| `helper()` | `util.ts` | Imported, not exported. |\n")],
      1, "`helper` is not exported from `util.ts`"),
     # An item exported `as` another name is exported by that name, and by no other.
@@ -1092,19 +1093,42 @@ CASES = [
     ("inventory_member_form_is_read",
      lambda r: _inventory(r, "| `Ghost.field` | `Widget.tsx` | A member. |\n"),
      1, "`Ghost` is not exported from `Widget.tsx`"),
-    # Read as its first name each of these rows holds, and `Gadget` is never looked for. A space
-    # ends a name only in the JSX form, where the props follow it.
+    # A span is one name, matched whole. Each of these carries a second name, or a family of them,
+    # in a place a reader of its first name alone never looks, and each row holds if the span is
+    # read that way: `Widget` is exported and `Ghost` is not. One case per place, so loosening
+    # the match anywhere turns one red by name.
     ("inventory_symbol_runs_on_past_its_name",
-     lambda r: _inventory(r, "| `Widget/Gadget` | `Widget.tsx` | Two names in one span. |\n"),
-     1, "`Widget/Gadget` in the Symbol column runs on past the name it begins with"),
+     lambda r: _inventory(r, "| `Widget/Ghost` | `Widget.tsx` | Two names in one span. |\n"),
+     1, "`Widget/Ghost` in the Symbol column is not one name"),
     ("inventory_symbol_runs_on_after_a_space",
-     lambda r: _inventory(r, "| `Widget Gadget` | `Widget.tsx` | Two names, a space apart. |\n"),
-     1, "`Widget Gadget` in the Symbol column runs on past the name it begins with"),
-    # Skipped, a leading wildcard checks none of what it claims, and beside a name the row's other
-    # span keeps the per-row control quiet.
+     lambda r: _inventory(r, "| `Widget Ghost` | `Widget.tsx` | Two names, a space apart. |\n"),
+     1, "`Widget Ghost` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_call",
+     lambda r: _inventory(r, "| `Widget(id) / Ghost()` | `Widget.tsx` | Two calls. |\n"),
+     1, "`Widget(id) / Ghost()` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_type_argument",
+     lambda r: _inventory(r, "| `Widget<T> / Ghost<U>` | `Widget.tsx` | Two types. |\n"),
+     1, "`Widget<T> / Ghost<U>` in the Symbol column is not one name"),
+    ("inventory_symbol_second_tag_after_a_jsx_tag",
+     lambda r: _inventory(r, "| `<Widget prop> or <Ghost>` | `Widget.tsx` | Two tags. |\n"),
+     1, "`<Widget prop> or <Ghost>` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_member",
+     lambda r: _inventory(r, "| `Widget.size, Ghost` | `Widget.tsx` | A member, then a name. |\n"),
+     1, "`Widget.size, Ghost` in the Symbol column is not one name"),
+    # Beside a name, a leading wildcard keeps the per-row control quiet, so only this refusal
+    # stands between it and a family nobody checks.
     ("inventory_symbol_span_without_a_name",
      lambda r: _inventory(r, "| `Widget` / `*Props` | `Widget.tsx` | A family, unnamed. |\n"),
-     1, "`*Props` in the Symbol column does not begin with a name"),
+     1, "`*Props` in the Symbol column is not one name"),
+    # A span is a return only when an arrow and nothing else stands before it. Here words do too,
+    # and the span is a claim like any other.
+    ("inventory_symbol_after_an_arrow_and_words_is_read",
+     lambda r: _inventory(r, "| `Widget()` → a list, and `Ghost()` | `Widget.tsx` | Then a claim. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    # Brackets are read one deep, and a deeper span says it is refused rather than being misread.
+    ("inventory_symbol_nested_brackets_refused",
+     lambda r: _inventory(r, "| `Widget(wrap(id))` | `Widget.tsx` | Nested. |\n"),
+     1, "`Widget(wrap(id))` in the Symbol column is not one name"),
     # A stylesheet exports nothing, so "not exported" would be a true sentence with a false reason.
     ("inventory_symbol_filed_only_in_a_non_source_file",
      lambda r: [_write(r, DEMO + "/tokens.css", ":root {}\n"),
@@ -1135,22 +1159,43 @@ CASES = [
                        "export default function DefK() {}\nconst lL = 1;\nconst lM = 1;\n"
                        "export {lL};\nexport {lM as aliasM};\nexport {type TO} from './types';\n"
                        "export type {TU} from './types';\n"
-                       "export {\n  // a comment the reader skips\n  lP,\n  /* and another */ lQ,\n} from './more';\n"),
+                       "export {\n  // a comment the reader skips\n  lP,\n  /* and another */ lQ,\n} from './more';\n"
+                       "export * as NSX from './ns';\n/** Documented on the line it is declared. */ export function docd() {}\n"),
                 _write(r, DEMO + "/Def.ts", "const DefR = 1;\nexport default DefR;\n"),
+                _write(r, DEMO + "/Bom.ts", "﻿export const BomFirst = 1;\n"),
+                # A comment is removed only where it opens a line: this glob is not one, and read
+                # as one it would swallow the export beneath it.
+                _write(r, DEMO + "/Glob.ts", "const glob = 'src/*.ts';\nexport const afterGlob = 1;\n// */\n"),
                 _inventory(r, "| `fnA(x)` / `fnGen()` / `fnB()` / `cC` / `lD` / `vV` / `TE<T>` / `IF` / `EG` | `forms.ts` | Declared. |\n"
                               "| `CEH` / `KI` / `KJ` / `dS` / `NS` / `DefK` | `forms.ts` | Declared too. |\n"
                               "| `lL` / `aliasM` / `TO` / `TU` / `lP` / `lQ` | `forms.ts` | Listed. |\n"
-                              "| `DefR` | `Def.ts` | A default, declared above it. |\n")],
+                              "| `NSX` / `docd()` | `forms.ts` | A namespace, and one after its doc. |\n"
+                              "| `DefR` | `Def.ts` | A default, declared above it. |\n"
+                              "| `BomFirst` | `Bom.ts` | On a first line behind a byte-order mark. |\n"
+                              "| `afterGlob` | `Glob.ts` | Beneath a glob that is not a comment. |\n")],
      0, ""),
-    # Every Symbol-cell form that claims a name, and the two that claim nothing.
+    # Every Symbol-cell form that claims a name, and the ones that claim nothing: a return after
+    # either arrow, whatever it is, a shape, and a member continuing the span before it.
     ("inventory_symbol_forms_ok",
      lambda r: [_write(r, DEMO + "/Widget.tsx",
                        "export const Widget = 1;\nexport function useWidget() {}\nexport type WidgetProps<T> = T;\n"
                        "export const widgetKeys = {};\nexport function Gadget() {}\nexport function Gizmo() {}\n"),
                 _inventory(r, "| `useWidget(id)` → `{status, error}` | `Widget.tsx` | A call, and a shape. |\n"
+                              "| `useWidget(id)` → `boolean` | `Widget.tsx` | A call, and a type. |\n"
+                              "| `useWidget(id)` -> `[flags, status]` | `Widget.tsx` | A tuple, after an ASCII arrow. |\n"
                               "| `WidgetProps<T>` | `Widget.tsx` | A type argument. |\n"
                               "| `widgetKeys.list(id)` / `.detail(id)` | `Widget.tsx` | Members. |\n"
                               "| `<Widget prop>` / `<Gadget>` / `<Gizmo/>` | `Widget.tsx` | JSX. |\n")],
+     0, ""),
+    # A path the row spells out is read at every level it exists. The nearer one here exports
+    # another name, and read alone it would fail a row whose symbol is where the row says.
+    ("inventory_symbol_in_the_farther_reading_ok",
+     lambda r: [_write(r, DEMO + "/lib/helper.ts", "export const other = 1;\n"),
+                _write(r, "apps/portal/src/lib/helper.ts", "export const helper = 1;\n"),
+                _write(r, DEMO + "/lib/shared/near.ts", "export const Near = 1;\n"),
+                _write(r, "apps/portal/src/lib/shared/far.ts", "export const Far = 1;\n"),
+                _inventory(r, "| `helper` | `lib/helper.ts` | The shared one. |\n"
+                              "| `Far` | moved to `lib/shared/` | The shared directory. |\n")],
      0, ""),
     # A name re-exported by a directory's barrel is in the directory. The subdirectory beside it
     # is kept out by its missing suffix; the `is_file` test is for one named like a source file,
