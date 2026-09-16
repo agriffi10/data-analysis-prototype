@@ -156,9 +156,26 @@ def _validate_destination(space_root: str, request_id: str) -> str:
 
 
 def _check_source_not_reserved(normalized: str, space_root: str) -> None:
-    """Refuses a check that targets a reserved sub-tree or the space marker.
+    """Refuses a check that targets the space root, a reserved sub-tree, or the space marker.
 
-    The space root itself is a legitimate, if broad, folder target.
+    **The space root is not a data folder**, and refusing it is the whole of the first arm. A
+    check builds an external table over its target and Athena reads a table's location
+    RECURSIVELY, so a check at the top of a space reads the folders the portal keeps there — the
+    Athena results folder, archive receipts, shared-table copies — alongside whatever the user
+    meant. It does not fail: it succeeds, reporting row counts and null ratios over the portal's
+    own bookkeeping, and the user acts on those numbers. Succeeding is what makes it worth
+    refusing rather than qualifying on the report. The results folder is the sharpest case,
+    because this run's own query output lands inside it while the run is still going.
+
+    Excluding those sub-trees from the LISTING does not help and is worth saying, because it
+    looks like it should: the manifest is what the check knows about, but the table's location is
+    the target folder, and Athena reads what is under it rather than what the manifest lists.
+
+    A single file that sits at the root is a different case and stays allowed — its target is the
+    file, not the root, and its queries carry a path predicate that makes its numbers its own.
+
+    Table-builder refuses the identical shape for the identical reason; the two do not share a
+    validator because the planes are independent, so a change to the rule belongs in both.
 
     Args:
       normalized: The canonical location.
@@ -168,12 +185,17 @@ def _check_source_not_reserved(normalized: str, space_root: str) -> None:
       None.
 
     Raises:
-      TerminalError: ``forbidden`` when the target's first segment is reserved, or the target is
-        the space marker.
+      TerminalError: ``location_is_space_root`` when the target IS the root,
+        ``forbidden`` when the target's first segment is reserved or the target is the space
+        marker.
     """
     rel = normalized[len(space_root) :].strip("/") if normalized.startswith(space_root) else normalized
     if not rel:
-        return
+        raise TerminalError(
+            messages.LOCATION_IS_SPACE_ROOT,
+            "a check cannot be run on the top of a space, which also holds query results, "
+            "archive receipts and shared tables",
+        )
     first = rel.split("/")[0]
     if first in RESERVED_PREFIXES:
         raise TerminalError(messages.FORBIDDEN, f"{first!r} is a reserved prefix and cannot be checked")

@@ -89,6 +89,22 @@ def test_a_lambda_import_failure_reaches_the_user():
     assert "something went wrong" in message.lower()
 
 
+def test_the_space_root_refusal_tells_the_user_where_to_go_instead():
+    """A refusal is only worth having if it names the repair.
+
+    The reason code alone would reach the user as the generic sentence, which teaches nothing
+    about the fact there IS a folder to open — and this is the one refusal a user meets by
+    accepting the dialog's default target.
+    """
+    fake = _arm()
+    nf.handler(_event(_terminal_cause("location_is_space_root"), location="alice/"), None)
+
+    message = fake.messages()[0]
+    assert "top of a space" in message
+    assert "Open the folder" in message
+    assert "{" not in message, f"an unfilled marker survived into the body: {message!r}"
+
+
 def test_access_denied_leaks_no_path_or_space_name():
     fake = _arm()
     nf.handler(_event(_terminal_cause("forbidden"), location="finance/salaries"), None)

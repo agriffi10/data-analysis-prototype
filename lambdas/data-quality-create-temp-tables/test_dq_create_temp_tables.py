@@ -108,6 +108,82 @@ def test_a_csv_column_naming_a_partition_before_a_kept_one_is_a_terminal_that_na
     assert ran == []
 
 
+# ── The table's LOCATION ─────────────────────────────────────────────────────
+
+
+def test_a_file_at_the_space_root_builds_its_table_over_the_root(monkeypatch, ran):
+    """The carve-out the space-root refusal deliberately leaves open, made explicit.
+
+    A one-file target promotes to its parent folder, and for a file sitting at the top of a
+    space that parent IS the space root — the very location a FOLDER target is now refused
+    for. What makes the two consistent is not the location but the `"$path"` predicate the
+    queries carry, so this test exists to state the premise out loud: the table really is
+    over the root, and the predicate is the only thing narrowing it.
+    """
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "alice/report.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
+    ))
+
+    v.handler(_event(location="alice/report.csv"), None)
+
+    assert f"LOCATION 's3://{BUCKET}/alice/'" in ran[0]["query"]
+
+
+def test_a_location_that_escapes_the_space_is_refused_before_any_ddl(monkeypatch, ran):
+    """The last containment check between an authorized LOCATION and what Athena is handed.
+
+    `_location` rstrips, splits on the last slash and reassembles, and nothing downstream
+    re-checks the result against the space the actor was authorized for. A manifest whose
+    single file sits outside the space would otherwise promote the table out of it.
+    """
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "bob/secrets.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(location="bob/secrets.csv"), None)
+
+    assert exc.value.reason == messages.INVALID_REQUEST
+    assert "escapes the space" in exc.value.detail
+    assert ran == []
+
+
+# ── Which database the temp tables land in ───────────────────────────────────
+#
+# The resolver moved to `dqcommon.sql` so cleanup could reach the same answer without this
+# verb's output. These pin it from the caller that still has a terminal to raise. None of
+# them is reachable past the validate verb, which pins a personal prefix to the actor and
+# loads a shared space from the registry — they exist because the refusal is what keeps a
+# malformed state from quietly becoming a database NAME, and a resolver with two callers
+# earns the check the single-caller version got for free from `events.require`.
+
+
+@pytest.mark.parametrize(
+    "space,actor",
+    [
+        ({"kind": "wat", "bucket": BUCKET, "prefix": "alice/"}, "alice"),
+        ({"kind": "personal", "bucket": BUCKET, "prefix": "alice/"}, "   "),
+        ({"kind": "shared", "bucket": BUCKET, "prefix": "   "}, "alice"),
+        ({"kind": "shared", "bucket": BUCKET, "prefix": "/"}, "alice"),
+    ],
+    ids=["unknown-kind", "blank-actor", "blank-shared-prefix", "slash-only-shared-prefix"],
+)
+def test_a_state_with_no_resolvable_database_is_a_terminal_not_a_default(space, actor, ran):
+    """Each of these used to have a way of NOT refusing.
+
+    An unknown kind reaching a fallback would create the tables in the actor's own database.
+    A blank actor or prefix would become the database NAME itself, and a slash-only shared
+    prefix an EMPTY one. All four answer None from the resolver, and the refusal is raised
+    here rather than there, because cleanup shares the resolver and may never raise.
+    """
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(space=space, actor=actor), None)
+
+    assert exc.value.reason == messages.INVALID_REQUEST
+    assert "no database for space kind" in exc.value.detail
+    assert ran == []
+
+
 # ── The width cap ────────────────────────────────────────────────────────────
 
 

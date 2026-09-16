@@ -33,10 +33,9 @@ observability.init(service="data-quality")
 def _database(event: dict) -> str:
     """Resolves the Glue database the temp tables are created in.
 
-    The database is the space: a personal check uses the actor's own database, since a username is
-    a database name, and a shared check uses the space's. Both are re-derived from the state the
-    validate verb already proved the actor may use — the request body never carried a database,
-    and it must not start being trusted for one here.
+    The mapping itself is shared with the cleanup verb, which has to reach the same database
+    without this verb's output to read it from. Only the terminal is this verb's own: cleanup
+    never raises, so the shared resolver answers None and the raise lives here.
 
     Args:
       event: The task input, carrying the space and actor.
@@ -48,16 +47,15 @@ def _database(event: dict) -> str:
       TerminalError: ``invalid_request`` on an unknown space kind or a missing field.
     """
     space = event.get("space") or {}
-    kind = space.get("kind")
-    if kind == "personal":
-        return events.require(event, "actor", reason=messages.INVALID_REQUEST)
-    if kind == "shared":
-        prefix = events.require(event, "space", "prefix", reason=messages.INVALID_REQUEST)
-        return prefix.strip("/")
-    raise TerminalError(messages.INVALID_REQUEST, f"unknown space kind {kind!r}")
+    database = sql.temp_database(space, event.get("actor"))
+    if not database:
+        raise TerminalError(
+            messages.INVALID_REQUEST, f"no database for space kind {space.get('kind')!r}"
+        )
+    return database
 
 
-def _location(bucket: str, manifest: dict, location: str) -> str:
+def _location(bucket: str, manifest: dict, location: str, space_root: str) -> str:
     """Resolves the folder URI the external tables read.
 
     Always a folder with a trailing slash, even when the user targeted a single file: an external
@@ -70,18 +68,32 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     single-file check correct is the path predicate the queries carry, decided by the one shared
     definition both this verb and the query builder consult.
 
+    **The URI is asserted to be inside the space before it is returned**, and that guard is the
+    last one standing. The validate verb authorized a LOCATION; what Athena is handed is a URI
+    this function derives from it, and between the two the string is rstripped, split on the last
+    slash and reassembled — so nothing downstream re-checks that the result is still in the space
+    the actor was authorized for. The promotion arm is where that matters: it walks UP a level,
+    and its own fallback for a location with no slash left builds ``s3://{bucket}/``, a table over
+    the WHOLE BUCKET. Unreachable today, because a single-segment location can only be the space
+    root and the validate verb now refuses that outright — which is exactly the shape worth
+    asserting rather than reasoning about, since it is the reasoning that would go stale.
+
+    Equality passes: a file sitting directly at the space root promotes to the root itself, which
+    is the one case the root refusal deliberately still allows.
+
     Args:
       bucket: The source bucket.
       manifest: The source manifest.
       location: The request's target location.
+      space_root: The space's own root prefix, which the result must not escape.
 
     Returns:
       The ``s3://`` folder URI, slash-terminated.
 
     Raises:
-      TerminalError: ``invalid_request`` when the manifest carries no files. inspect-source raises
-        a no-data terminal long before this, so an empty manifest means something else wrote it —
-        refuse rather than build a table over the space root.
+      TerminalError: ``invalid_request`` when the manifest carries no files — inspect-source
+        raises a no-data terminal long before this, so an empty manifest means something else
+        wrote it — or when the derived URI falls outside the space.
     """
     files = manifest.get("files") or []
     if not files:
@@ -90,7 +102,13 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     prefix = location.rstrip("/")
     if sql.single_file_path(bucket, files, location):
         prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
-    return f"s3://{bucket}/{prefix}/" if prefix else f"s3://{bucket}/"
+
+    root = space_root.strip("/")
+    if not root or not (prefix == root or prefix.startswith(f"{root}/")):
+        raise TerminalError(
+            messages.INVALID_REQUEST, f"derived table location {prefix!r} escapes the space"
+        )
+    return f"s3://{bucket}/{prefix}/"
 
 
 @observability.step("run-ddl")
@@ -126,11 +144,12 @@ def _run_ddl(query: str, database: str, output_location: str) -> None:
 def _create(event: dict) -> dict:
     """Reads the manifest, names the temp tables, and creates them.
 
-    The names go into the state before any create runs. If the second create fails, or the verb
-    dies after creating and before returning, the cleanup verb still receives both names. They are
-    pure functions of the request id so they could be re-derived downstream — but only for as long
-    as two verbs agree on the derivation, and a leaked table in the user's own database is not a
-    bug worth risking on that.
+    The names reach the cleanup verb only on the paths where this one RETURNS. A Catch merges its
+    error under ``$.error`` and keeps the state as it was on the way in, so nothing this function
+    attaches to its own output survives a failure here — if the raw-table create fails after the
+    typed table was built, or the verb dies between the two, the returned names never existed.
+    That is why the names are pure functions of the request id and the derivation lives in
+    ``dqcommon.sql``: cleanup rebuilds them from the same helper rather than reading them back.
 
     The DDL results location goes under the request's own report prefix rather than the space's
     results folder, so it inherits whatever retention the reports get and never clutters a folder
@@ -217,7 +236,7 @@ def _create(event: dict) -> dict:
 
     table = sql.temp_table_name(request_id)
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None
-    table_location = _location(bucket, manifest, location)
+    table_location = _location(bucket, manifest, location, (event.get("space") or {}).get("prefix") or "")
 
     out = dict(event)
     out["database"] = database

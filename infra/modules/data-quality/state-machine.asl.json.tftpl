@@ -99,7 +99,7 @@
     },
     "StartProfileQuery": {
       "Type": "Task",
-      "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. StartQueryExecution carries a ClientRequestToken (= requestId), or a Retry after a post-submission transient error would start a SECOND query.",
+      "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. Each StartQueryExecution carries its own ClientRequestToken (the hyphen-free request id plus a per-query suffix), or a Retry after a post-submission transient error would start a SECOND query. One token shared by the three would be worse than none: the ragged and duplicates submissions would re-attach to the profile execution.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${start_profile_query_function_arn}",

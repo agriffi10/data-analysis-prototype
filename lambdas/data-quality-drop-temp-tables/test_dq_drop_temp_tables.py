@@ -27,7 +27,7 @@ def _event(**overrides):
         "actor": "alice",
         "space": {"kind": "personal", "bucket": BUCKET, "prefix": "alice/"},
         "reportPrefix": f"alice/_data-quality-reports/{REQUEST_ID}/",
-        "database": "alice",
+        "database": "alice_db",
         "tempTable": f"dq_tmp_{HEX32}",
         "tempRawTable": f"dq_tmp_raw_{HEX32}",
     }
@@ -55,9 +55,12 @@ def _fail_with(monkeypatch, exc):
 def test_it_drops_both_tables(ran):
     out = v.handler(_event(), None)
 
+    # `alice_db`, not `alice`: the fixture's database differs from the one re-derivation
+    # would produce, so this also pins that a state carrying the names is believed over the
+    # fallback. With the two equal, the early return asserted nothing.
     assert [kw["query"] for kw in ran] == [
-        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_{HEX32}`",
-        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_raw_{HEX32}`",
+        f"DROP TABLE IF EXISTS `alice_db`.`dq_tmp_{HEX32}`",
+        f"DROP TABLE IF EXISTS `alice_db`.`dq_tmp_raw_{HEX32}`",
     ]
     assert out["cleanup"]["dropped"] == [f"dq_tmp_{HEX32}", f"dq_tmp_raw_{HEX32}"]
     assert out["cleanup"]["failed"] == []
@@ -76,5 +79,93 @@ def test_a_drop_failure_is_swallowed_so_it_cannot_mask_the_original_reason(monke
 
     assert out["cleanup"]["dropped"] == []
     assert out["cleanup"]["failed"] == [f"dq_tmp_{HEX32}", f"dq_tmp_raw_{HEX32}"]
+
+
+# ── reached from a create that never returned ────────────────────────────────
+
+
+def _mid_create(**overrides):
+    """The state a Catch on CreateTempTables hands this verb.
+
+    A Catch merges its error under `$.error` and keeps the state that went INTO the failed
+    state, so NOTHING the create verb attaches to its own output is here — no database, no
+    table names. What is here is what inspect-source returned.
+    """
+    event = _event(format="csv", manifestKey=f"alice/_data-quality-reports/{REQUEST_ID}/manifest.json")
+    for key in ("database", "tempTable", "tempRawTable"):
+        event.pop(key)
+    event.update(overrides)
+    return event
+
+
+def test_it_drops_the_tables_a_create_built_before_it_died(ran):
+    """The leak this verb exists to prevent, on the one path that used to reach it silently.
+
+    A CSV create runs two statements. If the second fails terminally — or the invocation is
+    killed between them — the typed table exists and its name was never returned, so reading the
+    names off the state finds none and cleanup no-ops over a real `dq_tmp_*` table in the user's
+    own database.
+    """
+    out = v.handler(_mid_create(), None)
+
+    assert [kw["query"] for kw in ran] == [
+        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_{HEX32}`",
+        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_raw_{HEX32}`",
+    ]
+    assert out["cleanup"]["skipped"] is False
+
+
+def test_a_non_csv_run_has_no_raw_table_to_drop(ran):
+    """The raw-line table is CSV-only, so deriving one for Parquet would drop a name that
+    never existed — harmless but a lie in the cleanup record an operator reads."""
+    v.handler(_mid_create(format="parquet"), None)
+
+    assert [kw["query"] for kw in ran] == [f"DROP TABLE IF EXISTS `alice`.`dq_tmp_{HEX32}`"]
+
+
+def test_a_shared_space_run_derives_its_own_database(ran):
+    """The database is re-derived from the space, not defaulted to the actor."""
+    v.handler(
+        _mid_create(space={"kind": "shared", "bucket": BUCKET, "prefix": "team-data/"}),
+        None,
+    )
+
+    assert [kw["query"] for kw in ran] == [
+        f"DROP TABLE IF EXISTS `team-data`.`dq_tmp_{HEX32}`",
+        f"DROP TABLE IF EXISTS `team-data`.`dq_tmp_raw_{HEX32}`",
+    ]
+
+
+def test_a_state_with_a_manifest_but_no_request_id_is_a_no_op_rather_than_a_raise(ran):
+    """The half of the gate that holds this verb's never-raise contract.
+
+    Without it, `event["requestId"]` on the derive path raises KeyError straight through
+    `@notifies_on_failure` — from the one verb whose whole safety argument is that it can be
+    invoked from anywhere and will not raise. Unreachable through the machine today, which is
+    exactly why nothing would notice the line being deleted.
+    """
+    event = _mid_create()
+    event.pop("requestId")
+
+    out = v.handler(event, None)  # must not raise
+
+    assert ran == []
+    assert out["cleanup"]["skipped"] is True
+
+
+def test_a_failure_before_the_create_verb_stays_a_clean_no_op(ran):
+    """The overwhelmingly common failure — a validator or inspection refusal — created nothing.
+
+    `manifestKey` is the discriminator: inspect-source is its only writer and the create verb
+    requires it, so its absence means no table could exist. Without this the fix would put two
+    Athena statements on every failed request.
+    """
+    event = _mid_create()
+    event.pop("manifestKey")
+
+    out = v.handler(event, None)
+
+    assert ran == []
+    assert out["cleanup"] == {"dropped": [], "failed": [], "skipped": True}
 
 

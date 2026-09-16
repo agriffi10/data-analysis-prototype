@@ -177,6 +177,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'There are two ways in. From <b>Files</b>: tick the checkbox on <b>one</b> file or <b>one</b> folder, then click <b>Check data quality</b> in the toolbar above the list and confirm — the dialog names exactly what will be read.',
           'Or from <b>Data quality</b>: click <b>New quality check</b>, choose the space, then browse to the folder you want checked. Click a file first if you want to check just that one file.',
+          'You have to <b>open a folder</b> — a check can’t be run on the top of a space. A check reads every file beneath what you give it, and the top of a space also holds your query results, archived copies and shared tables, which would be counted as your data. One file sitting at the top is fine: click it and only it is read.',
           'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
           'When it finishes you’ll get a <b>notification</b> naming what was checked. Click it to open the full report — the findings live there, not in the notification.',
           'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.',

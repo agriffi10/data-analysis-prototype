@@ -31,10 +31,21 @@ support ticket** — which is the real ceiling on the feature.
 `inspect-source` writes a **manifest to S3** and probes every file's header and schema; it reads
 Parquet footers with polars, because Athena needs an explicit column list for Parquet and JSON.
 
+**A check cannot target the space root** (`location_is_space_root`, in `validate-authorize`). The
+temp table's `LOCATION` is the target folder and Athena reads one recursively, so a check at the top
+of a space counts `system_settings/athenaresults/`, archive receipts and `shared_tables/` as the
+user's data — and succeeds while doing it. The listing skips those sub-trees and that is not the
+fix: the manifest is what the verb knows about, the location is what Athena reads. A single FILE
+at the root is still accepted, because every query it starts carries a `"$path"` predicate.
+
 The dedicated workgroup leaves `bytes_scanned_cutoff_per_query` **unset**, because the portal
 workgroup's 10 GiB cutoff would fail every real check; the result location is set per query.
-`StartQueryExecution` carries `ClientRequestToken = requestId`, so a retry cannot start a second
-query. Temp tables are named `dq_tmp_{hex32}` — hyphens would parse as subtraction.
+Each `StartQueryExecution` carries its own `ClientRequestToken` — the request id with its hyphens
+stripped, plus a per-query suffix (`-profile`, `-ragged`, `-dupes`) — so a retry re-attaches to the
+original execution and the three concurrent queries do not collide on one token. The suffix is the
+load-bearing half: one token shared by three submissions would make the ragged and duplicates
+queries re-attach to the profile execution instead of running.
+Temp tables are named `dq_tmp_{hex32}` — hyphens would parse as subtraction.
 
 **Queueing:** `MessageGroupId` is a SHA-256 of the canonical location, because raw S3 keys can exceed
 SQS's 128-character cap; `MessageDeduplicationId` is the `requestId`.
