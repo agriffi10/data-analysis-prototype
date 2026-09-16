@@ -39,10 +39,10 @@ was still live. No credential form was shown, and nothing was typed into one. Vi
 | Row | Result |
 |---|---|
 | Integer key: `live809int_0916b/year=2024/` and `year=2025/`, key `{name: year, type: integer, range: [2024, 2025]}`, table `live809_int_0916b` | *Table "live809_int_0916b" is ready to query in "agriffith".* `SELECT year, COUNT(*) … GROUP BY year` returned `2024, 3` and `2025, 3`. **Pass.** |
-| Date key named `dt`: `live809date_0916b/dt=2025-01-01/` and `dt=2025-01-02/` | *Couldn't create table "live809_date_0916b": the partition keys aren't valid (check names, types, and ranges).* validate-authorize holds a key name to `CATALOG_IDENTIFIER_RE`, `^[a-z][a-z0-9_]{2,62}$`, so a two-letter name is refused before any DDL. Not this check's defect; the rule itself was left alone. |
+| Date key named `dt`: `live809date_0916b/dt=2025-01-01/` and `dt=2025-01-02/` | *Couldn't create table "live809_date_0916b": the partition keys aren't valid (check names, types, and ranges).* validate-authorize holds a key name to `CATALOG_IDENTIFIER_RE`, `^[a-z][a-z0-9_]{2,62}$`, so a two-letter name is refused before any DDL. The modal enforces the same rule on the field, so a user sees a field error rather than this notification; it appeared only because the create bypassed the modal. Not this check's defect, and the rule was left alone. |
 | Date key named `day`: `live809day_0916b/day=2025-01-01/` and `day=2025-01-02/`, key `{name: day, type: date, range: [2025-01-01, 2025-01-02], format: yyyy-MM-dd}`, table `live809_date_0916b` | *Table "live809_date_0916b" is ready to query in "agriffith".* `SELECT day, COUNT(*) … GROUP BY day` returned `2025-01-01, 3` and `2025-01-02, 3`. **Pass.** |
 
-**Not run.** `digits` on an integer key, and `interval` or `intervalUnit` on a date key — still owed.
+**Not run.** `digits` on an integer key — still owed. `interval` or `intervalUnit` on a date key, which only a hand-built request can send — owed at lower priority.
 The loser of two same-name creates. The admin logs were not read, since nothing was refused as
 `table_exists`. Fixtures and both tables were left in place.
 
@@ -52,8 +52,8 @@ The loser of two same-name creates. The admin logs were not read, since nothing 
 
 **What was under test.** `origin/main` at **`582e93b2`** (#829). `scripts/watch_ci.py --branch main`
 had settled green on it: Deploy Lambda image, Deploy Lambdas and Deploy SPA image. The next merge,
-#830 (`8f1ac932`), deployed from 19:21Z to 19:29Z while the later readings ran; it changes only the
-API's protected-path rule, which none of these requests reached.
+#830 (`8f1ac932`), deployed from 19:21Z to 19:29Z while the later readings ran; it changes no runtime
+code — a docstring, two tests and `api.md` — so nothing these requests reached behaved differently.
 
 **Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
 in the extension's group. It reached the Hosted UI form with the password filled; Andrew signed that
