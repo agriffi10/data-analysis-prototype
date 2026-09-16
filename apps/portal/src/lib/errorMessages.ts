@@ -455,7 +455,7 @@ export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
 const UNQUALIFIED_FIX = 'Add a database to each table, like `mydb.sales`.';
 
 /** An Athena or Lake Formation refusal on permissions, rather than on what the SQL says. */
-const PERMISSION_FAILURE = /(access denied|not authorized|insufficient (lake formation )?permissions)/i;
+const PERMISSION_FAILURE = /(access denied|not authorized|insufficient (lake formation )?permission)/i;
 
 /**
  * The Trino error classes whose message describes the user's own SQL. A pattern such as `[A-Z_]+:`
@@ -506,10 +506,35 @@ function isUserSqlError(msg: string): boolean {
   return userSqlErrorClass(msg) !== undefined || BARE_PARSE_POSITION.test(msg);
 }
 
-/** True when Athena reported a missing table referenced WITHOUT a `database.` prefix. */
+/**
+ * The database named in a `glue:GetDatabase` denial, or null when the message is not one.
+ *
+ * **This is the shape an unqualified table actually arrives as, and it is a catalog refusal
+ * rather than a missing table.** Queries carry no active database, so `FROM sales` resolves
+ * against `default`; nobody is a member of `default`, so the role is refused `glue:GetDatabase`
+ * on it and the statement never reaches the table. The denial is indistinguishable from a real
+ * permissions failure except for the database it names, which is why the name is read out
+ * rather than the message merely classified.
+ */
+function glueDeniedDatabase(msg: string): string | null {
+  if (!/not authorized to perform:\s*glue:GetDatabase\b/i.test(msg)) return null;
+  const named = msg.match(/:database\/([^\s,]+)/i);
+  return named ? named[1] : null;
+}
+
+/** The database a statement naming none resolves against — nobody is a member of it. */
+const IMPLICIT_DATABASE = 'default';
+
+/**
+ * True when Athena reported a missing table referenced WITHOUT a `database.` prefix.
+ *
+ * **Kept for a shape this deployment has not been observed to produce.** Athena prints the
+ * fully-qualified `Table 'awsdatacatalog.<db>.<table>' does not exist`, and an unqualified name
+ * is refused at the catalog before the table is resolved, so neither clause below fires on any
+ * message measured against production. It costs one regex and would still catch an engine that
+ * reports a bare name, so it stays; the rule carrying the real case is `glueDeniedDatabase`.
+ */
 function isUnqualifiedTable(msg: string): boolean {
-  // Queries carry no active database, so an unqualified `FROM sales`
-  // fails as "Table <name> does not exist" / "Schema/Database does not exist".
   const m = msg.match(/table\s+(\S+?)\s+(?:does not exist|not found)/i);
   if (m && !m[1].includes('.')) return true; // bare table name → they omitted the db
   return /(schema|database)\b.*does not exist/i.test(msg);
@@ -535,6 +560,24 @@ const MATCH_RULES: readonly ErrorRule[] = [
   {
     match: (m) => /(cannot be resolved|column_not_found|column .* (does not exist|not found))/i.test(m),
     message: 'A column in your query wasn’t found. Check the column names.',
+    userFixable: true
+  },
+  // Trigger: a table named with no database, refused at the catalog against `default`.
+  // User-fixable — qualify each table. Must precede the permission rule below, which the same
+  // message matches on `not authorized`; without this pair an ordinary missing prefix reads as
+  // a permissions failure and sends the user to an administrator for their own typo. ──
+  {
+    match: (m) => glueDeniedDatabase(m) === IMPLICIT_DATABASE,
+    message: UNQUALIFIED_FIX,
+    userFixable: true
+  },
+  // Trigger: the same refusal naming some OTHER database — it does not exist, or the user is not
+  // a member. The two are deliberately one answer to the caller, so the sentence covers both
+  // rather than guessing which. ──
+  {
+    match: (m) => glueDeniedDatabase(m) !== null,
+    message:
+      'That database wasn’t found, or you don’t have access to it. Check the name, or ask the Administrator for access.',
     userFixable: true
   },
   // Trigger: Athena/Lake-Formation permission failure running the query. Not the

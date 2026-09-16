@@ -60,11 +60,53 @@ describe('errorMessages', () => {
     });
 
     it('maps an unqualified-table Athena failure to the add-database fix (FR-005)', () => {
+      // A bare table name in the message. Athena prints the fully-qualified name instead, so this
+      // is a shape production has not been observed to send; the rule is kept for an engine that
+      // reports one, and the case that actually reaches users is the next test.
       const {message} = toUserMessage({
         code: 'FAILED',
         message: 'line 1:15: Table sales does not exist'
       });
       expect(message).toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    // Captured from production Athena on 2026-09-15 by running each statement as `agriffith` and
+    // reading `stateChangeReason` off `GET /v1/queries/{id}`. Pasted verbatim, trailing space
+    // included: these are the bytes the rules are graded against, and a hand-written
+    // approximation is what let the unqualified-table rule above sit dead behind a green test.
+    const DENIED_ON = (database: string) =>
+      `Insufficient permissions to execute the query. User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/agriffith is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/${database} because no identity-based policy allows the glue:GetDatabase action `;
+
+    it('tells a user who omitted the database prefix to add one, not to contact an admin', () => {
+      // A statement naming no database resolves against `default`, which nobody is a member of, so
+      // Athena refuses it at the catalog with the same wording as a real permissions failure — and
+      // the user, who simply typed `FROM sales`, was told they lacked permission.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('default')});
+
+      expect(message).toBe('Add a database to each table, like `mydb.sales`.');
+      expect(message).not.toMatch(/Contact the Administrator/i);
+    });
+
+    it('tells a user who named an unreachable database which thing to check', () => {
+      // The counter-case, and the reason the rule reads the database NAME rather than merely
+      // classifying the message: the two arrive identical apart from it, and "add a database
+      // prefix" is wrong advice for someone who already wrote one.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('nodb_xyz')});
+
+      expect(message).toMatch(/database wasn’t found/i);
+      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('keeps the permission sentence for a Lake Formation denial, which writes "permission(s)"', () => {
+      // The plural spelling matched nothing against Lake Formation's own wording — pinned on the
+      // other side of the wire by `test_catalog_routes.py` — so a real denial, which IS an
+      // administrator's to fix, fell past its own rule to the generic sentence.
+      const {message} = toUserMessage({
+        code: 'FAILED',
+        message: 'Insufficient Lake Formation permission(s): Required SELECT on table x'
+      });
+
+      expect(message).toBe('You don’t have permission to run that query. Contact the Administrator.');
     });
 
     it('treats a qualified missing table as a not-found error, not the unqualified fix', () => {
