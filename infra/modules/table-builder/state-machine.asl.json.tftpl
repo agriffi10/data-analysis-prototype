@@ -324,7 +324,7 @@
     },
     "ExecuteDdl": {
       "Type": "Task",
-      "Comment": "Run the single CREATE via Athena (projection ⇒ no MSCK REPAIR). A transient Athena/S3 error is raised as TransientError and retried here (NOT terminal); a FAILED/CANCELLED query or timeout raises TerminalError → Catch → recorded failure.",
+      "Comment": "Run the single CREATE via Athena (projection ⇒ no MSCK REPAIR), then CONFIRM it. The statement succeeds identically for a run that built the table and a run whose CREATE was a no-op over a table another request built — IF NOT EXISTS cannot tell them apart — so the verb reads the table back and refuses TerminalError table_exists unless the catalog carries this run's own LOCATION, ordered partition keys and per-key projection. Retried here (NOT terminal): a transient Athena/S3 error, a retryable Glue fault on that read-back, and the table not being visible in the catalog yet, since Glue publishes no read-after-write guarantee and failing a create that landed would be worse than the misreport the read-back exists to close; a re-invocation costs a no-op statement and another read. Terminal → Catch → recorded failure: a FAILED/CANCELLED query or poll timeout (ddl_execution_failed / ddl_timeout), a deterministic Glue fault on the read-back (ddl_execution_failed, because a success that cannot be confirmed is not reported as one), and table_exists, which appears in no Retry list because a lost race is an answer rather than a fault.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${execute_ddl_function_arn}",

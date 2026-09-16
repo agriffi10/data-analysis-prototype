@@ -301,14 +301,14 @@ def test_a_replay_after_the_create_committed_still_succeeds():
             _catalog(location=f"s3://{BUCKET}/alice/sales"),
         ),
         (
-            "a projection property this run never declared is ignored",
+            "a projection property outside every declared key is ignored",
             _catalog(
                 partitioned=True,
                 parameters={
                     "projection.enabled": "true",
                     "projection.year.type": "integer",
                     "projection.year.range": "2020,2030",
-                    "projection.year.digits": "4",
+                    "projection.somethingelse.type": "enum",
                 },
             ),
         ),
@@ -344,52 +344,59 @@ def test_the_gate_stays_silent_on(name, catalog):
 # ── The lost race ────────────────────────────────────────────────────────────
 
 
+#: The projection properties this run's own declared ``year`` key renders. A fixture meant to
+#: redden the PARTITION KEY check carries these, so the projection check behind it agrees and the
+#: key check is the only one left that can refuse — without them the row passes for the wrong
+#: reason, and the check it was written for could stop firing unnoticed.
+_OUR_PROJECTION = {
+    "projection.enabled": "true",
+    "projection.year.type": "integer",
+    "projection.year.range": "2020,2030",
+}
+
+
 @pytest.mark.parametrize(
-    "name,partitioned,catalog",
+    "name,partitioned,catalog,disagreement",
     [
         (
             "another folder",
             False,
             _catalog(location=f"s3://{BUCKET}/alice/invoices/"),
+            "LOCATION",
         ),
         (
             "another bucket",
             False,
             _catalog(location=f"s3://{SHARED_BUCKET}/alice/sales/"),
+            "LOCATION",
         ),
         (
             "a LOCATION the portal cannot resolve",
             False,
             _catalog(location="s3://somebody-elses-bucket/alice/sales/"),
+            "unresolvable LOCATION",
         ),
         (
             "partition keys this run did not declare",
             False,
-            _catalog(
-                partition_keys=[{"Name": "year", "Type": "int"}],
-                parameters={
-                    "projection.enabled": "true",
-                    "projection.year.type": "integer",
-                    "projection.year.range": "2020,2030",
-                },
-            ),
+            _catalog(partition_keys=[{"Name": "year", "Type": "int"}], parameters=_OUR_PROJECTION),
+            "partition keys",
         ),
         (
             "no partition keys where this run declared one",
             True,
-            _catalog(partition_keys=[], parameters={"portal.managed": "true"}),
+            _catalog(partition_keys=[], parameters=_OUR_PROJECTION),
+            "partition keys",
         ),
         (
             "a partition key of another name",
             True,
             _catalog(
                 partition_keys=[{"Name": "month", "Type": "int"}],
-                parameters={
-                    "projection.enabled": "true",
-                    "projection.month.type": "integer",
-                    "projection.month.range": "1,12",
-                },
+                parameters=_OUR_PROJECTION
+                | {"projection.month.type": "integer", "projection.month.range": "1,12"},
             ),
+            "partition keys",
         ),
         (
             "the same key projected over another range",
@@ -402,25 +409,30 @@ def test_the_gate_stays_silent_on(name, catalog):
                     "projection.year.range": "2000,2100",
                 },
             ),
+            "projection of partition key",
         ),
         (
             "the same key with its projection missing",
             True,
             _catalog(partitioned=True, parameters={"portal.managed": "true"}),
+            "projection of partition key",
         ),
     ],
 )
-def test_a_statement_that_was_a_no_op_over(name, partitioned, catalog):
+def test_a_statement_that_was_a_no_op_over(name, partitioned, catalog, disagreement):
     """Every way the standing table can disagree with this run's declaration refuses.
 
     The corpus is per-check: the first three redden the LOCATION comparison, the next three the
-    partition keys, and the last two the projection. Each fixture changes ONE fact, so a check
-    that stopped firing leaves its own rows failing and nothing else.
+    partition keys, and the last two the projection. **Each row asserts WHICH check refused it**,
+    not merely that something did — three of these fixtures are rejectable by more than one check,
+    and a row that only asserted `table_exists` would stay green while the check it was written for
+    went quiet. The three key rows carry this run's own projection so the check behind them agrees.
 
     Args:
       name: What the standing table is, for the failure message.
       partitioned: Whether this run declares a partition key.
       catalog: The table the catalog reports.
+      disagreement: The fact this row is meant to disagree on, named in the refusal's detail.
 
     Returns:
       None.
@@ -432,7 +444,73 @@ def test_a_statement_that_was_a_no_op_over(name, partitioned, catalog):
     with pytest.raises(TerminalError) as caught:
         e.handler(_event(partitioned=partitioned), None)
     assert caught.value.reason == "table_exists", name
-    assert "another request" in caught.value.detail
+    assert disagreement in caught.value.detail, (
+        f"{name}: refused on {caught.value.detail!r}, not on its {disagreement}"
+    )
+
+
+def test_the_same_key_carrying_a_property_this_run_did_not_declare_is_another_table():
+    """``digits`` is a REQUEST field, so its presence is a difference of request, not of sampling.
+
+    A run declaring ``year`` without ``digits`` is a strict subset of one declaring it with, and
+    the two tables address different folders — ``year=1`` against ``year=0001``. Only one of them
+    matches what is in S3, so a containment check that let the subset through told a requester
+    their table was ready over a table their own request would not have built.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _succeeding(catalog=_catalog(partitioned=True, parameters=_OUR_PROJECTION | {"projection.year.digits": "4"}))
+
+    with pytest.raises(TerminalError) as caught:
+        e.handler(_event(partitioned=True), None)
+
+    assert caught.value.reason == "table_exists"
+    assert "projection of partition key 'year'" in caught.value.detail
+
+
+def test_the_second_declared_keys_projection_is_compared_too():
+    """The loop runs over every declared key, and only a two-key fixture can show it.
+
+    A one-key corpus leaves the loop's tail untested: narrowing it to the first key alone passed
+    the whole `lambdas/` suite before this case existed.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _succeeding(
+        catalog=_catalog(
+            partition_keys=[{"Name": "year", "Type": "int"}, {"Name": "month", "Type": "int"}],
+            parameters=_OUR_PROJECTION
+            | {"projection.month.type": "integer", "projection.month.range": "1,6"},
+        )
+    )
+    event = _event() | {
+        "partitionKeys": [
+            {"name": "year", "type": "integer", "range": [2020, 2030]},
+            {"name": "month", "type": "integer", "range": [1, 12]},
+        ]
+    }
+
+    with pytest.raises(TerminalError) as caught:
+        e.handler(event, None)
+
+    assert caught.value.reason == "table_exists"
+    assert "projection of partition key 'month'" in caught.value.detail, (
+        "the first key agreed; only the SECOND one's range differs"
+    )
 
 
 def test_partition_keys_declared_in_another_order_are_another_table():

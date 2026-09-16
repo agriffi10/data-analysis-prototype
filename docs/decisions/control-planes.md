@@ -1981,10 +1981,26 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   that its table is ready to query. A replay still succeeds, because a retry meets its own table,
   which is the property `IF NOT EXISTS` is there for. The fix is a post-condition, not a lock:
   nothing is serialized, both runs still pay the whole inspection and inference, and nothing is
-  overwritten. **The residual is the race the check cannot see** — two creates over the SAME folder
-  declaring the SAME partition keys agree on all three facts and are both told created. The columns
-  are then whichever run's inference landed, which is a difference of sampling and not of request:
-  both inferred from the LOCATION they agree on, and a single create already reads one sample file.
+  overwritten. **The residual is the DATA COLUMNS, and only them** — two creates over the same
+  folder whose partition declarations also match to the property agree on all three facts and are
+  both told created, and the columns are then whichever run's inference landed. That is a
+  difference of sampling rather than of request: both inferred from the LOCATION they agree on, and
+  a single create already reads one sample file. **Every field the request itself states is
+  compared**, which is why the projection is matched per key by EQUALITY inside that key's own
+  `projection.` namespace and not by containment: `digits`, `interval` and `interval.unit` are
+  optional, so a declaration without one is a strict subset of a declaration with it, and
+  containment told a run declaring `month` its table was ready over a table generating `month=1`
+  where its own request asked for `month=01`. Outside a declared key's namespace nothing is
+  compared, so `projection.enabled` and any property AWS writes of its own accord cannot refuse an
+  ordinary create.
+  **A confirmation a run cannot make is reported as a failure, decided 2026-09-15 (Andrew).** That
+  is the one thing here a user sees beyond the loser's refusal: a deterministic Glue fault on the
+  read-back reports `ddl_execution_failed` over a table that exists, and a table still invisible
+  after `ExecuteDdl`'s Retry reports the generic sentence, because the absence is raised as
+  `TransientError` so the machine looks again rather than failing a create that landed. Both are
+  near-unreachable — the role holds `glue:GetTable` and is this plane's LF admin, and a missing
+  `CREATE_TABLE` grant fails the Athena statement long before the read-back — and the alternative
+  was reporting an unconfirmed success as a success, which is the class this whole entry is about.
 - **Table share: one table, told twice.** `check-target-absent` reads the catalog and then the
   prefix, the copy is an unconditional `CopyObject` into `{recipient}/shared_tables/{table}/`, which
   no run owns alone, and the create is `IF NOT EXISTS`. Two shares of one source to one recipient

@@ -120,11 +120,18 @@ statements, no window in which the table is absent, and **no verb on this plane 
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **A create's `IF NOT EXISTS` is confirmed, not trusted.** The statement succeeds identically for a
   run that built the table and a run whose create was a no-op over someone else's, so execute-ddl
-  reads the table back and refuses `table_exists` unless the LOCATION, the partition keys and the
-  per-key projection properties are this run's. The three facts are the ones the REQUEST declares;
-  the columns are not among them, because they are inferred from the LOCATION both runs agree on.
-  The projection match is **containment** — a property the run never declared is ignored, so a
-  property AWS might write of its own accord cannot refuse an ordinary create.
+  reads the table back and refuses `table_exists` unless the LOCATION, the ordered partition keys
+  and each key's projection are this run's. Those three are the facts the REQUEST declares; the
+  columns are not among them, because they are inferred from the LOCATION both runs agree on.
+  **The projection is matched per key, by equality inside that key's own `projection.` namespace
+  and blind outside it.** Containment was too weak — `digits`, `interval` and `interval.unit` are
+  optional request fields, so a declaration without one is a subset of a declaration with it, and
+  the two tables address different folders. Namespace-wide equality is too strong — it would refuse
+  over `projection.enabled` or anything AWS wrote of its own accord.
+  **A read-back that cannot be made fails the run** (Andrew's ruling): an absent table is
+  `TransientError` so the machine looks again — Glue publishes no read-after-write guarantee, and
+  failing a create that landed would be worse than the misreport — and only a deterministic Glue
+  fault, or the Retry budget running out, ends it.
 - **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a `QUEUED` execution is a 400
   whose name maps to nothing, and it reached users as a generic "contact the administrator".
 

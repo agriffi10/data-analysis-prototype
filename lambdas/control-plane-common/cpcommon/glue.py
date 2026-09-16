@@ -5,13 +5,14 @@ I can faithfully reproduce? A view has no data files, a managed table's files ar
 portal's to re-read, and a catalog-partitioned table's partitions live in the catalog rather
 than in the projection properties. Both callers must refuse all three, and the checks are
 fiddly enough that two copies would drift. ``tscommon.glue`` and ``tbcommon.glue`` re-export
-``clone_definition`` and ``parse_location``, so table-share's and table-builder's verbs and
-tests reach them through their own layer.
+``clone_definition``, so table-share's and table-builder's verbs and tests reach it through their
+own layer.
 
-``parse_location`` is public for a caller that compares one stored LOCATION with another
-rather than resolving one to read: two strings naming the same folder differ by a trailing
-slash, and deciding that twice is how the two copies disagree about whether a table is the
-one a request built.
+``parse_location`` is public for a caller that compares one stored LOCATION with another rather
+than resolving one to read: two strings naming the same folder differ by a trailing slash, and
+deciding that twice is how the two copies disagree about whether a table is the one a request
+built. Only ``tbcommon.glue`` re-exports it — table-share has no such caller, and a re-export
+nothing reaches through is a claim a reader would follow into an ``ImportError``.
 
 The shape reason codes are registered here rather than by a domain's import side effect,
 because ``TerminalError`` validates its reason at the raise site and a table-builder Lambda

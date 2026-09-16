@@ -96,10 +96,12 @@ def _read_back(database: str, table: str) -> dict:
     would tell a user their create did not happen while their table sits in the catalog, an
     outcome strictly worse than the misreport this post-condition exists to close. Raising
     ``TransientError`` hands it to ``ExecuteDdl``'s Retry, whose re-invocation costs a no-op
-    ``IF NOT EXISTS`` statement and another read. A table that is genuinely absent — this plane's
-    canonical incident, LF admin status silently not granting ``CREATE_TABLE`` — still fails the
+    ``IF NOT EXISTS`` statement and another read. A table that is genuinely absent still fails the
     request once the Retry budget is spent, which is the right answer arrived at slowly rather
-    than the wrong one arrived at fast.
+    than the wrong one arrived at fast. **That is not the missing-``CREATE_TABLE`` incident**,
+    which fails the Athena statement and never reaches here: the reachable cause is the one
+    check-table-absent names, a read against an LF-gated database that this role's admin status is
+    what resolves.
 
     Args:
       database: The target database.
@@ -173,12 +175,17 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
     catalog LOCATION this parser refuses is not this run's either — this run's own parses, since
     it was built from a portal bucket and the space's prefix — so it takes the same refusal.
 
-    The projection comparison is CONTAINMENT, not equality: every property this run would render
-    must be present with this run's value, and a property the run did not declare is ignored.
-    Equality over the ``projection.`` namespace would refuse an ordinary create the first time
-    AWS wrote a property of its own there, and nothing enumerates what those could be — an
-    unexpected refusal of a correct create is a worse outcome than the residual, which is a
-    losing run whose own declaration is a strict subset of the winner's.
+    The projection comparison is **equality inside each declared key's own namespace, and blind
+    outside it**. Plain containment was the first shape and it was too weak: ``digits``,
+    ``interval`` and ``interval.unit`` are optional, so a run declaring ``month`` without
+    ``digits`` is a strict subset of one declaring it WITH ``digits``, and containment told that
+    run its table was ready over a table generating ``month=1`` where its own request asked for
+    ``month=01``. Those are request fields, not inference, and exactly one of the two tables
+    addresses the folders that exist. Equality over the WHOLE ``projection.`` namespace is the
+    other error: it would refuse an ordinary create over ``projection.enabled`` or any property
+    AWS wrote of its own accord, and nothing enumerates what those could be. Per key, the
+    properties are ours — the renderer emits the complete set for a key — so equality there is
+    exact without claiming anything about the namespace around it.
 
     Partition key names are folded because ``columns.fold`` is this repo's one answer to "are
     these two names one column to Athena". On this path it cannot change a name: every declared
@@ -198,10 +205,13 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
         ``malformed_event`` when this run's own location does not resolve;
         ``ddl_execution_failed`` when the table cannot be read back.
       TransientError: When the table is absent, or on a retryable Glue fault.
-      KeyError: If a declared partition key is missing a field the projection needs. Unlike the
-        above it is not a classified outcome — but infer-schema rendered the very same keys
-        through the very same renderer to build the statement this verb just ran, so a key that
-        could raise here failed the build before this verb was reached.
+      ValueError: On a partition type the renderer does not know, or a non-string enum value.
+      KeyError: If a declared partition key is missing a field the projection needs.
+      TypeError: If a declared partition key is not an object at all. None of the three is a
+        classified outcome — but validate-authorize refuses each shape, and infer-schema then
+        rendered the very same keys through the very same renderer to build the statement this
+        verb just ran, so a key that could raise any of them failed the build long before this
+        verb was reached. The state machine records them by their Python name.
     """
     declared_location = events.require(event, "location")
     try:
@@ -227,7 +237,9 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
             expected_location=f"s3://{expected['bucket']}/{expected['prefix']}",
             catalog_location=catalog_location,
         )
-        raise _lost_the_race(database, table, "LOCATION")
+        raise _lost_the_race(
+            database, table, "LOCATION" if actual is not None else "unresolvable LOCATION"
+        )
 
     partition_keys = event.get("partitionKeys") or []
     declared_keys = [columns_mod.fold(key["name"]) for key in partition_keys]
@@ -245,16 +257,25 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
 
     parameters = live.get("Parameters") or {}
     for key in partition_keys:
-        for name, value in ddl_mod.projection_properties(key).items():
-            if parameters.get(name) != value:
-                observability.warning(
-                    "the catalog's table is not this request's",
-                    database=database,
-                    table=table,
-                    disagreement="projection",
-                    projection_property=name,
-                )
-                raise _lost_the_race(database, table, f"projection property {name!r}")
+        name = key["name"]
+        declared = ddl_mod.projection_properties(key)
+        standing = {
+            prop: value
+            for prop, value in parameters.items()
+            if prop.startswith(f"projection.{name}.")
+        }
+        if standing != declared:
+            observability.warning(
+                "the catalog's table is not this request's",
+                database=database,
+                table=table,
+                disagreement="projection",
+                projection_key=name,
+                differing_properties=sorted(set(declared) ^ set(standing)) or sorted(
+                    prop for prop in declared if standing.get(prop) != declared[prop]
+                ),
+            )
+            raise _lost_the_race(database, table, f"projection of partition key {name!r}")
 
     observability.info(
         "the created table matches this request",
