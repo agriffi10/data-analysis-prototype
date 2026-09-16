@@ -71,9 +71,10 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
     [spaceName, username, sharedSpaceNames]
   );
 
-  // Resolution needs the connections list, so "inaccessible" is only meaningful on a read of it
-  // after the link was followed — before that, the list is not there yet or may predate a space
-  // the user has just joined, and the denied state would show to a user who can read the report.
+  // Resolving a shared space needs the connections list, so "inaccessible" is only meaningful on a
+  // read of it after the link was followed — before that, the list is not there yet or may predate
+  // a space the user has just joined, and the denied state would show to a user who can read the
+  // report.
   const pending = useSpaceLinkPending({
     username,
     space: spaceName,
@@ -85,12 +86,10 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
 
   const query = useQuery({
     queryKey: dataQualityKeys.report(spaceName, requestId),
-    // WAIT FOR THE CONNECTIONS LIST before fetching, not merely for a space to resolve.
-    // Until it loads, `sharedSpaceNames` is empty, so a shared space whose name equals
-    // the username would resolve PERSONAL on the first pass — and since the query key
-    // is (space name, requestId) and carries no bucket, the wrong-bucket result would
-    // then be cached and never refetched when the real answer arrived.
-    enabled: !!space && !!requestId && !connectionsLoading,
+    // Not held for the connections list. The list can add or withdraw a shared space, but it
+    // never moves a segment to the other bucket, because the username wins over shared names,
+    // so a personal report — the one space that resolves without the list — starts at once.
+    enabled: !!space && !!requestId,
     // A missing report is a terminal answer ("still running, or deleted"), not a
     // transient fault worth three more round trips.
     retry: false,
@@ -101,7 +100,7 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
   return {
     report: query.data,
     space,
-    isLoading: connectionsLoading || pending || (!!space && query.isPending),
+    isLoading: space ? query.isPending : connectionsLoading || pending,
     error: query.error ? toUserText(query.error) : undefined,
     isInaccessible
   };

@@ -77,3 +77,9 @@ observed failing when its code was broken; two of those mutations exposed real b
 premature space resolution that cached a wrong-bucket read, and an untested `link` drop in
 the notifications read path). **The live end-to-end run is still outstanding** — SPEC-112
 deferred it until this spec landed so the check could be driven as a user drives it.
+
+**Later correction to the first of those bugs:** no committed version of `useDataQualityReport`
+could cache that wrong-bucket read. From the hook's first commit the username resolved personal
+ahead of shared names, with or without the connections list, so the report's wait for the list
+guarded no runtime read and has since been removed. What the wait did do was let the precedence
+test catch a flipped precedence; that test now caches the list before the page mounts.
