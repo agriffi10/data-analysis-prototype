@@ -695,6 +695,11 @@ Two constraints on this model, both confirmed:
   and map types are not supported in filter expressions.
 - **Identity Center users and groups cannot be Lake Formation data lake administrators.**
 
+One constraint of ours, from the app side: the Query page shows Athena's own message for a query
+that failed on the user's SQL, and three of the classes it shows quote the failing cell value. Before
+a row predicate ships, confirm Athena applies the filter before the user's predicate, or drop those
+classes — the rule and its reasoning are in `docs/decisions/browser.md`, *User-facing error messaging*.
+
 ### 3.8 The reconciler
 
 Config is the source of truth; the reconciler projects it into Lake Formation grants against

@@ -163,7 +163,7 @@ export function SavedQueriesPanel({
                   type="button"
                   onClick={() => setPendingDelete(q)}
                   aria-label={`Delete saved query ${q.name}`}
-                  className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
+                  className="rounded-sm border border-danger px-1.5 py-0.5 text-xs font-semibold text-danger hover:bg-danger-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
                   Delete
                 </button>
               </div>

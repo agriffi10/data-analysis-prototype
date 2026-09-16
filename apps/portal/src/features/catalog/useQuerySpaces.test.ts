@@ -39,7 +39,7 @@ describe('useQuerySpaces (SPEC-173 FR-005)', () => {
     await waitFor(() =>
       expect(result.current[0]).toEqual({
         id: 'personal',
-        label: 'My files',
+        label: 'alice',
         bucket: 'user-space',
         rootPrefix: 'alice/',
         rootLabel: 'My Files'

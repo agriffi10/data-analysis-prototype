@@ -271,6 +271,19 @@ describe('copy (FR-001)', () => {
     expect(await screen.findByText(COPY_FAILED)).toBeInTheDocument();
   });
 
+  it('copies the whole generated statement, exactly as it ran, from beside it', async () => {
+    seedTab();
+    const {user} = render();
+    await grid();
+    await user.click(screen.getByText('Generated SQL'));
+    const shown = (screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value;
+
+    await user.click(await screen.findByRole('button', {name: 'Copy SQL'}));
+
+    expect(clipboardWrites).toEqual([shown]);
+    expect(shown).toMatch(/FROM\s+"alice"\."orders"/);
+  });
+
   it('issues NO query, however it is used', async () => {
     // AC7. One execution for the exploration itself, and not one more for any amount of
     // selecting, formatting and copying.

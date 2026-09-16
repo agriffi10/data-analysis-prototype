@@ -204,7 +204,10 @@ export function DataExplorerWorkspace() {
   const presentation = tabs.activeTab?.exploration.presentation ?? EMPTY_PRESENTATION;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // Capped to the viewport below the h-14 header from tablet up, as the Query workspace is, so
+    // the grid scrolls inside its own box and the SQL above it and the panels beside it stay in
+    // view. Phones keep the page's own scroll: a bounded box would squeeze the stacked grid.
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col tablet:h-[calc(100dvh-3.5rem)] tablet:overflow-hidden">
       {tabs.tabs.length > 0 && (
         <ExplorationTabStrip
           tabs={tabs.tabs}

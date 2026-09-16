@@ -421,10 +421,12 @@ export default function LandingPage() {
         className="sticky top-0 z-20 h-16 border-b border-border bg-surface/80 backdrop-blur-sm backdrop-saturate-150">
         <div className="mx-auto flex h-full max-w-[1080px] items-center gap-3 px-4 tablet:gap-4 tablet:px-6">
           <LandingNavMenu links={NAV_LINKS} />
+          {/* The square alone below tablet, as the app header does: the wordmark beside two
+              buttons that never wrap their labels ran the bar past a phone's width. */}
           <a
             href="/"
             aria-label="Data Quarry home">
-            <BrandMark />
+            <BrandMark wordmarkClassName="hidden tablet:inline" />
           </a>
           <div className="ml-8 hidden items-center gap-5 tablet:flex">
             {NAV_LINKS.map((link) => (

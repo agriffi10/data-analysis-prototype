@@ -234,7 +234,7 @@ describe('what a save writes (FR-001)', () => {
         within(select)
           .getAllByRole('option')
           .map((o) => o.textContent)
-      ).toEqual(['My files', 'teamspace'])
+      ).toEqual(['alice', 'teamspace'])
     );
 
     await user.selectOptions(select, 'teamspace');
@@ -261,7 +261,7 @@ describe('SPEC-175’s rules hold here too (FR-001 AC3)', () => {
     await saveAs(user, 'Monthly revenue');
 
     const confirm = await screen.findByRole('alertdialog', {name: 'Confirm replace saved query'});
-    expect(within(confirm).getByText(/already exists in My files/)).toBeInTheDocument();
+    expect(within(confirm).getByText(/already exists in alice/)).toBeInTheDocument();
     // Nothing has been STORED while the question is open. Counted on what the store accepted, not
     // on what was attempted: the collision check lives inside the write route now, so the refused
     // save is itself a request.

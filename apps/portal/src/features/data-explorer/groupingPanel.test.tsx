@@ -285,7 +285,8 @@ describe('grouping’s extras', () => {
     // banner, and a WHERE on it is an unknown column at Athena.
     await user.click(screen.getByRole('button', {name: `Column options: ${percent}`}));
     const items = await screen.findAllByRole('menuitem');
-    expect(items.map((item) => item.textContent)).toEqual([CALCULATED_COLUMN_REFUSAL]);
+    // Hiding is not a query edit, so the column the SQL cannot address still offers it.
+    expect(items.map((item) => item.textContent)).toEqual([CALCULATED_COLUMN_REFUSAL, 'Hide column']);
     await user.keyboard('{Escape}');
 
     // The cursor can sit in it like any other cell, and this action does not go through

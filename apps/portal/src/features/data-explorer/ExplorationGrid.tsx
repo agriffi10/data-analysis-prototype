@@ -1,14 +1,15 @@
-import {useMemo, type RefObject} from 'react';
+import {useEffect, useMemo, useRef, type RefObject} from 'react';
 import {cx} from '../../lib/cx';
 import {CellValue} from './CellValue';
 import {cellText} from './cellText';
 import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
 import {ExplorationGridHeader} from './ExplorationGridHeader';
-import type {ColumnQueryActions} from './ColumnFilterMenu';
+import {COLUMN_MENU_TRIGGER_ATTRIBUTE, type ColumnQueryActions} from './ColumnFilterMenu';
 import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
 import type {PageFormatting} from './formatting';
 import {CURSOR_CELL_ATTRIBUTE} from './useCellSelection';
+import {GRID_SCROLL_BOX_ATTRIBUTE} from './menuAlign';
 import type {UseCellSelectionResult} from './useCellSelection';
 
 export type ExplorationGridProps = {
@@ -65,6 +66,25 @@ export function ExplorationGrid({
   onCopy,
   gridRef
 }: ExplorationGridProps) {
+  // Hiding a column from its own menu unmounts the button focus was just returned to, which
+  // would leave it on the page body; the neighbour's menu button takes it instead.
+  const refocusColumn = useRef<string | null>(null);
+  const hideColumn = (name: string) => {
+    const at = columns.findIndex((column) => column.name === name);
+    refocusColumn.current = (columns[at + 1] ?? columns[at - 1])?.name ?? null;
+    geometry.toggleHidden(name);
+  };
+  // Keyed on the columns, so it runs after the commit that removed the hidden one.
+  useEffect(() => {
+    const target = refocusColumn.current;
+    if (target === null) return;
+    refocusColumn.current = null;
+    const triggers = gridRef.current?.querySelectorAll<HTMLElement>(`[${COLUMN_MENU_TRIGGER_ATTRIBUTE}]`) ?? [];
+    Array.from(triggers)
+      .find((trigger) => trigger.getAttribute(COLUMN_MENU_TRIGGER_ATTRIBUTE) === target)
+      ?.focus();
+  }, [columns, gridRef]);
+
   // Sticky offsets for the pinned block: each pinned column sits after the row-number
   // column and every pinned column before it. Computed from widths rather than measured,
   // because the widths ARE the layout here (`table-fixed` + an explicit `<colgroup>`).
@@ -81,7 +101,9 @@ export function ExplorationGrid({
   );
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+    <div
+      {...{[GRID_SCROLL_BOX_ATTRIBUTE]: 'true'}}
+      className="max-h-[70dvh] min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface [scrollbar-gutter:stable] tablet:max-h-none">
       <table
         ref={gridRef}
         role="grid"
@@ -129,6 +151,8 @@ export function ExplorationGrid({
           onSelectColumn={selection.selectColumn}
           actions={actions}
           onRequestFilterValue={onRequestFilterValue}
+          onHideColumn={hideColumn}
+          hideRefusal={geometry.hideRefusal}
         />
         {/* Array-index keys: result rows are plain strings with no identity, and the whole
             body is replaced on every page and every execution. */}

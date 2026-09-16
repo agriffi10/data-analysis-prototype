@@ -46,7 +46,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Everything starts here — getting your files into Data Quarry. Uploads always land in the folder you’re currently viewing, so browse to where you want them first, then drop them in. Big files are welcome; the panel keeps you posted on each one.',
         steps: [
-          'Open the <b>Files</b> tab and browse to the folder you want to upload into.',
+          'Open the <b>Files</b> tab and browse to the folder you want to upload into. If you mean to query the files as a table, put them in a folder of their own rather than at the top of your space: a table is built from a whole folder, never from a single file.',
           'Click <b>Upload</b> to open the upload panel.',
           'Drag files onto the drop zone, or click it to pick files from your computer.',
           'Each file uploads into the current folder, and the panel tracks its progress until it’s done.',
@@ -223,7 +223,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open the <b>Query</b> tab and type SQL in the editor.',
           'Click <b>Run Statement</b>, or press <kbd>Ctrl/Cmd + Enter</kbd> — it runs your selection if you have one, otherwise the statement under the cursor.',
-          'Watch the status bar for progress, the exact total row count, data scanned, and how long it took.',
+          'Watch the status bar for progress, the exact total row count, data scanned, and how long it took. While the total is still being counted it shows the rows loaded so far with a <b>+</b>, and says <b>counting…</b>.',
+          'If the query fails because of something in its SQL, open <b>Details</b> under the message to read Athena’s own explanation. Its line and column count from the start of the statement that ran, not from the top of the editor.',
           'Changed your mind mid-run? Click <b>Stop</b> to cancel a running query or script.'
         ],
         callout: {
@@ -486,10 +487,11 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'This is what the Explorer is for. Everything here is a click, and each one rewrites the query underneath and runs it again — so the rows you end up with are the real answer over the whole table, not just over what was on screen.',
         steps: [
-          'Click the <b>⌄</b> on a column header to sort it, or to filter it with <b>is</b>, <b>is not</b>, <b>greater than</b>, <b>is empty</b> and the rest.',
+          'Click the <b>⋯</b> on a column header to sort it, to filter it with <b>equals</b>, <b>does not equal</b>, <b>greater than</b>, <b>is null</b> and the rest, or to hide it with <b>Hide column</b>. Filters on several columns all apply together.',
           'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
           'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
-          'Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it.',
+          'Open <b>Options</b> and choose <b>Columns</b> to hide, show, pin or reorder columns. <b>Show all</b> and <b>Unpin all</b> put every column back the way it arrived.',
+          "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it. Leave out the word <b>WHERE</b>. Any condition works, such as <code>name LIKE '%sample%'</code> to match part of a value, or <code>state IN ('NY', 'NJ')</code> for several values at once.",
           'Use the <b>back</b> and <b>forward</b> arrows on the bar to step through the filters you have already tried, or choose <b>Remove all filters</b> from <b>Options</b> to start over.'
         ],
         callout: {

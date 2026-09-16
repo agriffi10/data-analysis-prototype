@@ -81,8 +81,8 @@ function cell(row: number, name: string): HTMLElement {
 }
 
 async function openColours(user: ReturnType<typeof userEvent.setup>) {
-  await chooseExplorationOption(user, 'Colours');
-  return screen.getByRole('dialog', {name: 'Colours'});
+  await chooseExplorationOption(user, 'Colors');
+  return screen.getByRole('dialog', {name: 'Colors'});
 }
 
 /** Adds a rule and fills the fields a simple `equals` rule needs. */
@@ -97,7 +97,7 @@ async function addRule(
   }
   await user.type(within(dialog).getByRole('textbox', {name: 'Rule 1 value'}), options.value);
   if (options.colour) {
-    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 text colour'}), options.colour);
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 text color'}), options.colour);
   }
   if (options.paints) {
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 paints'}), options.paints);
@@ -210,7 +210,7 @@ describe('conditional colouring (FR-002)', () => {
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(PATTERN_REFUSAL);
     // Still open, with the draft intact — the user has somewhere to correct it.
-    expect(screen.getByRole('dialog', {name: 'Colours'})).toBeInTheDocument();
+    expect(screen.getByRole('dialog', {name: 'Colors'})).toBeInTheDocument();
     expect(storedFormatting().rules).toEqual([]);
   });
 
@@ -223,7 +223,7 @@ describe('conditional colouring (FR-002)', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 2 column'}), 'status');
     await user.type(within(dialog).getByRole('textbox', {name: 'Rule 2 value'}), 'ok');
-    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 2 text colour'}), 'Green');
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 2 text color'}), 'Green');
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
 
     await waitFor(() => expect(cell(0, 'status')).toHaveStyle({color: 'var(--color-success)'}));

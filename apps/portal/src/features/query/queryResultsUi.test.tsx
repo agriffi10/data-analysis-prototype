@@ -35,7 +35,7 @@ describe('QueryMobileView', () => {
 
   const PERSONAL_SPACE: QuerySpace = {
     id: 'personal',
-    label: 'My files',
+    label: 'alice',
     bucket: 'user-space',
     rootPrefix: 'alice/',
     rootLabel: 'My Files'
@@ -126,7 +126,7 @@ describe('QueryMobileView', () => {
 
     it('shows an empty state per surface, and a failed read as a banner', () => {
       const {unmount} = renderView({savedQueries: []});
-      expect(screen.getByText('No saved queries in My files')).toBeInTheDocument();
+      expect(screen.getByText('No saved queries in alice')).toBeInTheDocument();
       unmount();
 
       renderView({tab: 'history', history: [], historyError: new Error('boom')});

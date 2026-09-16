@@ -159,6 +159,20 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
   });
 
+  it('says the total is still being counted on a phone too', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    mockGetResults.mockResolvedValue(
+      ok({columns: [{name: 'region', type: 'varchar'}], rows: [['us-east'], ['eu-west']], nextToken: 't-2'})
+    );
+    mockGetRowCount.mockImplementation(() => new Promise(() => {}) as never);
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    expect(await screen.findByText(/2\+ rows · counting… ·/)).toBeInTheDocument();
+  });
+
   // The mobile view is handed the workspace's one total, and its pager no longer combines a second
   // one of its own — so this wiring is the only thing keeping its strip and pager on the grid. The
   // default page is the last page (two rows, no token), so its own count must win over Athena's 5.
@@ -248,6 +262,10 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(
       await screen.findByText('That table wasn’t found. Check the name and that it includes its database.')
     ).toBeInTheDocument();
+    // Athena's own words ride beneath the phone's banner too, closed until asked for.
+    expect(screen.getByText('TABLE_NOT_FOUND: Table alice.nope does not exist').closest('details')).not.toHaveAttribute(
+      'open'
+    );
   });
 
   it('says why in the results view when a run’s status cannot be read', async () => {

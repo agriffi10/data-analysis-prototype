@@ -31,6 +31,10 @@ export type ExplorationGridHeaderProps = {
   actions: ColumnQueryActions;
   /** A comparison needs a value; the region raises the dialog (`Modal` does not portal). */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
+  /** Hides a column from its own menu. */
+  onHideColumn: (name: string) => void;
+  /** Why a column cannot be hidden, or null when it can. */
+  hideRefusal: (name: string) => string | null;
 };
 
 /**
@@ -55,7 +59,9 @@ export function ExplorationGridHeader({
   onColumnDrag,
   onSelectColumn,
   actions,
-  onRequestFilterValue
+  onRequestFilterValue,
+  onHideColumn,
+  hideRefusal
 }: ExplorationGridHeaderProps) {
   const dragging = useRef<string | null>(null);
 
@@ -74,9 +80,13 @@ export function ExplorationGridHeader({
             scope="col"
             aria-label={column.name}
             style={column.pinned ? {left: offsets[position]} : undefined}
+            // Sticky whether pinned or not, so the names stay above the rows they label while the
+            // grid scrolls. The right padding clears the resize handle and the menu button, which
+            // is wider once it carries a sort or a filter mark.
             className={cx(
-              `relative top-0 border-b border-border bg-surface-2 py-1 pl-3 pr-9 text-left ${SECTION_CAPTION}`,
-              column.pinned ? 'sticky z-30' : 'z-20'
+              `sticky top-0 border-b border-border bg-surface-2 py-1 pl-3 text-left ${SECTION_CAPTION}`,
+              column.pinned ? 'z-30' : 'z-20',
+              actions.sortOf(column.name) || actions.filterOf(column.name) ? 'pr-[60px]' : 'pr-[40px]'
             )}
             // The resize handle and the menu live INSIDE the header, so a drag of the edge
             // — or a click anywhere in the menu — would otherwise finish as a click that
@@ -123,6 +133,8 @@ export function ExplorationGridHeader({
               column={column.name}
               actions={actions}
               onRequestValue={onRequestFilterValue}
+              onHide={onHideColumn}
+              hideRefusal={hideRefusal(column.name)}
             />
             <ColumnResizeHandle
               column={column.name}

@@ -34,8 +34,11 @@ export type TabRun = {
   done: boolean;
   /** Stop was pressed — the finalizer must not start the next statement. */
   halted?: boolean;
-  /** Set when a statement failed, failed to start, or its status could not be read; drives the banner. */
-  failure?: {statementIndex: number; reason: string};
+  /**
+   * Set when a statement failed, failed to start, or its status could not be read; drives the
+   * banner. `detail` is Athena's own message, present only where the error mapper allows it.
+   */
+  failure?: {statementIndex: number; reason: string; detail?: string};
   /**
    * Set when the watch of a statement outlived its ceiling while it was still running. Not a
    * failure: the banner is a warning with its own title, and the bar's verdict is its own.
@@ -177,16 +180,15 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       // advance past a Stop even when the statement outran the cancel.
       const hasNext = run.currentIndex < run.statements.length - 1;
       if (status.state !== 'SUCCEEDED' || !hasNext || run.halted) {
+        // The sentence and the Details come from one mapping, so they cannot describe two
+        // different errors; the raw stateChangeReason stays in the history record.
+        const failed =
+          status.state === 'FAILED' ? toUserMessage({code: status.state, message: status.stateChangeReason}) : null;
         patchRun((cur) => ({
           ...cur,
           done: true,
-          ...(status.state === 'FAILED' && {
-            // Store friendly text for display; the raw stateChangeReason stays in
-            // the QueryStatus/history record for developers.
-            failure: {
-              statementIndex: cur.currentIndex,
-              reason: toUserText({code: status.state, message: status.stateChangeReason})
-            }
+          ...(failed && {
+            failure: {statementIndex: cur.currentIndex, reason: failed.message, detail: failed.detail}
           })
         }));
         return;

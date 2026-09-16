@@ -1,3 +1,6 @@
+import {useState} from 'react';
+import {CopyButton} from '../../components/CopyButton';
+
 export const NO_GENERATED_SQL = 'There’s no statement to show yet.';
 
 export type GeneratedSqlDisclosureProps = {
@@ -25,24 +28,38 @@ export type GeneratedSqlDisclosureProps = {
  * run yet, the description was REFUSED before it could render, and a history step is being
  * held back (the suspension). Two of those keep the previous rows on screen, so
  * "nothing has been run" would be read as a claim about them.
- * The statement sits in a read-only `<textarea>` (the `ValuePanel` precedent) so it is
- * selectable and copyable with the platform's own shortcuts — a copy CONTROL is the toolbar's.
+ * The statement sits in a read-only `<textarea>` (the `ValuePanel` precedent) so it stays
+ * selectable with the platform's own shortcuts, with a copy button beside it for the whole
+ * statement. The button sits in the body, never in the `<summary>`, where a click would also
+ * toggle the disclosure and a control would be nested inside another — and it mounts only while
+ * the disclosure is open, so its live region is not a second one on the page the rest of the time.
  */
 export function GeneratedSqlDisclosure({sql}: GeneratedSqlDisclosureProps) {
+  const [open, setOpen] = useState(false);
   return (
-    <details className="flex-none rounded-lg border border-border bg-surface">
+    <details
+      className="flex-none rounded-lg border border-border bg-surface"
+      onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-text-2">Generated SQL</summary>
       <div className="px-3 pb-3">
         {sql === null ? (
           <p className="text-sm italic text-text-3">{NO_GENERATED_SQL}</p>
         ) : (
-          <textarea
-            readOnly
-            aria-label="Generated SQL"
-            value={sql}
-            rows={Math.min(sql.split('\n').length + 1, 12)}
-            className="w-full resize-none overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-xs text-text"
-          />
+          <div className="flex items-start gap-2">
+            <textarea
+              readOnly
+              aria-label="Generated SQL"
+              value={sql}
+              rows={Math.min(sql.split('\n').length + 1, 12)}
+              className="min-w-0 flex-1 resize-none overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-xs text-text"
+            />
+            {open && (
+              <CopyButton
+                value={sql}
+                label="SQL"
+              />
+            )}
+          </div>
         )}
       </div>
     </details>

@@ -1,5 +1,7 @@
+import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
+import {contentBottomOf, contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor, menuMaxHeightFor} from './menuAlign';
 import {FILTER_OPERATORS, FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
 
@@ -35,15 +37,22 @@ export type ColumnQueryActions = {
   clearFilter: (column: string) => void;
 };
 
+/** Marks each header's menu button with its column, so focus can land on a neighbour's after a hide. */
+export const COLUMN_MENU_TRIGGER_ATTRIBUTE = 'data-column-menu-trigger';
+
 export type ColumnFilterMenuProps = {
   column: string;
   actions: ColumnQueryActions;
   /** Asks the REGION to open the value dialog — see below for why it is not opened here. */
   onRequestValue: (column: string, operator: FilterOperator) => void;
+  /** Hides the column from the grid; it comes back from the Columns panel. */
+  onHide: (column: string) => void;
+  /** Why this column cannot be hidden (the last one visible), or null when it can. */
+  hideRefusal: string | null;
 };
 
 /**
- * The per-column header menu: ordering, the six comparisons, and the two null tests.
+ * The per-column header menu: ordering, the six comparisons, the two null tests, and Hide.
  *
  * Composed on the `Menu` primitive, and its accessible name **names its column** — two
  * columns' menus are otherwise indistinguishable to anything that queries by name, which
@@ -58,7 +67,8 @@ export type ColumnFilterMenuProps = {
  * context (`z-20`) and paint UNDER the sticky pinned headers (`z-30`), with the scrim
  * punched through. Nothing in jsdom can see that.
  */
-export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilterMenuProps) {
+export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideRefusal}: ColumnFilterMenuProps) {
+  const [placement, setPlacement] = useState<{align: 'left' | 'right'; maxHeight?: number}>({align: 'left'});
   const sort = actions.sortOf(column);
   const filter = actions.filterOf(column);
   const refusal = actions.queryRefusalOf(column);
@@ -66,7 +76,7 @@ export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilter
   // A column the query cannot address keeps its menu and offers ONE disabled item saying
   // why — rather than a menu of controls that would each take the exploration down, or no
   // menu at all, which would leave the user to discover the difference by clicking.
-  const items: MenuItem[] = refusal
+  const queryItems: MenuItem[] = refusal
     ? [{kind: 'action', label: refusal, disabled: true, onSelect: () => {}}]
     : [
         {kind: 'action', label: 'Sort ascending', onSelect: () => actions.sort(column, 'asc')},
@@ -84,6 +94,13 @@ export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilter
         {kind: 'action', label: 'Filter: is not null', onSelect: () => actions.filter(column, 'isNotNull')},
         {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}
       ];
+  // Offered whether or not the query can address the column: a column the SQL does not have
+  // still sizes, hides and pins like any other.
+  const items: MenuItem[] = [
+    ...queryItems,
+    {kind: 'separator'},
+    {kind: 'action', label: 'Hide column', disabledReason: hideRefusal ?? undefined, onSelect: () => onHide(column)}
+  ];
 
   // The whole state of the column in one string, because the trigger's glyphs are
   // decoration: `aria-label` on the header cell already suppresses everything inside it,
@@ -101,21 +118,32 @@ export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilter
     // handler (which selects the whole column) can tell a menu gesture from a header one.
     <div
       data-column-menu="true"
-      className="absolute right-1 top-1">
+      className="absolute right-3 top-1">
       <Menu
         ariaLabel={`Column options: ${column}`}
-        align="left"
+        align={placement.align}
+        maxHeight={placement.maxHeight}
         trigger={({open, toggle, ref, menuId}) => (
           <button
             ref={ref}
             type="button"
+            {...{[COLUMN_MENU_TRIGGER_ATTRIBUTE]: column}}
             aria-label={name}
             aria-haspopup="menu"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
-            onClick={toggle}
+            onClick={(event) => {
+              // Placed when it opens, inside the grid's scroll box, which would clip it otherwise.
+              const box = event.currentTarget.closest(`[${GRID_SCROLL_BOX_ATTRIBUTE}]`);
+              const button = event.currentTarget.getBoundingClientRect();
+              setPlacement({
+                align: menuAlignFor(button.left, contentRightOf(box)),
+                maxHeight: menuMaxHeightFor(button.bottom, contentBottomOf(box))
+              });
+              toggle();
+            }}
             className={cx(
-              'flex h-6 items-center gap-0.5 rounded px-1 text-[11px] text-text-3 hover:bg-surface hover:text-text',
+              'flex h-[24px] min-w-[24px] items-center justify-center gap-0.5 rounded px-1 text-[11px] text-text-3 hover:bg-surface hover:text-text',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
             )}>
             {sort && (

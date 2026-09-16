@@ -51,7 +51,9 @@ export function createTableRefusal(prefix: string, rootPrefix: string): string |
  *
  * @attribute CREATE_TABLE_NOTHING_SELECTED_REFUSAL - Nothing is ticked.
  * @attribute CREATE_TABLE_MANY_SELECTED_REFUSAL - More than one row is ticked.
- * @attribute CREATE_TABLE_FILE_SELECTED_REFUSAL - The one ticked row is a file.
+ * @attribute CREATE_TABLE_FILE_SELECTED_REFUSAL - The one ticked row is a file inside a folder.
+ * @attribute CREATE_TABLE_FILE_AT_ROOT_REFUSAL - The one ticked row is a file at the top of the
+ *   space, where "select the folder that holds this file" would name the root, itself refused.
  */
 export const CREATE_TABLE_NOTHING_SELECTED_REFUSAL =
   'Select the folder holding your data files, then create the table from it. A table is built ' +
@@ -63,6 +65,10 @@ export const CREATE_TABLE_MANY_SELECTED_REFUSAL =
 export const CREATE_TABLE_FILE_SELECTED_REFUSAL =
   'A table is built from a folder, not a single file — it reads every file inside, so they can ' +
   'share one set of columns. Select the folder that holds this file instead.';
+
+export const CREATE_TABLE_FILE_AT_ROOT_REFUSAL =
+  'A table is built from a folder, not a single file, and this file is at the top of your space. ' +
+  'Create a folder, move the file into it, then select that folder and create the table.';
 
 /**
  * Resolve the folder a table would be built from, or the reason there isn't one.
@@ -90,7 +96,13 @@ export function createTableTarget(
   if (selected.length > 1) return {prefix: null, refusal: CREATE_TABLE_MANY_SELECTED_REFUSAL};
 
   const [item] = selected;
-  if (item.type === 'file') return {prefix: null, refusal: CREATE_TABLE_FILE_SELECTED_REFUSAL};
+  if (item.type === 'file') {
+    const folder = item.key.slice(0, item.key.lastIndexOf('/') + 1);
+    return {
+      prefix: null,
+      refusal: isAtRoot(folder, rootPrefix) ? CREATE_TABLE_FILE_AT_ROOT_REFUSAL : CREATE_TABLE_FILE_SELECTED_REFUSAL
+    };
+  }
 
   const rootRefusal = createTableRefusal(item.prefix, rootPrefix);
   return rootRefusal ? {prefix: null, refusal: rootRefusal} : {prefix: item.prefix, refusal: null};

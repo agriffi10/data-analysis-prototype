@@ -91,8 +91,9 @@ the router mounts; named exports are the rule everywhere else.
 caller branches instead of catching. The one client is `lib/apiClient`'s `apiRequest`, reached only
 through service files and never from a component; no `@aws-sdk/*` package may be added.
 
-**Raw AWS, Cognito and Athena text is never shown to a user.** `lib/errorMessages.ts` is the single
-source of wording; rendering `error.message` is a defect, not a shortcut.
+**Raw AWS and Cognito text is never shown to a user, and Athena's only beneath the sentence of a
+query that failed on the user's own SQL,** in a closed Details disclosure. `lib/errorMessages.ts` is
+the single source of wording; rendering `error.message` is a defect, not a shortcut.
 
 **Mobile-first, one tree.** Two breakpoints are compiled — `tablet:` at 900, `desktop:` at 1300 — and
 the same tree reflows. A `*Mobile`/`*Desktop` twin is a smell.

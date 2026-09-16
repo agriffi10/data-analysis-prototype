@@ -28,7 +28,7 @@ import {useIsMobile} from '../../lib/useBreakpoint';
 import {useTableShare} from '../table-share';
 import {useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
-import {toUserText} from '../../lib/errorMessages';
+import {toUserMessage} from '../../lib/errorMessages';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {QueryTabStrip} from './QueryTabStrip';
@@ -468,13 +468,22 @@ export function QueryWorkspace() {
         stillRunning.message.message
       )
     : null;
-  const errorMessage =
-    runErrors[activeTabId] ??
-    batchFailureMessage ??
-    stillRunningMessage ??
-    (activeStatus?.state === 'FAILED'
-      ? toUserText({code: activeStatus.state, message: activeStatus.stateChangeReason})
-      : null);
+  const statusFailure =
+    activeStatus?.state === 'FAILED'
+      ? toUserMessage({code: activeStatus.state, message: activeStatus.stateChangeReason})
+      : null;
+  // One chain picks both halves, so a Details disclosure can never belong to a different error
+  // than the sentence above it.
+  const shownError: {message: string; detail?: string} | null =
+    runErrors[activeTabId] != null
+      ? {message: runErrors[activeTabId]}
+      : batchFailureMessage !== null
+        ? {message: batchFailureMessage, detail: activeRun?.failure?.detail}
+        : stillRunningMessage !== null
+          ? {message: stillRunningMessage}
+          : statusFailure;
+  const errorMessage = shownError?.message ?? null;
+  const errorDetail = shownError?.detail;
   // The banner's title and colour follow the message it shows. A statement the browser stopped
   // watching did not fail, so its banner is a warning under the rule's own title; anything that
   // outranks it (a start that failed) keeps the failure's.
@@ -550,12 +559,14 @@ export function QueryWorkspace() {
               startedAt={mobile.ownsRun ? (activeRun?.startedAt ?? null) : null}
               hasResultSet={mobile.ownsRun && hasResultSet}
               totalRowCount={mobile.ownsRun ? shownTotal : null}
+              countingRows={mobile.ownsRun && rowCount.isCounting}
               hasRun={mobile.ownsRun || mobile.pending}
               batchFailed={mobile.ownsRun && !!activeRun?.failure}
               stillRunning={mobile.ownsRun && !!activeRun?.stillRunning}
               errorMessage={
                 mobile.failedToStart ? (mobile.run?.error ?? null) : mobile.ownsRun && showError ? errorMessage : null
               }
+              errorDetail={!mobile.failedToStart && mobile.ownsRun && showError ? errorDetail : undefined}
               {...(mobile.failedToStart ? {} : errorBanner)}
               onDismissError={() => {
                 // A submit that never started owns its error outright; anything
@@ -593,6 +604,7 @@ export function QueryWorkspace() {
                 canRun={canRun}
                 canClear={canClear}
                 canSave={canSave}
+                sql={activeTab.sql}
                 onClear={() => setClearOpen(true)}
                 onSave={saveQuery.openDialog}
                 onCreateView={handleOpenCreateView}
@@ -646,12 +658,14 @@ export function QueryWorkspace() {
                     displayExecutionId={displayExecutionId}
                     hasResultSet={hasResultSet}
                     totalRowCount={shownTotal}
+                    countingRows={rowCount.isCounting}
                     results={results}
                     pageSize={resultsPageSize}
                     colWidths={colWidths}
                     showResultTabs={showResultTabs}
                     showError={showError}
                     errorMessage={errorMessage}
+                    errorDetail={errorDetail}
                     {...errorBanner}
                     onDismissError={() => dismissError(activeTabId)}
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}

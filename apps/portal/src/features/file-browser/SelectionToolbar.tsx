@@ -268,9 +268,9 @@ export function SelectionToolbar({
       </Button>
 
       <Button
-        variant="ghost"
+        variant="dangerOutline"
         size="sm"
-        className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-2 desktop:!px-3"
+        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
         disabledReason={count > 0 ? (writeLockReason ?? deleteDisabledReason ?? spaceBusyReason) : undefined}

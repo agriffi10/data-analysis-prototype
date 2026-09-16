@@ -8,7 +8,7 @@ import type {QuerySpace} from '../catalog/catalog.types';
 describe('SaveQueryDialog', () => {
   const mine: QuerySpace = {
     id: 'personal',
-    label: 'My files',
+    label: 'alice',
     bucket: 'user-space',
     rootPrefix: 'alice/',
     rootLabel: 'My Files'
@@ -50,7 +50,7 @@ describe('SaveQueryDialog', () => {
       within(select)
         .getAllByRole('option')
         .map((o) => o.textContent)
-    ).toEqual(['My files', 'project_alpha']);
+    ).toEqual(['alice', 'project_alpha']);
 
     await user.selectOptions(select, 'project_alpha');
     await user.type(screen.getByLabelText('Name'), '  Quarterly  ');

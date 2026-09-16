@@ -150,6 +150,26 @@ describe('the expression bar', () => {
     expect(lastSql()).toContain(`WHERE "status" IS NOT NULL AND (id = '1' OR id = '2')`);
   });
 
+  // A typed WHERE reached Athena as `WHERE (WHERE …)` and failed; testers did not know the bar
+  // supplies its own. The column `where_flag` is the case a looser pattern would eat.
+  it.each([
+    {typed: "WHERE status = 'open'", sent: `WHERE (status = 'open')`},
+    {typed: 'where_flag = 1', sent: 'WHERE (where_flag = 1)'},
+    // Only a LEADING where comes off: one inside a value is the user's data.
+    {typed: "note LIKE '%where%'", sent: "WHERE (note LIKE '%where%')"}
+  ])('sends "$typed" with the one WHERE the renderer supplies, and leaves the text as typed', async ({typed, sent}) => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await user.type(screen.getByLabelText('Filter expression'), `${typed}{Enter}`);
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(sent);
+    expect(lastSql().match(/\bWHERE\b/g)).toHaveLength(1);
+    expect(screen.getByLabelText('Filter expression')).toHaveValue(typed);
+    expect(screen.getByLabelText('Filter expression')).toHaveAccessibleDescription(/without where/);
+  });
+
   it('renders an Athena syntax error through toUserMessage, keeps the text, and keeps the rows', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -172,9 +192,11 @@ describe('the expression bar', () => {
 
     await user.type(screen.getByLabelText('Filter expression'), 'status ==== ?{Enter}');
 
-    // SPEC-106: the engine's own text never reaches a user.
+    // The sentence stays friendly; the engine's own words exist only inside the closed Details.
     expect(await screen.findByText(/syntax error in your query/i)).toBeInTheDocument();
-    expect(screen.queryByText(/mismatched input/)).not.toBeInTheDocument();
+    const engineText = screen.getAllByText(/mismatched input/);
+    expect(engineText).toHaveLength(1);
+    expect(engineText[0].closest('details')).not.toHaveAttribute('open');
     // The offending text stays, so it can be corrected (AC4)…
     expect(screen.getByLabelText('Filter expression')).toHaveValue('status ==== ?');
     // …and the previous execution's rows stay on screen rather than the grid emptying (AC5).

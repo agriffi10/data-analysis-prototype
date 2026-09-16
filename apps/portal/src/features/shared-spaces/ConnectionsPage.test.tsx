@@ -269,7 +269,8 @@ describe('ConnectionsPage — Leave / Delete / View (SPEC-054 / SPEC-075)', () =
     const {user} = renderPage();
 
     const row = await rowFor('joined');
-    expect(within(row).getByRole('button', {name: 'Leave'})).toBeInTheDocument();
+    // Red before it is clicked, as every control that opens a destructive confirmation is.
+    expect(within(row).getByRole('button', {name: 'Leave'})).toHaveClass('border-danger', 'text-danger');
     expect(within(row).queryByRole('button', {name: 'Delete'})).not.toBeInTheDocument();
     expect(within(row).queryByRole('button', {name: 'Manage'})).not.toBeInTheDocument();
 

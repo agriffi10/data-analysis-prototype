@@ -61,7 +61,7 @@ describe('the Data Explorer options menu', () => {
       'Remove all filters',
       'Filter by this value',
       'Columns',
-      'Colours',
+      'Colors',
       'Transformers',
       'Value',
       'Calc',

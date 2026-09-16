@@ -63,7 +63,7 @@ export type DatabaseSchema = {database: string; tables: GlueTableSummary[]};
 export type QuerySpace = {
   /** 'personal' for the user's own space; the shared-space name otherwise. */
   id: string;
-  /** Display label: 'My files', or the space name. */
+  /** Display label: the space's database name — the username for the personal space. */
   label: string;
   bucket: string;
   /** The space root, trailing slash: `alice/` or `project_alpha/`. */

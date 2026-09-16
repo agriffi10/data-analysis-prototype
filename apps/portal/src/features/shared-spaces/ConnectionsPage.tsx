@@ -443,8 +443,9 @@ function ConnectionRowItem({
   const isOwner = row.role === 'owner';
   const meta = metaLine(row, submitting);
 
-  // The applicable actions per state, each full-width on mobile / auto at ≥ tablet.
-  const dangerGhost = 'w-full text-danger hover:bg-danger-soft hover:text-danger tablet:w-auto';
+  // The applicable actions per state, each full-width on mobile / auto at ≥ tablet. Leave and
+  // Delete open destructive confirmations, so they carry the red outline that says so up front.
+  const fullWidthOnPhone = 'w-full tablet:w-auto';
   const actions: ReactNode[] = [];
   // A row stuck in `deleting` — the validator writes that status and a run that dies never
   // clears it — needs an exit that is not an operator. It gets the same Retry. A row that is
@@ -492,9 +493,9 @@ function ConnectionRowItem({
       actions.push(
         <Button
           key="delete"
-          variant="ghost"
+          variant="dangerOutline"
           size="sm"
-          className={dangerGhost}
+          className={fullWidthOnPhone}
           onClick={onDelete}>
           Delete
         </Button>
@@ -512,9 +513,9 @@ function ConnectionRowItem({
       </Button>,
       <Button
         key="leave"
-        variant="ghost"
+        variant="dangerOutline"
         size="sm"
-        className={dangerGhost}
+        className={fullWidthOnPhone}
         onClick={onLeave}>
         Leave
       </Button>

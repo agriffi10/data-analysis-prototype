@@ -135,6 +135,9 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   {kind: 'token', fg: 'danger', bg: 'danger-soft', min: 4.5},
   {kind: 'token', fg: 'accent-text', bg: 'surface', min: 4.5},
   {kind: 'token', fg: 'accent-text', bg: 'accent-soft', min: 4.5},
+  // The file toolbar's Delete — red text and a red outline — sits on the selection bar's accent
+  // fill while anything is selected. The text's 4.5 covers the outline's 3.
+  {kind: 'token', fg: 'danger', bg: 'accent-soft', min: 4.5},
 
   // The editor's function colour, on the editor's background.
   {kind: 'token', fg: 'syntax-fn', bg: 'surface', min: 4.5},

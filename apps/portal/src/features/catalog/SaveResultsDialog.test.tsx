@@ -27,7 +27,7 @@ const listing = (folders: S3FolderItem[]): FileListPage => ({files: [], folders,
 
 const personalSpace = {
   id: 'personal',
-  label: 'My files',
+  label: 'alice',
   bucket: 'user-bucket',
   rootPrefix: 'alice/',
   rootLabel: 'My Files'

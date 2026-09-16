@@ -72,7 +72,7 @@ export const PATTERN_REFUSAL = 'That isn’t a pattern this can use.';
 export const PATTERN_TOO_LONG_REFUSAL = `A pattern can be at most ${FORMATTING_PATTERN_MAX} characters.`;
 export const GRADIENT_COLUMN_REFUSAL = 'A gradient needs one column to measure.';
 export const GRADIENT_RANGE_REFUSAL = 'A gradient needs a range, with the two ends different numbers.';
-export const NO_COLOUR_REFUSAL = 'Choose a text colour, a background, or both.';
+export const NO_COLOUR_REFUSAL = 'Choose a text color, a background, or both.';
 
 /** The alternating band's fill — the grid's own second surface, not a new token. */
 export const STRIPE_BACKGROUND = 'var(--color-surface-2)';

@@ -28,8 +28,8 @@ export type RowColoursDialogProps = {
 
 /** Shown against a rule whose column the current result no longer has. */
 export const INAPPLICABLE_RULE = 'This column isn’t in the results right now, so the rule is doing nothing.';
-export const NO_RULES = 'No rules yet. Add one to colour cells by what they hold.';
-export const ROW_COLOURS_FREE = 'Colours are worked out in your browser. Nothing here runs a query.';
+export const NO_RULES = 'No rules yet. Add one to color cells by what they hold.';
+export const ROW_COLOURS_FREE = 'Colors are worked out in your browser. Nothing here runs a query.';
 const ANY_COLUMN = '';
 
 /** A rule as a new one starts: matches nothing yet, and paints one thing. */
@@ -104,8 +104,8 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
 
   return (
     <FormDialog
-      title="Colours"
-      ariaLabel="Colours"
+      title="Colors"
+      ariaLabel="Colors"
       submitLabel="Apply"
       className="max-w-4xl"
       scrollBody
@@ -119,7 +119,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
           checked={draft.colourByType}
           onChange={(e) => setDraft((d) => ({...d, colourByType: e.target.checked}))}
         />
-        Colour values by their data type
+        Color values by their data type
       </label>
 
       <div className="mt-4">
@@ -210,13 +210,13 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
                     onChange={(e) => editBound(rule.id, 'max', e.target.value, gradient)}
                   />
                   <ColourSelect
-                    label={`Rule ${position} range start colour`}
+                    label={`Rule ${position} range start color`}
                     tokens={FORMATTING_BACKGROUNDS}
                     value={gradient.from}
                     onChange={(from) => editRule(rule.id, {gradient: {...gradient, from: from as SurfaceToken}})}
                   />
                   <ColourSelect
-                    label={`Rule ${position} range end colour`}
+                    label={`Rule ${position} range end color`}
                     tokens={FORMATTING_BACKGROUNDS}
                     value={gradient.to}
                     onChange={(to) => editRule(rule.id, {gradient: {...gradient, to: to as SurfaceToken}})}
@@ -234,7 +234,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
               </select>
 
               <ColourSelect
-                label={`Rule ${position} text colour`}
+                label={`Rule ${position} text color`}
                 tokens={FORMATTING_FOREGROUNDS}
                 value={rule.foreground}
                 allowNone

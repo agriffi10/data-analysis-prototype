@@ -25,6 +25,10 @@ export type UseColumnGeometryResult = {
   resetWidth: (name: string) => void;
   toggleHidden: (name: string) => void;
   togglePinned: (name: string) => void;
+  /** Shows every hidden column at once — one way back to the result as it arrived. */
+  showAll: () => void;
+  /** Unpins every pinned column at once; each returns to its place in the display order. */
+  unpinAll: () => void;
   /** Moves a column one place within its own block (pinned columns reorder among pinned). */
   move: (name: string, direction: -1 | 1) => void;
   /** Drag-drop: puts `name` where `target` sits. A cross-block drop is refused, not coerced. */
@@ -170,6 +174,9 @@ export function useColumnGeometry(
     [onChange]
   );
 
+  const showAll = useCallback(() => onChange((p) => ({...p, hiddenColumns: []})), [onChange]);
+  const unpinAll = useCallback(() => onChange((p) => ({...p, pinnedColumns: []})), [onChange]);
+
   // Writes the resolved display order back whole. The stored order is then explicit for
   // every column present, which is what keeps a second move predictable.
   const writeOrder = useCallback((names: string[]) => onChange((p) => ({...p, columnOrder: names})), [onChange]);
@@ -227,5 +234,18 @@ export function useColumnGeometry(
     [all, writeOrder]
   );
 
-  return {visible, all, setWidth, resetWidth, toggleHidden, togglePinned, move, moveTo, hideRefusal, moveRefusal};
+  return {
+    visible,
+    all,
+    setWidth,
+    resetWidth,
+    toggleHidden,
+    togglePinned,
+    showAll,
+    unpinAll,
+    move,
+    moveTo,
+    hideRefusal,
+    moveRefusal
+  };
 }

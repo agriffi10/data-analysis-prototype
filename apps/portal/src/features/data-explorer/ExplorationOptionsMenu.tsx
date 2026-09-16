@@ -114,7 +114,7 @@ export function ExplorationOptionsMenu({
     {kind: 'action', label: 'Filter by this value', onSelect: onFilterByCell, disabledReason: filterByCellRefusal},
     {kind: 'separator'},
     {kind: 'action', label: 'Columns', onSelect: onColumns},
-    {kind: 'action', label: 'Colours', onSelect: onColours},
+    {kind: 'action', label: 'Colors', onSelect: onColours},
     {kind: 'action', label: 'Transformers', onSelect: onTransformers},
     {kind: 'separator'},
     {kind: 'action', label: valueOpen ? 'Hide the value panel' : 'Value', onSelect: onToggleValue},

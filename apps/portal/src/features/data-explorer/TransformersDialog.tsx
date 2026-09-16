@@ -20,7 +20,7 @@ export type TransformersDialogProps = {
 };
 
 export const TRANSFORMERS_RAW_NOTE =
-  'These change how a value is shown. Filters, colours, Calc and copy all still use the value itself.';
+  'These change how a value is shown. Filters, colors, Calc and copy all still use the value itself.';
 export const PRECISION_REFUSAL = `Decimal places must be a whole number from 0 to ${NUMERIC_TRANSFORMER_MAX_PRECISION}.`;
 export const MAX_LENGTH_REFUSAL = `Length must be a whole number from 1 to ${BINARY_TRANSFORMER_MAX_LENGTH}.`;
 

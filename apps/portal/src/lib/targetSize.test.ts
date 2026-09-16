@@ -371,10 +371,6 @@ function undersizedControls(source: string): string[] {
  * offences means a change to any of them is a change to this list.
  */
 const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
-  '/src/features/data-explorer/ColumnFilterMenu.tsx': {
-    why: 'the column sort/filter menu trigger, one per column header, its width coming from padding. MEASURED 28.63x21 sitting INSIDE the header cell\u2019s own click target, so centre-to-box is 0 and the spacing exception cannot apply — a CONFIRMED failure, not a candidate. Not resized here because the cell also holds the resize handle 12.6px away, so the three of them need a layout that separates them rather than three sizes',
-    controls: ['<button> h-6 = 21px']
-  },
   '/src/features/file-browser/FileListRowMobile.tsx': {
     why: 'the row selection checkbox, centred in a fixed-width cell at the row edge',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']

@@ -1,7 +1,7 @@
 import {forwardRef} from 'react';
 import {cx} from '../lib/cx';
 
-export type ButtonVariant = 'primary' | 'default' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'default' | 'ghost' | 'danger' | 'dangerOutline';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -24,7 +24,7 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const BASE =
-  'rounded-md font-medium inline-flex items-center justify-center gap-2 disabled:opacity-45 disabled:cursor-not-allowed transition-colors';
+  'rounded-md font-medium inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed transition-colors';
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-white hover:bg-accent-hover',
@@ -33,7 +33,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
   // `on-danger`, not white: `danger` has to be light enough to read as text on a dark surface,
   // which leaves it too light to carry white as a fill. The two roles part company in the dark
   // theme, and this is the token that names the second one.
-  danger: 'bg-danger text-on-danger hover:bg-danger/90'
+  danger: 'bg-danger text-on-danger hover:bg-danger/90',
+  // The control that OPENS a destructive confirmation: red enough to read as one before it is
+  // clicked, and quieter than the solid `danger` of the confirm button it leads to.
+  dangerOutline: 'border border-danger text-danger hover:bg-danger-soft'
 };
 
 const SIZES: Record<ButtonSize, string> = {

@@ -8,7 +8,7 @@ import {ROW_COUNT_PAGE_SIZE, ROW_COUNT_PENDING_DELAYS_MS} from './catalog.consta
 export type UseRowCountResult = {
   /** Exact total once known; null while still counting (or after a failed request). */
   total: number | null;
-  /** The count is still being worked out. */
+  /** The count is still being worked out — false once it lands, and false after a failed request. */
   isCounting: boolean;
 };
 
@@ -87,6 +87,8 @@ export function useResultRowCount(queryExecutionId: string | null): UseRowCountR
 
   return {
     total: query.data ?? null,
-    isCounting: queryExecutionId !== null && query.data === undefined
+    // `status`, not the data: with `retry: false` a failed request leaves the data undefined for
+    // good, and a surface that says "counting…" would then say it forever.
+    isCounting: queryExecutionId !== null && query.status === 'pending'
   };
 }

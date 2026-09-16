@@ -183,6 +183,42 @@ describe('column geometry', () => {
     expect(headerNames()).toEqual(['id']);
   });
 
+  // Hiding lived only in the Columns panel, which testers did not find from the grid.
+  it('hides a column from its own header menu, and refuses the last one there too', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'total'});
+
+    await user.click(screen.getByRole('button', {name: 'Column options: total'}));
+    await user.click(screen.getByRole('menuitem', {name: 'Hide column'}));
+    await waitFor(() => expect(headerNames()).toEqual(['id', 'status']));
+    // The button focus returned to went with its column; the neighbour's takes focus, not <body>.
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Column options: status'));
+    await user.click(screen.getByRole('button', {name: 'Column options: status'}));
+    await user.click(screen.getByRole('menuitem', {name: 'Hide column'}));
+    await waitFor(() => expect(headerNames()).toEqual(['id']));
+    await user.click(screen.getByRole('button', {name: 'Column options: id'}));
+
+    expect(screen.getByRole('menuitem', {name: 'Hide column'})).toHaveAttribute('title', LAST_COLUMN_REFUSAL);
+  });
+
+  it('puts every column back as it arrived with Show all and Unpin all', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'total'});
+    await user.click(within(await columnRow(user, 'total')).getByRole('button', {name: 'Hide total'}));
+    await user.click(within(await columnRow(user, 'status')).getByRole('button', {name: 'Pin status'}));
+    await waitFor(() => expect(headerNames()).toEqual(['status', 'id']));
+    const panel = screen.getByRole('dialog', {name: 'Columns'});
+
+    await user.click(within(panel).getByRole('button', {name: 'Show all'}));
+    await user.click(within(panel).getByRole('button', {name: 'Unpin all'}));
+
+    await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
+    expect(within(panel).getByRole('button', {name: 'Show all'})).toHaveAttribute('title', 'No column is hidden.');
+    expect(within(panel).getByRole('button', {name: 'Unpin all'})).toHaveAttribute('title', 'No column is pinned.');
+  });
+
   it('pins a column to the front of the display order and unpins it back', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     const {user} = render();
