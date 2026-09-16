@@ -107,8 +107,10 @@ describe('errorMessages', () => {
       // conditional, or the sentence sends them hunting for a typo that cannot exist.
       const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('marketing')});
 
-      expect(message).toMatch(/ask the Administrator for access/i);
-      expect(message).toMatch(/if you typed it/i);
+      const lower = message.toLowerCase();
+
+      expect(lower).toContain('ask the administrator for access');
+      expect(lower.indexOf('ask the administrator for access')).toBeLessThan(lower.indexOf('if you typed it'));
     });
 
     it('reads the database of the denied action, not the first one in the message', () => {
@@ -119,9 +121,21 @@ describe('errorMessages', () => {
         'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetTable on resource: arn:aws:glue:us-east-1:696000197480:database/default because no identity-based policy allows; ' +
         'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/salesdb because no identity-based policy allows';
 
-      expect(toUserMessage({code: 'FAILED', message: twoDenials}).message).not.toBe(
-        'Add a database to each table, like `mydb.sales`.'
-      );
+      const {message} = toUserMessage({code: 'FAILED', message: twoDenials});
+
+      expect(message).toMatch(/isn’t available to you/i);
+      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('does not read a LONGER name as the implicit one', () => {
+      // The comparison is exact, so a capture that stops early makes it a prefix test: bounding
+      // the name to `[A-Za-z0-9_]` stopped at the hyphen and answered `default-archive` as though
+      // the user had named no database at all. A hyphen is legal in a Glue database name; it is
+      // this project's own identifier rule, not Glue's, that keeps portal-made names clear of one.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('default-archive')});
+
+      expect(message).toMatch(/isn’t available to you/i);
+      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
     });
 
     it.each([['.'], [')'], ['"']])('is not inverted by a %s after the database name', (punctuation) => {
@@ -133,15 +147,19 @@ describe('errorMessages', () => {
       expect(toUserMessage({code: 'FAILED', message}).message).toBe('Add a database to each table, like `mydb.sales`.');
     });
 
-    it('sends a missing SCHEMA to the rule that shows Athena its own words', () => {
+    it('sends a missing SCHEMA to the user-SQL rule, so Athena names the schema itself', () => {
       // `isUnqualifiedTable` used to match any "schema … does not exist", which outranks the
       // catalog-refusal pair — so a user who HAD qualified their table was told to add a prefix.
+      //
+      // The SENTENCE is asserted, not merely that it is not the old one: `detail` is attached by
+      // `queryFailureDetail` whatever rule fired, so a `detail` assertion alone stays green with
+      // this rule disabled and the message reading "there's a syntax error in your query".
       const {message, detail} = toUserMessage({
         code: 'FAILED',
         message: "SCHEMA_NOT_FOUND: line 1:15: Schema 'awsdatacatalog.nodb' does not exist"
       });
 
-      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+      expect(message).toBe('Athena couldn’t run this query. Check the SQL and try again.');
       expect(detail).toContain("Schema 'awsdatacatalog.nodb' does not exist");
     });
 

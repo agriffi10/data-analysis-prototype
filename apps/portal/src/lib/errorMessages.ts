@@ -451,11 +451,12 @@ export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
 
 // ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there
-// is no app code, so we match the raw engine text. Ordered by specificity, and the
-// order is part of the behaviour: the catalog refusal that an unqualified table really
-// arrives as is read before the permission rule its wording also matches, the not-found
-// rules before it, and the syntax catch-all last, because `line N:M` appears in messages
-// that are not syntax errors at all.
+// is no app code, so we match the raw engine text. Ordered by specificity, and three of the
+// orderings are part of the behaviour rather than incidental: the catalog refusal an
+// unqualified table really arrives as is read BEFORE the permission rule, whose pattern the
+// same denial also matches; the user-SQL rule is read BEFORE the missing-database rule, so a
+// classed `SCHEMA_NOT_FOUND` keeps the Details naming the schema; and the syntax catch-all is
+// LAST, because `line N:M` appears in plenty of messages that are not syntax errors.
 
 /**
  * Advice with exactly one trigger: the catalog refusal against `default`.
@@ -529,15 +530,22 @@ function isUserSqlError(msg: string): boolean {
  * **The action and the name are matched together, deliberately.** A message can carry more than
  * one denial, and a name grabbed by a separate search takes whichever `:database/` comes first —
  * which may belong to a different action entirely, and would then pick the opposite sentence.
- * The name is bounded to the characters Glue allows in a database, so trailing punctuation
- * cannot be absorbed into it: `database/default.` captured as `default.` compares unequal to
- * `default` and inverts the two sentences below on one character.
+ * **The whole name is captured, then trailing punctuation is trimmed.** Bounding the capture to
+ * a character class instead makes the comparison below a PREFIX test: `[A-Za-z0-9_]+` against
+ * `database/default-archive` stops at the hyphen, captures `default`, and tells someone who
+ * explicitly named `default-archive` to add a database prefix. Glue itself permits almost any
+ * UTF-8 string as a database name — it is this project's own `CATALOG_IDENTIFIER_RE`, and the
+ * matching username rule, that keep portal-created names to `[a-z][a-z0-9_]{2,62}`, and the rail
+ * browses every database the caller can reach, not only the ones the portal made.
  *
  * If Athena rewords this, the pattern stops matching and the message falls through to the
  * permission rule — the sentence it had before this pair existed, which is generic but true,
  * rather than a confidently wrong one.
  */
-const GLUE_DATABASE_DENIAL = /glue:GetDatabase on resource: arn:\S*:database\/([A-Za-z0-9_]+)/i;
+const GLUE_DATABASE_DENIAL = /glue:GetDatabase on resource: arn:\S*:database\/(\S+)/i;
+
+/** Punctuation a message can put after the name, which is never part of one. */
+const TRAILING_PUNCTUATION = /[.,;:)\]}"']+$/;
 
 /**
  * The database named in a `glue:GetDatabase` denial, or null when the message is not one.
@@ -556,7 +564,7 @@ const GLUE_DATABASE_DENIAL = /glue:GetDatabase on resource: arn:\S*:database\/([
  */
 function glueDeniedDatabase(msg: string): string | null {
   const denied = GLUE_DATABASE_DENIAL.exec(msg);
-  return denied ? denied[1] : null;
+  return denied ? denied[1].replace(TRAILING_PUNCTUATION, '') : null;
 }
 
 /** The database a statement naming none resolves against — nobody is a member of it. */
@@ -582,7 +590,7 @@ const MATCH_RULES: readonly ErrorRule[] = [
   // message matches on `not authorized`; without this pair an ordinary missing prefix reads as
   // a permissions failure and sends the user to an administrator for their own typo. ──
   {
-    match: (m) => glueDeniedDatabase(m) === IMPLICIT_DATABASE,
+    match: (m) => glueDeniedDatabase(m)?.toLowerCase() === IMPLICIT_DATABASE,
     message: UNQUALIFIED_FIX,
     userFixable: true
   },
@@ -617,6 +625,17 @@ const MATCH_RULES: readonly ErrorRule[] = [
       return errorClass !== undefined && errorClass !== 'SYNTAX_ERROR';
     },
     message: 'Athena couldn’t run this query. Check the SQL and try again.',
+    userFixable: true
+  },
+  // Trigger: a missing DATABASE reported without an error class in front of it — Athena's DDL
+  // path words it `SemanticException [Error 10072]: Database does not exist: nodb`. Below the
+  // user-SQL rule, so `SCHEMA_NOT_FOUND` keeps the Details that name the schema, and above the
+  // syntax catch-all, which would otherwise be the only thing left to match it — and does not,
+  // so without this rule a missing database is answered by the sentence reserved for what a user
+  // cannot act on. ──
+  {
+    match: (m) => /(schema|database)\b[^.]{0,80}?(does not exist|not found)/i.test(m),
+    message: 'That database wasn’t found. Check the name, and that it is one you can reach.',
     userFixable: true
   },
   // Trigger: a SQL parse/analysis error. User-fixable — fix the SQL. ──

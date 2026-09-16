@@ -153,6 +153,12 @@ const CAPTURED: ReadonlyArray<{
     sql: 'SELECT * FROM nodb.t',
     reason: "SCHEMA_NOT_FOUND: line 1:15: Schema 'awsdatacatalog.nodb' does not exist",
     showsEngineText: true
+  },
+  {
+    name: 'missing database, from the DDL path',
+    sql: 'SHOW TABLES IN nodb_xyz',
+    reason: 'FAILED: SemanticException [Error 10072]: Database does not exist: nodb_xyz',
+    showsEngineText: false
   }
 ];
 
@@ -188,6 +194,29 @@ describe('every captured production failure reaches a sentence the user can act 
       expect(toUserMessage({code: 'FAILED', message: reason}).detail).toBeUndefined();
     }
   );
+
+  it('answers a catalog refusal on a whole database without sending the reader to an admin', () => {
+    // Athena's DDL path wraps the same denial in a SemanticException, so it looks nothing like
+    // the SELECT path's. Captured from `DROP DATABASE nodb_xyz`.
+    const wrapped =
+      'FAILED: SemanticException MetaException(message:User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/agriffith is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/nodb_xyz because no identity-based policy allows the glue:GetDatabase action (Service: AmazonDataCatalog; Status Code: 400; Error Code: AccessDeniedException; Request ID: 641d8429-4171-4d51-bc29-e1d176cc83ee; Proxy: null))';
+
+    expect(toUserMessage({code: 'FAILED', message: wrapped}).message).toMatch(/isn’t available to you/i);
+  });
+
+  it('leaves a TABLE-level denial on the permission sentence, deliberately', () => {
+    // Captured from `DROP TABLE nodb_xyz.t`. It is NOT in the corpus above, because it is not a
+    // mistake in the user's SQL: `glue:GetTable` can be refused by a table-level grant as well as
+    // by an unreachable database, so "check the name" would be a guess. Pinned here so the shape
+    // is on record and a later rule cannot claim it by accident.
+    const tableDenial =
+      'FAILED: SemanticException Unable to fetch table t. User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/agriffith is not authorized to perform: glue:GetTable on resource: arn:aws:glue:us-east-1:696000197480:database/nodb_xyz because no identity-based policy allows the glue:GetTable action (Service: AmazonDataCatalog; Status Code: 400; Error Code: AccessDeniedException; Request ID: 82b8164a-85bd-4d8c-9758-0c483084c399; Proxy: null)';
+
+    const {message, detail} = toUserMessage({code: 'FAILED', message: tableDenial});
+
+    expect(message).toBe('You don’t have permission to run that query. Contact the Administrator.');
+    expect(detail).toBeUndefined();
+  });
 
   it('tells the two table failures apart from the one that means a missing prefix', () => {
     // The advice "add a database to each table" is true of exactly one shape, and these are the
