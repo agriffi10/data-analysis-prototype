@@ -123,6 +123,52 @@ def test_a_column_naming_a_partition_key_is_named_by_no_query_whatever_its_case(
     assert 'GROUP BY "id", "amount", "year", "Month" HAVING' in queries[f"{HEX32}-dupes"]
 
 
+def test_the_ragged_query_judges_each_file_by_its_full_path_against_its_own_header(monkeypatch, started):
+    """Each file's CASE branch is keyed the way Athena names the file and holds that file's count.
+
+    The branch key has to be the full ``s3://`` form because that is what the path pseudo-column
+    returns. A bare key matches no line at all, so every line falls through to ``ELSE false`` and
+    the report says the folder has no ragged rows — a clean bill of health nobody earned, which is
+    worse than an error. The WHERE-clause tests pin the same form at the other rendering site; this
+    is the one inside the CASE, and nothing else would notice the two disagreeing.
+
+    The two files disagree on their headers, and their union has four columns where the files have
+    two and three, so a count taken from the union instead of each file's own header fails on both
+    branches rather than passing on the one file that happens to hold every column. One key carries
+    a capital because the pseudo-column keeps the key's case: a lowercased mapping misses that file
+    exactly as a bare key misses every file.
+
+    The whole CASE is written out rather than parsed, and rather than built from the event, so the
+    expectation cannot agree with the input by construction. That also pins what each branch
+    compares, a branch shadowing another, and the ``ELSE false`` — none of which any other test
+    asserts.
+    """
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {
+        "partitionKeys": [],
+        "files": [
+            {"key": "alice/sales/jan.csv", "size": 1, "columns": [
+                {"name": "order_id", "type": "string"},
+                {"name": "amount", "type": "string"},
+            ]},
+            {"key": "alice/sales/Feb.csv", "size": 1, "columns": [
+                {"name": "order_id", "type": "string"},
+                {"name": "region", "type": "string"},
+                {"name": "channel", "type": "string"},
+            ]},
+        ],
+    })
+
+    v.handler(_event(), None)
+
+    ragged = {kw["client_request_token"]: kw["query"] for kw in started}[f"{HEX32}-ragged"]
+    assert (
+        'CASE "$path" '
+        "WHEN 's3://dq-user-bkt/alice/sales/Feb.csv' THEN cardinality(split(\"line\", ',')) <> 3 "
+        "WHEN 's3://dq-user-bkt/alice/sales/jan.csv' THEN cardinality(split(\"line\", ',')) <> 2 "
+        "ELSE false END"
+    ) in ragged, "each file's branch, keyed by its full s3:// path and holding its own header's column count"
+
+
 # ── Idempotent submission (FR-003) ───────────────────────────────────────────
 
 
