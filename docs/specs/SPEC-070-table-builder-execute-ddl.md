@@ -49,6 +49,7 @@ scoped as tightly as the model allows.
   table queryable immediately.
 - **Idempotency / replay-safety** — `CREATE … IF NOT EXISTS` (SPEC-069) + the SPEC-068 pre-check make a re-run a
   no-op success. A replayed terminal request is a no-op success (`lambdas.md` §3).
+  **Superseded 2026-09-15: a re-run of the SAME request is still a no-op success, but a DIFFERENT request whose no-op landed over someone else's table is now refused `table_exists` by execute-ddl's read-back — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.**
 - **Terminal states across the machine** — finalize the SFN **succeed** state (after execute/repair) and the
   shared **recorded-failure** state that every verb's `Catch` targets, carrying `{ requestId, actor, database,
   tableName, status:'failed', reason }` (and `status:'created'` on success) — the structured outcome SPEC-072
@@ -112,6 +113,13 @@ scoped as tightly as the model allows.
 - [ ] Re-running a request whose table already exists is a **no-op success** (the `IF NOT EXISTS` create succeeds
   trivially; projection needs no load step) — not a `table_exists` error (that guard is the *pre-create*
   SPEC-068 check; a replay after creation must not fail).
+
+  > **QUALIFIED 2026-09-15.** It holds for a replay, which is what this criterion is about: the
+  > re-run meets the table its own request built, and execute-ddl's read-back matches it. It does
+  > **not** hold for a different request whose no-op landed over a table someone else built — that
+  > run is now refused `table_exists` at execute-ddl rather than told its table is ready, so
+  > `table_exists` is no longer the pre-create check's alone.
+  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
 - [ ] A replay of an already-terminal request reaches the same terminal state without duplicate side effects
   (`lambdas.md` §3).
 

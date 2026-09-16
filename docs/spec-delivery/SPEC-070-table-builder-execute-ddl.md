@@ -20,7 +20,11 @@ single `CREATE` — **no `MSCK REPAIR`**, no partition-load step.
   results = `s3://{space.bucket}/{space.database}/athenaresults/{actor}/` — personal own
   prefix / shared under the space, consistent with SPEC-055 routing), returns
   `{…event, status:"created"}`. Idempotent replay (`IF NOT EXISTS` + SPEC-068 pre-check) =
-  no-op `created`.
+  no-op `created`. **Amended 2026-09-15:** the statement is followed by a read-back, so the
+  `created` is reported only when the catalog carries this run's own LOCATION, partition keys and
+  projection; a no-op over another request's table is refused `table_exists`. A replay still
+  succeeds — it meets its own table. `docs/decisions/control-planes.md`, *A group id orders the
+  STARTS, not the runs*.
 - **`tbcommon`** (layer) — `errors.TransientError` (retryable; its type name is in the
   ExecuteDdl `Retry`), `clients.athena()`, `config.ATHENA_WORKGROUP`.
 - **State machine** (`state-machine.asl.json.tftpl`) — `ExecuteDdl → RecordSuccess →

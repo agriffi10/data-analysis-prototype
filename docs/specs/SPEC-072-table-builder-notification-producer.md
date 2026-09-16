@@ -30,7 +30,8 @@ Unlike the shared-spaces producer, every event here has a **single recipient —
   recorded-failure state, SPEC-067→070), emit one `create` notification to the **actor** with a human-readable
   message mapping the terminal reason:
   - `unauthorized` / `forbidden` / `invalid_table_name` / `invalid_partition_keys` (validate-authorize)
-  - `table_exists` (check-table-absent)
+  - `table_exists` (check-table-absent; **also execute-ddl since 2026-09-15**, when its read-back
+    finds the statement was a no-op over a table another request built)
   - `no_data_files` / `mixed_formats` / `unsupported_format` / `unexpected_partitioning` /
     `partition_layout_mismatch` (inspect-source)
   - `schema_inference_failed` / `unmappable_type` (infer-schema)
@@ -139,6 +140,7 @@ Recipient is always the **actor**. Message per outcome:
 | validate-authorize | `invalid_table_name` | `Couldn't create table "{name}": the name isn't a valid table name.` |
 | validate-authorize | `invalid_partition_keys` | `Couldn't create table "{name}": the partition keys aren't valid (check names, types, and ranges).` |
 | check-table-absent | `table_exists` | `Couldn't create table "{name}": a table with that name already exists in "{database}".` |
+| execute-ddl *(added 2026-09-15)* | `table_exists` | the same sentence — the read-back found the statement had been a no-op over a table another request built. `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs* |
 | inspect-source | `no_data_files` | `Couldn't create table "{name}": no supported data files were found in that folder.` |
 | inspect-source | `mixed_formats` | `Couldn't create table "{name}": the folder mixes file formats — use a single format.` |
 | inspect-source | `unsupported_format` | `Couldn't create table "{name}": that file format isn't supported (use Parquet, CSV, or JSON).` |

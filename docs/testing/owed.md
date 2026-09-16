@@ -65,6 +65,18 @@ two-user version of the check is in *Needs a second (or third) account*.
 | An unknown UUID and an operator-staged execution outside every prefix get identical 404s on status, results, row-count and stop | owed |
 | A query run from the workspace still polls, pages and stops, and View DDL still opens | owed |
 
+### The create post-condition — two rows, and the FIRST is the one that matters
+
+`execute-ddl` reads the table back after its `CREATE … IF NOT EXISTS` and refuses `table_exists`
+unless the catalog carries this run's own LOCATION, partition keys and per-key projection properties
+(`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*). Both rows are
+owed against the deployed change — nothing offline can settle either.
+
+| Check | Why it is owed, and what it would take |
+|---|---|
+| **An ordinary partitioned create still reports created** — build one `integer`-key table and one `date`-key table through the modal, each over a real partitioned folder, and get *Table "X" is ready to query* | This is the fix's own premise, and the one that could make it worse than the bug it closes. The comparison is **declared-rendered against stored**: it assumes Athena stores `projection.{key}.*` byte-identically to what `cpcommon.ddl.projection_properties` rendered. The refresh path's round trip does **not** prove that — it parses the STORED value and re-renders it, so it is a fixed point for anything the parse reproduces — and the one live partitioned build ever discharged used a **string/enum** key, whose `values` property is a fixed point of a comma split and join. The integer and date arms have never round-tripped against real Athena. **The failure mode announces itself**, which is why this is a live check rather than a blocker: a wrong premise refuses the create loudly with *a table with that name already exists*, over a table that was in fact created — recoverable, visible immediately, and nothing is damaged. The projection match is containment, so a property AWS adds of its own accord cannot cause it. |
+| **The loser of two same-name creates is refused** — fire two `POST /v1/enqueue/table-builder` creates of one name in one database back to back, over **different folders**, and read both notifications | One says *Table "X" is ready to query*, the other *Couldn't create table "X": a table with that name already exists in "…"*. The window is between `check-table-absent` and the DDL, so the two submissions must land inside one inspection — one signed-in session can do it with two requests sent without waiting. Recipe §2.2. A single-submit check passes with the defect present, because the pre-check catches an ordinary duplicate. |
+
 ### Needs a second (or third) account
 
 | Check | Why one account cannot do it |

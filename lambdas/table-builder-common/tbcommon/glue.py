@@ -1,8 +1,11 @@
-"""Glue catalog reads for the table-builder refresh path.
+"""Glue catalog reads for the table-builder plane.
 
 The shape validation and definition capture live in ``cpcommon.glue`` — table-share asks the
 catalog the same question — and are re-exported here unchanged, so every caller reaches the
 catalog through one module rather than importing two that both take a ``GetTable`` response.
+``parse_location`` comes with them: the create path's post-condition compares the LOCATION the
+catalog reports against the one this run's DDL declared, and deciding "same folder" a second
+way is how two copies of that rule would come to disagree.
 
 ``update_time`` is table-builder's own: it renders the stamp the freshness guard compares, and
 no other plane has a freshness guard.
@@ -11,9 +14,9 @@ no other plane has a freshness guard.
 from datetime import UTC
 from typing import cast
 
-from cpcommon.glue import clone_definition
+from cpcommon.glue import clone_definition, parse_location
 
-__all__ = ["clone_definition", "update_time"]
+__all__ = ["clone_definition", "parse_location", "update_time"]
 
 
 def update_time(table: dict) -> str | None:
