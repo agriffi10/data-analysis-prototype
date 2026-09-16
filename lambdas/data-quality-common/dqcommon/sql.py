@@ -580,13 +580,13 @@ def build_profile_query(
       KeyError: If a column is missing its name or type, or a partition key its name.
     """
     type_checked = fmt != "parquet"
-    profiled = profiled_columns(columns, partition_keys)
+    columns = profiled_columns(columns, partition_keys)
 
     projected = ", ".join(
-        ['"$path"'] + [_projection(i, column) for i, column in enumerate(profiled)]
+        ['"$path"'] + [_projection(i, column) for i, column in enumerate(columns)]
     )
     items = ['"$path" AS source_file', 'GROUPING("$path") AS is_total', "COUNT(*) AS row_count"]
-    for index, column in enumerate(profiled):
+    for index, column in enumerate(columns):
         items.extend(_column_aggregates(index, column, type_checked))
 
     selected = ", ".join(items)

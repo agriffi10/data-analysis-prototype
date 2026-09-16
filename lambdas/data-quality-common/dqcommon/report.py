@@ -735,8 +735,8 @@ def build(
         from that one row, and without it the report would assemble perfectly happily — zero rows,
         every column clean, a clean verdict — and hand the user a green result over data nothing
         actually measured. A missing profile result is a failed check, not a clean one.
-      KeyError: If the request carries no request id, or a probed column or partition key its
-        name.
+      KeyError: If the request carries no request id, or a probed column or partition key is
+        missing its name.
       ValueError: If a result cell is non-empty and not a number.
     """
     fmt = manifest.get("format") or request.get("format")
