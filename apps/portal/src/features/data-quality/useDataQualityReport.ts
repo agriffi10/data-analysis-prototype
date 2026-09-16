@@ -2,6 +2,7 @@ import {useMemo} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {useConnections} from '../connections/useConnections';
+import {useSpaceLinkPending} from '../connections/useSpaceLinkPending';
 import {isConnectionUsable} from '../connections/connection.types';
 import {toUserText} from '../../lib/errorMessages';
 import {unwrap} from '../../lib/serviceResult';
@@ -58,7 +59,7 @@ export function resolveSpace(
 export function useDataQualityReport(spaceName: string, requestId: string): UseDataQualityReportResult {
   const {user} = useAuth();
   const username = user?.username ?? null;
-  const {connections, isLoading: connectionsLoading} = useConnections(username);
+  const {connections, isLoading: connectionsLoading, listReadsSettled, rereadList} = useConnections(username);
 
   const sharedSpaceNames = useMemo(
     () => connections.filter((c) => c.kind === 'shared' && isConnectionUsable(c)).map((c) => c.database),
@@ -70,10 +71,17 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
     [spaceName, username, sharedSpaceNames]
   );
 
-  // Resolution needs the connections list, so "inaccessible" is only meaningful once
-  // that has settled — otherwise every shared-space deep link would flash the denied
-  // state before its own space had loaded.
-  const isInaccessible = !connectionsLoading && !space;
+  // Resolution needs the connections list, so "inaccessible" is only meaningful on a read of it
+  // after the link was followed — before that, the list is not there yet or may predate a space
+  // the user has just joined, and the denied state would show to a user who can read the report.
+  const pending = useSpaceLinkPending({
+    username,
+    space: spaceName,
+    missing: !space,
+    listReadsSettled,
+    rereadList
+  });
+  const isInaccessible = !pending && !space;
 
   const query = useQuery({
     queryKey: dataQualityKeys.report(spaceName, requestId),
@@ -93,7 +101,7 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
   return {
     report: query.data,
     space,
-    isLoading: connectionsLoading || (!!space && query.isPending),
+    isLoading: connectionsLoading || pending || (!!space && query.isPending),
     error: query.error ? toUserText(query.error) : undefined,
     isInaccessible
   };

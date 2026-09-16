@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter, Route, Routes} from 'react-router';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {Link, MemoryRouter, Route, Routes} from 'react-router';
+import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityReportPage} from './DataQualityReportPage';
 import {
@@ -17,7 +17,8 @@ import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 import type {DataQualityReport} from './dataQuality.types';
-import type {ReactElement} from 'react';
+import type {ReactElement, ReactNode} from 'react';
+import {connectionKeys} from '../connections/connectionKeys';
 import * as reportService from './dataQualityReport.service';
 import * as sharedSpaces from '../shared-spaces/sharedSpaces.service';
 import * as dqService from './dataQuality.service';
@@ -49,18 +50,40 @@ describe('DataQualityReportPage', () => {
   const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
   const mockEnqueue = vi.mocked(dqService.enqueueQualityCheck);
 
-  /** Renders the page at a real route so `useParams` resolves as it does in the app. */
-  function renderReport(path: string) {
+  /** Renders the page at a real route so `useParams` resolves as it does in the app. `beside` renders
+   *  next to the route under the same router, standing in for the shell around it — a notification's link. */
+  function renderReport(path: string, queryClient?: QueryClient, beside?: ReactNode) {
     return renderWithProviders(
-      <Routes>
-        <Route
-          path="/data-quality/:space/:requestId"
-          element={<DataQualityReportPage />}
-        />
-      </Routes>,
-      {route: path, auth: authenticated('alice')}
+      <>
+        <Routes>
+          <Route
+            path="/data-quality/:space/:requestId"
+            element={<DataQualityReportPage />}
+          />
+        </Routes>
+        {beside}
+      </>,
+      {route: path, auth: authenticated('alice'), ...(queryClient && {queryClient})}
     );
   }
+
+  /** A client already holding a spaces list — without `team-data` unless `withTeamData` — read `ageMs` ago
+   *  under the app's 30s staleTime rather than the harness's 0, so whether a read is owed on mount is the
+   *  test's choice. */
+  function clientWithCachedList(ageMs: number, withTeamData = false) {
+    const client = createTestQueryClient();
+    client.setQueryDefaults(connectionKeys.list('alice'), {gcTime: Infinity, staleTime: 30_000});
+    client.setQueryData(connectionKeys.list('alice'), withTeamData ? TEAM_DATA.data : NO_SPACES.data, {
+      updatedAt: Date.now() - ageMs
+    });
+    return client;
+  }
+
+  const TEAM_DATA = {
+    success: true as const,
+    data: {version: 1 as const, connections: [{name: 'team-data', role: 'member' as const, status: 'active' as const}]}
+  };
+  const NO_SPACES = {success: true as const, data: {version: 1 as const, connections: []}};
 
   const ok = (report: DataQualityReport) => ({success: true as const, data: report});
   const notFound = {
@@ -108,6 +131,16 @@ describe('DataQualityReportPage', () => {
       await waitFor(() => expect(mockReport).toHaveBeenCalled());
       expect(mockReport).toHaveBeenCalledWith('shared-space', 'team-data', 'req-1');
       expect(await screen.findByRole('heading', {level: 1, name: 'Data quality report'})).toBeInTheDocument();
+    });
+
+    it('opens a report in a space a fresh cached list has, without reading the list', async () => {
+      // Only an absence waits: a run row links to a space the list already holds, and waiting on it
+      // would put a read and a loading line in front of every one.
+      renderReport('/data-quality/team-data/req-1', clientWithCachedList(0, true));
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(mockReport).toHaveBeenCalledWith('shared-space', 'team-data', 'req-1');
+      expect(mockCache).not.toHaveBeenCalled();
     });
 
     it('resolves the actor’s own username as PERSONAL even when a shared space shares the name', async () => {
@@ -215,6 +248,62 @@ describe('DataQualityReportPage', () => {
       // The point of the criterion: no probe, so an inaccessible space and a
       // nonexistent one are indistinguishable from outside.
       expect(mockReport).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a fresh cached list predates the space', () => clientWithCachedList(0)],
+      ['a stale cached list predates the space', () => clientWithCachedList(60_000)]
+    ])('reads the spaces list before refusing a space it lacks (%s)', async (_cached, seededClient) => {
+      // A completion notification followed in a second tab, whose list was read before the user joined
+      // the space: trusted, the list refused a report the user can read. Fresh, nothing read it again and
+      // the refusal stood; stale, "Report not available" showed until the read owed on mount returned.
+      let resolveRead: (result: typeof TEAM_DATA) => void = () => {};
+      mockCache.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+      renderReport('/data-quality/team-data/req-1', seededClient());
+
+      expect(await screen.findByText(/loading report/i)).toBeInTheDocument();
+      expect(screen.queryByText('Report not available')).not.toBeInTheDocument();
+      expect(mockCache).toHaveBeenCalledOnce();
+      expect(mockReport).not.toHaveBeenCalled();
+
+      resolveRead(TEAM_DATA);
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(mockReport).toHaveBeenCalledWith('shared-space', 'team-data', 'req-1');
+    });
+
+    it('refuses a space still missing after that read, on one read and without calling S3', async () => {
+      mockCache.mockResolvedValue(NO_SPACES);
+      renderReport('/data-quality/team-data/req-1', clientWithCachedList(0));
+
+      expect(await screen.findByText('Report not available')).toBeInTheDocument();
+      expect(mockCache).toHaveBeenCalledOnce();
+      expect(mockReport).not.toHaveBeenCalled();
+    });
+
+    it('reads the spaces list again when a link followed on the open page names a space it lacks', async () => {
+      // The route does not remount between two reports, so no read is owed: checked against the list the
+      // page opened with, a space joined since was refused, and nothing ever read the list again.
+      mockCache.mockResolvedValueOnce(NO_SPACES);
+      const {user, queryClient} = renderReport(
+        '/data-quality/alice/req-1',
+        clientWithCachedList(60_000),
+        <Link to="/data-quality/team-data/req-2">Open the team-data report</Link>
+      );
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      await waitFor(() => expect(queryClient.isFetching({queryKey: connectionKeys.list('alice')})).toBe(0));
+      expect(mockCache).toHaveBeenCalledOnce();
+
+      let resolveRead: (result: typeof TEAM_DATA) => void = () => {};
+      mockCache.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+      await user.click(screen.getByRole('link', {name: 'Open the team-data report'}));
+
+      expect(await screen.findByText(/loading report/i)).toBeInTheDocument();
+      expect(screen.queryByText('Report not available')).not.toBeInTheDocument();
+      expect(mockCache).toHaveBeenCalledTimes(2);
+
+      resolveRead(TEAM_DATA);
+      await waitFor(() => expect(mockReport).toHaveBeenLastCalledWith('shared-space', 'team-data', 'req-2'));
+      expect(screen.queryByText('Report not available')).not.toBeInTheDocument();
     });
 
     it('renders a friendly message for a report that cannot be fetched — never a raw 404', async () => {

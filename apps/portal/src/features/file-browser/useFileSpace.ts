@@ -1,6 +1,7 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
-import {useLocation, useNavigationType, useSearchParams} from 'react-router';
+import {useCallback, useMemo} from 'react';
+import {useSearchParams} from 'react-router';
 import {isConnectionUsable} from '../connections/connection.types';
+import {useSpaceLinkPending} from '../connections/useSpaceLinkPending';
 import type {Connection} from '../connections/connection.types';
 
 // the file browser's active "space" — derived from a
@@ -139,57 +140,30 @@ export function useFileSpace({
   // the moment the flag flips back.
   const spaceParam = ignoreSpaceParam ? null : searchParams.get('space');
 
-  // The reads settled when this link was followed. A link is the navigation as well as the
-  // value: while the vanished-space notice shows, the address still names the space, so the
-  // same link followed again differs only in the navigation. Per user too, since another
-  // user's list is another query with its own count.
-  //
-  // A POP is not a follow, and excluding it is load-bearing rather than tidy: an in-page anchor —
-  // the shell's own "Skip to main content" — is a same-document navigation whose popstate carries
-  // no state, so the router's key resets to its default and every such click would otherwise
-  // unmount the browser and spend a read. Back and forward into a DIFFERENT space still re-arm,
-  // on the value.
-  const {key: navigation} = useLocation();
-  const followed = useNavigationType() !== 'POP';
-  const [link, setLink] = useState({username, space: spaceParam, navigation, reads: listReadsSettled});
-  if (link.username !== username || link.space !== spaceParam || (link.navigation !== navigation && followed)) {
-    setLink({username, space: spaceParam, navigation, reads: listReadsSettled});
-  }
-  const readSinceLink = listReadsSettled > link.reads;
+  const match = useMemo(() => {
+    const found = spaceParam ? connections.find((c) => c.id === spaceParam) : undefined;
+    return found && isConnectionUsable(found) ? found : null;
+  }, [connections, spaceParam]);
+  // Fall back to personal when the space is absent or not yet usable (provisioning/failed/leaving),
+  // but only on a read of the list since the link was followed. Until then the request is pending,
+  // so a valid deep link neither flashes the fallback notice nor opens the personal space first.
+  const pending = useSpaceLinkPending({
+    username,
+    space: spaceParam,
+    missing: match === null,
+    listReadsSettled,
+    rereadList
+  });
 
-  const {space, fellBack, pending} = useMemo(() => {
-    if (!username) return {space: null, fellBack: false, pending: false};
+  const {space, fellBack} = useMemo(() => {
+    if (!username || pending) return {space: null, fellBack: false};
     const personalConn = connections.find((c) => c.kind === 'personal') ?? null;
-
-    // Resolve the requested shared space; fall back to personal when it's absent
-    // or not yet usable (provisioning/failed/leaving) — but only on a read of the list
-    // since the link was followed. Until then the request is pending, so a valid deep
-    // link neither flashes the fallback notice nor opens the personal space first.
-    let targetConn: Connection | null = personalConn;
-    let didFallBack = false;
-    if (spaceParam) {
-      const match = connections.find((c) => c.id === spaceParam) ?? null;
-      if (match && isConnectionUsable(match)) {
-        targetConn = match;
-      } else if (!readSinceLink) {
-        return {space: null, fellBack: false, pending: true};
-      } else {
-        didFallBack = true;
-      }
-    }
-
+    const targetConn: Connection | null = match ?? personalConn;
     const target = targetConn
       ? connectionToSpaceTarget(targetConn, username, userSpaceBucket, sharedSpaceBucket)
       : null;
-    return {space: target, fellBack: didFallBack, pending: false};
-  }, [username, connections, spaceParam, readSinceLink, userSpaceBucket, sharedSpaceBucket]);
-
-  // Asks for that read. None is due when the list is inside its staleTime, or when the link
-  // was followed on a page already open, which does not remount; one already running — the
-  // read owed on mount — answers instead of a second.
-  useEffect(() => {
-    if (pending) void rereadList();
-  }, [pending, rereadList]);
+    return {space: target, fellBack: Boolean(spaceParam) && match === null};
+  }, [username, pending, connections, match, spaceParam, userSpaceBucket, sharedSpaceBucket]);
 
   const selectSpace = useCallback(
     (id: string) => {
