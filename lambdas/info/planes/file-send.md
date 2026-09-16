@@ -105,7 +105,9 @@ absolute source key and its size: everything the manifest builder needs, with no
   `ignore` predicate rather than being forked. A genuinely empty **file** is sent; a folder
   **placeholder** (zero bytes, trailing slash) is not, so an empty subfolder does not survive a send.
 - **The guard's expected refusals are RETURN VALUES**, not exceptions, because a conflict must name
-  the colliding item and a `TerminalError` cannot carry one to a user.
+  the colliding item to `NotifyOutcomes`, and a raise would reach it only as a reason the collector
+  decodes from the `{Error, Cause}` the Map item's `Catch` records — never with a `TerminalError`'s
+  tokens.
 - **`NotifyOutcomes` is the ONE producer** of every per-recipient outcome, running on the terminal
   summary rather than inside the Maps: the sender per outcome, the recipient on success only, a
   `space` through its registered **owner**, a failed recipient told nothing. Its link carries the

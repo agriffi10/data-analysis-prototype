@@ -36,7 +36,7 @@ AcknowledgeMembership | TransferOwnership }`
 
 `UnknownActionSeed` is the arm for an action the router does not recognise. **`RefusedSeed` is the
 arm for an expected refusal**, and it is the router's FIRST branch so a refused request reaches no
-verb whatever action it names — see *A transfer's refusals are return values* below.
+verb whatever action it names — see *Why some refusals return where the rest raise* below.
 `AcknowledgeMembership` flips the member's chip from pending to active and is display and
 bookkeeping only — access is granted at add time. One shared **`orchestrator`** role covers the state
 machine and every verb.

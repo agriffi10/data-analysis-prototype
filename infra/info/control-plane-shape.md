@@ -96,9 +96,25 @@ browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request que
   only **legacy top-level** token fields, one of which holds the token in any message enqueued
   before the API stopped sending one — pointed at `identity`, it would blank the logged recipient
   and remove nothing sensitive.
-- **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
-  name the colliding item, and the user needs it named.
-- **One producer says every per-recipient outcome**, at the end of the machine — not each verb.
+- **Past the `Catch`, a raised refusal keeps its reason and loses its `tokens`.** They are kept out
+  of the exception message, so no `Cause` carries them. A raise therefore names what its verb
+  found — a column, a colliding item — only when that verb tells the user itself on the way out,
+  through `@notifies_on_failure` or an emit of its own such as a validator's. That is how
+  table-builder's `columns_removed` names the columns, and how file-send and file-ops name a
+  collision inside the selection, each a refusal of the whole request. A name that must be told
+  further down travels on the state as a RETURN VALUE: file-send's per-recipient conflict, which
+  its end producer tells, and shared-spaces' validator-stage transfer and member refusals, which
+  `NotifyFailure` tells because a raise from that validator would reach it with neither a name nor
+  a recipient. A refusal that needs no such name can still raise from a verb past the validator
+  and be told there, as shared-spaces' compare-and-swap refusals are. But most planes'
+  `NotifyFailure` drop a `TerminalError` as already told, so there one its verb did not tell
+  reaches nobody, and a seed carrying a returned refusal to it must not call its error
+  `TerminalError`. A validator's `Catch` replaces the state, and not every notifier recovers the
+  actor from `raw`, so a validator raise it did not tell itself can reach nobody too.
+- **Where a plane has an end producer, it is the ONE voice for every per-item outcome** —
+  file-send's and file-ops' `NotifyOutcomes` — and no verb before it notifies one, or one outcome is
+  told twice. Table-share has no such producer: its guard, its collector and its create verb each
+  tell the outcome only they know.
 
 ## A redelivered message is not a re-run
 
