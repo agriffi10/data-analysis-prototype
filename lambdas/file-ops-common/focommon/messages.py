@@ -24,6 +24,13 @@ separate ``delete_failed`` outcome exists to prevent. That clause belongs to the
 OUTCOME, which is per-item wording the notification spec owns; these bodies say only that the
 original is still there.
 
+**A body for a refusal whose cause the user may have made says only what holds for EVERY request that
+reaches it, and names no step.** The folders the execution role denies at any depth are ordinary to
+the browser, so the user made the one they are refused for; a sentence saying the app manages it is
+false, and one suggesting a rename or another destination can be a step the plane refuses next — a
+folder called ``user_settings`` cannot be renamed through this plane at all. The step is left to
+the user, who can see where the item is.
+
 **No raw AWS text is ever interpolated into any of these**: the detail on the exception is for the
 logs and the Step Functions record, and the sentence the user reads is composed here.
 
@@ -92,8 +99,13 @@ _BODIES = {
     "destination_folder_locked": (
         "that folder is managed for you, so things cannot be put into it."
     ),
-    "destination_archive_read_only": (
-        "the archive folder is read-only - it holds your archive receipts."
+    "destination_name_kept_for_app": (
+        "its name there is one the app keeps for its own folders, so it cannot be put there under "
+        "that name."
+    ),
+    "destination_folder_reserved": (
+        "that folder, or one it sits in, has a name the app keeps for its own folders, so folders "
+        "and groups of files cannot be put into it."
     ),
     "destination_name_reserved": (
         "that name belongs to a folder the app manages there. Please choose a different "
@@ -155,7 +167,11 @@ _BODIES = {
         "trying again."
     ),
     "delete_refused": (
-        "part of it is managed for you and cannot be removed, so it was left alone."
+        "part of it is in a place the app does not let it be removed from, so it was left alone."
+    ),
+    "write_refused": (
+        "part of it would land in a folder with a name the app keeps for its own folders, so it "
+        "was left alone."
     ),
     "plan_unreadable": "the working list for that could not be read back.",
     "plan_superseded": (

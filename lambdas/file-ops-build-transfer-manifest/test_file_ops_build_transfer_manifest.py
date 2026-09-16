@@ -44,7 +44,8 @@ class _FakeS3:
         self.puts.append({"Key": Key, "Body": Body})
 
 
-def _item(item_key, label, keys, size=7):
+def _item(item_key, label, keys, size=7, dest_keys=None):
+    dests = dest_keys or [f"alice/out/{label}/{n}" for n in range(len(keys))]
     return {
         "itemKey": item_key,
         "label": label,
@@ -58,9 +59,9 @@ def _item(item_key, label, keys, size=7):
                 "size": size,
                 "etag": '"e"',
                 "destBucket": "user-bkt",
-                "destKey": f"alice/out/{label}/{n}",
+                "destKey": dest,
             }
-            for n, key in enumerate(keys)
+            for key, dest in zip(keys, dests, strict=True)
         ],
         "objectCount": len(keys),
         "totalBytes": size * len(keys),
@@ -170,3 +171,66 @@ def test_an_UNDELETABLE_item_is_refused_HERE_having_copied_nothing():
     assert result["outcomes"][0]["reason"] == "delete_refused"
 
 
+
+
+# ── The writability check, beside it ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("operation", "sources", "destinations"),
+    [
+        (
+            "copy",
+            ["alice/a/x.csv", "alice/a/user_settings/y.csv"],
+            ["alice/out/a/x.csv", "alice/out/a/user_settings/y.csv"],
+        ),
+        (
+            "move",
+            ["alice/a/x.csv", "alice/a/archive/y.csv"],
+            ["alice/out/system_settings/x.csv", "alice/out/system_settings/archive/y.csv"],
+        ),
+    ],
+    ids=["copy-a-folder-holding-a-settings-folder", "move-renamed-so-a-child-lands-in-the-archive-pair"],
+)
+def test_an_item_with_ONE_object_its_role_may_not_write_is_refused_whole_and_its_sibling_proceeds(
+    operation, sources, destinations
+):
+    """The case only this verb can see: the prefix and the item's own name are ordinary, and one
+    object beneath the folder lands in a folder the execution role denies at any depth.
+
+    Left to the copy, that object alone fails and the rest of the folder lands, reported as a failed
+    copy with half of it at the destination. The move row renames ``a/`` to ``system_settings`` —
+    a name no rule refuses at that depth — so its ``archive/`` child lands in the pair, while every
+    SOURCE key is deletable and the deletability check lets it through to this one.
+    """
+    items = [
+        _item("alice/a/", "a", sources, dest_keys=destinations),
+        _item("alice/b/", "b", ["alice/b/1"]),
+    ]
+    fake = _install(items, operation=operation)
+
+    result = m.handler(_event(items, operation=operation), None)
+
+    assert [line["itemKey"] for line in _lines(fake)] == ["alice/b/"]
+    assert [(o["itemKey"], o["outcome"], o.get("reason")) for o in result["outcomes"]] == [
+        ("alice/a/", "protected", "write_refused"),
+        ("alice/b/", "cleared", None),
+    ]
+
+
+def test_a_move_refused_on_BOTH_sides_keeps_the_reason_it_had_before_the_write_check():
+    """The deletability check runs first, so a move it already refused is still told the same."""
+    items = [
+        _item(
+            "alice/a/",
+            "a",
+            ["alice/a/system_settings/athenaresults/r.csv"],
+            dest_keys=["alice/out/a/system_settings/athenaresults/r.csv"],
+        )
+    ]
+    fake = _install(items)
+
+    result = m.handler(_event(items), None)
+
+    assert fake.puts == []
+    assert result["outcomes"][0]["reason"] == "delete_refused"

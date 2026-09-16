@@ -111,10 +111,15 @@ needs, because this is the only one built from an arbitrary user-controlled key.
 
 ## What the role may do
 
-**The execution role reads both data buckets and writes to neither** — `ListBucket`,
-`GetBucketLocation` and `GetObject`, with an explicit `Deny` on every write verb, so the transfer
-spec has to delete a statement by name rather than widen an Allow. Its lock and plan prefixes in the
-admin bucket are the only places it may write, and it is on the user-space bucket policy's allowlist.
+**The execution role reads and writes both data buckets, with two Denies carved out.** Its write and
+delete Denies name `*/user_settings/*`, `*/system_settings/athenaresults/*` and
+`*/system_settings/archive/*` — the delete one the marker too — with no principal tag to anchor them,
+so they reach those folders at any depth in both buckets; both also name the user-space bucket's
+root `_config/` and `_directory/`, which containment already keeps out of reach. Every any-depth rule
+here reads them through `focommon.protected.role_denied_folder`, and
+`test_file_ops_rules_mirror_execution_role.py` holds it, and the folders the Denies name, to the
+template. In the admin bucket it may
+write only its lock and plan prefixes, and it is on the user-space bucket policy's allowlist.
 
 ## The fences
 
@@ -129,7 +134,8 @@ admin bucket are the only places it may write, and it is on the user-space bucke
   folder; collapsing on the key ships a zero-byte placeholder and reports success.
 - `focommon.protected` refuses the portal's own folders server-side — the first plane to do so —
   over each item's **derived key** as well as the destination prefix, since an item's own name can
-  land in a locked folder the prefix never names.
+  land in a locked folder the prefix never names. The execution role's folders are refused at **any
+  depth**, and over every planned object key too, before the transfer.
 - The browser's async switchover **consults the routing predicate once**, above every submission
   point, in one dispatcher; the in-flight record is session-scoped and settles on a notification
   carrying its request id.
@@ -175,9 +181,10 @@ implementations of the bucket policies' asymmetric Deny — root-anchored in a p
 any-depth in a shared one: `isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`,
 and this package's `protected._is_at_or_below`. Each is run against a matcher built from the Deny it
 mirrors, and none is compared to another, which is deliberately the stronger claim: two copies can
-agree with each other and both be wrong about the policy. (`focommon.delete` and `arcommon.plan`
-carry a fourth and fifth archive refusal, but those deliberately mirror the EXECUTION roles'
-strictly-any-depth Deny instead, and say so in their own docstrings.)
+agree with each other and both be wrong about the policy. (`focommon.protected.role_denied_folder`,
+which `focommon.delete` reads, and `arcommon.plan` carry a fourth and fifth archive refusal, but
+those deliberately mirror the EXECUTION roles' strictly-any-depth Deny instead, and say so in their
+own docstrings.)
 
 What each side is tied to, and what each therefore cannot see:
 
@@ -186,6 +193,7 @@ What each side is tied to, and what each therefore cannot see:
 | `archiveWriteLock.test.ts` | the Resource STRINGS — it turns each Sid's `Resource` into a key matcher (`*` matching `/`, which is the trap) and runs the browser predicate over a key table | a change to `Effect` or `Action` |
 | `test_archive_write_lock_mirrors_iam.py` | the same Resource strings **and** the `Effect`, over ONE key table run against BOTH Python predicates | everything else in the statement — `Action`, `Condition`, `NotAction` — and everything outside it |
 | `test_archive_bucket_isolation.py` | the `Effect`, the exact `Action` set, and that the `Resource` ends `/archive/*` — for the two PRIMARY Sids only | any change to the anchor that preserves that suffix |
+| `test_file_ops_rules_mirror_execution_role.py` | the file-ops EXECUTION role's write and delete Deny Resources, parsed as JSON, over one table run against `role_denied_folder`, the destination prefix rule and `focommon.delete`; that no other Deny on a space bucket covers `PutObject` or `DeleteObject`; and that the Denies name exactly the predicate's folders | the rendered document and the attachment that deploys it |
 | `test_spaces_and_protection.py`, `test_protected_focommon.py` | nothing — hand-written expectations whose docstrings narrate the Deny. They pin each predicate's SHAPE, which is still worth having | everything about the policy |
 
 **Measured rather than argued.** Widening the personal Deny's anchor to `${bucket_arn}/*/archive/*` —

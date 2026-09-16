@@ -37,7 +37,7 @@ sys.path.insert(
 )
 
 from cpcommon import config as cp_config
-from focommon import config, delete
+from focommon import config
 
 #: Step Functions' limit on an execution input and on any single state.
 _STATE_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
@@ -250,7 +250,7 @@ def test_the_item_cap_fits_the_verbs_own_timeout_at_the_MEASURED_per_item_cost()
         paths.assert_inside_root(root, item["key"])
         paths.has_dot_segment(item["key"])
         derived = paths.derived_destination_key("alice/out/", item)
-        protected.derived_destination_refusal(root, derived, "personal")
+        protected.derived_destination_refusal(root, derived)
         protected.source_refusal(root, item["key"], "move", "personal")
         protected.settings_source_refusal(root, item["key"])
         protected.marker_refusal(item["key"])
@@ -1209,6 +1209,7 @@ def test_the_undeletable_root_folders_are_exactly_these_four():
     assert config.UNDELETABLE_ROOT_FOLDERS == ("athenaresults", "saved_queries", "archive", "system_settings")
 
 
-def test_the_any_depth_undeletable_folders_are_exactly_these_three():
-    """The delete module's own any-depth list, spelled out."""
-    assert delete._UNDELETABLE_FOLDERS == ("athenaresults", "user_settings", "archive")
+def test_the_any_depth_denied_folders_are_exactly_these_three():
+    """The execution role's any-depth list, spelled out; its meaning is held against the role
+    itself in ``test_file_ops_rules_mirror_execution_role.py``."""
+    assert config.ANY_DEPTH_DENIED_FOLDERS == ("athenaresults", "user_settings", "archive")

@@ -247,16 +247,15 @@ def test_a_cross_space_copy_is_judged_at_the_destination_it_lands_in():
 _FINANCE = {"finance": {"status": "active", "owner": "carol", "members": ["alice", "carol"]}}
 
 
-def test_the_derived_rule_is_judged_under_the_DESTINATION_space_s_kind_not_the_source_s():
-    """A personal source into a shared nested ``system_settings/``: only the shared rule refuses it.
+def test_the_derived_rule_refuses_a_nested_role_folder_in_a_PERSONAL_space_too():
+    """A rename into a nested ``system_settings/`` lands in the execution role's ``archive`` pair.
 
-    The personal rule is root-anchored and passes the key, so the source's kind here lets the item
-    go ahead and then meet the role's Deny at the write.
+    Accepted while the rule followed the personal bucket policy, which is root-anchored, and then
+    refused at the write by the role, whose Deny reaches the pair at any depth in either bucket.
     """
     result = _run(
         items=[{"kind": "folder", "key": "alice/stage/", "targetName": "archive"}],
-        destination={"space": {"kind": "shared", "name": "finance"}, "prefix": "finance/x/system_settings/"},
-        spaces=_FINANCE,
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/x/system_settings/"},
     )
 
     assert result["outcomes"] == [
@@ -264,9 +263,33 @@ def test_the_derived_rule_is_judged_under_the_DESTINATION_space_s_kind_not_the_s
             "itemKey": "alice/stage/",
             "label": "archive",
             "outcome": "protected",
-            "reason": "destination_name_reserved",
+            "reason": "destination_name_kept_for_app",
         }
     ]
+
+
+def test_a_destination_nested_under_a_role_folder_fails_the_whole_request():
+    """The prefix is a property of the request, so its refusal is whole-request, before any item."""
+    refusal = _refusal(
+        items=[{"kind": "file", "key": "alice/q1.csv"}, {"kind": "file", "key": "alice/q2.csv"}],
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/projects/user_settings/"},
+    )
+
+    assert refusal.reason == "destination_folder_reserved"
+    assert refusal.detail.startswith("user_settings/")
+
+
+def test_moving_a_nested_role_folder_is_told_it_cannot_be_removed_rather_than_to_rename_it():
+    """The source arm runs before the derived-key rule, which would have said "choose a different
+    name" to a move no name could make succeed: the role denies deleting the source.
+    """
+    result = _run(
+        operation="move",
+        items=[{"kind": "folder", "key": "alice/f/user_settings/"}],
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/g/"},
+    )
+
+    assert [(o["outcome"], o["reason"]) for o in result["outcomes"]] == [("protected", "delete_refused")]
 
 
 def test_an_item_both_locked_there_and_inside_itself_is_reported_as_locked():
@@ -280,7 +303,7 @@ def test_an_item_both_locked_there_and_inside_itself_is_reported_as_locked():
     )
 
     assert result["outcomes"][0]["outcome"] == "protected"
-    assert result["outcomes"][0]["reason"] == "destination_name_reserved"
+    assert result["outcomes"][0]["reason"] == "destination_name_kept_for_app"
 
 
 def test_a_copy_into_its_own_parent_is_still_a_no_op_rather_than_a_refusal():

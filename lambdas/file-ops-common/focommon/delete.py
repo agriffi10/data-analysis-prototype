@@ -65,39 +65,21 @@ Attributes:
   _ALREADY_GONE: The object is not there. On the unconditional path S3 never says this; on the
     conditional path it is what a replayed batch answers, and it means the deletion succeeded.
   _DENIED_CODES: The bucket policy or the role's own Deny refused it.
-  _UNDELETABLE_FOLDERS: Folders this plane may not delete AT ANY DEPTH, because the execution
-    role Denies ``s3:DeleteObject`` beneath them with a wildcard that matches ``/``. The scan goes
-    through ``segments_hold_app_managed``, not a membership test, because two of the three moved:
-    the Deny now reads ``*/system_settings/athenaresults/*``, so a folder the user made and called
-    ``athenaresults`` is deletable and only ``user_settings`` is still matched on its bare name.
-
-    **This list mirrors the IAM POLICY, deliberately NOT the browser's own rule.** The browser
-    refuses ``athenaresults/`` root-anchored in a personal space and at any depth in a shared one,
-    which is the asymmetry the two bucket policies have. This role carries no principal tag, so
-    ``{bucket}/*/athenaresults/*`` cannot be root-anchored the way a policy written against
-    ``${aws:PrincipalTag/username}`` can — an IAM ``Resource`` wildcard matches ``/`` and there is
-    no way to say "one path segment". The strict side was taken, so a nested personal
-    ``athenaresults/`` is undeletable by this plane while the browser still permits it directly.
-    Mirroring IAM rather than the browser is what turns that divergence into a per-item refusal
-    that has moved nothing, instead of an ``AccessDenied`` part way through a batch.
 """
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from cpcommon import clients, errors
-from cpcommon.app_managed import segments_hold_app_managed
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import has_dot_segment
 
 from . import messages  # noqa: F401
 from .config import (
-    ARCHIVE_FOLDER,
-    ATHENA_RESULTS_FOLDER,
     FILE_OPS_HEAD_CONCURRENCY,
     MARKER_BASENAME,
-    USER_SETTINGS_FOLDER,
 )
+from .protected import role_denied_folder
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +100,6 @@ _CONFLICT_CODES = frozenset({"ConditionalRequestConflict", "409"})
 _ALREADY_GONE = frozenset({"NoSuchKey", "NotFound", "404"})
 
 _DENIED_CODES = frozenset({"AccessDenied", "403"})
-
-_UNDELETABLE_FOLDERS = (ATHENA_RESULTS_FOLDER, USER_SETTINGS_FOLDER, ARCHIVE_FOLDER)
 
 __all__ = [
     "CONDITIONAL_DELETE_ENABLED",
@@ -200,7 +180,10 @@ def assert_item_deletable(keys: list, allowed_prefix: str) -> None:
     ``s3:DeleteObject`` on the marker at any depth and the execution role denies the portal's own
     folders, so a list carrying one of those does not fail as a whole — it fails PART WAY THROUGH,
     after some of the user's data is already gone. Checking up front turns that into a refusal that
-    has moved nothing.
+    has moved nothing. The folders are ``protected.role_denied_folder``'s reading of the role's
+    Deny, the one every write rule on this plane reads too — the plane's own scan once counted a
+    key's first segment, and refused every delete a user literally named ``user_settings`` asked
+    for, which the role permits.
 
     **Containment is BOTH rules, not just the prefix one.** A key is rebuilt from a root and a
     stored relative key, and ``"alice/../bob/secrets.csv"`` starts with ``"alice/"`` — so a prefix
@@ -232,10 +215,7 @@ def assert_item_deletable(keys: list, allowed_prefix: str) -> None:
                 f"{key!r} is undeletable, so the deletion was not attempted",
                 tokens={"itemName": MARKER_BASENAME},
             )
-        if any(
-            segments_hold_app_managed(segments[:-1], folder)
-            for folder in _UNDELETABLE_FOLDERS
-        ):
+        if role_denied_folder(key) is not None:
             raise TerminalError(
                 DELETE_REFUSED,
                 f"{key!r} sits under a folder this plane may not delete from",

@@ -833,6 +833,39 @@ folder too, and every file-ops rule would have to refuse it at any depth or the 
 part way through. Results-conversion's role takes that trade for one save location; here it would
 refuse copying, moving and deleting a folder the browser shows as the user's own.
 
+**Where the execution role denies a write, the plane refuses it at any depth, in both buckets**
+(2026-09-16). The role's write Deny names `*/user_settings/*` and the two `system_settings` pairs
+with no principal tag to anchor them, so it reaches those folders at any depth; the destination rules
+followed the picker and the bucket policies instead, and a copy into a folder a user had made —
+`alice/foo/user_settings/`, a nested `system_settings/athenaresults/`, in a personal space a nested
+`system_settings/archive/` — passed validate-authorize and failed at the write. The Denies stay:
+nothing can anchor them without a principal tag, and dropping them removes the only IAM fence over
+the real settings, results and receipt folders. `focommon.protected.role_denied_folder` is the one
+reading of both role Denies — every key segment but the first and the last, which is exactly what
+`*/name/*` means — and three seats use it: the destination prefix (whole request,
+`destination_folder_reserved`), each item's derived key (`destination_name_kept_for_app`), and
+build-transfer-manifest over every planned destination key (`write_refused`, the item refused whole
+before anything copies). **The last trades away a partial copy, by the owner's choice**: a copied
+folder holding a nested `user_settings/` used to land everything else and end `copy_failed`; a move
+of the same folder was already refused whole on its source side. The same predicate replaced
+`focommon.delete`'s own scan, which counted a key's first segment and so refused every move and
+delete for a user literally named `user_settings`, and a `system_settings` user's own root-level
+`athenaresults/` and `archive/` folders — names the sign-up pattern admits and deletes the role
+permits; the owner chose the fix. An item that itself sits inside one of those
+folders is refused as a move or delete source at the front door, as `delete_refused`, ahead of the
+derived-key rule, which would otherwise tell it to choose a different name. Three more visible
+shifts: a same-key no-op inside such a folder is now a refusal, as at the root; a folder item that is
+occupied and holds an object bound for one of these folders is still told first that it is occupied,
+and its overwrite resubmission, which used to land part of the folder, is now refused whole; and a
+lone file still goes through the API, which permits a nested `user_settings/` write — and, in a
+personal space, the nested pairs — that the plane refuses: an asymmetry, not a regression, since that
+multi-item write failed before. **These refusals' sentences state only what holds for every request
+that reaches them and name no step**: three review frames each found one that did not — "managed for
+you" of a folder the user made, "choose a different destination" where none works, "give it a
+different name" to a folder the plane will not rename — and the class, not the instance, was fixed.
+`test_file_ops_rules_mirror_execution_role.py` holds the predicate, the prefix wiring and the delete
+check against the role's template.
+
 **The space root is refused as an item, and it is the third way to select a protected folder.** Every
 protected rule matches the named folder or something below it; none looks UP. So one item of
 `alice/` passes all of them while naming a subtree containing `athenaresults/`, `user_settings/`,
