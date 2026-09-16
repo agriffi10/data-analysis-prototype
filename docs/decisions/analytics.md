@@ -995,12 +995,17 @@ catalog with no way to repair it.
 > re-declared in `dqcommon.messages` rather than shared: the planes are independent, so **a change
 > to this rule belongs in both validators**. A single file at the root stays allowed — its queries
 > carry the `"$path"` predicate, so its numbers are its own — and the picker exempts a selected
-> file from the folder gate for exactly that reason. **The exemption's two failure modes are not
-> equally bad, and only one of them is this fence's business:** the predicate going MISSING widens
-> the read back to the whole space, while the escaper under it going wrong (the quoting fence
-> above) makes it match nothing, which is a zero-row report rather than a leak. A test pins the
-> predicate's presence on all three queries; the escaper's correctness is pinned by nothing, and an
-> apostrophe is legal in an S3 key.
+> file from the folder gate for exactly that reason.
+>
+> **The validator's refusal is not the only route to a root table, and the second one is easy to
+> miss.** `_location` promotes a SINGLE-file target to its parent folder, so a `single_file_path`
+> answering "one file" for a target that is not one turns a folder ONE LEVEL BELOW the root into a
+> table over the root — measured, not reasoned. The containment assertion in `_location` cannot
+> catch that: the space root is inside the space. What catches it is the negative control on
+> `single_file_path`, which is the only test in the fleet that plant fails. Of the exemption's two
+> failure modes only one is a leak — a MISSING predicate widens the read to the whole space, a
+> wrong escaper (the quoting fence above) makes it match NOTHING, a zero-row report. Presence is
+> pinned both ways now; the escaper is pinned by nothing, and an apostrophe is legal in an S3 key.
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 
