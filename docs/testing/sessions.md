@@ -10,6 +10,82 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-16, later afternoon (#809: an ordinary partitioned create still reports created)
+
+**What was under test.** `origin/main` at **`8f1ac932`** (#830), which carries #809 (`b90f508d`):
+execute-ddl reads a table back after `CREATE … IF NOT EXISTS` and refuses `table_exists` unless the
+catalog carries this run's LOCATION, partition keys and `projection.{key}.*` exactly as
+`cpcommon.ddl.projection_properties` rendered them. Run at the supervisor session's request, for the
+row in [`owed.md`](owed.md). `Deploy Lambdas` for `8f1ac932` had finished at 19:29Z, and the API's
+`/healthz` reported `8f1ac93290ea142b8d6eb83933f48011251cc0e2` straight after the readings.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
+in the extension's group. It came up signed out; **one click on the portal's own Sign in button**
+signed it in, because the Hosted UI session cookie from Andrew's sign-in about half an hour earlier
+was still live. No credential form was shown, and nothing was typed into one. Viewport 1568 × 724.
+
+**Instruments — each a way this run differed from a user's.**
+- **Fixtures by deep link.** Two `id,amount` CSVs of three rows each were uploaded through the
+  page's upload drawer after opening `/files?prefix=agriffith/<folder>/<key>=<value>/` directly, so
+  the `key=value` folders came from the uploads' keys.
+- **The creates did not go through the modal's button.** The new folders sat past the root listing's
+  first pages, so each create was `POST /v1/enqueue/table-build`, sent in-page with the tab's own
+  idToken, carrying the body `CreateTableButton` and `enqueueTableBuild` send: `space.prefix` is the
+  selected folder, an integer `range` is stringified, a date key carries `format` and no interval.
+- **Queries in-page** through `/v1/queries`, returning only rows.
+
+**Readings.**
+
+| Row | Result |
+|---|---|
+| Integer key: `live809int_0916b/year=2024/` and `year=2025/`, key `{name: year, type: integer, range: [2024, 2025]}`, table `live809_int_0916b` | *Table "live809_int_0916b" is ready to query in "agriffith".* `SELECT year, COUNT(*) … GROUP BY year` returned `2024, 3` and `2025, 3`. **Pass.** |
+| Date key named `dt`: `live809date_0916b/dt=2025-01-01/` and `dt=2025-01-02/` | *Couldn't create table "live809_date_0916b": the partition keys aren't valid (check names, types, and ranges).* validate-authorize holds a key name to `CATALOG_IDENTIFIER_RE`, `^[a-z][a-z0-9_]{2,62}$`, so a two-letter name is refused before any DDL. The modal enforces the same rule on the field, so a user sees a field error rather than this notification; it appeared only because the create bypassed the modal. Not this check's defect, and the rule was left alone. |
+| Date key named `day`: `live809day_0916b/day=2025-01-01/` and `day=2025-01-02/`, key `{name: day, type: date, range: [2025-01-01, 2025-01-02], format: yyyy-MM-dd}`, table `live809_date_0916b` | *Table "live809_date_0916b" is ready to query in "agriffith".* `SELECT day, COUNT(*) … GROUP BY day` returned `2025-01-01, 3` and `2025-01-02, 3`. **Pass.** |
+
+**Not run.** `digits` on an integer key — still owed. `interval` or `intervalUnit` on a date key, which only a hand-built request can send — owed at lower priority.
+The loser of two same-name creates. The admin logs were not read, since nothing was refused as
+`table_exists`. Fixtures and both tables were left in place.
+
+---
+
+## Live-check session — 2026-09-16, afternoon (a CSV column named after a partition, `e2e.md` §4.4 and §4.6)
+
+**What was under test.** `origin/main` at **`582e93b2`** (#829). `scripts/watch_ci.py --branch main`
+had settled green on it: Deploy Lambda image, Deploy Lambdas and Deploy SPA image. The next merge,
+#830 (`8f1ac932`), deployed from 19:21Z to 19:29Z while the later readings ran; it changes no runtime
+code — a docstring, two tests and `api.md` — so nothing these requests reached behaved differently.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
+in the extension's group. It reached the Hosted UI form with the password filled; Andrew signed that
+tab in himself, and nothing was typed into the form. Viewport **1512 × 732** CSS px, so the report's
+Columns rendered as the desktop rows, not the phone cards.
+
+**Instruments — each a way this run differed from a user's.**
+- **Fixtures by path, not by folder dialog.** `yearcase.csv` and `yeartrail.csv`, generated with
+  §2's recipe, were uploaded through the page's own upload drawer after opening
+  `/files?prefix=agriffith/partrename0916/yearcase/year%3D2025/` (and `yeartrail/…`) directly, so
+  the `key=value` folders came into being from the upload's key rather than from New folder.
+- **Queries and the refresh sent from inside the page.** `fetch` to `api.dataquarry.app` with the
+  tab's own idToken, returning only statuses and rows; the token never left the page. The two
+  creates and the data-quality check went through the UI's own dialogs.
+- **A refresh request built wrongly first.** One `POST /v1/enqueue/table-refresh` carried the key
+  `year` in `partitionKeys` and was refused by notification (*"a refresh keeps the table's existing
+  partition keys"*), which is the designed answer; the UI always sends `[]`. The second, with `[]`,
+  is the reading below.
+
+**Readings.**
+
+| Row | Result |
+|---|---|
+| Build `partrename0916/yearcase/` (header `Year,id,region`), key `year` string `2025`, as `yearcase0916` | Ready notification: *Table "yearcase0916" is ready to query in "agriffith". A column named after a partition key keeps its values under a new name: "Year" is "year_in_file".* `SELECT year_in_file, id, region, year … ORDER BY id` returned, as the first three of its five rows, `2025, 1, south, 2025`, `2025, 2, east, 2025` and `2025, 3, west, 2025`; `SELECT * … LIMIT 1` listed `year_in_file, id, region, year`, which stood in for reading the rail. **Pass.** |
+| Build `partrename0916/yeartrail/` (header `id,region,year`), same key, as `yeartrail0916` | Notification names `"year" is "year_in_file"`. `SELECT id, region, year_in_file, year` returned `1, south, 2025, 2025` as its first row. **Pass.** |
+| Refresh `yearcase0916` with nothing changed | *Table "yearcase0916" is already up to date - no schema changes were found.* **Pass.** |
+| Check `partrename0916/yearcase/` | Report `5383617a-dfe0-4f34-82df-ce100c5a2349`: **No issues found**, 5 rows, 1 file, no cross-file section. Above Columns: *Year is listed as year_in_file. The folder has a partition of the same name, and a CSV’s columns are read in order, so the file’s own column keeps its values under a new name.* Columns `year_in_file` BIGINT 0 0%, `id` BIGINT 0 0%, `region` TEXT 0 0%. **Pass.** |
+
+**Not run.** The schema rail itself, for either table — so `yeartrail0916`'s column order was not read; `yeartrail/`'s data-quality check; and a JSON or Parquet folder's `omitted` line.
+
+---
+
 ## Live-check session — 2026-09-13, evening (SPEC-231's four row-count rows in `e2e.md` §4.3)
 
 **What was under test.** `origin/main` at **`430a1b7e`** (#741). `scripts/watch_ci.py --branch
