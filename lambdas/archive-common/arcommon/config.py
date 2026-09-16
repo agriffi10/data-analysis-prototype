@@ -220,8 +220,8 @@ Attributes:
     rather than skipped: archiving deletes the source, so an un-deletable object would fail the
     run after some of the data had already moved.
   RESERVED_SOURCE_ROOTS: The space's own portal-managed folders, never an archive source. The
-    three that are about to move are spelled through ``cpcommon.app_managed``; the browser reads
-    this tuple as text and resolves those names against that module.
+    ones ``cpcommon.app_managed`` declares are spelled through it; the browser reads this tuple as
+    text and resolves those names against that module.
   RECEIPT_NAME: The receipt object's basename. **A plain text file the user downloads and reads
     themselves** — deliberately not rendered in the browser, which leaves the project's
     no-preview rule untouched.
@@ -229,6 +229,7 @@ Attributes:
 
 from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
+    DATA_QUALITY_REPORTS_FOLDER,
     RECEIPT_FOLDER,
     SHARED_TABLES_FOLDER,
     SYSTEM_SETTINGS_FOLDER,
@@ -273,7 +274,7 @@ RESERVED_SOURCE_ROOTS = (
     RECEIPT_FOLDER,
     ATHENA_RESULTS_FOLDER,
     "user_settings",
-    "_data-quality-reports",
+    DATA_QUALITY_REPORTS_FOLDER,
     SHARED_TABLES_FOLDER,
     SYSTEM_SETTINGS_FOLDER,
 )

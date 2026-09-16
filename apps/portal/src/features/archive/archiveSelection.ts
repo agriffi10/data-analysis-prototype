@@ -2,6 +2,7 @@ import {
   appManagedPrefixes,
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
+  DATA_QUALITY_REPORTS_FOLDER,
   SHARED_TABLES_FOLDER,
   SYSTEM_SETTINGS_FOLDER
 } from '../../lib/appManagedPaths';
@@ -25,7 +26,7 @@ export const ARCHIVE_RESERVED_ROOTS = [
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
   'user_settings',
-  '_data-quality-reports',
+  DATA_QUALITY_REPORTS_FOLDER,
   SHARED_TABLES_FOLDER,
   SYSTEM_SETTINGS_FOLDER
 ] as const;

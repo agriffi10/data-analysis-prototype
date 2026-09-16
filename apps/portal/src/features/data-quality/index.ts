@@ -1,5 +1,5 @@
 export {enqueueQualityCheck} from './dataQuality.service';
-export {getQualityReport, reportKey, REPORTS_FOLDER} from './dataQualityReport.service';
+export {getQualityReport, reportKey} from './dataQualityReport.service';
 export {DataQualityDialog} from './DataQualityDialog';
 export {StartQualityCheckDialog} from './StartQualityCheckDialog';
 export {DataQualityPage} from './DataQualityPage';

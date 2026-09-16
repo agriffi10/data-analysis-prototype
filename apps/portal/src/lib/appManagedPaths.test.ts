@@ -9,6 +9,7 @@ import {
   segmentsHoldAppManaged,
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
+  DATA_QUALITY_REPORTS_FOLDER,
   MOVING_FOLDERS,
   SHARED_TABLES_FOLDER,
   SYSTEM_SETTINGS_FOLDER
@@ -30,6 +31,14 @@ describe('appManagedPaths', () => {
     // members mostly do not move, so unconditional it would build a prefix nothing is stored
     // under — and the caller's second leg would keep the refusal working by accident.
     expect(appManagedPrefix('finance/', 'user_settings')).toBe('finance/user_settings/');
+  });
+
+  it('declares the data-quality reports folder, which stays at the space root', () => {
+    // A literal, because every refusal in the browser now follows this constant: a rename here
+    // would move all of them together, and only this row can say the value is still the one the
+    // plane writes.
+    expect(DATA_QUALITY_REPORTS_FOLDER).toBe('_data-quality-reports');
+    expect(appManagedPrefix('alice/', DATA_QUALITY_REPORTS_FOLDER)).toBe('alice/_data-quality-reports/');
   });
 });
 

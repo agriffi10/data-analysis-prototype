@@ -142,10 +142,10 @@ Attributes:
     list reaches it. Hiding is not enforcement, and this plane accepts a hand-crafted envelope.
   ARCHIVE_FOLDER: The archive receipts folder. Refused as a destination, and as a delete or move
     source, under the bucket asymmetry ``writeLockedPrefix.ts`` mirrors from IAM.
-  REPORTS_FOLDER: The data-quality reports folder. Refused as a destination, like every picker-locked
-    folder, and as a delete or move source at or beneath it. Root-anchored in both buckets, because
-    the data-quality plane writes only ``{root}_data-quality-reports/`` and this plane's role has no
-    Deny there to mirror.
+  REPORTS_FOLDER: The data-quality reports folder, an alias of the name ``cpcommon.app_managed``
+    declares. Refused as a destination, like every picker-locked folder, and as a delete or move
+    source at or beneath it. Root-anchored in both buckets, because the data-quality plane writes
+    only ``{root}_data-quality-reports/`` and this plane's role has no Deny there to mirror.
   MARKER_BASENAME: The undeletable marker both bucket policies deny by name at any depth.
   PICKER_LOCKED_FOLDERS: Never a destination. Root-anchored in whichever bucket.
   UNDELETABLE_ROOT_FOLDERS: Never a delete or move SOURCE, at a space root.
@@ -215,7 +215,7 @@ USER_SETTINGS_FOLDER = "user_settings"
 
 ARCHIVE_FOLDER = _app_managed.RECEIPT_FOLDER
 
-REPORTS_FOLDER = "_data-quality-reports"
+REPORTS_FOLDER = _app_managed.DATA_QUALITY_REPORTS_FOLDER
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 

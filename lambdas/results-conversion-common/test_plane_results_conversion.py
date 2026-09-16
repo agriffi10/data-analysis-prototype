@@ -237,6 +237,7 @@ def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerat
         app_managed.ATHENA_RESULTS_FOLDER,
         app_managed.RECEIPT_FOLDER,
         app_managed.SHARED_TABLES_FOLDER,
+        app_managed.DATA_QUALITY_REPORTS_FOLDER,
     }
 
 

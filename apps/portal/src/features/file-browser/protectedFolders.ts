@@ -75,18 +75,19 @@ import {
   appManagedPrefixes,
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
+  DATA_QUALITY_REPORTS_FOLDER,
   SHARED_TABLES_FOLDER,
   SYSTEM_SETTINGS_FOLDER
 } from '../../lib/appManagedPaths';
 
 /** Hidden from the main file-browser listing. */
-export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory', '_config'] as const;
+export const HIDDEN_BROWSER_FOLDERS = ['user_settings', DATA_QUALITY_REPORTS_FOLDER, '_directory', '_config'] as const;
 
 /** Never offered as a move/copy destination. */
 export const PICKER_LOCKED_FOLDERS = [
   ATHENA_RESULTS_FOLDER,
   'user_settings',
-  '_data-quality-reports',
+  DATA_QUALITY_REPORTS_FOLDER,
   '_directory',
   '_config',
   SHARED_TABLES_FOLDER,

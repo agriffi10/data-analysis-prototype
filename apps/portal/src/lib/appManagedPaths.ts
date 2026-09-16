@@ -7,7 +7,7 @@
  * about them is anchored — `${rootPrefix}${name}/` — so moving them by hand would have left each
  * comparison silently not matching. This module is what made the move an edit here rather than a
  * hunt: the names are declared here and nowhere else, and every anchored construction in the app
- * calls a builder. It lives in `lib/` because two features need it and the archive feature
+ * calls a builder. It lives in `lib/` because several features need it and the archive feature
  * deliberately imports nothing from another feature.
  *
  * **Which builder a caller takes is still the design, and it outlived the move.**
@@ -39,6 +39,17 @@ export const ARCHIVE_FOLDER = 'archive';
 export const SHARED_TABLES_FOLDER = 'shared_tables';
 
 /**
+ * Where the data-quality plane writes each run's manifest and report, and the space's runs index.
+ * Hidden, never a paste target, never an archive source, and it does not move.
+ *
+ * Declared here rather than beside the report service because the browser's protected lists refuse
+ * it as well as the services reading it, and each used to spell the name itself: a rename would
+ * have left every refusal hiding and locking a folder the plane no longer writes, with every test
+ * still green.
+ */
+export const DATA_QUALITY_REPORTS_FOLDER = '_data-quality-reports';
+
+/**
  * The prefix the two moving folders moved INTO.
  *
  * Nothing is written directly under it, but it is reserved everywhere they are: never a
@@ -59,11 +70,14 @@ export const MOVING_FOLDERS = [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER] as const;
 /**
  * The prefix an app-managed folder occupies in a space.
  *
+ * Where the folder IS: where the plane writes, and so where the browser reads back what it wrote
+ * — the data-quality services build their keys here, and nothing in this tree writes one.
+ *
  * Branches on `MOVING_FOLDERS` exactly as the plural does. Here that is parity rather than
- * necessity — this tree has no production caller, since the browser writes no app-managed path —
- * but the fleet's twin genuinely needs it, because a folder name reaches it from a domain list
- * whose members mostly do not move. Keeping the two builders one design is what stops a caller
- * arriving later against the wrong one, and the `user_settings` row in the tests holds it.
+ * necessity, since no caller in this tree passes a moving folder, but the fleet's twin genuinely
+ * needs it, because a folder name reaches it from a domain list whose members mostly do not move.
+ * Keeping the two builders one design is what stops a caller arriving later against the wrong
+ * one, and the `user_settings` row in the tests holds it.
  *
  * @param rootPrefix - The space root, trailing slash (a username or a shared space's name).
  * @param folder - The folder's name, as declared above or in the protected-folder lists.
