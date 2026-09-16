@@ -91,9 +91,11 @@ _LOCK_STATES = frozenset({"ReleaseRefreshLock", "ReleaseRefreshLockOnFailure"})
 
 
 def test_the_lock_holder_identifies_the_execution_not_the_request():
-    """SPEC-157. requestId is a property of the MESSAGE and Pipes delivery is at-least-once, so
-    two executions of one redelivered message share it — and table_lock's re-entrancy branch
-    would hand the lock to both. The ARN is what tells them apart.
+    """requestId is whatever the caller sent, so two executions can carry the same one — and
+    table_lock's re-entrancy branch would hand the lock to both. The ARN is what tells them apart.
+    Reusing an execution name was measured to return the original run or fail rather than start a
+    second, but that a redelivered message reuses its name is inferred, so the holder does not rest
+    on it.
 
     A Pass rather than the acquire task's own Parameters: reading $$ there means building an
     object, which wraps the payload, and every notification path here reads the request at the

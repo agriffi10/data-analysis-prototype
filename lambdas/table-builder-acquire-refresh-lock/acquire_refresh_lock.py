@@ -11,12 +11,14 @@ after the validator so an unauthorized request cannot touch another user's lock 
 the definition read so the lock spans the whole read-modify-write rather than only the write — the
 point being that run A's ``GetTable`` and run A's ``UpdateTable`` are not separated by run B's.
 
-The holder is the EXECUTION ARN, and it must not be the request id. A request id identifies the
-MESSAGE, and Pipes delivery is at-least-once — so a redelivered message starts a second execution
-carrying the same id while the first is still running, and ``table_lock``'s re-entrancy branch
-(which exists for an SFN Task retry, where the ARN genuinely IS the same) would let both hold the
-lock. Silently: no refusal, no notification, and an acquire event reading ``stolen: False``. That
-is the duplicate-execution hazard the rule names when it rejects EXPRESS, arrived at by another road.
+The holder is the EXECUTION ARN, and it must not be the request id. A request id is whatever the
+caller sent, and the queue deduplicates it for only five minutes — so a later request can start a
+second execution carrying the same id while the first is still running, and ``table_lock``'s
+re-entrancy branch (which exists for an SFN Task retry, where the ARN genuinely IS the same) would
+let both hold the lock. Silently: no refusal, no notification, and an acquire event reading
+``stolen: False``. Reusing an execution name was measured to return the original run or fail rather
+than start a second, but that the Pipe reuses the name for a redelivered message is inferred rather
+than proven, so the lock does not rely on it.
 
 The ARN reaches this verb on ``$.execution.arn``, stamped by the ``StampExecution`` Pass state
 rather than read from ``$$`` in this task's own ``Parameters`` — reading it there means building an

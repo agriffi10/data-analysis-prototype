@@ -122,7 +122,11 @@ inside the execution the Pipe starts.
   verb. Table-share has none, and its verbs each tell the outcome only they know.
 - **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
   denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
-  request id identifies the message and Pipes delivery is at-least-once.
+  request id is whatever the caller sent, so two executions can carry the same one. A redelivered
+  message should not be one of them: reusing an execution name [was measured](../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+  to return the original run while it is going and `ExecutionAlreadyExists` once it has closed.
+  That a redelivery reuses its name is inferred from the Pipe's v5 UUIDs, not proven, so no lock
+  relies on it.
 - **An `IF NOT EXISTS` create reports somebody's success, not necessarily yours.** It is what makes a
   retry a no-op, and a run that lost a race runs exactly the same no-op — so the statement succeeding
   is no evidence THIS run built the table, and a plane that reports on it alone is speaking for
@@ -2167,8 +2171,8 @@ shapes, and reaching the ARN there means reshaping it.
 reuse comes from a request built by hand, which has nothing it should be told, and the run it
 collided with is the one that reports. The question put to Andrew also gave a redelivery of one
 click as the realistic trigger, one that would tell a person a running check had failed. That rested
-on redelivery starting a second execution, and [a redelivery was measured](../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
-to re-attach to the first instead — only the per-message naming behind it is inferred — so the
+on redelivery starting a second execution, and [reusing an execution name was measured](../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+to return the first run instead — only that a redelivery reuses its name is inferred — so the
 decision stands on the reason above. `messages.SILENT_REASONS` registers the code without wording, and
 `notify.is_silent` is the one predicate both failure emitters read. That a notice under a borrowed id
 could drop someone else's is closed for every plane at the queue, by [per-recipient deduplication](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
