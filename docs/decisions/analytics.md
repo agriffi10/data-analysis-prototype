@@ -34,6 +34,7 @@ entry you need, not the file.**
 - [Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)](#athenas-two-dialects-need-two-escapers-in-the-browser-and-the-second-was-missing-2026-08-19)
 - [A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19)](#a-tables-location-is-read-recursively-so-the-space-root-is-not-a-data-folder-2026-08-19)
 - [A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)](#a-results-total-is-athenas-own-count-and-only-a-selects-count-is-the-grids-spec-231)
+- [A CSV is checked against the columns its table declares, and a refusal is for the misread a report cannot show (2026-09-16)](#a-csv-is-checked-against-the-columns-its-table-declares-and-a-refusal-is-for-the-misread-a-report-cannot-show-2026-09-16)
 
 ## Fences
 
@@ -63,7 +64,10 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   follows it, and anywhere else a create and a data-quality check refuse it as
   `partition_column_not_last` rather than build a table whose every later column answers with its
   neighbour's values. Parquet and JSON are matched by name and always drop. **The refresh path is
-  not covered** — it writes Glue columns without this builder.
+  not covered** — it writes Glue columns without this builder. A data-quality check judges this on
+  the folder's union; a file whose own header differs is **reported, not refused**, and in a CSV
+  cross-file agreement checks each file against the columns the table DECLARES — comparing files
+  with each other read a swap as agreement, then missed an inserted column.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
@@ -1078,3 +1082,64 @@ about the statement rather than the statement itself.
 
 Measurements: `docs/specs/SPEC-231-count-rows-from-athenas-statistics.md`; the live readings,
 `docs/testing/sessions.md` (2026-09-13).
+
+## A CSV is checked against the columns its table declares, and a refusal is for the misread a report cannot show (2026-09-16)
+
+**The finding.** Data-quality's `partition_column_not_last` is judged on `sql.union_columns`, the
+folder's columns in first-seen order, not on each file's header. Driving create-temp-tables with
+`a.csv` = `id,amount` and `b.csv` = `id,Year,amount` under `year=2025/` gave the union
+`[id, amount, Year]`, no refusal, and a temp table of `(id, amount)` over OpenCSVSerde, so `b.csv`'s
+`Year` is profiled as `amount`.
+
+**The premise under it was half false.** The finding took for granted that files whose headers
+disagree are already reported by cross-file agreement. `report.cross_file` compared each file's
+**sorted** names, so it caught `b.csv`'s extra `Year` but read `id,amount,Year` beside
+`id,Year,amount`, and `id,amount` beside `amount,id` with no partition at all, as agreement. The
+refusal and cross-file agreement were both clean for the first pair, and a layer test pinned the
+second as agreeing, while a table over either reads a file under the wrong names.
+
+**The ruling (Andrew's): report it, and keep the union.** A per-file refusal was the other option.
+It would have refused only the folders with a partition-named column, traded a report that names
+the odd file for a refusal that names only the column, and left the plain swap silent. The rule
+recorded instead: **a refusal is for the misread no report could show** — every file agreeing, so
+cross-file agreement is clean and every later column is wrong — and **a misread caused by files
+disagreeing is reported**. The union is then the right unit, because a file whose own header puts a
+partition column before a kept one while the union does not is always a file the report flags.
+
+**What is checked: each file against the columns the table DECLARES, not against the other
+files.** OpenCSVSerde reads field `i` of every file as declared column `i` — `sql.profiled_columns`
+over the union, the same list the profile and the per-column figures use — ignores trailing fields
+past the last one, and reads nulls for a short row. So a file is `shifted` exactly when a field it
+has lands under a column of another name, and Parquet and JSON, matched by name, never are. Two
+designs came first, and both leaked:
+- *Relative order of the shared columns against the modal header* could not see a column inserted
+  mid-header — `discount` added between `id` and `amount` from July on shifts every later column
+  and read only as an extra column.
+- *Prefix agreement with the modal header, after trimming trailing partition columns,* caught that,
+  and still missed two files adding DIFFERENT trailing columns: beside `id,amount`, `id,amount,note`
+  and `id,amount,region` build `(id, amount, note, region)`, so `region` is read as `note`, while
+  each file lines up with the modal header.
+
+Both compared files with each other, which is a proxy for the table; comparing with the table has
+no residual case and needs no partition trimming, since a trailing partition column is simply past
+the declared columns. Missing and extra still come from the modal SET, unchanged, because they name
+the minority, which is the repair.
+
+**The files named as shifted are the ones this report misreads, which is not always the minority.**
+The declared order is first-seen across the files as listed, so when the first file is the odd one
+out the other files are shifted and it is not. That is the honest reading of the figures the user
+is looking at. The issue points at the report's own Columns section, which is the declared order,
+rather than at another file.
+
+**One issue line for all of them.** A folder whose export changed part-way through splits in two,
+and a line per shifted file filled the five-line cap with one sentence, each wrongly saying it
+differed from "the other 11 files" when five of them matched it. The line counts the shifted files
+and names the first.
+
+**Deploy window.** An SPA older than the field shows a shifted file with no missing or extra columns
+under the disagreement heading with no detail line; the field is optional in the portal type.
+
+**Table-builder asks a different question.** It has no union: infer-schema reads ONE sample file's
+header, judges the refusal on it, and reads no other header. A file in another order is read under
+the sample's names there too, and a data-quality check over the folder is what reports the
+disagreement.

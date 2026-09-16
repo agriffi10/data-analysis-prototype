@@ -283,6 +283,12 @@ function CrossFileSection({
                 Extra: <span className="font-medium text-text">{d.extra.join(', ')}</span>
               </p>
             )}
+            {d.shifted && (
+              <p className="mt-1 text-text-2">
+                Positions: <span className="font-medium text-text">don’t line up with this report’s Columns</span>. A
+                CSV is read by position, so this file’s values are counted under the wrong columns.
+              </p>
+            )}
           </li>
         ))}
       </ul>

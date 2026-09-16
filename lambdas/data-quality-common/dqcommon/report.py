@@ -6,8 +6,8 @@ report a given set of inputs produces, which matters more than usual in this mod
 wrong report does not crash, it tells a user something false about their data and they act on it.
 
 Four tags, and the distinction is the point of the whole arc. **Exact** covers type consistency,
-null and blank ratios, duplicate rows, row counts and cross-file column agreement, all computed
-by Athena over every row. **Approximate** covers ragged rows and encoding when computed, each
+null and blank ratios, duplicate rows and row counts, all computed by Athena over every row, and
+cross-file column agreement, computed from every file's probed header. **Approximate** covers ragged rows and encoding when computed, each
 carrying the reason it can only be approximate, in the report, next to the number. **Skipped** is
 a check that could never have found anything here, and is never rendered as a clean pass: a green
 result the data did not earn is worse than no result. **Not computed** is a check that was
@@ -58,6 +58,8 @@ import csv
 import io
 import json
 from collections import Counter
+
+from cpcommon import ddl
 
 from . import config, sql
 
@@ -299,7 +301,7 @@ def _column(index: int, column: dict, total: dict, row_count: int, skip_reason: 
     return entry
 
 
-def cross_file(files: list[dict]) -> dict:
+def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -> dict:
     """Reports whether every file presents the same columns, and exactly where they differ.
 
     The baseline is the modal column set, not the first file's and not the union. The union would
@@ -313,6 +315,28 @@ def cross_file(files: list[dict]) -> dict:
     is the odd one is arbitrary, and no amount of counting can settle it, because the data does
     not say.
 
+    In a CSV each file is also checked against the columns the typed table DECLARES, because
+    OpenCSVSerde assigns a file's fields to them by position: field ``i`` is read as declared
+    column ``i``, trailing fields past the last declared column are ignored, and a short row reads
+    nulls. A file is ``shifted`` when any field it has lands under a column of another name, which
+    is every way a CSV is misread — columns in another order, a column inserted or dropped before
+    one the table keeps, a partition column the table leaves out with a kept column after it, or
+    two files adding different trailing columns, the later read under the earlier's name. Nothing
+    errors, since every CSV column is a string, so this is the only place the misread shows.
+    Parquet and JSON are matched by name and are never shifted.
+
+    The declared columns are ``sql.profiled_columns`` over the union — the same list the typed
+    table, the profile query and the report's per-column figures use — so ``shifted`` names
+    exactly the files whose values those figures count under the wrong name. That is deliberately
+    not the minority: the declared order is first-seen across the files as listed, so when the
+    first file is the odd one, the files named are the rest, and they are the ones this report
+    misreads. Missing and extra still name the minority, which is the repair.
+
+    This check is also what lets create-temp-tables judge ``partition_column_not_last`` on the
+    folder's union rather than on each file's header: a file whose own header puts a partition
+    column before a kept one, in a folder whose union does not, is always shifted, since the
+    declared list never holds a partition column at that position.
+
     A single file flows through the general path rather than short-circuiting: it produces the
     identical answer, since its own signature is the modal one and it never disagrees with itself,
     and a special case that changes no behaviour is a branch nothing can test.
@@ -323,28 +347,42 @@ def cross_file(files: list[dict]) -> dict:
 
     Args:
       files: The manifest's file entries, each carrying its probed columns.
+      fmt: The source format key, or None when neither the manifest nor the request names one.
+        Positions are checked only for ``ddl.POSITIONAL_FORMATS``, which None is not.
+      partition_keys: The declared partition keys, which the typed table leaves out of its columns.
 
     Returns:
-      Whether the columns agree, and the per-file missing and extra lists where they do not.
+      Whether the columns agree, and for each file that does not, its missing and extra columns
+      and whether its fields are read under the wrong columns.
 
     Raises:
-      KeyError: If a file entry is missing its key, or a column its name.
+      KeyError: If a file entry is missing its key, a column its name, or a partition key its
+        name.
     """
     if not files:
         return {"columnsAgree": True, "disagreements": []}
 
-    signatures = [tuple(sorted(c["name"] for c in (f.get("columns") or []))) for f in files]
+    headers = [[c["name"] for c in (f.get("columns") or [])] for f in files]
+    signatures = [tuple(sorted(names)) for names in headers]
     baseline = set(Counter(signatures).most_common(1)[0][0])
 
-    disagreements = [
-        {
-            "file": entry["key"],
-            "missing": sorted(baseline - set(signature)),
-            "extra": sorted(set(signature) - baseline),
-        }
-        for entry, signature in zip(files, signatures, strict=False)
-        if set(signature) != baseline
-    ]
+    positional = fmt in ddl.POSITIONAL_FORMATS
+    declared = [c["name"] for c in sql.profiled_columns(sql.union_columns(files), partition_keys)]
+
+    disagreements = []
+    for entry, names in zip(files, headers, strict=False):
+        present = set(names)
+        width = min(len(names), len(declared))
+        shifted = positional and names[:width] != declared[:width]
+        if present != baseline or shifted:
+            disagreements.append(
+                {
+                    "file": entry["key"],
+                    "missing": sorted(baseline - present),
+                    "extra": sorted(present - baseline),
+                    "shifted": shifted,
+                }
+            )
     return {"columnsAgree": not disagreements, "disagreements": disagreements}
 
 
@@ -537,12 +575,21 @@ def _plural(count: int, singular: str) -> str:
 
 
 def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
-    """Builds the human-readable summary the notification body is drawn from.
+    """Builds the human-readable summary the report page leads with, under What to look at first.
+
+    The completion notification carries none of it — only the location and the report link — so
+    a live check looks for these lines on the report, not in the notification.
 
     Structural before statistical, deliberately. A file missing a column changes what every other
     number in the report means, and it is the finding most likely to explain a broken downstream
-    table; a duplicate-row count is worth knowing but changes nothing else. A notification is a
-    sentence or two, and whatever is first is what gets read.
+    table; a duplicate-row count is worth knowing but changes nothing else. The list is short,
+    and whatever is first is what gets read.
+
+    Shifted files share ONE line, however many there are, and it leads the cross-file findings. A
+    folder whose export changed its header part-way through splits into two halves, and a line per
+    file would fill the capped list with one sentence and push every other finding out. The line
+    counts the shifted files and never the others, and points at the report's own Columns, the
+    order every shifted file is read against.
 
     An empty result leads even the structural findings: zero rows over files that exist means
     every other figure is zero, and reporting no duplicates, no ragged rows and no missing values
@@ -569,6 +616,19 @@ def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
         issues.append(
             f"no rows were found in the {file_count} {_plural(file_count, 'file')} checked — "
             "the data may be empty or header-only"
+        )
+
+    shifted = [d["file"] for d in exact["crossFile"]["disagreements"] if d["shifted"]]
+    if len(shifted) == 1:
+        issues.append(
+            f"{_basename(shifted[0])}'s columns don't line up with this report's Columns — a CSV "
+            "is read by position, so its values are counted under the wrong columns"
+        )
+    elif shifted:
+        issues.append(
+            f"{len(shifted):,} files, starting with {_basename(shifted[0])}, have columns that "
+            "don't line up with this report's Columns — a CSV is read by position, so their "
+            "values are counted under the wrong columns"
         )
 
     for disagreement in exact["crossFile"]["disagreements"]:
@@ -758,7 +818,7 @@ def build(
             _column(index, column, total, row_count, _skip_reason(column, parquet))
             for index, column in enumerate(columns)
         ],
-        "crossFile": cross_file(files),
+        "crossFile": cross_file(files, fmt, manifest.get("partitionKeys") or []),
     }
     approximate = {
         "raggedRows": _ragged(request.get("ragged"), ragged_rows),

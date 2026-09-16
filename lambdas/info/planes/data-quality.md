@@ -101,7 +101,12 @@ Revisit before real users arrive.
   partition that is not at the end of the header (`partition_column_not_last`, move or drop the
   column). The third exists because the typed table leaves such a column out and a CSV is read by
   POSITION, so the report would describe every later column against its neighbour's field — worse
-  than no report, since the user acts on it.
+  than no report, since the user acts on it. It judges the folder's **union**, the order the table
+  declares, not each file's header: a refusal is for the misread no report could show. A folder
+  whose files differ is reported instead, and in a CSV cross-file agreement checks each file
+  against the columns the table **declares**, marking every file whose fields land under another
+  column's name — comparing files with each other misses a swap, an inserted column, or two files
+  adding different trailing columns.
 - **A column named after a partition gets no per-column figures, in any format.** The typed table
   leaves it out, and a query naming it anyway does not fail: Athena lowercases the name and binds
   it to the partition column, so the report showed the folder's value under the user's column

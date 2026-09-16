@@ -185,6 +185,15 @@ def _create(event: dict) -> dict:
     the same reason code, in its own wording: this arc's keys are folder names, and a user told
     to fix a partition key they never declared would go looking for a dialog.
 
+    That refusal is judged on the folder's union, the order the table declares, and not on each
+    file's own header, deliberately. A refusal is for the misread no report could show: every
+    file agreeing, so cross-file agreement is clean and every later column is wrong. A file whose
+    own header puts a partition column before a kept one, in a folder whose union does not, can
+    only exist when the files differ in their columns or their order, and the report's cross-file
+    agreement marks that file as read under the wrong columns — the table never declares a
+    partition column, so its fields cannot line up — rather than the check stopping with no report
+    at all.
+
     Args:
       event: The task input.
 
@@ -198,8 +207,8 @@ def _create(event: dict) -> dict:
         rather than from parsing the exception's text, because a token that reaches a user must
         never be scraped out of a log message — ``invalid_column_names`` when a header carries a
         name Athena cannot use, ``invalid_partition_names`` when a folder's key cannot be one,
-        ``partition_column_not_last`` when a CSV header names a partition before a column the
-        table keeps, or a query failure from the creates.
+        ``partition_column_not_last`` when the folder's CSV columns name a partition before a
+        column the table keeps, or a query failure from the creates.
       TransientError: On a retryable Athena or S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)

@@ -204,6 +204,7 @@ w("yeartrail.csv", ["id","region","year"], [[i,regions[i%4],2025] for i in range
 w("dq_a.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(1,21)])
 w("dq_b.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(21,41)])
 w("dq_bad.csv", ["id","zone","amount"],  [[i,regions[i%4],i*3] for i in range(41,61)])
+w("dq_reorder.csv", ["id","amount","region"], [[i,i*3,regions[i%4]] for i in range(61,81)])
 PY
 ```
 
@@ -222,6 +223,7 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `yeartrail/year=2025/` | `yeartrail.csv` | the trailing collision it can |
 | `dq_agree/` | `dq_a.csv`, `dq_b.csv` | data-quality clean control |
 | `dq_disagree/` | `dq_a.csv`, `dq_bad.csv` | cross-file finding |
+| `dq_reorder/` | `dq_a.csv`, `dq_reorder.csv` | cross-file finding on a CSV's column order |
 | `archive_fixture/` | copies of `dq_a.csv`, `dq_b.csv` | **the only thing you archive** |
 | `marker_control/` | *(empty)* | the control beside every protected-folder refusal |
 
@@ -594,6 +596,7 @@ as honestly as a succeeding one.
 |---|---|
 | Check `dq_disagree/` | The cross-file finding, marked **Exact**, naming the column, while *"rows with the wrong number of fields"* stays **0**. |
 | Check `dq_agree/` (the control) | Clean, with that section **absent** rather than empty. |
+| Check `dq_reorder/` (same columns as `dq_a.csv`, `amount` and `region` swapped) | **Issues found**: the cross-file section names `dq_reorder.csv` with *"Positions: don’t line up with this report’s Columns"* (curly apostrophes on the page, so search on *"line up with this report"*) and no Missing or Extra line, and the report's *What to look at first* line says `dq_reorder.csv`'s columns don't line up with this report's Columns, marked **Exact** (the notification carries no issues, only the link). `dq_agree/` above stays clean, so the order is what is being compared. |
 | Check a **single file** | Reports on that file alone — its neighbours are not counted. |
 | Check an empty / header-only folder | Called out as a finding, never clean. Sampled and skipped figures never read as a pass. |
 | The runs list | Pages, and reopens reports. |

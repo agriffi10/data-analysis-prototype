@@ -46,6 +46,10 @@ there is no native polars reader.
 
 **CSV is not type-inferred** — every column is `string`, names come from the header, and a header
 plus comma separator is assumed, via OpenCSVSerde. Parquet and JSON infer types and parse dates.
+The header is **one sample file's**, and `partition_column_not_last` judges that header alone; no
+other file's header is read. A file whose columns differ, or sit in another order, is read by
+position under the sample's names, and a data-quality check over the folder is what reports the
+disagreement.
 
 **JSON must be NDJSON**, one object per line, which is what Athena's SerDe needs anyway. Its schema
 comes from **one sample file**, so fields present only in other files are silently dropped. A
