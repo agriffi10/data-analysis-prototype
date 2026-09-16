@@ -67,7 +67,10 @@ machine and every verb.
 
 - **Locks are objects claimed under ETag CAS, released by OVERWRITING.** With `DeleteObject` denied,
   "free" is a *state* rather than an absence. The holder is the **execution ARN**, because a request
-  id identifies the message and Pipes delivery is at-least-once.
+  id is whatever the caller sent, so two executions can carry the same one. Reusing an execution
+  name [was measured](../../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+  to return the original run or fail rather than start a second, but that the Pipe reuses the name
+  for a redelivered message is inferred, not proven, so no lock relies on it.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success. Raise, and leave the registry record —
   **the record IS the name lock**.

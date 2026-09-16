@@ -175,8 +175,10 @@ def acquire(
     acquire task on a Lambda service fault, and a put whose response was lost has already written
     the lock — so a re-invocation that refused would fail a request whose own earlier attempt
     succeeded. That branch is why the holder must identify the EXECUTION and not the request: a
-    request id identifies the message, delivery is at-least-once, and a redelivered message runs a
-    second execution carrying the same id while the first is still going.
+    request id is whatever the caller sent, so a second execution can carry the same id while the
+    first is still going. Reusing an execution name was measured to return the original run or fail
+    rather than start a second, but that the Pipe reuses the name for a redelivered message is
+    inferred rather than proven, so nothing here relies on redelivery being harmless.
 
     **The re-claim rewrites the object**, so it returns a NEW tag and stamps a new claim time. A
     caller that acquires more than once must release against the most recent tag; an earlier one is

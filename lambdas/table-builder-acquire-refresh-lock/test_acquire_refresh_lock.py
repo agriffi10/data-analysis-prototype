@@ -62,11 +62,12 @@ def lock(monkeypatch):
 
 
 def test_the_holder_is_the_execution_arn_and_not_the_request_id(lock, sqs):
-    """The request id identifies the MESSAGE, and Pipes delivery is at-least-once.
+    """The request id is whatever the caller sent, so two executions can carry the same one.
 
-    Two executions of one redelivered message carry the same request id, and table_lock's
-    re-entrancy branch would then hand the lock to BOTH — silently, with no refusal event. The
-    ARN is what distinguishes them, which is why StampExecution exists.
+    table_lock's re-entrancy branch would then hand the lock to BOTH — silently, with no refusal
+    event. The ARN is what distinguishes them, which is why StampExecution exists. Reusing an
+    execution name was measured to return the original run or fail rather than start a second, but
+    that a redelivered message reuses its name is inferred, so the holder does not rest on it.
     """
     verb.handler(dict(REQUEST), None)
 

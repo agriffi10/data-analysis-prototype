@@ -137,8 +137,10 @@ def plan_key(request: dict) -> str:
 
     Two executions can overlap on one key. The FIFO message group is the source table, but the
     Pipe is fire-and-forget, so SQS considers the message handled as soon as the start call
-    returns rather than when the execution finishes — a group serializes starts, not runs, and
-    redelivery after a crash or a redrive opens the same window. It is still safe as a bounded
+    returns rather than when the execution finishes — a group serializes starts, not runs, and a
+    redrive opens the same window. Reusing an execution name was measured to return the original
+    run or fail rather than start a second, but that a redelivered message reuses its name is
+    inferred, so redelivery is not counted on to keep the window shut. It is still safe as a bounded
     claim: a collision needs the same actor, source database, source table and result name, and
     those requests list the same prefix, so both plans describe the same object set and either
     is correct for either execution. The residual exposure is a source mutated between the two

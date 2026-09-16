@@ -20,9 +20,10 @@ there, and a member who removed it could reuse the id. It would also be one clai
 than one per id, and Athena's tokens are not scoped to a space.
 
 The holder is the execution ARN, never the request id, because the id is whatever the caller sent. A
-retry of the claiming Task is the same execution, finds its own ARN and carries on. A redelivered
-message was measured to re-attach to its first execution rather than start a second, but that the
-Pipe names executions per message is inferred rather than proven, so nothing here relies on it.
+retry of the claiming Task is the same execution, finds its own ARN and carries on. Reusing an
+execution name was measured to return the first run or fail rather than start a second, but that the
+Pipe reuses the name for a redelivered message is inferred rather than proven, so nothing here
+relies on it.
 
 A claim is never released, taken over or expired. That is the difference from ``cpcommon.lock``,
 whose staleness rule would hand the id to a later execution, which is the collision this prevents.
