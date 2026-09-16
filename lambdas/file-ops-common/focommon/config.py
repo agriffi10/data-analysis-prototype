@@ -18,7 +18,8 @@ text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_F
 nothing else** — in particular not the archive write-lock rule, which is a different shape and is
 guarded differently: ``test_archive_write_lock_mirrors_iam.py`` runs this package's predicate and
 the API's against a matcher built from the bucket policies themselves, rather than against each
-other. ``lambdas/info/planes/file-ops.md`` carries which guard reads what, and what each is still
+other, and ``test_file_ops_rules_mirror_execution_role.py`` holds ``ANY_DEPTH_DENIED_FOLDERS``'s
+rule against this plane's own execution role. ``lambdas/info/planes/file-ops.md`` carries which guard reads what, and what each is still
 blind to.
 
 Attributes:
@@ -137,11 +138,13 @@ Attributes:
     rather than reused from a list. Re-exported from ``cpcommon.app_managed``, which owns the
     name, as are the other two folders below that are about to move.
   USER_SETTINGS_FOLDER: The space's own portal-managed settings folder. Refused as a source for
-    EVERY operation, by this plane's own rule rather than by list membership — it is hidden from
-    the browser and locked out of the picker, but deliberately not undeletable, so no existing
-    list reaches it. Hiding is not enforcement, and this plane accepts a hand-crafted envelope.
-  ARCHIVE_FOLDER: The archive receipts folder. Refused as a destination, and as a delete or move
-    source, under the bucket asymmetry ``writeLockedPrefix.ts`` mirrors from IAM.
+    EVERY operation at the space root, by this plane's own rule rather than by list membership —
+    it is hidden from the browser and locked out of the picker, but deliberately not undeletable,
+    so no root-anchored list reaches it. Hiding is not enforcement, and this plane accepts a
+    hand-crafted envelope. Below the root it is one of ``ANY_DEPTH_DENIED_FOLDERS``.
+  ARCHIVE_FOLDER: The archive receipts folder. Refused as a delete or move source under the bucket
+    asymmetry ``writeLockedPrefix.ts`` mirrors from IAM, and as a destination at any depth, as one
+    of ``ANY_DEPTH_DENIED_FOLDERS``.
   REPORTS_FOLDER: The data-quality reports folder, an alias of the name ``cpcommon.app_managed``
     declares. Refused as a destination, like every picker-locked folder, and as a delete or move
     source at or beneath it. Root-anchored in both buckets, because the data-quality plane writes
@@ -149,6 +152,18 @@ Attributes:
   MARKER_BASENAME: The undeletable marker both bucket policies deny by name at any depth.
   PICKER_LOCKED_FOLDERS: Never a destination. Root-anchored in whichever bucket.
   UNDELETABLE_ROOT_FOLDERS: Never a delete or move SOURCE, at a space root.
+  ANY_DEPTH_DENIED_FOLDERS: The folders this plane's EXECUTION ROLE denies both writing and
+    deleting beneath, at any depth in both space buckets, so never a destination and never a delete
+    or move source wherever they sit. The role carries no principal tag, so its Resource cannot be
+    anchored at a space root the way a policy written against ``${aws:PrincipalTag/username}`` can
+    — an IAM wildcard matches ``/`` and there is no way to say "one path segment". This list
+    mirrors that ROLE, deliberately NOT the browser's picker, which refuses these root-anchored: a
+    nested folder of one of these names is an ordinary destination to the picker and still refused
+    here, because the
+    alternative is an ``AccessDenied`` part way through a run. The two moving folders are matched
+    as their ``system_settings`` pair, through ``segments_hold_app_managed``, so a folder the user
+    made and called ``archive`` stays ordinary. ``test_file_ops_rules_mirror_execution_role.py``
+    holds the rule built from it against both Denies.
   LOCK_PREFIX: Key prefix for this plane's lock objects, under the admin bucket. Mirrored in the
     module's ``locals.tf``, which is what the IAM grant is rendered from; a test holds the two
     equal, because a lock written outside the grant fails as an AccessDenied at runtime.
@@ -236,6 +251,8 @@ UNDELETABLE_ROOT_FOLDERS = (
     ARCHIVE_FOLDER,
     _app_managed.SYSTEM_SETTINGS_FOLDER,
 )
+
+ANY_DEPTH_DENIED_FOLDERS = (ATHENA_RESULTS_FOLDER, USER_SETTINGS_FOLDER, ARCHIVE_FOLDER)
 
 LOCK_PREFIX = "locks/file-ops"
 

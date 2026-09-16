@@ -29,11 +29,12 @@ Deny at all for the second, which is this plane's own rule. Holding the general 
 archive Deny would assert something the policy does not say.
 
 **And it is the PORTAL role's Deny throughout, which is not the only one in play.** The file
-operations plane acts under its own execution role, and that role's personal-bucket Deny is
-``{user_space_bucket_arn}/*/archive/*`` — any-depth in BOTH buckets, where the portal role's is
+operations plane acts under its own execution role, and that role's Denies read
+``{bucket}/*/system_settings/archive/*`` — any-depth in BOTH buckets, where the portal role's is
 anchored at the caller's root. So ``_is_at_or_below`` is deliberately looser than the role its
-plane runs under: it mirrors the browser's affordance, and ``focommon.delete`` carries the
-execution role's stricter rule and refuses before the first ``DeleteObjects``. Reading a green run
+plane runs under: it mirrors the browser's affordance, and ``focommon.protected.role_denied_folder``
+carries the execution role's stricter rule, held against that role in
+``test_file_ops_rules_mirror_execution_role.py``. Reading a green run
 here as "the file-ops plane agrees with its own IAM" is the misreading to avoid; what it says is
 that the plane's affordance agrees with the browser's, against the policy that defines it.
 

@@ -6,8 +6,8 @@ every verb before has carried, and writes one JSON Lines item per object of ever
 rather than one Lambda's timeout.
 
 **An item with any other outcome contributes ZERO lines.** Its terminal was decided before this verb
-ran and nothing here may overwrite it — which is also why this verb re-checks no destination: the
-guard is the only place that question is asked, and it has now been asked twice.
+ran and nothing here may overwrite it — which is also why this verb asks nothing about what OCCUPIES
+a destination: the guard is the only place that question is asked, and it has now been asked twice.
 
 **THE DELETABILITY CHECK RUNS HERE, BEFORE THE TRANSFER, AND THAT PLACEMENT IS THE POINT.** For a
 ``move`` or a ``delete``, every one of an item's source keys is checked against what this plane may
@@ -21,6 +21,15 @@ defence that costs nothing.
 
 A ``copy`` is not checked, deliberately: it deletes nothing, so what this plane may remove is not a
 question about it.
+
+**THE WRITABILITY CHECK RUNS HERE TOO, FOR THE SAME REASON.** For a ``copy`` or a ``move``, every one
+of an item's DESTINATION keys is checked against the folders the execution role may not write, at
+any depth — and an item that fails is refused whole, having copied nothing. The front door already
+judged the prefix and each item's own landing key; what only this verb can see is an object BENEATH
+a folder item, since the expansion is what derived its key. Left to the copy, the role's ``Deny``
+fails those objects alone and the rest of the item lands, reported as a failed copy with half a
+folder at the destination. It runs after the deletability check, so a move that is refused on both
+sides keeps the reason it had before this check existed.
 
 **Every destination comes from the PLAN.** This verb composes no key — the expansion derived them
 all, the guard checked exactly those, and a builder that derived its own would put objects
@@ -40,7 +49,7 @@ from cpcommon import config, observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 from cpcommon.transfer import manifest as manifest_mod
-from focommon import delete, notify, outcomes, plan
+from focommon import delete, notify, outcomes, plan, protected
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -84,12 +93,28 @@ def _source_keys(item: dict) -> list:
     return [obj["srcKey"] for obj in item["objects"] if obj.get("srcKey")]
 
 
-def _refusal(item: dict, err: TerminalError) -> dict:
-    """Turns a per-item deletability refusal into the outcome record that replaces its ``cleared``.
+def _destination_keys(item: dict) -> list:
+    """Returns one planned item's absolute destination keys.
+
+    Args:
+      item: One plan item.
+
+    Returns:
+      The destination keys, in plan order.
+
+    Raises:
+      None.
+    """
+    return [obj["destKey"] for obj in item["objects"] if obj.get("destKey")]
+
+
+def _refusal(item: dict, reason: str, detail: str) -> dict:
+    """Turns a per-item refusal from either check into the outcome record that replaces ``cleared``.
 
     Args:
       item: The plan item that was refused.
-      err: The refusal, whose reason code is what the notification is worded from.
+      reason: The refusal's reason code, which is what the notification is worded from.
+      detail: The operator text, logged and never shown to the user.
 
     Returns:
       The outcome record.
@@ -97,8 +122,8 @@ def _refusal(item: dict, err: TerminalError) -> dict:
     Raises:
       None.
     """
-    logger.info("item %s cannot be deleted: %s", item["itemKey"], err)
-    return outcomes.outcome(item["itemKey"], item["label"], outcomes.PROTECTED, err.reason)
+    logger.info("item %s refused before the transfer: %s: %s", item["itemKey"], reason, detail)
+    return outcomes.outcome(item["itemKey"], item["label"], outcomes.PROTECTED, reason)
 
 
 def _lines(item: dict) -> list:
@@ -172,7 +197,7 @@ def _build_transfer_manifest(event) -> dict:
 
     Returns:
       The request with its ``transfer`` block and the COMPLETE outcome list, including any item
-      this verb refused as undeletable.
+      this verb refused as undeletable or unwritable.
 
     Raises:
       TerminalError: ``plan_unreadable``, ``plan_superseded`` or ``malformed_event``.
@@ -191,8 +216,12 @@ def _build_transfer_manifest(event) -> dict:
             try:
                 delete.assert_item_deletable(_source_keys(item), root)
             except TerminalError as err:
-                decided.append(_refusal(item, err))
+                decided.append(_refusal(item, err.reason, err.detail))
                 continue
+        refusal = protected.planned_write_refusal(_destination_keys(item))
+        if refusal is not None:
+            decided.append(_refusal(item, refusal.reason, refusal.detail))
+            continue
         written = _lines(item) if operation != "delete" else []
         items.append((item, len(written)))
         lines.extend(written)

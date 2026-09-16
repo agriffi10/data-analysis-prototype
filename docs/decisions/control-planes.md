@@ -165,8 +165,9 @@ inside the execution the Pipe starts.
 - **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
   **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
   item; the collision unit is the derived destination **key**, and a protected destination is judged
-  there as well as at the prefix, since an item's name can land in a locked folder; a **403 counts as
-  occupied**; the deletion takes **confirmed plan keys** — a prefix listing orphans an uncopied object.
+  there as well as at the prefix, since an item's name can land in a locked folder, and every planned
+  key is judged against the role's any-depth write Deny before the transfer, as the source keys are
+  against its delete Deny; a **403 counts as occupied**; the deletion takes **confirmed plan keys** — a prefix listing orphans an uncopied object.
 - **The browser's async switchover consults the routing predicate ONCE**, above every submission
   point, in one dispatcher. The in-flight record is **session-scoped, never persisted**, and settles
   on a notification carrying its request id.

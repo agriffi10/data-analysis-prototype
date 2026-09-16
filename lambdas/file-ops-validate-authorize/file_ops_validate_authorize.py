@@ -326,7 +326,6 @@ def _per_item_outcomes(
     source: dict,
     destination: dict | None,
     space_kind: str,
-    destination_kind: str,
 ) -> list:
     """Decides each item's own outcome, in the order the rules must run.
 
@@ -354,6 +353,9 @@ def _per_item_outcomes(
     refusal; this judges each item, because only the item names where it lands. **It is the one
     outcome labelled by the name the item would land under** — a rename's ``targetName`` — since
     that name is what the refusal is about, and the browser labels a renamed conflict the same way.
+    No space kind selects it: its any-depth arm mirrors the execution role, which reads the same in
+    both buckets. What neither sees — an object beneath a folder item landing in one of the role's
+    folders — the manifest builder refuses once every key is derived.
 
     Both pairing rules are confined to ONE bucket. Across buckets the same key string names a
     different object, so a personal space and a shared space that happen to share a name would
@@ -364,8 +366,7 @@ def _per_item_outcomes(
       operation: The validated operation.
       source: The resolved source location.
       destination: The resolved destination, or None for a delete.
-      space_kind: The source space's kind, which selects the bucket-asymmetric rules.
-      destination_kind: The destination space's kind, which selects them for the derived key.
+      space_kind: The source space's kind, which selects the bucket-asymmetric source rules.
 
     Returns:
       One outcome record per item that has already been decided. An item with no entry is
@@ -395,9 +396,7 @@ def _per_item_outcomes(
             decided.append(outcomes.outcome(item["key"], label, outcomes.NOOP))
             continue
 
-        refusal = protected.derived_destination_refusal(
-            destination["root"], derived, destination_kind
-        )
+        refusal = protected.derived_destination_refusal(destination["root"], derived)
         if refusal is not None:
             decided.append(
                 outcomes.outcome(
@@ -482,21 +481,13 @@ def _validate_and_authorize(event) -> dict:
         source["items"] = _normalize_items(declared.get("items"), source["root"])
 
         destination = None
-        destination_kind = "personal"
         if operation != "delete":
             declared_destination = req["destination"]
             destination = authz.authorize_destination(actor, declared_destination.get("space"))
             destination["prefix"] = _check_destination_prefix(
                 destination["root"], declared_destination["prefix"]
             )
-            destination_kind = (
-                declared_destination.get("space", {}).get("kind")
-                if isinstance(declared_destination.get("space"), dict)
-                else None
-            ) or "personal"
-            refusal = protected.destination_refusal(
-                destination["root"], destination["prefix"], destination_kind
-            )
+            refusal = protected.destination_refusal(destination["root"], destination["prefix"])
             if refusal is not None:
                 raise TerminalError(refusal.reason, refusal.detail)
             _assert_no_derived_collision(source["items"], destination["prefix"])
@@ -507,7 +498,6 @@ def _validate_and_authorize(event) -> dict:
             source,
             destination,
             source_space.get("kind") or "personal",
-            destination_kind,
         )
     except TerminalError as err:
         notified = {

@@ -20,22 +20,30 @@ case — visible, never a paste target, never deletable, and copying *out* of it
 
 So the rule is stated per (side x operation), enumerated against the real constants:
 
-  - as a DESTINATION, the picker-locked folders, plus ``archive/`` under its own depth rule —
-    judged on the destination prefix AND on every item's derived key;
+  - as a DESTINATION, the picker-locked folders at the root, plus the execution role's
+    ``ANY_DEPTH_DENIED_FOLDERS`` wherever they sit — judged on the destination prefix, on every
+    item's derived key, and by the manifest builder on every planned object's key;
   - as a DELETE or MOVE SOURCE, the undeletable root folders, plus anything beneath
-    ``athenaresults/`` or ``archive/``, plus ``_data-quality-reports/`` and anything in it;
+    ``athenaresults/`` or ``archive/``, plus ``_data-quality-reports/`` and anything in it, plus
+    the execution role's ``ANY_DEPTH_DENIED_FOLDERS`` wherever they sit;
   - for EVERY operation, ``user_settings/`` as a source, by this plane's own rule;
   - for EVERY operation INCLUDING COPY, the marker file by basename — see below;
   - as a COPY SOURCE, no FOLDER rule at all. There is deliberately none, and a test says so.
 
-**The bucket asymmetry is mirrored, never averaged.** In the personal bucket the prefix IS the
-principal tag, so the Deny names the caller's own root and ``alice/backups/archive/x`` is an
-ordinary file. In the shared bucket the Deny puts a wildcard where the space name goes, and an S3
-resource wildcard matches ``/`` too, so it reaches an ``archive`` folder at ANY depth below the
-space root. Anchoring both at the root would accept a destination IAM refuses; applying the
-any-depth rule to both would refuse a personal file IAM permits deleting.
+**Two policies are mirrored here, and they differ.** The source rules mirror the BUCKET policies,
+whose asymmetry is kept rather than averaged: in the personal bucket the prefix IS the principal
+tag, so the Deny names the caller's own root and ``alice/backups/system_settings/archive/x`` is
+outside it, while the shared bucket's Deny puts a wildcard where the space name goes, and an S3
+resource wildcard matches ``/`` too, so it reaches the folder at ANY depth below the space root.
 ``test_archive_write_lock_mirrors_iam.py`` builds a key matcher out of each bucket policy and runs
-``_is_at_or_below`` against it, so this paragraph is asserted rather than described.
+``_is_at_or_below`` against it, so that half is asserted rather than described.
+
+But the plane WRITES and DELETES under its own execution role, which carries no principal tag, so
+that role's Denies reach ``ANY_DEPTH_DENIED_FOLDERS`` at any depth in BOTH buckets. A rule anchored
+at the root, in either bucket, accepts a key the role then refuses part way through a run.
+``role_denied_folder`` is the one reading of those Denies, and every any-depth rule here goes
+through it; ``test_file_ops_rules_mirror_execution_role.py`` holds it
+against the role's own template.
 
 Every refusal names the folder in operator text and carries its own reason code, so the notifier
 can word it without re-deriving which rule fired.
@@ -44,6 +52,7 @@ can word it without re-deriving which rule fired.
 from cpcommon.app_managed import app_managed_prefixes, segments_hold_app_managed
 
 from .config import (
+    ANY_DEPTH_DENIED_FOLDERS,
     ARCHIVE_FOLDER,
     ATHENA_RESULTS_FOLDER,
     MARKER_BASENAME,
@@ -59,6 +68,8 @@ __all__ = [
     "derived_destination_refusal",
     "destination_refusal",
     "marker_refusal",
+    "planned_write_refusal",
+    "role_denied_folder",
     "settings_source_refusal",
     "source_refusal",
 ]
@@ -150,13 +161,78 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
     )
 
 
-def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | None:
-    """Refuses a destination the browser's own picker would never offer.
+def role_denied_folder(key: str) -> str | None:
+    """Names the folder whose execution-role Deny covers writing or deleting at a key, or None.
+
+    The role's Resources read ``{bucket}/*/user_settings/*`` and ``{bucket}/*/system_settings/
+    {athenaresults,archive}/*``, and each means exactly "the key contains ``/name/``": a ``*``
+    matches ``/``, so the folder may sit at any depth, but the Resource still needs a ``/`` BEFORE
+    the name and one AFTER it. So the scan runs over every segment but the FIRST and the LAST, and
+    that slice is the whole rule rather than an approximation of it.
+
+    **Not the first**, and not "below the space root": no root is needed, and none is taken. A user
+    literally named ``user_settings`` owns ``user_settings/foo/a.csv``, which no Resource matches,
+    and a scan including the first segment refused every delete that user asked for. **Not the
+    last**: a file key's last segment is its NAME, and a file *called* ``user_settings`` is not a
+    file *inside* one; a folder key's last segment is the empty string after its slash, so the
+    folder itself is still inside its parent's scan.
+
+    Args:
+      key: The absolute object key, file or folder.
+
+    Returns:
+      The folder's name, or None when no role Deny reaches the key.
+
+    Raises:
+      None.
+    """
+    folders = key.split("/")[1:-1]
+    for name in ANY_DEPTH_DENIED_FOLDERS:
+        if segments_hold_app_managed(folders, name):
+            return name
+    return None
+
+
+def planned_write_refusal(keys: list) -> Refusal | None:
+    """Refuses a planned item one of whose destination keys its role may not write.
+
+    The manifest builder's check, run over the keys the expansion derived, and the only one of the
+    destination rules that can see an object BENEATH a folder item: copying ``alice/stage/``, which
+    holds ``stage/user_settings/a.csv``, puts nothing in a denied folder by its prefix or by its own
+    name, and still writes one object the role refuses. The whole item is refused rather than the
+    objects the role would allow, because a partial copy reported as a failure is the outcome this
+    replaces, and it is how a move of the same folder is already refused on its source side.
+
+    Args:
+      keys: The item's planned destination keys, absolute.
+
+    Returns:
+      The refusal, naming the first key and its folder, or None when every key may be written.
+
+    Raises:
+      None.
+    """
+    for key in keys:
+        name = role_denied_folder(key)
+        if name is not None:
+            return Refusal("write_refused", f"{key!r} sits under {name}/, which this plane may not write")
+    return None
+
+
+def destination_refusal(root: str, prefix: str) -> Refusal | None:
+    """Refuses a destination the browser's own picker would never offer, or the role would refuse.
 
     Every picker-locked folder is refused at the space root, INCLUDING the two a folder-name list
     tends to omit — ``_data-quality-reports/`` and ``shared_tables/`` — whose absence would let this
-    plane accept a destination the browser refuses. ``archive/`` is refused again under the depth
-    rule, because the picker rule alone is root-anchored and the shared bucket denies it deeper.
+    plane accept a destination the browser refuses.
+
+    **Then the execution role's folders, at any depth and in either bucket**, which the picker has
+    no opinion about: a folder the user made at ``alice/foo/user_settings/`` is an ordinary place to
+    the browser, and every write beneath it is denied to this plane. Refusing it here is what turns
+    that into a named refusal before anything runs. At the root the picker rule has already
+    answered, so this arm speaks only for a nested folder — which is why its reason is its own
+    rather than the locked folder's, whose wording says the app manages it. The space's kind
+    selects nothing here: the role reads the same in both buckets.
 
     **Anything BENEATH a locked folder is refused too, not just the folder itself.** The browser's
     picker filters locked folders out of the navigable list, so a user cannot enter one and cannot
@@ -173,7 +249,6 @@ def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | No
     Args:
       root: The authorized destination space root.
       prefix: The destination folder key, absolute.
-      space_kind: ``personal`` or ``shared``.
 
     Returns:
       The refusal, or None when the destination is ordinary.
@@ -184,12 +259,13 @@ def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | No
     for name in PICKER_LOCKED_FOLDERS:
         if _is_under_root_folder(prefix, root, name):
             return Refusal("destination_folder_locked", f"{name}/ is not a place files can be put")
-    if _is_at_or_below(prefix, root, ARCHIVE_FOLDER, space_kind=space_kind):
-        return Refusal("destination_archive_read_only", f"{ARCHIVE_FOLDER}/ is read-only")
+    denied = role_denied_folder(prefix)
+    if denied is not None:
+        return Refusal("destination_folder_reserved", f"{denied}/ is not a place this plane may write")
     return None
 
 
-def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal | None:
+def derived_destination_refusal(root: str, key: str) -> Refusal | None:
     """Refuses an item whose own derived key lands where ``destination_refusal`` refuses a prefix.
 
     **The prefix is where items are put, not where any of them lands**, so judging it alone let a
@@ -201,20 +277,22 @@ def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal
 
     The same two rules run, over the key ``paths.derived_destination_key`` builds, so the answer
     cannot drift from the prefix's. Once the prefix has passed, a refused derived key is always the
-    item's NAME landing on the locked folder itself, which is what the reason code says. Nothing
+    item's NAME landing on the folder itself, which is what both reason codes say — and they are
+    two, because what can truthfully be said differs. A picker-locked name is the app's own folder
+    at that root, where another destination is a step worth offering. One of the role's names is
+    refused wherever it lands, usually for a folder the user made — which cannot even be renamed
+    through this plane, since the source arm refuses it — so its sentence offers no step. Nothing
     beneath a folder item reaches a root-anchored folder its own key does not, and only because
     the two-segment homes share a first segment, ``system_settings/``, that is locked in its own
     right — a folder called that, holding ``athenaresults/``, is refused by its own key. A FILE item
-    named like a locked folder is not that folder, since both rules compare the raw key. What
-    neither rule mirrors is most of the execution role's any-depth Denies — ``*/user_settings/*``
-    and the ``athenaresults`` pair in both buckets, the ``archive`` pair in a personal space — so an
-    item, or an object beneath one, can still land under one of those deeper down, and that fails at
-    the write with the source untouched.
+    named like a locked folder is not that folder, since both rules compare the raw key. The
+    any-depth arm is different: an object beneath a folder item can reach one of the role's folders
+    that the item's own key does not, and ``planned_write_refusal`` is what sees it, once the
+    expansion has derived every key.
 
     Args:
       root: The authorized destination space root.
       key: The item's derived destination key, absolute.
-      space_kind: ``personal`` or ``shared``, the destination's.
 
     Returns:
       The refusal, naming the folder, or None when the item may land there.
@@ -222,9 +300,11 @@ def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal
     Raises:
       None.
     """
-    refusal = destination_refusal(root, key, space_kind)
+    refusal = destination_refusal(root, key)
     if refusal is None:
         return None
+    if refusal.reason == "destination_folder_reserved":
+        return Refusal("destination_name_kept_for_app", refusal.detail)
     return Refusal("destination_name_reserved", refusal.detail)
 
 
@@ -242,6 +322,14 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
     deletes beneath ``archive/``. Without those two depth rules this plane would accept requests its
     own IAM refuses mid-operation, which is the mismatch the deletability assertion exists to
     prevent.
+
+    **Those two follow the bucket policies; the last arm follows the execution role**, which denies
+    deleting beneath ``ANY_DEPTH_DENIED_FOLDERS`` at any depth in both buckets. The manifest builder
+    refuses such an item anyway, before anything is copied, so this arm takes away nothing that
+    could have moved or removed a file. What it moves is the SEAT: judged here, the item is refused
+    before the rule on its derived key runs, and a move of ``alice/f/user_settings/`` into
+    ``alice/g/`` is told it cannot be removed rather than told to choose a different name, which no
+    name would fix.
 
     ``_data-quality-reports/`` is refused with everything in it for a different reason: no Deny
     covers it, and what goes wrong is data rather than a denied call. The data-quality plane writes
@@ -284,6 +372,10 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
 
     if _is_at_or_below(key, root, ARCHIVE_FOLDER, space_kind=space_kind):
         return Refusal("archive_read_only", f"{ARCHIVE_FOLDER}/ is read-only")
+
+    denied = role_denied_folder(key)
+    if denied is not None:
+        return Refusal("delete_refused", f"{denied}/ is not a place this plane may delete from")
 
     return None
 
