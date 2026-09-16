@@ -262,7 +262,7 @@ def test_the_derived_rule_is_judged_under_the_DESTINATION_space_s_kind_not_the_s
     assert result["outcomes"] == [
         {
             "itemKey": "alice/stage/",
-            "label": "stage",
+            "label": "archive",
             "outcome": "protected",
             "reason": "destination_name_reserved",
         }

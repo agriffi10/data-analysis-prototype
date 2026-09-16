@@ -256,5 +256,5 @@ def test_both_new_refusals_reach_the_user_as_their_own_sentence_rather_than_the_
         "delete", {"outcome": "protected", "reason": "reports_folder_not_deletable"}
     )
 
-    assert reserved.startswith("the name it would have there belongs to a folder the app manages.")
+    assert reserved.startswith("that name belongs to a folder the app manages there. Please choose")
     assert reports == "data-quality reports are managed for you and cannot be moved or deleted."

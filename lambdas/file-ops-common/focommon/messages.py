@@ -96,8 +96,8 @@ _BODIES = {
         "the archive folder is read-only - it holds your archive receipts."
     ),
     "destination_name_reserved": (
-        "the name it would have there belongs to a folder the app manages. Please choose a "
-        "different name or destination."
+        "that name belongs to a folder the app manages there. Please choose a different "
+        "destination, or give it a different name first."
     ),
     "source_folder_undeletable": "that folder is managed for you and cannot be moved or deleted.",
     "results_folder_not_deletable": (

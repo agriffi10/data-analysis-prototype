@@ -822,7 +822,8 @@ is the folder a request names and every item lands one name below it, so a prefi
 moving `sales/stage/_data-quality-reports/` into `sales/`, or renaming a folder `shared_tables` at
 the root — in a shared space, one member replacing another's data-quality reports, which that plane
 reads back between its verbs. validate-authorize runs the destination rules over each item's derived
-key, per item, as `destination_name_reserved`. It sits AFTER the same-key no-op, which writes
+key, per item, as `destination_name_reserved`, labelled by the name the item would land under so a
+rename names what the user typed. It sits AFTER the same-key no-op, which writes
 nothing, and before into-itself, in every bucket pairing. `_data-quality-reports/` and everything in
 it is refused as a delete or move source, root-anchored like the plane's only write. **No
 execution-role Deny backs the reports folder on either side, by choice**: the role has no principal

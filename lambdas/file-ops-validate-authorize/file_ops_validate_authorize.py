@@ -351,7 +351,9 @@ def _per_item_outcomes(
     After the no-op it runs in EVERY bucket pairing, since a cross-space copy lands in a locked
     folder as surely as a same-space one, and before into-itself so an item the plane may not put
     there is reported as that. The destination prefix was already judged, as a whole-request
-    refusal; this judges each item, because only the item names where it lands.
+    refusal; this judges each item, because only the item names where it lands. **It is the one
+    outcome labelled by the name the item would land under** — a rename's ``targetName`` — since
+    that name is what the refusal is about, and the browser labels a renamed conflict the same way.
 
     Both pairing rules are confined to ONE bucket. Across buckets the same key string names a
     different object, so a personal space and a shared space that happen to share a name would
@@ -397,7 +399,11 @@ def _per_item_outcomes(
             destination["root"], derived, destination_kind
         )
         if refusal is not None:
-            decided.append(outcomes.outcome(item["key"], label, outcomes.PROTECTED, refusal.reason))
+            decided.append(
+                outcomes.outcome(
+                    item["key"], paths.item_name(derived), outcomes.PROTECTED, refusal.reason
+                )
+            )
         elif (
             same_bucket
             and item["kind"] == "folder"
