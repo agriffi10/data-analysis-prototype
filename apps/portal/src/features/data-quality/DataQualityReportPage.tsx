@@ -16,6 +16,7 @@ import {
   formatRatio,
   formatTimestamp,
   isApproximateIssue,
+  rerunRefusal,
   sourceFolderPrefix
 } from './dataQuality.format';
 import {isTypedColumn, isUnmeasured, isSkipped} from './dataQuality.types';
@@ -477,7 +478,8 @@ export function DataQualityReportPage() {
       <Button
         variant="default"
         onClick={handleRerun}
-        disabled={isPending}>
+        disabled={isPending}
+        disabledReason={space ? (rerunRefusal(report.location, space.prefix) ?? undefined) : undefined}>
         {isPending ? 'Starting…' : 'Re-run check'}
       </Button>
       <Button

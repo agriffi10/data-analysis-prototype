@@ -2,7 +2,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, type FileSpaceTarget} from '../file-browser';
 import {SpaceSelect} from '../../components/SpaceSelect';
-import {splitLocation} from './dataQuality.format';
+import {CHECK_AT_ROOT_REFUSAL, splitLocation} from './dataQuality.format';
 import type {DataQualitySpace} from './dataQuality.types';
 import type {DataQualityTarget} from './useDataQualityCheck';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
@@ -18,24 +18,6 @@ type Props = {
   onStart: (target: DataQualityTarget) => void;
   onCancel: () => void;
 };
-
-/**
- * Why a check cannot be run on the space root, shown on the picker's disabled confirm.
- *
- * **The space root is not a data folder.** A check builds an external table over the folder it
- * is given, and Athena reads a table's location recursively, so a check at the top of a space
- * counts the portal's own bookkeeping — the query-results folder, archive receipts, shared-table
- * copies — as the user's data. It succeeds and reports the wrong numbers, which is why the
- * server refuses it (`location_is_space_root`) rather than qualifying the report.
- *
- * Wording, not a predicate: the picker already knows when the user is standing at the root, and
- * a second copy of that comparison here would be free to drift from it. The server's refusal is
- * the real gate; this sentence exists so a user never reaches it.
- */
-export const CHECK_AT_ROOT_REFUSAL =
-  'A check reads every file in the folder you give it, so it can’t be run here — the top of a space also ' +
-  'holds your query results, archived copies and shared tables, and they’d be counted as your data. Open the ' +
-  'folder holding the files you want checked, or pick a single file.';
 
 /**
  * The dashboard's entry point into a quality check: pick a space, browse to a folder

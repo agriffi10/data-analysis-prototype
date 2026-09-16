@@ -47,8 +47,10 @@ user's data — and succeeds while doing it. The listing skips those sub-trees a
 fix: the manifest is what the verb knows about, the location is what Athena reads. A single FILE
 at the root is still accepted, because every query it starts carries a `"$path"` predicate. That
 decision is made **once**, by `inspect-source` over the file list it holds, and carried as
-`pathFilter`: `create-temp-tables` promotes and `start-profile-query` narrows on that one value, and
-each refuses a state without it. Re-deriving it from the manifest let a caller who overwrote the
+`pathFilter`: `create-temp-tables` promotes and `start-profile-query` narrows on that one value,
+`assemble-report` spells the location from it — a folder's with the trailing slash that
+validate-authorize's normalisation drops, so the report, the notification and the runs row name a
+folder as a folder — and each refuses a state without it. Re-deriving it from the manifest let a caller who overwrote the
 manifest between the two verbs leave the table promoted and the queries unnarrowed.
 
 The dedicated workgroup leaves `bytes_scanned_cutoff_per_query` **unset**, because the portal
