@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
+import pytest
 import validate_authorize as v
 from cpcommon.errors import TerminalError
 from token_shapes import JWT_SHAPED
@@ -99,6 +100,8 @@ def test_valid_partitioned_request_carries_keys():
         {"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4},
         {"name": "month", "type": "integer", "range": [1, 12], "digits": 2},
         {"name": "region", "type": "string", "values": ["us-east-1", "eu-west-1"]},
+        {"name": "dt", "type": "date", "range": ["2025-01-01", "NOW"], "format": "yyyy-MM-dd"},
+        {"name": "d", "type": "string", "values": ["south"]},
     ]
     out = v.handler(_event(_personal(), partition_keys=keys), None)
     assert out["partitionKeys"] == keys
@@ -126,9 +129,10 @@ def test_non_member_shared_is_forbidden():
     _expect_reason(_event(_shared()), "forbidden", "is not an active member")
 
 
-def test_bad_table_name_is_invalid_table_name():
+@pytest.mark.parametrize("name", ["Sales-2026", "dt"])
+def test_bad_table_name_is_invalid_table_name(name):
     _setup()
-    _expect_reason(_event(_personal(), table_name="Sales-2026"), "invalid_table_name")
+    _expect_reason(_event(_personal(), table_name=name), "invalid_table_name", repr(name))
 
 
 # ── allowRemovals: the removal opt-in (SPEC-144 FR-003) ──────────────────────
@@ -182,4 +186,29 @@ def test_an_unhashable_partition_type_reaches_this_plane_s_own_refusal():
         _event(_personal(), partition_keys=[{"name": "day", "type": ["date"]}]),
         "invalid_partition_keys",
         "day: invalid type ['date']",
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["d" * 64, "_dt", "Dt", "dt\n"],
+    ids=["sixty-four-characters", "leading-underscore", "uppercase", "trailing-newline"],
+)
+def test_a_key_name_outside_one_to_sixty_three_catalog_safe_characters_is_refused(name):
+    """Each refusal names the key, which is what the user needs to find the row to fix.
+
+    Args:
+      name: A key name the partition-key rule refuses.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _setup()
+    _expect_reason(
+        _event(_personal(), partition_keys=[{"name": name, "type": "string", "values": ["a"]}]),
+        "invalid_partition_keys",
+        f"invalid key name {name!r}",
     )

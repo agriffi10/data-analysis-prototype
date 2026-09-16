@@ -41,8 +41,14 @@ Attributes:
     worst escaping ``json.dumps`` produces for the characters it emits is two bytes a character.
     Reserving it unescaped would exempt the one value in the model most certainly escaped.
   CATALOG_IDENTIFIER_RE: The single catalog-safe identifier rule — lowercase, leading
-    letter, [a-z0-9_], 3-63 chars — for usernames, database, view, table and partition-key
-    names.
+    letter, [a-z0-9_], 3-63 chars — for usernames, database, view and table names. The
+    three-character floor is this project's own, set for usernames, which are also S3 prefixes
+    and database names; neither Glue nor Athena imposes it.
+  PARTITION_KEY_NAME_RE: The rule a declared partition-key name answers to — the same alphabet
+    and ceiling as ``CATALOG_IDENTIFIER_RE``, but from one character, because Hive-partitioned
+    folders are routinely named ``dt=``, ``hr=`` or ``d=`` and a key must match its folder. A
+    separate rule rather than a looser shared one, so a two-character table or username is
+    still refused.
   MAX_FIFO_KEY_CHARS: The longest ``MessageGroupId`` or ``MessageDeduplicationId`` SQS accepts on
     a FIFO queue.
   FIFO_KEY_RE: The single FIFO key rule — one to ``MAX_FIFO_KEY_CHARS`` printable ASCII
@@ -76,6 +82,7 @@ CAUSE_MAX_CHARS = 32_768
 CAUSE_RESERVATION_BYTES = 2 * CAUSE_MAX_CHARS
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
+PARTITION_KEY_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 MAX_FIFO_KEY_CHARS = 128
 FIFO_KEY_RE = re.compile(f"^[\x21-\x7e]{{1,{MAX_FIFO_KEY_CHARS}}}$")

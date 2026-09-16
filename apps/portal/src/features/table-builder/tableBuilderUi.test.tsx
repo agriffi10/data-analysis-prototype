@@ -109,6 +109,33 @@ describe('CreateTableDialog', () => {
       expect(within(row2).getByText(/duplicate/i)).toBeInTheDocument();
       expect(createBtn()).toBeDisabled();
     });
+
+    it('sends a two-character key named after a dt= folder', () => {
+      const {onSubmit} = renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'dt'}});
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'date'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 range start'), {target: {value: '2025-01-01'}});
+      fireEvent.change(screen.getByLabelText('Partition key 1 range end'), {target: {value: 'NOW'}});
+
+      fireEvent.click(createBtn());
+
+      expect(onSubmit).toHaveBeenCalledWith({
+        tableName: 'sales_2026',
+        partitionKeys: [{name: 'dt', type: 'date', range: ['2025-01-01', 'NOW'], format: 'yyyy-MM-dd'}]
+      });
+    });
+
+    it('holds a key to 1–63 characters and the table name to 3–63', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'Dt'}});
+      fireEvent.change(nameInput(), {target: {value: 'dt'}});
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription(/^Use 1–63 characters/);
+      expect(nameInput()).toHaveAccessibleDescription(/^Use 3–63 characters/);
+      expect(createBtn()).toBeDisabled();
+    });
   });
 
   describe('CreateTableDialog — busy + error', () => {
@@ -344,9 +371,11 @@ describe('partitionKeys', () => {
   });
 
   describe('validateDraftKey — name', () => {
-    it('enforces the catalog-safe rule', () => {
-      expect(validateDraftKey(draft({name: 'Year', type: 'string', values: 'a'}), []).name).toBeTruthy();
-      expect(validateDraftKey(draft({name: '1year', type: 'string', values: 'a'}), []).name).toBeTruthy();
+    it('holds a key name to 1–63 characters, starting with a lowercase letter', () => {
+      expect(validateDraftKey(draft({name: 'd', type: 'string', values: 'a'}), []).name).toBeUndefined();
+      for (const name of ['Year', '1year', 'd'.repeat(64)]) {
+        expect(validateDraftKey(draft({name, type: 'string', values: 'a'}), []).name).toMatch(/^Use 1–63 characters/);
+      }
     });
   });
 

@@ -238,6 +238,36 @@ def test_declared_keys_are_reconstructed_in_the_tables_own_order():
     assert [k["type"] for k in out["partitionKeys"]] == ["integer", "date", "string"]
 
 
+def test_a_key_whose_name_begins_another_keys_name_is_reconstructed_from_its_own_projection():
+    """``d`` and ``dt`` together: each key is rebuilt from only its own ``projection.<name>.`` set.
+
+    Hive folder names like ``d=`` and ``dt=`` make this an ordinary layout. Without the trailing
+    dot in the prefix, ``d`` would gather ``dt``'s properties too, and a refresh of a table this
+    portal built would be refused as one it did not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    keys = [
+        {"name": "d", "type": "string", "values": ["south", "north"]},
+        {"name": "dt", "type": "date", "range": ["2025-01-01", "NOW"], "format": "yyyy-MM-dd",
+         "interval": 1, "interval.unit": "DAYS"},
+    ]
+    _install(_partitioned_table(keys))
+
+    out = m.handler(_event(), None)
+
+    d, dt = out["partitionKeys"]
+    assert (d["name"], d["type"], d["values"]) == ("d", "string", ["south", "north"])
+    assert (dt["name"], dt["type"], dt["range"]) == ("dt", "date", ["2025-01-01", "NOW"])
+
+
 # ── SPEC-153 FR-006: a partial substitute for the owed GetTable capture ──────
 #
 # BE PRECISE ABOUT WHAT THIS IS AND IS NOT. FR-006 AC2 asks for a VERBATIM paste of a real
