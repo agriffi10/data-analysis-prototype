@@ -55,7 +55,9 @@ def _database(event: dict) -> str:
     return database
 
 
-def _location(bucket: str, manifest: dict, location: str, space_root: str) -> str:
+def _location(
+    bucket: str, manifest: dict, location: str, space_root: str, path_filter: str | None
+) -> str:
     """Resolves the folder URI the external tables read.
 
     Always a folder with a trailing slash, even when the user targeted a single file: an external
@@ -65,8 +67,11 @@ def _location(bucket: str, manifest: dict, location: str, space_root: str) -> st
 
     That promotion is not sufficient on its own. Athena reads a location recursively, so the table
     covers every file in the parent folder rather than the one that was listed. What makes a
-    single-file check correct is the path predicate the queries carry, decided by the one shared
-    definition both this verb and the query builder consult.
+    single-file check correct is the path predicate the queries carry, and **the promotion is keyed
+    on the very value the queries are narrowed by** — the ``pathFilter`` inspect-source carried on
+    the state — never on this verb's own reading of the manifest. The manifest can change between
+    here and the query verb, and between one attempt of this verb and its retry, so a decision
+    re-derived from it could promote a table the queries then leave unnarrowed.
 
     **The URI is asserted to be inside the space before it is returned**, and that guard is the
     last one standing. The validate verb authorized a LOCATION; what Athena is handed is a URI
@@ -86,6 +91,7 @@ def _location(bucket: str, manifest: dict, location: str, space_root: str) -> st
       manifest: The source manifest.
       location: The request's target location.
       space_root: The space's own root prefix, which the result must not escape.
+      path_filter: The carried single-file decision; promotion happens exactly when it is set.
 
     Returns:
       The ``s3://`` folder URI, slash-terminated.
@@ -100,7 +106,7 @@ def _location(bucket: str, manifest: dict, location: str, space_root: str) -> st
         raise TerminalError(messages.INVALID_REQUEST, "manifest carries no files")
 
     prefix = location.rstrip("/")
-    if sql.single_file_path(bucket, files, location):
+    if path_filter:
         prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
 
     root = space_root.strip("/")
@@ -186,7 +192,8 @@ def _create(event: dict) -> dict:
       The event with the database, table names and column count attached.
 
     Raises:
-      TerminalError: ``invalid_request`` for a missing field or an empty manifest,
+      TerminalError: ``invalid_request`` for a missing field — the carried ``pathFilter``
+        included — an empty manifest, or a manifest naming a file outside the location,
         ``too_many_columns`` when the source is too wide — the count comes from the column list
         rather than from parsing the exception's text, because a token that reaches a user must
         never be scraped out of a log message — ``invalid_column_names`` when a header carries a
@@ -202,8 +209,9 @@ def _create(event: dict) -> dict:
     location = events.require(event, "location", reason=messages.INVALID_REQUEST)
     fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
 
+    path_filter = sql.carried_path_filter(event)
     database = _database(event)
-    manifest = manifest_store.load(bucket, manifest_key)
+    manifest = manifest_store.load(bucket, manifest_key, location)
 
     columns = sql.union_columns(manifest.get("files") or [])
     try:
@@ -236,7 +244,9 @@ def _create(event: dict) -> dict:
 
     table = sql.temp_table_name(request_id)
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None
-    table_location = _location(bucket, manifest, location, (event.get("space") or {}).get("prefix") or "")
+    table_location = _location(
+        bucket, manifest, location, (event.get("space") or {}).get("prefix") or "", path_filter
+    )
 
     out = dict(event)
     out["database"] = database

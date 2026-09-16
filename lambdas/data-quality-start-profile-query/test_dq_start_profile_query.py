@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import dq_start_profile_query as v
 import pytest
+from cpcommon.errors import TerminalError
 from dqcommon import sql
 
 BUCKET = "dq-user-bkt"
@@ -33,6 +34,7 @@ def _event(**overrides):
         "database": "alice",
         "tempTable": f"dq_tmp_{HEX32}",
         "tempRawTable": f"dq_tmp_raw_{HEX32}",
+        "pathFilter": None,
     }
     event.update(overrides)
     return event
@@ -60,7 +62,7 @@ def started(monkeypatch):
         return f"qid-{len(calls)}"
 
     monkeypatch.setattr(v.athena, "start_query", _start)
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: _MANIFEST)
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key, location: _MANIFEST)
     return calls
 
 
@@ -107,7 +109,7 @@ def test_a_column_naming_a_partition_key_is_named_by_no_query_whatever_its_case(
             {"name": "month", "type": "string"},
         ]}],
     }
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: manifest)
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key, location: manifest)
     ddl = sql.build_temp_table_ddl(
         "alice", f"dq_tmp_{HEX32}", sql.union_columns(manifest["files"]),
         manifest["partitionKeys"], "json", f"s3://{BUCKET}/alice/sales/",
@@ -143,7 +145,7 @@ def test_the_ragged_query_judges_each_file_by_its_full_path_against_its_own_head
     compares, a branch shadowing another, and the ``ELSE false`` — none of which any other test
     asserts.
     """
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key, location: {
         "partitionKeys": [],
         "files": [
             {"key": "alice/sales/jan.csv", "size": 1, "columns": [
@@ -187,51 +189,85 @@ def test_every_submission_carries_a_client_request_token(started):
 #: come back empty.
 _SELECTED = "'s3://dq-user-bkt/alice/sales/jan.csv'"
 
+_THREE_TOKENS = sorted([f"{HEX32}-profile", f"{HEX32}-ragged", f"{HEX32}-dupes"])
 
-def test_every_query_is_narrowed_to_the_selected_file(started):
+
+def _manifest_listing(monkeypatch, keys):
+    """Installs a manifest naming these keys, recording the location each load was contained to."""
+    loaded = []
+
+    def _load(bucket, key, location):
+        loaded.append(location)
+        return {
+            "partitionKeys": [],
+            "files": [
+                {"key": k, "size": 1, "columns": [{"name": "order_id", "type": "string"}]} for k in keys
+            ],
+        }
+
+    monkeypatch.setattr(v.manifest_store, "load", _load)
+    return loaded
+
+
+def test_every_query_is_narrowed_to_the_carried_file_whatever_the_manifest_now_lists(
+    monkeypatch, started
+):
     """A single-file check reports on the file only because this verb attaches the predicate.
 
     create-temp-tables promotes a single-file target's LOCATION to the parent folder, because an
     external table's location is a prefix and pointing it at an object key gives a table over
     nothing — and a location is read recursively, so that table also covers every sibling. This
-    is the call site that has to pass the filter on: ``dqcommon.sql`` renders the clause, but a
-    verb that stopped passing it would run all three queries over the folder and describe it as
-    the file, with nothing red. The manifest is the folder case's, unchanged — only the requested
-    location differs, which is exactly what ``sql.single_file_path`` keys on.
-    """
-    event = _event(location="alice/sales/jan.csv")
+    is the call site that has to pass the filter on, and it passes the one create promoted on.
 
-    v.handler(event, None)
+    The manifest this verb loads lists TWO files: the overwrite a caller could once land between
+    create and this verb. Re-deriving the decision from it would find no single file, attach no
+    predicate, and profile the promoted folder — for a file at the space root, the whole space.
+    """
+    loaded = _manifest_listing(monkeypatch, ["alice/sales/jan.csv", "alice/sales/feb.csv"])
+
+    v.handler(
+        _event(location="alice/sales/jan.csv", pathFilter="s3://dq-user-bkt/alice/sales/jan.csv"),
+        None,
+    )
 
     narrowed = {kw["client_request_token"]: kw["query"] for kw in started}
-    assert sorted(narrowed) == sorted(
-        [f"{HEX32}-profile", f"{HEX32}-ragged", f"{HEX32}-dupes"]
-    ), "the three queries this assertion ranges over"
+    assert sorted(narrowed) == _THREE_TOKENS, "the three queries this assertion ranges over"
     for token, query in narrowed.items():
         assert f'WHERE "$path" = {_SELECTED}' in query, token
+    assert loaded == ["alice/sales/jan.csv"], "the manifest must be contained to the checked location"
 
 
-def test_a_folder_target_attaches_no_predicate(started):
+def test_a_folder_target_attaches_no_predicate_whatever_the_manifest_now_lists(monkeypatch, started):
     """The other direction, and the one nothing else would catch: a folder narrowed to one file.
 
     A folder check that gained a predicate would report on whichever file it picked and call the
-    answer the folder's. It is the worse half because create-temp-tables promotes a target it
-    believes is a single file a level FURTHER up, so a ``single_file_path`` that answered "one
-    file" for every target would build the table over the user's whole space and profile that. The
-    folder branch also has to render byte-identically to the pre-filter form, which is what lets
-    ``_where`` return nothing at all rather than a clause that is always true.
+    answer the folder's. The manifest here names exactly the location — the one shape a
+    re-derivation reads as a single file — so a verb that consulted it instead of the state would
+    narrow. The folder branch also has to render byte-identically to the pre-filter form, which is
+    what lets ``_where`` return nothing at all rather than a clause that is always true.
 
     The needle is the comparison, not the column: the ragged query names ``"$path"`` in its
     per-file CASE whatever the target is, so an absence assertion over the column alone could
     never hold.
     """
-    event = _event()
+    _manifest_listing(monkeypatch, ["alice/sales"])
 
-    v.handler(event, None)
+    v.handler(_event(location="alice/sales", pathFilter=None), None)
 
     rendered = {kw["client_request_token"]: kw["query"] for kw in started}
-    assert sorted(rendered) == sorted(
-        [f"{HEX32}-profile", f"{HEX32}-ragged", f"{HEX32}-dupes"]
-    ), "the three queries this assertion ranges over"
+    assert sorted(rendered) == _THREE_TOKENS, "the three queries this assertion ranges over"
     for token, query in rendered.items():
         assert '"$path" = ' not in query, token
+
+
+def test_a_state_without_the_carried_decision_starts_no_query(started):
+    """Absent is refused rather than read as a folder, which would leave a promoted table unnarrowed."""
+    event = _event()
+    del event["pathFilter"]
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(event, None)
+
+    assert exc.value.reason == "invalid_request"
+    assert "pathFilter" in exc.value.detail
+    assert started == []

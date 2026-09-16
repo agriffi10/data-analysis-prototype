@@ -212,18 +212,20 @@ def _assemble(event: dict) -> dict:
       The event with the report key and summary fields attached.
 
     Raises:
-      TerminalError: ``invalid_request`` for a missing field, or ``query_failed`` when no result
-        object exists or the profile result is unusable — a failed check, never a clean one, since
-        every exact figure comes from the profile query's total row and without it the report
-        would assemble into a green verdict over data nothing measured.
+      TerminalError: ``invalid_request`` for a missing field or a manifest naming a file outside
+        the checked location, or ``query_failed`` when no result object exists or the profile
+        result is unusable — a failed check, never a clean one, since every exact figure comes
+        from the profile query's total row and without it the report would assemble into a green
+        verdict over data nothing measured.
       TransientError: On a retryable S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
     report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
+    location = events.require(event, "location", reason=messages.INVALID_REQUEST)
     events.require(event, "requestId", reason=messages.INVALID_REQUEST)
 
-    manifest = manifest_store.load(bucket, manifest_key)
+    manifest = manifest_store.load(bucket, manifest_key, location)
     try:
         document = report.build(
             event,

@@ -219,6 +219,33 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         protected.assert_replaceable(PERSONAL, "alice/user_settings/notifications.json")
 
 
+class TestTheReportsFolderIsTheDataQualityPlanes:
+    """No bucket policy names this folder, so the rule mirrors nothing and must not widen."""
+
+    @pytest.mark.parametrize(
+        ("space", "key"),
+        [
+            (PERSONAL, "alice/_data-quality-reports/7f3ac19d/manifest.json"),
+            (SHARED, "finance/_data-quality-reports/7f3ac19d/report.json"),
+            (PERSONAL, "alice/_data-quality-reports/index.json"),
+        ],
+    )
+    def test_a_write_inside_it_is_refused_in_either_kind(self, space, key) -> None:
+        """By detail, because the receipt and results rules answer the same code."""
+        with pytest.raises(ApiError) as raised:
+            protected.assert_writable(space, key)
+        assert (raised.value.code, raised.value.detail) == (
+            "AccessDenied",
+            "the data-quality reports folder is not writable",
+        )
+
+    def test_the_name_elsewhere_is_an_ordinary_place_to_write(self) -> None:
+        """Root-anchored, with its slash: the plane writes nowhere else."""
+        protected.assert_replaceable(PERSONAL, "alice/_data-quality-reports")
+        protected.assert_replaceable(PERSONAL, "alice/projects/_data-quality-reports/notes.txt")
+        protected.assert_replaceable(SHARED, "finance/x/_data-quality-reports/y.csv")
+
+
 class TestTheCapsAreSizedAgainstABudget:
     """SPEC-161's rule: a cap's test computes its bound and names what sized it."""
 

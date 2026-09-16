@@ -30,6 +30,7 @@ def _event(**overrides):
         "reportPrefix": f"alice/_data-quality-reports/{REQUEST_ID}/",
         "manifestKey": f"alice/_data-quality-reports/{REQUEST_ID}/manifest.json",
         "format": "csv",
+        "pathFilter": None,
     }
     event.update(overrides)
     return event
@@ -63,12 +64,20 @@ def ran(monkeypatch):
     """Capture every DDL statement the verb would run, with a default manifest stubbed."""
     statements = []
     monkeypatch.setattr(v.athena, "run_ddl", lambda **kw: statements.append(kw) or "qid-1")
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: _manifest())
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key, location: _manifest())
     return statements
 
 
 def _install_manifest(monkeypatch, manifest):
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: manifest)
+    """Installs the manifest and returns the locations each load was contained to."""
+    loaded = []
+
+    def _load(bucket, key, location):
+        loaded.append(location)
+        return manifest
+
+    monkeypatch.setattr(v.manifest_store, "load", _load)
+    return loaded
 
 
 # ── The typed table ──────────────────────────────────────────────────────────
@@ -124,24 +133,65 @@ def test_a_file_at_the_space_root_builds_its_table_over_the_root(monkeypatch, ra
         files=[{"key": "alice/report.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
     ))
 
-    v.handler(_event(location="alice/report.csv"), None)
+    v.handler(_event(location="alice/report.csv", pathFilter=f"s3://{BUCKET}/alice/report.csv"), None)
 
     assert f"LOCATION 's3://{BUCKET}/alice/'" in ran[0]["query"]
+
+
+@pytest.mark.parametrize(
+    ("path_filter", "listed", "expected"),
+    [
+        (f"s3://{BUCKET}/alice/sales/jan.csv", ["alice/sales/jan.csv", "alice/sales/feb.csv"], "alice/sales/"),
+        (None, ["alice/sales/jan.csv"], "alice/sales/jan.csv/"),
+    ],
+    ids=["single-file-state-two-file-manifest", "folder-state-one-file-manifest"],
+)
+def test_the_promotion_follows_the_carried_decision_not_the_manifest(
+    monkeypatch, ran, path_filter, listed, expected
+):
+    """The table and the queries are narrowed on ONE value, so the manifest cannot split them.
+
+    The manifest is re-read on every attempt of this verb and again by the query verb, and a
+    caller could once overwrite it in between. Each row hands this verb a manifest that disagrees
+    with the carried decision — the swap a retry or the query verb would have seen — and the
+    LOCATION must still be the one the state's decision implies.
+    """
+    loaded = _install_manifest(monkeypatch, _manifest(
+        files=[{"key": key, "size": 1, "columns": [{"name": "a", "type": "string"}]} for key in listed]
+    ))
+
+    v.handler(_event(location="alice/sales/jan.csv", pathFilter=path_filter), None)
+
+    assert f"LOCATION 's3://{BUCKET}/{expected}'" in ran[0]["query"]
+    assert loaded == ["alice/sales/jan.csv"], "the manifest must be contained to the checked location"
+
+
+def test_a_state_without_the_carried_decision_is_refused_before_any_ddl(ran):
+    """Absent is not "a folder": defaulting it would build a promoted table nobody narrows."""
+    event = _event()
+    del event["pathFilter"]
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(event, None)
+
+    assert exc.value.reason == messages.INVALID_REQUEST
+    assert "pathFilter" in exc.value.detail
+    assert ran == []
 
 
 def test_a_location_that_escapes_the_space_is_refused_before_any_ddl(monkeypatch, ran):
     """The last containment check between an authorized LOCATION and what Athena is handed.
 
     `_location` rstrips, splits on the last slash and reassembles, and nothing downstream
-    re-checks the result against the space the actor was authorized for. A manifest whose
-    single file sits outside the space would otherwise promote the table out of it.
+    re-checks the result against the space the actor was authorized for. A single-file check
+    whose file sits outside the space would otherwise promote the table out of it.
     """
     _install_manifest(monkeypatch, _manifest(
         files=[{"key": "bob/secrets.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
     ))
 
     with pytest.raises(TerminalError) as exc:
-        v.handler(_event(location="bob/secrets.csv"), None)
+        v.handler(_event(location="bob/secrets.csv", pathFilter=f"s3://{BUCKET}/bob/secrets.csv"), None)
 
     assert exc.value.reason == messages.INVALID_REQUEST
     assert "escapes the space" in exc.value.detail

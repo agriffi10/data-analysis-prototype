@@ -979,6 +979,81 @@ class TestTheResultsFolderTakesNothingItCouldNotGiveBack:
         assert [call[0] for call in fake.calls] == ["copy_object"]
 
 
+class TestTheReportsFolderIsWrittenOnlyByThePlane:
+    """The data-quality plane reads its manifest back between verbs, from a predictable key.
+
+    So the object routes refuse every write there, and the refusal is asserted by its detail
+    because two other rules answer ``AccessDenied`` too.
+    """
+
+    def test_overwriting_a_checks_manifest_is_refused_before_any_aws_call(self, s3) -> None:
+        """The forgery itself: a file list replaced under a running check.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the write reached AWS or was refused by another rule.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/_data-quality-reports/7f3ac19d/manifest.json",
+                "body": '{"files": []}',
+                "contentType": "application/json",
+                "overwrite": True,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        error = json.loads(answer["body"])["error"]
+        assert (error["code"], error["detail"]) == (
+            "AccessDenied",
+            "the data-quality reports folder is not writable",
+        )
+        assert fake.calls == []
+        assert fake.assumes == 0
+
+    def test_reading_a_report_still_reaches_s3(self, s3) -> None:
+        """The control, and the browser's only use of the folder: the report page reads it.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the read was refused.
+        """
+        fake = s3(RecordingS3(body=b'{"verdict": "pass"}'))
+
+        answer = router.route(
+            "GET",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/_data-quality-reports/7f3ac19d/report.json",
+            },
+        )
+
+        assert answer["statusCode"] == 200
+        assert [call[0] for call in fake.calls] == ["get_object"]
+
+
 class TestEveryObjectRouteIsOnTheUserPlane:
     """FR-001 AC1 — the caller's own session authorizes every call."""
 

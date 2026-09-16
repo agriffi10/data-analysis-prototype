@@ -202,7 +202,10 @@ def _start_queries(event: dict) -> dict:
 
     The path filter is None for a folder target, so every query renders exactly as it did before
     single-file support. For a single-file target it is what makes the report describe the file
-    the user picked rather than its parent folder.
+    the user picked rather than its parent folder. **It is read off the state, never re-derived
+    from the manifest loaded here**: create promoted the table on that same carried value, and the
+    manifest is an object that can change between the two verbs, so a second derivation is a
+    second decision the table and the queries could disagree on.
 
     A format with no raw-line table gets a null ragged block rather than a degraded one: rows are
     not line-delimited fields there, so the concept does not apply, and null says "never
@@ -217,8 +220,9 @@ def _start_queries(event: dict) -> dict:
       The event with the results prefix and the three query blocks attached.
 
     Raises:
-      TerminalError: ``invalid_request`` for a missing field, or ``query_failed`` when a query
-        cannot be started.
+      TerminalError: ``invalid_request`` for a missing field — the carried ``pathFilter``
+        included — or a manifest naming a file outside the location, or ``query_failed`` when a
+        query cannot be started.
       TransientError: On a retryable Athena or S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
@@ -227,11 +231,11 @@ def _start_queries(event: dict) -> dict:
     table = events.require(event, "tempTable", reason=messages.INVALID_REQUEST)
     fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
 
-    manifest = manifest_store.load(bucket, manifest_key)
+    location = events.require(event, "location", reason=messages.INVALID_REQUEST)
+    path_filter = sql.carried_path_filter(event)
+
+    manifest = manifest_store.load(bucket, manifest_key, location)
     files = manifest.get("files") or []
-    path_filter = sql.single_file_path(
-        bucket, files, events.require(event, "location", reason=messages.INVALID_REQUEST)
-    )
     columns = sql.union_columns(files)
     partition_keys = manifest.get("partitionKeys") or []
     results = _results_prefix(event)

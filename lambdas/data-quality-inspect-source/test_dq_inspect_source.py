@@ -118,8 +118,9 @@ def _event(**over):
 def test_folder_is_listed_with_a_trailing_slash():
     """A prefix match without the slash would swallow alice/sales2/ and sales-archive/."""
     listed, _ = _setup([("alice/sales/a.csv", 10)])
-    v.handler(_event(), None)
+    out = v.handler(_event(), None)
     assert listed == [(BUCKET, "alice/sales/")]
+    assert out["pathFilter"] is None
 
 
 def test_single_file_location_yields_a_one_object_manifest():
@@ -128,6 +129,7 @@ def test_single_file_location_yields_a_one_object_manifest():
     assert listed == [(BUCKET, "alice/sales/a.csv")]
     assert out["fileCount"] == 1
     assert out["format"] == "csv"
+    assert out["pathFilter"] == f"s3://{BUCKET}/alice/sales/a.csv"
 
 
 # ── SPEC-151 FR-002: a single-file listing matches the object, not the prefix ────

@@ -60,8 +60,9 @@ Attributes:
 """
 
 from cpcommon import ddl
+from cpcommon.errors import TerminalError
 
-from . import config
+from . import config, messages
 
 _TABLE_PREFIX = "dq_tmp_"
 _RAW_TABLE_PREFIX = "dq_tmp_raw_"
@@ -600,14 +601,20 @@ def build_profile_query(
 def single_file_path(bucket: str, files: list[dict], location: str) -> str | None:
     """Decides whether this check targets exactly one file, and names it if so.
 
-    The single definition of that question, used by both the verb that picks the table location
-    and the verb that builds the queries. They have to agree: the create verb promotes the
-    location to the parent folder, because an external table's location is a prefix and pointing
-    it at an object key gives a table over nothing — but Athena reads a location recursively, so
-    that table also covers every sibling in the folder. The queries are what re-narrow it, and if
-    the two verbs disagreed about which case this is, the report would describe the folder while
-    claiming to describe the file. A second copy of this rule is the one thing that would let them
-    drift.
+    The single definition of that question, and it is evaluated exactly ONCE per run: by
+    inspect-source, over the same in-memory file list the manifest is written from. The
+    create verb promotes the location to the parent folder, because an external table's location
+    is a prefix and pointing it at an object key gives a table over nothing — but Athena reads a
+    location recursively, so that table also covers every sibling in the folder. The queries are
+    what re-narrow it, and if the two verbs disagreed about which case this is, the report would
+    describe the folder while claiming to describe the file.
+
+    **One definition was not enough; a second READ is a second decision.** Both verbs used to call
+    this over the manifest they each loaded, and the manifest sits at a key a caller can predict,
+    under a prefix a caller could write. Overwriting it between the two loads with a two-file list
+    left the table promoted and the queries unnarrowed — for a file at the space root, a report
+    over the whole space. So the answer rides the state as ``pathFilter``, and both verbs read it
+    through ``carried_path_filter`` rather than re-deriving it.
 
     The returned form is not a choice made here: it is what Athena's path pseudo-column returns,
     which is why the ragged mapping is keyed that way and the report reverses it.
@@ -630,6 +637,38 @@ def single_file_path(bucket: str, files: list[dict], location: str) -> str | Non
     if keys == [prefix]:
         return f"s3://{bucket}/{prefix}"
     return None
+
+
+def carried_path_filter(event: dict) -> str | None:
+    """Reads the single-file decision inspect-source carried on the state.
+
+    Beside ``single_file_path`` because it is the only way the verbs downstream of inspect-source
+    may learn that answer. **A missing key is refused, never read as "a folder".** Every run that
+    reaches create went through inspect-source, which always writes the key, so an absent one
+    means the state was built by something else — and defaulting it to None is the failure that
+    matters, because the promoted table would then be queried with no predicate at all.
+
+    The value is bounded: an ``s3://`` URI over the request's location, which the API caps at
+    S3's own key limit, so it rides the state rather than a pointer.
+
+    Args:
+      event: The task input.
+
+    Returns:
+      The full object path for a single-file check, or None for a folder.
+
+    Raises:
+      TerminalError: ``invalid_request`` when the key is absent, or holds anything but None or
+        a non-blank string.
+    """
+    if "pathFilter" not in event:
+        raise TerminalError(messages.INVALID_REQUEST, "missing required field 'pathFilter'")
+    value = event["pathFilter"]
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise TerminalError(messages.INVALID_REQUEST, "malformed field 'pathFilter'")
+    return value
 
 
 def _where(path_filter: str | None) -> str:

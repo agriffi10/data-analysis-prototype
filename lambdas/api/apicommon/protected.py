@@ -18,6 +18,14 @@ asserted rather than described.
 removed — the marker's reason, applied to a whole folder. Its Deny has the receipt folder's shape,
 so the same test holds this rule against it.
 
+**So is the data-quality reports folder, which no bucket policy mentions at all.** The plane writes
+its manifest, report and runs index there under its own role, and the browser only reads them. The
+manifest key is a pure function of the caller's own request id, so an object route that took a
+write there let a caller replace the file list a running check reads between two of its verbs — and
+in a shared space, replace another member's report. Nothing legitimate writes there through this
+API, which is the condition for being stricter than IAM. **This guards the object routes only**: the
+file-ops plane is a writer too, and its refusals are its own.
+
 **Key containment wraps `cpcommon.paths` rather than calling it bare.** `assert_inside_root`
 raises `TerminalError`, which `errors.for_exception` does not recognise, so an unwrapped call
 answers **500 InternalError** where the requirement is **403 AccessDenied**. It fails *safely*, so
@@ -37,6 +45,8 @@ from cpcommon.s3_listing import MARKER_BASENAME
 
 from .envelope import ApiError
 from .spaces import ResolvedSpace
+
+REPORTS_FOLDER = "_data-quality-reports"
 
 
 def contained_key(space: ResolvedSpace, key: str) -> str:
@@ -176,6 +186,26 @@ def is_in_results_folder(space: ResolvedSpace, key: str) -> bool:
     return _is_at_or_below(space, key, ATHENA_RESULTS_FOLDER)
 
 
+def is_in_reports_folder(space: ResolvedSpace, key: str) -> bool:
+    """Whether a key is inside the data-quality reports folder at the space root.
+
+    Root-anchored for both kinds, with the slash: the plane writes only
+    ``{root}_data-quality-reports/``, and no Deny reaches deeper to mirror. So a nested folder of
+    that name, or a file literally named it at the root, stays an ordinary place to write.
+
+    Args:
+      space: The resolved space.
+      key: The object key or prefix being written.
+
+    Returns:
+      True if the key is inside the reports folder.
+
+    Raises:
+      None.
+    """
+    return key.startswith(app_managed_prefixes(space.root, REPORTS_FOLDER))
+
+
 def _is_at_or_below(space: ResolvedSpace, key: str, folder: str) -> bool:
     """Whether a key is an app-managed folder or inside it, as that bucket's Deny reaches it.
 
@@ -220,6 +250,10 @@ def assert_writable(space: ResolvedSpace, key: str) -> None:
     writes through it. Nothing does here: Athena delivers its results itself, and the browser only
     copies them out. What a caller writes here instead is an object nobody can delete.
 
+    The reports folder is refused here for the results folder's reason and a sharper one: what a
+    caller wrote there is read back by a running check as the plane's own — see the module
+    docstring.
+
     Args:
       space: The resolved space.
       key: The object key being created.
@@ -228,13 +262,15 @@ def assert_writable(space: ResolvedSpace, key: str) -> None:
       None.
 
     Raises:
-      ApiError: ``AccessDenied`` for a write-locked location or the results folder, each with its
-        own detail.
+      ApiError: ``AccessDenied`` for a write-locked location, the results folder or the reports
+        folder, each with its own detail.
     """
     if is_write_locked(space, key):
         raise ApiError("AccessDenied", "archived locations are not writable")
     if is_in_results_folder(space, key):
         raise ApiError("AccessDenied", "the query results folder is not writable")
+    if is_in_reports_folder(space, key):
+        raise ApiError("AccessDenied", "the data-quality reports folder is not writable")
 
 
 def assert_replaceable(space: ResolvedSpace, key: str) -> None:
@@ -255,8 +291,8 @@ def assert_replaceable(space: ResolvedSpace, key: str) -> None:
       None.
 
     Raises:
-      ApiError: ``AccessDenied`` for a marker key, a write-locked location or the query results
-        folder.
+      ApiError: ``AccessDenied`` for a marker key, a write-locked location, the query results
+        folder or the data-quality reports folder.
     """
     if is_marker(key):
         raise ApiError("AccessDenied", "folder markers may not be removed or replaced")

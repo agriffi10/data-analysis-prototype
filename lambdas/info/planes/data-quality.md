@@ -36,7 +36,11 @@ temp table's `LOCATION` is the target folder and Athena reads one recursively, s
 of a space counts `system_settings/athenaresults/`, archive receipts and `shared_tables/` as the
 user's data — and succeeds while doing it. The listing skips those sub-trees and that is not the
 fix: the manifest is what the verb knows about, the location is what Athena reads. A single FILE
-at the root is still accepted, because every query it starts carries a `"$path"` predicate.
+at the root is still accepted, because every query it starts carries a `"$path"` predicate. That
+decision is made **once**, by `inspect-source` over the file list it holds, and carried as
+`pathFilter`: `create-temp-tables` promotes and `start-profile-query` narrows on that one value, and
+each refuses a state without it. Re-deriving it from the manifest let a caller who overwrote the
+manifest between the two verbs leave the table promoted and the queries unnarrowed.
 
 The dedicated workgroup leaves `bytes_scanned_cutoff_per_query` **unset**, because the portal
 workgroup's 10 GiB cutoff would fail every real check; the result location is set per query.
@@ -115,7 +119,7 @@ Revisit before real users arrive.
 |---|---|
 | `config` | domain configuration |
 | `index_store` | the per-space runs index, one small entry per completed check |
-| `manifest` | reading the source manifest `inspect-source` wrote |
+| `manifest` | reading the source manifest `inspect-source` wrote, refusing one that names a file outside the checked location |
 | `messages` | user-facing wording and reason codes |
 | `notify` | best-effort outcome notifications |
 | `report` | the report shape, its exact-versus-approximate tagging, and the top-issues wording |
