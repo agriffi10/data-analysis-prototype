@@ -168,6 +168,16 @@ function ColumnSamples({column}: {column: ColumnFinding}) {
   );
 }
 
+/** A disclosure, not a finding: the other spellings merged into this one column, which Athena reads as one. */
+function ColumnSpellings({column}: {column: ColumnFinding}) {
+  if (!column.otherSpellings?.length) return null;
+  return (
+    <p className="mt-0.5 break-words text-xs text-text-3">
+      Also spelled <span className="break-all font-mono">{column.otherSpellings.join(', ')}</span> in other files
+    </p>
+  );
+}
+
 function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
   // Mount-gated, not CSS-hidden: the two presentations are
   // structurally different DOM — a faux-table of rows versus a list of cards — so a
@@ -190,6 +200,7 @@ function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
                 columnIssueCount(column) > 0 ? 'bg-danger-soft' : 'bg-surface'
               )}>
               <p className="break-all font-mono text-sm font-semibold text-text">{column.name}</p>
+              <ColumnSpellings column={column} />
               <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                 <span className="text-text-2">
                   Null or blank <span className="font-medium text-text">{formatRatio(column.nullBlankRatio)}</span>
@@ -235,6 +246,7 @@ function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
                   )}>
                   <div className="min-w-0 flex-1">
                     <span className="break-all font-mono text-text">{column.name}</span>
+                    <ColumnSpellings column={column} />
                     <ColumnSamples column={column} />
                   </div>
                   <div className="w-40 text-xs">

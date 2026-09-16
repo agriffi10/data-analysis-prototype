@@ -59,6 +59,7 @@ import io
 import json
 from collections import Counter
 
+from cpcommon import columns as columns_mod
 from cpcommon import ddl
 
 from . import config, sql
@@ -244,7 +245,14 @@ def _skip_reason(column: dict, parquet: bool) -> str:
     return "" if column["type"] == "string" else SKIP_TYPE_TYPED_COLUMN
 
 
-def _column(index: int, column: dict, total: dict, row_count: int, skip_reason: str) -> dict:
+def _column(
+    index: int,
+    column: dict,
+    total: dict,
+    row_count: int,
+    skip_reason: str,
+    other_spellings: list[str],
+) -> dict:
     """Builds one column's exact findings from the profile query's total row.
 
     A skipped column is marked skipped, never a clean pass: a green type-consistency result on a
@@ -254,12 +262,18 @@ def _column(index: int, column: dict, total: dict, row_count: int, skip_reason: 
     numeric column, and reporting the majority of its values as offending would be noise the user
     has to wade past.
 
+    A column merged from names that differ only by case carries its other spellings. They are a
+    disclosure, not a finding: Athena reads them as one column and nothing needs repairing, so
+    they touch neither the verdict nor the top issues. The field is absent when there are none,
+    which is also how every report written before the merge reads.
+
     Args:
       index: The column's position, which names its result aliases.
       column: The column's name and type.
       total: The profile query's total row.
       row_count: The total row count, the denominator for the missing ratio.
       skip_reason: The reason type consistency was skipped, or "".
+      other_spellings: The column's other spellings across the files, or an empty list.
 
     Returns:
       The column's report entry.
@@ -275,6 +289,8 @@ def _column(index: int, column: dict, total: dict, row_count: int, skip_reason: 
         "name": column["name"],
         "nullBlankRatio": round(missing / row_count, 4) if row_count else 0.0,
     }
+    if other_spellings:
+        entry["otherSpellings"] = other_spellings
 
     if skip_reason:
         entry["typeConsistency"] = "skipped"
@@ -332,6 +348,11 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
     first file is the odd one, the files named are the rest, and they are the ones this report
     misreads. Missing and extra still name the minority, which is the repair.
 
+    Names are compared through ``columns.fold``, the way ``sql.union_columns`` merges them, so a
+    file spelling ``customerid`` agrees with one spelling ``CustomerID`` and is not shifted under
+    it: Athena reads the two as one column. A missing column is named in the union's spelling, the
+    one the report's Columns show, and an extra one in the file's own.
+
     This check is also what lets create-temp-tables judge ``partition_column_not_last`` on the
     folder's union rather than on each file's header: a file whose own header puts a partition
     column before a kept one, in a folder whose union does not, is always shifted, since the
@@ -363,23 +384,27 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
         return {"columnsAgree": True, "disagreements": []}
 
     headers = [[c["name"] for c in (f.get("columns") or [])] for f in files]
-    signatures = [tuple(sorted(names)) for names in headers]
+    folded = [[columns_mod.fold(name) for name in names] for names in headers]
+    signatures = [tuple(sorted(names)) for names in folded]
     baseline = set(Counter(signatures).most_common(1)[0][0])
 
     positional = fmt in ddl.POSITIONAL_FORMATS
-    declared = [c["name"] for c in sql.profiled_columns(sql.union_columns(files), partition_keys)]
+    union = sql.union_columns(files)
+    spelled = {columns_mod.fold(c["name"]): c["name"] for c in union}
+    declared = [columns_mod.fold(c["name"]) for c in sql.profiled_columns(union, partition_keys)]
 
     disagreements = []
-    for entry, names in zip(files, headers, strict=False):
-        present = set(names)
-        width = min(len(names), len(declared))
-        shifted = positional and names[:width] != declared[:width]
+    for entry, names, folds in zip(files, headers, folded, strict=False):
+        present = set(folds)
+        own = dict(zip(folds, names, strict=True))
+        width = min(len(folds), len(declared))
+        shifted = positional and folds[:width] != declared[:width]
         if present != baseline or shifted:
             disagreements.append(
                 {
                     "file": entry["key"],
-                    "missing": sorted(baseline - present),
-                    "extra": sorted(present - baseline),
+                    "missing": sorted(spelled[name] for name in baseline - present),
+                    "extra": sorted(own[name] for name in present - baseline),
                     "shifted": shifted,
                 }
             )
@@ -802,6 +827,7 @@ def build(
     fmt = manifest.get("format") or request.get("format")
     files = manifest.get("files") or []
     columns = sql.profiled_columns(sql.union_columns(files), manifest.get("partitionKeys") or [])
+    spellings = sql.other_spellings(files)
 
     total = next((row for row in profile_rows if _int(row, "is_total") == 1), None)
     if total is None:
@@ -815,7 +841,14 @@ def build(
         "rowCountsByFile": _row_counts_by_file(profile_rows, files),
         "duplicateRows": _duplicates(request.get("duplicates"), duplicate_rows),
         "columns": [
-            _column(index, column, total, row_count, _skip_reason(column, parquet))
+            _column(
+                index,
+                column,
+                total,
+                row_count,
+                _skip_reason(column, parquet),
+                spellings.get(column["name"], []),
+            )
             for index, column in enumerate(columns)
         ],
         "crossFile": cross_file(files, fmt, manifest.get("partitionKeys") or []),
