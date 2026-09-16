@@ -31,6 +31,13 @@ Attributes:
     exception. Also a shared base code, re-exported for the same reason.
   INVALID_REQUEST: A malformed envelope — a missing, renamed or wrong-typed field, or no request
     id.
+  LOCATION_IS_SPACE_ROOT: validate-authorize terminal. A check builds an external table over its
+    target, and Athena reads a table's location RECURSIVELY, so a check at the top of a space
+    reads the space's own bookkeeping — the Athena results folder (including this very check's
+    output), archive receipts, shared-table copies — as if it were the user's data. It does not
+    fail; it succeeds and reports the wrong numbers, which is why this is a refusal rather than a
+    caveat on the report. A single file that happens to sit at the root is NOT this case: its
+    queries carry a path predicate, so its numbers are its own.
   NO_DATA_FILES: inspect-source terminal.
   UNSUPPORTED_FORMAT: inspect-source terminal.
   MIXED_FORMATS: inspect-source terminal.
@@ -74,6 +81,7 @@ UNEXPECTED_ERROR = _cpmessages.UNEXPECTED_ERROR
 
 INVALID_REQUEST = "invalid_request"
 
+LOCATION_IS_SPACE_ROOT = "location_is_space_root"
 NO_DATA_FILES = "no_data_files"
 UNSUPPORTED_FORMAT = "unsupported_format"
 MIXED_FORMATS = "mixed_formats"
@@ -92,6 +100,12 @@ QUERY_TIMEOUT = "query_timeout"
 
 _BODIES = {
     INVALID_REQUEST: "the request was malformed. Please try again.",
+    LOCATION_IS_SPACE_ROOT: (
+        "a check reads every file in the folder it's given, so it can't be run on the top of a "
+        "space - that also holds your query results, archived copies and shared tables, and "
+        "they'd be counted as your data. Open the folder holding the files you want checked and "
+        "run it there."
+    ),
     NO_DATA_FILES: "no supported data files were found there.",
     UNSUPPORTED_FORMAT: "that file format isn't supported. Please use CSV, JSON, or Parquet.",
     MIXED_FORMATS: "that folder mixes file formats ({formats}). Please check a folder that uses a single format.",

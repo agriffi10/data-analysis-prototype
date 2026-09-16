@@ -183,6 +183,26 @@ describe('DestinationPicker', () => {
       expect(screen.getByRole('button', {name: /copy here/i})).toBeEnabled();
     });
 
+    it('lets a SELECTED FILE through a blocked current parent', async () => {
+      // A caller that forbids the current folder has not forbidden a file sitting in it —
+      // the quality check refuses the space root while still taking one file at the root.
+      // Unreachable for Move/Copy, which never set a file key.
+      listing({'alice/': pageOf([], [file('alice/report.csv', 'report.csv')])});
+      const {user} = renderPicker({
+        currentPrefix: 'alice/',
+        allowCurrentParent: false,
+        selectableFiles: true,
+        confirmLabel: 'Check here'
+      });
+
+      const confirm = await screen.findByRole('button', {name: /check here/i});
+      expect(confirm).toBeDisabled();
+
+      await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
+      await waitFor(() => expect(screen.getByRole('button', {name: /check here/i})).toBeEnabled());
+      expect(screen.queryByText(/already here/i)).not.toBeInTheDocument();
+    });
+
     it("blocks confirming inside a copied folder's own subtree", async () => {
       listing({'alice/photos/': pageOf([folder('alice/photos/sub/', 'sub')])});
       renderPicker({

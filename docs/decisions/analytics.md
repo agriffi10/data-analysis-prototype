@@ -64,7 +64,11 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   `partition_column_not_last` rather than build a table whose every later column answers with its
   neighbour's values. Parquet and JSON are matched by name and always drop. **The refresh path is
   not covered** — it writes Glue columns without this builder.
-- **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
+- **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
+  **both planes that build one over a user's folder refuse it**, table-builder on a create and
+  data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
+  help, which is the trap: the manifest is what the plane knows about, the location is what Athena
+  reads. A single FILE at the root is not this case — its queries carry a `"$path"` predicate.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
   **message** — the same `InvalidRequestException` is a malformed query at submit, and a name-keyed
@@ -980,6 +984,18 @@ refusal rather than a hidden control: the button is where a user standing at the
 and a control that vanishes teaches nothing about where to go instead. **Creates only** — a refresh
 reads the location the table already has, so refusing one would strand any root table already in a
 catalog with no way to repair it.
+
+> **Extended (2026-09-15) — the rule was one plane short.** A data-quality check builds an external
+> table over its target too, and its validator explicitly ALLOWED the root ("a legitimate, if broad,
+> folder target") while the dialog offered it as the DEFAULT. So the numbers a user got for "check
+> my whole space" counted the space's own `system_settings/athenaresults/` — including the running
+> check's own output, which lands inside the table it is reading — plus archive receipts and
+> shared-table copies. The listing already skipped those and it changed nothing, because the
+> manifest is not the location. Now refused under its own reason, `location_is_space_root`,
+> re-declared in `dqcommon.messages` rather than shared: the planes are independent, so **a change
+> to this rule belongs in both validators**. A single file at the root stays allowed — its queries
+> carry the `"$path"` predicate, so its numbers are its own — and the picker exempts a selected
+> file from the folder gate for exactly that reason.
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 

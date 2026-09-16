@@ -36,11 +36,11 @@ type BaseProps = {
   // own subtree (the verb differs: "move" vs "copy").
   selfMessage?: string;
   // Why the CURRENT folder is not a valid destination, shown when `allowCurrentParent` is off
-  // and the user is standing in it. Defaulted to the move/copy wording the three original
-  // callers rely on; overridden by any caller whose rule is a different one — Create table's
-  // is that a table reads the whole folder, which has nothing to do with items already being
-  // here. A prop rather than a second status line under the picker, because two competing
-  // explanations of one disabled button is worse than the wrong one alone.
+  // and the user is standing in it. Defaulted to the move/copy wording those callers rely on;
+  // overridden by any caller whose rule is a different one — the quality check's is that a
+  // check reads the whole folder, which has nothing to do with items already being here. A prop
+  // rather than a second status line under the picker, because two competing explanations of
+  // one disabled button is worse than the wrong one alone.
   currentParentMessage?: string;
   // The list's aria-label. "Destination folders" is wrong in a
   // mode where files are selectable and nothing is a "destination".
@@ -212,7 +212,10 @@ export function DestinationPicker({
   // space; targeting another connection is always a fresh location.
   const intoOwnSubtree = !crossBucket && [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
   const atCurrentParent = !crossBucket && browsePrefix === currentPrefix;
-  const currentParentBlocked = atCurrentParent && !allowCurrentParent;
+  // A SELECTED FILE is not the folder it sits in, so a caller that forbids the current
+  // folder has not forbidden a file inside it. Only reachable in selectable-files mode;
+  // the move/copy callers never set a file key, so the gate is unchanged for them.
+  const currentParentBlocked = atCurrentParent && !allowCurrentParent && selectedFileKey === null;
   // The one invalid target the picker can detect for free —
   // scoped to selectable-files mode, since an empty folder is a perfectly good
   // move/copy/save destination. Everything deeper (format, readability) stays

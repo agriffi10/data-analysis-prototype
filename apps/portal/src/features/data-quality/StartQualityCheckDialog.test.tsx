@@ -3,7 +3,7 @@ import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authValue} from '../../test/authFixtures';
 import {AuthContext} from '../auth/authContext';
-import {StartQualityCheckDialog} from './StartQualityCheckDialog';
+import {CHECK_AT_ROOT_REFUSAL, StartQualityCheckDialog} from './StartQualityCheckDialog';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import type {FileSpaceTarget} from '../file-browser';
@@ -95,17 +95,32 @@ describe('StartQualityCheckDialog', () => {
       expect(container).toBeEmptyDOMElement();
     });
 
-    it('starts with the space root as the target, so the root is never dead on arrival', async () => {
+    it('refuses the space root as a folder target, in the words the user needs', async () => {
+      // A check reads its folder recursively, so one at the root counts the portal's own
+      // query results and shared tables as the user's data — and SUCCEEDS while doing it.
+      // The server refuses it; this is the half that stops a user reaching the refusal.
+      listing(page({folders: [{type: 'folder', prefix: 'alice/sales/', name: 'sales'}]}));
+      const {onStart} = renderDialog();
+
+      const confirm = await screen.findByRole('button', {name: 'Check this folder'});
+      expect(confirm).toBeDisabled();
+      expect(screen.getByText(CHECK_AT_ROOT_REFUSAL)).toBeInTheDocument();
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('still takes a folder BELOW the root', async () => {
+      // The refusal is about the root, not about folder targets — without this the previous
+      // test would pass just as well over a picker that could never confirm anything.
       listing(page({folders: [{type: 'folder', prefix: 'alice/sales/', name: 'sales'}]}));
       const {user, onStart} = renderDialog();
 
-      // `allowCurrentParent` — without it the picker disables confirm AT the space root.
+      await user.click(await screen.findByRole('button', {name: 'Open folder sales'}));
       const confirm = await screen.findByRole('button', {name: 'Check this folder'});
-      expect(confirm).toBeEnabled();
+      await waitFor(() => expect(confirm).toBeEnabled());
       await user.click(confirm);
       expect(onStart).toHaveBeenCalledWith({
         space: {kind: 'personal', bucket: 'user-space', prefix: 'alice/'},
-        location: 'alice/'
+        location: 'alice/sales/'
       });
     });
 

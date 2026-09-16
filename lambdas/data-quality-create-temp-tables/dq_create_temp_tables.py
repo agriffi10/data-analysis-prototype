@@ -33,10 +33,9 @@ observability.init(service="data-quality")
 def _database(event: dict) -> str:
     """Resolves the Glue database the temp tables are created in.
 
-    The database is the space: a personal check uses the actor's own database, since a username is
-    a database name, and a shared check uses the space's. Both are re-derived from the state the
-    validate verb already proved the actor may use — the request body never carried a database,
-    and it must not start being trusted for one here.
+    The mapping itself is shared with the cleanup verb, which has to reach the same database
+    without this verb's output to read it from. Only the terminal is this verb's own: cleanup
+    never raises, so the shared resolver answers None and the raise lives here.
 
     Args:
       event: The task input, carrying the space and actor.
@@ -48,13 +47,12 @@ def _database(event: dict) -> str:
       TerminalError: ``invalid_request`` on an unknown space kind or a missing field.
     """
     space = event.get("space") or {}
-    kind = space.get("kind")
-    if kind == "personal":
-        return events.require(event, "actor", reason=messages.INVALID_REQUEST)
-    if kind == "shared":
-        prefix = events.require(event, "space", "prefix", reason=messages.INVALID_REQUEST)
-        return prefix.strip("/")
-    raise TerminalError(messages.INVALID_REQUEST, f"unknown space kind {kind!r}")
+    database = sql.temp_database(space, event.get("actor"))
+    if not database:
+        raise TerminalError(
+            messages.INVALID_REQUEST, f"no database for space kind {space.get('kind')!r}"
+        )
+    return database
 
 
 def _location(bucket: str, manifest: dict, location: str) -> str:
@@ -126,11 +124,12 @@ def _run_ddl(query: str, database: str, output_location: str) -> None:
 def _create(event: dict) -> dict:
     """Reads the manifest, names the temp tables, and creates them.
 
-    The names go into the state before any create runs. If the second create fails, or the verb
-    dies after creating and before returning, the cleanup verb still receives both names. They are
-    pure functions of the request id so they could be re-derived downstream — but only for as long
-    as two verbs agree on the derivation, and a leaked table in the user's own database is not a
-    bug worth risking on that.
+    The names reach the cleanup verb only on the paths where this one RETURNS. A Catch merges its
+    error under ``$.error`` and keeps the state as it was on the way in, so nothing this function
+    attaches to its own output survives a failure here — if the raw-table create fails after the
+    typed table was built, or the verb dies between the two, the returned names never existed.
+    That is why the names are pure functions of the request id and the derivation lives in
+    ``dqcommon.sql``: cleanup rebuilds them from the same helper rather than reading them back.
 
     The DDL results location goes under the request's own report prefix rather than the space's
     results folder, so it inherits whatever retention the reports get and never clutters a folder

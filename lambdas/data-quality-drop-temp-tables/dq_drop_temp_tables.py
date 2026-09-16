@@ -9,8 +9,13 @@ Two properties make it safe to call from anywhere. It touches Glue only — no o
 permission is granted anywhere in this arc, so reaching this verb from a validator failure, where
 the body-supplied location has not been authorized yet, cannot delete anything of the user's. And
 it is idempotent and tolerant of never having had anything to do: the drop is conditional, and a
-request that failed before the tables were created carries no table names at all, which is a
-successful no-op rather than an error.
+request that failed before the create verb was reached has nothing to name, which is a successful
+no-op rather than an error.
+
+What it must NOT do is read the names off the create verb's output alone. A Catch keeps the state
+that went INTO the failed state, so a create that died between its two statements returns no names
+at all — the one path where reading them back leaks the table it had already built. The names and
+the database are re-derived from the request id when the state carries none.
 
 The service name is the control plane, not the function: one data-quality run is nine
 invocations, and they are only one queryable set if they share it. The per-verb identity rides as
@@ -82,14 +87,58 @@ def _drop(database: str, table: str, output_location: str) -> bool:
         return False
 
 
+def _targets(event: dict) -> tuple[str | None, list[str]]:
+    """Resolves the database and table names this run may have left behind.
+
+    The create verb's OUTPUT carries them, and on every path where it returned they are read
+    straight off the state. On the path where it did not, they are re-derived — and that half is
+    the point of this function. A Catch merges its error under ``$.error`` and keeps the state
+    that went INTO the failed state, so a create that built the typed table and then died —
+    raw-table DDL refused, or the invocation killed between the two — hands cleanup a state with
+    no names in it at all. Read-only, that is a silent no-op over a table that exists, which
+    shows up in the user's own schema rail and eventually collides with a real table name.
+
+    Re-derivation is safe because both verbs build the names and the database from the same
+    ``dqcommon.sql`` helpers, so there is no second derivation to disagree with.
+
+    ``manifestKey`` is what says the create verb was reached: inspect-source is the only writer
+    of it and the create verb requires it, so its presence means the run got at least as far as
+    the state that creates tables. A failure before that — a validator refusal, an inspection
+    refusal, the overwhelmingly common case — carries no manifest key and stays the clean no-op
+    it is. Should some later change put the key in the state earlier, this errs toward two
+    if-exists drops over tables that were never built, which costs a statement and is correct.
+
+    Args:
+      event: The task input, carrying the space, the actor and whatever the run reached.
+
+    Returns:
+      The database (or None) and the table names to drop, in typed-then-raw order.
+
+    Raises:
+      None.
+    """
+    named = [name for name in (event.get("tempTable"), event.get("tempRawTable")) if name]
+    if named:
+        return event.get("database"), named
+
+    if not event.get("manifestKey") or not event.get("requestId"):
+        return event.get("database"), []
+
+    request_id = event["requestId"]
+    database = event.get("database") or sql.temp_database(event.get("space") or {}, event.get("actor"))
+    derived = [sql.temp_table_name(request_id)]
+    if event.get("format") == "csv":
+        derived.append(sql.raw_table_name(request_id))
+    return database, derived
+
+
 def _cleanup(event: dict) -> dict:
     """Drops whichever temp tables the run created and threads the outcome onward.
 
-    A run with no database or table names was reached before the tables were created — the
-    overwhelmingly common failure case, a validator or inspection failure. Nothing to do is the
-    correct outcome there, so it is recorded as a clean no-op. The dropped and failed tables are
-    named rather than only counted, because recovering a leaked table means running a drop by
-    hand and a count does not say which one.
+    A run with no database and no tables to name was reached before the tables could have been
+    created. Nothing to do is the correct outcome there, so it is recorded as a clean no-op. The
+    dropped and failed tables are named rather than only counted, because recovering a leaked
+    table means running a drop by hand and a count does not say which one.
 
     Args:
       event: The task input, carrying the database and any temp table names.
@@ -100,8 +149,7 @@ def _cleanup(event: dict) -> dict:
     Raises:
       None.
     """
-    database = event.get("database")
-    tables = [name for name in (event.get("tempTable"), event.get("tempRawTable")) if name]
+    database, tables = _targets(event)
 
     out = dict(event)
     if not database or not tables:

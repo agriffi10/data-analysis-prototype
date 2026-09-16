@@ -160,3 +160,52 @@ def test_a_check_targeting_a_reserved_first_segment_is_forbidden_by_name():
             f"{segment!r} is a reserved prefix",
         )
         assert exc.reason == v.messages.FORBIDDEN
+
+
+# ── the space root is not a data folder ──────────────────────────────────────
+
+
+def test_a_check_on_the_space_root_is_refused_under_its_own_reason():
+    """A check builds a table over its target and Athena reads a location RECURSIVELY.
+
+    At the top of a space that sweeps in the portal's own bookkeeping — query results, archive
+    receipts, shared tables — and it SUCCEEDS, reporting those rows as the user's data. Refused
+    under its own reason rather than `forbidden`, because the repair is "open the folder holding
+    your data", not "you may not go there", and six other branches already raise `forbidden`.
+    """
+    _setup()
+
+    for location in ("alice/", "alice"):
+        _expect_reason(
+            _event(location=location),
+            v.messages.LOCATION_IS_SPACE_ROOT,
+            "cannot be run on the top of a space",
+        )
+
+
+def test_a_single_file_sitting_at_the_space_root_is_still_accepted():
+    """The refusal is about the ROOT as a folder target, not about everything under it.
+
+    A one-file target carries a path predicate on every query, so its numbers are its own even
+    though its table's location is promoted to the parent folder. Without this the refusal above
+    would be satisfied just as well by a validator that refused the whole space.
+    """
+    _setup()
+
+    out = v.handler(_event(location="alice/report.csv"), None)
+
+    assert out["location"] == "alice/report.csv"
+
+
+def test_a_shared_space_root_is_refused_by_the_same_rule():
+    """The rule is the space's own root, not a hardcoded personal one."""
+    _setup({"team-data": {"status": "active", "members": ["alice"]}})
+
+    _expect_reason(
+        _event(
+            space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "team-data/"},
+            location="team-data/",
+        ),
+        v.messages.LOCATION_IS_SPACE_ROOT,
+        "cannot be run on the top of a space",
+    )
