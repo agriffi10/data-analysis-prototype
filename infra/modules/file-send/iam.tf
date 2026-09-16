@@ -23,7 +23,8 @@ resource "aws_iam_role_policy" "execution" {
   role = aws_iam_role.execution.id
 
   # NoDataObjectDelete: a Deny present from the FIRST apply. A send is a COPY — it never
-  # deletes and never overwrites — so nothing here will ever need s3:DeleteObject, and writing
+  # deletes, and is meant never to overwrite, which two overlapping sends still can (README.md)
+  # — so nothing here will ever need s3:DeleteObject, and writing
   # the Deny early makes that enforced rather than intended. This role is on the user-space
   # bucket's principal allowlist, so a bug in a later verb would delete another user's data.
   #

@@ -56,6 +56,12 @@ than racing.
 - **Serializing CREATE.** The duplicate-name race is already closed by `check-table-absent` plus
   `CREATE … IF NOT EXISTS` (SPEC-066), and a create and a refresh of one table cannot both
   succeed — create requires the table absent. Only the refresh path takes the lock.
+
+  > **SUPERSEDED 2026-09-15.** The race is narrowed, not closed: two same-name creates can both
+  > pass `check-table-absent`, and the second's `IF NOT EXISTS` is a no-op still reported as a
+  > created table. Nothing is overwritten, and the per-database ordering this spec leans on below
+  > orders the starts only — `docs/decisions/control-planes.md`, *A group id orders the STARTS,
+  > not the runs*.
 - **The other three control planes.** Table-share, data-quality and shared-space have their own
   FIFO groups and none of them performs a read-modify-write on a shared catalog object.
 - **Queueing the loser.** A refused refresh is not retried, held, or re-enqueued — see FR-003.

@@ -438,9 +438,10 @@ def test_the_only_write_into_a_users_space_is_an_inbox():
 
 
 def test_the_delete_deny_still_covers_every_bucket_this_plane_touches():
-    """FR-004 AC2. A send is a copy: it never deletes the sender's copy and never overwrites at
-    the destination, so the Deny makes "this plane deletes nothing" structural rather than
-    behavioural — including over the admin bucket, whose artifacts a lifecycle rule expires."""
+    """FR-004 AC2. A send is a copy: it never deletes the sender's copy and is meant never to
+    overwrite at the destination, so the Deny makes "this plane deletes nothing" structural
+    rather than behavioural — including over the admin bucket, whose artifacts a lifecycle rule
+    expires."""
     deny = next(
         statement
         for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]

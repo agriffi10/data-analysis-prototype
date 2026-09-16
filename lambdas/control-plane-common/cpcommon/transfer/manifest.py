@@ -41,7 +41,8 @@ def write_manifest(bucket: str, key: str, items: list) -> int:
 
     Raises:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the whole verb.
-        Safe because the key is execution-unique and the write is a whole-object PUT.
+        Safe because a Retry of one run writes the same key again — the key carries the run's
+        execution name or its request id — and the write is a whole-object PUT.
       ClientError: Any deterministic fault propagates.
     """
     body = "\n".join(json.dumps(item, separators=(",", ":")) for item in items).encode()

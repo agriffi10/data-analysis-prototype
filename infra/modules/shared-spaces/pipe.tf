@@ -1,7 +1,8 @@
 # ── EventBridge Pipe: request queue → Step Function ─────────
-# Batch size 1, so the single-MessageGroupId ordering is preserved — STRICTLY SERIAL INTAKE.
-# Serial intake plus the registry's conditional put is what makes duplicate names impossible;
-# see sqs.tf. FIRE_AND_FORGET, because a Standard machine outruns a synchronous call.
+# Batch size 1, so the single-MessageGroupId ordering is preserved — for the STARTS only.
+# FIRE_AND_FORGET, because a Standard machine outruns a synchronous call, so this returns once
+# StartExecution does and the next request starts while the last still runs. The registry's
+# conditional put is what makes duplicate names impossible; see sqs.tf.
 # ../../info/control-plane-shape.md.
 
 resource "aws_pipes_pipe" "requests" {

@@ -34,10 +34,13 @@ request id at all. Table-share has none: its keys are a digest of the request, t
 executions of one share collide on that digest, and its manifest's LINES depend on which
 recipients the guard accepted — so a shared manifest key there would let one run copy for a
 recipient the other's guard had just refused. Here the id is the browser's per-submit
-``MessageDeduplicationId``, and a second execution carrying it would have to come from a
-redelivery of the same SQS message — which the Pipe's deterministic execution name refuses with
-``ExecutionAlreadyExists`` (verified against the deployed machine). A Retry of the manifest verb
-rewrites the same key with the same content, which is the property that matters.
+``MessageDeduplicationId``, and a redelivery of one SQS message cannot run a second execution
+carrying it — the Pipe's deterministic execution name refuses that with ``ExecutionAlreadyExists``
+(verified against the deployed machine). A Retry of the manifest verb rewrites the same key with
+the same content, which is the property that matters. A NEW message reusing the id after the
+five-minute dedup window is not a redelivery, and nothing here refuses it: the browser never
+sends one, but a hand-built request would share both keys with a run still going, and either run
+could then copy the other's plan.
 
 Attributes:
   PREFIX: Prefix inside the admin bucket, matching the lifecycle rule's filter.

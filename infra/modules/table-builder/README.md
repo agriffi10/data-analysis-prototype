@@ -43,9 +43,14 @@ Its ARN is a **constructed string** for cycle-free LF-admin wiring from root.
 
 ## `MessageGroupId` is the target database
 
-Two concurrent "create table X" requests against the **same** database serialize strictly
-one-at-a-time; creates in **different** databases run in parallel. The duplicate-name race is closed
-by `check-table-absent` plus `CREATE … IF NOT EXISTS`.
+Two "create table X" requests against the **same** database are **started** in order; creates in
+**different** databases start independently. ⚠ **They are not serialized.** The Pipe starts the
+machine `FIRE_AND_FORGET`, so two same-database runs overlap. A refresh holds the per-table lock for
+that; a create holds none, so `check-table-absent` plus `CREATE … IF NOT EXISTS` **narrows the
+duplicate-name race and does not close it**. Two same-name creates can both pass the check, and the
+second's DDL is a no-op that `execute-ddl` still reports as a created table, over whatever the first
+one defined. Nothing is overwritten. `docs/decisions/control-planes.md`, *A group id orders the
+STARTS, not the runs*.
 
 ## `TimeoutSeconds = 3600`, and it is a prerequisite of the refresh lock
 

@@ -140,7 +140,12 @@ def _space(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _group_shared_space(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """One global group, so two users cannot create the same space name concurrently.
+    """One global group, so every shared-space request is started in arrival order.
+
+    It does not serialize the runs: the Pipe starts the machine fire-and-forget, so they overlap.
+    What stops two users taking one space name is the registry's create-only write, which refuses
+    the second whatever the queue does, and every other registry write bar the final delete is a
+    compare-and-swap.
 
     Args:
       principal: The verified caller. Unused.
@@ -176,7 +181,11 @@ def _group_notifications(principal: Principal, payload: Mapping[str, Any]) -> st
 
 
 def _group_table_build(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes table builds per target database, closing the duplicate-name race.
+    """Groups table builds by target database, so one database's builds are started in order.
+
+    It does not serialize the runs. A refresh holds a per-table lock for that; a create holds none,
+    so two same-name creates can both pass the absence check, and the second's ``IF NOT EXISTS``
+    then reports success over the table the first one made.
 
     Raw rather than hashed, which is safe here and not elsewhere: a database name is bounded at 63
     characters by the catalog identifier rule, where an S3 key reaches 1024 and would breach SQS's
@@ -196,7 +205,10 @@ def _group_table_build(principal: Principal, payload: Mapping[str, Any]) -> str:
 
 
 def _group_table_share(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes repeated shares of one source table while different sources run in parallel.
+    """Groups repeated shares of one source table, so they are started in order.
+
+    It does not serialize them: two overlapping shares of one source under one name can both pass
+    the target guard, copy into one prefix and both report success.
 
     Args:
       principal: The verified caller. Unused.
@@ -213,7 +225,10 @@ def _group_table_share(principal: Principal, payload: Mapping[str, Any]) -> str:
 
 
 def _group_data_quality(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes checks of one location while different locations run in parallel.
+    """Groups checks of one location, so they are started in order.
+
+    It does not serialize them, and nothing needs it to: every per-run key is derived from the
+    request id, and the runs index is written under a compare-and-swap.
 
     Args:
       principal: The verified caller. Unused.
@@ -276,7 +291,10 @@ def _group_archive_restore(principal: Principal, payload: Mapping[str, Any]) -> 
 
 
 def _group_results_conversion(principal: Principal, payload: Mapping[str, Any]) -> str:
-    """Serializes one user's conversions behind their own verified username.
+    """Groups one user's conversions behind their own verified username, so they start in order.
+
+    It does not serialize them. Two can run at once, which is harmless because the one write each
+    makes is conditional unless the request asked to overwrite.
 
     Raw rather than hashed, which is safe here: a username is bounded by the catalog identifier
     rule at 63 characters, well inside the queue's 128. Derived from the verified actor rather

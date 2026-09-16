@@ -31,8 +31,10 @@ means create) selects the branch, and **inspect-source and infer-schema are shar
 about it**, because load-table-definition normalises the state into exactly what a create would have
 handed them.
 
-FIFO `MessageGroupId` is the **target database**, so same-database creates *and* refreshes serialize.
-The duplicate-name race is closed by check-table-absent plus `IF NOT EXISTS`.
+FIFO `MessageGroupId` is the **target database**, so same-database creates *and* refreshes are
+**started** in order, and then overlap, because the Pipe is `FIRE_AND_FORGET`. Refresh is serialized
+by the per-table lock below; create is not, so check-table-absent plus `IF NOT EXISTS` narrows the
+duplicate-name race without closing it: the loser's no-op DDL is still reported as a created table.
 
 ## What it accepts
 

@@ -156,14 +156,20 @@ treated as available.
   request id, so its keys are a digest two overlapping executions collide on. Here the id is the
   browser's per-submit `MessageDeduplicationId`, and a second execution carrying it could only come
   from a redelivery the Pipe's deterministic execution name refuses with `ExecutionAlreadyExists`.
-  What the key must buy is that a *Retry* rewrites one object rather than leaving two.
+  What the key must buy is that a *Retry* rewrites one object rather than leaving two. **—
+  Superseded 2026-09-15: a new message reusing the id after the dedup window is not a redelivery,
+  and nothing refuses it, so a hand-built request can share both keys with a run still going
+  (`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*).**
 - **A third cap, `SEND_MAX_TRANSFER_ITEMS`, beyond the two the spec's own notes anticipated.** The
   manifest is `objects × recipients`; without it the legal worst case is a million lines, which is
   neither verb's memory. Recorded here rather than left as "the spec said two".
 - **The guard's conflict check is TOCTOU**, and FR-001's "no send ever overwrites anything" is
   stated absolutely. Two sends of the same item name from the same sender to the same recipient,
   submitted close together, can both clear the guard. Inherent to check-then-copy with no lock —
-  table-share is the same shape — and not closed here.
+  table-share is the same shape — and not closed here. **— Superseded in part 2026-09-15: the
+  window lasts until the first run's copy of that name lands, since the group id orders only the
+  starts, and the second run overwrites what the first delivered; the repair is decided in the
+  same register entry.**
 - **A selected item that expands to zero objects still consumes a name in the guard.** The guard
   reads names from the selection and the write set comes from the plan, so an empty folder can
   refuse a recipient without contributing a destination. Fail-safe, and spec-compliant ("any

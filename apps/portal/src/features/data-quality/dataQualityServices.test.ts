@@ -104,7 +104,7 @@ describe('dataQuality.service', () => {
    * `{bucket}/{location}` — hashed rather than raw because SQS caps a group id at 128 characters
    * where an S3 key reaches 1024 — and the whole of it moved: the digest itself is replayed
    * against vectors captured from this service in `lambdas/api/test_fifo_derivations.py`, and the
-   * one-character divergence that made two spellings of one location serialize (this plane strips
+   * one-character divergence that put two spellings of one location in one group (this plane strips
    * BOTH ends where the space-keyed planes keep a trailing slash) has its own named test there.
    *
    * The `idToken` field is gone from the wire — the API stamps the verified caller as the

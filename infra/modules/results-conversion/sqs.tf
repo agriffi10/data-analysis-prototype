@@ -1,6 +1,7 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# MessageGroupId is the actor's USERNAME, so one user's conversions are delivered in order
-# while different users run in parallel. MessageDeduplicationId is the request id, so a browser
+# MessageGroupId is the actor's USERNAME, so one user's conversions are STARTED in order while
+# different users start independently. The runs still overlap; pipe.tf says why that is harmless
+# here. MessageDeduplicationId is the request id, so a browser
 # retry of one submit is one execution — content_based_deduplication is OFF on both queues.
 #
 # Its OWN queue and its OWN DLQ, registered with the drain sweep, which names the feature by

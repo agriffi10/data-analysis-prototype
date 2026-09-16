@@ -39,7 +39,8 @@ anybody's prefix**. It mirrors table-share's `*/shared_tables/*` grant one for o
 point: **two planes writing into user space under one pattern is reviewable, two patterns is not**.
 
 **`NoDataObjectDelete` is a Deny present from the first apply.** A send is a **copy** — it never
-deletes the sender's copy and never overwrites at the destination — so nothing here will ever need
+deletes the sender's copy, and it is meant never to overwrite at the destination, which two
+overlapping sends still can (see the `MessageGroupId` section below) — so nothing here will ever need
 `s3:DeleteObject`. Writing the Deny early makes that an **enforced property instead of an
 intention**, and costs nothing. It matters because **this role is on the user-space bucket's
 principal allowlist**: a bug in a later verb would be deleting some other user's data.
@@ -68,8 +69,13 @@ told about**.
 
 ## `MessageGroupId` is a HASH, never the raw path
 
-The SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so repeated sends **out of** one space
-serialize while sends from different spaces run in parallel.
+The SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so repeated sends **out of** one space are
+**started** in order while sends from different spaces start independently. ⚠ **They are not
+serialized.** The Pipe starts the machine `FIRE_AND_FORGET` and this plane holds no lock, so a second
+send of an item to one recipient, submitted before the first run's copy of that name lands, clears
+`check-target-absent` beside it and re-copies over what the first delivered — a file the recipient
+edited in between included. `docs/decisions/control-planes.md`, *A group id orders the STARTS, not
+the runs*, has the decided repair.
 
 **SQS caps the group id at 128 characters and an S3 key reaches 1024**, so the raw form would be a
 length failure that only appears for deeply-nested sources.

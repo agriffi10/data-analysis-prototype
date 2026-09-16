@@ -633,7 +633,7 @@ whose `content_based_deduplication` is `true`.
 
 | Route id | Queue (env var) | CBD | `MessageGroupId` | `MessageDeduplicationId` | Token field (transitional) |
 |---|---|---|---|---|---|
-| `sharedSpace.enqueue` | shared-space (`SHARED_SPACE_QUEUE_URL`) | true | the constant `shared-space` — one global group, so two users cannot create one name concurrently | body `requestId` | `idToken` |
+| `sharedSpace.enqueue` | shared-space (`SHARED_SPACE_QUEUE_URL`) | true | the constant `shared-space` — one global group, so two users cannot create one name concurrently (**superseded 2026-09-15: the registry's create-only write is what stops that; the group orders only the starts**) | body `requestId` | `idToken` |
 | `notifications.enqueue` | notifications (`NOTIFICATIONS_QUEUE_URL`) | true | `principal.username` (was the caller-supplied `input.username`) | a fresh UUID minted by the API — the only id this spec mints, because the plane's actions are idempotent and have no request id | `idToken` |
 | `tableBuild.create` | table-build (`TABLE_BUILD_QUEUE_URL`) | true | `space.database` (raw; ≤63 chars by `CATALOG_IDENTIFIER_RE`) | body `requestId` | `idToken` |
 | `tableBuild.refresh` | table-build | true | `space.database` | body `requestId` | `idToken` |

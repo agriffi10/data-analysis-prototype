@@ -139,8 +139,8 @@ Attributes:
     so the refusal costs no ``GetObject`` at all.
   DONE: A file that is out of the inbox — enqueued, or rejected.
   DEFERRED: A file this invocation had no budget left for, which stops the sweep.
-  MESSAGE_GROUP_ID: The queue's single constant group, so operator and UI requests are one strictly
-    ordered stream rather than two racing ones.
+  MESSAGE_GROUP_ID: The queue's single constant group, so operator and UI requests are started as
+    one ordered stream rather than two. The runs still overlap, which ``_requests`` refuses to hide.
   SCHEMA_VERSION: The envelope version the validator accepts.
   REQUEST_NAMESPACE: The UUID namespace the per-request id is derived in.
 """
@@ -485,9 +485,9 @@ def _send(space, action, usernames, request_id, etag):
 
     The envelope is flat and carries no identity block at all, which is what the ``SenderId``
     comparison on the other side stands in for. The group id is the queue's single constant, so
-    these interleave with the API's requests in one order rather than racing them. The action is
-    the WIRE action, never the operator's word — the validator's vocabulary is ``VALID_ACTIONS``
-    and a message naming ``add`` is refused as unknown.
+    these are started in one order with the API's requests, though the runs still overlap. The
+    action is the WIRE action, never the operator's word — the validator's vocabulary is
+    ``VALID_ACTIONS`` and a message naming ``add`` is refused as unknown.
 
     **The deduplication id is NOT the request id, and is NOT random either.** It is salted with
     the object's ``ETag``, and both halves of that are the point.

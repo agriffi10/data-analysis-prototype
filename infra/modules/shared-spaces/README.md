@@ -21,15 +21,19 @@ the union of every verb's permissions: Glue, Lake Formation, S3 on the shared bu
 registry prefix, the user-space cache, Cognito admin, `lambda:InvokeFunction`, states and logs. The
 **pipe** role reads the queue and starts the machine.
 
-## Serial intake, and what actually makes duplicate names impossible
+## Ordered intake, and what actually makes duplicate names impossible
 
-`MessageGroupId` is a **single constant** — a producer convention — so requests are processed
-**strictly one-at-a-time, in order**.
+`MessageGroupId` is a **single constant** — a producer convention — so requests are **started one at
+a time, in arrival order**. ⚠ **That is not serial execution.** The Pipe starts the machine
+`FIRE_AND_FORGET` and sends the next message once `StartExecution` returns, so runs overlap.
 
-**Duplicate-name safety does not depend on SQS content dedup.** Content-based deduplication only
-collapses byte-identical bodies inside the 5-minute window (it usefully absorbs a double-click). **The
-registry's atomic conditional `PutObject` (`If-None-Match`) is the real guard**, and serial intake is
-what makes it sufficient even when two users submit the same name at once.
+**Duplicate-name safety does not depend on the queue.** Content-based deduplication only collapses
+byte-identical bodies inside the 5-minute window (it usefully absorbs a double-click), and the group
+id orders only the starts. **The registry's atomic conditional `PutObject` (`If-None-Match`) is the
+whole guard**: when two users submit one name at once, one write is refused whatever order their
+runs reach it in. The other registry writes, bar the final delete, and the cache and membership
+index writes are compare-and-swaps; what overlap still costs is recorded in
+`docs/decisions/control-planes.md` (*A group id orders the STARTS, not the runs*).
 
 ## The portal role's third inline policy
 

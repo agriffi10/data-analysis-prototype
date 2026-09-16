@@ -18,8 +18,9 @@ applied in SPEC-108 PR1.
   characters while S3 keys reach 1024, so a raw id would fail the send **in the browser**,
   for exactly the users with the deepest folders. (The other producers get away with raw ids
   only because they group by a bounded catalog identifier.) Tests pin: a >128-char location
-  still yields a 64-char group id and sends; the same location → same group id (serializes);
-  different locations → different ids (parallel); trailing-slash variants collapse.
+  still yields a 64-char group id and sends; the same location → same group id (serializes **—
+  superseded 2026-09-15: ordered starts only, and the runs overlap; `docs/decisions/control-planes.md`
+  —**); different locations → different ids (parallel); trailing-slash variants collapse.
   `MessageDeduplicationId = requestId` (content dedup is OFF on the queue).
 - **`validate-authorize`** — the real verb. Verifies the ID token via `cpcommon.auth`
   (offline JWKS, RS256, `exp`/`iss`/`aud`, `token_use == "id"`), derives the actor from

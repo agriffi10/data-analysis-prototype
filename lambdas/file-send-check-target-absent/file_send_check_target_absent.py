@@ -4,8 +4,9 @@ For ONE recipient: short-circuits a recipient validate-authorize could not resol
 where their inbox is, and refuses the recipient if any selected item name is already taken
 there. Read-only — it decides whether a copy may start, and never starts one.
 
-**A send never overwrites, and this is where that is enforced.** The destination layout keys by
-item NAME, so a second send of ``notes.txt`` collides where a first send of
+**A send is meant never to overwrite, and this is where that is checked, not enforced.** It is a
+read, so a second send submitted before an earlier one's copy of the same name lands passes here
+too, and the copy after it is unconditional. The destination layout keys by item NAME, so a second send of ``notes.txt`` collides where a first send of
 ``reports/`` to the same recipient does not. Refusing rather than merging is the recorded
 behaviour: a merge would leave a recipient's folder holding two sends' worth of files with no
 way to tell which arrived when, and an overwrite would destroy data this plane holds no delete
