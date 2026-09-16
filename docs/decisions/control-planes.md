@@ -1957,19 +1957,70 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   `name already taken` and the winner's record is untouched; the constant group id adds nothing to
   that. The registry's other writes, bar the final delete, the per-user cache and the membership
   index re-read and write under ETag CAS, which keeps each document whole. What CAS does not
-  re-check is what the verb was authorized on. `save_members` and `empty_space` check no expected
-  owner, only `set_owner` does, so a former owner's add, remove or delete authorized before a
-  transfer still lands after it; and
-  `set_owner` does not check that the new owner is still on the fresh roster, so a transfer racing
-  that member's removal leaves an owner who is not a member. A late add or remove also fans the
-  roster out under the owner the validator read, so every member's cache can show the former owner
-  as owner again. And CAS on an absent record writes create-only from the caller's snapshot, so an
-  owner verb landing after a teardown's final delete recreates the record; member actions are
-  refused on anything not active, so this reaches only a never-active space, such as an owner's
-  retried create racing their own delete. The Cognito membership slots are no document at all:
+  re-check is what the verb was authorized on — **and a CAS on one document orders nothing against
+  a write to another, which is the second half of this arm.** **Repaired 2026-09-15 (Andrew), in
+  the granting direction only:** `save_members`, `set_status` and `empty_space` now take an
+  `expected_owner` and refuse with `OwnerChanged` — passed by the add, and only for a delta that
+  actually ADDS somebody, since one that grants nothing needs no re-authorization and refusing it
+  would turn an idempotent no-op into a failure. The delete carries it on the cascade's FIRST
+  WRITE, the deleting status, rather than on a read: a read can only be re-checked by the write
+  after it, and there a refusal has written nothing to a record it may not touch, and hands the
+  space back rather than writing `failed` onto a record that is now somebody else's. **A transfer
+  landing LATER, during the revocation loop, is not caught — and that is the decision, not the
+  gap.** Three arrangements were tried and each was worse, which is the part worth keeping:
+  refusing on the emptying rewrite arrives after every grant is gone, the new owner's included,
+  and an owner's slot is one no ordinary verb can re-issue because the add normalises the owner
+  out; emptying before revoking closes that but clears the owner and roster before anyone is
+  revoked, so a Lambda killed mid-loop — a timeout is none of the four errors this fleet's
+  machines retry — strands every unreached grant on a record naming nobody, unreachable even by a
+  retry; and a repair that gave the revoked grants back wrote the new owner a MEMBER card, could
+  re-grant over a delete the new owner had meanwhile started, and swallowed the one failure that
+  mattered. Losing the space to a late delete is recoverable — the objects, the database and the
+  name all survive an emptying, which is why emptying exists — and a grant nobody can see is not.
+  **Revoking first is kept for a different reason than the refusal**: a FAULT in the main loop
+  leaves the record untouched and the retry idempotent. It does not make a hard KILL safe, it
+  only shrinks the stranded population to the latecomer pass, since the rewrite has blanked the
+  roster by then and the replay reads it back empty.
+  `set_owner` now also refuses a target who left the roster
+  (`TransferTargetNoLongerMember`), which closes an owner who is not a member: being the owner is
+  itself the access. **`remove_members` is deliberately NOT repaired** — a late remove revokes
+  rather than grants, and `MembershipRefused` already decides that refusing one strands a member
+  who slipped through; `expected_owner` is a general parameter, so it is one line if that reading
+  changes. The roster fan-out now runs under the owner the COMMIT carries, at all four sites that
+  passed the validator's, and writes nothing at all when the commit carries none — which also
+  stops a late leave or remove re-creating every member's cache card for a space a delete has just
+  emptied. Those cards are the browser's affordances, re-authorized at the validator, so that half
+  was cosmetic. **The membership index was not:** the add wrote it AFTER its registry commit, so a
+  delete's revocation landing in between let the add re-create the entry — `status` active, which
+  is what an emptied record deliberately keeps — and the API's index source stamps a principal tag
+  for any active entry. Reproduced against the verbs, and repaired the same day by writing every
+  GRANT before the commit and only revocations after it, with the add rolling back both grants on
+  any failure of the commit: a delete emptying after the commit finds the member in the record
+  `empty_space` hands back, and one emptying before it makes the commit refuse. Latent while
+  `MEMBERSHIP_SOURCE` is `claims`, which is every environment — the slot is the grant there, and
+  the delete clears it. **Still live, and recorded rather than repaired:** CAS on an absent record
+  writes create-only from the caller's snapshot, so an owner verb landing after a teardown's final
+  delete recreates the record — `save_members` and `set_status` are the two that fall back that
+  way, and the new owner check evaluates against that snapshot, so it does not close this; member
+  actions are refused on anything not active, so it reaches only a never-active space, such as an
+  owner's retried create racing their own delete. `create-space` writes its own index entry AFTER
+  `finalize`, and that one cannot take the ordering above: the record reads `provisioning` until
+  `finalize`, so an entry written earlier would name a space no session may reach — its own
+  docstring argues that, and it still holds. So the create has the add's old shape, and it needs
+  no absent record to bite: a creator deleting their own space in the window after `finalize`
+  has their entry re-created over an emptied record, permanently, because an emptied roster names
+  them nowhere any verb will sweep. A self-grant over their own retained objects, which is what
+  caps it. `finalize` does **not** narrow this — it builds its record from a literal with no
+  absent branch, so on a freed name it re-creates the record rather than refusing, which is the
+  same create-only write as the two above and not a fence against it. The add's rollback is best-effort by design and skips anyone on the roster it reads, so
+  on the destroying route a read landing before the record is deleted keeps both grants over a
+  name that is then freed. The narrowing second index write has a residual of its own, in the
+  denying direction: a delete dropping the entry between the commit and that write re-creates it
+  non-granting, and nothing sweeps it, so a member can be denied a space the roster later allows. And the Cognito membership slots are no document at all:
   `assign_or_find_slot` reads the user's attributes and writes one slot with no condition, so two
   spaces adding one user at once can pick the same free slot, and the user keeps only one of the
-  two grants while both rosters list them.
+  two grants while both rosters list them — a denial rather than a grant, in every interleaving,
+  which is why it is the one left alone.
 - **Table builder: a create still holds no lock, and now says so when it loses.** Two same-name
   creates in one database both pass `check-table-absent`, a point-in-time `GetTable` with
   `InspectSource` and `InferSchema` between it and the DDL, and the second
@@ -2043,9 +2094,22 @@ itself make the losing run report a conflict: the engine records a `412` as an o
 failure, and both collectors turn any failed item into `copy_failed`, so the spec owes that mapping
 too, and for table share an answer to two runs that each lose a key to the other and leave a
 half-copied prefix with no table. The same spec adds a `request_id_reused` refusal to file send, as
-archive and file-ops carry. Until it lands, the file-send and table-share arms above are live. The
-shared-space residuals are recorded and not yet scheduled; the table builder's misreported create is
-closed above, by a post-condition rather than a lock, and its own residual is named there.
+archive and file-ops carry. Until it lands, the file-send and table-share arms above are live.
+The table builder's misreported create is closed above, by a post-condition rather than a lock,
+and its own residual is named there.
+
+**The shared-space residuals were triaged separately on 2026-09-15 (Andrew), and the granting ones
+repaired the same day.** The trigger was an audit claim that the add's membership-index write could
+outlive a delete's revocation; it was reproduced against the verbs rather than taken on report, and
+it is the only one of the six that grants under a source no environment runs yet. The rule that
+came out of the triage, and that the arm above applies: **the direction decides the response.** A
+residual that DENIES what the roster allows — the slot collision, a late remove — is recorded and
+left, because refusing it strands somebody and the wrong choice costs a re-add. One that GRANTS
+what the roster denies is repaired, and the repair is an ORDERING rather than a check wherever one
+exists: a check across two documents has no atomicity to lean on, where writing the grant before
+the commit makes a concurrent delete's own sweep the thing that catches it. What that ordering
+costs is a member briefly holding a grant no roster shows, which is the shape the Cognito slot
+already had and the reason a rollback sits beside it.
 
 This audit corrected the sites it found claiming a group id serializes runs, and marked each one a
 register, delivery doc or spec carried in place rather than rewriting it; the cancelled

@@ -54,8 +54,8 @@ machine and every verb.
   `{version, username, spaces: [{name, status}], updatedAt}`. It is the projection that answers
   *which spaces is this user in* in one `GetObject`, which the registry — one object per space,
   keyed by space name — cannot do without a listing plus a read per space. Written under ETag CAS
-  by the six verbs that move a Cognito membership slot, at the same consistency point the roster
-  fan-out uses. **Never deleted:** a user with no spaces holds an empty list, because a deleted
+  by the six verbs that move a Cognito membership slot — a **grant** before the registry commit,
+  beside the slot it mirrors, and a **revocation** after it. **Never deleted:** a user with no spaces holds an empty list, because a deleted
   document and a user who was never a member are indistinguishable.
 - **Results routing:** querying a shared database sets the per-query `OutputLocation` to
   `{shared-space-bucket}/{name}/athenaresults/{username}/`, which is delete-denied, mirroring the
@@ -104,10 +104,11 @@ The verbs are listed in [`../INDEX.md`](../INDEX.md).
 Long-form reasoning that outgrew a docstring: sizing evidence, rejected designs and the
 traps. Read the entry for what you are changing.
 
-### `shared-space-common/membership_index.py` — why it does not inherit the fan-out's posture
+### `shared-space-common/membership_index.py` — why it shares neither the fan-out's posture nor its position
 
-It writes at the same point `cache.write_roster_to_all` does, after the registry commits, and it
-deliberately does **not** copy that function's `except: log and continue`. A stale roster is
+A **grant** is written BEFORE the registry commit and a **revocation** after it, which is the half
+that differs from `cache.write_roster_to_all`; and it deliberately does **not** copy that
+function's `except: log and continue`. A stale roster is
 cosmetic — one member sees an out-of-date member list. A stale index is an authorization input
 that is wrong, and on a removal it is wrong in the **granting** direction. So every failure raises
 and the plane's per-verb `Catch: States.ALL -> RecordFailure` turns it into a failed run with a

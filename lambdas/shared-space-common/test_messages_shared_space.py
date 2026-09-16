@@ -111,3 +111,23 @@ def test_an_unregistered_key_is_refused_at_composition_rather_than_rendered_gene
         assert "NotARegisteredCode" in str(exc)
     else:
         raise AssertionError("an unregistered CODE composed a sentence under a registered wording")
+
+
+def test_every_membership_refusal_class_has_a_sentence_a_user_can_read():
+    # The refusal table has a key-parity gate; this one did not, and the keys here are class
+    # names the engine reports verbatim. A rename degrades the message to the generic clause
+    # silently, which is the failure this file's own docstring says registering them prevents.
+    import registry as reg
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    named = {cls.__name__ for cls in subclasses(reg.MembershipRefused)}
+    assert named, "no MembershipRefused subclasses found — the walk is looking in the wrong place"
+    missing = sorted(name for name in named if name not in messages._DOMAIN_REASONS)
+    assert missing == [], f"no sentence registered for {missing}"
+    for name in named:
+        rendered = messages.failure_message("transfer_ownership", "sales", name)
+        assert messages._DOMAIN_REASONS[name] in rendered

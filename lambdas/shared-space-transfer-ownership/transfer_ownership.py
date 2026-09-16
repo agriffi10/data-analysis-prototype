@@ -83,6 +83,7 @@ def transfer_ownership(space, request_id, registry, new_owner):
       RegistryRecordMissing: When the record went away before the write.
       SpaceAlreadyEmptied: When a delete emptied the space first.
       OwnerChanged: When the space changed hands first.
+      TransferTargetNoLongerMember: When a removal took the named member off the roster first.
       CasExhausted: When the registry CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """

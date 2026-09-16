@@ -355,3 +355,119 @@ def test_the_add_emits_a_child_span_for_the_roster_fan_out_and_the_notifications
             f"add-members emitted {len(children)} {name!r} child spans, expected exactly one"
         )
         assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
+def test_a_delete_between_the_commit_and_the_fan_out_leaves_no_index_entry():
+    # The grant-bearing writes land BEFORE the registry commit, so a delete that empties the
+    # space after it finds the new member in the record empty_space hands back and revokes them
+    # as a latecomer. Written the other way round the add re-created the entry after the
+    # revocation, over a record an emptied space deliberately leaves at status "active" — which
+    # the API's index source reads as a live space.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-delete"))
+    import delete_space as d
+
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"alice": {}, "bob": {}}
+    record = _active_reg(members=["alice"])
+    record["everActive"] = True
+    _seed_reg(s3, record)
+
+    # Staged the INSTANT the commit returns, which is the only point that discriminates: hooking
+    # anything later — the roster fan-out, say — puts the delete's revocation after the old index
+    # write too, so the old ordering passes and the guard proves nothing.
+    fired = []
+    real_save = a.reg.save_members
+
+    def commit_then_delete(*args, **kwargs):
+        committed = real_save(*args, **kwargs)
+        if not fired:
+            fired.append(True)
+            d.delete_space("sales", "alice", "req-del", json.loads(json.dumps(record)))
+        return committed
+
+    a.reg.save_members = commit_then_delete
+    try:
+        a.add_members("sales", ["bob"], "req-add", json.loads(json.dumps(record)))
+    finally:
+        a.reg.save_members = real_save
+
+    assert fired == [True]
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["emptiedAt"]
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+
+
+def test_an_add_authorized_before_a_transfer_is_refused_after_it():
+    # A former owner's addition is authorized against the record the validator read. A transfer
+    # landing before the commit makes it an addition to somebody else's space, so the commit
+    # re-checks the owner and both grants are handed back.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}}
+    transferred = _active_reg(members=["alice", "carol"], owner="carol")
+    _seed_reg(s3, transferred)
+
+    raises(
+        lambda: a.add_members("sales", ["bob"], "req-a", _active_reg(members=["alice", "carol"])),
+        reg.OwnerChanged,
+    )
+
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == [
+        "alice",
+        "carol",
+    ]
+
+
+def test_a_commit_that_fails_without_refusing_still_gives_the_grants_back():
+    # An exhausted CAS or an S3 fault leaves exactly the orphan a refusal would: both grants
+    # written, the member on no roster, so no delete's latecomer sweep will ever name them.
+    # Catching only MembershipRefused left that door open once the index write moved ahead of
+    # the commit.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}}
+    record = _active_reg(members=["alice"])
+    _seed_reg(s3, record)
+
+    real_save = a.reg.save_members
+    a.reg.save_members = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cas exhausted"))
+    try:
+        raises(lambda: a.add_members("sales", ["bob"], "req-a", record), RuntimeError, "cas exhausted")
+    finally:
+        a.reg.save_members = real_save
+
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+
+
+def test_an_add_committing_onto_a_deleting_record_writes_a_non_granting_entry():
+    # The authorizer only lets an ACTIVE record reach this verb, so the pre-commit write can
+    # only ever stamp "active". A delete that has written its deleting status but not yet
+    # emptied still accepts the delta, and the API's index source stamps a tag for any entry
+    # reading active — so the committed status is written back when it narrows.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}}
+    record = _active_reg(members=["alice"])
+    _seed_reg(s3, dict(record, status="deleting", everActive=True))
+
+    a.add_members("sales", ["bob"], "req-a", record)
+
+    entry = json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"][0]
+    assert entry == {"name": "sales", "status": "deleting"}
+
+
+def test_an_add_that_adds_nobody_is_a_no_op_even_after_a_transfer():
+    # The owner re-check sits INSIDE the addition branch. A delta that adds nobody grants
+    # nothing, so it needs no re-authorization — checked outside, a request whose names were all
+    # already members would turn an idempotent no-op into a refusal, and the roster would still
+    # be fanned out under whichever owner the commit carries.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}, "carol": {}}
+    stale = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, dict(stale, owner="carol"))
+
+    out = a.add_members("sales", ["bob"], "req-a", stale)
+
+    assert out["added"] == [] and out["ignoredUnknown"] == []
+    alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert alice_cache["connections"][0]["owner"] == "carol"

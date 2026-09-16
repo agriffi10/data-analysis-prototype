@@ -102,7 +102,7 @@ def remove_members(space, members, request_id, registry):
     cache.write_roster_to_all(
         committed["members"],
         space,
-        owner,
+        committed.get("owner"),
         committed.get("acknowledged", []),
         committed.get("createdAt"),
     )

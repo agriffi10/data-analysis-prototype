@@ -79,6 +79,10 @@ _DOMAIN_REASONS = {
     "MembersRemainAfterEmpty": "some members' access could not be removed, so please try again",
     "RegistryRecordResurrected": "someone changed that workspace while it was being removed, so please try again",
     "OwnerChanged": "that workspace changed hands while your request was being processed",
+    "TransferTargetNoLongerMember": (
+        "the person you named is no longer a member of that workspace, so add them to it again "
+        "before transferring it"
+    ),
 }
 
 _REFUSALS = {

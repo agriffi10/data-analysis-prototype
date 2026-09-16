@@ -183,3 +183,19 @@ def test_the_remove_emits_a_child_span_for_the_fan_out_and_the_notifications(cap
             f"remove-members emitted {len(children)} {name!r} child spans, expected exactly one"
         )
         assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
+def test_the_roster_fans_out_under_the_owner_the_commit_carries():
+    # A removal carries no expected owner — it revokes rather than grants, so refusing one would
+    # strand a member who slipped through. That leaves the fan-out as the only thing that can go
+    # wrong here: from the validator's snapshot it told carol's members the space was alice's.
+    s3, _glue, _lf, cognito = install()
+    reg = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, reg)
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "carol": {}}
+    _seed_reg(s3, dict(reg, owner="carol"))
+
+    r.remove_members("sales", ["bob"], "req-r", reg)
+
+    alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert alice_cache["connections"][0]["owner"] == "carol"

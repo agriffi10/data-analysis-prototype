@@ -1,8 +1,9 @@
 """add-members verb: adds each valid username to the space.
 
-Validates each name against the user pool, assigns a membership slot, writes the member's cache
-entry and membership index entry, and appends to the registry. Idempotent — already-members are skipped, and the owner is
-never added, being normalised out.
+Validates each name against the user pool, assigns a membership slot, writes the member's
+membership index entry, appends to the registry and then fans the roster out to every member's
+cache. Idempotent — already-members are skipped, and the owner is never added, being normalised
+out.
 
 An unknown username is not silently ignored: the name is collected and the space owner is
 notified by name, pinned by test. What is true is that the report is late, asynchronous and
@@ -32,28 +33,32 @@ logger.setLevel(logging.INFO)
 observability.init(service="shared-space")
 
 
-def _release_slots(space, added):
-    """Gives back the membership slots this run assigned, after the roster write refused them.
+def _release_grants(space, added):
+    """Gives back BOTH grants this run handed out, after the roster write refused them.
 
-    Slots are assigned one at a time BEFORE the roster is written, so a refusal at the write
-    leaves every one of them standing — and a slot *is* the S3 and Glue grant. Without this the
-    guard leaves the added user holding live access to a space they appear in no roster of, which
-    is strictly worse than the state the guard prevents: at least a roster entry is visible.
+    A member's access to a space is two writes, and neither is the registry: the Cognito slot,
+    which is the S3 and Glue grant under the claims source, and the membership index entry, which
+    is the same grant under the index one. Both are written BEFORE the roster, so a refusal at the
+    write leaves every one of them standing. Without this the guard leaves the added user holding
+    live access to a space they appear in no roster of, which is strictly worse than the state the
+    guard prevents: at least a roster entry is visible.
 
-    A name already on the freshly-read roster is skipped, because assigning a slot is idempotent
-    and returns an existing one without writing. A concurrent run that legitimately committed the
-    same member would otherwise have their access revoked by this rollback.
+    A name already on the freshly-read roster is skipped, because both writes are idempotent and a
+    concurrent run that legitimately committed the same member would otherwise have their access
+    revoked by this rollback.
 
     Each release is best-effort, **including the roster read**: a fault anywhere here would
     propagate out of the caller's refusal handler and release nothing at all — the orphan this
     function exists to prevent — and the user would get the generic clause instead of the
     refusal's own sentence, since the resolver keys on the raised class. An unreadable roster
-    falls back to releasing every slot: over-releasing costs a re-add, under-releasing leaves a
-    live grant nobody can see.
+    falls back to releasing everything: over-releasing costs a re-add, under-releasing leaves a
+    live grant nobody can see. The index drop is best-effort HERE and nowhere else — the module
+    raises on every write because a stale index is an authorization input that is wrong, and this
+    is the one call whose failure must not replace the refusal the user needs to read.
 
     Args:
       space: The space name.
-      added: The members this run assigned a slot to.
+      added: The members this run granted.
 
     Returns:
       None.
@@ -64,7 +69,7 @@ def _release_slots(space, added):
     try:
         committed = set((reg.load(space) or {}).get("members") or [])
     except Exception:
-        logger.exception("failed to read the roster before releasing slots on %s", space)
+        logger.exception("failed to read the roster before releasing grants on %s", space)
         committed = set()
     for member in added:
         if member in committed:
@@ -73,6 +78,10 @@ def _release_slots(space, added):
             membership.clear_slot(member, space)
         except Exception:
             logger.exception("failed to release the slot for %s on %s", member, space)
+        try:
+            membership_index.drop(member, space)
+        except Exception:
+            logger.exception("failed to release the index entry for %s on %s", member, space)
 
 
 @observability.step("notify-members")
@@ -110,6 +119,31 @@ def add_members(space, members, request_id, registry):
     what actually landed rather than from the list computed here, which would otherwise leave the
     cache carrying a roster the registry disagrees with.
 
+    **Every GRANT is written before that point, and the cosmetic write after it.** The slot and
+    the membership index entry are the two things that actually admit a member, and both now land
+    ahead of the registry commit; the cache fan-out, which admits nobody, stays behind it. That
+    ordering is what makes a concurrent delete safe rather than a matter of timing: a delete that
+    empties the space AFTER this commit finds the member in the record ``empty_space`` hands back
+    and revokes them as a latecomer, and one that empties it BEFORE makes the commit raise, so
+    this verb takes its own grants back. Written the other way round — the index after the
+    commit, as the cache fan-out is — the delete's revocation could land between the two and the
+    entry be re-created over an emptied space, which grants under the index source what the roster
+    denies. Two things that argument does NOT claim: the second branch closes through
+    ``_release_grants``, which swallows its own failures, so it is closed modulo a rollback that
+    may quietly not happen; and the rollback skips anyone on the roster it reads, so on the
+    destroying route a read landing before the record is deleted keeps both grants over a name
+    that is then freed. The ordinary cost is that a member briefly holds a grant no roster shows,
+    which the slot has always had.
+
+    **The index entry's status is written twice only when the second would NARROW it.** The
+    pre-commit write can only use the validator's snapshot, which the authorizer guarantees is
+    active — so on its own it would stamp every entry active, including an add that commits onto
+    a record a delete has already moved to ``deleting``. That is the granting direction, and the
+    status is the one field the API's index source reads to decide whether to stamp a tag. So the
+    committed status is written back when it is anything but active, and never when it is: a
+    re-write that could only ever downgrade cannot re-create a granting entry a concurrent
+    revocation has just dropped, which is the whole reason the first write moved.
+
     Join status is derived inside that same compare-and-swap from the freshly-read record:
     existing members stay as they are and newly-added users are not acknowledged, so they surface
     as pending until they sign in and acknowledge.
@@ -138,7 +172,12 @@ def add_members(space, members, request_id, registry):
       The verb result, carrying the added, unknown and at-limit names.
 
     Raises:
+      OwnerChanged: When the space changed hands between the validator's read and the commit.
+      MembershipRefused: When the freshly-read record forbids the addition. Its grants are given
+        back first, whichever subclass it is — as they are for every other failure of the commit,
+        since an exhausted CAS or an S3 fault leaves the same orphan a refusal would.
       RuntimeError: When the registry CAS attempts are exhausted.
+      CasExhausted: When a member's membership-index CAS attempts are exhausted.
       ClientError: On any non-precondition S3 or Cognito fault.
     """
     owner = registry["owner"]
@@ -170,18 +209,28 @@ def add_members(space, members, request_id, registry):
             (member, f'You\'ve been added to the shared workspace "{space}".', f"add-member:{member}")
         )
 
+    if summary["added"]:
+        try:
+            membership_index.record_for_all(
+                summary["added"], space, registry.get("status", "active")
+            )
+        except Exception:
+            _release_grants(space, summary["added"])
+            raise
+
     try:
-        committed = reg.save_members(registry, request_id, add=summary["added"])
-    except reg.MembershipRefused:
-        _release_slots(space, summary["added"])
+        committed = reg.save_members(
+            registry, request_id, add=summary["added"], expected_owner=owner
+        )
+    except Exception:
+        _release_grants(space, summary["added"])
         raise
-    membership_index.record_for_all(
-        summary["added"], space, committed.get("status", "active")
-    )
+    if summary["added"] and committed.get("status") != "active":
+        membership_index.record_for_all(summary["added"], space, committed["status"])
     cache.write_roster_to_all(
         committed["members"],
         space,
-        owner,
+        committed.get("owner"),
         committed.get("acknowledged", []),
         committed.get("createdAt"),
     )

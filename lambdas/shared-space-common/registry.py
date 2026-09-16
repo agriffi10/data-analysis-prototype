@@ -67,6 +67,18 @@ class OwnerChanged(MembershipRefused):
     """
 
 
+class TransferTargetNoLongerMember(MembershipRefused):
+    """The member a transfer names left the roster between authorization and the write. Terminal.
+
+    The mirror of ``OwnerChanged``, on the other half of the same decision. The validator refuses
+    a target who is not a member, from the record it loaded; a concurrent removal between that
+    read and the write leaves the check passed and the fact false. An owner reaches a space by
+    being its owner rather than by appearing on its roster, so completing the transfer hands
+    someone live access the roster has just denied them — which is why this refuses rather than
+    re-adding them, a repair no one authorized.
+    """
+
+
 class RegistryRecordMissing(Exception):
     """A verb's fresh read found no record where one is required. Terminal.
 
@@ -476,7 +488,9 @@ def effective_acknowledged(registry: dict) -> list[str]:
     return list(ack)
 
 
-def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowledge=()) -> dict:
+def save_members(
+    registry: dict, request_id: str, *, add=(), remove=(), acknowledge=(), expected_owner=None
+) -> dict:
     """Applies a membership delta under compare-and-swap and returns the committed record.
 
     A delta, not a computed list, and that is the whole point. This used to take the roster the
@@ -500,12 +514,24 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
     then run against a record claiming to be healthy. Only a default remains, to heal a record
     written before the field existed.
 
+    **``expected_owner`` re-checks the authorization, and only the GRANTING caller passes it.**
+    The delta is derived from the fresh record, which keeps the roster whole, but nothing here
+    asked whether the person who was allowed to change it still is: a transfer landing between
+    the validator's read and this write leaves a former owner's addition to apply against the new
+    owner's space. Refusing it is the same argument ``set_owner`` makes one field over. The
+    removing and acknowledging callers pass nothing, deliberately — ``MembershipRefused`` exempts
+    them because both only shrink or annotate a roster, and a late removal revokes rather than
+    grants, so refusing one would strand a member who slipped through.
+
     Args:
       registry: The registry record, used for the space name and as the fallback base.
       request_id: The run's request id.
       add: Members to add.
       remove: Members to remove.
       acknowledge: Members promoting themselves from pending to active.
+      expected_owner: The owner the request was authorized against, or None to apply the delta
+        whatever the record now says. Passed by the adding caller only, and consulted only when
+        the delta actually adds somebody.
 
     Returns:
       The committed record, so callers can fan the roster out from what actually landed. Fanning
@@ -516,6 +542,7 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
       SpaceHasNoOwner: When an addition targets a space whose owner has been cleared.
       SpaceAlreadyEmptied: When an addition targets a space a delete has emptied.
       SpaceNeverActive: When an addition targets a space that is still destroyable.
+      OwnerChanged: When an expected owner was given and the space has changed hands since.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -545,7 +572,18 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
           The record to write.
 
         Raises:
-          None.
+          SpaceHasNoOwner: When an addition targets a record whose owner field is gone.
+          SpaceAlreadyEmptied: When an addition targets a record carrying an emptied stamp.
+          SpaceNeverActive: When an addition targets a record that is still destroyable.
+          OwnerChanged: When an addition was given an expected owner and the record names
+            another. It sits INSIDE the addition branch and LAST within it, and both halves are
+            load-bearing. Last, because an emptied record has no owner at all, so a check ahead
+            of the three above would answer every delete race with "that workspace changed hands"
+            in place of "that workspace has been deleted" — two quite different situations
+            collapsed into the wrong one of the two sentences. Inside, because a delta that adds
+            NOBODY grants nothing and so needs no re-authorization: checked outside, a request
+            whose names were all already members, unknown or at their slot limit would turn an
+            idempotent no-op into a refusal and lose the report naming them.
         """
         record = dict(existing) if existing is not None else dict(registry)
         if add:
@@ -555,6 +593,11 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
                 raise SpaceAlreadyEmptied(f"space {name!r} was emptied and cannot take new members")
             if is_destroyable(record):
                 raise SpaceNeverActive(f"space {name!r} is not provisioned and cannot take new members")
+            if expected_owner is not None and record.get("owner") != expected_owner:
+                raise OwnerChanged(
+                    f"space {name!r} is owned by {record.get('owner')!r}, not {expected_owner!r}, "
+                    "so the membership change is refused"
+                )
         prior_ack = effective_acknowledged(record)
         members = [m for m in record.get("members", []) if m not in removing]
         for member in add:
@@ -580,22 +623,34 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
     )
 
 
-def set_status(registry: dict, status: str, request_id: str, reason: str | None = None) -> None:
+def set_status(
+    registry: dict, status: str, request_id: str, reason: str | None = None, expected_owner=None
+) -> None:
     """Rewrites a space's status, preserving its owner, members and the rest.
 
     Compare-and-swap on the freshly-read record, so the status change is applied to current state
     and never regresses a value a concurrent writer just committed.
+
+    **``expected_owner`` makes this the delete cascade's authorization re-check, because it is the
+    cascade's FIRST write.** A status is not authorization-carrying and needs no such check on its
+    own account; what it carries here is position. The delete verb checks its own fresh read
+    before writing anything, and a transfer landing between that read and this write would leave
+    the rest of the cascade running against somebody else's space — so the check goes on the write
+    that opens it, where a refusal has destroyed nothing and written nothing.
 
     Args:
       registry: The registry record, used for the space name and as the fallback base.
       status: The new status — deleting before the cascade, or failed on a hard error.
       request_id: The run's request id.
       reason: The failure reason, when there is one. Absent, any existing reason is cleared.
+      expected_owner: The owner the request was authorized against, or None to write the status
+        whatever the record now says. An emptied record answers from ``previousOwner``.
 
     Returns:
       None.
 
     Raises:
+      OwnerChanged: When an expected owner was given and the space has changed hands since.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -611,9 +666,16 @@ def set_status(registry: dict, status: str, request_id: str, reason: str | None 
           The record to write.
 
         Raises:
-          None.
+          OwnerChanged: When an expected owner was given and the record names another.
         """
         record = dict(existing) if existing is not None else dict(registry)
+        if expected_owner is not None:
+            current = record.get("owner") or record.get("previousOwner")
+            if current != expected_owner:
+                raise OwnerChanged(
+                    f"space {name!r} is owned by {current!r}, not {expected_owner!r}, "
+                    "so the status change is refused"
+                )
         record["status"] = status
         record["lastRequestId"] = request_id
         record["updatedAt"] = now_iso()
@@ -642,6 +704,12 @@ def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: s
     transfer is: without the check, a retry that lands after a concurrent transfer re-applies a
     decision that was authorized against a record which no longer exists.
 
+    **It re-checks the other half of that decision too — that the member named is still on the
+    roster.** The validator refuses a target who is not a member, and a removal landing between
+    that read and this write leaves the refusal passed and the fact false. Being the owner is
+    itself the access, so the completed transfer would hand someone the space the roster had just
+    removed them from.
+
     **It corrects ``acknowledged`` in the same write**, and that is not tidying. The cache's
     roster projection reads ``"active" if (m == owner or m in ack) else "pending"``, and the
     acknowledged list excludes the owner on the grounds that an owner is always active. So a
@@ -667,6 +735,8 @@ def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: s
         pass because it had read the caller's stale copy.
       SpaceAlreadyEmptied: When a delete emptied the space after the request was authorized.
       OwnerChanged: When the space changed hands after the request was authorized.
+      TransferTargetNoLongerMember: When the member named has left the roster since the request
+        was authorized.
       CasExhausted: When the attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -685,6 +755,9 @@ def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: s
           RegistryRecordMissing: When there is no record to rewrite.
           SpaceAlreadyEmptied: When the space carries an emptied stamp.
           OwnerChanged: When the current owner is not the expected one.
+          TransferTargetNoLongerMember: When the new owner is not on the freshly-read roster. A
+            roster that is not a list reads as empty and refuses, the same collapse
+            ``membership.roster`` makes, which fails closed for a question phrased this way.
         """
         if existing is None:
             raise RegistryRecordMissing(f"space {name!r} has no registry record to transfer")
@@ -696,7 +769,12 @@ def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: s
             raise OwnerChanged(
                 f"space {name!r} is owned by {current!r}, not {expected_owner!r}, so the transfer is refused"
             )
-        members = list(record.get("members", []))
+        roster = record.get("members")
+        members = list(roster) if isinstance(roster, list) else []
+        if new_owner not in members:
+            raise TransferTargetNoLongerMember(
+                f"{new_owner!r} is no longer a member of space {name!r}, so the transfer is refused"
+            )
         ack = [a for a in effective_acknowledged(record) if a != new_owner]
         if expected_owner in members and expected_owner not in ack:
             ack.append(expected_owner)
@@ -736,6 +814,19 @@ def empty_space(name: str, request_id: str) -> tuple[dict, dict]:
     already written a deleting status by this point, so a skipped write leaves a completed delete
     reading as one that never finished. The two fields a replay must not disturb are preserved
     explicitly instead — the original owner, and the moment the space was emptied.
+
+    **It takes NO expected owner, and that is a decision rather than an omission.** The delete's
+    first write carries that check, so a transfer landing before the cascade starts is already
+    refused with nothing written and nobody revoked. One landing after it — during the revocation
+    loop — could only be caught HERE, and a refusal here arrives with every member's grant
+    already gone, the new owner's included, and an owner's slot is one no ordinary verb can
+    re-issue. Three reviews in a row found a different hole in the repair that would have made
+    that refusal safe: it re-granted the owner a MEMBER card, it could re-grant over a delete the
+    new owner had meanwhile started, and it swallowed the one failure that matters. Emptying the
+    space is a state this system knows how to recover — the objects, the database and the name
+    all survive, which is the whole point of emptying rather than destroying — and a grant nobody
+    can see is not. So the late transfer loses its space and is recorded, rather than being half
+    repaired.
 
     Args:
       name: The space name.

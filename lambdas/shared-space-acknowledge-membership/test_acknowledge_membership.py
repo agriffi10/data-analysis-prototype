@@ -59,3 +59,21 @@ def test_acknowledge_idempotent_when_already_active():
     assert out["activated"] is False
     # No spurious projection write (FR-003).
     assert s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] == before
+
+
+def test_the_roster_fans_out_under_the_owner_the_commit_carries():
+    # An acknowledgement is authorized on the actor's own membership and carries no expected
+    # owner, so a transfer landing before its commit is not refused — and fanning out from the
+    # validator's snapshot then told every member the space was still the former owner's.
+    s3, _glue, _lf, _cognito = install()
+    _seed(s3, members=("alice", "bob", "carol"), acknowledged=[])
+    stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        dict(stale, owner="carol")
+    ).encode()
+
+    ack.acknowledge_membership("sales", "bob", "req-a", stale)
+
+    alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert alice_cache["connections"][0]["owner"] == "carol"
+    assert alice_cache["connections"][0]["role"] == "member"

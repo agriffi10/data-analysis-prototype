@@ -2546,7 +2546,10 @@ observe this spec.
 spaces*. **The registry cannot answer that cheaply** — one object per space, keyed by space name, no
 per-user index, so enumeration is a full listing plus a read per space on every credential mint. So
 203 builds the index that can: one object per user in the **admin bucket**, written by the same
-fan-out that already writes the roster, at the same consistency point. SPEC-123's runs index and
+fan-out that already writes the roster, at the same consistency point **— superseded 2026-09-15:
+a grant is written before the registry commit and only a revocation after it, because a
+revocation landing between an add's commit and its index write let the add re-create the entry
+([the group id entry](../decisions/control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)) —**. SPEC-123's runs index and
 SPEC-146's username directory are the precedents — CAS, user-unreachable.
 
 **Its first draft avoided the index and was wrong, and the reason is worth carrying.** That draft
@@ -2568,7 +2571,8 @@ user to own. That is the whole reason the index lives in the admin bucket.
 **And 203 inverts a SPEC-146 rule deliberately.** The username directory is *advisory* — a tripwire
 test forbids it being an authorization input. This index decides what a session may reach. Three
 properties carry that: user-unreachable, written only by the plane that owns membership, written
-under CAS at the registry's own consistency point. The residual is a staleness window, and it is
+under CAS at the registry's own consistency point **— the third amended 2026-09-15 to "ordered
+against the registry commit", see above —**. The residual is a staleness window, and it is
 **smaller than the one it replaces** — `clear_slot` clears a Cognito attribute but the user's
 existing token keeps the old claim until it refreshes, which is what
 `useSharedSpaceAccessRecovery` exists to paper over. The sweep in `transition_plan.md` §3.11
