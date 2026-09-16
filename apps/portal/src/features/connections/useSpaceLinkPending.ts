@@ -51,7 +51,7 @@ export function useSpaceLinkPending({
     setLink({username, space, navigation, reads: listReadsSettled});
   }
 
-  const pending = username !== null && Boolean(space) && missing && listReadsSettled <= link.reads;
+  const pending = Boolean(username) && Boolean(space) && missing && listReadsSettled <= link.reads;
 
   // A read already running — the one owed on mount — answers instead of a second.
   useEffect(() => {

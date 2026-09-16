@@ -73,16 +73,19 @@ function render(route = '/explore', seededClient?: QueryClient, beside?: ReactNo
   return {user, unmount, queryClient};
 }
 
-/** A client already holding a spaces list without `teamspace`, read `ageMs` ago under the app's 30s
- *  staleTime rather than the harness's 0 — so whether a read is owed on mount is the test's choice. */
-function clientWithCachedList(ageMs: number) {
+const TEAMSPACE = ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]});
+
+/** A client already holding a spaces list — without `teamspace` unless `withTeamspace` — read `ageMs` ago
+ *  under the app's 30s staleTime rather than the harness's 0, so whether a read is owed on mount is the
+ *  test's choice. */
+function clientWithCachedList(ageMs: number, withTeamspace = false) {
   const client = createTestQueryClient();
   client.setQueryDefaults(connectionKeys.list('alice'), {gcTime: Infinity, staleTime: 30_000});
-  client.setQueryData(connectionKeys.list('alice'), {version: 1, connections: []}, {updatedAt: Date.now() - ageMs});
+  client.setQueryData(connectionKeys.list('alice'), withTeamspace ? TEAMSPACE.data : {version: 1, connections: []}, {
+    updatedAt: Date.now() - ageMs
+  });
   return client;
 }
-
-const TEAMSPACE = ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]});
 const TEAMSPACE_LINK = '/explore?space=teamspace&db=teamspace&table=orders';
 
 /** Seed the session's tabs the way a previous visit would have left them. */
@@ -293,6 +296,19 @@ describe('the source picker', () => {
 // ─── FR-006: deep links ─────────────────────────────────────────────────────
 
 describe('the deep link', () => {
+  it.each([
+    ['names a space the fresh list has', TEAMSPACE_LINK, 'tab'],
+    ['names no table, so opens the picker', '/explore?space=someone_elses&db=someone_elses', 'picker']
+  ])('does not read the spaces list for a link that %s', async (_case, route, opens) => {
+    // Only a refusal waits. Waiting on anything else would put a spinner and a read in front of every
+    // "Explore data" click from the Query rail, whose links name spaces the list already holds.
+    render(route, clientWithCachedList(0, true));
+
+    if (opens === 'tab') expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
+    else expect(await screen.findByRole('button', {name: 'orders'})).toBeInTheDocument();
+    expect(readSharedConnectionsCache).not.toHaveBeenCalled();
+  });
+
   it('opens a tab on the named table when all three parameters resolve', async () => {
     render('/explore?space=personal&db=alice&table=orders');
 
