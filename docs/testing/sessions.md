@@ -17,7 +17,8 @@ had settled green on it: Deploy Lambda image, Deploy Lambdas and Deploy SPA imag
 
 **Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
 in the extension's group. It reached the Hosted UI form with the password filled; Andrew signed that
-tab in himself, and nothing was typed into the form.
+tab in himself, and nothing was typed into the form. Viewport **1512 × 732** CSS px, so the report's
+Columns rendered as the desktop rows, not the phone cards.
 
 **Instruments — each a way this run differed from a user's.**
 - **Fixtures by path, not by folder dialog.** `yearcase.csv` and `yeartrail.csv`, generated with
@@ -36,12 +37,12 @@ tab in himself, and nothing was typed into the form.
 
 | Row | Result |
 |---|---|
-| Build `partrename0916/yearcase/` (header `Year,id,region`), key `year` string `2025`, as `yearcase0916` | Ready notification: *Table "yearcase0916" is ready to query in "agriffith". A column named after a partition key keeps its values under a new name: "Year" is "year_in_file".* `SELECT year_in_file, id, region, year … ORDER BY id` returned `2025, 1, south, 2025`, then `2025, 2, east, 2025` and `2025, 3, west, 2025`; `SELECT *` listed `year_in_file, id, region, year`. **Pass.** |
-| Build `partrename0916/yeartrail/` (header `id,region,year`), same key, as `yeartrail0916` | Notification names `"year" is "year_in_file"`. `SELECT id, region, year_in_file, year` returned `1, south, 2025, 2025`. **Pass.** |
+| Build `partrename0916/yearcase/` (header `Year,id,region`), key `year` string `2025`, as `yearcase0916` | Ready notification: *Table "yearcase0916" is ready to query in "agriffith". A column named after a partition key keeps its values under a new name: "Year" is "year_in_file".* `SELECT year_in_file, id, region, year … ORDER BY id` returned, as the first three of its five rows, `2025, 1, south, 2025`, `2025, 2, east, 2025` and `2025, 3, west, 2025`; `SELECT * … LIMIT 1` listed `year_in_file, id, region, year`, which stood in for reading the rail. **Pass.** |
+| Build `partrename0916/yeartrail/` (header `id,region,year`), same key, as `yeartrail0916` | Notification names `"year" is "year_in_file"`. `SELECT id, region, year_in_file, year` returned `1, south, 2025, 2025` as its first row. **Pass.** |
 | Refresh `yearcase0916` with nothing changed | *Table "yearcase0916" is already up to date - no schema changes were found.* **Pass.** |
 | Check `partrename0916/yearcase/` | Report `5383617a-dfe0-4f34-82df-ce100c5a2349`: **No issues found**, 5 rows, 1 file, no cross-file section. Above Columns: *Year is listed as year_in_file. The folder has a partition of the same name, and a CSV’s columns are read in order, so the file’s own column keeps its values under a new name.* Columns `year_in_file` BIGINT 0 0%, `id` BIGINT 0 0%, `region` TEXT 0 0%. **Pass.** |
 
-**Not run.** `yeartrail/`'s data-quality check, and a JSON or Parquet folder's `omitted` line.
+**Not run.** The schema rail itself, for either table — so `yeartrail0916`'s column order was not read; `yeartrail/`'s data-quality check; and a JSON or Parquet folder's `omitted` line.
 
 ---
 
