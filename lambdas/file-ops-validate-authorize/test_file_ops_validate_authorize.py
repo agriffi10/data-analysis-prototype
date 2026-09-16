@@ -193,6 +193,79 @@ def test_a_folder_moved_INTO_ITSELF_is_refused_per_item():
     assert result["outcomes"][0]["reason"] == "destination_inside_source"
 
 
+_SALES = {"sales": {"status": "active", "owner": "carol", "members": ["alice", "carol"]}}
+_SALES_ROOT = {"space": {"kind": "shared", "name": "sales"}, "prefix": "sales/"}
+
+
+@pytest.mark.parametrize(
+    ("operation", "item", "on_conflict"),
+    [
+        ("move", {"kind": "folder", "key": "sales/stage/_data-quality-reports/"}, "refuse"),
+        (
+            "copy",
+            {"kind": "folder", "key": "sales/stage/", "targetName": "_data-quality-reports"},
+            "overwrite",
+        ),
+        ("copy", {"kind": "folder", "key": "sales/stage/", "targetName": "shared_tables"}, "overwrite"),
+    ],
+    ids=["move-a-nested-reports-folder-up", "copy-renamed-to-reports", "copy-renamed-to-shared-tables"],
+)
+def test_an_item_whose_OWN_KEY_lands_in_a_locked_folder_is_refused_and_its_sibling_proceeds(
+    operation, item, on_conflict
+):
+    """The destination prefix is the space root, which is ordinary; the item's derived key is not.
+
+    Each row was accepted with no refusal when only the prefix was judged, and in a shared space it
+    let one member replace or add to another's data-quality reports.
+    """
+    result = _run(
+        operation=operation,
+        space={"kind": "shared", "name": "sales"},
+        items=[item, {"kind": "file", "key": "sales/in/q1.csv"}],
+        destination=_SALES_ROOT,
+        onConflict=on_conflict,
+        spaces=_SALES,
+    )
+
+    assert [(o["itemKey"], o["outcome"], o["reason"]) for o in result["outcomes"]] == [
+        (item["key"], "protected", "destination_name_reserved")
+    ]
+
+
+def test_a_cross_space_copy_is_judged_at_the_destination_it_lands_in():
+    """The derived rule is not one of the same-bucket pairing rules: personal into shared lands too."""
+    result = _run(
+        items=[{"kind": "folder", "key": "alice/stage/", "targetName": "_data-quality-reports"}],
+        destination=_SALES_ROOT,
+        spaces=_SALES,
+    )
+
+    assert result["outcomes"][0]["outcome"] == "protected"
+    assert result["outcomes"][0]["reason"] == "destination_name_reserved"
+
+
+def test_a_copy_into_its_own_parent_is_still_a_no_op_rather_than_a_refusal():
+    """The derived rule sits AFTER the no-op, which writes nothing and has no destination to judge."""
+    result = _run(
+        items=[{"kind": "folder", "key": "alice/shared_tables/"}],
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/"},
+    )
+
+    assert result["outcomes"][0]["outcome"] == "noop"
+
+
+def test_deleting_a_report_in_a_shared_space_is_refused_per_item():
+    result = _run(
+        operation="delete",
+        space={"kind": "shared", "name": "sales"},
+        items=[{"kind": "file", "key": "sales/_data-quality-reports/req-1/report.json"}],
+        spaces=_SALES,
+    )
+
+    assert result["outcomes"][0]["outcome"] == "protected"
+    assert result["outcomes"][0]["reason"] == "reports_folder_not_deletable"
+
+
 # ── The contract with the state machine ──────────────────────────────────────
 
 

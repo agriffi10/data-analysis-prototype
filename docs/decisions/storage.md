@@ -817,6 +817,17 @@ derives its own key, so a pairing-first order answers "no-op" to a request the p
 refuses, and two protected folders answer the same request differently depending on which list they
 are on.
 
+**Where each item LANDS is judged too, not only the prefix it is put into** (2026-09-16). The prefix
+is the folder a request names and every item lands one name below it, so a prefix-only rule accepted
+moving `sales/stage/_data-quality-reports/` into `sales/`, or renaming a folder `shared_tables` at the
+root — in a shared space, one member replacing another's data-quality reports, which that plane reads
+back between its verbs. validate-authorize runs the destination rules over each item's derived key,
+per item, as `destination_name_reserved`. It sits AFTER the same-key no-op, which writes nothing, and
+before into-itself, in every bucket pairing. `_data-quality-reports/` and everything in it is refused
+as a delete or move source, root-anchored like the plane's only write. **No execution-role Deny backs
+either**: the role has no principal tag to anchor a Resource at a root, so `*/_data-quality-reports/*`
+would deny a user's own nested folder of that name part way through a run the validator accepted.
+
 **The space root is refused as an item, and it is the third way to select a protected folder.** Every
 protected rule matches the named folder or something below it; none looks UP. So one item of
 `alice/` passes all of them while naming a subtree containing `athenaresults/`, `user_settings/`,

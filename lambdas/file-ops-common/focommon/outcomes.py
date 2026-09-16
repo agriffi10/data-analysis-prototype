@@ -25,7 +25,8 @@ exists to carry.
 Attributes:
   NOOP: The derived destination is the source. Reported as a success that did nothing, matching
     the browser, which treats a same-key move as a no-op rather than an error.
-  PROTECTED: The item names one of the portal's own folders. Carries the rule's own reason code.
+  PROTECTED: The item names one of the portal's own folders, or would land on one. Carries the
+    rule's own reason code.
   REFUSED: The item cannot be operated on for a reason about the request itself — today, a
     destination inside the item's own subtree.
   CLEARED: The item expanded and nothing stands in its way. Provisional when the expansion writes
