@@ -93,12 +93,12 @@ def test_csv_creates_both_the_typed_and_the_raw_table(ran):
     assert "LazySimpleSerDe" in ran[1]["query"]
 
 
-def test_a_csv_column_naming_a_partition_before_a_kept_one_is_a_terminal_that_names_it(
+def test_a_csv_column_naming_a_partition_is_created_in_its_place_under_a_new_name(
     monkeypatch, ran
 ):
-    """The typed table leaves out a column naming a partition, and a CSV is read by position, so
-    profiling this file would report `id` and `month` against their neighbours' values. A report
-    the user acts on is worse than none, so the check refuses it the way the build does."""
+    """A CSV is read by position, so leaving `Year` out of the typed table would profile `id` and
+    `month` against their neighbours' values. The check goes ahead instead, with the file's
+    columns kept where the file put them, under names the partitions do not already hold."""
     _install_manifest(monkeypatch, _manifest(
         files=[{"key": "alice/sales/year=2025/Month=01/jan.csv", "size": 1, "columns": [
             {"name": "Year", "type": "string"},
@@ -108,13 +108,12 @@ def test_a_csv_column_naming_a_partition_before_a_kept_one_is_a_terminal_that_na
         partition_keys=[{"name": "year", "values": ["2025"]}, {"name": "Month", "values": ["01"]}],
     ))
 
-    with pytest.raises(TerminalError) as exc:
-        v.handler(_event(), None)
+    v.handler(_event(), None)
 
-    assert exc.value.reason == messages.PARTITION_COLUMN_NOT_LAST
-    assert exc.value.tokens["columns"] == '"Year"'
-    # Nothing was created: the refusal fires BEFORE any DDL runs.
-    assert ran == []
+    assert (
+        "(`year_in_file` string, `id` string, `month_in_file` string) "
+        "PARTITIONED BY (`year` string, `Month` string)"
+    ) in ran[0]["query"]
 
 
 # ── The table's LOCATION ─────────────────────────────────────────────────────

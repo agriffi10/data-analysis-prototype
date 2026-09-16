@@ -36,6 +36,7 @@ entry you need, not the file.**
 - [A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)](#a-results-total-is-athenas-own-count-and-only-a-selects-count-is-the-grids-spec-231)
 - [A CSV is checked against the columns its table declares, and a refusal is for the misread a report cannot show (2026-09-16)](#a-csv-is-checked-against-the-columns-its-table-declares-and-a-refusal-is-for-the-misread-a-report-cannot-show-2026-09-16)
 - [Data-quality merges column names that differ only by case across files, and refuses them inside one (2026-09-16)](#data-quality-merges-column-names-that-differ-only-by-case-across-files-and-refuses-them-inside-one-2026-09-16)
+- [A CSV column named after a partition keeps its values under a new name, instead of being refused (2026-09-16)](#a-csv-column-named-after-a-partition-keeps-its-values-under-a-new-name-instead-of-being-refused-2026-09-16)
 
 ## Fences
 
@@ -58,20 +59,17 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   names. A data-quality check judges a fold collision **per file** and merges one across files into
   one column, as Athena reads it — judged on the union, a collision inside one file merges too and
   shifts a CSV. A refresh skips the check, or it would strand pre-rule tables, but its diff still
-  refuses a fold collision. **Every step of a refresh, and the DDL builder's partition-key drop,
+  refuses a fold collision. **Every step of a refresh, and the DDL builder's partition-key match,
   folds through `columns.fold`, which is `lower()` and never `casefold()`**: the second merges `ß`
   into `ss`, so a diff and a write folding differently removed a column without the opt-in, and a
-  drop by exact name left a header `Year` beside the key `year`, which Athena refuses as a repeated
+  match by exact name left a header `Year` beside the key `year`, which Athena refuses as a repeated
   column.
-- **A CSV is read by POSITION, so dropping one of its columns shifts the rest.** A column naming a
-  partition key is left out of the body; in a CSV that is safe only when nothing the table keeps
-  follows it, and anywhere else a create and a data-quality check refuse it as
-  `partition_column_not_last` rather than build a table whose every later column answers with its
-  neighbour's values. Parquet and JSON are matched by name and always drop. **The refresh path is
-  not covered** — it writes Glue columns without this builder. A data-quality check judges this on
-  the folder's union; a file whose own header differs is **reported, not refused**, and in a CSV
-  cross-file agreement checks each file against the columns the table DECLARES — comparing files
-  with each other read a swap as agreement, then missed an inserted column.
+- **A CSV is read by POSITION, so a column naming a partition key is kept under a new name, never
+  dropped or refused.** `ddl.declare_columns` renames it `<fold>_in_file` in its place — in a
+  create, a refresh's diff and write, and data-quality's temp table and figures — because dropping
+  it answers every later column with its neighbour's values; Parquet and JSON are matched by name
+  and leave it out. In a CSV, cross-file agreement checks each file against the columns the table
+  DECLARES, by the files' names — comparing files with each other read a swap as agreement.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
@@ -952,6 +950,12 @@ table built from `year,id,region` over the row `2025,1,south` read `id` as `2025
 table keeps follows — `id,region,year` built and read `1, south, 2025` — and Athena matches Parquet
 and JSON by name, so there the drop is always safe.
 
+> **Superseded in part (2026-09-16): nothing below is refused any more.** A CSV column naming a
+> partition key is kept in its place under a new name, in every position, by a create, a refresh
+> and a data-quality check; Parquet and JSON still drop it. The measurements above still stand and
+> are why. Full entry: *A CSV column named after a partition keeps its values under a new name,
+> instead of being refused (2026-09-16)*, below.
+
 So a CSV column naming a partition key anywhere but at the end is **refused**, by table-builder as
 `partition_column_not_last` and by data-quality under its own reason of the same name, each naming
 the column and asking for it to be moved last or taken out. `ddl.shifting_partition_columns` is the
@@ -1095,6 +1099,12 @@ Measurements: `docs/specs/SPEC-231-count-rows-from-athenas-statistics.md`; the l
 
 ## A CSV is checked against the columns its table declares, and a refusal is for the misread a report cannot show (2026-09-16)
 
+> **Superseded in part (2026-09-16): the refusal this entry judged is gone.** A CSV column named
+> after a partition is declared under a new name, so no file is refused and `shifted` compares each
+> file with the declared columns by the name the FILES give them. The cross-file ruling — report a
+> misread caused by files disagreeing, and compare each file with the table, not with the others —
+> stands. See *A CSV column named after a partition keeps its values under a new name* below.
+
 **The finding.** Data-quality's `partition_column_not_last` is judged on `sql.union_columns`, the
 folder's columns in first-seen order, not on each file's header. Driving create-temp-tables with
 `a.csv` = `id,amount` and `b.csv` = `id,Year,amount` under `year=2025/` gave the union
@@ -1195,3 +1205,70 @@ one in the file's own. Absent when there is none, which is also how older report
 
 **Parquet type drift under two spellings** fails the profile query, as two same-named columns with
 two types already did; it used to be refused by name first.
+
+## A CSV column named after a partition keeps its values under a new name, instead of being refused (2026-09-16)
+
+**The ruling (Andrew's).** The refusal above stopped the commonest export shape there is: a groupby
+written out with pandas, or an Excel export, puts the key first, so `sales/year=2025/` holds files
+headed `year,id,region`. Create table had no way through it — inspect-source refuses leaving the
+keys out when the files sit in `key=value` folders — so the only repairs were rewriting every file
+or renaming every folder. A reviewer driving the real code found it refusing, with the same
+message, a folder whose older files had `year` last and whose later export added a column after
+it. A CSV is read by POSITION, so the file's column is kept, under a name that cannot collide, and the folder's
+partition stays the partition. Nothing shifts and nothing is refused.
+
+**The rule, in `ddl.declare_columns`.** For a format in `POSITIONAL_FORMATS`, a data column whose
+fold equals a partition key's is kept in its place, in EVERY position including last, as
+`<fold>_in_file`, then `_in_file_2`, `_3`… until the candidate's fold is free of every kept column,
+every partition key and every rename earlier in the pass; the name is cut from the right, whole
+characters, to Glue's 255-byte ceiling. Each part is there for a reason:
+- *The fold as the base*, because Athena lowercases the name anyway and the name rule has already
+  held a create's header to `[a-z0-9_]`, so the result passes the same rule.
+- *Every position*, rather than dropping a trailing one as before: one rule to explain, and the
+  data-quality report then profiles the column wherever it sits. A table built under the old drop
+  gains `year_in_file` as an added column on its next refresh.
+- *The taken set includes kept columns and the keys*, or `year` beside a header's own
+  `Year_In_File`, or beside a second key named `year_in_file`, renders a repeated column Athena
+  refuses.
+- *A pure function of the columns, keys and format*, so a create and every later refresh of the
+  same header agree on the name.
+
+Parquet and JSON are matched by name, so a renamed column would read NULL there; they keep the drop.
+
+**Every reader of the table's columns moved with it.** A create renders the renamed body. A refresh
+compares (diff-schema) and writes (apply-refresh) `ddl.body_columns` for the event's `format`,
+which both now require: renamed at create but dropped at refresh, the next refresh reported
+`year_in_file` removed and refused without the opt-in. The refresh's fold-collision check reads the
+FILES' names of the declared columns, because renamed, `Year` and `year` would become two distinct
+columns and pass where a create and a check refuse that header. Data-quality's temp table, profile,
+duplicates grouping and report all read `sql.profiled_columns` with one format, so the figures sit
+under `year_in_file`; the report's cross-file `shifted` check compares each file with the declared
+columns by the files' names through the fold, or every file carrying the column in its place would
+read as misread.
+
+**What the user is told.** Create table's ready notification appends one sentence naming each
+rename (`"Year" is "year_in_file"`), derived from the state the DDL was built from and omitted,
+never raised, when that state cannot be read — the table already exists. The data-quality report
+carries `partitionNamedColumns`, one `{name, outcome: "renamed", as}` or `{name, outcome:
+"omitted"}` per such column, and the report page says which above Columns; the omitted half closes
+the gap where a JSON or Parquet column simply vanished from Columns with nothing saying why. The
+field is optional in the portal type, so an older report renders as before. A refresh says nothing
+extra: only a table built before this rule can gain a renamed column on refresh, and its count
+already says a column was added.
+
+**A known limit, not refused.** A header that later gains its OWN `year_in_file` column pushes the
+rename to `year_in_file_2` on refresh; the diff reports that name added, and the live
+`year_in_file` now reads the file's new column. It needs a user to name a column after the rename,
+and the refresh notification does report a change.
+
+**Rejected.**
+- *Keep refusing, and word it better.* It leaves Create table with no path for the commonest shape,
+  which is what the ruling overturned.
+- *Drop a trailing column and rename only a mid-header one.* Two rules for one collision, a
+  report that profiles the column in one position and not the other, and a table whose shape
+  changes when an export appends a column.
+- *Map the file's name through the SerDe.* OpenCSVSerde has no column-name mapping; it never reads
+  the header at all.
+- *Rename the partition instead.* Its name is the one the user writes in every `WHERE`, and the
+  folder is what it is named after.
+- *A bare number, `year_1`.* It says nothing about where the values came from.

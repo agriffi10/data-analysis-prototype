@@ -26,6 +26,7 @@ Attributes:
 
 import json
 
+from cpcommon import columns as _columns
 from cpcommon import messages as _cpmessages
 
 _BODIES = {
@@ -45,12 +46,6 @@ _BODIES = {
         "these column names won't work in Athena: {columns}. Athena column names can only use "
         "letters, digits and underscores, and two names that differ only by case become one "
         "column - rename them in your files and try again."
-    ),
-    "partition_column_not_last": (
-        "these columns have a partition key's name and aren't at the end of the file: "
-        "{columns}. A CSV file's columns are read in order, so a column named after a "
-        "partition key can only be left out when nothing follows it - move it to the end of "
-        "your files, or take it out, and try again."
     ),
     "schema_inference_failed": "the data schema couldn't be read.",
     "unmappable_type": "the data schema couldn't be read.",
@@ -194,6 +189,37 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
+def renamed_sentence(renamed: list[tuple[str, str]]) -> str:
+    """Says which of a create's columns the table holds under a new name, and why.
+
+    A CSV column named after a partition key is kept under another name, because a CSV is read
+    by position. The table's rail shows only the new name, so without this sentence the user
+    meets an unfamiliar column and a familiar one apparently missing.
+
+    Args:
+      renamed: ``(name in the files, name in the table)`` pairs, in declaration order.
+
+    Returns:
+      The sentence, with a leading space, or "" when nothing was renamed. At most
+      ``MAX_NAMED_COLUMNS`` pairs are spelled out, each name clipped as a refusal clips one.
+
+    Raises:
+      None.
+    """
+    if not renamed:
+        return ""
+    shown = ", ".join(
+        f"{_columns.describe([source])} is {_columns.describe([declared])}"
+        for source, declared in renamed[:MAX_NAMED_COLUMNS]
+    )
+    remaining = len(renamed) - MAX_NAMED_COLUMNS
+    if remaining > 0:
+        shown += f", and {remaining} more"
+    if len(renamed) == 1:
+        return f" A column named after a partition key keeps its values under a new name: {shown}."
+    return f" Columns named after a partition key keep their values under new names: {shown}."
+
+
 def success_message(
     table_name: str,
     database: str,
@@ -201,6 +227,7 @@ def success_message(
     added: int = 0,
     retyped: int = 0,
     removed: int = 0,
+    renamed: list[tuple[str, str]] | None = None,
 ) -> str:
     """Composes the message emitted on a successful terminal outcome.
 
@@ -216,6 +243,9 @@ def success_message(
       added: Columns added by a refresh.
       retyped: Columns retyped by a refresh.
       removed: Columns removed by a refresh.
+      renamed: A create's ``(name in the files, name in the table)`` pairs, which
+        ``renamed_sentence`` appends. A refresh passes none: only a table built before columns
+        were renamed can gain one on refresh, and its count already says a column was added.
 
     Returns:
       The full actor-facing sentence.
@@ -235,4 +265,4 @@ def success_message(
             parts.append(f"{_plural(removed, 'column')} removed")
         changes = ", ".join(parts) if parts else "schema updated"
         return f'Table "{table_name}" was refreshed in "{database}": {changes}.'
-    return f'Table "{table_name}" is ready to query in "{database}".'
+    return f'Table "{table_name}" is ready to query in "{database}".' + renamed_sentence(renamed or [])

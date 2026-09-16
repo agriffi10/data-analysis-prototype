@@ -55,11 +55,6 @@ Attributes:
     rather than a reuse of it. The two refusals name different things and ask for different
     repairs: a bad column name is fixed by editing a file's header, a bad partition name by
     renaming an S3 folder. Told to fix a column, a user would go looking in the wrong place.
-  PARTITION_COLUMN_NOT_LAST: Temp-table terminal, and a third distinct repair: the names are
-    fine, their ORDER is not. A column naming a partition key is left out of the table, and a
-    CSV is read by position, so one before a column the table keeps would report every later
-    column against the wrong field. The build refuses the same folder under the same reason code,
-    in its own words: this one says partition FOLDER, because that is where these keys come from.
   QUERY_FAILED: Profile-query terminal.
   QUERY_TIMEOUT: Profile-query terminal.
   REQUEST_ID_REUSED: inspect-source terminal. The request id is already claimed by another
@@ -102,7 +97,6 @@ PARTITION_LAYOUT_MISMATCH = "partition_layout_mismatch"
 TOO_MANY_COLUMNS = "too_many_columns"
 INVALID_COLUMN_NAMES = "invalid_column_names"
 INVALID_PARTITION_NAMES = "invalid_partition_names"
-PARTITION_COLUMN_NOT_LAST = "partition_column_not_last"
 QUERY_FAILED = "query_failed"
 QUERY_TIMEOUT = "query_timeout"
 REQUEST_ID_REUSED = "request_id_reused"
@@ -154,12 +148,6 @@ _BODIES = {
         "these folder names in that data won't work as partitions in Athena: {columns}. A "
         "key=value folder's key can only use letters, digits and underscores - rename the "
         "folders and check again."
-    ),
-    PARTITION_COLUMN_NOT_LAST: (
-        "these columns have a partition folder's name and aren't at the end of the file: "
-        "{columns}. A CSV file's columns are read in order, so a column named after a "
-        "partition can only be left out when nothing follows it - move it to the end of your "
-        "files, or take it out, and check again."
     ),
     QUERY_FAILED: "the check couldn't be completed. Please contact the Administrator.",
     QUERY_TIMEOUT: (

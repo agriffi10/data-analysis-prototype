@@ -169,8 +169,15 @@ _YEAR_MONTH = [{"name": "year", "values": ["2025"]}, {"name": "month", "values":
             "csv",
             [["id", "amount", "Year", "month"], ["id", "amount", "month", "Year"]],
             _YEAR_MONTH,
+            [{"file": "f1.csv", "missing": [], "extra": [], "shifted": True}],
+            id="trailing-partition-columns-are-declared-too-so-their-order-is-a-finding",
+        ),
+        pytest.param(
+            "csv",
+            [["Year", "id", "amount"], ["Year", "id", "amount"]],
+            _YEAR,
             [],
-            id="trailing-partition-columns-are-never-read-so-their-order-is-not-a-finding",
+            id="a-partition-column-in-the-same-place-in-every-file-is-read-correctly",
         ),
         pytest.param(
             "csv",
@@ -241,12 +248,12 @@ _YEAR_MONTH = [{"name": "year", "values": ["2025"]}, {"name": "month", "values":
 )
 def test_a_csv_is_checked_against_the_columns_its_table_declares(fmt, headers, partition_keys, expected):
     """OpenCSVSerde reads field ``i`` of every file as the table's column ``i``, the folder's union
-    in first-seen order without its partition columns, so a file whose fields do not line up is
-    counted under the wrong names with nothing failing; Parquet and JSON are matched by name. A
-    trailing partition column is past the declared columns and never read, so where it sits is
-    not a finding, and it is matched on Athena's fold, so ``Year`` is the key ``year``. The files
-    named are the ones this report misreads, which is not the minority when the minority is
-    listed first."""
+    in first-seen order, so a file whose fields do not line up is counted under the wrong names
+    with nothing failing; Parquet and JSON are matched by name. A column named after a partition
+    is declared in a CSV too, under a new name, so a file carrying it where the table declares it
+    is compared by the files' name and read correctly, and one carrying it elsewhere is misread
+    wherever it sits. Names are compared on Athena's fold. The files named are the ones this
+    report misreads, which is not the minority when the minority is listed first."""
     files = [_file(f"f{index}.csv", header) for index, header in enumerate(headers)]
 
     result = report.cross_file(files, fmt, partition_keys)
@@ -450,10 +457,11 @@ def test_a_column_merged_from_several_spellings_is_reported_once_and_discloses_t
     assert document["verdict"] == "clean"
 
 
-def test_a_column_naming_a_partition_key_gets_no_figures_and_the_rest_keep_their_own():
+def test_a_json_column_naming_a_partition_key_gets_no_figures_and_the_report_says_so():
     """The temp table has no data column under a partition key's name, so any figure for `Year`
     here would describe the folder's `year=` value rather than the file's field. The report
-    leaves it out, and reads every other column's figures from the alias the real query gave it.
+    leaves it out, names it as left out, and reads every other column's figures from the alias
+    the real query gave it.
 
     JSON, so the dropped column can sit in the middle: a report and a query that number the
     aliases over different lists then disagree about `amount`, and a missing cell reads as zero,
@@ -466,14 +474,40 @@ def test_a_column_naming_a_partition_key_gets_no_figures_and_the_rest_keep_their
     total = {"source_file": "", "is_total": 1, "row_count": 100}
     total.update({f"{alias}_missing": 10 * position for position, (_name, alias) in enumerate(aliased, 1)})
 
-    columns = _build(
+    built = _build(
         manifest=dict(_manifest(files, fmt="json"), partitionKeys=partition_keys), profile=[total]
-    )["exact"]["columns"]
+    )
+    columns = built["exact"]["columns"]
 
     assert [c["name"] for c in columns] == ["id", "amount"]
     assert [(c["name"], c["nullBlankRatio"]) for c in columns] == [
         (name, position / 10) for position, (name, _alias) in enumerate(aliased, 1)
     ]
+    assert built["partitionNamedColumns"] == [{"name": "Year", "outcome": "omitted"}]
+
+
+def test_a_csv_column_naming_a_partition_key_gets_its_own_figures_under_its_new_name():
+    """A CSV is read by position, so the temp table keeps `Year` where the file put it, as
+    `year_in_file`. The query projects that name and the report reads its figures back from the
+    same alias, rather than the folder's value or a neighbour's; the report says what it became."""
+    files = [_file("alice/sales/year=2025/a.csv", ["id", "Year", "amount"])]
+    partition_keys = [{"name": "year", "values": ["2025"]}]
+    query = sql.build_profile_query("alice", "dq_tmp_x", sql.union_columns(files), partition_keys, "csv")
+    aliased = re.findall(r'"([^"]+)"(?:\), \'\'\))? AS (c\d+)\b', query)
+    total = {"source_file": "", "is_total": 1, "row_count": 100}
+    total.update({f"{alias}_missing": 10 * position for position, (_name, alias) in enumerate(aliased, 1)})
+
+    built = _build(manifest=dict(_manifest(files), partitionKeys=partition_keys), profile=[total])
+    columns = built["exact"]["columns"]
+
+    assert [name for name, _alias in aliased] == ["id", "year_in_file", "amount"]
+    assert [(c["name"], c["nullBlankRatio"]) for c in columns] == [
+        ("id", 0.1), ("year_in_file", 0.2), ("amount", 0.3)
+    ]
+    assert built["partitionNamedColumns"] == [
+        {"name": "Year", "outcome": "renamed", "as": "year_in_file"}
+    ]
+    assert built["exact"]["crossFile"] == {"columnsAgree": True, "disagreements": []}
 
 
 # ── Ragged rows (FR-003) ─────────────────────────────────────────────────────

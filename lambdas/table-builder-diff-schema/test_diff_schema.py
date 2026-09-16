@@ -43,7 +43,7 @@ def _cols(*pairs):
     return [{"name": n, "type": t} for n, t in pairs]
 
 
-def _event(existing, inferred, *, allow_removals=False, partition_keys=()):
+def _event(existing, inferred, *, allow_removals=False, partition_keys=(), fmt="csv"):
     return {
         "mode": "refresh",
         "actor": "alice",
@@ -51,6 +51,7 @@ def _event(existing, inferred, *, allow_removals=False, partition_keys=()):
         "tableName": "sales_2026",
         "requestId": "r1",
         "allowRemovals": allow_removals,
+        "format": fmt,
         "partitionKeys": [{"name": n} for n in partition_keys],
         "existingColumns": existing,
         "columns": inferred,
@@ -70,7 +71,7 @@ def _expect_reason(event, reason):
 
 
 def test_an_identical_schema_is_unchanged():
-    diff = m.compute_diff(_cols(("a", "string"), ("b", "bigint")), _cols(("a", "string"), ("b", "bigint")), set())
+    diff = m.compute_diff(_cols(("a", "string"), ("b", "bigint")), _cols(("a", "string"), ("b", "bigint")), [], "csv")
 
     assert diff == {"changed": False, "added": [], "removed": [], "retyped": [], "unchanged": 2}
 
@@ -79,7 +80,8 @@ def test_all_four_classes_at_once():
     diff = m.compute_diff(
         _cols(("keep", "string"), ("gone", "bigint"), ("widened", "int")),
         _cols(("keep", "string"), ("widened", "bigint"), ("fresh", "double")),
-        set(),
+        [],
+        "csv",
     )
 
     assert diff["added"] == [{"name": "fresh", "type": "double"}]
@@ -98,7 +100,8 @@ def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
     comparison and of the collision check rather than refused. That is what apply-refresh writes
     from this header. Matching on ``casefold()`` folded ``STRASSE`` onto ``straße`` and ``Weiß``
     onto ``weiss``, and reported only ``notes`` added, so the write landed two columns the diff
-    never reported.
+    never reported. Parquet, the format that leaves a partition's namesake out; a CSV keeps it
+    under a new name, which the test below covers.
 
     Args:
       None.
@@ -120,6 +123,7 @@ def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
             ("notes", "string"),
         ),
         partition_keys=("weiss",),
+        fmt="parquet",
     )
 
     out = m.handler(event, None)
@@ -131,6 +135,46 @@ def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
     ]
     assert out["diff"]["removed"] == []
     assert out["diff"]["unchanged"] == 1
+
+
+def test_a_csv_table_built_with_a_renamed_column_refreshes_unchanged_from_the_same_header():
+    """A create keeps a CSV's ``year`` beside the key ``year`` as ``year_in_file``. The refresh
+    compares under the same rule, so the header that built the table matches it, rather than
+    reporting ``year_in_file`` removed and refusing every refresh without the opt-in."""
+    event = _event(
+        _cols(("year_in_file", "string"), ("id", "string")),
+        _cols(("Year", "string"), ("id", "string")),
+        partition_keys=("year",),
+    )
+
+    out = m.handler(event, None)
+
+    assert out["diff"] == {"changed": False, "added": [], "removed": [], "retyped": [], "unchanged": 2}
+
+
+def test_two_spellings_of_a_partitions_name_are_refused_as_a_create_refuses_them():
+    """Renamed, ``Year`` and ``year`` would be two distinct columns, so the collision check reads
+    the files' names. A create and a data-quality check refuse this header; a refresh agrees."""
+    event = _event(
+        _cols(("year_in_file", "string"), ("id", "string")),
+        _cols(("Year", "string"), ("year", "string"), ("id", "string")),
+        partition_keys=("year",),
+    )
+
+    exc = _expect_reason(event, "invalid_column_names")
+
+    assert exc.tokens["columns"] == '"Year", "year"'
+
+
+def test_an_event_without_a_format_is_malformed():
+    """The format decides what a partition's namesake becomes, so guessing it would compare one
+    list and write another."""
+    event = _event(_cols(("a", "string")), _cols(("a", "string")))
+    del event["format"]
+
+    exc = _expect_reason(event, "malformed_event")
+
+    assert "format" in exc.detail
 
 
 # ── The removal opt-in (FR-003) ──────────────────────────────────────────────

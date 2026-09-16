@@ -17,7 +17,7 @@ the ``verb`` field.
 
 import logging
 
-from cpcommon import athena, ddl, events, observability
+from cpcommon import athena, events, observability
 from cpcommon import columns as columns_mod
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
@@ -211,21 +211,9 @@ def _create(event: dict) -> dict:
     file's header, a partition key by renaming a folder — and a user told to fix a column would
     go looking in the wrong place.
 
-    A third refusal is about ORDER rather than names. A column naming a partition key is left
-    out of the typed table, and a CSV is read by position, so one sitting before a column the
-    table keeps would profile every later column against its neighbour's values — a report that
-    is worse than none, because the user acts on it. Table-builder refuses the same folder under
-    the same reason code, in its own wording: this arc's keys are folder names, and a user told
-    to fix a partition key they never declared would go looking for a dialog.
-
-    That refusal is judged on the folder's union, the order the table declares, and not on each
-    file's own header, deliberately. A refusal is for the misread no report could show: every
-    file agreeing, so cross-file agreement is clean and every later column is wrong. A file whose
-    own header puts a partition column before a kept one, in a folder whose union does not, can
-    only exist when the files differ in their columns or their order, and the report's cross-file
-    agreement marks that file as read under the wrong columns — the table never declares a
-    partition column, so its fields cannot line up — rather than the check stopping with no report
-    at all.
+    A column naming a partition key is NOT refused, in any position. The typed table's DDL
+    declares it under ``ddl.declare_columns``' name in a CSV, which is read by position, and
+    leaves it out of JSON and Parquet, which are read by name; the report says which happened.
 
     Args:
       event: The task input.
@@ -240,8 +228,7 @@ def _create(event: dict) -> dict:
         rather than from parsing the exception's text, because a token that reaches a user must
         never be scraped out of a log message — ``invalid_column_names`` when a header carries a
         name Athena cannot use, ``invalid_partition_names`` when a folder's key cannot be one,
-        ``partition_column_not_last`` when the folder's CSV columns name a partition before a
-        column the table keeps, or a query failure from the creates.
+        or a query failure from the creates.
       TransientError: On a retryable Athena or S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
@@ -274,15 +261,6 @@ def _create(event: dict) -> dict:
         raise TerminalError(
             messages.INVALID_PARTITION_NAMES, exc.summary, tokens={"columns": exc.summary}
         ) from exc
-
-    shifting = ddl.shifting_partition_columns(
-        columns, manifest.get("partitionKeys") or [], fmt
-    )
-    if shifting:
-        summary = columns_mod.describe(shifting)
-        raise TerminalError(
-            messages.PARTITION_COLUMN_NOT_LAST, summary, tokens={"columns": summary}
-        )
 
     table = sql.temp_table_name(request_id)
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None

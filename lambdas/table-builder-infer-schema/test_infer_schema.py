@@ -243,18 +243,18 @@ def test_ddl_is_generated_and_carried():
     assert out["requestId"] == "r1"  # request carried through
 
 
-def test_a_csv_header_naming_a_partition_key_before_a_kept_column_is_refused_by_name():
-    """A column naming a partition key is left out of the body, and OpenCSVSerde takes fields in
-    order — so leaving out `Year` here would read `id` from the file's year field. Refused rather
-    than built, because the table would look right and hold every value one column over."""
+def test_a_csv_header_naming_a_partition_key_first_builds_with_that_column_renamed_in_place():
+    """The export shape a groupby writes: the key first. OpenCSVSerde takes fields in order, so
+    leaving `Year` out would read `id` from the file's year field, and there is no way through a
+    refusal but rewriting every file. So the create builds, keeping the file's column where it is
+    under a name that cannot collide, and the columns carried on stay the file's own."""
     _use_s3_fixture(b"Year,id,region\n2025,1,south\n")
     keys = [{"name": "year", "type": "string", "values": ["2025"]}]
 
-    with pytest.raises(TerminalError) as err:
-        i.handler(_event("csv", partition_keys=keys), None)
+    out = i.handler(_event("csv", partition_keys=keys), None)
 
-    assert err.value.reason == "partition_column_not_last"
-    assert err.value.tokens["columns"] == '"Year"'
+    assert "(`year_in_file` string, `id` string, `region` string) PARTITIONED BY" in out["ddl"]
+    assert [c["name"] for c in out["columns"]] == ["Year", "id", "region"]
 
 
 # ── The refresh cross-check (SPEC-143 FR-006) ────────────────────────────────

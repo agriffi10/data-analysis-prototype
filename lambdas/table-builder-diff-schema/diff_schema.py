@@ -21,7 +21,7 @@ a collision would otherwise read as no change at all.
 import logging
 
 from cpcommon import columns as columns_mod
-from cpcommon import events, observability
+from cpcommon import ddl, events, observability
 from cpcommon.errors import TerminalError
 from tbcommon import notify
 
@@ -31,43 +31,32 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-builder")
 
 
-def _data_columns(columns: list[dict], partition_key_names: set[str]) -> list[dict]:
-    """Drops the columns that name a partition key, matched on the name Athena gives each.
+def _by_folded_name(columns: list[dict], partition_keys: list[dict], fmt: str) -> dict:
+    """Indexes the columns a table declares by the name Athena gives each.
 
-    Apply-refresh drops the same columns from the definition it writes, so what this verb
-    compares and refuses is what the write would land.
-
-    Args:
-      columns: Column dicts, each carrying at least a name.
-      partition_key_names: Declared partition key names.
-
-    Returns:
-      The columns that are data rather than partition keys, in their original order.
-
-    Raises:
-      KeyError: If a column has no name.
-    """
-    excluded = {columns_mod.fold(name) for name in partition_key_names}
-    return [c for c in columns if columns_mod.fold(c["name"]) not in excluded]
-
-
-def _by_folded_name(columns: list[dict], partition_key_names: set[str]) -> dict:
-    """Indexes the data columns by the name Athena gives each, excluding the partition keys.
+    The columns are ``ddl.body_columns``, the create path's own rule for a column naming a
+    partition key: renamed in a CSV, left out otherwise. Apply-refresh writes the same list, so
+    what this verb compares and refuses is what the write would land, and a CSV table built with
+    ``year_in_file`` compares its live column with the header's ``year`` rather than reporting it
+    removed on every refresh.
 
     Args:
       columns: Column dicts, each carrying at least a name.
-      partition_key_names: Partition key names to exclude.
+      partition_keys: Declared partition keys, each carrying a name.
+      fmt: The source format.
 
     Returns:
-      A mapping of folded column name to the original column dict.
+      A mapping of folded column name to the declared column dict.
 
     Raises:
-      KeyError: If a column has no name.
+      KeyError: If a column or partition key has no name.
     """
-    return {columns_mod.fold(c["name"]): c for c in _data_columns(columns, partition_key_names)}
+    return {
+        columns_mod.fold(c["name"]): c for c in ddl.body_columns(columns, partition_keys, fmt)
+    }
 
 
-def _refuse_fold_collisions(inferred: list[dict], partition_key_names: set[str]) -> None:
+def _refuse_fold_collisions(inferred: list[dict], partition_keys: list[dict], fmt: str) -> None:
     """Refuses a header two of whose data columns Athena would give one name.
 
     A create gets this refusal from the column-name rule. A refresh skips that rule, or it would
@@ -78,10 +67,16 @@ def _refuse_fold_collisions(inferred: list[dict], partition_key_names: set[str])
     else changed the write refuses with a message that says to try again, which cannot help.
     Refused here, the user is told which names to change, in the words a create uses.
 
+    The names checked are the FILE's names of the columns the table declares, before a column
+    naming a partition key is renamed. Renamed, ``Year`` and ``year`` beside the key ``year``
+    would become two distinct columns and pass, where a create and a data-quality check both
+    refuse that header.
+
     Args:
       inferred: The columns the data now implies.
-      partition_key_names: Declared partition key names. A column naming one is dropped by the
-        write rather than written twice, so it collides with nothing.
+      partition_keys: Declared partition keys. A column naming one that the write leaves out,
+        in JSON or Parquet, collides with nothing.
+      fmt: The source format.
 
     Returns:
       None.
@@ -89,14 +84,20 @@ def _refuse_fold_collisions(inferred: list[dict], partition_key_names: set[str])
     Raises:
       TerminalError: ``invalid_column_names``, naming every name in a collision.
     """
-    names = [c["name"] for c in _data_columns(inferred, partition_key_names)]
+    names = [
+        pair.source["name"]
+        for pair in ddl.declare_columns(inferred, partition_keys, fmt)
+        if pair.declared is not None
+    ]
     colliding = list(dict.fromkeys(columns_mod.folded_duplicates(names)))
     if colliding:
         summary = columns_mod.describe(colliding)
         raise TerminalError("invalid_column_names", summary, tokens={"columns": summary})
 
 
-def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names: set[str]) -> dict:
+def compute_diff(
+    existing: list[dict], inferred: list[dict], partition_keys: list[dict], fmt: str
+) -> dict:
     """Classifies the change between a table's declared columns and its freshly inferred ones.
 
     Pure — no AWS calls. Names are matched on ``columns.fold``, the name Athena gives a column,
@@ -113,10 +114,10 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
     classification never reported. Whenever something else changed, so that the write ran, it
     replaced ``strasse`` without the removal opt-in.
 
-    Partition keys are excluded here rather than assumed excluded upstream: infer-schema emits
-    the full inferred list and the partition-collision drop happens inside the DDL builder,
-    where it affects only the DDL body, so a data column named after a partition key does reach
-    here and would otherwise be reported on every single refresh.
+    A column naming a partition key is mapped here rather than assumed mapped upstream:
+    infer-schema emits the full inferred list and the rename or drop happens inside the DDL
+    builder, where it affects only the DDL body, so a data column named after a partition key
+    does reach here and would otherwise be reported on every single refresh.
 
     A header two of whose columns fold to one name is refused before anything is classified.
     The index below would keep only the last of the pair, so no classification of such a header
@@ -126,7 +127,8 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
     Args:
       existing: The columns the table currently declares.
       inferred: The columns the data now implies.
-      partition_key_names: Declared partition key names, excluded from the comparison.
+      partition_keys: Declared partition keys, which decide what a column naming one becomes.
+      fmt: The source format.
 
     Returns:
       ``{"changed", "added", "removed", "retyped", "unchanged"}``. Names are reported as they
@@ -138,9 +140,9 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
       KeyError: If a column is missing its name or type.
       TerminalError: ``invalid_column_names`` when two inferred data columns fold to one name.
     """
-    _refuse_fold_collisions(inferred, partition_key_names)
-    old = _by_folded_name(existing, partition_key_names)
-    new = _by_folded_name(inferred, partition_key_names)
+    _refuse_fold_collisions(inferred, partition_keys, fmt)
+    old = _by_folded_name(existing, partition_keys, fmt)
+    new = _by_folded_name(inferred, partition_keys, fmt)
 
     added = [{"name": new[k]["name"], "type": new[k]["type"]} for k in new if k not in old]
     removed = [{"name": old[k]["name"], "type": old[k]["type"]} for k in old if k not in new]
@@ -181,7 +183,7 @@ def handler(event: dict, context) -> dict:
     Raises:
       TerminalError: ``invalid_column_names`` when two columns fold to one name,
         ``columns_removed`` when a removal was not opted into, or ``malformed_event`` when a
-        required field is missing.
+        required field, the format included, is missing.
     """
     return _diff(event)
 
@@ -210,9 +212,10 @@ def _diff(event: dict) -> dict:
     """
     existing = events.require(event, "existingColumns")
     inferred = events.require(event, "columns")
-    partition_key_names = {k["name"] for k in (event.get("partitionKeys") or [])}
+    fmt = events.require(event, "format")
+    partition_keys = event.get("partitionKeys") or []
 
-    diff = compute_diff(existing, inferred, partition_key_names)
+    diff = compute_diff(existing, inferred, partition_keys, fmt)
     removed_names = [c["name"] for c in diff["removed"]]
 
     logger.info(

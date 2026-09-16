@@ -276,6 +276,39 @@ describe('DataQualityReportPage', () => {
     });
   });
 
+  describe('DataQualityReportPage — a column named after a partition', () => {
+    it('says a CSV column kept its values under a new name and a left-out one has no figures, and says nothing on an older report', async () => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            partitionNamedColumns: [
+              {name: 'Year', outcome: 'renamed', as: 'year_in_file'},
+              {name: 'Month', outcome: 'omitted'}
+            ]
+          })
+        )
+      );
+      renderReport('/data-quality/alice/req-1');
+
+      const columns = (await screen.findByRole('heading', {name: 'Columns'})).closest('section') as HTMLElement;
+      const renamed = within(columns).getByText('Year').closest('li') as HTMLElement;
+      const omitted = within(columns).getByText('Month').closest('li') as HTMLElement;
+      expect(renamed).toHaveTextContent(
+        'Year is listed as year_in_file. The folder has a partition of the same name, and a CSV’s columns are read in order, so the file’s own column keeps its values under a new name.'
+      );
+      expect(omitted).toHaveTextContent(
+        'Month has no figures here. The folder has a partition of the same name, and a table over this folder reads the partition’s value in its place.'
+      );
+
+      cleanup();
+      mockReport.mockResolvedValue(ok(csvReport()));
+      renderReport('/data-quality/alice/req-1');
+
+      const plain = (await screen.findByRole('heading', {name: 'Columns'})).closest('section') as HTMLElement;
+      expect(within(plain).queryByText(/partition of the same name/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('DataQualityReportPage — the states that are not a report', () => {
     it('renders the friendly empty state for a space the user cannot reach, and never calls S3', async () => {
       renderReport('/data-quality/someone-elses-space/req-1');

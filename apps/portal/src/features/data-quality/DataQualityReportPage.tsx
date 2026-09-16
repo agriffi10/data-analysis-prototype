@@ -24,6 +24,7 @@ import type {
   CrossFileDisagreement,
   DataQualityReport,
   EncodingFigure,
+  PartitionNamedColumn,
   RaggedRowsFigure
 } from './dataQuality.types';
 
@@ -178,18 +179,51 @@ function ColumnSpellings({column}: {column: ColumnFinding}) {
   );
 }
 
-function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
+/**
+ * One sentence per column named after a partition, saying where its figures went. Without it a
+ * CSV's `Year` shows up as an unfamiliar `year_in_file`, and a JSON or Parquet one is simply
+ * missing from Columns, with nothing on the page to say why.
+ */
+function PartitionNamedNotes({entries}: {entries: PartitionNamedColumn[]}) {
+  if (entries.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-1 text-sm text-text-2">
+      {entries.map((entry) => (
+        <li key={entry.name}>
+          <span className="break-all font-mono font-medium text-text">{entry.name}</span>
+          {entry.outcome === 'renamed' ? (
+            <>
+              {' '}
+              is listed as <span className="break-all font-mono font-medium text-text">{entry.as}</span>. The folder has
+              a partition of the same name, and a CSV’s columns are read in order, so the file’s own column keeps its
+              values under a new name.
+            </>
+          ) : (
+            <>
+              {' '}
+              has no figures here. The folder has a partition of the same name, and a table over this folder reads the
+              partition’s value in its place.
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ColumnsSection({columns, partitionNamed}: {columns: ColumnFinding[]; partitionNamed: PartitionNamedColumn[]}) {
   // Mount-gated, not CSS-hidden: the two presentations are
   // structurally different DOM — a faux-table of rows versus a list of cards — so a
   // CSS swap would put BOTH in the document, doubling every column of a 200-column
   // report and reading each one twice to a screen reader.
   const isMobile = useIsMobile();
 
-  if (columns.length === 0) return null;
+  if (columns.length === 0 && partitionNamed.length === 0) return null;
 
   return (
     <section className="flex flex-col gap-2">
       <SectionHeading>Columns</SectionHeading>
+      <PartitionNamedNotes entries={partitionNamed} />
       {isMobile ? (
         <ul className="flex flex-col gap-2">
           {columns.map((column) => (
@@ -521,7 +555,10 @@ export function DataQualityReportPage() {
             columnsAgree={report.exact.crossFile.columnsAgree}
             disagreements={report.exact.crossFile.disagreements}
           />
-          <ColumnsSection columns={report.exact.columns} />
+          <ColumnsSection
+            columns={report.exact.columns}
+            partitionNamed={report.partitionNamedColumns ?? []}
+          />
           <ApproximateSection
             ragged={report.approximate.raggedRows}
             encoding={report.approximate.encoding}

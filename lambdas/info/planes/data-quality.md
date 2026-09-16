@@ -104,31 +104,31 @@ Revisit before real users arrive.
   **no S3 request at all**.
 - **`StartProfileQuery` submits the three checks and waits for none of them** — the wait is the
   machine's, not the verb's.
-- **Three refusals at the temp table, not one, because they ask for three different repairs.** A
-  column name Athena cannot use (`invalid_column_names`, edit a header), a `key=value` folder whose
-  key cannot be one (`invalid_partition_names`, rename a folder), and a CSV column named after a
-  partition that is not at the end of the header (`partition_column_not_last`, move or drop the
-  column). The third exists because the typed table leaves such a column out and a CSV is read by
-  POSITION, so the report would describe every later column against its neighbour's field — worse
-  than no report, since the user acts on it. It judges the folder's **union**, the order the table
-  declares, not each file's header: a refusal is for the misread no report could show. A folder
-  whose files differ is reported instead, and in a CSV cross-file agreement checks each file
-  against the columns the table **declares**, marking every file whose fields land under another
-  column's name — comparing files with each other misses a swap, an inserted column, or two files
-  adding different trailing columns.
+- **Two refusals at the temp table, not one, because they ask for two different repairs.** A
+  column name Athena cannot use (`invalid_column_names`, edit a header), and a `key=value` folder
+  whose key cannot be one (`invalid_partition_names`, rename a folder). A folder whose files differ
+  is reported, not refused: in a CSV cross-file agreement checks each file against the columns the
+  table **declares**, by the name the files give each, marking every file whose fields land under
+  another column's name — comparing files with each other misses a swap, an inserted column, or
+  two files adding different trailing columns.
 - **Headers that differ only by case are one column across files, and a refusal inside one.**
   `sql.union_columns` groups on `columns.fold`, first-seen spelling and type winning, and the report
   discloses the others as `otherSpellings`. So create-temp-tables judges column names per file, not
   on the union, which would merge `Total,TOTAL` in one CSV and shift every later column.
-- **A column named after a partition gets no per-column figures, in any format.** The typed table
-  leaves it out, and a query naming it anyway does not fail: Athena lowercases the name and binds
-  it to the partition column, so the report showed the folder's value under the user's column
-  name. The profile, the duplicates grouping and the report all read `sql.profiled_columns`, the
-  DDL builder's own `ddl.body_columns`, and the aliases are numbered over that one list — filtering
-  on one side only, or after numbering, moves every later column's figures onto its neighbour, and
-  a missing cell reads as a clean zero. The column is **absent, not skipped**: there is no figure
-  to mark, and the incomplete banner would point at nothing. Cross-file agreement and the ragged
-  comparison still count it, because they read the file.
+- **A column named after a partition is never refused, and never profiled as the partition.** Its
+  own name cannot be a column of the temp table. In a CSV, read by POSITION, the table keeps it in
+  its place under `ddl.declare_columns`' name (`year` becomes `year_in_file`), because leaving it
+  out would describe every later column against its neighbour's field; in JSON and Parquet, read by
+  name, the table leaves it out, and it gets **no figures, absent rather than skipped** — there is
+  no figure to mark, and the incomplete banner would point at nothing. A query naming the file's
+  spelling anyway does not fail: Athena binds it to the partition column and reports the folder's
+  value. The profile, the duplicates grouping and the report all read `sql.profiled_columns`, the
+  DDL builder's own `ddl.body_columns`, with the same format, and the aliases are numbered over
+  that one list — mapping on one side only, or after numbering, moves every later column's figures
+  onto its neighbour, and a missing cell reads as a clean zero. The report's
+  `partitionNamedColumns` names each such column as `renamed` or `omitted`, and the report page
+  says which above Columns. Cross-file agreement and the ragged comparison count it under the
+  files' name, because they read the file.
 - **Results are read only at `SUCCEEDED`** (see table-builder — the same 400).
 
 ## The layer — `data-quality-common/dqcommon/`

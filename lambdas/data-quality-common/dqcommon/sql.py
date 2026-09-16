@@ -292,23 +292,30 @@ def other_spellings(files: list[dict]) -> dict[str, list[str]]:
     return merged
 
 
-def profiled_columns(columns: list[dict], partition_keys: list[dict]) -> list[dict]:
-    """Narrows the unioned columns to the ones the typed temp table actually declares.
+def profiled_columns(
+    columns: list[dict], partition_keys: list[dict], fmt: str | None
+) -> list[dict]:
+    """Maps the unioned columns to the ones the typed temp table actually declares.
 
     The one list every per-column figure is computed and reported over: the profile query
     numbers its aliases by position in it, the report reads them back by the same position, and
     the duplicates grouping names it before the partition keys. A column naming a partition key
-    is not in it, because the temp table's DDL leaves that column out — and projecting the name
-    anyway would not fail, it would bind to the partition column and report the folder's value
-    under the user's column name. Filtering after numbering on either side, or on one side only,
-    attaches every later column's figures to its neighbour's name.
+    is declared under its ``ddl.declare_columns`` name in a CSV, so its figures are the file's and
+    carry that name. In JSON and Parquet it is not in the list, because the temp table leaves it
+    out — and projecting the name anyway would not fail, it would bind to the partition column
+    and report the folder's value under the user's column name. Mapping after numbering on
+    either side, or on one side only, attaches every later column's figures to its neighbour's
+    name.
 
-    The file's own header still counts that column wherever the FILE is what is read: cross-file
-    agreement and the ragged comparison both take their columns from the manifest, not from here.
+    The file's own header still counts that column under the file's name wherever the FILE is
+    what is read: cross-file agreement and the ragged comparison both take their columns from the
+    manifest, not from here.
 
     Args:
       columns: The unioned columns.
       partition_keys: The manifest's detected partition keys.
+      fmt: The source format, which decides whether such a column is renamed or left out. The
+        profile query, the duplicates grouping and the report must each pass the same one.
 
     Returns:
       The columns the temp table declares, in union order.
@@ -316,7 +323,7 @@ def profiled_columns(columns: list[dict], partition_keys: list[dict]) -> list[di
     Raises:
       KeyError: If a column or partition key is missing its name.
     """
-    return ddl.body_columns(columns, partition_keys)
+    return ddl.body_columns(columns, partition_keys, fmt)
 
 
 def check_column_count(columns: list[dict]) -> None:
@@ -391,9 +398,6 @@ def build_temp_table_ddl(
       The full statement.
 
     Raises:
-      PartitionColumnShiftError: When a column names a partition key and the positional CSV
-        body would lose it with a kept column after it. The verb refuses that manifest in the
-        user's words before reaching here.
       ValueError: On an unknown format, or an unrenderable partition key.
     """
     try:
@@ -602,9 +606,9 @@ def build_profile_query(
     Computes, exactly and at any scale: per-column missing counts, per-column type-consistency
     counts with bounded offending-value samples, and row counts both in total and per file.
 
-    The columns profiled are ``profiled_columns``, so a column naming a partition key gets no
-    figures at all rather than the partition's, and the aliases are numbered over that list,
-    which is the one the report numbers them back over.
+    The columns profiled are ``profiled_columns``, so a column naming a partition key is profiled
+    under its new name in a CSV and gets no figures in JSON or Parquet, never the partition's, and
+    the aliases are numbered over that list, which is the one the report numbers them back over.
 
     Type consistency is skipped entirely for Parquet, and the report records that it was. The
     check is vacuous there, not merely redundant: Parquet enforces types in the format, so a
@@ -641,7 +645,7 @@ def build_profile_query(
       KeyError: If a column is missing its name or type, or a partition key its name.
     """
     type_checked = fmt != "parquet"
-    columns = profiled_columns(columns, partition_keys)
+    columns = profiled_columns(columns, partition_keys, fmt)
 
     projected = ", ".join(
         ['"$path"'] + [_projection(i, column) for i, column in enumerate(columns)]
@@ -863,6 +867,7 @@ def build_duplicates_query(
     table_name: str,
     columns: list[dict],
     partition_keys: list[dict],
+    fmt: str | None,
     path_filter: str | None = None,
 ) -> str:
     """Builds the duplicate-rows query.
@@ -878,14 +883,15 @@ def build_duplicates_query(
     result file whole without a bound. Partition columns are included in the grouping because
     they are part of the row: two otherwise-identical rows in different partitions are different
     rows, not duplicates. The data columns are ``profiled_columns``, the list the temp table's DDL
-    declares, so a data column naming a partition key is left out and the grouping names each of
-    that table's columns once rather than one of them under two spellings.
+    declares, so a data column naming a partition key is grouped under its new name in a CSV and
+    left out in JSON or Parquet, and the grouping never names one column under two spellings.
 
     Args:
       database: The target database.
       table_name: The typed temp table.
       columns: The unioned columns.
       partition_keys: The detected partition keys.
+      fmt: The source format, passed to ``profiled_columns``.
       path_filter: Restricts the scan to one file. Without it a single-file check reported
         duplicates found between that file and its neighbours, which is not a duplicate the user
         can act on.
@@ -896,7 +902,7 @@ def build_duplicates_query(
     Raises:
       KeyError: If a column or partition key is missing its name.
     """
-    grouped = [ddl.quote_dml(c["name"]) for c in profiled_columns(columns, partition_keys)]
+    grouped = [ddl.quote_dml(c["name"]) for c in profiled_columns(columns, partition_keys, fmt)]
     grouped.extend(ddl.quote_dml(key["name"]) for key in partition_keys)
     all_columns = ", ".join(grouped)
     table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"

@@ -127,8 +127,11 @@ is new to the table, in the order the first file lists them. Columns are matched
 through `cpcommon.columns.fold`, as today, and never through `casefold()`, which merges `ß` into
 `ss` where Athena keeps them apart. Everything else `_write_columns` does is unchanged: names are
 lowercased, comments and column parameters are carried from the live column, a data column that
-collides with a partition key is dropped, and two names that fold to one are refused with
-`update_failed`. For JSON and Parquet the written order stays the first file's.
+collides with a partition key is written as `ddl.body_columns` declares it — kept under a new name
+such as `year_in_file` in a CSV, left out in JSON and Parquet — and two names that fold to one are
+refused with `update_failed`. The reorder applies to that declared list, so a renamed column is
+matched to the live column of the same name like any other. For JSON and Parquet the written order
+stays the first file's.
 
 #### Acceptance Criteria:
 
@@ -176,7 +179,8 @@ the dialog with the columns named.
   today's code builds for the same columns.
 - [ ] A diff-schema event with no `format` and no removal is refused as `malformed_event`. The
   format is read up front beside the other required fields, not only on the removal path.
-- [ ] diff-schema's test event factory gains a format parameter; today it sets none.
+- [ ] diff-schema's test event factory carries a format parameter. It already does, defaulting to
+  `csv`, since the change that renamed a CSV partition namesake; the removal tests set it explicitly.
 
 ### FR-003: The Refresh dialog and the Help guide describe the kept order and the removal's effect
 
@@ -217,19 +221,19 @@ def _write_columns(
     columns: list[dict],
     live_partition_keys: list[dict],
     live_columns: list[dict],
-    *,
-    keep_live_order: bool,
+    fmt: str,
 ) -> list[dict]: ...
 
-# _table_input gains the same keyword; _apply passes
-#   keep_live_order=events.require(event, "format") == "csv"
+# Already the signature on main: the partition-namesake rename added `fmt` to _write_columns and
+# _table_input, and _apply already reads events.require(event, "format"). The kept order is
+# decided inside from it — fmt in ddl.POSITIONAL_FORMATS — rather than by a second parameter.
 
 # lambdas/table-builder-common/tbcommon/messages.py
 def removed_tokens(names: list[str], fmt: str) -> dict: ...
 
-# lambdas/table-builder-diff-schema/diff_schema.py, in _diff beside the other required reads:
+# lambdas/table-builder-diff-schema/diff_schema.py: _diff already reads
 #   fmt = events.require(event, "format")
-# and on the removal refusal: removed_tokens(removed_names, fmt)
+# beside the other required fields; the removal refusal passes removed_tokens(removed_names, fmt)
 ```
 
 The reorder keeps duplicate names, so the fold-collision refusal still sees them. A stable sort of
@@ -254,7 +258,8 @@ apps/portal/src/features/help/helpContent.ts                        (FR-003)
 
 ### Phase 1: The two verbs
 
-- `_write_columns` and `_table_input` take `keep_live_order`; `_apply` reads `format` as required.
+- `_write_columns` keeps the live order when `fmt` is positional; `fmt` and the required `format`
+  read are already in place.
 - `removed_tokens` takes the format; the `columns_removed` template renders the sentence token;
   diff-schema passes the format.
 - Tests for FR-001 and FR-002, including the explicit Parquet and JSON cases.

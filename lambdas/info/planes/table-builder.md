@@ -46,10 +46,9 @@ there is no native polars reader.
 
 **CSV is not type-inferred** — every column is `string`, names come from the header, and a header
 plus comma separator is assumed, via OpenCSVSerde. Parquet and JSON infer types and parse dates.
-The header is **one sample file's**, and `partition_column_not_last` judges that header alone; no
-other file's header is read. A file whose columns differ, or sit in another order, is read by
-position under the sample's names, and a data-quality check over the folder is what reports the
-disagreement.
+The header is **one sample file's**; no other file's header is read. A file whose columns
+differ, or sit in another order, is read by position under the sample's names, and a data-quality
+check over the folder is what reports the disagreement.
 
 **JSON must be NDJSON**, one object per line, which is what Athena's SerDe needs anyway. Its schema
 comes from **one sample file**, so fields present only in other files are silently dropped. A
@@ -104,23 +103,27 @@ statements, no window in which the table is absent, and **no verb on this plane 
   colliding name before it classifies anything, so a header of `Amount,region,amount` is refused
   rather than reported unchanged. Apply-refresh keeps its own guard, `update_failed` before the
   update, because nothing after its fold would notice a column collapsed.
-- **Every step of a refresh, and a create's partition-key drop, folds a name through
+- **Every step of a refresh, and a create's partition-key match, folds a name through
   `cpcommon.columns.fold`, which is `lower()`, never `casefold()`.** That covers the diff's match and
-  partition-key exclusion, the write's names, comment carry and refusal, both catalog reads around
-  the update, and the DDL builder's drop of a data column naming a partition key. Athena lowercases,
+  partition-key mapping, the write's names, comment carry and refusal, both catalog reads around
+  the update, and the DDL builder's match of a data column naming a partition key. Athena lowercases,
   so `Straße` and `STRASSE` are two columns, `straße` and `strasse`. Full case folding makes them
   one. When the diff casefolded and the write lowercased, a header of `Straße,notes` against a live
   `strasse` reported only `notes` added and replaced `strasse` without the removal opt-in. When the
   drop matched by exact name, a header `Year` beside the key `year` reached Athena as both columns,
   and it failed the build as "Column repeated in partitioning columns", which no retry fixes.
-- **In a CSV that drop is only safe at the END of the header, because OpenCSVSerde matches fields
-  by POSITION.** Leaving out a column with a kept column after it feeds every later column its
-  neighbour's field — measured on a built table: `year,id,region` over `2025,1,south` read `id` as
-  `2025`. Every CSV column is a string, so nothing errors and the rail looks right. A create
-  refuses that header as `partition_column_not_last`, naming the column; Parquet and JSON are
-  matched by name and still drop. `ddl.shifting_partition_columns` decides, and the builder raises
-  rather than render one. **A refresh still drops in any position** — it writes Glue columns
-  directly, so this rule does not reach it.
+- **In a CSV a column naming a partition key is KEPT under a new name, because OpenCSVSerde
+  matches fields by POSITION.** Leaving it out feeds every later column its neighbour's field —
+  measured on a built table: `year,id,region` over `2025,1,south` read `id` as `2025`, and every
+  CSV column is a string, so nothing errors and the rail looks right. `ddl.declare_columns` keeps
+  it in its place, in any position, as `<fold>_in_file` (numbered on a clash), and the created
+  notification names each rename. Parquet and JSON are matched by name and still leave it out.
+  **A refresh applies the same rule** — diff-schema compares, and apply-refresh writes,
+  `ddl.body_columns` for the event's `format` — so a table built with `year_in_file` refreshes
+  unchanged from the header that built it, and its fold-collision check reads the files' names, so
+  `Year,year` is refused there as on a create. A header that later gains its own `year_in_file`
+  column moves the rename to `year_in_file_2`, and the refresh reports that name added while the
+  live `year_in_file` now reads the file's new column — a known limit, not refused.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **A create's `IF NOT EXISTS` is confirmed, not trusted.** The statement succeeds identically for a
   run that built the table and a run whose create was a no-op over someone else's, so execute-ddl
