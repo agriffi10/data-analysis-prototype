@@ -1,5 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
-import {MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
+import {appManagedSegments, MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
 import {spaceFor, spaceRootOf} from '../../lib/objectSpace';
 import {fromApiFailure, ok} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
@@ -9,7 +9,7 @@ import type {DownloadUrl, UploadResult, CreateFolderResult, ObjectMetadata} from
 import {maxUploadBytes} from './uploadLimits';
 import {uploadParts} from './multipartUpload';
 import {putBytes, uploadCancelled, uploadRejection} from './xhrUpload';
-import {isRootFolderNamed, PICKER_LOCKED_FOLDERS} from './protectedFolders';
+import {isRootFolderNamed, PICKER_LOCKED_FOLDERS, PLANE_WRITE_DENIED_FOLDERS} from './protectedFolders';
 import {PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
 /**
@@ -462,8 +462,8 @@ export function validateLeafName(name: string, label: string): string | null {
  * it, so a folder that moved under `system_settings/` is an ordinary name at the top of a space,
  * and below the top the other names are ordinary too — only `system_settings` itself is refused at
  * every depth, by the name rule. Ordinary to this check, not to the file-operations plane, whose
- * execution role cannot write beneath `user_settings/` at any depth: it still refuses a folder
- * landing on a nested `user_settings`, in its notification. The space root is read off the
+ * execution role cannot write beneath `user_settings/` at any depth — a prompt whose folder the
+ * plane writes calls `validateFolderNameForPlane`, which refuses that landing too. The space root is read off the
  * parent, the way `spaceFor` reads a space's name, so a caller cannot pass the parent and forget
  * the root.
  *
@@ -497,6 +497,33 @@ export function validateFolderName(name: string, parentPrefix?: string): string 
   if (isRootFolderNamed(`${parentPrefix}${name}/`, spaceRootOf(parentPrefix), PICKER_LOCKED_FOLDERS))
     return `“${name}” is a folder the app manages at the top of a space. Pick another name.`;
   return null;
+}
+
+/**
+ * Validates the name a FOLDER takes on the file-operations plane — a rename, a same-folder copy or
+ * a conflict's new name. Returns an error message, or null if valid.
+ *
+ * `validateFolderName`'s rules, then the plane's own: its execution role cannot write beneath
+ * `PLANE_WRITE_DENIED_FOLDERS` at any depth, so a folder that lands ON one below the top of a space
+ * is refused here rather than in the run's notification. Only the landing itself is judged — inside
+ * such a folder the plane refuses the destination for the whole request, which no other name fixes.
+ * New folder does not call this: its object route writes a nested `user_settings` without
+ * complaint.
+ *
+ * @param name - The proposed leaf name.
+ * @param parentPrefix - Where the folder lands. Omitted — a file, or a destination the caller does
+ *   not know — only `validateFolderName`'s name rules apply.
+ */
+export function validateFolderNameForPlane(name: string, parentPrefix?: string): string | null {
+  const rules = validateFolderName(name, parentPrefix);
+  if (rules !== null || parentPrefix === undefined) return rules;
+  const landing = `${parentPrefix}${name}`.split('/').slice(1);
+  const kept = PLANE_WRITE_DENIED_FOLDERS.some((folder) => {
+    const wanted = appManagedSegments(folder);
+    const tail = landing.slice(-wanted.length);
+    return tail.length === wanted.length && wanted.every((part, at) => tail[at] === part);
+  });
+  return kept ? `“${name}” is a name the app keeps for its own folders. Pick another name.` : null;
 }
 
 /**

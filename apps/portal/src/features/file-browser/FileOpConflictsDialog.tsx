@@ -3,7 +3,7 @@ import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {OperationOutcomeBanner} from './OperationSummaryBanner';
-import {validateFolderName} from './fileBrowser.service';
+import {validateFolderNameForPlane} from './fileBrowser.service';
 import {conflictKind} from './fileOps.request';
 import type {FileOpConflicts} from './useFileOpConflicts';
 
@@ -143,7 +143,7 @@ function RenameAwayDialog({
 }) {
   const [name, setName] = useState(current);
   const inputRef = useRef<HTMLInputElement>(null);
-  const validationError = validateFolderName(name, parentPrefix);
+  const validationError = validateFolderNameForPlane(name, parentPrefix);
 
   return (
     <FormDialog

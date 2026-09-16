@@ -344,6 +344,22 @@ describe('FileBrowser — write controls', () => {
     expect(mock.createFolder).not.toHaveBeenCalled();
   });
 
+  it('still creates a folder named user_settings below the top of a space, which its route writes', async () => {
+    // The positive control for the plane-only rule: only a rename or copy lands a folder there
+    // through the file-operations plane, whose role cannot write it.
+    const {user} = renderBrowser({prefix: 'alice/projects/'});
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'user_settings');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    await waitFor(() =>
+      expect(mock.createFolder).toHaveBeenCalledWith(
+        expect.objectContaining({name: 'user_settings', prefix: 'alice/projects/'})
+      )
+    );
+  });
+
   it('still creates an ordinary folder inside system_settings, which is not locked', async () => {
     // The positive control. Nothing denies writes under that prefix, so a guard that refused
     // everything there would be inventing a restriction IAM does not have.

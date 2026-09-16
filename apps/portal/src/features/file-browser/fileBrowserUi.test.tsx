@@ -176,14 +176,19 @@ describe('DeleteConfirmDialog', () => {
 
 // ─── from RenameDialog.test.tsx ───
 describe('RenameDialog', () => {
-  function setup(overrides?: {kind?: 'file' | 'folder'; currentName?: string; isBusy?: boolean}) {
+  function setup(overrides?: {
+    kind?: 'file' | 'folder';
+    currentName?: string;
+    parentPrefix?: string;
+    isBusy?: boolean;
+  }) {
     const onRename = vi.fn();
     const onCancel = vi.fn();
     render(
       <RenameDialog
         kind={overrides?.kind ?? 'file'}
         currentName={overrides?.currentName ?? 'report.pdf'}
-        parentPrefix="alice/"
+        parentPrefix={overrides?.parentPrefix ?? 'alice/'}
         isBusy={overrides?.isBusy}
         onRename={onRename}
         onCancel={onCancel}
@@ -243,12 +248,20 @@ describe('RenameDialog', () => {
     it.each([
       {
         kind: 'folder' as const,
+        parentPrefix: 'alice/',
+        value: 'shared_tables',
         refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
       },
-      {kind: 'file' as const, refusal: null}
-    ])('checks a $kind renamed to the app’s folder at the top of a space', ({kind, refusal}) => {
-      setup({kind, currentName: 'notes'});
-      fireEvent.change(screen.getByLabelText(/new name/i), {target: {value: 'shared_tables'}});
+      {
+        kind: 'folder' as const,
+        parentPrefix: 'alice/projects/',
+        value: 'user_settings',
+        refusal: '“user_settings” is a name the app keeps for its own folders. Pick another name.'
+      },
+      {kind: 'file' as const, parentPrefix: 'alice/', value: 'shared_tables', refusal: null}
+    ])('checks a $kind renamed to “$value” in $parentPrefix', ({kind, parentPrefix, value, refusal}) => {
+      setup({kind, currentName: 'notes', parentPrefix});
+      fireEvent.change(screen.getByLabelText(/new name/i), {target: {value}});
       expect(screen.queryByRole('alert')?.textContent ?? null).toBe(refusal);
       expect(screen.getByRole('button', {name: /^rename$/i})).toHaveProperty('disabled', refusal !== null);
     });

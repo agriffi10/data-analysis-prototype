@@ -13,9 +13,9 @@ computes each against the budget that sizes it and names the schedulable unit it
 
 The protected-folder names are duplicated from the browser's ``protectedFolders.ts``, because
 Python and TypeScript cannot share a list. ``protectedFoldersMirror.test.ts`` reads THIS file as
-text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_FOLDERS`` and
-``UNDELETABLE_ROOT_FOLDERS`` equal as sets against the browser's. **It covers those two lists and
-nothing else** — in particular not the archive write-lock rule, which is a different shape and is
+text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_FOLDERS``,
+``UNDELETABLE_ROOT_FOLDERS`` and ``ANY_DEPTH_DENIED_FOLDERS`` equal as sets against the browser's.
+**It covers those three lists and nothing else** — in particular not the archive write-lock rule, which is a different shape and is
 guarded differently: ``test_archive_write_lock_mirrors_iam.py`` runs this package's predicate and
 the API's against a matcher built from the bucket policies themselves, rather than against each
 other, and ``test_file_ops_rules_mirror_execution_role.py`` holds ``ANY_DEPTH_DENIED_FOLDERS``'s

@@ -101,6 +101,18 @@ export const PICKER_LOCKED_FOLDERS = [
 ] as const;
 
 /**
+ * Never where the file-operations plane can write a folder, at ANY depth.
+ *
+ * A question about the plane rather than the user, and not a picker list: the plane's execution
+ * role carries no principal tag, so its Deny cannot be anchored at a space root and reaches these
+ * wherever they sit, in both buckets. A folder renamed or copied onto a nested one passes every
+ * root-anchored rule, so `validateFolderNameForPlane` refuses it before the plane does. Held equal
+ * to the plane's `ANY_DEPTH_DENIED_FOLDERS` by `protectedFoldersMirror.test.ts`; a moving folder is
+ * matched as its `system_settings` pair, which `validateFolderName`'s own rule already answers.
+ */
+export const PLANE_WRITE_DENIED_FOLDERS = [ATHENA_RESULTS_FOLDER, 'user_settings', ARCHIVE_FOLDER] as const;
+
+/**
  * Never deletable, and never a move SOURCE, at a space root.
  *
  * A FOURTH question, deliberately not a union of the two lists above (see the

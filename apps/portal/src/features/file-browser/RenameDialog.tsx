@@ -1,5 +1,5 @@
 import {useRef, useState} from 'react';
-import {validateFolderName} from './fileBrowser.service';
+import {validateFolderNameForPlane} from './fileBrowser.service';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {FIELD_HINT} from '../../components/fieldStyles';
@@ -45,7 +45,7 @@ export function RenameDialog({kind, currentName, parentPrefix, isBusy = false, o
   // Recompose the full name from the (trimmed) base plus the locked extension.
   const trimmedBase = name.trim();
   const nextName = trimmedBase.length === 0 ? '' : trimmedBase + ext;
-  const validationError = validateFolderName(nextName, kind === 'folder' ? parentPrefix : undefined);
+  const validationError = validateFolderNameForPlane(nextName, kind === 'folder' ? parentPrefix : undefined);
   const unchanged = nextName === currentName;
   const canRename = validationError === null && !unchanged && !isBusy;
 

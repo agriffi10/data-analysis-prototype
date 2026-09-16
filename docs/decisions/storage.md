@@ -1413,8 +1413,14 @@ hidden folders at the top of a space, and the two moved folders inside a folder 
 `system_settings`, where they were already refused. Below the top of a space this check treats the
 other names as ordinary, and `system_settings` alone is refused at every depth, as it already was.
 The file-ops plane is stricter about one of them: its execution role cannot write beneath
-`user_settings/` at any depth, so a folder renamed or copied onto a nested `user_settings` is still
-refused only in the run's notification. The space root is read off the parent with `spaceRootOf`, the first-segment reading
+`user_settings/` at any depth. So the three prompts whose folder that plane writes — Rename, the
+same-folder copy and a conflict's rename — call `validateFolderNameForPlane`, which also refuses a
+folder landing on `PLANE_WRITE_DENIED_FOLDERS` below the top, as *"user_settings" is a name the app
+keeps for its own folders* (Andrew's wording, 2026-09-16). It judges only the landing: a name typed
+inside a nested `user_settings` meets the plane's refusal of the whole request's destination, which
+no name fixes. `protectedFoldersMirror.test.ts` holds the list equal to the plane's. New folder
+keeps `validateFolderName`, because its object route writes a nested `user_settings` without
+complaint. The space root is read off the parent with `spaceRootOf`, the first-segment reading
 `spaceFor` already takes, so a caller cannot pass the parent and forget the root. (2026-09-16)
 
 **Why.** A folder there is not a user's folder that happens to share a name; it has the app's key. A
