@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
@@ -315,6 +316,32 @@ def test_figures_attach_to_the_column_the_query_aliased_them_to():
     assert columns[1]["nonParsingValues"] == 412
     assert columns[2]["nullBlankRatio"] == 0.5
     assert columns[0]["nonParsingValues"] == 0
+
+
+def test_a_column_naming_a_partition_key_gets_no_figures_and_the_rest_keep_their_own():
+    """The temp table has no data column under a partition key's name, so any figure for `Year`
+    here would describe the folder's `year=` value rather than the file's field. The report
+    leaves it out, and reads every other column's figures from the alias the real query gave it.
+
+    JSON, so the dropped column can sit in the middle: a report and a query that number the
+    aliases over different lists then disagree about `amount`, and a missing cell reads as zero,
+    so the misread column would look clean rather than fail.
+    """
+    files = [_file("alice/sales/year=2025/a.json", ["id", "Year", "amount"])]
+    partition_keys = [{"name": "year", "values": ["2025"]}]
+    query = sql.build_profile_query("alice", "dq_tmp_x", sql.union_columns(files), partition_keys, "json")
+    aliased = re.findall(r'"([^"]+)"(?:\), \'\'\))? AS (c\d+)\b', query)
+    total = {"source_file": "", "is_total": 1, "row_count": 100}
+    total.update({f"{alias}_missing": 10 * position for position, (_name, alias) in enumerate(aliased, 1)})
+
+    columns = _build(
+        manifest=dict(_manifest(files, fmt="json"), partitionKeys=partition_keys), profile=[total]
+    )["exact"]["columns"]
+
+    assert [c["name"] for c in columns] == ["id", "amount"]
+    assert [(c["name"], c["nullBlankRatio"]) for c in columns] == [
+        (name, position / 10) for position, (name, _alias) in enumerate(aliased, 1)
+    ]
 
 
 # ── Ragged rows (FR-003) ─────────────────────────────────────────────────────

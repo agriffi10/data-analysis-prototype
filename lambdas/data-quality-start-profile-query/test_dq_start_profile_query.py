@@ -6,6 +6,7 @@ land in the right space.
 """
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
@@ -13,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import dq_start_profile_query as v
 import pytest
+from dqcommon import sql
 
 BUCKET = "dq-user-bkt"
 REQUEST_ID = "7f3ac19d-2b4e-4c8a-9f01-6d5e3a7b8c02"
@@ -85,22 +87,40 @@ def test_json_starts_two_queries_and_marks_ragged_not_applicable(started):
     assert out["duplicates"]["status"] == "QUEUED"
 
 
-def test_the_duplicates_grouping_names_a_partition_key_once_whatever_its_case(monkeypatch, started):
+def test_a_column_naming_a_partition_key_is_named_by_no_query_whatever_its_case(monkeypatch, started):
     """The temp table leaves out a data column naming a partition key in any case — here `Year`
-    against the key `year`, and `month` against the folder-derived `Month` — so the grouping
-    names each of the table's columns once rather than repeating one under two spellings."""
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {
+    against the key `year`, and `month` against the folder-derived `Month`. A query naming one
+    anyway does not fail: Athena lowercases the identifier and binds it to the partition column,
+    so the profile would report the folder's value under the user's column name. So the profile
+    projects exactly the columns the table's own DDL declares, numbered over that list, and the
+    duplicates grouping names each of them once, then the partition keys.
+
+    JSON, because a name-matched format drops such a column wherever it sits: `Year` is second,
+    so an alias numbered before the drop leaves a gap that a trailing drop could never show.
+    """
+    manifest = {
         "partitionKeys": [{"name": "year", "values": ["2025"]}, {"name": "Month", "values": ["01"]}],
-        "files": [{"key": "alice/sales/year=2025/Month=01/jan.csv", "size": 1, "columns": [
+        "files": [{"key": "alice/sales/year=2025/Month=01/jan.json", "size": 1, "columns": [
             {"name": "id", "type": "string"},
-            {"name": "month", "type": "string"},
             {"name": "Year", "type": "string"},
+            {"name": "amount", "type": "string"},
+            {"name": "month", "type": "string"},
         ]}],
-    })
+    }
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: manifest)
+    ddl = sql.build_temp_table_ddl(
+        "alice", f"dq_tmp_{HEX32}", sql.union_columns(manifest["files"]),
+        manifest["partitionKeys"], "json", f"s3://{BUCKET}/alice/sales/",
+    )
+    declared = re.findall(r"`([^`]+)` string", re.search(r"\(([^()]*)\) PARTITIONED BY", ddl).group(1))
 
-    v.handler(_event(), None)
+    v.handler(_event(format="json", tempRawTable=None), None)
 
-    assert 'GROUP BY "id", "year", "Month" HAVING' in started[-1]["query"]
+    queries = {kw["client_request_token"]: kw["query"] for kw in started}
+    projected = re.findall(r'"([^"]+)"(?:\), \'\'\))? AS c(\d+)\b', queries[f"{HEX32}-profile"])
+    assert declared == ["id", "amount"], "the table this manifest builds"
+    assert projected == [(name, str(index)) for index, name in enumerate(declared)]
+    assert 'GROUP BY "id", "amount", "year", "Month" HAVING' in queries[f"{HEX32}-dupes"]
 
 
 # ── Idempotent submission (FR-003) ───────────────────────────────────────────

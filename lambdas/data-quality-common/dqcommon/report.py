@@ -700,10 +700,18 @@ def build(
 ) -> dict:
     """Assembles the whole report, recomputing nothing Athena already computed.
 
-    The columns come from the shared union helper rather than a reimplementation: the result
-    aliases are positional, so an order that diverged from the one the query was generated with
-    would attribute every column's figures to the wrong column — silently, in a report that still
-    looks entirely plausible.
+    The columns come from the shared union and ``sql.profiled_columns`` rather than a
+    reimplementation: the result aliases are positional, so a list that diverged from the one the
+    query was generated with would attribute every column's figures to the wrong column —
+    silently, in a report that still looks entirely plausible. A missing cell reads as zero, so a
+    column read one alias too far reports as clean.
+
+    A column naming a partition key is therefore absent from the per-column figures, not skipped.
+    The temp table has no data column of that name, so there is no figure to mark skipped, and
+    the portal types every column entry with a blank ratio it would have to invent. It does not
+    mark the report incomplete either: that banner points at a skipped or not-computed figure
+    below it, and there is none. The Help page says the column is left out; cross-file agreement
+    still lists it, since the files do carry it.
 
     The completion timestamp is the only field a replay changes. The report key is a pure function
     of the request id, so a retry or a redelivery overwrites the same object rather than adding a
@@ -712,7 +720,7 @@ def build(
     Args:
       request: The threaded request, carrying the request id, location and the degraded-query
         blocks.
-      manifest: The source manifest.
+      manifest: The source manifest, whose partition keys narrow the profiled columns.
       profile_rows: The profile query's rows.
       ragged_rows: The ragged query's rows.
       duplicate_rows: The duplicates query's rows.
@@ -727,12 +735,13 @@ def build(
         from that one row, and without it the report would assemble perfectly happily — zero rows,
         every column clean, a clean verdict — and hand the user a green result over data nothing
         actually measured. A missing profile result is a failed check, not a clean one.
-      KeyError: If the request carries no request id.
+      KeyError: If the request carries no request id, or a probed column or partition key its
+        name.
       ValueError: If a result cell is non-empty and not a number.
     """
     fmt = manifest.get("format") or request.get("format")
     files = manifest.get("files") or []
-    columns = sql.union_columns(files)
+    columns = sql.profiled_columns(sql.union_columns(files), manifest.get("partitionKeys") or [])
 
     total = next((row for row in profile_rows if _int(row, "is_total") == 1), None)
     if total is None:

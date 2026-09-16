@@ -98,11 +98,15 @@ Revisit before real users arrive.
   column). The third exists because the typed table leaves such a column out and a CSV is read by
   POSITION, so the report would describe every later column against its neighbour's field — worse
   than no report, since the user acts on it.
-- **A column named after a partition that IS at the end is still profiled against the partition's
-  value.** The typed table leaves it out, the profile query still projects it, and Athena resolves
-  the name to the partition column — so its missing and type figures describe the folder rather
-  than the file. The duplicates grouping folds it out; the profile query cannot, alone, because
-  the report maps aliases back by POSITION. Both must move together.
+- **A column named after a partition gets no per-column figures, in any format.** The typed table
+  leaves it out, and a query naming it anyway does not fail: Athena lowercases the name and binds
+  it to the partition column, so the report showed the folder's value under the user's column
+  name. The profile, the duplicates grouping and the report all read `sql.profiled_columns`, the
+  DDL builder's own `ddl.body_columns`, and the aliases are numbered over that one list — filtering
+  on one side only, or after numbering, moves every later column's figures onto its neighbour, and
+  a missing cell reads as a clean zero. The column is **absent, not skipped**: there is no figure
+  to mark, and the incomplete banner would point at nothing. Cross-file agreement and the ragged
+  comparison still count it, because they read the file.
 - **Results are read only at `SUCCEEDED`** (see table-builder — the same 400).
 
 ## The layer — `data-quality-common/dqcommon/`

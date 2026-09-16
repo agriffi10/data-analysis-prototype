@@ -128,6 +128,29 @@ def shifting_partition_columns(columns: list[dict], partition_keys: list[dict], 
     return list(reversed(offenders))
 
 
+def body_columns(columns: list[dict], partition_keys: list[dict]) -> list[dict]:
+    """The data columns a table built by ``build_create_table_ddl`` declares, in order.
+
+    A column naming a partition key is left out, matched through ``columns.fold``. The builder
+    renders its body from this list, so a caller that names the table's columns in a query reads
+    them here rather than repeating the match. A name the body left out does not fail in a query:
+    Athena lowercases it and binds it to the partition column, so the query reads the folder's
+    value under the data column's name.
+
+    Args:
+      columns: Ordered [{name, type}] data columns, as the file declares them.
+      partition_keys: Declared partition keys ([] = flat).
+
+    Returns:
+      The columns the body keeps, in declaration order.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
+    """
+    part_names = {columns_mod.fold(key["name"]) for key in partition_keys}
+    return [column for column in columns if columns_mod.fold(column["name"]) not in part_names]
+
+
 class Storage(NamedTuple):
     """A format's storage clause plus the TBLPROPERTIES that clause requires.
 
@@ -455,10 +478,11 @@ def build_create_table_ddl(
     """Builds a complete CREATE EXTERNAL TABLE IF NOT EXISTS statement as one line.
 
     A data column colliding with a partition-key name is dropped from the body — the
-    partition key wins — so the DDL stays valid. The two are matched through
-    ``columns.fold``, not by exact name: Athena compares them ignoring case and refuses the
-    pair as "Column repeated in partitioning columns", which it does not retry, so a header
-    ``Year`` beside the key ``year`` failed the build where ``year`` beside it was dropped.
+    partition key wins, and ``body_columns`` says which columns remain — so the DDL stays
+    valid. The two are matched through ``columns.fold``, not by exact name: Athena compares
+    them ignoring case and refuses the pair as "Column repeated in partitioning columns",
+    which it does not retry, so a header ``Year`` beside the key ``year`` failed the build
+    where ``year`` beside it was dropped.
     **A drop that a positional format could not survive raises instead of rendering** —
     ``shifting_partition_columns`` says which — because that statement builds a table whose
     later columns silently hold the wrong field's values. Callers refuse it in their own
@@ -507,8 +531,7 @@ def build_create_table_ddl(
     if shifting:
         raise PartitionColumnShiftError(shifting)
 
-    part_names = {columns_mod.fold(k["name"]) for k in partition_keys}
-    body = ", ".join(_column(c) for c in columns if columns_mod.fold(c["name"]) not in part_names)
+    body = ", ".join(_column(c) for c in body_columns(columns, partition_keys))
 
     stmt = f"CREATE EXTERNAL TABLE IF NOT EXISTS {quote(database)}.{quote(table_name)} ({body})"
 

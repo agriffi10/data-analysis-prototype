@@ -195,8 +195,9 @@ def _start_queries(event: dict) -> dict:
     request is over, and starting the cheap ones first would leave two orphan executions running
     against a request nobody will ever read.
 
-    The unioned columns are right for the external table's schema and for the profile query — a
-    column present in only some files still has to be readable. They are not right for the ragged
+    The unioned columns are right for the external table's schema — a column present in only some
+    files still has to be readable — and the profile and duplicates builders narrow them with the
+    partition keys to the columns that table declares. They are not right for the ragged
     comparison, which is per file.
 
     The path filter is None for a folder target, so every query renders exactly as it did before
@@ -241,7 +242,7 @@ def _start_queries(event: dict) -> dict:
     out["profile"] = {
         "queryExecutionId": _start(
             "profile",
-            sql.build_profile_query(database, table, columns, fmt, path_filter),
+            sql.build_profile_query(database, table, columns, partition_keys, fmt, path_filter),
             event,
             database,
             results,
