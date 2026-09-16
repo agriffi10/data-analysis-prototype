@@ -57,6 +57,8 @@ entry you need, not the file.**
 - [The logs queue is grouped per event, because a FIFO group is the sweep's ceiling (2026-09-11)](#the-logs-queue-is-grouped-per-event-because-a-fifo-group-is-the-sweeps-ceiling-2026-09-11)
 - [The notification sender bounds every dedup id, by digest rather than by dropping it (control-plane-wide)](#the-notification-sender-bounds-every-dedup-id-by-digest-rather-than-by-dropping-it-control-plane-wide)
 - [A group id orders the STARTS, not the runs, and what overlap costs on each plane (control-plane-wide)](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)
+- [A data-quality request id is claimed by one execution before anything is named from it (data quality)](#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality)
+- [Notifications deduplicate per recipient, so a borrowed request id cannot drop someone else's notice (control-plane-wide)](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide)
 
 ## Fences
 
@@ -170,6 +172,11 @@ inside the execution the Pipe starts.
   lexicographically, so a UUID key gives no chronology.
 - **Every member sees the roster**; the join acknowledgement is display-only, since access is granted
   at add time.
+- **Notifications deduplicate per RECIPIENT.** Most producers key a notice on `{requestId}:{outcome}`, and
+  a request id is the caller's choice, so the requests queue's `deduplication_scope` is `messageGroup`
+  and every sender's group is the recipient: two notices collapse only when they go to the same
+  person. Deduplicated across the queue, a request borrowing another member's id dropped that
+  member's notice. [Per recipient](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
 - **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
   The portal role holds no grant on the queue, and the API's route accepts only `markRead` and
   `markAllRead`. The writer's check names only the portal role, so against the API's own role the
@@ -2074,17 +2081,12 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   `request_id_reused` refusal, so a hand-built request reusing an id past the five-minute dedup
   window shares both keys with the first, and one run can copy the other's plan — names its own
   guard never checked — over a recipient's files. The browser mints an id per submit and cannot.
-- **Data quality: nothing shared but the index.** Every per-run key — the temp tables, the manifest,
-  the report, the query results and the Athena tokens — is derived from the request id, so two
+- **Data quality: the request id is claimed.** Every per-run key — the temp tables, the manifest,
+  the report, the query results and the Athena tokens — is derived from the request id, and one
+  execution claims the id before any of them exists, so a second execution sending it past the dedup
+  window is refused before it lists a file ([the claim](#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality)). Two
   checks of one location with different ids are independent, and the runs index is written under
-  ETag CAS. One id sent twice past the dedup window collides on every one of them, and one run can
-  drop the other's temp table mid-query. A check never writes the user's data, but the cost is not
-  only a failed or garbled diagnostic: the temp table's create is `IF NOT EXISTS`, so a FOLDER check
-  reusing the id of a running single-file check at the space root inherits that table's root
-  LOCATION, and its queries carry no predicate. What refuses them today is an accident: the query
-  tokens are derived from the id too, and Athena answers a known token with a different
-  `QueryString` with an error. AWS documents no lifetime for a token, so once one is forgotten the
-  folder check reports over the whole space that `location_is_space_root` exists to refuse.
+  ETag CAS.
 - **Results conversion: the write is the guard.** The one object is written with `If-None-Match: *`
   unless the request asked to overwrite, so the loser of two overlapping saves to one name is
   refused `destination_occupied`. Two overwrites of one key land in the order they finish rather
@@ -2121,3 +2123,89 @@ This audit corrected the sites it found claiming a group id serializes runs, and
 register, delivery doc or spec carried in place rather than rewriting it; the cancelled
 file-converter spec, which never shipped, was left as it was. The Fences clause is what should catch
 the next one, at authoring.
+
+## A data-quality request id is claimed by one execution before anything is named from it (data quality)
+
+**Every per-run name on this plane is derived from a request id the caller chooses.** The temp
+tables, the report folder and everything under it — the manifest, the DDL and query output,
+`report.json` — and the Athena `ClientRequestToken`s all come from `requestId`, which the API admits
+as any string within its bound, and the queue forgets after five minutes. An id sent again past that
+window while its first run was still going met the `IF NOT EXISTS` create as a no-op and inherited
+the first run's LOCATION: a folder check reusing a root single-file check's id carried no `"$path"`
+predicate over it. Only an accident refused those queries — the Athena tokens derive from the id
+too, and Athena refuses a known token with a changed `QueryString` — and AWS documents no lifetime
+for a token, so once one was forgotten the check reported over the whole space. It also overwrote
+the first run's manifest and report, and either
+run's cleanup dropped the other's table. In a shared space another member's ids are readable from
+`index.json`.
+
+**The id is claimed instead, once, by the execution.** `inspect-source` first writes
+`data-quality/claims/{requestId}.json` to the admin bucket under `If-None-Match: *`, naming the
+execution ARN that `StampExecution` puts on the state. A `412` reads the claim back: this
+execution's own ARN is a Task retry and carries on, and anything else — a claim that does not parse
+included — is refused `request_id_reused` before the verb lists a file. A `409` means a concurrent
+request interrupted the create, and is retried. Nothing releases, takes over or expires a claim; a
+test keeps every expiring admin-bucket lifecycle rule off the prefix. The refusal puts no
+`manifestKey` on the state, so the failure path's cleanup drops nothing.
+
+**A claim makes the names unique only if distinct ids derive distinct names, and they did not.** A
+table's name is the id with its hyphens stripped, and Glue folds names to lower case, so `ab-cd` and
+`abcd`, or an id and its upper-case twin, would hold two claims and share one table. The validator
+and the claim both refuse anything but a lower-case hyphenated UUID as `invalid_request`, which is
+exactly what the browser mints. The API still admits any string; the plane is the boundary.
+
+**Rejected.** *Names derived from the execution:* `report.json` and the index row stay keyed on the
+request id, which the browser computes, so closing that arm is a contract change. *A read-back of
+the temp table's LOCATION*, table-builder's post-condition: it closes the predicate bypass alone,
+adds a Glue and Lake Formation read this plane never made, and leaves the report, manifest, token
+and cleanup arms open. *A claim beside the report:* it would sit inside the space, only as safe as
+every route that can write or delete there, and be one claim per space rather than per id.
+*Claiming in `validate-authorize`:* its payload is the raw Pipe array, one of the trace-adoption
+shapes, and reaching the ARN there means reshaping it.
+
+**Decided 2026-09-16 (Andrew): the refusal is silent.** The browser mints a fresh id per submit, so a
+reuse comes from a request built by hand, which has nothing it should be told, and the run it
+collided with is the one that reports. The question put to Andrew also gave a redelivery of one
+click as the realistic trigger, one that would tell a person a running check had failed. That rested
+on redelivery starting a second execution, and [a redelivery was measured](../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+to re-attach to the first instead — only the per-message naming behind it is inferred — so the
+decision stands on the reason above. `messages.SILENT_REASONS` registers the code without wording, and
+`notify.is_silent` is the one predicate both failure emitters read. That a notice under a borrowed id
+could drop someone else's is closed for every plane at the queue, by [per-recipient deduplication](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
+
+**What stays open.** Runs from before the claim hold none, so reusing one of their ids claims it
+afresh and overwrites that run's report and index row; there are no production users, so there is no
+backfill. A reusing execution whose claim fails loudly — its retries run out, or reading the holder
+back meets an unexpected error — is notified to its own sender, generically. And Deploy Lambdas and Deploy
+Infrastructure race on the merge that introduced this: a verb pointed before the machine stamps the
+ARN refuses every check `invalid_request` until the apply lands.
+
+## Notifications deduplicate per recipient, so a borrowed request id cannot drop someone else's notice (control-plane-wide)
+
+**A notice's dedup key is built from a value the caller chose.** Most producers pass
+`{requestId}:{outcome}` — `cpcommon.notify.dedup_id` — and a request id is whatever the sender of the
+request put in it. The requests queue deduplicated across the whole queue, so any notice sent under
+another person's key within five minutes was dropped, whoever it was for. Repairing one plane turned
+up two instances before the class was named: a data-quality run reusing another run's id and
+refused would have been notified under the holder's `failure` key, and table-builder's failure
+notices go out under the same shape of key, so a shared-space member who reads an in-flight check's
+id from the reports folder listing could send a table-builder request under it and suppress the
+check's failure notice — and the dashboard lists completed checks only, so nothing else says it
+failed.
+
+**The queue deduplicates within a message group instead, and the group is the recipient.**
+`deduplication_scope = "messageGroup"` on the requests queue; `cpcommon.notify.emit_notification`
+already sets `MessageGroupId` to the recipient's username, which is what makes the writer
+single-threaded per user. A notice can now collapse only with another notice to the same person,
+which is every duplicate a producer means to collapse — a verb and the notify state reporting one
+failure — and a borrowed id reaches only the borrower's own notices. The shared-space producers that
+put a recipient in their keys to survive the old scope are unaffected.
+Throughput stays per queue: `perMessageGroupId` is the high-throughput mode, which nothing here
+needs. The attribute updates in place — the provider does not replace a queue for it.
+
+**Rejected: fixing each producer.** Keying data quality's failure notices on the execution ARN
+closes that plane alone and leaves table-builder, file-ops and archive keyed as before; a key per
+producer is the per-site answer the class had already outrun twice.
+
+**What it does not change.** The same person can still lose a notice to another of their own under
+the same key — two of their requests sent with one id — because that is what deduplication is for.

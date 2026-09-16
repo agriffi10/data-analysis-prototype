@@ -191,6 +191,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # ⚠ `data-quality/claims/` GETS NO RULE either. A claim is what makes a request id one
+  # execution's alone, and an expired claim hands the id to the next execution that sends it —
+  # which then inherits the first run's temp table and overwrites its report. A test in lambdas/
+  # fails if an expiring rule's prefix reaches it.
+
   # Bucket-wide and deliberately UNFILTERED (CKV_AWS_300) — orphaned parts can appear
   # anywhere, so scoping to today's prefixes would leave a new one unprotected.
   #

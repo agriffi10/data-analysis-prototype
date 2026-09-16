@@ -17,10 +17,16 @@ resource "aws_sqs_queue" "requests_dlq" {
   sqs_managed_sse_enabled     = true
 }
 
+# DEDUPLICATION IS PER RECIPIENT. Most producers key a notice on a request id, and a request
+# id is chosen by whoever sent the request. Deduplicated across the whole queue, a request carrying
+# somebody else's id dropped that person's notice if it landed within five minutes. Scoped to the
+# message group — the recipient's username — two notices collapse only when they go to the same
+# person, which is every duplicate a producer means to collapse. Throughput stays per queue.
 resource "aws_sqs_queue" "requests" {
   name                        = local.requests_queue_name
   fifo_queue                  = true
   content_based_deduplication = true
+  deduplication_scope         = "messageGroup"
   visibility_timeout_seconds  = 60
   sqs_managed_sse_enabled     = true
 

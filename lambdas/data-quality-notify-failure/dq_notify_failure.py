@@ -69,6 +69,10 @@ def handler(event, context) -> dict:
     no-verb-ran class, whose reasons carry none. When both fire, the decorator's emit wins the
     FIFO dedup: it is sent first, seconds earlier, under the identical token.
 
+    A silent reason sends nothing. A reused request id is refused because another execution holds
+    it, and that execution is the one that reports. The browser mints a fresh id per submit, so a
+    reuse comes from a request somebody built by hand, which has nothing it should be told.
+
     The link is always absent, and that is not a placeholder: this path runs only when no report
     was written, and the link builder mints nothing where the report view would resolve wrong. No
     link is a real state, distinct from no notification.
@@ -94,6 +98,16 @@ def handler(event, context) -> dict:
 
     if not request_id:
         observability.warning("no requestId on the failed request", actor_bound=bool(actor))
+
+    if notify.is_silent(reason):
+        observability.info(
+            "suppressed a silent refusal",
+            outcome="suppressed",
+            reason=reason,
+            notified=False,
+            link=False,
+        )
+        return request
 
     if request.get("reportKey"):
         logger.info(

@@ -105,6 +105,23 @@ def test_the_space_root_refusal_tells_the_user_where_to_go_instead():
     assert "{" not in message, f"an unfilled marker survived into the body: {message!r}"
 
 
+def test_a_reused_request_id_is_not_notified_but_the_run_after_it_is():
+    """The execution holding the id is the one that reports.
+
+    The browser mints a fresh id per submit, so a reuse is a hand-built request with nothing it
+    should be told. The second failure is the positive control: the same fake does receive a
+    refusal that is not silent.
+    """
+    fake = _arm()
+
+    nf.handler(_event(_terminal_cause("request_id_reused")), None)
+    silent = list(fake.calls)
+    nf.handler(_event(_terminal_cause("query_timeout")), None)
+
+    assert silent == []
+    assert len(fake.calls) == 1
+
+
 def test_access_denied_leaks_no_path_or_space_name():
     fake = _arm()
     nf.handler(_event(_terminal_cause("forbidden"), location="finance/salaries"), None)

@@ -67,6 +67,22 @@ def test_valid_personal_request_binds_the_verified_actor():
     assert out["traceparent"].startswith("00-")
 
 
+# ── the request id's shape ───────────────────────────────────────────────────
+
+
+def test_a_request_id_that_is_not_a_lower_case_uuid_is_refused_as_malformed():
+    """Two spellings of one id would hold two claims and name one temp table.
+
+    A table's name is the id without its hyphens, and Glue folds names to lower case, so the
+    upper-case and hyphen-less twins of the id every other test uses are both refused. A number
+    is refused by name rather than crashing the pattern match.
+    """
+    _setup()
+
+    for request_id in ("11111111-2222-4333-8444-55555555555A", "11111111222243338444555555555555", 12345):
+        _expect_reason(_event(requestId=request_id), v.messages.INVALID_REQUEST, "not a lower-case UUID")
+
+
 # ── personal authorization (FR-005) ──────────────────────────────────────────
 
 

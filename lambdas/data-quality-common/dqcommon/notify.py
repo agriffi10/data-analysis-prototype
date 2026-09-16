@@ -20,10 +20,11 @@ Attributes:
 import logging
 
 from cpcommon.errors import TerminalError
+from cpcommon.events import in_vocabulary
 from cpcommon.notify import dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
-from .messages import UNEXPECTED_ERROR, failure_message, success_message
+from .messages import SILENT_REASONS, UNEXPECTED_ERROR, failure_message, success_message
 
 logger = logging.getLogger()
 
@@ -34,6 +35,7 @@ __all__ = [
     "emit_failure",
     "emit_notification",
     "emit_unexpected",
+    "is_silent",
     "notifies_on_failure",
     "report_link",
 ]
@@ -138,6 +140,24 @@ def emit_completed(event: dict) -> None:
     )
 
 
+def is_silent(reason: object) -> bool:
+    """Reports whether a terminal reason ends the run without a notification.
+
+    The one predicate both failure emitters consult — the verb decorator's and the notify state's —
+    so the two cannot disagree about which refusals stay quiet.
+
+    Args:
+      reason: The terminal reason code, of any type.
+
+    Returns:
+      True when the reason is one of ``messages.SILENT_REASONS``.
+
+    Raises:
+      None.
+    """
+    return in_vocabulary(reason, SILENT_REASONS)
+
+
 def emit_failure(event: dict, err: TerminalError, step: str = FAILURE_STEP) -> None:
     """Emits the actor-addressed failure notification for a verb's terminal error.
 
@@ -145,6 +165,8 @@ def emit_failure(event: dict, err: TerminalError, step: str = FAILURE_STEP) -> N
     exception for the logs and the SFN record. Its tokens are forwarded: those are the
     per-request values the message body's markers need, and they are the reason this emit rather
     than the notify state's is the one the user should receive.
+
+    A silent reason sends nothing, and says so in the log.
 
     Args:
       event: The task input, read for the actor, location and request id.
@@ -159,6 +181,9 @@ def emit_failure(event: dict, err: TerminalError, step: str = FAILURE_STEP) -> N
       None.
     """
     del step
+    if is_silent(err.reason):
+        logger.info("not notifying %s for %s", err.reason, _request_id(event))
+        return
     emit_notification(
         event.get("actor", "") if isinstance(event, dict) else "",
         failure_message(err.reason, _location(event), **getattr(err, "tokens", {})),

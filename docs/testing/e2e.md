@@ -604,6 +604,7 @@ as honestly as a succeeding one.
 | Check a folder with a `key=value` partition whose KEY is not `[a-z0-9_]` (e.g. `order-id=1/`) | Refused under its **own** wording, about folder names — not the column one, because the repair is renaming a folder. |
 | Check `yearcase/` | Refused in data-quality's own words, naming `"Year"` and its folder — the build's rule, because the temp table would profile `id` and `region` against their neighbours' fields. `yeartrail/` checks normally. |
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
+| Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 
 ### 4.7 Saved queries
 
@@ -785,6 +786,7 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 | The unread count is right after a reload | Reload and read the bell. |
 | Every link lands in the right place **in the right space** | Click each one. A link carrying `?space=` that resolves to your personal space is the failure mode. |
 | A failure notification never carries raw AWS text | Read the wording of any refusal you staged. |
+| The requests queue deduplicates **per recipient** | From a read-only CLI, `aws sqs get-queue-attributes` on the notifications requests queue with `--attribute-names DeduplicationScope` answers `messageGroup`. Read the named attribute from the JSON output: text output drops columns. |
 | **Following a `/files` link refreshes the folder it lands on** | A cross-producer mechanism since SPEC-223, not a results-conversion behaviour: the send and archive planes' links carry it too. Have the folder open in another tab, run an operation that writes into it, then follow the notification's link — the file is present **on arrival**, without a manual refresh. The `Review conflicts` control on the same row does it as well, since it resolves to the same listing. |
 
 ### 4.13 Help

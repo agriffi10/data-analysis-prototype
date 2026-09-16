@@ -26,7 +26,10 @@ groups and may process concurrently, because they are different files.
 
 Batch size is **1**, so each message is its own invocation, which is what preserves that
 one-at-a-time property. Content-based dedup collapses a byte-identical re-send inside the 5-minute
-window (a double-click); producers may still set an explicit `MessageDeduplicationId`.
+window (a double-click); producers may still set an explicit `MessageDeduplicationId`. Either way
+deduplication is **per message group**, so per recipient: producers build their keys from request
+ids callers choose, and deduplicated across the queue a request borrowing someone else's id dropped
+their notice.
 
 ## The `create` boundary: IAM and the API first, a runtime check behind the grant
 

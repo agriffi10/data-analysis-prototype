@@ -69,6 +69,11 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
+  # Where a request id is claimed for the one execution allowed to use it. Mirrors
+  # dqcommon.config.CLAIM_PREFIX, and a test holds the two equal. No admin-bucket lifecycle rule
+  # may reach it: an expired claim hands its id to the next execution that sends it.
+  claim_prefix = "data-quality/claims"
+
   # The SHARED portal workgroup. A dedicated one fails Lake Formation's Create/Describe checks
   # because Athena ties LF to the workgroup — proved by a live run. README.md.
   athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"

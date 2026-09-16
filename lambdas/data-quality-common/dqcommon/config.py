@@ -86,6 +86,10 @@ Attributes:
     an uncapped index makes the page slower the more the feature is used, which is the exact
     failure the index was introduced to avoid. 200 rows is 20 pages at 10 a page; past that a
     user wants a search, not a longer list.
+  CLAIM_PREFIX: Where a request id is claimed for the one execution allowed to use it, under the
+    admin bucket. Mirrored in the module's locals, which render the grant, and a test holds the
+    two equal. No lifecycle rule may reach it: a claim that expires hands its id to the next
+    execution that sends it, which is the collision the claim exists to prevent.
 """
 
 from cpcommon.app_managed import (
@@ -107,6 +111,8 @@ RESERVED_PREFIXES = frozenset(
 )
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
+
+CLAIM_PREFIX = "data-quality/claims"
 
 DQ_MAX_OBJECTS = 1000
 

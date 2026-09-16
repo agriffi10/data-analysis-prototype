@@ -224,6 +224,12 @@ def test_the_precondition_predicate_has_not_reappeared():
         # machine's Retry for that Task is TransientError alone, precisely so a re-invocation
         # cannot meet its own write. Exempted by FULL PATH, and kept honest below.
         and path != lambdas / "results-conversion-convert" / "rc_convert.py"
+        # The data-quality request-id claim names both codes to tell them APART, as delete.py
+        # does. Its `If-None-Match: *` create is refused 412 when another execution already
+        # holds the id, which it answers by reading the holder back, and 409 when a concurrent
+        # request interrupted the write, which S3 says to retry. Collapsing the two would read
+        # a claim holder that is not there. Exempted by FULL PATH, and kept honest below.
+        and path != lambdas / "data-quality-common" / "dqcommon" / "run_claim.py"
         and any(
             code in path.read_text()
             for code in ("ConditionalRequestConflict", "PreconditionFailed")
@@ -257,6 +263,15 @@ def test_the_precondition_predicate_has_not_reappeared():
     )
     assert "import cas" not in converter and "cas." not in converter, (
         "the converter now touches the shared CAS; re-argue its exemption from the sweep above"
+    )
+
+    claim = (lambdas / "data-quality-common" / "dqcommon" / "run_claim.py").read_text()
+    assert "PreconditionFailed" in claim, (
+        "the run_claim exemption has outlived its subject — remove it"
+    )
+    assert "IfMatch" not in claim and "cas." not in claim and "import cas" not in claim, (
+        "run_claim has started conditioning on an ETag or touching the shared CAS; it must bind to "
+        "cpcommon.cas, and its exemption from the sweep above has to be re-argued"
     )
 
     conditional_delete = (lambdas / "file-ops-common" / "focommon" / "delete.py").read_text()
