@@ -139,15 +139,95 @@ def test_a_missing_or_unparseable_sample_becomes_an_empty_list(cell):
 
 
 def test_a_single_file_source_agrees_trivially():
-    result = report.cross_file([_file("a.csv", ["id"])])
+    result = report.cross_file([_file("a.csv", ["id"])], "csv", [])
 
     assert result == {"columnsAgree": True, "disagreements": []}
 
 
-def test_files_presenting_the_same_columns_agree():
-    files = [_file("a.csv", ["id", "amount"]), _file("b.csv", ["amount", "id"])]
+_YEAR = [{"name": "year", "values": ["2025"]}]
+_YEAR_MONTH = [{"name": "year", "values": ["2025"]}, {"name": "month", "values": ["01"]}]
 
-    assert report.cross_file(files)["columnsAgree"] is True
+
+@pytest.mark.parametrize(
+    ("fmt", "headers", "partition_keys", "expected"),
+    [
+        pytest.param(
+            "csv",
+            [["id", "amount"], ["id", "amount"], ["amount", "id"]],
+            [],
+            [{"file": "f2.csv", "missing": [], "extra": [], "shifted": True}],
+            id="a-csv-swap-is-read-under-the-wrong-names",
+        ),
+        pytest.param(
+            "parquet",
+            [["id", "amount"], ["id", "amount"], ["amount", "id"]],
+            [],
+            [],
+            id="parquet-is-matched-by-name-so-order-is-not-compared",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "amount", "Year", "month"], ["id", "amount", "month", "Year"]],
+            _YEAR_MONTH,
+            [],
+            id="trailing-partition-columns-are-never-read-so-their-order-is-not-a-finding",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "amount", "Year"], ["id", "Year", "amount"]],
+            _YEAR,
+            [{"file": "f1.csv", "missing": [], "extra": [], "shifted": True}],
+            id="a-partition-column-moved-before-a-kept-one-is-a-finding",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "amount"], ["id", "amount"], ["amount", "id", "note"]],
+            [],
+            [{"file": "f2.csv", "missing": [], "extra": ["note"], "shifted": True}],
+            id="an-extra-column-and-a-swap-are-named-together",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "amount", "region"], ["id", "amount", "region"], ["id", "discount", "amount", "region"]],
+            [],
+            [{"file": "f2.csv", "missing": [], "extra": ["discount"], "shifted": True}],
+            id="a-column-inserted-mid-header-shifts-every-column-after-it",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "amount"], ["id", "amount"], ["id", "amount", "note"], ["id", "amount", "region"]],
+            [],
+            [
+                {"file": "f2.csv", "missing": [], "extra": ["note"], "shifted": False},
+                {"file": "f3.csv", "missing": [], "extra": ["region"], "shifted": True},
+            ],
+            id="two-files-adding-different-trailing-columns-read-one-under-the-others-name",
+        ),
+        pytest.param(
+            "csv",
+            [["amount", "id"], ["id", "amount"], ["id", "amount"]],
+            [],
+            [
+                {"file": "f1.csv", "missing": [], "extra": [], "shifted": True},
+                {"file": "f2.csv", "missing": [], "extra": [], "shifted": True},
+            ],
+            id="the-files-named-are-the-ones-misread-even-when-the-first-file-is-the-odd-one",
+        ),
+    ],
+)
+def test_a_csv_is_checked_against_the_columns_its_table_declares(fmt, headers, partition_keys, expected):
+    """OpenCSVSerde reads field ``i`` of every file as the table's column ``i``, the folder's union
+    in first-seen order without its partition columns, so a file whose fields do not line up is
+    counted under the wrong names with nothing failing; Parquet and JSON are matched by name. A
+    trailing partition column is past the declared columns and never read, so where it sits is
+    not a finding, and it is matched on Athena's fold, so ``Year`` is the key ``year``. The files
+    named are the ones this report misreads, which is not the minority when the minority is
+    listed first."""
+    files = [_file(f"f{index}.csv", header) for index, header in enumerate(headers)]
+
+    result = report.cross_file(files, fmt, partition_keys)
+
+    assert result == {"columnsAgree": not expected, "disagreements": expected}
 
 
 def test_a_drifting_file_is_named_with_its_missing_columns():
@@ -157,11 +237,11 @@ def test_a_drifting_file_is_named_with_its_missing_columns():
         _file("alice/s/part-2.csv", ["id", "amount"]),
     ]
 
-    result = report.cross_file(files)
+    result = report.cross_file(files, "csv", [])
 
     assert result["columnsAgree"] is False
     assert result["disagreements"] == [
-        {"file": "alice/s/part-2.csv", "missing": ["note"], "extra": []}
+        {"file": "alice/s/part-2.csv", "missing": ["note"], "extra": [], "shifted": False}
     ]
 
 
@@ -178,13 +258,13 @@ def test_the_odd_file_is_named_even_when_it_is_the_FIRST_one():
         _file("alice/s/part-2.csv", ["id", "amount", "note"]),
     ]
 
-    assert report.cross_file(files)["disagreements"] == [
-        {"file": "alice/s/part-0.csv", "missing": ["note"], "extra": []}
+    assert report.cross_file(files, "csv", [])["disagreements"] == [
+        {"file": "alice/s/part-0.csv", "missing": ["note"], "extra": [], "shifted": False}
     ]
 
 
 def test_a_source_with_no_files_agrees_rather_than_raising():
-    assert report.cross_file([]) == {"columnsAgree": True, "disagreements": []}
+    assert report.cross_file([], "csv", []) == {"columnsAgree": True, "disagreements": []}
 
 
 def test_an_extra_column_is_reported_as_extra_not_as_everyone_else_missing_one():
@@ -197,8 +277,8 @@ def test_an_extra_column_is_reported_as_extra_not_as_everyone_else_missing_one()
         _file("c.csv", ["id", "surprise"]),
     ]
 
-    assert report.cross_file(files)["disagreements"] == [
-        {"file": "c.csv", "missing": [], "extra": ["surprise"]}
+    assert report.cross_file(files, "csv", [])["disagreements"] == [
+        {"file": "c.csv", "missing": [], "extra": ["surprise"], "shifted": False}
     ]
 
 
@@ -661,6 +741,23 @@ def test_top_issues_are_capped():
     document = _build(manifest=_manifest(files), profile=[_profile_row(10, columns)])
 
     assert len(document["topIssues"]) == config.DQ_TOP_ISSUES
+
+
+def test_shifted_files_share_one_top_issue_line_however_many_there_are():
+    """A folder whose export changed its header part-way through splits in two, and a line per
+    shifted file would fill the capped list with one sentence and push every other finding out."""
+    files = [_file(f"alice/s/{month}.csv", ["id", "amount"]) for month in ("jan", "feb", "mar")]
+    files += [_file(f"alice/s/{month}.csv", ["amount", "id"]) for month in ("apr", "may", "jun")]
+    columns = [{"not_bigint": 0}, {"not_bigint": 0}]
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(10, columns)])
+
+    assert document["topIssues"] == [
+        (
+            "3 files, starting with apr.csv, have columns that don't line up with this report's "
+            "Columns — a CSV is read by position, so their values are counted under the wrong columns"
+        )
+    ]
 
 
 @pytest.mark.parametrize("fmt", ["csv", "json", "parquet"])

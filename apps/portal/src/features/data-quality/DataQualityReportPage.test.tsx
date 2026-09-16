@@ -218,7 +218,7 @@ describe('DataQualityReportPage', () => {
       expect(tile).not.toHaveTextContent(/^Duplicate rows0$/);
     });
 
-    it('lists cross-file column disagreements naming the odd file out', async () => {
+    it('lists cross-file column disagreements naming the odd file out, and a CSV read out of position', async () => {
       mockReport.mockResolvedValue(
         ok(
           csvReport({
@@ -226,7 +226,10 @@ describe('DataQualityReportPage', () => {
               ...csvReport().exact,
               crossFile: {
                 columnsAgree: false,
-                disagreements: [{file: 'alice/sales/mar.csv', missing: ['region'], extra: ['area']}]
+                disagreements: [
+                  {file: 'alice/sales/mar.csv', missing: ['region'], extra: ['area']},
+                  {file: 'alice/sales/apr.csv', missing: [], extra: [], shifted: true}
+                ]
               }
             }
           })
@@ -234,9 +237,12 @@ describe('DataQualityReportPage', () => {
       );
       renderReport('/data-quality/alice/req-1');
 
-      expect(await screen.findByText('alice/sales/mar.csv')).toBeInTheDocument();
-      expect(screen.getByText('region')).toBeInTheDocument();
-      expect(screen.getByText('area')).toBeInTheDocument();
+      const mar = (await screen.findByText('alice/sales/mar.csv')).closest('li') as HTMLElement;
+      const apr = screen.getByText('alice/sales/apr.csv').closest('li') as HTMLElement;
+      expect(within(mar).getByText('region')).toBeInTheDocument();
+      expect(within(mar).getByText('area')).toBeInTheDocument();
+      expect(within(mar).queryByText('don’t line up with this report’s Columns')).not.toBeInTheDocument();
+      expect(within(apr).getByText('don’t line up with this report’s Columns')).toBeInTheDocument();
     });
   });
 

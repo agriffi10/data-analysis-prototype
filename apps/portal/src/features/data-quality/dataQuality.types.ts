@@ -93,7 +93,17 @@ export type EncodingFigure =
   | SkippedFigure // Parquet (binary format) or .gz (DEFLATE output)
   | NotComputedFigure; // an absent byte-scan block — "an absent figure is not a clean one"
 
-export type CrossFileDisagreement = {file: string; missing: string[]; extra: string[]};
+export type CrossFileDisagreement = {
+  file: string;
+  missing: string[];
+  extra: string[];
+  /**
+   * The file's fields do not line up with the report's columns, so its values are counted under
+   * the wrong names. Only ever true for a CSV, which is read by position. Optional because a report
+   * written before the field existed lacks it, and absent reads as false.
+   */
+  shifted?: boolean;
+};
 
 export type DataQualityReport = {
   requestId: string;

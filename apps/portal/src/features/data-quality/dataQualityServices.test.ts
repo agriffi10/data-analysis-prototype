@@ -75,6 +75,11 @@ describe('dataQuality.format', () => {
 
     it('leaves the two exact generators — cross-file disagreements and column types', () => {
       expect(isApproximateIssue('mar.csv is missing the column `region` that the other 2 files have')).toBe(false);
+      expect(
+        isApproximateIssue(
+          '6 files, starting with jul.csv, have columns that don’t line up with this report’s Columns — a CSV is read by position, so their values are counted under the wrong columns'
+        )
+      ).toBe(false);
       expect(isApproximateIssue('`amount` has 412 values that aren’t numbers in an otherwise numeric column')).toBe(
         false
       );

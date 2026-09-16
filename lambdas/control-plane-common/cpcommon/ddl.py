@@ -99,7 +99,8 @@ def shifting_partition_columns(columns: list[dict], partition_keys: list[dict], 
     with a kept column after it is returned, and the caller refuses those.
 
     Args:
-      columns: Ordered [{name, type}] data columns, as the file declares them.
+      columns: Ordered [{name, type}] data columns, in the order the table declares them: one
+        sample file's header in table-builder, the folder's union in data-quality.
       partition_keys: Declared partition keys ([] = flat).
       fmt: The SOURCE format key, which is what decides how fields are matched; a format outside
         ``POSITIONAL_FORMATS`` returns nothing. A caller supplying its own storage clause is
@@ -138,7 +139,8 @@ def body_columns(columns: list[dict], partition_keys: list[dict]) -> list[dict]:
     value under the data column's name.
 
     Args:
-      columns: Ordered [{name, type}] data columns, as the file declares them.
+      columns: Ordered [{name, type}] data columns, in the order the table declares them: one
+        sample file's header in table-builder, the folder's union in data-quality.
       partition_keys: Declared partition keys ([] = flat).
 
     Returns:

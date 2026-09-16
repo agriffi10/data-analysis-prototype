@@ -190,6 +190,63 @@ def test_a_manifest_naming_a_file_outside_the_checked_folder_writes_no_report(mo
     assert fake.puts == []
 
 
+_REORDERED_ISSUE = (
+    "b.csv's columns don't line up with this report's Columns — a CSV is read by position, so its "
+    "values are counted under the wrong columns"
+)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "cross_file", "top_issues"),
+    [
+        pytest.param(
+            "csv",
+            {
+                "columnsAgree": False,
+                "disagreements": [
+                    {"file": "alice/sales/year=2025/b.csv", "missing": [], "extra": [], "shifted": True}
+                ],
+            },
+            [_REORDERED_ISSUE],
+            id="csv-is-read-by-position",
+        ),
+        pytest.param(
+            "parquet",
+            {"columnsAgree": True, "disagreements": []},
+            [],
+            id="parquet-is-matched-by-name",
+        ),
+    ],
+)
+def test_a_file_with_its_columns_in_another_order_is_reported_only_where_fields_match_by_position(
+    monkeypatch, fmt, cross_file, top_issues
+):
+    """The temp table declares one column order for the folder and OpenCSVSerde reads fields by
+    position, so ``b.csv``'s ``Year`` is profiled as ``amount``. Neither create-temp-tables' refusal,
+    which judges the folder's union, nor a comparison of column SETS can see it, so the report
+    has to. The same two headers in Parquet are read by name and are not a finding."""
+    manifest = {
+        "format": fmt,
+        "fileCount": 2,
+        "partitionKeys": [{"name": "year", "values": ["2025"]}],
+        "files": [
+            {
+                "key": f"alice/sales/year=2025/{name}.{fmt}",
+                "size": 150,
+                "columns": [{"name": column, "type": "string"} for column in header],
+            }
+            for name, header in (("a", ["id", "amount", "Year"]), ("b", ["id", "Year", "amount"]))
+        ],
+    }
+    fake = _setup(monkeypatch, objects=_objects({f"{PREFIX}/manifest.json": json.dumps(manifest).encode()}))
+
+    v.handler({**_event(), "format": fmt}, None)
+
+    document = json.loads(fake.puts[0]["Body"])
+    assert document["exact"]["crossFile"] == cross_file
+    assert document["topIssues"] == top_issues
+
+
 # ── Finding Athena's result objects ──────────────────────────────────────────
 
 
