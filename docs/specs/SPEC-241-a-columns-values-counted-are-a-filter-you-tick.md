@@ -64,14 +64,16 @@ Read from the code at `73c66eef`, with SPEC-238's model taken as built.
   anyone waits for it, and `stopQuery` would bill the part it scanned and leave nothing to show. So
   *Cancel* closes the dialog, the listing keeps its observer in the workspace until it settles, its
   scan is recorded, and reopening the same column shows it without a new execution. A listing that
-  fails or is cancelled by Athena is evicted on the way out, when its observer unmounts, exactly as
-  `useExploration` evicts a failed start. Evicting while observed would re-start it at once, a loop
-  that bills every cancelled pass.
-- **Every requested listing is observed until it settles.** A second column's listing can start
-  before the first has settled. So the workspace renders one small observer component per listing
-  that has been asked for and has not settled, on the `TabExecutionPoller` precedent in the Query
-  workspace, and each records its own scan. One listing in state would detach the first observer and
-  lose its cost.
+  fails or is cancelled by Athena is never evicted automatically while something observes it, since
+  that re-starts it at once and bills every cancelled pass; it is evicted on the way out, as
+  `useExploration` evicts a failed start.
+- **A listing is identified by the tab that asked and the statement it runs**, `{tabId, valuesSql}`,
+  captured at the gesture as the save flow captures its tab. The column alone is not enough: the same
+  column under different filters is a different listing, and a listing that settles after a tab
+  switch still belongs to the tab that asked.
+- **This spec states the listing's invariants and leaves the observer mechanism to the build's
+  plan.** Two review rounds each found a new hole in a lifecycle mechanism written into this spec.
+  The criteria below pin what must hold; the plan review decides how.
 - **Apply refuses what the renderer would refuse.** A selection over 1,000 values, which *Also
   selected* can reach on top of a full list, is refused at Apply. So is a value on a numeric column
   that `isBareNumeric` rejects, such as `NaN` or `Infinity` from a `double`: that value's checkbox is
@@ -151,11 +153,16 @@ named `value` or `row_count` cannot be mistaken for an output alias.
 #### Description:
 
 The region asks for a listing with `onFilterByValues(column, valueKind)`. `DataExplorerWorkspace`
-keeps the dialog's current request, `{column, valueKind}`, and a list of pending listings, each an
-exploration and a column. It renders one `ColumnValuesListing` component per pending listing; each
-calls `useColumnValues(exploration, column, onScan)`, reports its result to the dialog when it is
-the dialog's current column, and is removed from the list once it has settled and the dialog no
-longer shows it (see *The decisions*).
+hosts the listings and the dialog. At the gesture it captures the listing's key, `{tabId, valuesSql}`,
+and the dialog shows only the listing with that key. These invariants hold, and the criteria below
+test them:
+
+- every listing that is started has its scan recorded exactly once, against the tab that asked,
+  whether or not the dialog is still open when it settles;
+- asking again for a key already running or cached starts nothing;
+- no `FAILED` or `CANCELLED` listing starts again without a user gesture, and one that is no longer
+  shown is evicted, so the next request for that key starts one execution;
+- the dialog never shows a listing whose key is not its request's.
 
 `useColumnValues` renders `renderColumnValuesSql` and checks `exceedsAthenaQueryLimit` first
 (SPEC-238 FR-005). It starts the statement with `runQuery` under `explorerKeys.execution(scope,
@@ -166,10 +173,9 @@ first page, and a second only when the first returned a `nextToken`, and stops a
 read. It returns up to 1,000 `{value: string | null, count: number}` entries plus `truncated`. On a
 terminal state it calls `onScan(executionId, bytesScanned)` once. The workspace's `onScan` reads the
 ledger for that execution id before calling `recordScan`, and so tells the dialog whether the
-listing is a cache hit. A `FAILED` or `CANCELLED` listing's entry is removed on the way out, when its
-`ColumnValuesListing` unmounts, never while it is observed. The hook never changes the tab's
-description or its filter history. A failure is returned as an error rendered through
-`toUserMessage`, with a *Try again* that removes the entry and starts one execution.
+listing is a cache hit. The hook never changes the tab's description or its filter history. A
+failure is returned as an error rendered through `toUserMessage`, with a *Try again* that resets the
+entry with `resetQueries`, which starts one execution for the observer that is showing it.
 
 #### Acceptance Criteria:
 
@@ -182,7 +188,14 @@ description or its filter history. A failure is returned as an error rendered th
 - [ ] Choosing *Cancel* while the listing runs closes the dialog and stops nothing: the execution
   settles, its bytes are recorded, and reopening starts no execution.
 - [ ] A listing that settles `FAILED` while the dialog is open starts no second execution while the
-  dialog stays open. Closing the dialog and reopening it starts one execution.
+  dialog stays open. *Try again* starts exactly one. Closing the dialog and reopening it starts one.
+- [ ] Opening the listing for `a`, cancelling, applying a filter on `b`, and reopening the listing for
+  `a` before the first settles: the dialog shows only the second listing's values, and both
+  executions are recorded once.
+- [ ] Opening the listing for `a` in tab 1, cancelling, and switching to tab 2 before it settles:
+  its bytes are recorded in tab 1's total and not in tab 2's.
+- [ ] Opening the listing for `a`, cancelling and reopening before it settles starts no second
+  execution, and the dialog does not show `CACHE_HIT_TEXT`'s wording for that first run.
 - [ ] Opening the listing for `a`, cancelling, and opening the listing for `b` before `a` settles:
   both executions settle, and both are recorded in the tab's total.
 - [ ] After `evictExplorations(client, db, table)` for the listed table, reopening starts one
@@ -328,8 +341,7 @@ onFilterByValues: (column: string, valueKind: FilterValueKind) => void;
 apps/portal/src/features/data-explorer/
 ├── renderExplorationSql.ts (+ test)       (FR-001)
 ├── useColumnValues.ts (+ test)            (FR-002)
-├── DataExplorerWorkspace.tsx              (FR-002: pending listings, onScan, the dialog)
-├── ColumnValuesListing.tsx                (FR-002: one observer per pending listing)
+├── DataExplorerWorkspace.tsx              (FR-002: hosts the listings, onScan, the dialog)
 ├── ColumnValuesDialog.tsx (+ test)        (FR-003, FR-004)
 ├── ColumnFilterMenu.tsx                   (FR-005)
 ├── ExplorationResultsRegion.tsx           (FR-005: onFilterByValues into the menu actions)

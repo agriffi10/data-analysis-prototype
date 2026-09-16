@@ -362,12 +362,17 @@ The verbs, the state machine and the browser deploy in separate workflows, and `
 Infrastructure` and `Deploy Lambdas` run in parallel on one push (`lambdas/info/deployment.md`). A
 state machine naming `columnIndexes` before the verbs emit it fails every conversion with an
 uncatchable `States.Runtime`, and a browser sending `csv` before the converter writes it fails every
-such save. So each change lands after the one it needs:
+such save. The invariant: every pull request leaves `main`'s suites green, and every conversion
+works during and after its deploys. So each change lands after the one it needs, and the plan review
+decides the test mechanics that keep each step green:
 
-1. **The verbs emit the key.** `rccommon` config, reasons and wording; validate-authorize and
-   describe-results accept `columnIndexes` and emit it, `null` when absent (FR-001's verb half,
-   FR-002's verb half). Today's Pass states drop the extra key harmlessly. Nothing sends it yet, and
-   the API still refuses the field.
+1. **The verbs emit the key.** `rccommon` reasons and wording only, with every `csv` config entry
+   left to step 3; validate-authorize and describe-results accept `columnIndexes` and emit it, `null`
+   when absent (FR-001's verb half, FR-002's verb half). Today's Pass states drop the extra key
+   harmlessly. describe-results reads it with a `null` default rather than requiring it, because
+   today's `Validated` drops it before describe-results runs. The state-machine test's key equality
+   admits `columnIndexes` on the verbs' side for this step only, named as an exemption that step 2
+   deletes. Nothing sends the key yet, and the API still refuses the field.
 2. **The machine carries it.** The two Pass states name `columnIndexes` and the state-machine test is
    updated (FR-002). Watched through the infrastructure deploy.
 3. **The converter and the API.** convert's projection and the CSV writer with its measurement run

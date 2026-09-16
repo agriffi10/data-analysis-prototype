@@ -19,7 +19,8 @@ counts duplicates, so nothing extra is scanned.
 
 ### What was checked, and how
 
-Read from the code at `73c66eef`.
+Read from the code at `73c66eef`, and the data-quality claims re-read at `053ecb1d`, after #812 and
+#813 changed `dqcommon/sql.py` and `report.py`.
 
 - **The page shows neither stored figure.** `DataQualityReport.exact.rowCountsByFile` and
   `approximate.encoding.sampleOffsets` are in `features/data-quality/dataQuality.types.ts`. No
@@ -49,10 +50,11 @@ Read from the code at `73c66eef`.
 - **A result cell has a size limit when it is read.** `report.parse_result` reads a result CSV with
   `csv.DictReader`, whose field limit defaults to 131,072 characters, and assemble-report re-raises
   anything but a missing object. A cell over that limit fails the whole report, not one figure.
-- **The grouping is not the column union.** `build_duplicates_query` drops a data column whose folded
-  name equals a partition key's and appends the partition keys last, so the grouped order differs
-  from the union `report.build` holds. A start-profile-query test shows columns `id, month, Year`
-  under partition keys `year` and `Month` grouping as `"id", "year", "Month"`.
+- **The grouping reads the profiled columns, then the partition keys.** `sql.profiled_columns` is the
+  column list the temp table declares, leaving out a column that names a partition key.
+  `build_duplicates_query` groups by those columns followed by the partition keys, and `report.build`
+  reads its per-column figures over the same list. A start-profile-query test shows columns
+  `id, month, Year` under partition keys `year` and `Month` grouping as `"id", "year", "Month"`.
 - **A single-file check's location is the file.** The dialog sends the file's key as `location`, and
   `sourceFolderPrefix` (`dataQuality.format.ts`) derives its folder.
 - **Nested columns reach the check.** `cpcommon.type_mapping.map_dtype` maps Parquet lists and
@@ -182,9 +184,11 @@ same shape, since the writer never changed.
 
 #### Description:
 
-`sql.py` exports `grouped_column_names(columns, partition_keys)`, the grouped names in grouped order
-that the statement already computes, and `has_nested_column(columns)`, true when any column's type
-starts with `array<` or `struct<`. When `has_nested_column` is false, `build_duplicates_query` groups
+`sql.py` exports `grouped_column_names(columns, partition_keys)`, the names of
+`profiled_columns(columns, partition_keys)` followed by the partition keys' names, which is the order
+the statement groups by, and `has_nested_column(columns, partition_keys)`, true when any profiled
+column's type starts with `array<` or `struct<`. `build_duplicates_query` builds its grouping from
+`grouped_column_names` rather than a second copy. When `has_nested_column` is false, `build_duplicates_query` groups
 exactly as today and projects `COUNT(*)` as `cnt` and each grouped column under a positional alias. Over that,
 it builds per group `sample`: an `array(varchar)` whose first element is `CAST(cnt AS varchar)` and
 whose remaining elements are each grouped column's `substr(CAST(<alias> AS varchar), 1, 201)`, in

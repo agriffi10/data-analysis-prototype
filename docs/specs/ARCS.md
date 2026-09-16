@@ -3159,7 +3159,7 @@ list operator and its value cap, so 238 goes first.
    first time, since no earlier surface opens one. Its phases put the arm's end-to-end tests before
    the button that reaches it.
 6. **243, filter chips and Open in Query.** Browser-only. It reads 238's labels and adds its hand-off
-   beside 242's, using the test harness 242 widens.
+   beside 242's.
 7. **244, scoped autocomplete.** Browser-only, with no billing and no security surface.
 
 **Decisions Andrew took while these were written (2026-09-16):** export leaves hidden columns out in

@@ -69,11 +69,13 @@ Read from the code at `73c66eef`.
   the stored result object, is a different engine and no tester asked for one.
 - **A hand-off always runs the statement again.** Executions are cached by their rendered SQL for the
   session, so exploring the same statement a second time, after an `INSERT` for instance, would show
-  the earlier rows. Consuming a hand-off therefore removes the cached execution of exactly that
-  statement's unfiltered form, `explorerKeys.execution(explorationSourceScope(source),
-  renderExplorationSql(source, <empty query>))`, with `removeQueries`. Resetting everything under
-  `explorerKeys.sqlSources()` would re-run, and bill, any other `sql` tab still observed, and the
-  register asks an eviction to be as narrow as its signal.
+  the earlier rows, and so would every filter, sort or grouping later applied over it. The invariant:
+  after a hand-off is accepted, no row cached before it is shown for that statement or any
+  description over it, and no other tab's statement starts again. Consuming a hand-off therefore
+  removes, with `removeQueries` and only after `openTab` returns an id, every cached execution under
+  `explorerKeys.sqlSources()` whose rendered SQL reads from that statement's own subquery,
+  `FROM (\n<body>\n) AS t`. Resetting the whole prefix would re-run, and bill, other `sql` tabs, and
+  removing only the unfiltered form would serve the first filter re-applied from stale rows.
 - **A result whose columns cannot be named is not explorable.** Athena names an unaliased expression
   `_col0`, and the outer query cannot refer to it. A join that selects `a.id` and `b.id` returns two
   columns called `id`, which the outer query cannot tell apart and the grid's name-keyed geometry
@@ -85,9 +87,10 @@ Read from the code at `73c66eef`.
 - **The hand-off's shape lives in `lib/`.** Neither feature can import the other, so
   this spec creates `lib/routeHandoff.ts` with this hand-off's type, builder and reader, and SPEC-243
   adds its own beside them. One module owns each shape, and its tests pin the round trip.
-- **This spec widens the test harness.** Testing either side of a hand-off needs router state, so
-  `renderWithProviders`' `route` and the Explorer suite's `renderWorkspace` accept `{pathname, state}`
-  here, where it is first needed. SPEC-243 reuses it.
+- **This spec widens `renderWithProviders`.** Testing the Explorer side of a hand-off needs router
+  state, so its `route` accepts `{pathname, state}` here, where it is first needed. The Query
+  workspace's own helper, `renderWorkspace` in `src/test/queryWorkspaceSupport.tsx`, is widened by
+  SPEC-243, whose Query-side test needs it.
 - **The button follows *Save results*.** It is gated on the displayed result, not the batch
   verdict, in every run scope the editor owns.
 - **The text comes from the run, not the editor.** The buffer may have changed since the run. The
@@ -199,9 +202,9 @@ The button navigates to `/explore` with
 `buildExploreSqlHandoff({body: stripTrailingSemicolons(statement), label: statementHint(statement)})`
 as router state, never in the URL. `DataExplorerWorkspace` reads that state with
 `readExploreSqlHandoff`, once, guarded by a ref holding the `location.key` it last consumed, since
-`AppRoot` renders under `StrictMode`. When the reader accepts the state, the workspace removes the
-cached execution of the statement's unfiltered form (see *The decisions*), opens a tab with source
-`{kind: 'sql', body, label}` through `openTab`, and replaces the history entry with the same path and
+`AppRoot` renders under `StrictMode`. When the reader accepts the state, the workspace opens a tab with
+source `{kind: 'sql', body, label}` through `openTab`. Only when that returns an id does it remove the
+cached executions *The decisions* names. It then replaces the history entry with the same path and
 search and no state. When `openTab` returns null it raises `ExplorationLimitDialog`, opens nothing,
 and still replaces the entry. State the reader does not accept is ignored, and nothing is replaced.
 
@@ -217,10 +220,13 @@ and still replaces the entry. State the reader does not accept is ignored, and n
   exactly one tab opens, labelled with that hint, whose first execution's SQL is
   `SELECT *\nFROM (\nSELECT name, qty FROM db.orders\n) AS t`. Afterwards `window.history.state.usr`
   carries no `exploreSql`, and unmounting and mounting a fresh workspace opens no second tab.
-- [ ] With an execution for that statement already cached, the hand-off starts a new execution. A
-  second `sql` tab's cached execution is not removed, and no execution starts for it.
-- [ ] Mounting the workspace at `/explore?space=…&db=…&table=…` with no hand-off state leaves the
-  query string for `useExploreDeepLink`.
+- [ ] With the unfiltered run of that statement and a filtered run over it both cached, the hand-off
+  starts a new execution, and applying the same filter afterwards starts a new one too. A second
+  `sql` tab over a different statement keeps its cached execution, and no execution starts for it.
+- [ ] Mounting the workspace at a `/explore?space=…&db=…&table=…` link with no hand-off state opens
+  the linked table's tab exactly once.
+- [ ] At the tab limit, a hand-off whose statement's unfiltered run is cached removes nothing and
+  starts no execution.
 - [ ] At the tab limit the hand-off raises the limit dialog, the tab count is unchanged, and the
   history state no longer carries `exploreSql`.
 
@@ -299,7 +305,7 @@ export function isExplorableSql(sql: string): boolean;
 
 ```
 apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)            (FR-003)
-apps/portal/src/test/renderWithProviders.tsx, the Explorer suite's renderWorkspace (router state)
+apps/portal/src/test/renderWithProviders.tsx                            (router state)
 apps/portal/src/features/query/QueryWorkspace.tsx                        (FR-001, FR-002 wiring)
 apps/portal/src/features/query/QueryStatusBar.tsx (+ test)               (FR-002, FR-003)
 apps/portal/src/features/query/query.sql.ts (+ queryPure.test.ts)        (FR-002)
@@ -327,7 +333,7 @@ apps/portal/info/component-inventory/query-feature.md, data-explorer-feature.md,
 
 ### Phase 3: The hand-off
 
-- `routeHandoff.ts`, the harness's router state, `isExplorableSql`, the button, the Explorer's
+- `routeHandoff.ts`, `renderWithProviders`' router state, `isExplorableSql`, the button, the Explorer's
   one-time read, the registry rows
   and the guides (FR-002, FR-003, FR-005).
 - The live check, run from a signed-in session after deploy: in Query, select two `SELECT`

@@ -89,7 +89,9 @@ Read from the code at `73c66eef`.
 - Removing one filter from its chip (FR-002).
 - **Open in Query** and the Query workspace's one-time read of it (FR-003).
 - The registry row and the Data Explorer's *Filter and sort* and *Save as query* guides (FR-004).
-- Tests from each side of the hand-off, using the router-state harness SPEC-242 adds.
+- Tests from each side of the hand-off. The Explorer side uses the router state SPEC-242 adds to
+  `renderWithProviders`. The Query side needs `renderWorkspace` in `src/test/queryWorkspaceSupport.tsx`
+  to accept `{pathname, state}` as well, and this spec widens it.
 
 ### Out of Scope
 
@@ -251,9 +253,11 @@ apps/portal/src/features/data-explorer/GeneratedSqlDisclosure.tsx (+ test)   (FR
 apps/portal/src/features/data-explorer/filtering.test.tsx                    (FR-001, FR-002)
 apps/portal/src/features/query/QueryWorkspace.tsx (+ QueryWorkspace.test.tsx) (FR-003)
 apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)                (FR-003)
+apps/portal/src/test/queryWorkspaceSupport.tsx                               (renderWorkspace router state)
 apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ gatedSurfaces.test.tsx) (FR-004)
 apps/portal/src/features/help/helpContent.ts                                 (FR-004)
-apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, foundations.md
+apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, foundations.md,
+  test-utilities.md (the renderWorkspace row)
 apps/portal/info/component-inventory/shared-components.md (the Chip row no longer says "recipient")
 ```
 
