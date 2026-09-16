@@ -436,8 +436,8 @@ describe('DataQualityReportPage', () => {
       ['a personal space', '/data-quality/alice/req-1', 'alice'],
       ['a shared space', '/data-quality/team-data/req-1', 'team-data']
     ])('refuses Re-run on a report of the top of %s, saying why, and starts nothing', async (_space, path, root) => {
-      // Only a report written before the server refused the top of a space can name it, and
-      // the server stores the location normalised, without the trailing slash.
+      // Only a report written before the server refused the top of a space can name it, and a
+      // report written then stored the location normalised, without the trailing slash.
       mockReport.mockResolvedValue(ok(csvReport({location: root})));
       const {user} = renderReport(path);
       const rerun = await screen.findByRole('button', {name: 'Re-run check'});

@@ -729,8 +729,8 @@ def _inspect(event: dict) -> dict:
     **Whether this is a single-file check is decided here, and nowhere later.** The file list in
     hand is the one the manifest is about to be written from; every later verb would otherwise
     have to read the manifest back, from a key a caller can predict, and two reads are two
-    decisions. So the answer rides the state as ``pathFilter`` and create and start both consume
-    it — see ``dqcommon.sql.single_file_path``.
+    decisions. So the answer rides the state as ``pathFilter``, and create, start and assemble-report
+    each consume it — see ``dqcommon.sql.single_file_path``.
 
     The state output threads the request object and adds five small keys. The file list and the
     column lists stay in the manifest and are passed by pointer; partition values stay there too,

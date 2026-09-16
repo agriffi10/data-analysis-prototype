@@ -132,7 +132,7 @@ The report is read at `/data-quality/:space/:requestId` — **the space is in th
 > runs-index entry, but validate-authorize normalises the location with `posixpath.normpath`, which
 > drops the slash, and every verb threaded that form — so the report, the completion notification and
 > the runs row all named a folder the way a file is named, and `sourceFolderPrefix` reduced it to its
-> parent. The code had drifted from the contract; the browser's fixtures and assemble-report's own
+> parent. The code never met the contract; the browser's fixtures and assemble-report's own
 > test event were written to the contract, which is why nothing caught it. `assemble-report` now
 > spells the location from the `pathFilter` inspect-source carries — a folder target has none — and
 > threads that form onward, so one fix corrects all three places the location is shown. It reads the
@@ -1053,7 +1053,7 @@ catalog with no way to repair it.
 > under `_data-quality-reports/`, so a two-file list written between the verbs left the table over
 > the root and the queries unnarrowed. A create RETRY re-read it too, so moving the call into create
 > alone would still have been once per attempt rather than once per run. Now inspect-source decides
-> over the list it holds in memory and carries `pathFilter`; both verbs read that value and refuse a
+> over the list it holds in memory and carries `pathFilter`; each verb that reads that value refuses a
 > state without it rather than default to "a folder". Two guards narrow what a replaced manifest
 > can still do. The manifest loader refuses any file outside the checked location — byte-scan GETs
 > each listed key under a role that reads both buckets whole, so a forged list was also another
@@ -1073,8 +1073,8 @@ catalog with no way to repair it.
 > straight back, to be refused by notification after the click. The button now carries the picker's
 > own sentence as its disabled reason, through `rerunRefusal` beside `CHECK_AT_ROOT_REFUSAL` in
 > `dataQuality.format.ts`, which mirrors the server's check on `isAtRoot` as `createTableRefusal`
-> does. The report's location is the server's normalised form, so it gains a trailing slash before
-> the comparison; a single file at the root stays re-runnable, for the predicate's reason above.
+> does. A report written then stored its location in the server's normalised form, without the
+> slash, so the location gains a trailing slash before the comparison; a single file at the root stays re-runnable, for the predicate's reason above.
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 
