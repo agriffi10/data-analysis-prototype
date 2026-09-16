@@ -48,9 +48,10 @@ Two "create table X" requests against the **same** database are **started** in o
 machine `FIRE_AND_FORGET`, so two same-database runs overlap. A refresh holds the per-table lock for
 that; a create holds none, so `check-table-absent` plus `CREATE … IF NOT EXISTS` **narrows the
 duplicate-name race and does not close it**. Two same-name creates can both pass the check, and the
-second's DDL is a no-op that `execute-ddl` still reports as a created table, over whatever the first
-one defined. Nothing is overwritten. `docs/decisions/control-planes.md`, *A group id orders the
-STARTS, not the runs*.
+second's DDL is a no-op over whatever the first one defined. Nothing is overwritten, and since
+2026-09-15 nothing is misreported either: `execute-ddl` reads the table back and refuses
+`table_exists` unless the catalog carries this run's own LOCATION, partition keys and projection.
+`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
 
 ## `TimeoutSeconds = 3600`, and it is a prerequisite of the refresh lock
 

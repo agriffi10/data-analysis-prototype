@@ -34,7 +34,10 @@ handed them.
 FIFO `MessageGroupId` is the **target database**, so same-database creates *and* refreshes are
 **started** in order, and then overlap, because the Pipe is `FIRE_AND_FORGET`. Refresh is serialized
 by the per-table lock below; create is not, so check-table-absent plus `IF NOT EXISTS` narrows the
-duplicate-name race without closing it: the loser's no-op DDL is still reported as a created table.
+duplicate-name race without closing it. What closes the *misreport* is execute-ddl's post-condition:
+it reads the table back and refuses `table_exists` unless the catalog carries this run's own
+LOCATION, partition keys and projection. Both runs still do the whole inspection; the loser is
+refused at the end of it rather than told its table is ready.
 
 ## What it accepts
 
@@ -115,6 +118,13 @@ statements, no window in which the table is absent, and **no verb on this plane 
   rather than render one. **A refresh still drops in any position** — it writes Glue columns
   directly, so this rule does not reach it.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
+- **A create's `IF NOT EXISTS` is confirmed, not trusted.** The statement succeeds identically for a
+  run that built the table and a run whose create was a no-op over someone else's, so execute-ddl
+  reads the table back and refuses `table_exists` unless the LOCATION, the partition keys and the
+  per-key projection properties are this run's. The three facts are the ones the REQUEST declares;
+  the columns are not among them, because they are inferred from the LOCATION both runs agree on.
+  The projection match is **containment** — a property the run never declared is ignored, so a
+  property AWS might write of its own accord cannot refuse an ordinary create.
 - **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a `QUEUED` execution is a 400
   whose name maps to nothing, and it reached users as a generic "contact the administrator".
 

@@ -5,8 +5,13 @@ I can faithfully reproduce? A view has no data files, a managed table's files ar
 portal's to re-read, and a catalog-partitioned table's partitions live in the catalog rather
 than in the projection properties. Both callers must refuse all three, and the checks are
 fiddly enough that two copies would drift. ``tscommon.glue`` and ``tbcommon.glue`` re-export
-``clone_definition``, so table-share's and table-builder's verbs and tests reach it through
-their own layer.
+``clone_definition`` and ``parse_location``, so table-share's and table-builder's verbs and
+tests reach them through their own layer.
+
+``parse_location`` is public for a caller that compares one stored LOCATION with another
+rather than resolving one to read: two strings naming the same folder differ by a trailing
+slash, and deciding that twice is how the two copies disagree about whether a table is the
+one a request built.
 
 The shape reason codes are registered here rather than by a domain's import side effect,
 because ``TerminalError`` validates its reason at the raise site and a table-builder Lambda
@@ -39,13 +44,17 @@ _SHAPE_REASONS = (
 messages.register_reasons(_SHAPE_REASONS)
 
 
-def _parse_location(location: str | None) -> dict:
+def parse_location(location: object) -> dict:
     """Resolves a table LOCATION to a single listable prefix in a known bucket.
 
     It must parse as ``s3://bucket/prefix``, the bucket must be one of the two
     Lake-Formation-registered data buckets, and the prefix is normalised to a trailing
     slash. An object-level LOCATION simply lists empty and fails as an empty source
     downstream.
+
+    The parameter is typed ``object`` rather than ``str | None`` because the first check is
+    an ``isinstance``: a caller holding an untyped catalog value should reach the refusal
+    here rather than narrow the value itself and grow a second copy of the rule.
 
     Args:
       location: The raw LOCATION from the table's storage descriptor, or None when the
@@ -107,7 +116,7 @@ def clone_definition(table: dict) -> tuple[dict, dict, bool]:
         )
 
     sd = table.get("StorageDescriptor") or {}
-    location = _parse_location(sd.get("Location"))
+    location = parse_location(sd.get("Location"))
 
     parameters = {
         k: v for k, v in (table.get("Parameters") or {}).items() if k not in _EXCLUDED_PARAMETERS

@@ -121,6 +121,13 @@ inside the execution the Pipe starts.
 - **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
   denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
   request id identifies the message and Pipes delivery is at-least-once.
+- **An `IF NOT EXISTS` create reports somebody's success, not necessarily yours.** It is what makes a
+  retry a no-op, and a run that lost a race runs exactly the same no-op — so the statement succeeding
+  is no evidence THIS run built the table, and a plane that reports on it alone is speaking for
+  whoever won. Table-builder confirms instead: it reads the table back and refuses `table_exists`
+  unless the catalog carries the LOCATION, the partition keys and the projection this run declared,
+  compared through the parser and the renderer that built the statement rather than a second copy of
+  either. Table-share's create is the same statement and still tells both runs they succeeded.
 - **A `MessageGroupId` orders the STARTS, not the runs, on every Pipe-fed plane.** The Pipe starts a
   Standard machine `FIRE_AND_FORGET`, and the message leaves the queue when `StartExecution`
   returns, so the next one in its group starts while the first still runs. A plane whose runs must
@@ -1963,12 +1970,21 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   `assign_or_find_slot` reads the user's attributes and writes one slot with no condition, so two
   spaces adding one user at once can pick the same free slot, and the user keeps only one of the
   two grants while both rosters list them.
-- **Table builder: a create holds no lock, and a lost race reports success.** Two same-name creates
-  in one database both pass `check-table-absent`, a point-in-time `GetTable` with `InspectSource` and
-  `InferSchema` between it and the DDL. The first `CREATE EXTERNAL TABLE IF NOT EXISTS` makes the
-  table and the second is a no-op that `execute-ddl` still reports as created, so its requester is
-  told the table is ready to query when it carries whatever the first request defined. Nothing is
-  overwritten; the misreport is the cost, and the duplicate-name race is narrowed rather than closed.
+- **Table builder: a create still holds no lock, and now says so when it loses.** Two same-name
+  creates in one database both pass `check-table-absent`, a point-in-time `GetTable` with
+  `InspectSource` and `InferSchema` between it and the DDL, and the second
+  `CREATE EXTERNAL TABLE IF NOT EXISTS` is a no-op over the first one's table. What changed
+  (2026-09-15) is what that no-op is reported as. `execute-ddl` now reads the table back and refuses
+  `table_exists` unless the catalog carries the LOCATION, the partition keys and the per-key
+  projection properties **this** run declared — the three facts the request states, compared through
+  the parser and the renderer the DDL itself used — so the loser is told the name is taken instead of
+  that its table is ready to query. A replay still succeeds, because a retry meets its own table,
+  which is the property `IF NOT EXISTS` is there for. The fix is a post-condition, not a lock:
+  nothing is serialized, both runs still pay the whole inspection and inference, and nothing is
+  overwritten. **The residual is the race the check cannot see** — two creates over the SAME folder
+  declaring the SAME partition keys agree on all three facts and are both told created. The columns
+  are then whichever run's inference landed, which is a difference of sampling and not of request:
+  both inferred from the LOCATION they agree on, and a single create already reads one sample file.
 - **Table share: one table, told twice.** `check-target-absent` reads the catalog and then the
   prefix, the copy is an unconditional `CopyObject` into `{recipient}/shared_tables/{table}/`, which
   no run owns alone, and the create is `IF NOT EXISTS`. Two shares of one source to one recipient
@@ -2011,8 +2027,9 @@ itself make the losing run report a conflict: the engine records a `412` as an o
 failure, and both collectors turn any failed item into `copy_failed`, so the spec owes that mapping
 too, and for table share an answer to two runs that each lose a key to the other and leave a
 half-copied prefix with no table. The same spec adds a `request_id_reused` refusal to file send, as
-archive and file-ops carry. Until it lands, the file-send and table-share arms above are live. The table builder's misreported create and the shared-space residuals are recorded and
-not yet scheduled.
+archive and file-ops carry. Until it lands, the file-send and table-share arms above are live. The
+shared-space residuals are recorded and not yet scheduled; the table builder's misreported create is
+closed above, by a post-condition rather than a lock, and its own residual is named there.
 
 This audit corrected the sites it found claiming a group id serializes runs, and marked each one a
 register, delivery doc or spec carried in place rather than rewriting it; the cancelled

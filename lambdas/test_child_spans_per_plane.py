@@ -355,6 +355,10 @@ def _drive_convert(tmp_path, monkeypatch):
 def _drive_execute_ddl(monkeypatch):
     """Drives the table-builder execute-ddl verb through a succeeding statement.
 
+    The catalog fake is the one apply-refresh uses: it serves a flat table at the location this
+    event declares, which is what the verb's post-condition reads back before it reports the
+    table created.
+
     Args:
       monkeypatch: Used to silence the verb's success notification.
 
@@ -365,6 +369,7 @@ def _drive_execute_ddl(monkeypatch):
       None.
     """
     clients._athena = _Athena()
+    clients._glue = _Glue()
     monkeypatch.setattr(execute_ddl.notify, "emit_created", lambda event: None)
     config.NOTIFICATIONS_QUEUE_URL = ""
     execute_ddl.handler(
@@ -377,6 +382,8 @@ def _drive_execute_ddl(monkeypatch):
                 "database": "alice",
             },
             "tableName": "sales",
+            "location": "s3://user-bkt/alice/sales/",
+            "partitionKeys": [],
             "ddl": "CREATE EXTERNAL TABLE IF NOT EXISTS sales (a string)",
             "requestId": "r1",
         },
@@ -521,7 +528,10 @@ def test_the_collector_collects_through_this_harness(captured_events):
 
 
 class _Glue:
-    """A catalog that applies what it is told, so apply-refresh's read-back agrees.
+    """A catalog that applies what it is told, so a read-back agrees with what was written.
+
+    Serves both table-builder drivers: execute-ddl reads this table back to confirm the table
+    standing is the one its request declared, and apply-refresh writes to it and re-reads.
 
     Attributes:
       table: The live table ``get_table`` reports, updated in place by ``update_table``.
