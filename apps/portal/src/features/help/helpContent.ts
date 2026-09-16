@@ -184,7 +184,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Checking <b>one file</b> reports on that file alone — its neighbours in the same folder are not counted, even though they sit alongside it.',
           'If a source turns out to have <b>no rows at all</b> — an empty or header-only export — the report says so as a finding rather than calling it clean.',
           'If the <b>column names</b> in your data won’t work in Athena — a header like <b>Order ID</b>, or two headers that differ only by case — the check stops and the notification names them. There’s no report in that case: those names are also what would stop a table being readable, so they’re worth fixing before anything else.',
-          'The same goes for a CSV column named after one of the folder’s <b>key=value</b> partitions — <b>Year</b> or <b>year</b> in a folder like <b>year=2026/</b>. A CSV’s columns are read in order, so unless that column comes last the check would report every column after it against the wrong values. It stops instead and names the column: move it to the end of your files, or take it out.'
+          'The same goes for a CSV column named after one of the folder’s <b>key=value</b> partitions — <b>Year</b> or <b>year</b> in a folder like <b>year=2026/</b>. A CSV’s columns are read in order, so unless that column comes last the check would report every column after it against the wrong values. It stops instead and names the column: move it to the end of your files, or take it out. Where the column can stay — last in a CSV, or anywhere in JSON or Parquet — the check goes ahead but leaves that column out of the report’s column figures, because a table over the folder reads the folder’s value in its place.'
         ],
         callout: {
           kind: 'tip',

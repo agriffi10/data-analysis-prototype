@@ -48,17 +48,17 @@ Attributes:
     pick the right user-facing sentence. A code rather than matched text, unlike the
     line-too-long case: that one has to read Athena's own wording, this one is a string we write
     ourselves.
-  _COLUMN_ALIAS: Result-column prefix per source column; the report maps each alias back to the
-    corresponding entry of the union. Positional rather than name-based on purpose — a user's
-    column name can contain characters needing quoting in a result alias, or collide after
-    normalisation, and neither failure would be visible until the report was assembled.
+  _COLUMN_ALIAS: Result-column prefix per profiled column; the report maps each alias back to the
+    corresponding entry of ``profiled_columns``, never of the bare union. Positional rather than
+    name-based on purpose — a user's column name can contain characters needing quoting in a
+    result alias, or collide after normalisation, and neither failure would be visible until the
+    report was assembled.
   _CHECKED_TYPE: A column is type-checked only when the catalog says it is a string. Anywhere
     else the check is vacuous, not merely redundant: a typed column cannot hold a value that
     fails to cast, because the catalog or the SerDe already guaranteed it.
   _CAST_TYPES: The casts the type-consistency check tries, in report order.
 """
 
-from cpcommon import columns as columns_mod
 from cpcommon import ddl
 
 from . import config
@@ -230,6 +230,33 @@ def union_columns(files: list[dict]) -> list[dict]:
         for column in entry.get("columns") or []:
             seen.setdefault(column["name"], column["type"])
     return [{"name": name, "type": type_} for name, type_ in seen.items()]
+
+
+def profiled_columns(columns: list[dict], partition_keys: list[dict]) -> list[dict]:
+    """Narrows the unioned columns to the ones the typed temp table actually declares.
+
+    The one list every per-column figure is computed and reported over: the profile query
+    numbers its aliases by position in it, the report reads them back by the same position, and
+    the duplicates grouping names it before the partition keys. A column naming a partition key
+    is not in it, because the temp table's DDL leaves that column out — and projecting the name
+    anyway would not fail, it would bind to the partition column and report the folder's value
+    under the user's column name. Filtering after numbering on either side, or on one side only,
+    attaches every later column's figures to its neighbour's name.
+
+    The file's own header still counts that column wherever the FILE is what is read: cross-file
+    agreement and the ragged comparison both take their columns from the manifest, not from here.
+
+    Args:
+      columns: The unioned columns.
+      partition_keys: The manifest's detected partition keys.
+
+    Returns:
+      The columns the temp table declares, in union order.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
+    """
+    return ddl.body_columns(columns, partition_keys)
 
 
 def check_column_count(columns: list[dict]) -> None:
@@ -505,6 +532,7 @@ def build_profile_query(
     database: str,
     table_name: str,
     columns: list[dict],
+    partition_keys: list[dict],
     fmt: str,
     path_filter: str | None = None,
 ) -> str:
@@ -512,6 +540,10 @@ def build_profile_query(
 
     Computes, exactly and at any scale: per-column missing counts, per-column type-consistency
     counts with bounded offending-value samples, and row counts both in total and per file.
+
+    The columns profiled are ``profiled_columns``, so a column naming a partition key gets no
+    figures at all rather than the partition's, and the aliases are numbered over that list,
+    which is the one the report numbers them back over.
 
     Type consistency is skipped entirely for Parquet, and the report records that it was. The
     check is vacuous there, not merely redundant: Parquet enforces types in the format, so a
@@ -531,7 +563,8 @@ def build_profile_query(
     Args:
       database: The target database.
       table_name: The typed temp table.
-      columns: The unioned columns.
+      columns: The unioned columns, before a column naming a partition key is left out.
+      partition_keys: The detected partition keys.
       fmt: The source format, which decides whether type consistency is checked.
       path_filter: Restricts the scan to one file. It is what makes a single-file check describe
         the file the user picked: the table's location is the parent folder, because Athena needs
@@ -544,9 +577,10 @@ def build_profile_query(
       is what makes it safe for the report verb to read whole.
 
     Raises:
-      KeyError: If a column is missing its name or type.
+      KeyError: If a column is missing its name or type, or a partition key its name.
     """
     type_checked = fmt != "parquet"
+    columns = profiled_columns(columns, partition_keys)
 
     projected = ", ".join(
         ['"$path"'] + [_projection(i, column) for i, column in enumerate(columns)]
@@ -743,15 +777,9 @@ def build_duplicates_query(
     The result shape is pinned to exactly one row, which is what lets the report verb read the
     result file whole without a bound. Partition columns are included in the grouping because
     they are part of the row: two otherwise-identical rows in different partitions are different
-    rows, not duplicates. A data column naming a partition key is left out through
-    ``columns.fold``, the same match the temp table's DDL drops it on, so the grouping names each
-    of that table's columns once rather than one of them under two spellings.
-
-    ``build_profile_query`` does NOT do this, and the difference is a known wart rather than a
-    pair to keep in step: it projects every unioned column, so a dropped name resolves to the
-    PARTITION column of that name and its figures describe the folder's value instead of the
-    file's field. Leaving it out of the projection instead would break the positional aliases
-    the report maps back, so the two must move together, which is more than this grouping.
+    rows, not duplicates. The data columns are ``profiled_columns``, the list the temp table's DDL
+    declares, so a data column naming a partition key is left out and the grouping names each of
+    that table's columns once rather than one of them under two spellings.
 
     Args:
       database: The target database.
@@ -768,10 +796,7 @@ def build_duplicates_query(
     Raises:
       KeyError: If a column or partition key is missing its name.
     """
-    part_names = {columns_mod.fold(key["name"]) for key in partition_keys}
-    grouped = [
-        ddl.quote_dml(c["name"]) for c in columns if columns_mod.fold(c["name"]) not in part_names
-    ]
+    grouped = [ddl.quote_dml(c["name"]) for c in profiled_columns(columns, partition_keys)]
     grouped.extend(ddl.quote_dml(key["name"]) for key in partition_keys)
     all_columns = ", ".join(grouped)
     table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"

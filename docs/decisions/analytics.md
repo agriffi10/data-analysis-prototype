@@ -939,11 +939,14 @@ So a CSV column naming a partition key anywhere but at the end is **refused**, b
 the column and asking for it to be moved last or taken out. `ddl.shifting_partition_columns` is the
 one place that decides, and `build_create_table_ddl` raises rather than render a shifted statement,
 because a renderer safe only because a caller validated first is one refactor from not being safe.
-Data-quality's duplicate-rows grouping mirrors the drop, so it names only the columns its temp
-table has. Refusing beats renaming the column for the user: a rewritten name no longer matches the
-file's own header, which is the same reason the name rule refuses rather than repairs. The refresh
-path drops the same way and is NOT covered here — it writes Glue columns directly rather than
-through this builder, so a CSV refresh can still shift a live table.
+Data-quality's queries and report read the columns the drop keeps, `ddl.body_columns`, so its
+duplicates grouping and its profile name only the columns its temp table has, and a column naming a
+partition gets no per-column figures. The profile once projected it anyway, and Athena bound the
+name to the partition column, reporting the folder's value under the user's column name. Refusing
+beats renaming the column for the user: a rewritten name no longer matches the file's own header,
+which is the same reason the name rule refuses rather than repairs. The refresh path drops the same
+way and is NOT covered here — it writes Glue columns directly rather than through this builder, so
+a CSV refresh can still shift a live table.
 
 **The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
 backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because

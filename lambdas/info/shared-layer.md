@@ -143,6 +143,9 @@ takes fields in order rather than by name, that drop moves every later column on
 field, so `shifting_partition_columns` names the offenders and the builder raises
 `PartitionColumnShiftError`. Both arcs ask it first and refuse in their own wording; the raise is
 the backstop, on the same reasoning as `quote` escaping a backtick it was promised never to see.
+`body_columns` is the list the body keeps, and data-quality's queries and report read it rather
+than repeat the match: a name the body left out does not fail a query, it binds to the partition
+column.
 
 ## `cpcommon/type_mapping.py` — polars, and the barrier that used to be there
 
