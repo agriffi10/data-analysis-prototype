@@ -89,20 +89,50 @@ def test_json_starts_two_queries_and_marks_ragged_not_applicable(started):
     assert out["duplicates"]["status"] == "QUEUED"
 
 
-def test_a_column_naming_a_partition_key_is_named_by_no_query_whatever_its_case(monkeypatch, started):
-    """The temp table leaves out a data column naming a partition key in any case — here `Year`
-    against the key `year`, and `month` against the folder-derived `Month`. A query naming one
-    anyway does not fail: Athena lowercases the identifier and binds it to the partition column,
-    so the profile would report the folder's value under the user's column name. So the profile
-    projects exactly the columns the table's own DDL declares, numbered over that list, and the
-    duplicates grouping names each of them once, then the partition keys.
+@pytest.mark.parametrize(
+    ("fmt", "expected", "grouped"),
+    [
+        pytest.param(
+            "json", ["id", "amount"], '"id", "amount", "year", "Month"', id="json-leaves-them-out"
+        ),
+        pytest.param(
+            "csv",
+            ["id", "year_in_file", "amount", "month_in_file"],
+            '"id", "year_in_file", "amount", "month_in_file", "year", "Month"',
+            id="csv-keeps-them-under-new-names",
+        ),
+    ],
+)
+def test_every_query_names_the_columns_the_temp_table_declares_for_a_partitions_namesake(
+    monkeypatch, started, fmt, expected, grouped
+):
+    """A data column naming a partition key in any case — here `Year` against the key `year`, and
+    `month` against the folder-derived `Month` — is left out of a JSON temp table and renamed in a
+    CSV one. A query naming the file's own spelling anyway does not fail: Athena lowercases the
+    identifier and binds it to the partition column, so the profile would report the folder's
+    value under the user's column name. So the profile projects exactly the columns the table's
+    own DDL declares, numbered over that list, and the duplicates grouping names each of them
+    once, then the partition keys — for the format the event carries.
 
-    JSON, because a name-matched format drops such a column wherever it sits: `Year` is second,
-    so an alias numbered before the drop leaves a gap that a trailing drop could never show.
+    `Year` is second, so an alias numbered before the mapping leaves a gap or a stale name that a
+    trailing column could never show.
+
+    Args:
+      monkeypatch: Used to install the manifest.
+      started: The queries the fake Athena started.
+      fmt: The source format.
+      expected: The names the body should declare.
+      grouped: The duplicates grouping the statement should carry.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     manifest = {
         "partitionKeys": [{"name": "year", "values": ["2025"]}, {"name": "Month", "values": ["01"]}],
-        "files": [{"key": "alice/sales/year=2025/Month=01/jan.json", "size": 1, "columns": [
+        "files": [{"key": f"alice/sales/year=2025/Month=01/jan.{fmt}", "size": 1, "columns": [
             {"name": "id", "type": "string"},
             {"name": "Year", "type": "string"},
             {"name": "amount", "type": "string"},
@@ -112,17 +142,17 @@ def test_a_column_naming_a_partition_key_is_named_by_no_query_whatever_its_case(
     monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key, location: manifest)
     ddl = sql.build_temp_table_ddl(
         "alice", f"dq_tmp_{HEX32}", sql.union_columns(manifest["files"]),
-        manifest["partitionKeys"], "json", f"s3://{BUCKET}/alice/sales/",
+        manifest["partitionKeys"], fmt, f"s3://{BUCKET}/alice/sales/",
     )
     declared = re.findall(r"`([^`]+)` string", re.search(r"\(([^()]*)\) PARTITIONED BY", ddl).group(1))
 
-    v.handler(_event(format="json", tempRawTable=None), None)
+    v.handler(_event(format=fmt, tempRawTable=None), None)
 
     queries = {kw["client_request_token"]: kw["query"] for kw in started}
     projected = re.findall(r'"([^"]+)"(?:\), \'\'\))? AS c(\d+)\b', queries[f"{HEX32}-profile"])
-    assert declared == ["id", "amount"], "the table this manifest builds"
+    assert declared == expected, "the table this manifest builds"
     assert projected == [(name, str(index)) for index, name in enumerate(declared)]
-    assert 'GROUP BY "id", "amount", "year", "Month" HAVING' in queries[f"{HEX32}-dupes"]
+    assert f"GROUP BY {grouped} HAVING" in queries[f"{HEX32}-dupes"]
 
 
 def test_the_ragged_query_judges_each_file_by_its_full_path_against_its_own_header(monkeypatch, started):

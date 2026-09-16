@@ -683,6 +683,67 @@ def test_a_request_whose_own_location_does_not_resolve_is_malformed():
 # ── SPEC-072 notifications ────────────────────────────────────────────────────
 
 
+def test_the_ready_notification_names_each_csv_column_kept_under_a_new_name():
+    """The rail shows only `year_in_file`, so without this sentence the user meets an unfamiliar
+    column and a familiar one apparently gone. Derived from the state the DDL was built from.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _succeeding(partitioned=True)
+    queue = _arm_notifications()
+    event = dict(
+        _event(partitioned=True),
+        format="csv",
+        columns=[{"name": "Year", "type": "string"}, {"name": "amount", "type": "string"}],
+    )
+
+    e.handler(event, None)
+
+    assert json.loads(queue.calls[0]["MessageBody"])["message"] == (
+        'Table "sales_2026" is ready to query in "alice". A column named after a partition key '
+        'keeps its values under a new name: "Year" is "year_in_file".'
+    )
+
+
+@pytest.mark.parametrize(
+    "event_change",
+    [
+        pytest.param({"format": "parquet", "columns": [{"name": "Year", "type": "string"}]}, id="parquet-leaves-it-out"),
+        pytest.param({"format": "csv", "columns": None}, id="a-state-without-columns"),
+        pytest.param({"format": "csv", "columns": [{"type": "string"}]}, id="a-column-without-a-name"),
+        pytest.param({"format": "csv", "columns": ["Year"]}, id="a-column-that-is-not-an-object"),
+    ],
+)
+def test_the_ready_notification_is_plain_when_nothing_was_renamed_or_it_cannot_tell(event_change):
+    """The table exists by the time this is sent, so a state the derivation cannot read costs the
+    sentence, never the notification.
+
+    Args:
+      event_change: The fields the state overrides.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _succeeding(partitioned=True)
+    queue = _arm_notifications()
+
+    e.handler(dict(_event(partitioned=True), **event_change), None)
+
+    assert json.loads(queue.calls[0]["MessageBody"])["message"] == (
+        'Table "sales_2026" is ready to query in "alice".'
+    )
+
+
 def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
     _install(_FakeAthena([{"State": "FAILED", "StateChangeReason": "SYNTAX_ERROR: line 1"}]))
     q = _arm_notifications()

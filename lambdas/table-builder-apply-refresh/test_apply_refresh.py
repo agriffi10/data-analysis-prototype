@@ -244,7 +244,8 @@ def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fol
     which bypasses Athena entirely, has to do it in code. Lowercasing is not case folding:
     against a live ``straße`` and the partition key ``weiss``, ``STRASSE`` and ``Weiß`` are the
     new columns ``strasse`` and ``weiß``, and ``Weiss`` and ``WEISS`` are the partition key,
-    dropped rather than refused as a collision. Keyed on ``casefold()`` instead, ``strasse`` took
+    dropped rather than refused as a collision, in Parquet, where a partition's namesake is left
+    out. Keyed on ``casefold()`` instead, ``strasse`` took
     the live column's comment, ``Weiß`` was dropped as if it were the partition key, and the
     read-back counted ``straße`` and ``strasse`` as one column. The live name is not ASCII so
     that a carry keyed on one fold and looked up on the other loses the comment either way
@@ -275,12 +276,75 @@ def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fol
     ]
     keys = [{"name": "weiss", "type": "string", "values": ["a", "b"]}]
 
-    out = m.handler(_event(columns=columns, partitionKeys=keys), None)
+    out = m.handler(_event(columns=columns, partitionKeys=keys, format="parquet"), None)
 
     written = glue.table_input["StorageDescriptor"]["Columns"]
     assert [c["Name"] for c in written] == ["straße", "strasse", "weiß", "notes"]
     assert [c.get("Comment") for c in written] == ["the street", None, None, None]
     assert out["appliedColumnCount"] == 4
+
+
+def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_creates_name():
+    """A CSV is read by position, so the write keeps the file's ``Year`` where it sits, under the
+    name the create gave it, and carries that column's comment; leaving it out would move every
+    later column onto its neighbour's field.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [
+            {"Name": "year_in_file", "Type": "string", "Comment": "the export's year"},
+            {"Name": "id", "Type": "string"},
+        ],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "year", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Year", "type": "string"},
+        {"name": "id", "type": "string"},
+        {"name": "region", "type": "string"},
+    ]
+    keys = [{"name": "year", "type": "string", "values": ["2025"]}]
+
+    m.handler(_event(columns=columns, partitionKeys=keys), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [(c["Name"], c.get("Comment")) for c in written] == [
+        ("year_in_file", "the export's year"), ("id", None), ("region", None)
+    ]
+
+
+def test_an_event_without_a_format_is_malformed_and_writes_nothing():
+    """The format decides what a partition's namesake is written as, so guessing it could write
+    a list diff-schema never compared.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_table())
+    event = _event()
+    del event["format"]
+
+    with pytest.raises(TerminalError) as raised:
+        m.handler(event, None)
+
+    assert raised.value.reason == "malformed_event"
+    assert "format" in raised.value.detail
+    assert glue.update_calls == []
 
 
 def test_columns_differing_only_by_case_are_refused_before_the_update():

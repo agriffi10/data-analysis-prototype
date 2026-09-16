@@ -196,7 +196,7 @@ w("part0a.csv", ["ID","Region","Amount","AMOUNT"], [[i,regions[i%4],i*7,i] for i
 w("part0b.csv", ["ID","Region","Amount","Straße","STRASSE"],
   [[i,regions[i%4],i*7,"a","b"] for i in range(51,61)])
 
-# a column named after the partition key, before the other columns and after them
+# a column named after the partition key, before the other columns and after them — kept under a new name
 w("yearcase.csv", ["Year","id","region"], [[2025,i,regions[i%4]] for i in range(1,6)])
 w("yeartrail.csv", ["id","region","year"], [[i,regions[i%4],2025] for i in range(1,6)])
 
@@ -240,8 +240,8 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `explorer150/` | `explorer-fixture-150.csv` | Data Explorer, copy/export, saved queries |
 | `partfix/year=2025/` | `part1.csv` | partitioned table + refresh |
 | `partfix/year=2026/` | `part2.csv` | " |
-| `yearcase/year=2025/` | `yearcase.csv` | the partition-key collision a CSV cannot drop |
-| `yeartrail/year=2025/` | `yeartrail.csv` | the trailing collision it can |
+| `yearcase/year=2025/` | `yearcase.csv` | a CSV column named after the partition, first |
+| `yeartrail/year=2025/` | `yeartrail.csv` | the same column, last |
 | `dq_agree/` | `dq_a.csv`, `dq_b.csv` | data-quality clean control |
 | `dq_disagree/` | `dq_a.csv`, `dq_bad.csv` | cross-file finding |
 | `dq_reorder/` | `dq_a.csv`, `dq_reorder.csv` | cross-file finding on a CSV's column order |
@@ -493,8 +493,9 @@ gates.
 | Build from a header with `_id`, `2024_total`, `select` | **Builds.** Leading underscores, leading digits and reserved words are quoted, not refused. |
 | Refresh a table whose header the rule would now refuse for anything but a case collision, such as `Order ID` | **Refreshes.** Creates only — refusing would strand a table already in the catalog. |
 | Build from `partfix/` with key `year` (string, `2025, 2026`) | **One** Athena statement, no repair step, and `WHERE year = '2025'` returns rows immediately. |
-| Build from `yearcase/` (header `Year,id,region`) with key `year` (string, `2025`) | **Refused**, by a notification naming `"Year"` and asking for it last or taken out. Leaving it out would shift the rest: measured before this rule on the same rows headed `year,id,region`, the table built and `SELECT id, region` returned `2025` and `1` for the row `2025,1,south`. |
-| Build from `yeartrail/` (header `id,region,year`) with the same key, then query it | **Builds**, and `SELECT id, region, year` returns `1, south, 2025` for the first row — trailing is the one shape a CSV can drop. The rail shows `id, region` only: partition keys are not listed there, so read the values rather than the rail. |
+| Build from `yearcase/` (header `Year,id,region`) with key `year` (string, `2025`), then query it | **Builds**, and the ready notification ends *"A column named after a partition key keeps its values under a new name: "Year" is "year_in_file"."* The rail shows `year_in_file, id, region`, and `SELECT year_in_file, id, region, year` returns `2025, 1, south, 2025` for the first row — nothing shifted. Before any rename, the same rows with the column left out read `id` as `2025`. |
+| Build from `yeartrail/` (header `id,region,year`) with the same key, then query it | **Builds** with `year_in_file` last in the rail, and `SELECT id, region, year_in_file, year` returns `1, south, 2025, 2025`. |
+| Refresh the `yearcase` table with nothing changed | **Already up to date** — the refresh compares under the same rename, so `year_in_file` is not reported removed. |
 | Build from an empty folder, a mixed-format folder, a layout contradicting the declared keys, a name already taken | One notification each, naming which. |
 
 **Refresh — the sample is ONE OBJECT, and it is the FIRST KEY IN LISTING ORDER.** Inference keeps
@@ -627,7 +628,7 @@ as honestly as a succeeding one.
 | Check `dq_case_clash/` | Refused by notification naming `"Total", "TOTAL"` — two spellings in ONE file are a header Athena cannot read. |
 | Check a folder whose header has `Order ID` | Refused by notification naming the column — a check cannot report on data it cannot read, so this is the answer rather than a gap in it. |
 | Check a folder with a `key=value` partition whose KEY is not `[a-z0-9_]` (e.g. `order-id=1/`) | Refused under its **own** wording, about folder names — not the column one, because the repair is renaming a folder. |
-| Check `yearcase/` | Refused in data-quality's own words, naming `"Year"` and its folder — the build's rule, because the temp table would profile `id` and `region` against their neighbours' fields. `yeartrail/` checks normally. |
+| Check `yearcase/` | **A report**, with no cross-file finding. Columns lists `year_in_file, id, region` with their own figures, and above them *"Year is listed as year_in_file. The folder has a partition of the same name…"*. `yeartrail/` reports the same with `year_in_file` last. |
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 | Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 

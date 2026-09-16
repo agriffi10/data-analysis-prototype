@@ -70,7 +70,9 @@ _GLUE_RETRYABLE = frozenset({
 })
 
 
-def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_columns: list[dict]) -> list[dict]:
+def _write_columns(
+    columns: list[dict], live_partition_keys: list[dict], live_columns: list[dict], fmt: str
+) -> list[dict]:
     """Builds the Glue columns an in-place refresh writes: fresh names and types, carried metadata.
 
     Names are folded through ``columns.fold``, because this write bypasses the folding the
@@ -87,14 +89,18 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
     silently disappear. A column that is new, or whose metadata was never set, is written with
     neither.
 
-    A data column colliding with a partition key is dropped: Glue keeps partition keys in their
-    own field, which this verb passes through untouched, and one name declared in both is not a
-    valid table.
+    A data column colliding with a partition key is never written under that name: Glue keeps
+    partition keys in their own field, which this verb passes through untouched, and one name
+    declared in both is not a valid table. The columns written are ``ddl.body_columns``, the create
+    path's own rule, so a CSV's column is written under the name a create gave it, in its place,
+    and a JSON or Parquet one is left out. Diff-schema compares the same list.
 
     Args:
       columns: The freshly inferred columns.
-      live_partition_keys: The live table's partition keys, used only to drop collisions.
+      live_partition_keys: The live table's partition keys, which decide what a column naming
+        one becomes.
       live_columns: The live table's columns, the source of the carried metadata.
+      fmt: The source format.
 
     Returns:
       The Glue column entries to write.
@@ -111,13 +117,11 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
         column and failed at query time.
     """
     carried = {columns_mod.fold(c.get("Name") or ""): c for c in live_columns}
-    partition_names = {columns_mod.fold(k.get("Name") or "") for k in live_partition_keys}
+    partition_keys = [{"name": k.get("Name") or ""} for k in live_partition_keys]
 
     written = []
-    for column in columns:
+    for column in ddl.body_columns(columns, partition_keys, fmt):
         folded = columns_mod.fold(column["name"])
-        if folded in partition_names:
-            continue
         entry = {"Name": folded, "Type": column["type"]}
         live = carried.get(folded) or {}
         if live.get("Comment"):
@@ -172,13 +176,16 @@ def _write_parameters(live_parameters: dict, partition_keys: list[dict]) -> dict
     return parameters
 
 
-def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dict]) -> dict:
+def _table_input(
+    live_table: dict, columns: list[dict], partition_keys: list[dict], fmt: str
+) -> dict:
     """Projects the live table into the update input, with columns and projection replaced.
 
     Args:
       live_table: The table as Glue just returned it.
       columns: The freshly inferred columns.
       partition_keys: The reconstructed declared partition keys.
+      fmt: The source format.
 
     Returns:
       The table input to write, carrying every accepted field of the live table.
@@ -191,7 +198,7 @@ def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dic
 
     storage = dict(table_input.get("StorageDescriptor") or {})
     storage["Columns"] = _write_columns(
-        columns, table_input.get("PartitionKeys") or [], storage.get("Columns") or []
+        columns, table_input.get("PartitionKeys") or [], storage.get("Columns") or [], fmt
     )
     table_input["StorageDescriptor"] = storage
     table_input["Parameters"] = _write_parameters(live_table.get("Parameters") or {}, partition_keys)
@@ -469,10 +476,11 @@ def _apply(event: dict) -> dict:
     database = events.require(event, "space", "database")
     table = events.require(event, "tableName")
     columns = events.require(event, "columns")
+    fmt = events.require(event, "format")
     partition_keys = event.get("partitionKeys") or []
 
     live_table = _get_table(database, table)
-    table_input = _table_input(live_table, columns, partition_keys)
+    table_input = _table_input(live_table, columns, partition_keys, fmt)
     written = [column["Name"] for column in table_input["StorageDescriptor"]["Columns"]]
     _abandon_if_changed(event, live_table, database, table, set(written))
 

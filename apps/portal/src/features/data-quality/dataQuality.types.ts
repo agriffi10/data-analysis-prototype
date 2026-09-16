@@ -109,6 +109,14 @@ export type CrossFileDisagreement = {
   shifted?: boolean;
 };
 
+/**
+ * A column named after one of the folder's partitions, and what the check did with it. Its own
+ * name cannot be a column of a table that also has the partition, so a CSV, which is read by
+ * position, keeps it under a new name (`as`), and JSON and Parquet, which are read by name, leave
+ * it out of the column figures. `name` is spelled as the files spell it.
+ */
+export type PartitionNamedColumn = {name: string; outcome: 'renamed'; as: string} | {name: string; outcome: 'omitted'};
+
 export type DataQualityReport = {
   requestId: string;
   location: string;
@@ -126,6 +134,8 @@ export type DataQualityReport = {
   hasIncompleteFigures: boolean;
   /** ISO-8601. The only field a replay changes — the key is a pure function of requestId. */
   completedAt: string;
+  /** Optional because a report written before the field existed lacks it; absent reads as none. */
+  partitionNamedColumns?: PartitionNamedColumn[];
   exact: {
     rowCount: number;
     /** Sorted by key and reconciled against the manifest, so its length === fileCount. */

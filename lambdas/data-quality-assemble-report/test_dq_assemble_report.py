@@ -222,9 +222,9 @@ def test_a_file_with_its_columns_in_another_order_is_reported_only_where_fields_
     monkeypatch, fmt, cross_file, top_issues
 ):
     """The temp table declares one column order for the folder and OpenCSVSerde reads fields by
-    position, so ``b.csv``'s ``Year`` is profiled as ``amount``. Neither create-temp-tables' refusal,
-    which judges the folder's union, nor a comparison of column SETS can see it, so the report
-    has to. The same two headers in Parquet are read by name and are not a finding."""
+    position, so ``b.csv``'s ``Year`` is profiled as ``amount``. A comparison of column SETS cannot
+    see it, so the report has to. The same two headers in Parquet are read by name and are not a
+    finding."""
     manifest = {
         "format": fmt,
         "fileCount": 2,

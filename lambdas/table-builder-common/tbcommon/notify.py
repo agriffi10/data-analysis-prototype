@@ -13,6 +13,7 @@ change or fail the pipeline outcome, so every emit goes through
 import json
 from urllib.parse import quote
 
+from cpcommon import ddl, observability
 from cpcommon.errors import TerminalError
 from cpcommon.notify import dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
@@ -157,11 +158,46 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
+def _renamed_columns(event: dict) -> list[tuple[str, str]]:
+    """Recovers which columns a create declared under a new name, from the state it ran on.
+
+    Derived from the same columns, partition keys and format the DDL was built from, through
+    the same ``ddl.declare_columns``, rather than carried on the state beside the statement. It
+    runs after the table exists, so a state it cannot read costs the sentence and never the
+    notification: a create that succeeded must still say so.
+
+    Args:
+      event: The task input, read for columns, partition keys and format.
+
+    Returns:
+      ``(name in the files, name in the table)`` pairs, empty when nothing was renamed or the
+      state does not carry what the derivation needs.
+
+    Raises:
+      None.
+    """
+    columns = event.get("columns")
+    fmt = event.get("format")
+    if not columns or not fmt:
+        return []
+    try:
+        pairs = ddl.declare_columns(columns, event.get("partitionKeys") or [], fmt)
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        observability.warning("renamed columns not derived", error=type(exc).__name__)
+        return []
+    return [
+        (pair.source["name"], pair.declared["name"])
+        for pair in pairs
+        if pair.collides and pair.declared is not None
+    ]
+
+
 def emit_created(event: dict) -> None:
     """Emits the actor-addressed success notification for a newly created table.
 
     Args:
-      event: The task input, read for actor, table, database and request id.
+      event: The task input, read for actor, table, database and request id, and for the
+        columns a CSV create renamed.
 
     Returns:
       None.
@@ -172,7 +208,11 @@ def emit_created(event: dict) -> None:
     space = event.get("space") or {}
     emit_notification(
         event.get("actor", ""),
-        success_message(event.get("tableName", ""), space.get("database", "")),
+        success_message(
+            event.get("tableName", ""),
+            space.get("database", ""),
+            renamed=_renamed_columns(event),
+        ),
         dedup_id=dedup_id(event.get("requestId"), "created"),
     )
 

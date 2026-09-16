@@ -196,8 +196,8 @@ def _start_queries(event: dict) -> dict:
     against a request nobody will ever read.
 
     The unioned columns are right for the external table's schema — a column present in only some
-    files still has to be readable — and the profile and duplicates builders narrow them with the
-    partition keys to the columns that table declares. They are not right for the ragged
+    files still has to be readable — and the profile and duplicates builders map them, with the
+    partition keys and the format, to the columns that table declares. They are not right for the ragged
     comparison, which is per file.
 
     The path filter is None for a folder target, so every query renders exactly as it did before
@@ -265,7 +265,7 @@ def _start_queries(event: dict) -> dict:
     out["duplicates"] = {
         "queryExecutionId": _start(
             "duplicates",
-            sql.build_duplicates_query(database, table, columns, partition_keys, path_filter),
+            sql.build_duplicates_query(database, table, columns, partition_keys, fmt, path_filter),
             event,
             database,
             results,

@@ -623,6 +623,7 @@ def _drive_apply_refresh(monkeypatch):
             },
             "tableName": "sales",
             "requestId": "r1",
+            "format": "csv",
             "partitionKeys": [],
             "columns": [{"name": "order_id", "type": "string"}, {"name": "amount", "type": "string"}],
         },

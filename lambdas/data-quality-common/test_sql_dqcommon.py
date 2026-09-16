@@ -78,7 +78,7 @@ def _renders(path_filter: str | None, path: str) -> dict[str, str]:
             DATABASE, RAW_TABLE, {path: len(COLUMNS)}, path_filter
         ),
         "duplicates": sql.build_duplicates_query(
-            DATABASE, TABLE, COLUMNS, [], path_filter
+            DATABASE, TABLE, COLUMNS, [], "csv", path_filter
         ),
     }
 
@@ -189,7 +189,7 @@ def test_every_identifier_in_the_three_queries_is_quoted_for_trino():
         ),
         "ragged": sql.build_ragged_query(database, RAW_TABLE, {}),
         "duplicates": sql.build_duplicates_query(
-            database, TABLE, columns, partition_keys
+            database, TABLE, columns, partition_keys, "csv"
         ),
     }
 

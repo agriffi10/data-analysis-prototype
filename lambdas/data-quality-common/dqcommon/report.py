@@ -336,27 +336,24 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
     column ``i``, trailing fields past the last declared column are ignored, and a short row reads
     nulls. A file is ``shifted`` when any field it has lands under a column of another name, which
     is every way a CSV is misread — columns in another order, a column inserted or dropped before
-    one the table keeps, a partition column the table leaves out with a kept column after it, or
-    two files adding different trailing columns, the later read under the earlier's name. Nothing
-    errors, since every CSV column is a string, so this is the only place the misread shows.
-    Parquet and JSON are matched by name and are never shifted.
+    one the table keeps, or two files adding different trailing columns, the later read under the
+    earlier's name. Nothing errors, since every CSV column is a string, so this is the only place
+    the misread shows. Parquet and JSON are matched by name and are never shifted.
 
-    The declared columns are ``sql.profiled_columns`` over the union — the same list the typed
-    table, the profile query and the report's per-column figures use — so ``shifted`` names
-    exactly the files whose values those figures count under the wrong name. That is deliberately
-    not the minority: the declared order is first-seen across the files as listed, so when the
-    first file is the odd one, the files named are the rest, and they are the ones this report
-    misreads. Missing and extra still name the minority, which is the repair.
+    The declared columns are the union as ``ddl.declare_columns`` pairs it — the same pairing the
+    typed table, the profile query and the report's per-column figures are built from — so
+    ``shifted`` names exactly the files whose values those figures count under the wrong name.
+    That is deliberately not the minority: the declared order is first-seen across the files as
+    listed, so when the first file is the odd one, the files named are the rest, and they are the
+    ones this report misreads. Missing and extra still name the minority, which is the repair.
 
     Names are compared through ``columns.fold``, the way ``sql.union_columns`` merges them, so a
     file spelling ``customerid`` agrees with one spelling ``CustomerID`` and is not shifted under
-    it: Athena reads the two as one column. A missing column is named in the union's spelling, the
-    one the report's Columns show, and an extra one in the file's own.
-
-    This check is also what lets create-temp-tables judge ``partition_column_not_last`` on the
-    folder's union rather than on each file's header: a file whose own header puts a partition
-    column before a kept one, in a folder whose union does not, is always shifted, since the
-    declared list never holds a partition column at that position.
+    it: Athena reads the two as one column. Each declared column is compared by the name the FILES
+    give it: a CSV column named after a partition is declared under a new name, and a file carrying
+    it where the table declares it is read correctly, so comparing the table's name would flag
+    every such file. A missing column is named in the union's spelling, the one the report's
+    Columns show, and an extra one in the file's own.
 
     A single file flows through the general path rather than short-circuiting: it produces the
     identical answer, since its own signature is the modal one and it never disagrees with itself,
@@ -370,7 +367,7 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
       files: The manifest's file entries, each carrying its probed columns.
       fmt: The source format key, or None when neither the manifest nor the request names one.
         Positions are checked only for ``ddl.POSITIONAL_FORMATS``, which None is not.
-      partition_keys: The declared partition keys, which the typed table leaves out of its columns.
+      partition_keys: The declared partition keys, which decide the columns the typed table declares.
 
     Returns:
       Whether the columns agree, and for each file that does not, its missing and extra columns
@@ -391,7 +388,11 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
     positional = fmt in ddl.POSITIONAL_FORMATS
     union = sql.union_columns(files)
     spelled = {columns_mod.fold(c["name"]): c["name"] for c in union}
-    declared = [columns_mod.fold(c["name"]) for c in sql.profiled_columns(union, partition_keys)]
+    declared = [
+        columns_mod.fold(pair.source["name"])
+        for pair in ddl.declare_columns(union, partition_keys, fmt)
+        if pair.declared is not None
+    ]
 
     disagreements = []
     for entry, names, folds in zip(files, headers, folded, strict=False):
@@ -409,6 +410,42 @@ def cross_file(files: list[dict], fmt: str | None, partition_keys: list[dict]) -
                 }
             )
     return {"columnsAgree": not disagreements, "disagreements": disagreements}
+
+
+def partition_named_columns(
+    columns: list[dict], partition_keys: list[dict], fmt: str | None
+) -> list[dict]:
+    """Names each column sharing a partition's name, and what the typed table did with it.
+
+    Such a column cannot be declared under its own name, so its figures are either under another
+    name or absent, and a report that says neither leaves the user to find the column missing
+    from Columns, or an unfamiliar name in it, with nothing explaining why. A CSV keeps it under a
+    new name, because a CSV is read by position; JSON and Parquet leave it out, because they are
+    read by name and a table over the folder reads the partition's value in its place.
+
+    Args:
+      columns: The unioned columns.
+      partition_keys: The manifest's detected partition keys.
+      fmt: The source format, the same one the per-column figures were mapped with.
+
+    Returns:
+      One entry per such column, in union order: ``{name, outcome: "renamed", as}`` or
+      ``{name, outcome: "omitted"}``, ``name`` spelled as the files spell it.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
+    """
+    entries = []
+    for pair in ddl.declare_columns(columns, partition_keys, fmt):
+        if not pair.collides:
+            continue
+        if pair.declared is None:
+            entries.append({"name": pair.source["name"], "outcome": "omitted"})
+        else:
+            entries.append(
+                {"name": pair.source["name"], "outcome": "renamed", "as": pair.declared["name"]}
+            )
+    return entries
 
 
 def _row_counts_by_file(rows: list[dict], files: list[dict]) -> list[dict]:
@@ -791,12 +828,15 @@ def build(
     silently, in a report that still looks entirely plausible. A missing cell reads as zero, so a
     column read one alias too far reports as clean.
 
-    A column naming a partition key is therefore absent from the per-column figures, not skipped.
-    The temp table has no data column of that name, so there is no figure to mark skipped, and
-    the portal types every column entry with a blank ratio it would have to invent. It does not
-    mark the report incomplete either: that banner points at a skipped or not-computed figure
-    below it, and there is none. The Help page says the column is left out; cross-file agreement
-    still lists it, since the files do carry it.
+    A column naming a partition key is therefore reported under the name the temp table declares
+    it by in a CSV, and is absent from the per-column figures in JSON and Parquet, not skipped.
+    There the temp table has no data column of that name, so there is no figure to mark skipped,
+    and the portal types every column entry with a blank ratio it would have to invent. Neither
+    marks the report incomplete: that banner points at a skipped or not-computed figure below it,
+    and there is none. ``partitionNamedColumns`` says which happened to each such column;
+    cross-file agreement still lists it under the files' name, since the files do carry it. Its
+    other spellings are looked up by that name too, through the same ``ddl.declare_columns``
+    pairing, because the entry itself carries the new one.
 
     The completion timestamp is the only field a replay changes. The report key is a pure function
     of the request id, so a retry or a redelivery overwrites the same object rather than adding a
@@ -805,7 +845,7 @@ def build(
     Args:
       request: The threaded request, carrying the request id, location and the degraded-query
         blocks.
-      manifest: The source manifest, whose partition keys narrow the profiled columns.
+      manifest: The source manifest, whose partition keys and format map the profiled columns.
       profile_rows: The profile query's rows.
       ragged_rows: The ragged query's rows.
       duplicate_rows: The duplicates query's rows.
@@ -826,7 +866,14 @@ def build(
     """
     fmt = manifest.get("format") or request.get("format")
     files = manifest.get("files") or []
-    columns = sql.profiled_columns(sql.union_columns(files), manifest.get("partitionKeys") or [])
+    union = sql.union_columns(files)
+    partition_keys = manifest.get("partitionKeys") or []
+    columns = sql.profiled_columns(union, partition_keys, fmt)
+    sources = [
+        pair.source["name"]
+        for pair in ddl.declare_columns(union, partition_keys, fmt)
+        if pair.declared is not None
+    ]
     spellings = sql.other_spellings(files)
 
     total = next((row for row in profile_rows if _int(row, "is_total") == 1), None)
@@ -847,11 +894,11 @@ def build(
                 total,
                 row_count,
                 _skip_reason(column, parquet),
-                spellings.get(column["name"], []),
+                spellings.get(source, []),
             )
-            for index, column in enumerate(columns)
+            for index, (column, source) in enumerate(zip(columns, sources, strict=True))
         ],
-        "crossFile": cross_file(files, fmt, manifest.get("partitionKeys") or []),
+        "crossFile": cross_file(files, fmt, partition_keys),
     }
     approximate = {
         "raggedRows": _ragged(request.get("ragged"), ragged_rows),
@@ -868,6 +915,7 @@ def build(
         "hasApproximateFigures": _has_approximate(exact, approximate),
         "hasIncompleteFigures": _has_incomplete(exact, approximate),
         "completedAt": completed_at,
+        "partitionNamedColumns": partition_named_columns(union, partition_keys, fmt),
         "exact": exact,
         "approximate": approximate,
         "topIssues": issues,

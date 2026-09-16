@@ -100,44 +100,116 @@ def test_an_apostrophe_in_an_enum_value_cannot_inject_a_property():
     assert "'projection.enabled'='false'" not in props
 
 
-# ── Dropping a column that names a partition key ─────────────────────────────
-#
-# Athena compares the two ignoring case and refuses the pair as "Column repeated in
-# partitioning columns", so the drop matches on the fold. What it may drop depends on the
-# SerDe: Athena reads Parquet and JSON by name, while OpenCSVSerde takes fields in order and
-# only skips the header — so a CSV drop moves every later column onto the wrong field. Both
-# halves were measured on built tables: a header of `year,id,region` over `2025,1,south` read
-# `id` as `2025` and `region` as `1`, and `id,region,year` read correctly.
+# ── A column that names a partition key ──────────────────────────────────────
 
 _YEAR_KEY = [{"name": "year", "type": "string", "values": ["2025"]}]
 
 
-def test_a_trailing_column_naming_a_partition_key_is_dropped_whichever_case_each_carries():
-    """The drop's safe shape, and the only one a CSV has: nothing the table keeps follows it, so
-    the remaining fields still line up. Folded on BOTH sides — data-quality's keys come from
-    folder names, so `Month=01/` is the user's capital letter, not a column's."""
-    columns = [{"name": "id", "type": "string"}, {"name": "month", "type": "string"},
-               {"name": "Year", "type": "string"}]
+def _names(columns, keys, fmt="csv"):
+    """The names ``body_columns`` declares for bare column names, all typed string.
+
+    Args:
+      columns: The data column names, in order.
+      keys: The partition key names.
+      fmt: The source format.
+
+    Returns:
+      The declared names, in order.
+
+    Raises:
+      None.
+    """
+    return [
+        c["name"]
+        for c in ddl_module.body_columns(
+            [{"name": n, "type": "string"} for n in columns], [{"name": k} for k in keys], fmt
+        )
+    ]
+
+
+def test_a_csv_column_naming_a_partition_key_is_rendered_in_its_place_under_a_new_name():
+    """The shape pandas and Excel exports produce: the key first, the rest after it. Every field
+    stays where the file put it, and the partition keeps its own name. Folded on BOTH sides —
+    data-quality's keys come from folder names, so `Month=01/` is the user's capital letter.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "string"},
+               {"name": "month", "type": "string"}]
     keys = [{"name": "year", "type": "string", "values": ["2025"]},
             {"name": "Month", "type": "string", "values": ["01"]}]
 
     ddl = build_create_table_ddl("alice", "sales", columns, keys, "csv", LOC)
 
-    assert "(`id` string) PARTITIONED BY (`year` string, `Month` string)" in ddl
+    assert (
+        "(`year_in_file` string, `id` string, `month_in_file` string) "
+        "PARTITIONED BY (`year` string, `Month` string)"
+    ) in ddl
 
 
-def test_a_csv_column_naming_a_partition_key_before_a_kept_one_refuses_to_render():
-    """The statement would build a table that looks right and answers every query one column
-    over. Callers refuse it in their own words first; this raise is what stops a renderer that
-    is safe only because someone else validated."""
-    columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "string"},
-               {"name": "region", "type": "string"}]
+@pytest.mark.parametrize(
+    ("columns", "keys", "expected"),
+    [
+        pytest.param(["id", "region", "year"], ["year"], ["id", "region", "year_in_file"],
+                     id="trailing-is-renamed-too"),
+        pytest.param(["year", "Year_In_File", "id"], ["year"], ["year_in_file_2", "Year_In_File", "id"],
+                     id="a-kept-column-already-holding-the-name-pushes-it-on"),
+        pytest.param(["year", "id"], ["year", "year_in_file"], ["year_in_file_2", "id"],
+                     id="a-partition-key-already-holding-the-name-pushes-it-on"),
+        pytest.param(["year_in_file", "year", "id"], ["year", "year_in_file"],
+                     ["year_in_file_in_file", "year_in_file_2", "id"],
+                     id="a-column-naming-a-key-that-is-itself-a-new-name"),
+        pytest.param(["Year", "year", "id"], ["year"], ["year_in_file", "year_in_file_2", "id"],
+                     id="two-spellings-of-one-key-get-two-names"),
+    ],
+)
+def test_a_new_name_never_folds_to_a_name_the_table_already_has(columns, keys, expected):
+    """The candidates run `_in_file`, `_in_file_2`, … and the first whose fold is free wins —
+    free of every kept column, every partition key and every name assigned earlier in the pass,
+    or Athena refuses the statement as a repeated column.
 
-    with pytest.raises(ddl_module.PartitionColumnShiftError) as err:
-        build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, "csv", LOC)
+    Args:
+      columns: The data column names.
+      keys: The partition key names.
+      expected: The names the body should declare.
 
-    assert err.value.names == ["Year"]
-    assert err.value.summary == '"Year"'
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    assert _names(columns, keys) == expected
+
+
+def test_a_new_name_is_cut_to_fit_glues_ceiling_in_bytes_not_characters():
+    """A refresh skips the name rule, so a header can carry a 255-character name of two-byte
+    characters; Glue's ceiling is in bytes. The cut keeps whole characters and the whole suffix.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    long_ascii = "y" * 255
+    long_accented = "é" * 200
+
+    [ascii_name] = _names([long_ascii], [long_ascii])
+    [accented_name] = _names([long_accented], [long_accented])
+
+    assert len(ascii_name.encode("utf-8")) == 255 and ascii_name.endswith("y_in_file")
+    assert len(accented_name.encode("utf-8")) <= 255 and accented_name.endswith("é_in_file")
 
 
 def test_every_default_storage_read_by_position_is_declared_positional():
@@ -156,14 +228,29 @@ def test_every_default_storage_read_by_position_is_declared_positional():
     assert from_clauses == ddl_module.POSITIONAL_FORMATS
 
 
-def test_the_same_column_is_dropped_from_a_parquet_body_because_athena_reads_those_by_name():
-    """The refusal is about the SerDe, not about the collision: a Parquet column is matched by
-    name, so the ones after the dropped column keep their own values."""
+@pytest.mark.parametrize("fmt", ["parquet", "json"])
+def test_the_same_column_is_left_out_of_a_body_athena_reads_by_name(fmt):
+    """A renamed column in a name-matched format would read NULL, since no field carries the
+    new name, and leaving it out moves nothing: the columns after it keep their own values.
+
+    Args:
+      fmt: The source format.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "bigint"}]
 
-    ddl = build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, "parquet", LOC)
+    ddl = build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, fmt, LOC)
 
     assert "(`id` bigint) PARTITIONED BY (`year` string)" in ddl
+    assert [pair.declared for pair in ddl_module.declare_columns(columns, _YEAR_KEY, fmt)] == [
+        None,
+        columns[1],
+    ]
 
 
 def test_an_apostrophe_in_a_location_is_escaped_into_one_literal():
