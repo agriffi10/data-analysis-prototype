@@ -1,4 +1,4 @@
-"""Unit tests for the escaping in dqcommon.sql's statements, each in its own dialect's rules.
+"""Unit tests for dqcommon.sql's statements: each dialect's escaping, and the profile query's size.
 
 Pure: no AWS. Athena parses the three queries as Trino and the drop statement as Hive, and
 ``cpcommon.ddl`` keeps both dialects' escapers side by side, so every site that renders a value
@@ -23,18 +23,23 @@ Attributes:
   TABLE: The typed temp table.
   RAW_TABLE: The raw-line temp table.
   COLUMNS: The unioned columns of every one-file manifest here.
+  _ATHENA_QUERY_STRING_LIMIT: Athena's hard limit on a query string, in bytes. Spelled out rather
+    than read from ``config.DQ_MAX_QUERY_BYTES``: the size test holds the query to Athena's limit,
+    and one measured against the setting would pass however far a mistake raised it.
   _KEYS: An object key for each character the two literal escapers disagree on, paired with the
     Trino literal that equals that key's full object path.
 """
 
 import pytest
-from dqcommon import sql
+from cpcommon.columns import MAX_COLUMN_NAME_LENGTH
+from dqcommon import config, sql
 
 BUCKET = "dq-user-bkt"
 DATABASE = "alice"
 TABLE = "dq_tmp_7f3ac19d2b4e4c8a9f016d5e3a7b8c02"
 RAW_TABLE = "dq_tmp_raw_7f3ac19d2b4e4c8a9f016d5e3a7b8c02"
 COLUMNS = [{"name": "order_id", "type": "string"}, {"name": "amount", "type": "string"}]
+_ATHENA_QUERY_STRING_LIMIT = 262_144
 
 _KEYS = pytest.mark.parametrize(
     ("key", "literal"),
@@ -213,3 +218,40 @@ def test_the_drop_statement_quotes_each_name_for_hive():
     statement = sql.build_drop_table_ddl(database, TABLE)
 
     assert statement == f"DROP TABLE IF EXISTS `team``data`.`{TABLE}`"
+
+
+def test_the_profile_query_fits_athenas_query_string_limit_at_the_column_cap():
+    """Holds a profile query at the column cap within the query-string limit Athena enforces.
+
+    Athena refuses an over-length statement only when it runs, after every step before it has
+    been paid for, so the column cap keeps a check out of that failure only while the query it
+    admits still fits. Every part the checked files can lengthen is at its longest: every column a
+    string in a type-checked format, so each carries its cast counts and both samples; every name
+    as long as the column rule admits; and a single-file predicate over an object key of S3's
+    maximum length, made of apostrophes because the literal doubles each one. The database and
+    bucket names stay short, since each appears once and is bounded far inside the headroom. Every
+    column is counted in the result before the size is trusted, since a query that lost columns
+    would fit for the wrong reason.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    widest = [
+        {
+            "name": f"{index:03d}".ljust(MAX_COLUMN_NAME_LENGTH, "x"),
+            "type": "string",
+        }
+        for index in range(config.DQ_MAX_COLUMNS)
+    ]
+    path_filter = f"s3://{BUCKET}/" + "'" * 1024
+
+    query = sql.build_profile_query(DATABASE, TABLE, widest, [], "csv", path_filter)
+
+    assert query.count("_sample_non_temporal") == config.DQ_MAX_COLUMNS
+    assert len(query.encode()) <= _ATHENA_QUERY_STRING_LIMIT, len(query.encode())
