@@ -51,10 +51,13 @@ Read from the code at `73c66eef`, and the data-quality claims re-read at `053ecb
   `csv.DictReader`, whose field limit defaults to 131,072 characters, and assemble-report re-raises
   anything but a missing object. A cell over that limit fails the whole report, not one figure.
 - **The grouping reads the profiled columns, then the partition keys.** `sql.profiled_columns` is the
-  column list the temp table declares, leaving out a column that names a partition key.
-  `build_duplicates_query` groups by those columns followed by the partition keys, and `report.build`
-  reads its per-column figures over the same list. A start-profile-query test shows columns
-  `id, month, Year` under partition keys `year` and `Month` grouping as `"id", "year", "Month"`.
+  column list the temp table declares for the source format: a column that names a partition key is
+  left out in JSON and Parquet and kept in its place under a new name in a CSV (`Year` beside the
+  key `year` becomes `year_in_file`). `build_duplicates_query` groups by those columns followed by
+  the partition keys, and `report.build` reads its per-column figures over the same list. A
+  start-profile-query test shows JSON columns `id, Year, amount, month` under partition keys `year`
+  and `Month` grouping as `"id", "amount", "year", "Month"`, and the same CSV columns as
+  `"id", "year_in_file", "amount", "month_in_file", "year", "Month"`.
 - **A single-file check's location is the file.** The dialog sends the file's key as `location`, and
   `sourceFolderPrefix` (`dataQuality.format.ts`) derives its folder.
 - **Nested columns reach the check.** `cpcommon.type_mapping.map_dtype` maps Parquet lists and
@@ -184,9 +187,9 @@ same shape, since the writer never changed.
 
 #### Description:
 
-`sql.py` exports `grouped_column_names(columns, partition_keys)`, the names of
-`profiled_columns(columns, partition_keys)` followed by the partition keys' names, which is the order
-the statement groups by, and `has_nested_column(columns, partition_keys)`, true when any profiled
+`sql.py` exports `grouped_column_names(columns, partition_keys, fmt)`, the names of
+`profiled_columns(columns, partition_keys, fmt)` followed by the partition keys' names, which is the order
+the statement groups by, and `has_nested_column(columns, partition_keys, fmt)`, true when any profiled
 column's type starts with `array<` or `struct<`. `build_duplicates_query` builds its grouping from
 `grouped_column_names` rather than a second copy. When `has_nested_column` is false, `build_duplicates_query` groups
 exactly as today and projects `COUNT(*)` as `cnt` and each grouped column under a positional alias. Over that,
@@ -218,9 +221,10 @@ When `has_nested_column` is true, the statement is today's, byte for byte, and i
   asserted as a whole string.
 - [ ] A test renders the statement at `DQ_MAX_COLUMNS` columns, each named with 255 characters, plus
   two partition keys, and asserts its UTF-8 length is at most `DQ_MAX_QUERY_BYTES`.
-- [ ] `grouped_column_names` for columns `id, month, Year` with partition keys `year` and `Month`
+- [ ] `grouped_column_names` for JSON columns `id, month, Year` with partition keys `year` and `Month`
   returns `['id', 'year', 'Month']`, and the statement for the same inputs groups by
-  `"id", "year", "Month"`.
+  `"id", "year", "Month"`. For CSV the same inputs return
+  `['id', 'month_in_file', 'year_in_file', 'year', 'Month']`.
 - [ ] The live check in *Implementation Phases* passes. This criterion cannot settle before the
   push, so it is recorded as owed on the PR.
 
@@ -252,7 +256,7 @@ notification or the runs index.
 
 - [ ] A samples cell for 200 grouped columns of 201-character values, each character one JSON would
   escape to six, parses, and its samples are written.
-- [ ] Columns `id, month, Year` with partition keys `year` and `Month` and a sample
+- [ ] JSON columns `id, month, Year` with partition keys `year` and `Month` and a sample
   `[["2","7","2025","01"]]` write `columns` `['id', 'year', 'Month']` and values `['7', '2025', '01']`,
   so each value sits under the header it was grouped under.
 - [ ] A duplicates row with `duplicate_rows` `7` and `duplicate_samples`
