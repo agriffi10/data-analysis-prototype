@@ -59,6 +59,7 @@ Attributes:
   _CAST_TYPES: The casts the type-consistency check tries, in report order.
 """
 
+from cpcommon import columns as columns_mod
 from cpcommon import ddl
 from cpcommon.errors import TerminalError
 
@@ -203,11 +204,47 @@ class RaggedQueryTooLargeError(ValueError):
 RAGGED_QUERY_TOO_LARGE = "ragged_query_too_large"
 
 
+def _spellings(files: list[dict]) -> dict[str, list[tuple[str, str]]]:
+    """Groups every probed column across the files under the name Athena gives it.
+
+    The one place the folder's columns are keyed, so the union the table declares and the
+    spellings the report discloses cannot disagree about which headers are one column.
+
+    Args:
+      files: The manifest's file entries, each carrying the columns its header probe produced.
+
+    Returns:
+      Each folded name, in first-seen order, to every ``(name, type)`` that folds to it, in the
+      order the files list them.
+
+    Raises:
+      KeyError: If a probed column is missing its name or type.
+    """
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for entry in files:
+        for column in entry.get("columns") or []:
+            groups.setdefault(columns_mod.fold(column["name"]), []).append(
+                (column["name"], column["type"])
+            )
+    return groups
+
+
 def union_columns(files: list[dict]) -> list[dict]:
-    """Unions every probed file's columns, in first-seen order, first-seen type winning.
+    """Unions every probed file's columns by the name Athena gives them, first-seen winning.
 
     The union rather than one file's list is what the external table must declare, because a
     column present in only some files still has to be readable.
+
+    Names are matched through ``columns.fold``, so ``CustomerID`` in one file and ``customerid``
+    in another are one column, declared under the first-seen spelling. Athena lowercases every
+    column it creates, so declaring both would be the collision the name rule refuses, and no
+    single file carries it — refusing would stop a folder that table-builder, reading one sample
+    header, builds without complaint. The merge reads correctly in every format: a CSV is read by
+    position, so the name never reaches the file, and Parquet and JSON are matched by name with the
+    catalog's lowercase against the file's own spelling, which a single file with a mixed-case
+    column already depends on. A collision INSIDE one file is still refused, by the caller, before
+    a table is built from this list: merged here, it would declare a CSV one column short and read
+    every later column from its neighbour's field.
 
     The honest consequence of first-seen-type-wins is worth stating: for Parquet, where the
     format enforces types, two files disagreeing about a column's type will make the profile
@@ -215,7 +252,7 @@ def union_columns(files: list[dict]) -> list[dict]:
     exists to report, and it is computed from this same manifest rather than in SQL — an external
     table has one schema for the whole folder and would hide the disagreement. CSV cannot hit
     this, since every column is a string, and the Hive JSON SerDe is tolerant; Parquet is the
-    real case.
+    real case, and two spellings of one column with two types is that case too.
 
     Args:
       files: The manifest's file entries, each carrying the columns its header probe produced.
@@ -226,11 +263,33 @@ def union_columns(files: list[dict]) -> list[dict]:
     Raises:
       KeyError: If a probed column is missing its name or type.
     """
-    seen: dict[str, str] = {}
-    for entry in files:
-        for column in entry.get("columns") or []:
-            seen.setdefault(column["name"], column["type"])
-    return [{"name": name, "type": type_} for name, type_ in seen.items()]
+    return [{"name": group[0][0], "type": group[0][1]} for group in _spellings(files).values()]
+
+
+def other_spellings(files: list[dict]) -> dict[str, list[str]]:
+    """The spellings each unioned column was merged from, beyond the one it is declared under.
+
+    What the report discloses for a merged column. Nothing needs repairing — Athena reads the
+    spellings as one column — but a user whose other tools match names exactly would otherwise
+    find ``customerid`` missing from a report over files that plainly carry it.
+
+    Args:
+      files: The manifest's file entries, each carrying the columns its header probe produced.
+
+    Returns:
+      Each unioned column's declared name to its other distinct spellings, in first-seen order;
+      a column with one spelling is absent.
+
+    Raises:
+      KeyError: If a probed column is missing its name or type.
+    """
+    merged: dict[str, list[str]] = {}
+    for group in _spellings(files).values():
+        declared = group[0][0]
+        others = list(dict.fromkeys(name for name, _type in group if name != declared))
+        if others:
+            merged[declared] = others
+    return merged
 
 
 def profiled_columns(columns: list[dict], partition_keys: list[dict]) -> list[dict]:

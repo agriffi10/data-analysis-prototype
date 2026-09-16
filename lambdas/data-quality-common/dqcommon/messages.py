@@ -146,9 +146,9 @@ _BODIES = {
     ),
     INVALID_COLUMN_NAMES: (
         "these column names in that data won't work in Athena: {columns}. Athena column names "
-        "can only use letters, digits and underscores, and two names that differ only by case "
-        "become one column - a table built from this data would be unreadable, so the check "
-        "stopped here."
+        "can only use letters, digits and underscores, and two names in the same file that differ "
+        "only by case become one column - a table built from this data would be unreadable, so "
+        "the check stopped here."
     ),
     INVALID_PARTITION_NAMES: (
         "these folder names in that data won't work as partitions in Athena: {columns}. A "

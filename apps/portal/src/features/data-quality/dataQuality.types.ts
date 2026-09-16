@@ -63,8 +63,12 @@ export type NotComputedFigure = {status: 'not_computed'; reason: string};
  * `nullBlankRatio` sits on BOTH branches because `report.py::_column` writes it before
  * it branches: a column whose type check was skipped still has a real, exact null/blank
  * ratio, and suppressing it would hide a genuine figure behind an unrelated skip.
+ *
+ * `otherSpellings` is present only on a column merged from headers that differ only by
+ * case across files — Athena reads them as one column — and is absent on every report
+ * written before that merge existed.
  */
-export type ColumnFinding = {name: string; nullBlankRatio: number} & (
+export type ColumnFinding = {name: string; nullBlankRatio: number; otherSpellings?: string[]} & (
   | {typeConsistency: 'skipped'; reason: string}
   | {dominantType: DominantType; nonParsingValues: number; sampleOffending: string[]}
 );

@@ -116,6 +116,10 @@ Revisit before real users arrive.
   against the columns the table **declares**, marking every file whose fields land under another
   column's name — comparing files with each other misses a swap, an inserted column, or two files
   adding different trailing columns.
+- **Headers that differ only by case are one column across files, and a refusal inside one.**
+  `sql.union_columns` groups on `columns.fold`, first-seen spelling and type winning, and the report
+  discloses the others as `otherSpellings`. So create-temp-tables judges column names per file, not
+  on the union, which would merge `Total,TOTAL` in one CSV and shift every later column.
 - **A column named after a partition gets no per-column figures, in any format.** The typed table
   leaves it out, and a query naming it anyway does not fail: Athena lowercases the name and binds
   it to the partition column, so the report showed the folder's value under the user's column

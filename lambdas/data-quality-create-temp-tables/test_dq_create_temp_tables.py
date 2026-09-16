@@ -278,6 +278,60 @@ def test_a_header_athena_cannot_use_is_a_terminal_that_names_the_columns(monkeyp
     assert ran == []
 
 
+def test_headers_differing_only_by_case_across_files_are_declared_once(monkeypatch, ran):
+    """No single file clashes, so the folder is one table: each column declared once, under the
+    first file's spelling and type, where the exact-name union declared both and refused the
+    collision."""
+    _install_manifest(monkeypatch, _manifest(
+        files=[
+            {"key": "alice/sales/jan.parquet", "size": 1, "columns": [
+                {"name": "CustomerID", "type": "bigint"},
+                {"name": "Region", "type": "string"},
+            ]},
+            {"key": "alice/sales/feb.parquet", "size": 1, "columns": [
+                {"name": "customerid", "type": "string"},
+                {"name": "REGION", "type": "string"},
+            ]},
+        ],
+        fmt="parquet",
+    ))
+
+    out = v.handler(_event(format="parquet"), None)
+
+    assert out["columnCount"] == 2
+    assert "(`CustomerID` bigint, `Region` string)" in ran[0]["query"]
+
+
+def test_a_case_collision_inside_one_file_is_still_refused_with_every_files_offenders(monkeypatch, ran):
+    """Merged, ``Total,TOTAL`` would be declared as one column and a CSV read by position would
+    take every later column from its neighbour. The refusal names every file's offenders at once,
+    so fixing the first file never reveals the second's."""
+    _install_manifest(monkeypatch, _manifest(
+        files=[
+            {"key": "alice/sales/jan.csv", "size": 1, "columns": [
+                {"name": "Total", "type": "string"},
+                {"name": "TOTAL", "type": "string"},
+                {"name": "region", "type": "string"},
+            ]},
+            {"key": "alice/sales/feb.csv", "size": 1, "columns": [
+                {"name": "total", "type": "string"},
+                {"name": "Order ID", "type": "string"},
+            ]},
+            {"key": "alice/sales/mar.csv", "size": 1, "columns": [
+                {"name": "total", "type": "string"},
+                {"name": "Order ID", "type": "string"},
+            ]},
+        ]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(), None)
+
+    assert exc.value.reason == messages.INVALID_COLUMN_NAMES
+    assert exc.value.tokens["columns"] == '"Total", "TOTAL", "Order ID"'
+    assert ran == []
+
+
 # ── Shape validation ─────────────────────────────────────────────────────────
 
 

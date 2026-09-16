@@ -166,6 +166,25 @@ describe('DataQualityReportPage', () => {
       expect(mockReport).toHaveBeenCalledWith('user-space', 'alice', 'req-1');
       expect(screen.queryByText(/loading report/i)).not.toBeInTheDocument();
     });
+
+    it.each([
+      ['a wide screen', 1024],
+      ['a phone', 400]
+    ])('notes the other spellings a column was merged from, beside that column only, on %s', async (_label, width) => {
+      window.innerWidth = width;
+      const report = csvReport();
+      report.exact.columns[0] = {...report.exact.columns[0], otherSpellings: ['ORDER_ID', 'Order_Id']};
+      mockReport.mockResolvedValue(ok(report));
+
+      renderReport('/data-quality/alice/req-1');
+
+      const note = await screen.findByText(/also spelled/i);
+      expect(note).toHaveTextContent('Also spelled ORDER_ID, Order_Id in other files');
+      const row = note.closest('li');
+      expect(row).toHaveTextContent('order_id');
+      expect(row).not.toHaveTextContent('amount');
+      expect(screen.getAllByText(/also spelled/i)).toHaveLength(1);
+    });
   });
 
   describe('DataQualityReportPage — qualifying what it shows', () => {

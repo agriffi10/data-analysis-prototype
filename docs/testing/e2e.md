@@ -205,7 +205,28 @@ w("dq_a.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(1,2
 w("dq_b.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(21,41)])
 w("dq_bad.csv", ["id","zone","amount"],  [[i,regions[i%4],i*3] for i in range(41,61)])
 w("dq_reorder.csv", ["id","amount","region"], [[i,i*3,regions[i%4]] for i in range(61,81)])
+
+# data quality: one column spelled two ways across files, per format, and a clash inside one file
+import json
+w("dq_case_a.csv", ["CustomerID","Region"], [[i,regions[i%4]] for i in range(1,11)])
+w("dq_case_b.csv", ["customerid","REGION"], [[i,regions[i%4]] for i in range(11,21)])
+w("dq_case_clash.csv", ["Total","TOTAL","region"], [[i,i,regions[i%4]] for i in range(1,6)])
+for name, keys, ids in (("dq_case_a.json", ("CustomerID","Region"), range(1,11)),
+                        ("dq_case_b.json", ("customerid","REGION"), range(11,21))):
+    with open(name, "w", encoding="utf-8") as f:
+        f.writelines(json.dumps({keys[0]: i, keys[1]: regions[i%4]}) + "\n" for i in ids)
 PY
+```
+
+The Parquet pair needs polars (in `lambdas/`' dev requirements). Both files must give `CustomerID`
+the SAME type, or the profile query fails on the odd file — a different case from the one checked:
+
+```bash
+cd "$SCRATCH" && python3 -c '
+import polars as pl
+r = ["north","south","east","west"]
+pl.DataFrame({"CustomerID": list(range(1,11)), "Region": [r[i%4] for i in range(1,11)]}).write_parquet("dq_case_a.parquet")
+pl.DataFrame({"customerid": list(range(11,21)), "REGION": [r[i%4] for i in range(11,21)]}).write_parquet("dq_case_b.parquet")'
 ```
 
 **LF line endings are load-bearing.** Python's `csv.writer` defaults to CRLF, which puts a trailing
@@ -224,6 +245,8 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `dq_agree/` | `dq_a.csv`, `dq_b.csv` | data-quality clean control |
 | `dq_disagree/` | `dq_a.csv`, `dq_bad.csv` | cross-file finding |
 | `dq_reorder/` | `dq_a.csv`, `dq_reorder.csv` | cross-file finding on a CSV's column order |
+| `dq_case_csv/`, `dq_case_json/`, `dq_case_parquet/` | `dq_case_a.*` and `dq_case_b.*` of that format | one column spelled two ways across files |
+| `dq_case_clash/` | `dq_case_clash.csv` | a case clash inside one file |
 | `archive_fixture/` | copies of `dq_a.csv`, `dq_b.csv` | **the only thing you archive** |
 | `marker_control/` | *(empty)* | the control beside every protected-folder refusal |
 
@@ -600,6 +623,8 @@ as honestly as a succeeding one.
 | Check a **single file** | Reports on that file alone — its neighbours are not counted. |
 | Check an empty / header-only folder | Called out as a finding, never clean. Sampled and skipped figures never read as a pass. |
 | The runs list | Pages, and reopens reports. |
+| Check `dq_case_csv/`, `dq_case_json/` and `dq_case_parquet/` | Each **checks**, not refused, with cross-file agreement clean. Columns lists `CustomerID` once, with *"Also spelled customerid in other files"* beneath it, and `Region` with *"Also spelled REGION in other files"* — `dq_case_a` sorts first, so its spelling is the one shown. Both columns read **0%** null or blank: every value is filled, so anything above 0% means a file's spelling went unread. |
+| Check `dq_case_clash/` | Refused by notification naming `"Total", "TOTAL"` — two spellings in ONE file are a header Athena cannot read. |
 | Check a folder whose header has `Order ID` | Refused by notification naming the column — a check cannot report on data it cannot read, so this is the answer rather than a gap in it. |
 | Check a folder with a `key=value` partition whose KEY is not `[a-z0-9_]` (e.g. `order-id=1/`) | Refused under its **own** wording, about folder names — not the column one, because the repair is renaming a folder. |
 | Check `yearcase/` | Refused in data-quality's own words, naming `"Year"` and its folder — the build's rule, because the temp table would profile `id` and `region` against their neighbours' fields. `yeartrail/` checks normally. |

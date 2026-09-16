@@ -213,6 +213,30 @@ _YEAR_MONTH = [{"name": "year", "values": ["2025"]}, {"name": "month", "values":
             ],
             id="the-files-named-are-the-ones-misread-even-when-the-first-file-is-the-odd-one",
         ),
+        pytest.param(
+            "csv",
+            [["CustomerID", "Region"], ["customerid", "region"], ["CUSTOMERID", "Region"]],
+            [],
+            [],
+            id="headers-differing-only-by-case-are-one-column-and-line-up",
+        ),
+        pytest.param(
+            "csv",
+            [["id", "Amount", "Note"], ["id", "Amount", "Note"], ["ID", "amount"]],
+            [],
+            [{"file": "f2.csv", "missing": ["Note"], "extra": [], "shifted": False}],
+            id="a-missing-column-is-named-in-the-spelling-the-report-columns-show",
+        ),
+        pytest.param(
+            "csv",
+            [["Id", "amount"], ["id", "Amount"], ["ID", "AMOUNT"], ["id", "amount", "Surprise"], ["id", "amount", "SURPRISE"]],
+            [],
+            [
+                {"file": "f3.csv", "missing": [], "extra": ["Surprise"], "shifted": False},
+                {"file": "f4.csv", "missing": [], "extra": ["SURPRISE"], "shifted": False},
+            ],
+            id="an-extra-column-is-named-in-the-files-own-spelling",
+        ),
     ],
 )
 def test_a_csv_is_checked_against_the_columns_its_table_declares(fmt, headers, partition_keys, expected):
@@ -396,6 +420,34 @@ def test_figures_attach_to_the_column_the_query_aliased_them_to():
     assert columns[1]["nonParsingValues"] == 412
     assert columns[2]["nullBlankRatio"] == 0.5
     assert columns[0]["nonParsingValues"] == 0
+
+
+def test_a_column_merged_from_several_spellings_is_reported_once_and_discloses_them():
+    """Three files spelling one column three ways are one column to Athena, so the query projects
+    it once and the report lists it once, under the first spelling, with the others disclosed.
+    The disclosure is not a finding: the folder's columns agree and the verdict stays clean."""
+    files = [
+        _file("alice/sales/a.csv", ["CustomerID", "Region", "amount"]),
+        _file("alice/sales/b.csv", ["customerid", "region", "amount"]),
+        _file("alice/sales/c.csv", ["CUSTOMERID", "Region", "amount"]),
+        _file("alice/sales/d.csv", ["customerid", "Region", "amount"]),
+    ]
+    query = sql.build_profile_query("alice", "dq_tmp_x", sql.union_columns(files), [], "csv")
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(400, [{"not_bigint": 0}, {}, {"not_double": 0}])])
+
+    assert [name for name, _alias in re.findall(r'"([^"]+)"(?:\), \'\'\))? AS (c\d+)\b', query)] == [
+        "CustomerID",
+        "Region",
+        "amount",
+    ]
+    assert [(c["name"], c["dominantType"], c.get("otherSpellings")) for c in document["exact"]["columns"]] == [
+        ("CustomerID", "BIGINT", ["customerid", "CUSTOMERID"]),
+        ("Region", "text", ["region"]),
+        ("amount", "DOUBLE", None),
+    ]
+    assert document["exact"]["crossFile"] == {"columnsAgree": True, "disagreements": []}
+    assert document["verdict"] == "clean"
 
 
 def test_a_column_naming_a_partition_key_gets_no_figures_and_the_rest_keep_their_own():

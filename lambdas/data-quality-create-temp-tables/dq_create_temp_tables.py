@@ -147,6 +147,37 @@ def _run_ddl(query: str, database: str, output_location: str) -> None:
     )
 
 
+def _check_column_names(files: list[dict]) -> None:
+    """Refuses the folder's column names Athena cannot use, judging each file's header on its own.
+
+    Judged per file rather than on the union because the union merges names that differ only by
+    case, and it would merge a collision INSIDE one file just as readily: ``Total,TOTAL`` would be
+    declared as one column, and a CSV, read by position, would take every later column from its
+    neighbour's field. Two spellings in two files are one column; two in one file are a header
+    Athena cannot read. A name of the wrong shape is refused wherever it appears, as before.
+
+    Every file's offenders go into one refusal, in first-seen order, so the user is never sent to
+    fix one file only to be stopped by the next.
+
+    Args:
+      files: The manifest's file entries, each carrying its probed columns.
+
+    Returns:
+      None.
+
+    Raises:
+      InvalidColumnNamesError: When any file carries an unusable name or two that fold together.
+    """
+    offenders: list[str] = []
+    for entry in files:
+        try:
+            columns_mod.check(entry.get("columns") or [])
+        except columns_mod.InvalidColumnNamesError as exc:
+            offenders.extend(name for name in exc.names if name not in offenders)
+    if offenders:
+        raise columns_mod.InvalidColumnNamesError(offenders)
+
+
 def _create(event: dict) -> dict:
     """Reads the manifest, names the temp tables, and creates them.
 
@@ -168,8 +199,10 @@ def _create(event: dict) -> dict:
     The column names are judged before either create runs, and their refusal is this check's
     answer rather than a gap in it: a name Athena will not accept makes the temp table
     unbuildable, so the alternative to naming the columns here is a raw engine error about a
-    statement the user never wrote. The width cap is checked first because it is the cheaper
-    question and its refusal is about the whole source rather than about particular columns.
+    statement the user never wrote. They are judged file by file, not on the union, because the
+    union merges names that differ only by case — see ``_check_column_names``. The width cap is
+    checked first because it is the cheaper question and its refusal is about the whole source
+    rather than about particular columns.
 
     The detected partition keys are judged by the same rule under a DIFFERENT reason code. Same
     rule, because in this arc the keys are derived from S3 path segments rather than declared in
@@ -230,7 +263,7 @@ def _create(event: dict) -> dict:
             messages.TOO_MANY_COLUMNS, str(exc), tokens={"count": f"{len(columns):,}"}
         ) from exc
     try:
-        columns_mod.check(columns)
+        _check_column_names(manifest.get("files") or [])
     except columns_mod.InvalidColumnNamesError as exc:
         raise TerminalError(
             messages.INVALID_COLUMN_NAMES, exc.summary, tokens={"columns": exc.summary}
