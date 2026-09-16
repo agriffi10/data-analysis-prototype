@@ -12,6 +12,10 @@ import {getQualityReport} from './dataQualityReport.service';
 import type {DataQualityReport, DataQualitySpace} from './dataQuality.types';
 
 export type UseDataQualityReportResult = {
+  /**
+   * Only while the space resolves. A report cached before the connections list withdrew its space is
+   * not returned, so it cannot show beside that space's refusal or while a link back to it waits.
+   */
   report: DataQualityReport | undefined;
   /** The resolved space, for the page's "Re-run check" and "Open folder" actions. */
   space: DataQualitySpace | undefined;
@@ -98,7 +102,7 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
   });
 
   return {
-    report: query.data,
+    report: space ? query.data : undefined,
     space,
     isLoading: space ? query.isPending : connectionsLoading || pending,
     error: query.error ? toUserText(query.error) : undefined,

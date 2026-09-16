@@ -297,6 +297,31 @@ describe('DataQualityReportPage', () => {
       expect(mockReport).not.toHaveBeenCalled();
     });
 
+    it('keeps a loaded report off the page once a later read of the list withdraws its space', async () => {
+      // The disabled query keeps its data, so without the gate the refusal and the report showed together —
+      // and a link back to the report, waiting on its read, showed the loading line over the report.
+      const {user, queryClient} = renderReport(
+        '/data-quality/team-data/req-1',
+        clientWithCachedList(0, TEAM_DATA.data),
+        <Link to="/data-quality/team-data/req-1">Open the team-data report</Link>
+      );
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+
+      mockCache.mockResolvedValue(NO_SPACES);
+      await queryClient.invalidateQueries({queryKey: connectionKeys.list('alice')});
+
+      expect(await screen.findByText('Report not available')).toBeInTheDocument();
+      expect(screen.queryByText('alice/sales/')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Re-run check'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Open folder'})).not.toBeInTheDocument();
+
+      mockCache.mockReturnValue(new Promise(() => {}));
+      await user.click(screen.getByRole('link', {name: 'Open the team-data report'}));
+
+      expect(await screen.findByText(/loading report/i)).toBeInTheDocument();
+      expect(screen.queryByText('alice/sales/')).not.toBeInTheDocument();
+    });
+
     it('reads the spaces list again when a link followed on the open page names a space it lacks', async () => {
       // The route does not remount between two reports, so no read is owed: checked against the list the
       // page opened with, a space joined since was refused, and nothing ever read the list again.
