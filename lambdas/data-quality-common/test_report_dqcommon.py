@@ -486,15 +486,22 @@ def test_a_degraded_duplicates_query_still_leaves_a_complete_report():
 
 
 def test_row_counts_by_file_are_keyed_by_object_key_not_the_s3_uri():
+    """S3 keys are case-sensitive and `$path` keeps the key's case, so the key recovered from the
+    full path has to match the manifest's key exactly. The fixture key carries a capital in a
+    folder and another in the file name because a recovery that lowercased the key, or only part
+    of it, would still match wherever that part was already lowercase. Lowercasing would file the
+    count under a key the manifest does not have, so looking up the manifest's key would find
+    nothing and report the file with zero rows, while `rowCount`, which comes from the total row,
+    would stay right."""
     document = _build(
-        manifest=_manifest([_file("alice/sales/part-0.csv", ["id", "amount"])]),
+        manifest=_manifest([_file("alice/Sales/Part-0.csv", ["id", "amount"])]),
         profile=[
             _profile_row(1000, [{}, {}]),
-            _profile_row(1000, [{}, {}], is_total=0, source_file="s3://bkt/alice/sales/part-0.csv"),
+            _profile_row(1000, [{}, {}], is_total=0, source_file="s3://bkt/alice/Sales/Part-0.csv"),
         ],
     )
 
-    assert document["exact"]["rowCountsByFile"] == [{"key": "alice/sales/part-0.csv", "rows": 1000}]
+    assert document["exact"]["rowCountsByFile"] == [{"key": "alice/Sales/Part-0.csv", "rows": 1000}]
 
 
 def test_a_file_with_no_data_rows_is_reported_as_zero_rather_than_vanishing():
