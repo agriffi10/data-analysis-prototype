@@ -6,9 +6,9 @@ on the shared DDL assembly, and only the storage clauses differ, on purpose. The
 profile, ragged and duplicates — are separate statements rather than one, because they fail
 differently and only one of them deserves to kill the check.
 
-Everything here is pure: it builds strings and touches no AWS. That is what lets the
-golden-string tests assert the exact SQL, which matters more than usual in this module — a subtly
-wrong query does not crash, it reports the wrong numbers about a user's data.
+Everything here is pure: it builds strings and touches no AWS, so the exact SQL a check will run
+can be asserted without an engine. That matters more than usual in this module — a subtly wrong
+query does not crash, it reports the wrong numbers about a user's data.
 
 The honest scan cost of the three-statement split: the typed table is read once for the profile
 and again for duplicates, and the raw-line table once for ragged. The second typed-table scan is
@@ -459,11 +459,12 @@ def _projection(index: int, column: dict) -> str:
     and a key that stops being written shows up as a rising missing count with no extra
     machinery. And it shortens the identifier, so every aggregate outside refers to a two- to
     four-character alias rather than repeating a possibly-long quoted column name many times.
-    That is not
-    cosmetic: Athena rejects an over-length query string, and the naive form — aggregating
-    directly over the quoted name — measured 324 KB at the 200-column limit, well over the
-    262,144-byte cap, so every wide check would have failed with a raw engine error about query
-    length. A test pins the rendered size at the cap so this cannot regress.
+    That is not cosmetic: Athena rejects an over-length query string, and the naive form —
+    aggregating directly over the quoted name — repeats every name, and the null-or-blank folding
+    around it, in every aggregate. At the column cap that runs past Athena's 262,144-byte limit
+    even with ten-character names, so every wide check would have failed with a raw engine error
+    about query length. A test renders the query at the column cap with every name as long as the
+    column rule admits and holds it under the limit, so this cannot regress.
 
     A non-string column is passed through untouched: trimming is a string operation, and the
     format already guarantees the value's type.
@@ -674,8 +675,9 @@ def carried_path_filter(event: dict) -> str | None:
 def _where(path_filter: str | None) -> str:
     """Renders the path restriction, or nothing at all.
 
-    Empty for a folder target, so the rendered SQL is byte-identical to the pre-filter form and
-    the golden-query tests keep their meaning.
+    Empty for a folder target, whose table location is already the folder. Each builder takes the
+    path filter only through here, so narrowing a check to one file adds this clause to its
+    statement and changes nothing else.
 
     Args:
       path_filter: The single file's path, or None.
