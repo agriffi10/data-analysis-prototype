@@ -173,6 +173,23 @@ def test_the_actor_is_notified_before_the_index_is_touched(monkeypatch):
     assert order == ["notify", "index"]
 
 
+def test_a_manifest_naming_a_file_outside_the_checked_folder_writes_no_report(monkeypatch):
+    """Inside the space is not enough: a report describes the location the user checked.
+
+    Driven through the real loader, with a sibling folder the actor owns, so a verb that contained
+    the manifest to the space root instead of the location would pass it and write the report.
+    """
+    forged = dict(MANIFEST, files=[*MANIFEST["files"], {"key": "alice/other/b.csv", "size": 1, "columns": []}])
+    fake = _setup(monkeypatch, objects=_objects({f"{PREFIX}/manifest.json": json.dumps(forged).encode()}))
+
+    with pytest.raises(TerminalError) as excinfo:
+        v.handler(_event(), None)
+
+    assert excinfo.value.reason == "invalid_request"
+    assert "outside the checked location" in excinfo.value.detail
+    assert fake.puts == []
+
+
 # ── Finding Athena's result objects ──────────────────────────────────────────
 
 

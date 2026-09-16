@@ -2077,8 +2077,13 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   the report, the query results and the Athena tokens — is derived from the request id, so two
   checks of one location with different ids are independent, and the runs index is written under
   ETag CAS. One id sent twice past the dedup window collides on every one of them, and one run can
-  drop the other's temp table mid-query. A check never writes the user's data, so the cost is a
-  failed or garbled diagnostic.
+  drop the other's temp table mid-query. A check never writes the user's data, but the cost is not
+  only a failed or garbled diagnostic: the temp table's create is `IF NOT EXISTS`, so a FOLDER check
+  reusing the id of a running single-file check at the space root inherits that table's root
+  LOCATION, and its queries carry no predicate. What refuses them today is an accident: the query
+  tokens are derived from the id too, and Athena answers a known token with a different
+  `QueryString` with an error. AWS documents no lifetime for a token, so once one is forgotten the
+  folder check reports over the whole space that `location_is_space_root` exists to refuse.
 - **Results conversion: the write is the guard.** The one object is written with `If-None-Match: *`
   unless the request asked to overwrite, so the loser of two overlapping saves to one name is
   refused `destination_occupied`. Two overwrites of one key land in the order they finish rather

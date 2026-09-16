@@ -376,11 +376,13 @@ def _scan(event: dict) -> dict:
       The event with the encoding figure attached.
 
     Raises:
-      TerminalError: ``invalid_request`` when a required field is missing.
+      TerminalError: ``invalid_request`` when a required field is missing, or the manifest names
+        a file outside the checked location.
       TransientError: On a retryable S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     manifest_key = events.require(event, "manifestKey", reason=messages.INVALID_REQUEST)
+    location = events.require(event, "location", reason=messages.INVALID_REQUEST)
     fmt = events.require(event, "format", reason=messages.INVALID_REQUEST)
 
     out = dict(event)
@@ -391,7 +393,7 @@ def _scan(event: dict) -> dict:
         observability.info("scan skipped", reason=SKIP_BINARY, format=fmt, files=0, invalid=0)
         return out
 
-    files = manifest_store.load(bucket, manifest_key).get("files") or []
+    files = manifest_store.load(bucket, manifest_key, location).get("files") or []
     scannable = [f for f in files if not config.is_compressed(f["key"])]
     skipped = len(files) - len(scannable)
 
@@ -455,7 +457,8 @@ def handler(event, context) -> dict:
       The event with the encoding figure attached.
 
     Raises:
-      TerminalError: ``invalid_request`` when a required field is missing.
+      TerminalError: ``invalid_request`` when a required field is missing, or the manifest names
+        a file outside the checked location.
       TransientError: On a retryable S3 fault.
     """
     return _scan(event)

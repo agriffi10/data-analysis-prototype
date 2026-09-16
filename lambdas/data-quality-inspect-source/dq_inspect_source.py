@@ -51,7 +51,7 @@ import logging
 from cpcommon import bounded_read, clients, errors, events, observability, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
-from dqcommon import config, messages, notify
+from dqcommon import config, messages, notify, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -718,7 +718,13 @@ def _inspect(event: dict) -> dict:
     bug is about. Column values would be file contents and are never recorded anywhere in this
     plane.
 
-    The state output threads the request object and adds four small keys. The file list and the
+    **Whether this is a single-file check is decided here, and nowhere later.** The file list in
+    hand is the one the manifest is about to be written from; every later verb would otherwise
+    have to read the manifest back, from a key a caller can predict, and two reads are two
+    decisions. So the answer rides the state as ``pathFilter`` and create and start both consume
+    it — see ``dqcommon.sql.single_file_path``.
+
+    The state output threads the request object and adds five small keys. The file list and the
     column lists stay in the manifest and are passed by pointer; partition values stay there too,
     since there can be many per key. The disaster this prevents is a state payload over the limit,
     which raises ``States.DataLimitExceeded`` and escapes every Catch here (``States.ALL`` does
@@ -732,7 +738,8 @@ def _inspect(event: dict) -> dict:
       event: The task input.
 
     Returns:
-      The event with the manifest key, format, file count and partition key names added.
+      The event with the manifest key, format, file count, partition key names and the
+      single-file path filter added.
 
     Raises:
       TerminalError: Any inspection refusal.
@@ -794,6 +801,7 @@ def _inspect(event: dict) -> dict:
     out["format"] = fmt
     out["fileCount"] = len(files)
     out["partitionKeys"] = [k["name"] for k in partition_keys]
+    out["pathFilter"] = sql.single_file_path(bucket, files, location)
     return out
 
 
@@ -820,7 +828,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The event with the manifest key, format, file count and partition key names added.
+      The event with the manifest key, format, file count, partition key names and the
+      single-file path filter added.
 
     Raises:
       TerminalError: Any inspection refusal.

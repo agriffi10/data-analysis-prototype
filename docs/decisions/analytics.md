@@ -68,7 +68,9 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
   help, which is the trap: the manifest is what the plane knows about, the location is what Athena
-  reads. A single FILE at the root is not this case — its queries carry a `"$path"` predicate.
+  reads. A single FILE at the root is not this case — its queries carry a `"$path"` predicate,
+  **decided once, by inspect-source, and carried on the state**: a verb that re-reads the manifest
+  re-decides, and the manifest is an object that can change between two reads.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
   **message** — the same `InvalidRequestException` is a malformed query at submit, and a name-keyed
@@ -1009,6 +1011,25 @@ catalog with no way to repair it.
 > failure modes only one is a leak — a MISSING predicate widens the read to the whole space, a
 > wrong escaper (the quoting fence above) makes it match NOTHING, a zero-row report. Presence is
 > pinned both ways now; the escaper is pinned by nothing, and an apostrophe is legal in an S3 key.
+>
+> **Fixed (2026-09-16) — the exemption was decided twice, from an object a caller could write.**
+> create-temp-tables promoted the table and start-profile-query attached the predicate, and EACH
+> called `single_file_path` over the manifest it had just loaded — one definition, two reads. The
+> manifest key is a function of the caller's own request id and the API's object routes took writes
+> under `_data-quality-reports/`, so a two-file list written between the verbs left the table over
+> the root and the queries unnarrowed. A create RETRY re-read it too, so moving the call into create
+> alone would still have been once per attempt rather than once per run. Now inspect-source decides
+> over the list it holds in memory and carries `pathFilter`; both verbs read that value and refuse a
+> state without it rather than default to "a folder". Two guards narrow what a replaced manifest
+> can still do. The manifest loader refuses any file outside the checked location — byte-scan GETs
+> each listed key under a role that reads both buckets whole, so a forged list was also another
+> tenant's bytes — and that holds whoever wrote the object. The object routes refuse the reports
+> folder (`protected.is_in_reports_folder`), which is NOT every writer: the file-ops plane judges a
+> copy or move by its destination prefix, not each item's derived key, so moving a nested
+> `_data-quality-reports/` folder to the root still writes there, and its deletes are not refused.
+> **Still open, besides that:** a request id reused past the dedup window shares the temp table,
+> whose create is `IF NOT EXISTS`, so a folder check can inherit a running root-file check's table
+> and query it unnarrowed, held off only by the shared Athena tokens — [what overlap costs on this plane](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 

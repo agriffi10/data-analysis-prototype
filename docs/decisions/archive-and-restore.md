@@ -887,7 +887,10 @@ applied to a whole folder. `writeLockRefusal` refuses those writes in its own wo
 through: Athena delivers its results itself, under whichever role ran the query, and the browser
 only copies them out. `isWriteLockedPrefix` and
 `is_write_locked` still refuse only what the policy refuses, and the results rule is held against
-its `DeleteObject` Deny by the same matchers, in both trees.
+its `DeleteObject` Deny by the same matchers, in both trees. **The data-quality reports folder is a
+second exception, and it mirrors no Deny at all**: the plane reads its manifest back between verbs
+from a key a caller can predict, so `assert_writable` refuses the root-anchored
+`_data-quality-reports/` at the object routes, where only reads were ever legitimate.
 
 **The refusal is `aria-disabled`, not `disabled`.** A `disabled` control is skipped by the tab order,
 so its reason is reachable only by hovering — which is how "it's greyed out and I can't find out

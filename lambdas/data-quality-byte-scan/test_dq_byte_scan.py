@@ -99,10 +99,19 @@ class _FakeS3:
 
 
 def _setup(monkeypatch, files, fmt="csv", content=None, error=None, mid_stream_error=None):
-    """Install a fake S3 + manifest and return the fake."""
+    """Install a fake S3 + manifest and return the fake.
+
+    The loader records the location it was asked to contain the manifest to, on ``fake.loaded``.
+    """
     fake = _FakeS3(content=content, error=error, mid_stream_error=mid_stream_error)
+    fake.loaded = []
     monkeypatch.setattr(v.clients, "s3", lambda: fake)
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {"files": files})
+
+    def _load(bucket, key, location):
+        fake.loaded.append(location)
+        return {"files": files}
+
+    monkeypatch.setattr(v.manifest_store, "load", _load)
     return fake
 
 
@@ -112,6 +121,7 @@ def _event(fmt="csv"):
         "actor": "alice",
         "space": {"bucket": BUCKET, "prefix": "alice/"},
         "manifestKey": MANIFEST_KEY,
+        "location": "alice/s",
         "format": fmt,
     }
 
@@ -158,11 +168,12 @@ def test_invalid_utf8_is_counted_with_its_offset_and_file(monkeypatch):
     # 0xE9 is Latin-1 'e-acute' — a UTF-8 lead byte followed by a non-continuation, i.e.
     # exactly what a Windows-codepage export from Excel looks like.
     content = {"alice/s/a.csv": b"id,name\n1,caf\xe9,x\n"}
-    _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": len(content["alice/s/a.csv"])}], content=content)
+    fake = _setup(monkeypatch, [{"key": "alice/s/a.csv", "size": len(content["alice/s/a.csv"])}], content=content)
 
     out = v.handler(_event(), None)["encoding"]
 
     assert out["invalidUtf8Sequences"] == 1
     assert out["sampleOffsets"] == [{"key": "alice/s/a.csv", "offset": 13}]
+    assert fake.loaded == ["alice/s"], "the verb that GETs by manifest key must contain the manifest"
 
 
