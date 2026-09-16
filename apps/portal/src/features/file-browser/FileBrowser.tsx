@@ -415,6 +415,7 @@ function FileBrowserContent({
             <CollisionPrompt
               kind={pendingCollision.kind}
               name={pendingCollision.label}
+              parentPrefix={pendingCollision.prefix}
               onOverwrite={() => pendingCollision.retry({overwrite: true})}
               onRename={(newName) => pendingCollision.retry({rename: newName})}
               onCancel={cancelCollision}

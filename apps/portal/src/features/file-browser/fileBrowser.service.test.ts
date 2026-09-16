@@ -17,7 +17,13 @@ import {
   __resetPrefixMarkerCache
 } from './fileBrowser.service';
 import {maxUploadBytes, S3_SINGLE_PUT_MAX_BYTES} from './uploadLimits';
-import {MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
+import {
+  appManagedPrefix,
+  MOVING_FOLDERS,
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+} from '../../lib/appManagedPaths';
+import {PICKER_LOCKED_FOLDERS} from './protectedFolders';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import {toUserText} from '../../lib/errorMessages';
 
@@ -637,6 +643,20 @@ describe('createFolder', () => {
     });
     expect(api.calls).toEqual([]);
   });
+
+  it('checks the name against the folder it writes into, which no prompt can skip', async () => {
+    // Every prompt in front of this is told the parent only by a caller that remembers to.
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/', name: SHARED_TABLES_FOLDER});
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        message: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.',
+        code: 'InvalidName'
+      }
+    });
+    expect(api.calls).toEqual([]);
+  });
 });
 
 describe('getObjectMetadata', () => {
@@ -1217,5 +1237,34 @@ describe('validateFolderName refuses the app’s own folders inside system_setti
   it('still refuses the app’s folder itself at every depth, parent or no parent', () => {
     expect(validateFolderName(SYSTEM_SETTINGS_FOLDER)).toMatch(/folder the app manages/);
     expect(validateFolderName(SYSTEM_SETTINGS_FOLDER, 'alice/projects/')).toMatch(/folder the app manages/);
+  });
+});
+
+describe('validateFolderName refuses a name that lands on a picker-locked folder’s home', () => {
+  /** The folder a name must be typed in to land on its home — the builder's answer, minus the leaf. */
+  const parentOfHome = (root: string, name: string) => appManagedPrefix(root, name).slice(0, -`${name}/`.length);
+
+  it.each(PICKER_LOCKED_FOLDERS)('refuses “%s” typed where its home is, in either kind of space', (name) => {
+    for (const root of ['alice/', 'finance/']) {
+      expect(validateFolderName(name, parentOfHome(root, name))).toMatch(
+        new RegExp(`^“${name}” is a folder the app manages`)
+      );
+    }
+  });
+
+  it('says the folder is the app’s at the top of a space, which is where the rule holds', () => {
+    expect(validateFolderName(SHARED_TABLES_FOLDER, 'finance/')).toBe(
+      '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
+    );
+  });
+
+  it('leaves every one of those names ordinary below the top, and without a parent', () => {
+    // The space root is read off the parent. Comparing at the parent instead would refuse
+    // `alice/projects/shared_tables/`, a folder the plane and the API both treat as the user's own.
+    for (const name of PICKER_LOCKED_FOLDERS.filter((folder) => folder !== SYSTEM_SETTINGS_FOLDER)) {
+      expect(validateFolderName(name, 'alice/projects/')).toBeNull();
+      expect(validateFolderName(name, 'finance/q1/stage/')).toBeNull();
+      expect(validateFolderName(name)).toBeNull();
+    }
   });
 });

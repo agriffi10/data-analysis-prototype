@@ -6,6 +6,7 @@ import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
 import {DataQualityDialog} from '../data-quality';
 import {undeletableRootFolderRefusal} from './protectedFolders';
+import {containingFolder} from './fileOps.request';
 import type {UseFileBrowserDialogsResult} from './useFileBrowserDialogs';
 import type {useCopy} from './useCopy';
 import type {useDelete} from './useDelete';
@@ -130,6 +131,7 @@ export function FileBrowserDialogs({
         <RenameDialog
           kind={dialogs.renaming.kind}
           currentName={dialogs.renaming.name}
+          parentPrefix={containingFolder(dialogs.renaming.item)}
           isBusy={move.isBusy || dialogs.submitting}
           onRename={dialogs.confirmRename}
           onCancel={dialogs.cancelRename}

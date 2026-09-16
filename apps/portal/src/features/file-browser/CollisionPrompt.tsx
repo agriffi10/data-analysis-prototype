@@ -6,6 +6,8 @@ import {validateFolderName, validateLeafName} from './fileBrowser.service';
 type Props = {
   kind: 'file' | 'folder';
   name: string;
+  /** Where a renamed folder lands, when the caller knows it. Ignored for a file. */
+  parentPrefix?: string;
   onOverwrite: () => void;
   onRename: (newName: string) => void;
   onCancel: () => void;
@@ -18,13 +20,13 @@ type Props = {
  *
  * The new name is validated here rather than by each caller, because every caller builds a key by
  * appending it to a prefix: a `/` in it would land the write in a subfolder instead of beside the
- * original. A file gets the leaf rules; a folder gets the folder-name rules, but not the one that
- * depends on the parent — the prompt is not told where the write lands.
+ * original. A file gets the leaf rules; a folder gets the folder-name rules, and the ones that
+ * depend on the parent only when the caller passes `parentPrefix`.
  *
  * @example
  * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
  */
-export function CollisionPrompt({kind, name, onOverwrite, onRename, onCancel}: Props) {
+export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, onRename, onCancel}: Props) {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
   const [touched, setTouched] = useState(false);
@@ -33,7 +35,7 @@ export function CollisionPrompt({kind, name, onOverwrite, onRename, onCancel}: P
   const nameError =
     trimmed.length === 0
       ? 'Enter a name.'
-      : ((kind === 'folder' ? validateFolderName(trimmed) : validateLeafName(trimmed, 'File name')) ??
+      : ((kind === 'folder' ? validateFolderName(trimmed, parentPrefix) : validateLeafName(trimmed, 'File name')) ??
         (trimmed === name ? `Enter a name different from “${name}”.` : null));
   const canRename = nameError === null;
   // Surface why the action is unavailable in text, not just via a disabled

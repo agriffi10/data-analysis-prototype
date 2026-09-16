@@ -1,6 +1,6 @@
 import {apiRequest} from '../../lib/apiClient';
 import {MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
-import {spaceFor} from '../../lib/objectSpace';
+import {spaceFor, spaceRootOf} from '../../lib/objectSpace';
 import {fromApiFailure, ok} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
@@ -9,6 +9,7 @@ import type {DownloadUrl, UploadResult, CreateFolderResult, ObjectMetadata} from
 import {maxUploadBytes} from './uploadLimits';
 import {uploadParts} from './multipartUpload';
 import {putBytes, uploadCancelled, uploadRejection} from './xhrUpload';
+import {isRootFolderNamed, PICKER_LOCKED_FOLDERS} from './protectedFolders';
 import {PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
 /**
@@ -452,29 +453,49 @@ export function validateLeafName(name: string, label: string): string | null {
  * anyway, but as a permission error telling the user to contact an admin, where this names the
  * actual reason.
  *
- * **Only a caller that passes the parent gets that check, and that is worth stating plainly rather
- * than discovering.** Create-folder passes it twice: its dialog, for the inline reason, and
+ * **Given the parent, it also refuses a name that would land ON a picker-locked folder's home**,
+ * such as `shared_tables` at the top of a space. A folder renamed, copied or created there is not a
+ * folder of the user's that happens to share a name: it has the app's key, so it merges into what
+ * the app keeps there, or vanishes from the listing the moment it is made when the name is also a
+ * hidden one. The file-operations plane refuses a rename or copy that lands there only after the
+ * run starts, in its notification. Each name is compared at the home `appManagedPrefixes` gives
+ * it, so a folder that moved under `system_settings/` is an ordinary name at the top of a space,
+ * and below the top the other names are ordinary too — only `system_settings` itself is refused at
+ * every depth, by the name rule. Ordinary to this check, not to the file-operations plane, whose
+ * execution role cannot write beneath `user_settings/` at any depth: it still refuses a folder
+ * landing on a nested `user_settings`, in its notification. The space root is read off the
+ * parent, the way `spaceFor` reads a space's name, so a caller cannot pass the parent and forget
+ * the root.
+ *
+ * **Only a caller that passes the parent gets either check, and that is worth stating plainly
+ * rather than discovering.** Create-folder passes it twice: its dialog, for the inline reason, and
  * `createFolder`, which knows the exact prefix it writes into and so also covers a collision's
- * Rename. A caller that validates the name alone does not get it, and neither does an upload, which
- * creates folders without calling this at all. This is a courtesy on the path a user actually
- * takes, not a boundary — read as a boundary it would be worse than absent, because someone
- * downstream would stop looking for the real one.
+ * Rename. Rename, the same-folder copy name and a conflict's new name pass it for a FOLDER only —
+ * a file named like one of these is not that folder, and nothing downstream refuses it. Those three
+ * still call this for a file, so the name-only `system_settings` refusal reaches a file there, which
+ * the plane would accept; that predates the parent checks and is left as it was. A caller
+ * that validates the name alone does not get it, and neither does an upload, which creates folders
+ * without calling this at all. This is a courtesy on the path a user actually takes, not a
+ * boundary — read as a boundary it would be worse than absent, because someone downstream would
+ * stop looking for the real one.
  *
  * @param name - The proposed leaf name.
- * @param parentPrefix - The prefix the folder would be created in, when the caller knows it.
- *   Omitted, only the name rules apply.
+ * @param parentPrefix - The prefix the folder would land in, when the caller knows it. Omitted,
+ *   only the name rules apply.
  */
 export function validateFolderName(name: string, parentPrefix?: string): string | null {
   const leaf = validateLeafName(name, 'Folder name');
   if (leaf !== null) return leaf;
   if (name === SYSTEM_SETTINGS_FOLDER)
     return `“${SYSTEM_SETTINGS_FOLDER}” is a folder the app manages. Pick another name.`;
+  if (parentPrefix === undefined) return null;
   if (
-    parentPrefix !== undefined &&
     parentPrefix.replace(/\/$/, '').split('/').pop() === SYSTEM_SETTINGS_FOLDER &&
     (MOVING_FOLDERS as readonly string[]).includes(name)
   )
     return `“${name}” is a folder the app manages inside ${SYSTEM_SETTINGS_FOLDER}. Pick another name.`;
+  if (isRootFolderNamed(`${parentPrefix}${name}/`, spaceRootOf(parentPrefix), PICKER_LOCKED_FOLDERS))
+    return `“${name}” is a folder the app manages at the top of a space. Pick another name.`;
   return null;
 }
 
@@ -651,8 +672,8 @@ async function sendBytes(params: TransferParams): Promise<ServiceResult<UploadRe
  *
  * One call: the name is validated here, and the collision the browser used to `HEAD` for is the
  * write route's own `Conflict`. It is validated against `prefix`, the folder it is written into,
- * because this is the one check a collision's Rename passes through that knows where the folder
- * lands — the prompt checks the new name alone.
+ * because this is the one check every caller passes through that knows where the folder lands —
+ * a collision's Rename prompt is told the parent too, but only by a caller that remembers to.
  *
  * @param params.bucket - The bucket.
  * @param params.prefix - The folder to create it in.
