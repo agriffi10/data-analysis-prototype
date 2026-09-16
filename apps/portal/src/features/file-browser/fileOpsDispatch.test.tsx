@@ -260,21 +260,42 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
   it.each([
     {
       label: 'folder docs',
+      prefix: 'alice/',
+      opens: [],
+      value: 'shared_tables',
       refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
     },
-    {label: 'notes.txt', refusal: null}
-  ])('checks the name a copy of $label would land under at the top of a space', async ({label, refusal}) => {
-    const {user} = render();
-    await selectAnd(user, label, 'Copy selected items');
-    await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Copy here'}));
-    const input = await screen.findByLabelText('Name for the copy');
-    await user.clear(input);
-    await user.type(input, 'shared_tables');
+    {
+      label: 'folder q1',
+      prefix: 'alice/docs/',
+      opens: ['docs'],
+      value: 'user_settings',
+      refusal: '“user_settings” is a name the app keeps for its own folders. Pick another name.'
+    },
+    {label: 'notes.txt', prefix: 'alice/', opens: [], value: 'shared_tables', refusal: null}
+  ])(
+    'checks the name a copy of $label would land under as “$value” in $prefix',
+    async ({label, prefix, opens, value, refusal}) => {
+      // The picker starts at the space root, so a copy into a subfolder opens its way back there.
+      const q1: S3FolderItem = {type: 'folder', prefix: 'alice/docs/q1/', name: 'q1'};
+      mock.listFiles.mockImplementation(async (_bucket, listed) =>
+        ok(listed === 'alice/docs/' ? page({files: [], folders: [q1]}) : page())
+      );
+      const {user} = render({prefix});
+      await selectAnd(user, label, 'Copy selected items');
+      const picker = await screen.findByRole('dialog');
+      for (const name of opens)
+        await user.click(await within(picker).findByRole('button', {name: `Open folder ${name}`}));
+      await user.click(await within(picker).findByRole('button', {name: 'Copy here'}));
+      const input = await screen.findByLabelText('Name for the copy');
+      await user.clear(input);
+      await user.type(input, value);
 
-    const form = screen.getByRole('dialog', {name: 'Copy to folder'});
-    expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
-    expect(within(form).getByRole('button', {name: 'Copy'})).toHaveProperty('disabled', refusal !== null);
-  });
+      const form = screen.getByRole('dialog', {name: 'Copy to folder'});
+      expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      expect(within(form).getByRole('button', {name: 'Copy'})).toHaveProperty('disabled', refusal !== null);
+    }
+  );
 });
 
 describe('a failed enqueue says why (FR-002 AC8)', () => {
@@ -553,33 +574,49 @@ describe('the conflict round trip', () => {
   it.each([
     {
       conflict: {itemKey: 'finance/reports/q1/', kind: 'folder', targetName: 'q1'},
+      prefix: 'alice/',
+      value: 'shared_tables',
       refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
     },
-    {conflict: {itemKey: 'finance/reports/q1', kind: 'file', targetName: 'q1'}, refusal: null}
-  ])('checks a $conflict.kind’s new name where the destination would put it', async ({conflict, refusal}) => {
-    vi.mocked(getNotifications).mockResolvedValue(
-      ok([
-        {
-          ...CONFLICTED,
-          payload: {
-            ...CONFLICTED.payload,
-            destination: {kind: 'personal', name: 'alice', prefix: 'alice/'},
-            conflicts: [conflict]
+    {
+      conflict: {itemKey: 'finance/reports/q1/', kind: 'folder', targetName: 'q1'},
+      prefix: 'alice/projects/',
+      value: 'user_settings',
+      refusal: '“user_settings” is a name the app keeps for its own folders. Pick another name.'
+    },
+    {
+      conflict: {itemKey: 'finance/reports/q1', kind: 'file', targetName: 'q1'},
+      prefix: 'alice/',
+      value: 'shared_tables',
+      refusal: null
+    }
+  ])(
+    'checks a $conflict.kind’s new name “$value” where the destination $prefix would put it',
+    async ({conflict, prefix, value, refusal}) => {
+      vi.mocked(getNotifications).mockResolvedValue(
+        ok([
+          {
+            ...CONFLICTED,
+            payload: {
+              ...CONFLICTED.payload,
+              destination: {kind: 'personal', name: 'alice', prefix},
+              conflicts: [conflict]
+            }
           }
-        }
-      ])
-    );
-    const {user} = render({requestId: 'run-1'});
-    const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
-    await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
-    const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
-    const input = within(form).getByRole('textbox');
-    await user.clear(input);
-    await user.type(input, 'shared_tables');
+        ])
+      );
+      const {user} = render({requestId: 'run-1'});
+      const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+      await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
+      const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
+      const input = within(form).getByRole('textbox');
+      await user.clear(input);
+      await user.type(input, value);
 
-    expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
-    expect(within(form).getByRole('button', {name: 'Request again'})).toHaveProperty('disabled', refusal !== null);
-  });
+      expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      expect(within(form).getByRole('button', {name: 'Request again'})).toHaveProperty('disabled', refusal !== null);
+    }
+  );
 
   it('passes axe on the rename form, and on the review that offers it inline', async () => {
     vi.mocked(getNotifications).mockResolvedValue(

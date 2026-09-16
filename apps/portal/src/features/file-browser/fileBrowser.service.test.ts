@@ -11,6 +11,7 @@ import {
   uploadFile,
   createFolder,
   validateFolderName,
+  validateFolderNameForPlane,
   validateLeafName,
   uploadPercent,
   getObjectMetadata,
@@ -23,7 +24,7 @@ import {
   SHARED_TABLES_FOLDER,
   SYSTEM_SETTINGS_FOLDER
 } from '../../lib/appManagedPaths';
-import {PICKER_LOCKED_FOLDERS} from './protectedFolders';
+import {PICKER_LOCKED_FOLDERS, PLANE_WRITE_DENIED_FOLDERS} from './protectedFolders';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import {toUserText} from '../../lib/errorMessages';
 
@@ -657,6 +658,15 @@ describe('createFolder', () => {
     });
     expect(api.calls).toEqual([]);
   });
+
+  it('writes a user_settings folder below the top, which only the file-operations plane refuses', async () => {
+    api.on('objects.writeContent', {success: true, data: {key: 'alice/projects/user_settings/', etag: 'e'}});
+
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/projects/', name: 'user_settings'});
+
+    expect(result).toEqual({success: true, data: {prefix: 'alice/projects/user_settings/'}});
+    expect(api.bodyFor('objects.writeContent')).toMatchObject({key: 'alice/projects/user_settings/'});
+  });
 });
 
 describe('getObjectMetadata', () => {
@@ -1266,5 +1276,34 @@ describe('validateFolderName refuses a name that lands on a picker-locked folder
       expect(validateFolderName(name, 'finance/q1/stage/')).toBeNull();
       expect(validateFolderName(name)).toBeNull();
     }
+  });
+});
+
+describe('validateFolderNameForPlane refuses a folder landing where the plane cannot write, at any depth', () => {
+  // A moved folder's pair is answered by `validateFolderName`'s system_settings rule before this one;
+  // the rows hold the outcome the plane gives, whichever rule reaches it.
+  it.each(PLANE_WRITE_DENIED_FOLDERS)(
+    'refuses a folder landing on “%s” below the top, in either kind of space',
+    (name) => {
+      for (const below of ['alice/projects/', 'finance/q1/stage/']) {
+        const home = appManagedPrefix(below, name);
+        expect(validateFolderNameForPlane(name, home.slice(0, -`${name}/`.length))).toMatch(new RegExp(`^“${name}”`));
+      }
+    }
+  );
+
+  it('says the name is one the app keeps, which holds at every depth', () => {
+    expect(validateFolderNameForPlane('user_settings', 'finance/q1/stage/')).toBe(
+      '“user_settings” is a name the app keeps for its own folders. Pick another name.'
+    );
+  });
+
+  it('judges only the landing, and leaves New folder’s rule alone', () => {
+    // Inside a nested `user_settings` the plane refuses the whole request's destination, which no
+    // name fixes, and a moved folder's bare name is ordinary below the top.
+    expect(validateFolderNameForPlane('reports', 'alice/x/user_settings/')).toBeNull();
+    expect(validateFolderNameForPlane('archive', 'alice/projects/')).toBeNull();
+    expect(validateFolderNameForPlane('user_settings')).toBeNull();
+    expect(validateFolderName('user_settings', 'alice/projects/')).toBeNull();
   });
 });

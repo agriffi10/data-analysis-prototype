@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 // because the app tsconfig carries no node types and `tsc -b` is the only typecheck CI runs.
 import appManaged from '../../../../../lambdas/control-plane-common/cpcommon/app_managed.py?raw';
 import focommonConfig from '../../../../../lambdas/file-ops-common/focommon/config.py?raw';
-import {PICKER_LOCKED_FOLDERS, UNDELETABLE_ROOT_FOLDERS} from './protectedFolders';
+import {PICKER_LOCKED_FOLDERS, PLANE_WRITE_DENIED_FOLDERS, UNDELETABLE_ROOT_FOLDERS} from './protectedFolders';
 
 /**
  * The browser's protected-folder lists against the file-operations plane's, held equal as sets.
@@ -74,10 +74,23 @@ describe('the browser and the file-operations plane refuse the same folders', ()
     expect([...UNDELETABLE_ROOT_FOLDERS].sort()).toEqual([...plane].sort());
   });
 
+  it('refuses a folder landing on the same folders at any depth', () => {
+    // A folder the plane stopped denying would still be refused in the dialog — silently, for a
+    // rename the plane would now carry out.
+    const plane = planeTuple('ANY_DEPTH_DENIED_FOLDERS');
+
+    expect(plane.length).toBeGreaterThan(0);
+    expect([...PLANE_WRITE_DENIED_FOLDERS].sort()).toEqual([...plane].sort());
+  });
+
   it('resolves every member to a string, rather than skipping one it cannot read', () => {
     // A member that failed to resolve would otherwise shrink the plane's set silently and make
-    // both assertions above pass over a divergence — the shape that makes a mirror vacuous.
-    for (const member of [...planeTuple('PICKER_LOCKED_FOLDERS'), ...planeTuple('UNDELETABLE_ROOT_FOLDERS')]) {
+    // the assertions above pass over a divergence — the shape that makes a mirror vacuous.
+    for (const member of [
+      ...planeTuple('PICKER_LOCKED_FOLDERS'),
+      ...planeTuple('UNDELETABLE_ROOT_FOLDERS'),
+      ...planeTuple('ANY_DEPTH_DENIED_FOLDERS')
+    ]) {
       expect(member).toMatch(/^[\w-]+$/);
     }
   });

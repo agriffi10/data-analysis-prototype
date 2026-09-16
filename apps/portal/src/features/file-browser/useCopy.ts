@@ -2,7 +2,7 @@ import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
-import {copyObject, firstFreeName, validateFolderName} from './fileBrowser.service';
+import {copyObject, firstFreeName, validateFolderNameForPlane} from './fileBrowser.service';
 import {leafName, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
 import type {BulkOperationState} from './fileBrowser.types';
@@ -169,7 +169,7 @@ export function useCopy(bucket: string, username?: string): UseCopyResult {
     setSameFolderPrompt({
       kind: item.type,
       proposedName: proposed.data,
-      validate: (name) => validateFolderName(name, parent)
+      validate: (name) => validateFolderNameForPlane(name, parent)
     });
   }
 
