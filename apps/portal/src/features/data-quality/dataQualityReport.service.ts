@@ -1,9 +1,7 @@
+import {appManagedPrefix, DATA_QUALITY_REPORTS_FOLDER} from '../../lib/appManagedPaths';
 import {readJsonDocument} from '../../lib/s3Json';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityReport} from './dataQuality.types';
-
-/** The folder `assemble-report` writes into, hidden from the browser. */
-export const REPORTS_FOLDER = '_data-quality-reports';
 
 /**
  * `{space}/_data-quality-reports/{requestId}/report.json` — the same key
@@ -13,7 +11,7 @@ export const REPORTS_FOLDER = '_data-quality-reports';
  *   name for a shared one. It is also the space's root prefix in its bucket.
  */
 export function reportKey(space: string, requestId: string): string {
-  return `${space}/${REPORTS_FOLDER}/${requestId}/report.json`;
+  return `${appManagedPrefix(`${space}/`, DATA_QUALITY_REPORTS_FOLDER)}${requestId}/report.json`;
 }
 
 /**

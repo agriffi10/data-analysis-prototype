@@ -32,12 +32,14 @@ TS_OWNER = "apps/portal/src/lib/appManagedPaths.ts"
 PY_OWNER_BODY = (
     'ATHENA_RESULTS_FOLDER = "athenaresults"\nRECEIPT_FOLDER = "archive"\n'
     'SHARED_TABLES_FOLDER = "shared_tables"\nVAULT_ARCHIVE_SEGMENT = "archive"\n'
+    'DATA_QUALITY_REPORTS_FOLDER = "_data-quality-reports"\n'
     'def app_managed_prefix(root, folder):\n    return f"{root}{folder}/"\n'
 )
 PY_FACT3_BODY = 'PREFIX = "archive"\n'
 TS_OWNER_BODY = (
     "export const ATHENA_RESULTS_FOLDER = 'athenaresults';\nexport const ARCHIVE_FOLDER = 'archive';\n"
     "export const SHARED_TABLES_FOLDER = 'shared_tables';\n"
+    "export const DATA_QUALITY_REPORTS_FOLDER = '_data-quality-reports';\n"
     "export function appManagedPrefix(r: string, f: string): string { return `${r}${f}/`; }\n"
 )
 PY_BENIGN = ("lambdas/benign/benign.py", "X = 1\n")
@@ -225,6 +227,66 @@ CASES: list[tuple[str, dict[str, str], int, list[str]]] = [
         [],
     ),
     (
+        "py_reports_folder_in_a_membership_list_fails",
+        {"lambdas/x/verb.py": 'LOCKED = (\n    "user_settings",\n    "_data-quality-reports",\n)\n'},
+        1,
+        ["lambdas/x/verb.py:3", "_data-quality-reports declared outside"],
+    ),
+    (
+        "py_reports_folder_construction_fails",
+        {"lambdas/x/verb.py": 'def f(root, rid):\n    return f"{root}/_data-quality-reports/{rid}/"\n'},
+        1,
+        ["lambdas/x/verb.py:2", "_data-quality-reports constructed outside", "an f-string builds the prefix)"],
+    ),
+    (
+        "py_reports_folder_owner_name_in_an_fstring_fails",
+        {
+            "lambdas/x/verb.py": (
+                "from cpcommon.app_managed import DATA_QUALITY_REPORTS_FOLDER\n"
+                "def f(root, rid):\n"
+                '    return f"{root}/{DATA_QUALITY_REPORTS_FOLDER}/{rid}/"\n'
+            )
+        },
+        1,
+        ["lambdas/x/verb.py:3", "_data-quality-reports constructed outside", "from an imported name"],
+    ),
+    (
+        "py_reports_folder_owner_attribute_in_a_concatenation_fails",
+        {
+            "lambdas/x/verb.py": (
+                "from cpcommon import app_managed\n"
+                "def f(root):\n"
+                '    return root + app_managed.DATA_QUALITY_REPORTS_FOLDER + "/"\n'
+            )
+        },
+        1,
+        ["lambdas/x/verb.py:3", "_data-quality-reports constructed outside", "a concatenation"],
+    ),
+    (
+        "an_unrelated_constant_named_REPORTS_FOLDER_ok",
+        {
+            "lambdas/x/verb.py": 'REPORTS_FOLDER = "exports"\ndef f(root):\n    return f"{root}{REPORTS_FOLDER}/"\n',
+            "apps/portal/src/features/x/y.ts": "const REPORTS_FOLDER = 'exports';\nexport const k = (s: string) => `${s}/${REPORTS_FOLDER}/x.csv`;\n",
+        },
+        0,
+        [],
+    ),
+    (
+        "py_reports_folder_as_wording_ok",
+        {
+            "lambdas/x/verb.py": (
+                '"""Writes under ``{root}_data-quality-reports/``, which the browser hides."""\n'
+                "from cpcommon.app_managed import DATA_QUALITY_REPORTS_FOLDER\n"
+                'MSG = "_data-quality-reports is where the reports live"\n'
+                'OTHER = "_data-quality-reports-archive"\n'
+                "def f():\n"
+                '    return f"{DATA_QUALITY_REPORTS_FOLDER}/ is managed for you"\n'
+            )
+        },
+        0,
+        [],
+    ),
+    (
         "py_owners_declaring_everything_ok",
         {},
         0,
@@ -372,6 +434,41 @@ CASES: list[tuple[str, dict[str, str], int, list[str]]] = [
         [],
     ),
     (
+        "ts_reports_folder_literal_fails",
+        {"apps/portal/src/features/x/y.ts": "export const HIDDEN = ['user_settings', '_data-quality-reports'] as const;\n"},
+        1,
+        ["apps/portal/src/features/x/y.ts:1", "_data-quality-reports declared outside"],
+    ),
+    (
+        "ts_reports_folder_template_construction_fails",
+        {"apps/portal/src/features/x/y.ts": "export const k = (s: string, id: string) => `${s}/_data-quality-reports/${id}/report.json`;\n"},
+        1,
+        ["apps/portal/src/features/x/y.ts:1", "_data-quality-reports constructed outside", "a template builds the prefix)"],
+    ),
+    (
+        "ts_reports_folder_owner_name_in_a_template_fails",
+        {
+            "apps/portal/src/features/x/y.ts": (
+                "import {DATA_QUALITY_REPORTS_FOLDER} from '../../lib/appManagedPaths';\n"
+                "export const k = (s: string) => `${s}/${DATA_QUALITY_REPORTS_FOLDER}/index.json`;\n"
+            )
+        },
+        1,
+        ["apps/portal/src/features/x/y.ts:2", "_data-quality-reports constructed outside", "from the owner's name"],
+    ),
+    (
+        "ts_reports_folder_in_prose_ok",
+        {
+            "apps/portal/src/features/x/y.ts": (
+                "// `{space}/_data-quality-reports/index.json` is the key the plane writes.\n"
+                "/** Hidden, like `_data-quality-reports/`. */\n"
+                "export const label = 'the _data-quality-reports folder';\n"
+            )
+        },
+        0,
+        [],
+    ),
+    (
         "ts_owner_declaring_everything_ok",
         {},
         0,
@@ -466,11 +563,11 @@ def main() -> int:
         print(f"FAIL sibling_names — {sorted(sweep.MANAGED_NAMES - {sweep.OVERLOADED})}")
     else:
         print("ok   sibling_names_are_exactly_these_ten")
-    if set(sweep.PATH_SHAPED) != {"athenaresults", "shared_tables", "system_settings", "archive"}:
-        failures.append("path_shaped_names_are_exactly_these_four")
+    if set(sweep.PATH_SHAPED) != {"athenaresults", "shared_tables", "system_settings", "_data-quality-reports", "archive"}:
+        failures.append("path_shaped_names_are_exactly_these_five")
         print(f"FAIL path_shaped_names — {sorted(sweep.PATH_SHAPED)}")
     else:
-        print("ok   path_shaped_names_are_exactly_these_four")
+        print("ok   path_shaped_names_are_exactly_these_five")
 
     # The wiring: CI runs the sweep AND this corpus, unconditionally. A step behind an `if:` whose
     # output never exists is skipped on every run while looking wired. Plain string parsing, not a

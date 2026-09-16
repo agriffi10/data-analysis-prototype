@@ -35,8 +35,13 @@ Attributes:
     bucket. Becomes a shared table's Glue ``LOCATION``. Does NOT move: the tables in it were sent
     to this space and are the user's to edit, which is the opposite of what the app-managed folder
     means. Its contents carry no Deny on either bucket, deliberately.
-  SPACE_FOLDERS: The three folders above as one tuple — every app-managed folder that lives
-    inside a SPACE's own bucket. The enumerator a plane refusing app-managed destinations
+  DATA_QUALITY_REPORTS_FOLDER: Where the data-quality plane writes each run's manifest and report,
+    and the space's runs index, at the space root. Hidden in the browser. Does NOT move. Declared
+    here rather than by the plane because refusals on several planes and in the API guard it, and
+    each used to hold its own copy of the name: a rename the writer took would have left every
+    one of them refusing a folder nobody writes to, with every test still green.
+  SPACE_FOLDERS: The four folders above as one tuple — every app-managed folder this module
+    declares inside a SPACE's own bucket. The enumerator a plane refusing app-managed destinations
     reads, so its refused set is a superset of what this module declares by construction
     rather than by a list it copies.
   SYSTEM_SETTINGS_FOLDER: The prefix the two moving folders moved INTO. It is not itself
@@ -64,11 +69,18 @@ RECEIPT_FOLDER = "archive"
 
 SHARED_TABLES_FOLDER = "shared_tables"
 
+DATA_QUALITY_REPORTS_FOLDER = "_data-quality-reports"
+
 VAULT_ARCHIVE_SEGMENT = "archive"
 
 SYSTEM_SETTINGS_FOLDER = "system_settings"
 
-SPACE_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
+SPACE_FOLDERS = (
+    ATHENA_RESULTS_FOLDER,
+    RECEIPT_FOLDER,
+    SHARED_TABLES_FOLDER,
+    DATA_QUALITY_REPORTS_FOLDER,
+)
 
 MOVING_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER)
 
@@ -84,8 +96,8 @@ def app_managed_prefix(root: str, folder: str) -> str:
 
     **It branches on ``MOVING_FOLDERS``, and that is not optional.** The
     folder argument comes from a domain list as well as from this module's constants, and
-    ``rccommon.paths`` calls this for every member of its protected-destinations tuple — five of
-    whose eight members do not move. Unconditional, that call would build
+    ``rccommon.paths`` calls this for every member of its protected-destinations tuple — most of
+    whose members do not move. Unconditional, that call would build
     ``{root}system_settings/user_settings/``, a prefix nothing is stored under. It would not fail
     loudly either: the same predicate's second leg matches the bare folder name at any depth, so the
     refusal would keep working by accident while its prefix arm quietly stopped matching. The

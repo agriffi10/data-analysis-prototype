@@ -396,9 +396,12 @@ constants; the sweep names that file as a second owner. A tripwire in `archive-c
 three equal and asked to be revisited, not deleted, when the receipt folder moved. It was: the
 folder's PARENT changed and its name did not, so the tripwire still holds.
 
-**What this does not touch:** `user_settings/`, `saved_queries/`, `_data-quality-reports/` and the
-other non-moving folders keep the owners they have and gain no second home, which is what keeps
-`{root}system_settings/user_settings/` an ordinary folder; and one rule is anchored WITHOUT a builder
+**What this does not touch:** `user_settings/`, `saved_queries/` and the other non-moving folders
+keep the owners they have and gain no second home, which is what keeps
+`{root}system_settings/user_settings/` an ordinary folder. `_data-quality-reports/` is the exception
+to the first half and not the second: it does not move, but it is declared here as
+`DATA_QUALITY_REPORTS_FOLDER`, because the writer and every refusal guarding it each held a copy of
+the name, and a rename would have left the refusals matching nothing. And one rule is anchored WITHOUT a builder
 because it holds no root: `dq_validate_authorize` compares a key's first segment to a name, which
 reaches exactly one depth — that is the point of it — so a folder moving to depth two would stop
 being caught. What covers the new location is `system_settings` itself joining `RESERVED_PREFIXES`,

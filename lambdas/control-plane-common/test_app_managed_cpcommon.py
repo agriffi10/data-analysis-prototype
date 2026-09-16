@@ -13,6 +13,21 @@ def test_the_three_moving_folders_resolve_to_todays_names():
     ) == ("athenaresults", "archive", "shared_tables")
 
 
+def test_the_data_quality_reports_folder_is_declared_here_and_stays_at_the_space_root():
+    """The plane writes it and every refusal reads it from here, so this is the one spelling left.
+
+    Pinned as a literal because the value is what IAM and the objects already written know, and
+    no refusal can tell a renamed constant from a correct one — each would follow it. The prefix
+    row is the other half: the folder never moved, so its write home is depth one.
+    """
+    assert app_managed.DATA_QUALITY_REPORTS_FOLDER == "_data-quality-reports"
+    assert (
+        app_managed.app_managed_prefix("alice/", app_managed.DATA_QUALITY_REPORTS_FOLDER)
+        == "alice/_data-quality-reports/"
+    )
+    assert app_managed.DATA_QUALITY_REPORTS_FOLDER not in app_managed.MOVING_FOLDERS
+
+
 def test_a_moving_folder_anchors_under_system_settings_and_nothing_else_does():
     """Where a WRITE goes, after the switch — and the two facts that did not move with it.
 
@@ -41,11 +56,12 @@ def test_the_plural_builder_gives_every_folder_exactly_one_home():
     )
     assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("alice/user_settings/",)
     assert app_managed.app_managed_prefixes("alice/", "system_settings") == ("alice/system_settings/",)
-    # Two, not three. SPACE_FOLDERS still holds all three app-managed folders; this asks which of
-    # them MOVED, and shared_tables did not — which is why the two are separate tuples rather than
-    # one aliased to the other, and the difference is observable rather than coincidental.
+    # Two, not four. SPACE_FOLDERS holds every app-managed folder declared here; this asks which
+    # of them MOVED, and shared_tables and the reports folder did not — which is why the two are
+    # separate tuples rather than one aliased to the other, and the difference is observable
+    # rather than coincidental.
     assert app_managed.MOVING_FOLDERS == ("athenaresults", "archive")
-    assert app_managed.SPACE_FOLDERS == ("athenaresults", "archive", "shared_tables")
+    assert app_managed.SPACE_FOLDERS == ("athenaresults", "archive", "shared_tables", "_data-quality-reports")
     # Two separate declarations on purpose — one asks which folders the app manages in a space
     # bucket, the other which of them relocated — but a folder cannot relocate under a space's own
     # prefix without living in one, and nothing else states that direction.

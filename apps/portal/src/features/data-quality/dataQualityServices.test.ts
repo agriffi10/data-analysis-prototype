@@ -5,7 +5,7 @@ import {getQualityReport, reportKey} from './dataQualityReport.service';
 import {apiRequest} from '../../lib/apiClient';
 import {apiFailure, mockApi} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
-import {getRunsIndex} from './dataQualityRuns.service';
+import {getRunsIndex, runsIndexKey} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
@@ -173,6 +173,13 @@ describe('dataQualityReport.service', () => {
       // Mirrors dq_assemble_report.report_key — a pure function of the request id.
       expect(reportKey('alice', 'req-1')).toBe('alice/_data-quality-reports/req-1/report.json');
       expect(reportKey('team-data', 'req-1')).toBe('team-data/_data-quality-reports/req-1/report.json');
+    });
+  });
+
+  describe('runsIndexKey', () => {
+    it('builds the key the runs index is written to, beside the reports', () => {
+      // Mirrors dqcommon/index_store.py, which writes the index one level above each run's folder.
+      expect(runsIndexKey('alice')).toBe('alice/_data-quality-reports/index.json');
     });
   });
 

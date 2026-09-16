@@ -1,12 +1,12 @@
+import {appManagedPrefix, DATA_QUALITY_REPORTS_FOLDER} from '../../lib/appManagedPaths';
 import {readJsonDocument} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityRunSummary} from './dataQuality.types';
-import {REPORTS_FOLDER} from './dataQualityReport.service';
 
 /** `{space}/_data-quality-reports/index.json` — the same key `dqcommon/index_store.py` writes. */
 export function runsIndexKey(space: string): string {
-  return `${space}/${REPORTS_FOLDER}/index.json`;
+  return `${appManagedPrefix(`${space}/`, DATA_QUALITY_REPORTS_FOLDER)}index.json`;
 }
 
 /**

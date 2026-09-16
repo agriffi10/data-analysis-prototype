@@ -36,6 +36,7 @@ code.
 
 from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
+    DATA_QUALITY_REPORTS_FOLDER,
     RECEIPT_FOLDER,
     app_managed_prefixes,
     segments_hold_app_managed,
@@ -46,8 +47,6 @@ from cpcommon.s3_listing import MARKER_BASENAME
 
 from .envelope import ApiError
 from .spaces import ResolvedSpace
-
-REPORTS_FOLDER = "_data-quality-reports"
 
 
 def contained_key(space: ResolvedSpace, key: str) -> str:
@@ -204,7 +203,7 @@ def is_in_reports_folder(space: ResolvedSpace, key: str) -> bool:
     Raises:
       None.
     """
-    return key.startswith(app_managed_prefixes(space.root, REPORTS_FOLDER))
+    return key.startswith(app_managed_prefixes(space.root, DATA_QUALITY_REPORTS_FOLDER))
 
 
 def _is_at_or_below(space: ResolvedSpace, key: str, folder: str) -> bool:

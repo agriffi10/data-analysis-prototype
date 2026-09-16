@@ -94,6 +94,7 @@ Attributes:
 
 from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
+    DATA_QUALITY_REPORTS_FOLDER,
     SHARED_TABLES_FOLDER,
     SYSTEM_SETTINGS_FOLDER,
 )
@@ -103,7 +104,7 @@ RESERVED_PREFIXES = frozenset(
         ATHENA_RESULTS_FOLDER,
         "user_settings",
         SHARED_TABLES_FOLDER,
-        "_data-quality-reports",
+        DATA_QUALITY_REPORTS_FOLDER,
         "_fc-work",
         "_directory",
         SYSTEM_SETTINGS_FOLDER,

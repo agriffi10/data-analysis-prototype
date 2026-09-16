@@ -83,7 +83,7 @@ Attributes:
     ``locals.tf`` because ASL cannot import Python. A test holds the two equal, and the timeout
     notification words this number rather than a sentence that can drift from it.
   PROTECTED_DESTINATIONS: Every folder name refused as a destination, at any depth in either
-    space bucket: the three app-managed folders ``cpcommon.app_managed`` enumerates, the
+    space bucket: the app-managed folders ``cpcommon.app_managed`` enumerates, the
     portal's own non-moving folders, and ``system_settings``. A SUPERSET of the picker-locked
     list the browser and the file-operations plane refuse, by rule and not by coincidence: this
     plane cannot accept a destination the picker never offers, and it may also refuse one the
@@ -210,7 +210,6 @@ MACHINE_TIMEOUT_SECONDS = 3600
 PROTECTED_DESTINATIONS = (
     *_app_managed.SPACE_FOLDERS,
     "user_settings",
-    "_data-quality-reports",
     "_directory",
     "_config",
     _app_managed.SYSTEM_SETTINGS_FOLDER,

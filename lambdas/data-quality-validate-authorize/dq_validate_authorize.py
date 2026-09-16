@@ -20,9 +20,6 @@ no notification at all. A null value is fine; a missing key is fatal.
 The service name is the control plane, not the function: one data-quality run is nine
 invocations, and they are only one queryable set if they share it. The per-verb identity rides as
 the ``verb`` field.
-
-Attributes:
-  REPORTS_PREFIX: Where this arc writes its reports, relative to the space root.
 """
 
 import logging
@@ -31,6 +28,7 @@ import posixpath
 from cpcommon import actor as cpactor
 from cpcommon import config, events, observability
 from cpcommon import registry as reg
+from cpcommon.app_managed import DATA_QUALITY_REPORTS_FOLDER, app_managed_prefix
 from cpcommon.errors import TerminalError
 from dqcommon import messages, notify, run_claim
 from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
@@ -39,8 +37,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="data-quality")
-
-REPORTS_PREFIX = "_data-quality-reports"
 
 
 def _normalize(location: str) -> str:
@@ -148,9 +144,9 @@ def _validate_destination(space_root: str, request_id: str) -> str:
     Raises:
       TerminalError: ``forbidden`` when the derived destination is not the reports prefix.
     """
-    destination = f"{space_root}/{REPORTS_PREFIX}/{request_id}/"
+    destination = app_managed_prefix(f"{space_root}/", DATA_QUALITY_REPORTS_FOLDER) + f"{request_id}/"
     first_segment = destination.split("/")[1] if "/" in destination else ""
-    if first_segment != REPORTS_PREFIX:
+    if first_segment != DATA_QUALITY_REPORTS_FOLDER:
         raise TerminalError(messages.FORBIDDEN, f"report destination {destination!r} is not the reports prefix")
     return destination
 

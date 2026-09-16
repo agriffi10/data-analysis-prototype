@@ -8,6 +8,14 @@ depth two leaves silently not matching. The names are now declared once per tree
 construction goes through a builder; this sweep is what keeps it that way, because a new literal
 or a new hand-built prefix is exactly the kind of change that applies green and fails later.
 
+``_data-quality-reports/`` is guarded for a different reason: it never moved, but the data-quality
+plane writes it while refusals across the planes, the API and the browser guard it, and each of
+those held its own copy of the name. A rename the writer took would have left every copy
+refusing a folder nobody writes to, with nothing red. It is declared in the owners like the rest,
+and this sweep refuses a new declaration or construction of it the same way. The file-ops layer's
+``REPORTS_FOLDER`` alias is deliberately NOT one of the recognised identifiers: the name is generic
+enough to flag an unrelated constant in either tree, and an alias follows the owner on a rename.
+
 **Scoped to path construction and declaration, never to the word.** ``archive`` names three facts
 in this repository and is also a mode, a service name and twenty user-facing sentences; a sweep
 that flagged the word would drag the wording modules across the ``cpcommon`` fence. So the Python
@@ -15,8 +23,8 @@ rules parse rather than grep, and the TypeScript rules run over source with its 
 
 Python (AST), every shipped module under ``lambdas/`` — tests, ``conftest.py`` and ``fakes.py``
 excluded, the two owners excluded:
-  (a) a string constant equal to ``athenaresults``, ``shared_tables`` or ``system_settings``, with
-      or without a leading or
+  (a) a string constant equal to ``athenaresults``, ``shared_tables``, ``system_settings`` or
+      ``_data-quality-reports``, with or without a leading or
       trailing slash, or equal to ``archive/`` or ``/archive/`` — a declaration (a docstring or a sentence merely
       containing the word is not EQUAL to it, so prose is never flagged);
   (b) an f-string whose literal parts carry ``<name>/`` at the start or after a ``/``: a construction;
@@ -32,8 +40,8 @@ excluded, the two owners excluded:
 
 TypeScript (regex over comment-stripped source), every module under ``apps/portal/src`` — tests,
 ``src/test/`` and generated files excluded, the owner excluded:
-  (a) a quoted literal exactly ``athenaresults``, ``shared_tables`` or ``system_settings``, with or
-      without a leading or
+  (a) a quoted literal exactly ``athenaresults``, ``shared_tables``, ``system_settings`` or
+      ``_data-quality-reports``, with or without a leading or
       trailing slash, or ``archive/`` / ``/archive/``: a declaration. A bare ``'archive'`` is a
       declaration only beside another app-managed name in the same file (a membership list) or as a
       module-level ``const`` — a typed mode ``'archive' | 'restore'`` or a ``kind === 'archive'`` is not;
@@ -94,12 +102,12 @@ PY_OWNERS = (
 )
 TS_OWNER = "apps/portal/src/lib/appManagedPaths.ts"
 
-UNAMBIGUOUS = ("athenaresults", "shared_tables", "system_settings")
+UNAMBIGUOUS = ("athenaresults", "shared_tables", "system_settings", "_data-quality-reports")
 OVERLOADED = "archive"
 MOVING = ("athenaresults", "shared_tables", OVERLOADED)
 PATH_SHAPED = (*UNAMBIGUOUS, OVERLOADED)
 MANAGED_NAMES = frozenset(
-    {*PATH_SHAPED, "user_settings", "saved_queries", "_data-quality-reports", "shared_files", "_directory", "_config", "_fc-work"}
+    {*PATH_SHAPED, "user_settings", "saved_queries", "shared_files", "_directory", "_config", "_fc-work"}
 )
 OWNER_IDENTIFIERS = (
     "ATHENA_RESULTS_FOLDER",
@@ -108,6 +116,7 @@ OWNER_IDENTIFIERS = (
     "RECEIPT_FOLDER",
     "VAULT_ARCHIVE_SEGMENT",
     "SYSTEM_SETTINGS_FOLDER",
+    "DATA_QUALITY_REPORTS_FOLDER",
 )
 
 _PY_EXCLUDED_PREFIXES = ("test_", "conftest.", "fakes.")
@@ -128,6 +137,7 @@ _IDENT_TO_NAME = {
     "RECEIPT_FOLDER": "archive",
     "VAULT_ARCHIVE_SEGMENT": "archive",
     "SYSTEM_SETTINGS_FOLDER": "system_settings",
+    "DATA_QUALITY_REPORTS_FOLDER": "_data-quality-reports",
 }
 _TS_CONCAT_IDENT = re.compile(r"\b(" + "|".join(OWNER_IDENTIFIERS) + r")\s*\+\s*['\"`]/")
 _TS_MODULE_LEVEL_ARCHIVE = re.compile(r"^\s*(?:export\s+)?const\s+\w+(?:\s*:[^=]+)?\s*=\s*(['\"`])archive\1")
