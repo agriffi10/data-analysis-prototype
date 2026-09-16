@@ -243,6 +243,13 @@ Add a row when a spec is created; update its status on completion (status only �
 | 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Draft |
 | 236 — A Run That Ends on an Error No Catch Takes Still Tells the User | Draft |
 | 237 — A Restore Never Copies Over a File, and One Archive Id Is One Run | Draft |
+| 238 — A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell | Draft |
+| 239 — An Export Leaves Out the Columns the Grid Hides | Draft |
+| 240 — A Data-Quality Report Shows Where Its Issues Are | Draft |
+| 241 — A Column's Values, Counted, Are a Filter You Tick | Draft |
+| 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | Draft |
+| 243 — A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query | Draft |
+| 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Draft |
 
 ## Arcs
 
