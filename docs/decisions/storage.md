@@ -403,11 +403,11 @@ the selection would create. A taken name refuses **that recipient**; nothing is 
 is overwritten.
 
 **Why not raise, as table-share's guard does.** A conflict has to name the colliding item, and a
-`TerminalError` cannot carry one to a user: its `tokens` are deliberately kept out of the exception
-message (they would corrupt `failure_reason`'s colon split) and its `detail` is operator text that
-may quote raw service output, which SPEC-106 forbids rendering. Parsing a filename back out of a
-Step Functions `Cause` would be fragile *and* a rule break. The collector therefore reads two
-record shapes and decodes the raw `{Error, Cause}` only for the unpredicted one.
+`TerminalError` cannot carry one past the Map item's `Catch`: its `tokens` are deliberately kept
+out of the exception message (they would corrupt `failure_reason`'s colon split) and its `detail`
+is operator text that may quote raw service output, which SPEC-106 forbids rendering. Parsing a
+filename back out of a Step Functions `Cause` would be fragile *and* a rule break. The collector
+therefore reads two record shapes and decodes the raw `{Error, Cause}` only for the unpredicted one.
 
 **Why a delimited listing rather than a probe per item.** Two round trips per item is 20,000 serial
 calls for a full selection against a full recipient list — and a `MaxKeys=1` probe at
@@ -478,7 +478,7 @@ collector and its create verb because each is the only place its own outcome is 
 per-recipient outcome reaches one flat list before anything is said, so one place can say each
 thing once — and a decorator on the guard would make a conflict two messages. It is also what
 lets the guard return its expected refusals as records: the colliding item name has to reach the
-producer, and a `TerminalError` cannot carry one to a user. The whole-REQUEST verbs still notify
+producer, and a `TerminalError` cannot carry one there. The whole-REQUEST verbs still notify
 from their decorators, and must: a request that dies before this state never reaches it.
 
 **A failed recipient is told nothing.** They have no part in the send, nothing to do about it, and

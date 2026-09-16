@@ -108,9 +108,15 @@ inside the execution the Pipe starts.
 - **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
   execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
   every caught failure double-notifies).
-- **An expected refusal is a RETURN VALUE** — a raise in a validator reaches nobody, and a
-  `TerminalError` cannot name the item. Collapse what a REQUESTER reads, or it is an oracle.
-- **ONE producer says every per-recipient outcome**, at the end of the machine — not each verb.
+- **Past the `Catch`, a raised refusal keeps its reason and loses its `tokens`**, which never reach
+  a `Cause`. So a raise names what its verb found — a column, a colliding item, for a refusal of
+  the whole request — only when that verb tells it on the way out, as `columns_removed` does; a
+  name told further down, by an end producer or `NotifyFailure`, travels on the state as a RETURN
+  VALUE. And most planes' `NotifyFailure` drop a `TerminalError` as already told, so one its verb
+  did not tell reaches nobody, and so can a validator's untold raise, since not every notifier
+  recovers the actor from `raw`. Collapse what a REQUESTER reads, or it is an oracle.
+- **Where a plane has an end producer, it is the ONE voice for every per-item outcome** — not each
+  verb. Table-share has none, and its verbs each tell the outcome only they know.
 - **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
   denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
   request id identifies the message and Pipes delivery is at-least-once.
@@ -624,6 +630,12 @@ plane to get one. Its domain table is **empty on purpose**: every reason that ca
 raw engine name that SPEC-106 FR-008 forbids showing, so what varies is the **action**, not the reason.
 Going through `cpcommon.messages.register` rather than hard-coding the clause means a code registered
 later renders through the same path.
+
+> **No longer empty.** The table now maps the class names of the plane's own terminal exceptions —
+> `MembershipRefused`'s subclasses among them — to sentences a user can act on. For any exception
+> but a `TerminalError`, `failure_reason` returns the engine's `Error` field, which is the raised
+> class's name, so the keys are class names verbatim and a newly raised refusal renders the generic
+> clause until its class is registered.
 
 **No deploy-role IAM was needed, and that was verified rather than assumed.** All three planes' deploy
 policies scope `lambda:CreateFunction`, `iam:PassRole` and `logs:CreateLogGroup` to

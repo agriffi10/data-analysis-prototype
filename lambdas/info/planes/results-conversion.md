@@ -20,10 +20,10 @@ ConversionOutcome → Notify → Succeeded`
 
 `Convert` is the only state that writes. `ConversionOutcome` is a `Choice`: an **expected
 refusal is a return value**, routed to `ConvertRefusedSeed` and out through the failure path,
-because the path a raise takes cannot carry the row count the two Excel refusals name. The
-failure path — three seeds into `RecordFailure → NotifyFailure → Failed` — is complete, with the
-top-level `TimeoutSeconds` and its EventBridge `TIMED_OUT` rule. The timeout door reads the
-request off the EVENT and holds no `states:DescribeExecution`.
+where `NotifyFailure` tells it, reading the counts the two Excel refusals name from the seed's
+`tokens`. The failure path — three seeds into `RecordFailure → NotifyFailure → Failed` — is
+complete, with the top-level `TimeoutSeconds` and its EventBridge `TIMED_OUT` rule. The timeout
+door reads the request off the EVENT and holds no `states:DescribeExecution`.
 
 ## The request envelope
 
