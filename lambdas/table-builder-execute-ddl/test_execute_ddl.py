@@ -270,6 +270,43 @@ def test_a_partitioned_create_is_confirmed_against_its_own_projection():
     assert out["status"] == "created"
 
 
+def test_a_key_whose_name_begins_another_keys_name_is_confirmed_against_its_own_projection():
+    """``d`` and ``dt`` together: each key reads only its own ``projection.<name>.`` properties.
+
+    The trailing dot in the prefix is what keeps ``d`` from claiming ``dt``'s properties and
+    reporting a table this run built as someone else's. Hive folder names like ``d=`` and ``dt=``
+    make the overlap an ordinary layout rather than a contrived one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    from cpcommon import ddl
+
+    keys = [
+        {"name": "d", "type": "string", "values": ["south"]},
+        {"name": "dt", "type": "date", "range": ["2025-01-01", "NOW"], "format": "yyyy-MM-dd"},
+    ]
+    parameters = {"portal.managed": "true", "EXTERNAL": "TRUE", "projection.enabled": "true"}
+    for key in keys:
+        parameters |= ddl.projection_properties(key)
+    _succeeding(
+        catalog=_catalog(
+            partition_keys=[{"Name": "d", "Type": "string"}, {"Name": "dt", "Type": "date"}],
+            parameters=parameters,
+        )
+    )
+
+    out = e.handler(_event() | {"partitionKeys": keys}, None)
+
+    assert out["status"] == "created"
+
+
 def test_a_replay_after_the_create_committed_still_succeeds():
     """The property ``IF NOT EXISTS`` exists for: a Step Functions retry must not fail.
 

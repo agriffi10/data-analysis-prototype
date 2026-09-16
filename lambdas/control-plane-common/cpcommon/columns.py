@@ -5,9 +5,10 @@ out of a file's own header or Parquet footer, so they arrive as user data and ha
 judged before they become catalog identifiers. Table and database names do not come through
 here — those are typed into a dialog and held to ``config.CATALOG_IDENTIFIER_RE``.
 
-Partition-key names are split: table-builder's are declared in that same dialog and validated
-with it, but data-quality DETECTS its own from S3 path segments, which makes them a name the
-user wrote by naming a folder. Those go through ``check_names`` at the verb that renders them.
+Partition-key names are split: table-builder's are declared in that same dialog and held to
+``config.PARTITION_KEY_NAME_RE``, but data-quality DETECTS its own from S3 path segments, which
+makes them a name the user wrote by naming a folder. Those go through ``check_names`` at the verb
+that renders them.
 
 **WHAT THE RULE REFUSES, AND WHY EACH ONE IS NOT MERELY UNTIDY.** Athena lowercases every
 identifier as it runs a statement, and AWS Glue accepts a column name this repo's renderers

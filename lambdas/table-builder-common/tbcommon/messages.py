@@ -197,7 +197,7 @@ def renamed_sentence(renamed: list[tuple[str, str]]) -> str:
 
     Neither name is clipped, because the new name is the one the user has to find and a clip can
     cut exactly its suffix. They are short anyway: a column is renamed only when it folds to a
-    declared partition key, which the dialog holds to ``CATALOG_IDENTIFIER_RE``'s 63 characters.
+    declared partition key, which the dialog holds to ``PARTITION_KEY_NAME_RE``'s 63 characters.
 
     Args:
       renamed: ``(name in the files, name in the table)`` pairs, in declaration order.

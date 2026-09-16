@@ -187,7 +187,7 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
 
     Partition key names are folded because ``columns.fold`` is this repo's one answer to "are
     these two names one column to Athena". On this path it cannot change a name: every declared
-    key already matched ``CATALOG_IDENTIFIER_RE`` at validate-authorize, which is lowercase-only.
+    key already matched ``PARTITION_KEY_NAME_RE`` at validate-authorize, which is lowercase-only.
     It is the shared normaliser rather than a case this path can produce.
 
     Args:

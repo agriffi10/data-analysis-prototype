@@ -240,6 +240,8 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `explorer150/` | `explorer-fixture-150.csv` | Data Explorer, copy/export, saved queries |
 | `partfix/year=2025/` | `part1.csv` | partitioned table + refresh |
 | `partfix/year=2026/` | `part2.csv` | " |
+| `dtkey/dt=2025-01-01/` | a copy of `part1.csv` | a two-character partition key named after its folder |
+| `dtkey/dt=2025-01-02/` | a copy of `part2.csv` | " |
 | `yearcase/year=2025/` | `yearcase.csv` | a CSV column named after the partition, first |
 | `yeartrail/year=2025/` | `yeartrail.csv` | the same column, last |
 | `dq_agree/` | `dq_a.csv`, `dq_b.csv` | data-quality clean control |
@@ -494,6 +496,7 @@ gates.
 | Build from a header with `_id`, `2024_total`, `select` | **Builds.** Leading underscores, leading digits and reserved words are quoted, not refused. |
 | Refresh a table whose header the rule would now refuse for anything but a case collision, such as `Order ID` | **Refreshes.** Creates only — refusing would strand a table already in the catalog. |
 | Build from `partfix/` with key `year` (string, `2025, 2026`) | **One** Athena statement, no repair step, and `WHERE year = '2025'` returns rows immediately. |
+| Build from `dtkey/` with key `dt` (date, format `yyyy-MM-dd`, range `2025-01-01` to `2025-01-02`); before submitting, type `dt` into **Table name** too, then set it back to `dtkey` | The key row shows no error, while the table name `dt` shows *"Use 3–63 characters…"* and disables Create. The table **builds** — not *"the partition keys aren't valid"* — the rail shows `dtkey` with `id, region, amount` (the rail lists data columns, never partition keys), and `SELECT count(*) FROM {db}.dtkey WHERE dt = DATE '2025-01-01'` returns `10`. A date key compares with a `DATE` literal, so a bare string there is a query error, not this defect. |
 | Build from `yearcase/` (header `Year,id,region`) with key `year` (string, `2025`), then query it | **Builds**, and the ready notification ends *"A column named after a partition key keeps its values under a new name: "Year" is "year_in_file"."* The rail shows `year_in_file, id, region`, and `SELECT year_in_file, id, region, year` returns `2025, 1, south, 2025` for the first row — nothing shifted. Before any rename, the same rows with the column left out read `id` as `2025`. |
 | Build from `yeartrail/` (header `id,region,year`) with the same key, then query it | **Builds** with `year_in_file` last in the rail, and `SELECT id, region, year_in_file, year` returns `1, south, 2025, 2025`. |
 | Refresh the `yearcase` table with nothing changed | **Already up to date** — the refresh compares under the same rename, so `year_in_file` is not reported removed. |

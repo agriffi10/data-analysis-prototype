@@ -1,4 +1,4 @@
-import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
+import {PARTITION_KEY_NAME_RE, PARTITION_KEY_NAME_RULE} from '../../lib/catalogIdentifier';
 import type {PartitionKey} from './tableBuild.types';
 
 export type PartitionType = 'integer' | 'date' | 'string';
@@ -36,7 +36,6 @@ export type PartitionKeyErrors = {
   values?: string;
 };
 
-const NAME_RULE = CATALOG_IDENTIFIER_RULE;
 const INT_RE = /^-?\d+$/;
 
 let seq = 0;
@@ -78,7 +77,7 @@ export function validateDraftKey(draft: DraftPartitionKey, all: DraftPartitionKe
   const name = draft.name.trim();
 
   if (name.length === 0) errors.name = 'Enter a key name.';
-  else if (!CATALOG_IDENTIFIER_RE.test(name)) errors.name = NAME_RULE;
+  else if (!PARTITION_KEY_NAME_RE.test(name)) errors.name = PARTITION_KEY_NAME_RULE;
   else if (all.some((k) => k.id !== draft.id && k.name.trim() === name)) errors.name = 'Duplicate key name.';
 
   if (draft.type === 'integer') {

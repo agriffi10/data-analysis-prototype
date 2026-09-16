@@ -42,9 +42,10 @@ Attributes:
     supersede that one; it is set at the worst escaping the queue's own character class permits, so
     it refuses no id ``_checked`` would accept.
   MAX_IDENTIFIER_BYTES: What a catalog-safe name may serialize to. Usernames, space names,
-    databases, tables and partition-key names all answer to ``CATALOG_IDENTIFIER_RE``, which is
-    three to sixty-three characters of a lowercase alphabet — **none of which escapes**, so the
-    serialized form is the name plus its quotes rather than twice it.
+    databases and tables answer to ``CATALOG_IDENTIFIER_RE``, three to sixty-three characters of
+    a lowercase alphabet, and partition-key names to ``PARTITION_KEY_NAME_RE``, one to
+    sixty-three of the same — **none of which escapes**, so the serialized form is the name plus
+    its quotes rather than twice it. Both rules share the ceiling, so one bound serves both.
   MAX_S3_KEY_BYTES: How long an object or folder key may be, in the UTF-8 bytes S3 counts. Not a
     serialized length: a key of accented characters serializes to three times its own size, and a
     bound stated on the serialized form would refuse a third of what S3 permits.
@@ -240,7 +241,7 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
             ),
             Bound(
                 route_id, "partitionKeys[].name", MAX_IDENTIFIER_BYTES, "api",
-                "the catalog identifier rule the plane checks every key name against",
+                "the partition-key name rule the plane checks every key name against, whose ceiling is the catalog identifier rule's",
             ),
             Bound(
                 route_id, "partitionKeys[].range", 2 + 2 * (MAX_IDENTIFIER_BYTES + 1), "api",
