@@ -55,7 +55,7 @@ def _database(event: dict) -> str:
     return database
 
 
-def _location(bucket: str, manifest: dict, location: str) -> str:
+def _location(bucket: str, manifest: dict, location: str, space_root: str) -> str:
     """Resolves the folder URI the external tables read.
 
     Always a folder with a trailing slash, even when the user targeted a single file: an external
@@ -68,18 +68,32 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     single-file check correct is the path predicate the queries carry, decided by the one shared
     definition both this verb and the query builder consult.
 
+    **The URI is asserted to be inside the space before it is returned**, and that guard is the
+    last one standing. The validate verb authorized a LOCATION; what Athena is handed is a URI
+    this function derives from it, and between the two the string is rstripped, split on the last
+    slash and reassembled — so nothing downstream re-checks that the result is still in the space
+    the actor was authorized for. The promotion arm is where that matters: it walks UP a level,
+    and its own fallback for a location with no slash left builds ``s3://{bucket}/``, a table over
+    the WHOLE BUCKET. Unreachable today, because a single-segment location can only be the space
+    root and the validate verb now refuses that outright — which is exactly the shape worth
+    asserting rather than reasoning about, since it is the reasoning that would go stale.
+
+    Equality passes: a file sitting directly at the space root promotes to the root itself, which
+    is the one case the root refusal deliberately still allows.
+
     Args:
       bucket: The source bucket.
       manifest: The source manifest.
       location: The request's target location.
+      space_root: The space's own root prefix, which the result must not escape.
 
     Returns:
       The ``s3://`` folder URI, slash-terminated.
 
     Raises:
-      TerminalError: ``invalid_request`` when the manifest carries no files. inspect-source raises
-        a no-data terminal long before this, so an empty manifest means something else wrote it —
-        refuse rather than build a table over the space root.
+      TerminalError: ``invalid_request`` when the manifest carries no files — inspect-source
+        raises a no-data terminal long before this, so an empty manifest means something else
+        wrote it — or when the derived URI falls outside the space.
     """
     files = manifest.get("files") or []
     if not files:
@@ -88,7 +102,13 @@ def _location(bucket: str, manifest: dict, location: str) -> str:
     prefix = location.rstrip("/")
     if sql.single_file_path(bucket, files, location):
         prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
-    return f"s3://{bucket}/{prefix}/" if prefix else f"s3://{bucket}/"
+
+    root = space_root.strip("/")
+    if not root or not (prefix == root or prefix.startswith(f"{root}/")):
+        raise TerminalError(
+            messages.INVALID_REQUEST, f"derived table location {prefix!r} escapes the space"
+        )
+    return f"s3://{bucket}/{prefix}/"
 
 
 @observability.step("run-ddl")
@@ -216,7 +236,7 @@ def _create(event: dict) -> dict:
 
     table = sql.temp_table_name(request_id)
     raw_table = sql.raw_table_name(request_id) if fmt == "csv" else None
-    table_location = _location(bucket, manifest, location)
+    table_location = _location(bucket, manifest, location, (event.get("space") or {}).get("prefix") or "")
 
     out = dict(event)
     out["database"] = database

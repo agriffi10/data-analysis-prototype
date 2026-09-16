@@ -108,6 +108,46 @@ def test_a_csv_column_naming_a_partition_before_a_kept_one_is_a_terminal_that_na
     assert ran == []
 
 
+# ── The table's LOCATION ─────────────────────────────────────────────────────
+
+
+def test_a_file_at_the_space_root_builds_its_table_over_the_root(monkeypatch, ran):
+    """The carve-out the space-root refusal deliberately leaves open, made explicit.
+
+    A one-file target promotes to its parent folder, and for a file sitting at the top of a
+    space that parent IS the space root — the very location a FOLDER target is now refused
+    for. What makes the two consistent is not the location but the `"$path"` predicate the
+    queries carry, so this test exists to state the premise out loud: the table really is
+    over the root, and the predicate is the only thing narrowing it.
+    """
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "alice/report.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
+    ))
+
+    v.handler(_event(location="alice/report.csv"), None)
+
+    assert f"LOCATION 's3://{BUCKET}/alice/'" in ran[0]["query"]
+
+
+def test_a_location_that_escapes_the_space_is_refused_before_any_ddl(monkeypatch, ran):
+    """The last containment check between an authorized LOCATION and what Athena is handed.
+
+    `_location` rstrips, splits on the last slash and reassembles, and nothing downstream
+    re-checks the result against the space the actor was authorized for. A manifest whose
+    single file sits outside the space would otherwise promote the table out of it.
+    """
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "bob/secrets.csv", "size": 10, "columns": [{"name": "a", "type": "string"}]}]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(location="bob/secrets.csv"), None)
+
+    assert exc.value.reason == messages.INVALID_REQUEST
+    assert "escapes the space" in exc.value.detail
+    assert ran == []
+
+
 # ── The width cap ────────────────────────────────────────────────────────────
 
 
