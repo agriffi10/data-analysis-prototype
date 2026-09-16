@@ -457,6 +457,16 @@ export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
 // rules before it, and the syntax catch-all last, because `line N:M` appears in messages
 // that are not syntax errors at all.
 
+/**
+ * Advice with exactly one trigger: the catalog refusal against `default`.
+ *
+ * A rule used to offer it for any "Table <bare name> does not exist" too, on the reasoning that
+ * a name with no dot in it had no database. Athena does not report it that way — a missing table
+ * arrives as `Table nope not found in database agriffith`, whose table token has no dot while the
+ * database sits in a clause of its own — so the sentence reached people who HAD qualified their
+ * table and told them to do the thing they had already done. A missing table is now answered by
+ * the not-found rule, which mentions the database without asserting one is absent.
+ */
 const UNQUALIFIED_FIX = 'Add a database to each table, like `mydb.sales`.';
 
 /** An Athena or Lake Formation refusal on permissions, rather than on what the SQL says. */
@@ -481,6 +491,8 @@ const USER_SQL_ERROR_CLASSES: readonly string[] = [
   'DIVISION_BY_ZERO',
   'NUMERIC_VALUE_OUT_OF_RANGE',
   'EXPRESSION_NOT_AGGREGATE',
+  'EXPRESSION_NOT_SCALAR',
+  'INVALID_COLUMN_REFERENCE',
   'MISSING_COLUMN_ALIASES',
   'DUPLICATE_COLUMN_NAME'
 ];
@@ -550,35 +562,7 @@ function glueDeniedDatabase(msg: string): string | null {
 /** The database a statement naming none resolves against — nobody is a member of it. */
 const IMPLICIT_DATABASE = 'default';
 
-/**
- * True when Athena reported a missing table referenced WITHOUT a `database.` prefix.
- *
- * **Narrow on purpose, and it did not used to be.** A second clause here matched any message
- * pairing "schema" or "database" with "does not exist", which is the wording of a missing
- * SCHEMA — so `SCHEMA_NOT_FOUND: … Schema 'awsdatacatalog.nodb' does not exist` was answered
- * "add a database to each table" for a user who had written one. That class is in
- * {@link USER_SQL_ERROR_CLASSES}, so without the clause it reaches the rule that shows Athena's
- * own words, which name the schema the user got wrong.
- *
- * What remains is the bare-name case. Every message captured from this deployment carries the
- * fully-qualified `Table 'awsdatacatalog.<db>.<table>' does not exist`, and an unqualified name
- * is refused at the catalog before the table resolves, so the clause has not been observed to
- * fire here — an engine reporting a bare name is what it is kept for. The rule carrying the case
- * users actually hit is {@link glueDeniedDatabase}.
- */
-function isUnqualifiedTable(msg: string): boolean {
-  const m = msg.match(/table\s+(\S+?)\s+(?:does not exist|not found)/i);
-  return Boolean(m && !m[1].includes('.')); // bare table name → they omitted the db
-}
-
 const MATCH_RULES: readonly ErrorRule[] = [
-  // Trigger: an unqualified base table (there is no active database).
-  // User-fixable — qualify each table as `database.table`. ──
-  {
-    match: isUnqualifiedTable,
-    message: UNQUALIFIED_FIX,
-    userFixable: true
-  },
   // Trigger: a genuinely-missing (but qualified) table/view (incl. Athena's
   // TABLE_NOT_FOUND code). User-fixable — check the name. ──
   {

@@ -59,15 +59,18 @@ describe('errorMessages', () => {
       expect(message).not.toContain('arn:aws');
     });
 
-    it('maps an unqualified-table Athena failure to the add-database fix (FR-005)', () => {
-      // A bare table name in the message. Athena prints the fully-qualified name instead, so this
-      // is a shape production has not been observed to send; the rule is kept for an engine that
-      // reports one, and the case that actually reaches users is the next test.
-      const {message} = toUserMessage({
-        code: 'FAILED',
-        message: 'line 1:15: Table sales does not exist'
-      });
-      expect(message).toBe('Add a database to each table, like `mydb.sales`.');
+    it('answers a missing table without asserting the user forgot a database (FR-005)', () => {
+      // FR-005's advice — qualify each table — is now carried only by the catalog refusal that
+      // actually means it. A rule here used to offer it for any bare table token, which Athena
+      // produces for tables that ARE qualified: `Table nope not found in database agriffith`
+      // puts the database in a clause of its own, so the token has no dot and the user who wrote
+      // `agriffith.nope` was told to add a prefix.
+      expect(toUserMessage({code: 'FAILED', message: 'line 1:15: Table sales does not exist'}).message).toMatch(
+        /table wasn’t found/i
+      );
+      expect(
+        toUserMessage({code: 'FAILED', message: 'Table nope_xyz not found in database agriffith'}).message
+      ).not.toBe('Add a database to each table, like `mydb.sales`.');
     });
 
     // Captured from production Athena on 2026-09-15 by running each statement as `agriffith` and
@@ -140,6 +143,31 @@ describe('errorMessages', () => {
 
       expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
       expect(detail).toContain("Schema 'awsdatacatalog.nodb' does not exist");
+    });
+
+    it('shows no Details for a message that reaches the permission check carrying LF text', () => {
+      // The existing "no Details for a Lake Formation refusal" case exits at the FIRST gate —
+      // an unprefixed message is not a user-SQL error — so it stays green with the permission
+      // check deleted and proves nothing about it. This one opens with an allowlisted class and
+      // carries no ARN, account id or `Service:`, so it passes both earlier gates and the
+      // permission check is the only thing standing between Athena's text and the reader.
+      const composite =
+        'COLUMN_NOT_FOUND: line 1:8: Column x cannot be resolved. Insufficient Lake Formation permission(s) on teamspace.revenue';
+
+      expect(toUserMessage({code: 'FAILED', message: composite}).detail).toBeUndefined();
+    });
+
+    it('still shows Details for an ordinary missing column, whose text always carries an authz clause', () => {
+      // The counter-case, and the reason the check strips that clause first: Athena appends
+      // "or requester is not authorized…" to EVERY COLUMN_NOT_FOUND, so testing the raw text
+      // would suppress Details for every missing column — the case the disclosure exists for.
+      const {detail} = toUserMessage({
+        code: 'FAILED',
+        message:
+          "COLUMN_NOT_FOUND: line 1:8: Column 'nope' cannot be resolved or requester is not authorized to access requested resources"
+      });
+
+      expect(detail).toContain("Column 'nope' cannot be resolved");
     });
 
     it('keeps the permission sentence for a Lake Formation denial, which writes "permission(s)"', () => {
