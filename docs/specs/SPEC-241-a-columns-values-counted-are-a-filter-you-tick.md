@@ -64,8 +64,14 @@ Read from the code at `73c66eef`, with SPEC-238's model taken as built.
   anyone waits for it, and `stopQuery` would bill the part it scanned and leave nothing to show. So
   *Cancel* closes the dialog, the listing keeps its observer in the workspace until it settles, its
   scan is recorded, and reopening the same column shows it without a new execution. A listing that
-  fails or is cancelled by Athena is evicted when it settles, as `useExploration` evicts a failed
-  start, so a reopen tries again.
+  fails or is cancelled by Athena is evicted on the way out, when its observer unmounts, exactly as
+  `useExploration` evicts a failed start. Evicting while observed would re-start it at once, a loop
+  that bills every cancelled pass.
+- **Every requested listing is observed until it settles.** A second column's listing can start
+  before the first has settled. So the workspace renders one small observer component per listing
+  that has been asked for and has not settled, on the `TabExecutionPoller` precedent in the Query
+  workspace, and each records its own scan. One listing in state would detach the first observer and
+  lose its cost.
 - **Apply refuses what the renderer would refuse.** A selection over 1,000 values, which *Also
   selected* can reach on top of a full list, is refused at Apply. So is a value on a numeric column
   that `isBareNumeric` rejects, such as `NaN` or `Infinity` from a `double`: that value's checkbox is
@@ -144,9 +150,12 @@ named `value` or `row_count` cannot be mistaken for an output alias.
 
 #### Description:
 
-`DataExplorerWorkspace` holds the column being listed in state, set when the region asks for the
-dialog, and calls `useColumnValues(exploration, column, onScan)`. The column stays set after the
-dialog closes until the listing is terminal, then clears (see *The decisions*).
+The region asks for a listing with `onFilterByValues(column, valueKind)`. `DataExplorerWorkspace`
+keeps the dialog's current request, `{column, valueKind}`, and a list of pending listings, each an
+exploration and a column. It renders one `ColumnValuesListing` component per pending listing; each
+calls `useColumnValues(exploration, column, onScan)`, reports its result to the dialog when it is
+the dialog's current column, and is removed from the list once it has settled and the dialog no
+longer shows it (see *The decisions*).
 
 `useColumnValues` renders `renderColumnValuesSql` and checks `exceedsAthenaQueryLimit` first
 (SPEC-238 FR-005). It starts the statement with `runQuery` under `explorerKeys.execution(scope,
@@ -157,9 +166,10 @@ first page, and a second only when the first returned a `nextToken`, and stops a
 read. It returns up to 1,000 `{value: string | null, count: number}` entries plus `truncated`. On a
 terminal state it calls `onScan(executionId, bytesScanned)` once. The workspace's `onScan` reads the
 ledger for that execution id before calling `recordScan`, and so tells the dialog whether the
-listing is a cache hit. A `FAILED` or `CANCELLED` listing is evicted when it settles. The hook never
-changes the tab's description or its filter history. A failure is returned as an error rendered
-through `toUserMessage`, with a *Try again* that evicts the entry and starts one execution.
+listing is a cache hit. A `FAILED` or `CANCELLED` listing's entry is removed on the way out, when its
+`ColumnValuesListing` unmounts, never while it is observed. The hook never changes the tab's
+description or its filter history. A failure is returned as an error rendered through
+`toUserMessage`, with a *Try again* that removes the entry and starts one execution.
 
 #### Acceptance Criteria:
 
@@ -171,7 +181,10 @@ through `toUserMessage`, with a *Try again* that evicts the entry and starts one
   `CACHE_HIT_TEXT`'s wording in place of the scanned figure.
 - [ ] Choosing *Cancel* while the listing runs closes the dialog and stops nothing: the execution
   settles, its bytes are recorded, and reopening starts no execution.
-- [ ] A listing that settles `FAILED` is evicted, and reopening starts one execution.
+- [ ] A listing that settles `FAILED` while the dialog is open starts no second execution while the
+  dialog stays open. Closing the dialog and reopening it starts one execution.
+- [ ] Opening the listing for `a`, cancelling, and opening the listing for `b` before `a` settles:
+  both executions settle, and both are recorded in the tab's total.
 - [ ] After `evictExplorations(client, db, table)` for the listed table, reopening starts one
   execution.
 - [ ] The tab's history `past` length is unchanged after the values query runs.
@@ -257,11 +270,12 @@ An apply that leaves the description unchanged pushes none, as today.
 
 #### Description:
 
-The column menu offers **Filter by values…** after the filter operators, on a column where
+The column menu offers **Filter by values…** after the column's last filter operator and before
+`Clear filter`, on a column where
 `isTextType(type)` is true or `filterValueKind(type)` is `'number'`, `queryRefusalOf` is null, and
 the column is not an aggregate alias (`aggregateAlias`) of the active grouping. It is not offered on
-any other column. Choosing it calls the region's new `onFilterByValues(column)` prop, which the
-workspace supplies. The *Filter and sort* guide gains a step: **Filter by
+any other column. Choosing it calls the region's new `onFilterByValues(column, valueKindOf(column))`
+prop, which the workspace supplies. SPEC-238's menu-order test gains the item in that position. The *Filter and sort* guide gains a step: **Filter by
 values…** lists the column's most common values with how many rows each has, and ticking some
 filters to them. It says that listing the values runs a query, which counts toward the tab's scanned
 total.
@@ -305,7 +319,7 @@ export function useColumnValues(
 };
 
 // ExplorationResultsRegionProps gains
-onFilterByValues: (column: string) => void;
+onFilterByValues: (column: string, valueKind: FilterValueKind) => void;
 ```
 
 ## File & Folder Structure
@@ -314,7 +328,8 @@ onFilterByValues: (column: string) => void;
 apps/portal/src/features/data-explorer/
 ├── renderExplorationSql.ts (+ test)       (FR-001)
 ├── useColumnValues.ts (+ test)            (FR-002)
-├── DataExplorerWorkspace.tsx              (FR-002: hosts the listing, onScan, the dialog)
+├── DataExplorerWorkspace.tsx              (FR-002: pending listings, onScan, the dialog)
+├── ColumnValuesListing.tsx                (FR-002: one observer per pending listing)
 ├── ColumnValuesDialog.tsx (+ test)        (FR-003, FR-004)
 ├── ColumnFilterMenu.tsx                   (FR-005)
 ├── ExplorationResultsRegion.tsx           (FR-005: onFilterByValues into the menu actions)

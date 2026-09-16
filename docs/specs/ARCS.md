@@ -3148,16 +3148,18 @@ list operator and its value cap, so 238 goes first.
 2. **239, export leaves out hidden columns.** It changes a control plane's request contract: a new
    bounded field, a closed format vocabulary that gains `csv`, a fourth writer, and the state
    machine's Pass states, which must carry the new field on every request. It also changes which
-   path a CSV save takes.
-3. **240, data-quality samples.** It changes a profile statement whose count is an exact figure users
-   act on, adds a schema field, and stores rows of user data in the report. Its browser half, over
+   path a CSV save takes. It lands as four pull requests, because the verbs, the machine, the
+   converter and the browser deploy separately and each needs the one before it.
+3. **240, data-quality samples.** It changes the duplicates statement, whose count is an exact
+   figure users act on, adds a schema field, and stores rows of user data in the report. Its browser half, over
    figures already stored, can ship alone as its first phase.
 4. **241, filter by value.** A second billed statement per exploration, which has to keep the
    execution cache's cost promise. Needs 238.
 5. **242, a query result opens in Data Explorer.** It brings the `sql` source arm into use for the
    first time, since no earlier surface opens one. Its phases put the arm's end-to-end tests before
    the button that reaches it.
-6. **243, filter chips and Open in Query.** Browser-only, and it reads 238's labels.
+6. **243, filter chips and Open in Query.** Browser-only. It reads 238's labels and adds its hand-off
+   beside 242's, using the test harness 242 widens.
 7. **244, scoped autocomplete.** Browser-only, with no billing and no security surface.
 
 **Decisions Andrew took while these were written (2026-09-16):** export leaves hidden columns out in

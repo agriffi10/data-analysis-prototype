@@ -219,7 +219,8 @@ parentheses are part of the rendering, so combining several filters with `AND` c
 #### Description:
 
 `explorationQueryOps.ts` gains `isTextType(type)`, the text-column rule from *The decisions*, and
-`operatorsFor(type)`, which returns the operators a column of that type offers, in this order: the
+`operatorsFor(type)`. A numeric column is one where `filterValueKind(type)` is `'number'`, the
+predicate SPEC-241 also uses. `operatorsFor` returns the operators a column of that type offers, in this order: the
 six comparisons, then (text columns only) contains, does not contain, starts with, ends with, then
 (text and numeric columns only) is one of, is not one of, then is null, is not null, then (text
 columns only) is empty, is not empty.
@@ -377,7 +378,8 @@ export function exceedsAthenaQueryLimit(sql: string): boolean;
 ```
 
 `FilterValueDialog` gains `mode: 'single' | 'list'`, derived by its host from the operator, and
-`onApply` takes `{value: string} | {values: string[]}`.
+`onApply` takes `{value: string} | {values: (string | null)[]}`, and the dialog takes the column's
+existing filter, so list mode can show and keep its *Also kept* entries.
 
 ## File & Folder Structure
 

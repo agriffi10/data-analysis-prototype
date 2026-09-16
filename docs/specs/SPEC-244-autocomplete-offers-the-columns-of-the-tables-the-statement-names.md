@@ -83,9 +83,9 @@ Read from the code at `73c66eef`.
   quote, the insert is the bare name with inner quotes doubled, and no closing quote is added when one
   already follows the cursor. Only columns are offered there, since a two-part table name cannot sit
   inside one pair of quotes.
-- **The keyword list and the quoter live in `lib/sql.ts`**, beside `sqlIdentifier`. `query.sql.ts`
-  needs the list to recognise aliases and `sqlCompletions.ts` needs it to quote, so neither may own
-  it without one importing the other in a cycle.
+- **The keyword list and the quoter live in `lib/sql.ts`**, beside `sqlIdentifier`. They are
+  language rules, like the escapers already there, and both `query.sql.ts` and `sqlCompletions.ts`
+  read them.
 
 ## Scope
 

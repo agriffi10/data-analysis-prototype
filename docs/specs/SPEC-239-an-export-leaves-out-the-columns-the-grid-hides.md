@@ -351,21 +351,30 @@ apps/portal/src/features/catalog/useSaveResults.ts, SaveResultsDialog.tsx (+ tes
 apps/portal/src/features/data-explorer/exportColumns.ts (+ test), ExplorationResultsRegion.tsx,
   DataExplorerWorkspace.tsx
 apps/portal/src/features/help/helpContent.ts
+apps/portal/info/component-inventory/catalog-feature.md (useSaveResults, SaveResultsDialog), data-explorer-feature.md (the export row)
 ```
 
 ## Implementation Phases
 
-### Phase 1: The plane
+### Phases 1 to 3: The plane, in three pull requests, in this order
 
-- The contract and its regenerated TypeScript, the bound and its equality test, the config entries,
-  `invalid_columns` and its wording, validate-authorize, describe-results and the two Pass states
-  (FR-001, FR-002). The `.tftpl` change deploys the state machine, so this phase's PR is watched
-  through the infrastructure deploy.
-- convert's projection and the CSV writer (FR-003, FR-004), and the measurement run for the `csv`
-  config entries.
-- The plane page's envelope and writer list.
+The verbs, the state machine and the browser deploy in separate workflows, and `Deploy
+Infrastructure` and `Deploy Lambdas` run in parallel on one push (`lambdas/info/deployment.md`). A
+state machine naming `columnIndexes` before the verbs emit it fails every conversion with an
+uncatchable `States.Runtime`, and a browser sending `csv` before the converter writes it fails every
+such save. So each change lands after the one it needs:
 
-### Phase 2: The browser
+1. **The verbs emit the key.** `rccommon` config, reasons and wording; validate-authorize and
+   describe-results accept `columnIndexes` and emit it, `null` when absent (FR-001's verb half,
+   FR-002's verb half). Today's Pass states drop the extra key harmlessly. Nothing sends it yet, and
+   the API still refuses the field.
+2. **The machine carries it.** The two Pass states name `columnIndexes` and the state-machine test is
+   updated (FR-002). Watched through the infrastructure deploy.
+3. **The converter and the API.** convert's projection and the CSV writer with its measurement run
+   (FR-003, FR-004), then the contract, the bound and its equality test, and the regenerated
+   TypeScript (FR-001's API half). The plane page's envelope and writer list.
+
+### Phase 4: The browser, in a fourth pull request
 
 - `exportColumnIndexes`, `convertsFor`, `useSaveResults`, `SaveResultsDialog`, the region and the
   workspace, the Query workspace's `null`, and the guide (FR-005).

@@ -3,7 +3,7 @@
 **ID:** SPEC-243
 **Status:** Draft
 **Last Updated:** 2026-09-16
-**Depends On:** SPEC-181, SPEC-183, SPEC-238, and the Copy SQL control #804 added
+**Depends On:** SPEC-181, SPEC-183, SPEC-238, SPEC-242, and the Copy SQL control #804 added
 
 ## Overview
 
@@ -89,8 +89,7 @@ Read from the code at `73c66eef`.
 - Removing one filter from its chip (FR-002).
 - **Open in Query** and the Query workspace's one-time read of it (FR-003).
 - The registry row and the Data Explorer's *Filter and sort* and *Save as query* guides (FR-004).
-- `renderWithProviders` accepts router state for a route, so the hand-off can be tested from each
-  side.
+- Tests from each side of the hand-off, using the router-state harness SPEC-242 adds.
 
 ### Out of Scope
 
@@ -174,10 +173,10 @@ exploration tab's label. The statement never goes in the URL.
 `QueryWorkspace` reads that state with `readOpenSqlHandoff`, once, guarded by a ref holding the
 `location.key` it last consumed.
 It calls `tabs.openTab({label, sql})`, which makes the new tab active, and below `tablet` it also calls
-the mobile surface's `viewSql(sql, label)`. It then replaces the history entry with the same path and
-no state. It does not run the statement. When `openTab` returns null it raises its tab-limit dialog
+the mobile surface's `viewSql(sql, label)`. It then replaces the history entry as described below. It does not run the statement. When `openTab` returns null it raises its tab-limit dialog
 and opens nothing. State whose `openSql` is not an object with a string `sql` and a string `label` is
-ignored. The history entry is replaced on every read, including when the tab limit refuses the tab.
+ignored, and nothing is replaced. The entry is replaced, keeping its path and search, whenever the
+reader accepts the state, including when the tab limit refuses the tab.
 
 #### Acceptance Criteria:
 
@@ -239,8 +238,6 @@ export function readOpenSqlHandoff(state: unknown): {sql: string; label: string}
 // apps/portal/src/features/data-explorer/ExpressionBar.tsx — ExpressionBarProps gains
 inputRef?: React.Ref<HTMLInputElement>;
 
-// apps/portal/src/test/renderWithProviders.tsx — ProviderOptions.route widens to
-route?: string | {pathname: string; state: unknown};
 ```
 
 ## File & Folder Structure
@@ -254,10 +251,9 @@ apps/portal/src/features/data-explorer/GeneratedSqlDisclosure.tsx (+ test)   (FR
 apps/portal/src/features/data-explorer/filtering.test.tsx                    (FR-001, FR-002)
 apps/portal/src/features/query/QueryWorkspace.tsx (+ QueryWorkspace.test.tsx) (FR-003)
 apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)                (FR-003)
-apps/portal/src/test/renderWithProviders.tsx                                 (router state)
 apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ gatedSurfaces.test.tsx) (FR-004)
 apps/portal/src/features/help/helpContent.ts                                 (FR-004)
-apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, test-utilities.md
+apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, foundations.md
 apps/portal/info/component-inventory/shared-components.md (the Chip row no longer says "recipient")
 ```
 
