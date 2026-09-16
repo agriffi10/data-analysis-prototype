@@ -22,6 +22,19 @@ import type {SpaceRef} from '../types/apiContract.generated';
  *   the wrong bucket.
  */
 export function spaceFor(bucket: string, key: string): SpaceRef {
-  const name = key.split('/')[0] ?? '';
-  return {kind: bucket === sharedSpaceBucket() ? 'shared' : 'personal', name};
+  return {kind: bucket === sharedSpaceBucket() ? 'shared' : 'personal', name: spaceRootOf(key).slice(0, -1)};
+}
+
+/**
+ * The space root a key sits under — its first segment, with the trailing slash.
+ *
+ * The same reading `spaceFor` takes of the name, for a caller that compares keys rather than
+ * naming a space to the API: an app-managed folder is anchored at this root, whichever folder the
+ * user happens to be standing in.
+ *
+ * @param key - An object key or prefix inside a space.
+ * @returns The root, e.g. `alice/` for `alice/projects/q1/`; `/` for an empty key.
+ */
+export function spaceRootOf(key: string): string {
+  return `${key.split('/')[0] ?? ''}/`;
 }

@@ -35,7 +35,7 @@ export type SameFolderPrompt = {
   kind: 'file' | 'folder';
   /** The editable, pre-filled non-colliding name. */
   proposedName: string;
-  /** Create-folder/rename rules. */
+  /** Create-folder/rename rules, against the destination for a folder. */
   validate: (name: string) => string | null;
 };
 
@@ -164,7 +164,13 @@ export function useCopy(bucket: string, username?: string): UseCopyResult {
       return;
     }
 
-    setSameFolderPrompt({kind: item.type, proposedName: proposed.data, validate: validateFolderName});
+    // A folder's name is checked where it lands; a file's by the name rules alone.
+    const parent = isFile ? undefined : destPrefix;
+    setSameFolderPrompt({
+      kind: item.type,
+      proposedName: proposed.data,
+      validate: (name) => validateFolderName(name, parent)
+    });
   }
 
   // ── Copy to a different folder ─────────────────────────────────────────────

@@ -2902,6 +2902,11 @@ with these prefixes in the key.
 > validator runs at every depth, so reserving the three would refuse `alice/projects/archive/`, and
 > uploads, plane moves and pastes create folders without it. Reserving them at the root only is a
 > root-aware validator and a small spec of its own, if wanted. SPEC-220, Out of Scope.
+>
+> **Amended 2026-09-16:** `shared_tables` never left the root, and a root-aware validator now refuses
+> it there, in the name prompts only; `athenaresults` and `archive` stay unreserved at the root. Full
+> entry: `docs/decisions/storage.md`, *A folder name that lands on an app-managed folder's home is
+> refused where it is typed*.
 
 ## Results-conversion arc (SPEC-221 → 222 → 223)
 

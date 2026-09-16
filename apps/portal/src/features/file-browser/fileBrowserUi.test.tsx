@@ -176,13 +176,14 @@ describe('DeleteConfirmDialog', () => {
 
 // ─── from RenameDialog.test.tsx ───
 describe('RenameDialog', () => {
-  function setup(overrides?: {kind?: 'file' | 'folder'; isBusy?: boolean}) {
+  function setup(overrides?: {kind?: 'file' | 'folder'; currentName?: string; isBusy?: boolean}) {
     const onRename = vi.fn();
     const onCancel = vi.fn();
     render(
       <RenameDialog
         kind={overrides?.kind ?? 'file'}
-        currentName="report.pdf"
+        currentName={overrides?.currentName ?? 'report.pdf'}
+        parentPrefix="alice/"
         isBusy={overrides?.isBusy}
         onRename={onRename}
         onCancel={onCancel}
@@ -217,6 +218,7 @@ describe('RenameDialog', () => {
         <RenameDialog
           kind="folder"
           currentName="my.reports"
+          parentPrefix="alice/"
           onRename={onRename}
           onCancel={vi.fn()}
         />
@@ -235,6 +237,20 @@ describe('RenameDialog', () => {
       });
       expect(screen.getByRole('alert')).toHaveTextContent('/');
       expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
+    });
+
+    // A file named like the app's folder is not that folder, and nothing downstream refuses it.
+    it.each([
+      {
+        kind: 'folder' as const,
+        refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
+      },
+      {kind: 'file' as const, refusal: null}
+    ])('checks a $kind renamed to the app’s folder at the top of a space', ({kind, refusal}) => {
+      setup({kind, currentName: 'notes'});
+      fireEvent.change(screen.getByLabelText(/new name/i), {target: {value: 'shared_tables'}});
+      expect(screen.queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      expect(screen.getByRole('button', {name: /^rename$/i})).toHaveProperty('disabled', refusal !== null);
     });
   });
 });

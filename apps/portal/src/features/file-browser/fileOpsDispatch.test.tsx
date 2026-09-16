@@ -255,6 +255,26 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     expect(mock.copyObject).toHaveBeenCalledTimes(1);
     expect(mock.copyObject.mock.calls[0][0]).toMatchObject({destKey: 'alice/notes (1).txt'});
   });
+
+  // A FILE named like the app's folder is not that folder, and nothing downstream refuses it.
+  it.each([
+    {
+      label: 'folder docs',
+      refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
+    },
+    {label: 'notes.txt', refusal: null}
+  ])('checks the name a copy of $label would land under at the top of a space', async ({label, refusal}) => {
+    const {user} = render();
+    await selectAnd(user, label, 'Copy selected items');
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Copy here'}));
+    const input = await screen.findByLabelText('Name for the copy');
+    await user.clear(input);
+    await user.type(input, 'shared_tables');
+
+    const form = screen.getByRole('dialog', {name: 'Copy to folder'});
+    expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+    expect(within(form).getByRole('button', {name: 'Copy'})).toHaveProperty('disabled', refusal !== null);
+  });
 });
 
 describe('a failed enqueue says why (FR-002 AC8)', () => {
@@ -526,6 +546,39 @@ describe('the conflict round trip', () => {
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.onConflict).toBe('refuse');
     expect(request.source.items).toEqual([{kind: 'file', key: 'finance/q1.csv', targetName: 'q1-v2.csv'}]);
+  });
+
+  // A renamed FOLDER lands in the payload's destination, so its new name is checked there first. The
+  // source sits below the top of its space, so only the destination can refuse the name.
+  it.each([
+    {
+      conflict: {itemKey: 'finance/reports/q1/', kind: 'folder', targetName: 'q1'},
+      refusal: '“shared_tables” is a folder the app manages at the top of a space. Pick another name.'
+    },
+    {conflict: {itemKey: 'finance/reports/q1', kind: 'file', targetName: 'q1'}, refusal: null}
+  ])('checks a $conflict.kind’s new name where the destination would put it', async ({conflict, refusal}) => {
+    vi.mocked(getNotifications).mockResolvedValue(
+      ok([
+        {
+          ...CONFLICTED,
+          payload: {
+            ...CONFLICTED.payload,
+            destination: {kind: 'personal', name: 'alice', prefix: 'alice/'},
+            conflicts: [conflict]
+          }
+        }
+      ])
+    );
+    const {user} = render({requestId: 'run-1'});
+    const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
+    const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
+    const input = within(form).getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'shared_tables');
+
+    expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+    expect(within(form).getByRole('button', {name: 'Request again'})).toHaveProperty('disabled', refusal !== null);
   });
 
   it('passes axe on the rename form, and on the review that offers it inline', async () => {

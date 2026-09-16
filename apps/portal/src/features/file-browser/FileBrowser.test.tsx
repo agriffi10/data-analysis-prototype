@@ -329,6 +329,21 @@ describe('FileBrowser — write controls', () => {
     expect(mock.createFolder).not.toHaveBeenCalled();
   });
 
+  it('refuses a new folder that would BE the app’s folder at the top of a space, and issues no request', async () => {
+    // Made by hand, it is the app's folder rather than one sharing its name — and a hidden name
+    // would vanish from the listing the moment it was created.
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), '_config');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    expect(
+      within(dialog).getByText('“_config” is a folder the app manages at the top of a space. Pick another name.')
+    ).toBeInTheDocument();
+    expect(mock.createFolder).not.toHaveBeenCalled();
+  });
+
   it('still creates an ordinary folder inside system_settings, which is not locked', async () => {
     // The positive control. Nothing denies writes under that prefix, so a guard that refused
     // everything there would be inventing a restriction IAM does not have.
@@ -534,6 +549,23 @@ describe('FileBrowser — move / copy / rename', () => {
       destination: {prefix: 'alice/'},
       onConflict: 'refuse'
     });
+  });
+
+  it('refuses renaming a folder onto the app’s folder at the top of a space, before anything is enqueued', async () => {
+    // The plane would accept the request and refuse the item only in the run's notification.
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
+    await user.click(await screen.findByRole('button', {name: 'Rename docs'}));
+    const dialog = await screen.findByRole('dialog', {name: /rename/i});
+    const input = within(dialog).getByRole('textbox');
+    await user.clear(input);
+    await user.type(input, 'shared_tables{Enter}');
+
+    expect(
+      within(dialog).getByText('“shared_tables” is a folder the app manages at the top of a space. Pick another name.')
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', {name: /rename|save/i})).toBeDisabled();
+    expect(mockSubmitFileOp).not.toHaveBeenCalled();
   });
 
   it('shows the same-folder auto-number prompt for a copy into the current folder', async () => {
@@ -756,6 +788,40 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
     expect(mock.createFolder).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a new name that would BE the app’s folder at the top of a space, in the prompt itself', async () => {
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await createAndRenameTo(user, 'user_settings');
+
+    expect(
+      within(folderPrompt()).getByText(
+        '“user_settings” is a folder the app manages at the top of a space. Pick another name.'
+      )
+    ).toBeInTheDocument();
+    expect(mock.createFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks a new name against the folder the retry writes into, not the one navigated to since', async () => {
+    // The prompt is inline and outlives navigation, and its retry keeps the folder the collision
+    // happened in — so checking the folder now on screen refuses a name that is legal where it lands.
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser({prefix: 'alice/docs/'});
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Rename'}));
+    await user.click(screen.getByRole('button', {name: 'My Files'}));
+    const field = within(folderPrompt()).getByLabelText('New name');
+    await user.clear(field);
+    await user.type(field, 'shared_tables{Enter}');
+
+    await waitFor(() => expect(mock.createFolder).toHaveBeenCalledTimes(2));
+    expect(mock.createFolder.mock.calls[1][0]).toMatchObject({prefix: 'alice/docs/', name: 'shared_tables'});
+  });
+
   it('still retries an ordinary new name, without an overwrite', async () => {
     // The positive control: the same keystrokes with a valid name do reach the create, so the
     // refusal above is the rule firing rather than Enter doing nothing in this prompt.
@@ -799,9 +865,9 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
   });
 
   describe('inside system_settings, where the retry reaches the real createFolder', () => {
-    // The prompt checks the new name without its parent, so the refusal belongs to `createFolder`,
-    // which knows the prefix it writes into. Reached through `importActual` because this file
-    // mocks the module it lives in; the collision itself stays mocked.
+    // The prompt is told the parent and refuses first; `createFolder`, which knows the prefix it
+    // writes into, is the check behind it that every caller reaches. Reached through `importActual`
+    // because this file mocks the module it lives in; the collision itself stays mocked.
     async function collideOnceThenCreateForReal() {
       const {createFolder: realCreateFolder} = await vi.importActual<typeof service>('./fileBrowser.service');
       mock.createFolder

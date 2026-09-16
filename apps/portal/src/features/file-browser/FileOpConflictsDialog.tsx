@@ -4,6 +4,7 @@ import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {OperationOutcomeBanner} from './OperationSummaryBanner';
 import {validateFolderName} from './fileBrowser.service';
+import {conflictKind} from './fileOps.request';
 import type {FileOpConflicts} from './useFileOpConflicts';
 
 /** What the user chose to do about the items that could not be placed. */
@@ -38,6 +39,9 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
   // The rename shape: one item, carrying the name the user typed. `targetName` is the only
   // source for it — the plane sends it back precisely so this can be offered.
   const renameTarget = results.length === 1 ? payload.conflicts?.[0]?.targetName : undefined;
+  // A renamed FOLDER lands in the destination, so its new name is checked there before it is re-sent.
+  const renamed = payload.conflicts?.[0];
+  const renameParent = renamed && conflictKind(renamed) === 'folder' ? payload.destination?.prefix : undefined;
 
   if (confirmingOverwrite) {
     return (
@@ -70,6 +74,7 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
     return (
       <RenameAwayDialog
         current={renameTarget}
+        parentPrefix={renameParent}
         busy={busy}
         onSubmit={onResolve}
         onCancel={() => setRenaming(false)}
@@ -124,18 +129,21 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
  */
 function RenameAwayDialog({
   current,
+  parentPrefix,
   busy,
   onSubmit,
   onCancel
 }: {
   current: string;
+  /** Where a renamed folder lands; absent for a file, which the parent-dependent rules skip. */
+  parentPrefix?: string;
   busy: boolean;
   onSubmit: (choice: ConflictResolution) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(current);
   const inputRef = useRef<HTMLInputElement>(null);
-  const validationError = validateFolderName(name);
+  const validationError = validateFolderName(name, parentPrefix);
 
   return (
     <FormDialog

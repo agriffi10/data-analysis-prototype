@@ -11,6 +11,9 @@ type CollisionDecision = {overwrite: true} | {rename: string};
 type PendingCollision = {
   kind: 'folder';
   label: string; // display name, e.g. "photos"
+  // Where the retry writes. The prompt stays open across navigation, so the folder being viewed
+  // is not a stand-in for it.
+  prefix: string;
   retry: (decision: CollisionDecision) => void;
 };
 
@@ -53,6 +56,7 @@ export function useCreateFolder(bucket: string, prefix: string): UseCreateFolder
       setPendingCollision({
         kind: 'folder',
         label: name,
+        prefix,
         retry: (decision) =>
           'overwrite' in decision ? runCreateFolder(name, true) : runCreateFolder(decision.rename, false)
       });

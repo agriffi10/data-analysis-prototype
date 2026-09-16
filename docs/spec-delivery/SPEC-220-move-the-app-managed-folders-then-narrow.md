@@ -99,6 +99,8 @@ session can see; what bounds the rest is the deleted set's contents, not a sweep
   inside* `system_settings/`; uploads, pastes and plane-side moves create folders without calling
   the validator, so that courtesy is partial by construction. A root-aware, all-paths guard is a
   spec of its own — recorded so the next author does not read the courtesy as the boundary.
+  *Amended 2026-09-16:* `shared_tables`, which never left the root, is now refused there by the
+  name prompts; the two moved names stay unreserved (`docs/decisions/storage.md`).
 - **`scripts/migrate_system_settings.py` stays.** Every mode now refuses with
   `narrowing_already_merged`, because the switch-landed precondition reads the plural builder, so a
   dispatch of the destructive workflow cannot delete anything. That refusal was designed and pinned

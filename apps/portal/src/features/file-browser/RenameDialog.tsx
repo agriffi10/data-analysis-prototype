@@ -7,6 +7,8 @@ import {FIELD_HINT} from '../../components/fieldStyles';
 type Props = {
   kind: 'file' | 'folder';
   currentName: string;
+  /** The folder the item sits in, which is where the renamed item lands. */
+  parentPrefix: string;
   isBusy?: boolean;
   onRename: (newName: string) => void;
   onCancel: () => void;
@@ -25,16 +27,17 @@ function splitFileName(name: string): {base: string; ext: string} {
 /**
  * Rename a file or folder. The new name is validated with the
  * same rules as create-folder/upload (non-empty trimmed, no `/`, no
- * leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
+ * leading/trailing whitespace, no control chars), and a folder's against its parent too, so a name
+ * that would land on one of the app's own folders is refused before it is submitted. Modal; Escape cancels; the input
  * is prefilled with the current name and the Rename action is disabled until the
  * name is valid and changed. For a file WITH an extension, only the base name is
  * editable — the extension is held fixed and re-appended on submit so a rename
  * can't accidentally change (or drop) the file type.
  *
  * @example
- * <RenameDialog kind="folder" currentName="reports" isBusy={rename.isPending} onRename={submit} onCancel={close} />
+ * <RenameDialog kind="folder" currentName="reports" parentPrefix="alice/" isBusy={rename.isPending} onRename={submit} onCancel={close} />
  */
-export function RenameDialog({kind, currentName, isBusy = false, onRename, onCancel}: Props) {
+export function RenameDialog({kind, currentName, parentPrefix, isBusy = false, onRename, onCancel}: Props) {
   const {base, ext} = kind === 'file' ? splitFileName(currentName) : {base: currentName, ext: ''};
   const [name, setName] = useState(base);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +45,7 @@ export function RenameDialog({kind, currentName, isBusy = false, onRename, onCan
   // Recompose the full name from the (trimmed) base plus the locked extension.
   const trimmedBase = name.trim();
   const nextName = trimmedBase.length === 0 ? '' : trimmedBase + ext;
-  const validationError = validateFolderName(nextName);
+  const validationError = validateFolderName(nextName, kind === 'folder' ? parentPrefix : undefined);
   const unchanged = nextName === currentName;
   const canRename = validationError === null && !unchanged && !isBusy;
 

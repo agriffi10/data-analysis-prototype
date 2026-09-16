@@ -119,6 +119,22 @@ function payloadSpace(space: {kind?: string; name?: string} | undefined): FileOp
 }
 
 /**
+ * The kind of one conflicted item, as a re-submit sends it.
+ *
+ * A key ending in `/` is a folder wherever the producer's own `kind` did not survive the reader's
+ * field-by-field rebuild. Guessing the kind is safe in a way that omitting it is not: the plane
+ * derives a folder's destination by listing the prefix, and a folder sent as a file plants a
+ * zero-byte object where the folder should be.
+ *
+ * @param conflict - One entry of the payload's `conflicts`.
+ * @returns `file` or `folder`.
+ */
+export function conflictKind(conflict: NonNullable<NotificationPayload['conflicts']>[number]): FileOpItem['kind'] {
+  if (conflict.kind === 'file' || conflict.kind === 'folder') return conflict.kind;
+  return conflict.itemKey.endsWith('/') ? 'folder' : 'file';
+}
+
+/**
  * Builds the re-submit of the items a run could not place, from the notification alone.
  *
  * **BOTH spaces come from the payload, never from the browser the user happens to be standing
@@ -157,14 +173,9 @@ export function buildResubmitRequest(
     source: {
       space: source,
       items: conflicts.map((conflict) => {
-        // A key ending in `/` is a folder wherever the producer's own `kind` did not survive the
-        // reader's field-by-field rebuild. Guessing the kind is safe in a way that omitting it is
-        // not: the plane derives a folder's destination by listing the prefix, and a folder sent
-        // as a file plants a zero-byte object where the folder should be.
-        const kind = conflict.kind === 'file' || conflict.kind === 'folder' ? conflict.kind : undefined;
         const targetName = choice.targetName ?? conflict.targetName;
         return {
-          kind: kind ?? (conflict.itemKey.endsWith('/') ? 'folder' : 'file'),
+          kind: conflictKind(conflict),
           key: conflict.itemKey,
           ...(targetName ? {targetName} : {})
         };
