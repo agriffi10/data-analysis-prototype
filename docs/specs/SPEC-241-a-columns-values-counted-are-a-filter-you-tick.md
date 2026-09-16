@@ -48,7 +48,28 @@ Read from the code at `73c66eef`, with SPEC-238's model taken as built.
   every selection this list can make is a legal **is one of** filter.
 - **Counting is billed and is treated as an apply.** It starts only on the menu gesture, is cached
   by its SQL exactly as an exploration is, records its bytes against the tab, and says what it
-  scanned. It pushes no filter-history entry, because it changes no description.
+  scanned, or that it came from an earlier run. It pushes no filter-history entry, because it
+  changes no description.
+- **Its cache entry lives under the exploration's execution keys.** `useExplorationEviction` resets
+  everything under `explorerKeys.table`, `explorerKeys.database` and `explorerKeys.sqlSources` when
+  the catalog changes. A values listing keyed anywhere else would keep offering a rebuilt table's
+  old values for the rest of the session. So the listing is keyed as
+  `explorerKeys.execution(scope, valuesSql)`, and its SQL is different from any exploration's, so
+  the two never share an entry.
+- **The workspace hosts the listing.** The tab ledger (`recordScan`, `scannedByExecution`) belongs to
+  the one `useExplorationTabs` instance in `DataExplorerWorkspace`, and a cache hit is told apart by
+  reading that ledger before recording, as the workspace already does for an apply. The results
+  region only asks for the dialog, the way it hands every other dialog a request.
+- **Closing the dialog does not stop the listing.** An Athena execution is billed whether or not
+  anyone waits for it, and `stopQuery` would bill the part it scanned and leave nothing to show. So
+  *Cancel* closes the dialog, the listing keeps its observer in the workspace until it settles, its
+  scan is recorded, and reopening the same column shows it without a new execution. A listing that
+  fails or is cancelled by Athena is evicted when it settles, as `useExploration` evicts a failed
+  start, so a reopen tries again.
+- **Apply refuses what the renderer would refuse.** A selection over 1,000 values, which *Also
+  selected* can reach on top of a full list, is refused at Apply. So is a value on a numeric column
+  that `isBareNumeric` rejects, such as `NaN` or `Infinity` from a `double`: that value's checkbox is
+  disabled, with the reason *Filter by this value* already gives.
 - **Offered on text and numeric columns only.** Their values round-trip into an **is one of**
   filter. A date, timestamp or boolean value would be rendered as a quoted string, which Trino will
   not compare with the column. Typed literals are a change to the filter model, and no tester asked
@@ -58,6 +79,8 @@ Read from the code at `73c66eef`, with SPEC-238's model taken as built.
 - **A value already in the column's filter but absent from the list stays selected.** It is shown
   under *Also selected*, so applying never silently drops part of a filter the user built. That
   happens when the list is cut at 1,000, or when the other filters leave that value no rows.
+- **Not on an aggregate column.** In a grouped view the listing reads the ungrouped source, which
+  has no `count_all`, so the item is offered only on columns the source has.
 - **Header menu only.** Below `tablet`, **is one of** in *Order and filter* covers the same ground
   without a second billed query.
 
@@ -121,15 +144,22 @@ named `value` or `row_count` cannot be mistaken for an output alias.
 
 #### Description:
 
-`useColumnValues(exploration, column, tabId)` runs `renderColumnValuesSql` only while it is given a
-column, which is only while the dialog is open. It checks `exceedsAthenaQueryLimit` first (SPEC-238
-FR-005). It starts the statement with `runQuery` under `explorerKeys.columnValues(scope, sql)`, with
-the same `staleTime`, `gcTime` and retry policy as `useExploration`, and polls it with
-`useQueryExecution`. It reads at most two result pages, enough for 1,001 rows, and returns up to
-1,000 `{value: string | null, count: number}` entries plus `truncated: boolean`. On a terminal
-state it calls `recordScan` for the tab, and it returns the execution's `ExecutionCost`. It never
+`DataExplorerWorkspace` holds the column being listed in state, set when the region asks for the
+dialog, and calls `useColumnValues(exploration, column, onScan)`. The column stays set after the
+dialog closes until the listing is terminal, then clears (see *The decisions*).
+
+`useColumnValues` renders `renderColumnValuesSql` and checks `exceedsAthenaQueryLimit` first
+(SPEC-238 FR-005). It starts the statement with `runQuery` under `explorerKeys.execution(scope,
+valuesSql)`, with the same `staleTime`, `gcTime` and retry policy as `useExploration`, and polls it
+with `useQueryExecution`, including the watch ceiling `useExploration` reports as still running.
+Only at `SUCCEEDED` does it read results, with `getQueryResults` and `maxRows: 1000`. It reads the
+first page, and a second only when the first returned a `nextToken`, and stops at the first failed
+read. It returns up to 1,000 `{value: string | null, count: number}` entries plus `truncated`. On a
+terminal state it calls `onScan(executionId, bytesScanned)` once. The workspace's `onScan` reads the
+ledger for that execution id before calling `recordScan`, and so tells the dialog whether the
+listing is a cache hit. A `FAILED` or `CANCELLED` listing is evicted when it settles. The hook never
 changes the tab's description or its filter history. A failure is returned as an error rendered
-through `toUserMessage`, with a retry that evicts the cached start and runs it again.
+through `toUserMessage`, with a *Try again* that evicts the entry and starts one execution.
 
 #### Acceptance Criteria:
 
@@ -137,10 +167,18 @@ through `toUserMessage`, with a retry that evicts the cached start and runs it a
   applied description starts none.
 - [ ] Reopening after a different filter on another column is applied starts one new execution.
 - [ ] A succeeded values execution that scanned 2,048 bytes raises the tab's running total by
-  2,048, and recording it again does not.
+  2,048. Closing the dialog and reopening it leaves the total unchanged and shows
+  `CACHE_HIT_TEXT`'s wording in place of the scanned figure.
+- [ ] Choosing *Cancel* while the listing runs closes the dialog and stops nothing: the execution
+  settles, its bytes are recorded, and reopening starts no execution.
+- [ ] A listing that settles `FAILED` is evicted, and reopening starts one execution.
+- [ ] After `evictExplorations(client, db, table)` for the listed table, reopening starts one
+  execution.
 - [ ] The tab's history `past` length is unchanged after the values query runs.
-- [ ] 1,001 result rows yield 1,000 entries and `truncated: true`, and 1,000 rows yield 1,000 and
-  `false`.
+- [ ] 1,001 result rows, returned as a first page of 999 with a `nextToken` and a second of 2, yield
+  1,000 entries and `truncated: true`. 1,000 rows yield 1,000 entries and `false`. A first page with
+  no `nextToken` reads no second page.
+- [ ] No results are read before the listing is `SUCCEEDED`.
 - [ ] A failed values execution shows the closed error wording and a *Try again* control, which
   starts one new execution.
 - [ ] A values statement over the length limit starts nothing and shows SPEC-238's too-long
@@ -151,17 +189,22 @@ through `toUserMessage`, with a retry that evicts the cached start and runs it a
 #### Description:
 
 `ColumnValuesDialog` is titled "Filter <column> by values". While the query runs it shows a busy
-state with *Cancel* enabled. When it lands it shows:
+state with *Cancel* enabled, which closes the dialog. When it lands it shows:
 
 - a search field that narrows the list by case-insensitive substring match on the displayed text,
   running no query;
 - *Select all shown* and *Clear selection*;
 - one checkbox per value, labelled with the value (`NULL` for NULL and `(empty)` for `''`, in the
-  grid's muted italic) and its count formatted with thousands separators;
+  grid's muted italic) and its count formatted with thousands separators, as `<value>, <n> rows`
+  (`1 row` for a count of one). On a numeric column a value `isBareNumeric` rejects has its
+  checkbox disabled with `UNFILTERABLE_VALUE`;
 - when `truncated`, the note "Showing the 1,000 most common values. Values with fewer rows are not
   listed.";
-- *Also selected*: the current filter's values that the list does not hold, each ticked;
-- what the listing scanned, worded as the cost indicator words a scan.
+- *Also selected*: the current filter's values that the list does not hold, each ticked. On a
+  numeric column a filter value and a list value are the same value when `Number()` of each is
+  equal, so `10` in the filter matches `10.0` in the list; otherwise they match as exact text;
+- what the listing scanned, worded as the cost indicator words a scan, or `CACHE_HIT_TEXT`'s
+  wording when the ledger already held the execution.
 
 The checkboxes start ticked from the column's current **is one of** filter, if it has one, and
 unticked otherwise.
@@ -175,6 +218,11 @@ unticked otherwise.
   values, `Abilify` is ticked and *Also selected* shows `Zyrtec` ticked.
 - [ ] *Select all shown* after typing `abi` ticks only `Abilify`.
 - [ ] `truncated: true` shows the truncation note, and `false` does not.
+- [ ] A count of 1 renders the accessible name `<value>, 1 row`.
+- [ ] On a `double` column, a returned value `NaN` renders a disabled checkbox whose reason is
+  `UNFILTERABLE_VALUE`.
+- [ ] On a `double` column with the filter `in ['10']` and the list value `10.0`, `10.0` is ticked and
+  *Also selected* is empty.
 
 ### FR-004: Apply writes one filter and one execution
 
@@ -183,21 +231,26 @@ unticked otherwise.
 Apply builds the ticked set: the ticked list entries plus the ticked *Also selected* values.
 
 - None ticked: Apply is refused with "Tick at least one value.".
-- Every list entry ticked, the list not truncated, and nothing under *Also selected*: Apply clears
-  the column's filter.
+- More than `EXPLORER_FILTER_VALUES_MAX` ticked: Apply is refused with "Choose at most 1,000 values.".
+- Every enabled list entry ticked, no entry disabled, the list not truncated, and no value listed
+  under *Also selected*: Apply clears the column's filter.
 - Otherwise: Apply sets `{column, operator: 'in', values: <ticked, NULL as null>, valueKind:
   valueKindOf(column)}` through `setFilter`, replacing any filter on the column.
 
-Either change is one description change, so one execution at most and one history entry.
+Either change is one description change, so at most one execution and at most one history entry.
+An apply that leaves the description unchanged pushes none, as today.
 
 #### Acceptance Criteria:
 
 - [ ] Ticking `Abilify` and `NULL` and applying produces one execution whose SQL contains
   `("brnd_name" IN ('Abilify') OR "brnd_name" IS NULL)`.
-- [ ] Ticking every entry of an untruncated list with no *Also selected* removes the column's filter,
-  and the next execution's SQL has no predicate on the column.
+- [ ] With the column's filter `in ['Abilify']`, ticking every entry of an untruncated list with
+  nothing under *Also selected* removes the filter, and the one execution it starts has no predicate
+  on the column.
 - [ ] Ticking every entry of a truncated list writes an `in` filter of 1,000 values.
 - [ ] Applying with nothing ticked shows "Tick at least one value." and changes nothing.
+- [ ] A truncated list of 1,000 all ticked, plus one ticked *Also selected* value, is refused with
+  "Choose at most 1,000 values." and starts no execution.
 - [ ] On a `bigint` column, ticking `10` renders `"qty" IN (10)`.
 
 ### FR-005: Which columns offer it, and the guide
@@ -205,8 +258,10 @@ Either change is one description change, so one execution at most and one histor
 #### Description:
 
 The column menu offers **Filter by values…** after the filter operators, on a column where
-`isTextType(type)` is true or `filterValueKind(type)` is `'number'`, and `queryRefusalOf` is null.
-It is not offered on any other column. The *Filter and sort* guide gains a step: **Filter by
+`isTextType(type)` is true or `filterValueKind(type)` is `'number'`, `queryRefusalOf` is null, and
+the column is not an aggregate alias (`aggregateAlias`) of the active grouping. It is not offered on
+any other column. Choosing it calls the region's new `onFilterByValues(column)` prop, which the
+workspace supplies. The *Filter and sort* guide gains a step: **Filter by
 values…** lists the column's most common values with how many rows each has, and ticking some
 filters to them. It says that listing the values runs a query, which counts toward the tab's scanned
 total.
@@ -215,6 +270,7 @@ total.
 
 - [ ] A `string` column's menu and a `double` column's menu each offer **Filter by values…**.
 - [ ] A `date` column's menu, a `boolean` column's menu, and the percentage column's menu do not.
+- [ ] In a view grouped by `brnd_name` with `COUNT(*)`, `brnd_name` offers it and `count_all` does not.
 - [ ] Choosing it opens the dialog named "Filter brnd_name by values" and starts one execution.
 - [ ] The guide carries the step. This is static copy, so the diff review checks it.
 
@@ -233,22 +289,23 @@ export type ColumnValueCount = {value: string | null; count: number};
 // renderExplorationSql.ts
 export function renderColumnValuesSql(source: ExplorationSource, query: ExplorationQuery, column: string): string;
 
-// explorerKeys.ts
-columnValues: (scope: readonly [string, string, string], sql: string) => readonly unknown[];
-
-// useColumnValues.ts
+// useColumnValues.ts — keyed with the existing explorerKeys.execution(scope, valuesSql)
 export function useColumnValues(
   exploration: Exploration | null,
   column: string | null,
-  tabId: string
+  onScan: (queryExecutionId: string, bytesScanned: number) => void
 ): {
   values: ColumnValueCount[];
   truncated: boolean;
+  queryExecutionId: string | null;
   cost: ExecutionCost | null;
   isPending: boolean;
   error: unknown;
   retry: () => void;
 };
+
+// ExplorationResultsRegionProps gains
+onFilterByValues: (column: string) => void;
 ```
 
 ## File & Folder Structure
@@ -256,11 +313,11 @@ export function useColumnValues(
 ```
 apps/portal/src/features/data-explorer/
 ├── renderExplorationSql.ts (+ test)       (FR-001)
-├── explorerKeys.ts                        (FR-002)
 ├── useColumnValues.ts (+ test)            (FR-002)
+├── DataExplorerWorkspace.tsx              (FR-002: hosts the listing, onScan, the dialog)
 ├── ColumnValuesDialog.tsx (+ test)        (FR-003, FR-004)
 ├── ColumnFilterMenu.tsx                   (FR-005)
-├── ExplorationResultsRegion.tsx           (the dialog is raised by the region, as FilterValueDialog is)
+├── ExplorationResultsRegion.tsx           (FR-005: onFilterByValues into the menu actions)
 apps/portal/src/features/help/helpContent.ts
 apps/portal/info/component-inventory/data-explorer-feature.md
 ```

@@ -40,6 +40,24 @@ Read from the code at `73c66eef`.
 - **The typed read reformats values.** `_frame` reads the CSV with `schema_overrides` built by
   `types.schema_of`, so a CSV written from that frame would reformat numbers and timestamps, and a
   column type `schema_of` refuses would refuse the whole export.
+- **The machine names every key it passes on.** `Validated` and `Described` in
+  `infra/modules/results-conversion/state-machine.asl.json.tftpl` are Pass states listing each key,
+  and `test_state_machine_results_conversion.py` holds those lists equal to what the verbs really
+  return. A key the lists do not name never reaches the next verb, and a Pass state naming a key the
+  state lacks fails with an uncatchable `States.Runtime` (control-planes Fences).
+- **The overwrite path routes separately.** `useSaveResults.confirmOverwrite` sends `csv` to
+  `doSaveCopy` on its own, beside `save`.
+- **The visible order lives in the region.** `useColumnGeometry`, called in
+  `ExplorationResultsRegion.tsx`, orders columns with the pinned block first and carries each
+  column's result index. Until the results land, the column set falls back to the Glue schema.
+  `useSaveResults` is called in `DataExplorerWorkspace.tsx`, which passes `onExport` down.
+- **polars' fast row count is wrong on a split file.** The plane page's Traps record
+  `select(pl.len())` on a CSV scan miscounting quoted newlines once the file is split across
+  threads. The Excel path counts through one projected column instead. The JSON writer counts
+  newline bytes, which is only right because JSON escapes a newline.
+- **The config's expansion figures have no script.** `MEASURED_ON` records Parquet and JSON measured
+  over generated Athena-shaped CSVs of four sizes. `test_plane_results_conversion.py` pins the format
+  set to three and holds a per-format throughput table for Parquet and JSON only.
 - **Every caller-controlled enqueue field declares a bound.** `lambdas/api/apicommon/bounds.py`
   holds a `Bound` per field, with `measured` naming the unit (`wire`, `value` or `items`) and
   `enforced_at` saying whether the API applies it before the message is built.
@@ -57,11 +75,24 @@ Read from the code at `73c66eef`.
 - **The field is `columnIndexes`, never `columns`.** `columns` is the described column list that
   convert already reads from the state. A request field of that name would be overwritten by it, or
   overwrite it.
+- **Every verb emits `columnIndexes`, as `null` when the request had none.** The Pass states must
+  name the key for it to reach convert, and a Pass state reading an absent key is an uncatchable
+  failure, so the key is always present. The template change is part of this spec.
+- **The API bound is the list's one length cap.** validate-authorize checks the list's shape and
+  describe-results checks each index against the result. A second length check in the verb could
+  never fire behind the API's, and a refusal that denies nobody misleads the next reader.
+- **The Data Explorer hands the list over when export opens.** `onExport` takes the list, computed
+  in the region from `useColumnGeometry` over the execution's result columns only, never the Glue
+  fallback. The workspace keeps it in state and passes it to `useSaveResults`. "Grid order" is the
+  order the grid draws, pinned columns first.
+- **Hiding every result column refuses the save.** A grouped view's percentage column is not in the
+  result, so hiding every real column would send an empty list. *Save results to my files* is
+  refused with "Show at least one of the result's columns to save it." instead.
 - **A list is sent whenever the visible columns, in grid order, differ from the result's full
   column list in its own order.** Hiding a column, or moving one, sends a list. Otherwise no list is
   sent, and a CSV export stays a copy.
-- **The CSV writer does not type anything.** It reads every column as text and writes the kept
-  columns' text as Athena wrote it, so a CSV export through the plane contains the same values as
+- **The CSV writer does not type anything and streams.** It skips `types.schema_of`, reads every
+  column as text, and writes the kept columns' text with `sink_csv`, as Athena wrote it, so a CSV export through the plane contains the same values as
   one made by copying. Only the quoting can differ: polars quotes a field only when it has to.
   NULL stays an unquoted empty field and an empty string stays `""`, which is Athena's own encoding
   and what `_frame`'s docstring says polars reads by default.
@@ -78,7 +109,8 @@ Read from the code at `73c66eef`.
 ### In Scope
 
 - The request contract, the API bound and validate-authorize for `columnIndexes` and `csv` (FR-001).
-- describe-results checks the indexes against the described columns (FR-002).
+- describe-results checks the indexes against the described columns, and the state machine carries
+  them (FR-002).
 - convert keeps only the listed columns, in list order, for every format (FR-003).
 - A CSV writer in convert (FR-004).
 - The Data Explorer's export, `useSaveResults`, `SaveResultsDialog`, and the *Copy or save what you
@@ -96,8 +128,8 @@ Read from the code at `73c66eef`.
 - **Renaming columns in the file.** The header is the result's own column names.
 - **The percentage column** a grouped exploration adds. It is computed in the browser and is not in
   the result, so it is never exported, as today.
-- **Any new infrastructure, IAM or queue.** The plane's role already reads the result and writes the
-  destination.
+- **Any new resource, IAM grant or queue.** The plane's role already reads the result and writes the
+  destination. The existing state-machine template changes (FR-002), and nothing else in `infra/`.
 
 ---
 
@@ -108,38 +140,46 @@ Read from the code at `73c66eef`.
 #### Description:
 
 `ResultsConversionEnqueueRequest` gains an optional `columnIndexes: list[int]`, and `format` gains
-`"csv"`. `bounds.py` declares a `Bound` on `columnIndexes` for `resultsConversion.enqueue`,
-enforced at the `api`, measured in `items`, with a number of 1,500. Its budget sentence names
-describe-results' column cap, and a test asserts the number equals
-`rccommon.config.MAX_RESULT_COLUMNS`. `rccommon.config` gains `csv` in `FORMATS`
-and `FORMAT_LABELS` (`"CSV"`), and measured `csv` entries in `OUTPUT_EXPANSION` and
-`RESULTS_MAX_BYTES`. validate-authorize adds `columnIndexes` to `_ALLOWED_FIELDS`. When the field is
-present it must be a non-empty list, of at most `MAX_RESULT_COLUMNS` entries, of distinct integers
-that are at least 0. `True` and `False` are not integers here, although Python's `bool` subclasses
-`int`. Anything else is refused with a new reason, `invalid_columns`, before any verb reads Athena.
-A valid list is carried on the state unchanged.
+`"csv"`. `apiContract.generated.ts` is regenerated from it with `scripts/generate_api_contract.py`,
+never edited by hand. `bounds.py` declares a `Bound` on `columnIndexes` for
+`resultsConversion.enqueue`, enforced at the `api`, measured in `items`, with a number of 1,500. Its
+budget sentence names describe-results' column cap, a test asserts the number equals
+`rccommon.config.MAX_RESULT_COLUMNS`, and the list in `test_bounds.py` of bounds it cannot judge by
+name gains it. `rccommon.config` gains `csv` in `FORMATS` and `FORMAT_LABELS` (`"CSV"`), and measured
+`csv` entries in `OUTPUT_EXPANSION` and `RESULTS_MAX_BYTES`. `rc_convert.CONTENT_TYPES` gains
+`csv: text/csv`.
+
+validate-authorize adds `columnIndexes` to `_ALLOWED_FIELDS`. When the field is present, the verb
+first checks it is a list, then that every entry is an `int` and not a `bool` (Python's `bool`
+subclasses `int`), then that the list is non-empty, then that entries are distinct and at least 0.
+Anything else is refused with a new reason, `invalid_columns`, before any set is built from the
+entries and before any verb reads Athena. Its wording is "The columns chosen for this file don't
+match the query's results, so nothing was saved.". The verb emits `columnIndexes`, as `null` when the
+request had none.
 
 #### Acceptance Criteria:
 
 - [ ] The enqueue route accepts a body with `format: "csv"` and `columnIndexes: [2, 0]`, and a body
-  with neither field's new values, exactly as before.
+  without `columnIndexes`, exactly as before.
 - [ ] The route refuses a body whose `columnIndexes` has 1,501 entries, before any message is sent.
 - [ ] `test_request_size_chain.py` covers the route with `columnIndexes` at 1,500 entries and stays
   green.
-- [ ] validate-authorize refuses each of `[]`, `[0, 0]`, `[-1]`, `[1.5]`, `["0"]`, `[true]` and
-  `"0,1"` with reason `invalid_columns`, and the refusal notification's text is asserted as a whole
-  string.
-- [ ] `[3, 1]` passes validate-authorize and reaches describe-results' input unchanged.
+- [ ] validate-authorize refuses each of `[]`, `[0, 0]`, `[-1]`, `[1.5]`, `["0"]`, `[true]`,
+  `[[0]]` and `"0,1"` with reason `invalid_columns`, raising no `TypeError`, and the refusal
+  notification's text is the sentence above, asserted as a whole string.
+- [ ] `[3, 1]` passes validate-authorize and is emitted unchanged, and a request without the field
+  emits `columnIndexes: null`.
 - [ ] A test asserts the bound's 1,500 equals `rccommon.config.MAX_RESULT_COLUMNS`.
 
-### FR-002: describe-results refuses an index outside the result
+### FR-002: describe-results checks the indexes, and the machine carries them
 
 #### Description:
 
 After describing the columns, describe-results refuses `invalid_columns` when any index in
-`columnIndexes` is greater than or equal to the number of described columns. It carries
-`columnIndexes` forward beside `columns` and `resultsBytes`. A request without the field is
-unchanged.
+`columnIndexes` is greater than or equal to the number of described columns. It emits `columnIndexes`
+beside `columns` and `resultsBytes`, `null` included. The `Validated` and `Described` Pass states in
+`state-machine.asl.json.tftpl` each gain `"columnIndexes.$": "$.columnIndexes"`, and the plane's
+state-machine test keeps holding both lists equal to the verbs' real return values.
 
 #### Acceptance Criteria:
 
@@ -147,17 +187,20 @@ unchanged.
   not invoked.
 - [ ] A 4-column result with `[3, 0]` emits a state carrying `columns` (all four), `resultsBytes`
   and `columnIndexes: [3, 0]`.
-- [ ] A request without `columnIndexes` emits exactly the state it emits today.
+- [ ] A request without `columnIndexes` emits today's state plus `columnIndexes: null`.
+- [ ] `test_state_machine_results_conversion.py` passes with `columnIndexes` named in both Pass states,
+  and fails when either state omits it or either verb stops emitting it.
 
 ### FR-003: convert keeps only the listed columns, in list order, for every format
 
 #### Description:
 
-When `columnIndexes` is present, convert writes only those columns, in that order, for Parquet,
-JSON, Excel and CSV. `types.schema_of` and every type refusal it raises see only the kept columns.
-Excel's cell cap counts rows times kept columns. The header check in `_frame` still compares the
-whole CSV header against the whole described column list, because the object is still the whole
-result. Without the field, every format writes every column, as today.
+When `columnIndexes` is not null, convert writes only those columns, in that order, for Parquet,
+JSON, Excel and CSV. For Parquet, JSON and Excel, `types.schema_of` and every type refusal it raises
+see only the kept columns. Excel's row and cell check is given the kept column count. The header
+check in `_frame` still compares the whole CSV header against the whole described column list,
+because the object is still the whole result. With `null`, every format writes every column, as
+today.
 
 #### Acceptance Criteria:
 
@@ -165,67 +208,97 @@ result. Without the field, every format writes every column, as today.
   and whose rows carry the matching values.
 - [ ] The same for JSON: every line's keys are exactly `c, a`, in that order.
 - [ ] The same for Excel: the header row is `c`, `a`.
-- [ ] A result whose column `b` is a `decimal` with no readable scale, which convert refuses today,
+- [ ] A result whose column `b` is a `decimal` with no precision, which `schema_of` refuses today,
   converts to Parquet with `[0, 2]`.
-- [ ] A result of 500,000 rows and 20 columns, which Excel's cell-count check refuses today, passes
-  that check with `columnIndexes` of 8 entries (4,000,000 cells). The check is asserted on its own,
-  not the write, since the byte cap is a separate check on the unchanged input.
+- [ ] `_convert` over a described result of 20 columns and 500,000 rows, with `columnIndexes` of 8
+  entries and the workbook build stubbed, raises no `excel_cell_limit` refusal. The same call with
+  `columnIndexes: null` does.
 - [ ] Every existing convert test passes unchanged.
 
 ### FR-004: A CSV writer that writes the result's text
 
 #### Description:
 
-For `format: "csv"`, convert reads the result with every column as a string, keeps the listed
-columns (or all of them), and writes a CSV with the kept columns' names as its header. A NULL is an
-unquoted empty field, an empty string is `""`, and every other value is Athena's text exactly,
-quoted only where the CSV format requires it. The upload, the conflict handling, the notification
-and the refusals are the plane's existing ones, with the format label `CSV`.
+For `format: "csv"`, convert skips `types.schema_of`, reads the result with every column as a
+string, keeps the listed columns (or all of them), and streams a CSV with `sink_csv`, with the kept
+columns' names as its header. A NULL is an unquoted empty field, an empty string is `""`, and every
+other value is Athena's text exactly, quoted only where the CSV format requires it. It counts rows
+as the Excel path does, through one projected column with the real reader, never `select(pl.len())`
+and never by counting newlines. The upload, the conflict handling, the notification and the refusals
+are the plane's existing ones, with the format label `CSV`.
+
+The `csv` entries in `OUTPUT_EXPANSION` and `RESULTS_MAX_BYTES` are measured by converting generated
+Athena-shaped CSVs of the four sizes `MEASURED_ON` already names, in the fleet image, and
+`MEASURED_ON` records the run. `test_plane_results_conversion.py`'s format set gains `csv`, and its
+throughput table gains a measured `csv` figure.
 
 #### Acceptance Criteria:
 
 - [ ] A result holding a double `1.50`, a timestamp `2026-09-16 10:00:00.000`, a string
   `He said "hi", then left` with a newline inside, a NULL and an empty string round-trips: reading
-  the written file back through `_frame`'s string read gives exactly those five values, NULL and
-  empty still distinct.
+  the written file back as strings gives exactly those five values, NULL and empty still distinct.
+- [ ] A `csv` conversion keeping a column `b` that is a `decimal` with no precision succeeds, and
+  the file holds `b`'s text.
 - [ ] With `[1]` on a result `a, b`, the file's header is `b` alone.
+- [ ] A 100,000-row result, large enough to be split across threads, whose values contain quoted
+  newlines, reports 100,000 rows.
+- [ ] The streaming guard that covers Parquet and JSON covers `csv`.
 - [ ] A `csv` conversion onto an occupied destination with `onConflict: "refuse"` is refused the way
   a Parquet one is today.
 - [ ] The success notification names the format `CSV`, asserted as a whole string.
-- [ ] `MEASURED_ON` names the run that measured the `csv` expansion, and the plane's existing size
-  corpus includes `csv`.
+- [ ] `MEASURED_ON` names the run that measured `csv`, and the format set and throughput table in
+  `test_plane_results_conversion.py` include it.
 
 ### FR-005: The Data Explorer exports what the grid shows
 
 #### Description:
 
-`useSaveResults` takes a new parameter, `columnIndexes: number[] | null`. The Query workspace always
-passes `null`. The Data Explorer passes the index, in the execution's result columns, of each
-visible column in grid order, leaving out any column not in the result (the percentage column). It
-passes `null` when that list is every index in order. With a list:
+`useSaveResults` takes a new parameter, `columnIndexes: number[] | null`, and one routing predicate,
+`convertsFor(format, columnIndexes)`, true for any non-CSV format and for CSV with a list. Both
+`save` and `confirmOverwrite` route through it, so an overwrite follows the same path as the save
+that raised it. The Query workspace always passes `null`.
+
+In the Data Explorer, `ExplorationResultsRegion` computes `exportColumnIndexes(resultColumns,
+visibleInOrder)` when *Save results to my files* is chosen. `resultColumns` is the execution's result
+column names, never the Glue fallback. `visibleInOrder` is `useColumnGeometry`'s visible columns in
+draw order, pinned first. Columns not in the result, such as the percentage column, are left out. The
+helper returns `null` when the list is every result index in order. The region calls
+`onExport(columnIndexes)`, and `DataExplorerWorkspace` keeps the list in state and passes it to
+`useSaveResults`. When no result column is visible, *Save results to my files* is refused with
+"Show at least one of the result's columns to save it.".
+
+With a list:
 
 - a CSV save goes through the conversion path with `format: 'csv'` and the list, instead of copying;
 - a Parquet, JSON or Excel save sends the list;
 - `SaveResultsDialog` labels the button *Convert and save* for every format and shows
   "Only the <n> columns shown are saved, in the order shown." above the button.
 
-With `null`, every path is exactly today's. The *Copy or save what you found* guide says a save from
-the Data Explorer leaves out hidden columns and keeps the order shown, and that doing so makes a CSV
-save a conversion with a notification.
+With `null`, every path is exactly today's. In the *Copy or save what you found* guide, the step
+"CSV is saved straight away — the button reads Save here" is reworded to say that holds when every
+column is shown in its original order. The guide gains that a save from the Data Explorer leaves out
+hidden columns and keeps the order shown, and that a CSV save then converts, with a notification.
 
 #### Acceptance Criteria:
 
+- [ ] `exportColumnIndexes(['a','b','c'], ['a','c'])` is `[0, 2]`,
+  `exportColumnIndexes(['a','b','c'], ['c','a','b'])` is `[2, 0, 1]`,
+  `exportColumnIndexes(['a','b','c'], ['a','b','c'])` is `null`, and
+  `exportColumnIndexes(['a'], ['a', 'pct_of_count_all'])` is `null`.
 - [ ] Result columns `a, b, c`, `b` hidden: a CSV save enqueues one conversion with
   `format: 'csv'` and `columnIndexes: [0, 2]`, and the copy service is not called.
-- [ ] Result columns `a, b, c`, `c` dragged first, none hidden: the conversion carries `[2, 0, 1]`.
+- [ ] The same save onto an occupied name, then *Overwrite*: one conversion is enqueued with
+  `onConflict: 'overwrite'` and the list, and the copy service is not called.
+- [ ] Result columns `a, b, c`, `c` pinned, none hidden: the conversion carries `[2, 0, 1]`.
 - [ ] Result columns `a, b, c`, none hidden, none moved: a CSV save calls the copy service and
   enqueues nothing, and the dialog shows *Save here* and no column sentence.
-- [ ] A grouped exploration with the percentage column visible sends indexes for the result's own
-  columns only.
+- [ ] A grouped exploration with every result column hidden and the percentage column visible shows
+  *Save results to my files* refused with the sentence above.
 - [ ] With `b` hidden the dialog shows "Only the 2 columns shown are saved, in the order shown."
   and *Convert and save* while CSV is selected.
 - [ ] The Query workspace's save enqueues no `columnIndexes`, asserted in its existing save test.
-- [ ] The guide carries the two sentences. This is static copy, so the diff review checks it.
+- [ ] The guide carries the reworded step and the new sentences. This is static copy, so the diff
+  review checks it.
 
 ---
 
@@ -243,10 +316,7 @@ class ResultsConversionEnqueueRequest(TypedDict):
     columnIndexes: NotRequired[list[int]]
 ```
 
-```ts
-// apps/portal/src/features/catalog/resultsConversion.service.ts — the enqueue body gains
-columnIndexes?: number[];
-```
+The browser's enqueue body type comes from the regenerated `apiContract.generated.ts`.
 
 ## API / Interface Contract
 
@@ -254,23 +324,32 @@ columnIndexes?: number[];
 // apps/portal/src/features/catalog/useSaveResults.ts — Params gains
 /** Result-column positions to keep, in order; null keeps every column and lets CSV copy. */
 columnIndexes: number[] | null;
+export function convertsFor(format: ResultsFormat, columnIndexes: number[] | null): boolean;
 
-// apps/portal/src/features/data-explorer — a pure helper, beside the export wiring
+// apps/portal/src/features/data-explorer/exportColumns.ts
 export function exportColumnIndexes(resultColumns: string[], visibleInOrder: string[]): number[] | null;
+
+// ExplorationResultsRegionProps
+onExport: (columnIndexes: number[] | null) => void;
 ```
 
 ## File & Folder Structure
 
 ```
+infra/modules/results-conversion/state-machine.asl.json.tftpl       (FR-002)
 lambdas/api/apicommon/contract.py, bounds.py, test_bounds.py         (FR-001)
 lambdas/test_request_size_chain.py                                   (FR-001)
+apps/portal/src/types/apiContract.generated.ts (regenerated)         (FR-001)
 lambdas/results-conversion-common/rccommon/config.py, reasons.py, messages.py
+lambdas/results-conversion-common/test_state_machine_results_conversion.py        (FR-002)
 lambdas/results-conversion-validate-authorize/rc_validate_authorize.py (+ test)   (FR-001)
 lambdas/results-conversion-describe-results/rc_describe_results.py (+ test)       (FR-002)
 lambdas/results-conversion-convert/rc_convert.py (+ test)                          (FR-003, FR-004)
+lambdas/results-conversion-common/test_plane_results_conversion.py           (FR-004)
 lambdas/info/planes/results-conversion.md                            (the envelope and the fourth writer)
-apps/portal/src/features/catalog/useSaveResults.ts, SaveResultsDialog.tsx, resultsConversion.service.ts
-apps/portal/src/features/data-explorer/ExportExplorationDialog.tsx host wiring, the helper (+ tests)
+apps/portal/src/features/catalog/useSaveResults.ts, SaveResultsDialog.tsx (+ tests)
+apps/portal/src/features/data-explorer/exportColumns.ts (+ test), ExplorationResultsRegion.tsx,
+  DataExplorerWorkspace.tsx
 apps/portal/src/features/help/helpContent.ts
 ```
 
@@ -278,18 +357,21 @@ apps/portal/src/features/help/helpContent.ts
 
 ### Phase 1: The plane
 
-- The contract, the bound and its equality test, the config entries, `invalid_columns` and its
-  wording, validate-authorize and describe-results (FR-001, FR-002).
+- The contract and its regenerated TypeScript, the bound and its equality test, the config entries,
+  `invalid_columns` and its wording, validate-authorize, describe-results and the two Pass states
+  (FR-001, FR-002). The `.tftpl` change deploys the state machine, so this phase's PR is watched
+  through the infrastructure deploy.
 - convert's projection and the CSV writer (FR-003, FR-004), and the measurement run for the `csv`
   config entries.
 - The plane page's envelope and writer list.
 
 ### Phase 2: The browser
 
-- `exportColumnIndexes`, `useSaveResults`, `SaveResultsDialog`, the Data Explorer host, the Query
-  workspace's `null`, and the guide (FR-005).
+- `exportColumnIndexes`, `convertsFor`, `useSaveResults`, `SaveResultsDialog`, the region and the
+  workspace, the Query workspace's `null`, and the guide (FR-005).
 - The live check, run from a signed-in session after deploy: explore a CSV table with columns
   `a, b, c`, hide `b`, drag `c` first, and save as CSV. The notification arrives, and the file's
-  header is `c,a`, with the same row count the pager shows. Then show `b` again, put the columns
+  header is `c,a`, with the same row count the pager shows. Pin `c` instead of dragging if the grid
+offers no drag at that width. Then show `b` again, put the columns
   back in order, and save as CSV. The file lands at once with all three columns. Fold it into
   `docs/testing/e2e.md` at completion.

@@ -3146,8 +3146,9 @@ list operator and its value cap, so 238 goes first.
    every new operator is a renderer path where a quoting mistake is an injection. It also adds the
    statement-length refusal that 241's query relies on.
 2. **239, export leaves out hidden columns.** It changes a control plane's request contract: a new
-   bounded field, a closed format vocabulary that gains `csv`, and a fourth writer. It also changes
-   which path a CSV save takes.
+   bounded field, a closed format vocabulary that gains `csv`, a fourth writer, and the state
+   machine's Pass states, which must carry the new field on every request. It also changes which
+   path a CSV save takes.
 3. **240, data-quality samples.** It changes a profile statement whose count is an exact figure users
    act on, adds a schema field, and stores rows of user data in the report. Its browser half, over
    figures already stored, can ship alone as its first phase.

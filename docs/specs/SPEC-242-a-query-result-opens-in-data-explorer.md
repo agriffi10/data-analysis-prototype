@@ -45,17 +45,45 @@ Read from the code at `73c66eef`.
   under `dataExplorer`, and `DatabaseNode.tsx` reads `useFeature('dataExplorer')`.
 - **The run keeps each statement's text.** A batch's `statements` are `ParsedStatement`s with `sql`,
   and each `ResultTab` names its `statementIndex`. `statementHint(sql)` makes a short label.
-- **The Explorer may not import `features/query/`** (`ExportExplorationDialog.tsx` docstring).
+- **Neither feature may import the other.** `eslint.config.js` forbids `features/query/` importing
+  `features/data-explorer/` and the reverse, tests and `import type` included.
+- **Save results sits in the status bar, gated on the result.** `QueryStatusBar.tsx` renders *Save
+  results to my files* "gated on the result, never on the verdict", so a batch that failed after a
+  succeeded statement still offers that statement's rows.
+- **Execution metadata arrives with Glue's type names.** `athena.service.ts` maps Athena's names
+  through `normalizeColumnType` (`catalog.format.ts`), so a `varchar` column reports `string` and an
+  `integer` one `int`.
+- **The registry walk needs distinct names.** `gatedSurfaces.test.tsx` compares the sorted list of
+  row names with its recipe keys, so two rows cannot share a name.
 
 ### The decisions, made while authoring
 
 - **A selection that resolves to more than one statement runs with the tab-per-statement scope.** A
   single statement, selected or under the cursor, keeps `'statement'`. Only the display changes,
-  which is exactly what distinguishes the scopes.
+  which is exactly what distinguishes the scopes. This supersedes SPEC-078's "one result view" for
+  **Run Statement**, for a selection of several statements only. That spec modelled it on DBeaver's
+  single result, and a tester has since asked for one result per statement.
 - **The hand-off carries the statement's text, not the result.** The Data Explorer works by
   rendering SQL over its source, so exploring a result means running the statement again, wrapped.
   That is a billed execution, just as opening a table in the Explorer is. The alternative, filtering
   the stored result object, is a different engine and no tester asked for one.
+- **A hand-off always runs the statement again.** Executions are cached by their rendered SQL for the
+  session, so exploring the same statement a second time, after an `INSERT` for instance, would show
+  the earlier rows. Consuming a hand-off therefore resets every cached execution under
+  `explorerKeys.sqlSources()`, the same reset `evictExplorations` applies when the catalog changes.
+- **A result whose columns cannot be named is not explorable.** Athena names an unaliased expression
+  `_col0`, and the outer query cannot refer to it. A join that selects `a.id` and `b.id` returns two
+  columns called `id`, which the outer query cannot tell apart and the grid's name-keyed geometry
+  cannot either. Refusing the hand-off, with a reason saying to add `AS`, costs the user one edit.
+  Offering the tab and refusing per column would leave some gestures working and others not.
+- **A `sql` tab remembers its source's columns.** A table tab's Grouping panel lists the Glue schema,
+  and a `sql` source has none. So the tab records the column list of its first ungrouped execution as
+  `sqlSourceColumns`, persisted with the tab, and `useSourceColumns` returns it for a `sql` source.
+- **The hand-off's shape lives in `lib/`.** Neither feature can import the other, so
+  `lib/routeHandoff.ts` holds the state types, a builder and a reader for this hand-off and for
+  SPEC-243's. One module owns each shape, and its tests pin the round trip.
+- **The button follows *Save results*.** It is gated on the displayed result, not the batch
+  verdict, in every run scope the editor owns.
 - **The text comes from the run, not the editor.** The buffer may have changed since the run. The
   statement handed over is the one whose result is on screen.
 - **Only `SELECT`, `WITH` and `VALUES` statements are explorable.** Those are the statements Trino
@@ -67,6 +95,9 @@ Read from the code at `73c66eef`.
   replaces the entry with no state, so a reload or Back does not open a second tab.
 - **The Query side computes the label.** The Explorer may not import `features/query/`, so the Query
   side sends `statementHint(statement)` as the source's `label`.
+- **The history state is cleared on every read**, including when the tab limit refuses the tab, as
+  the deep link clears its parameters either way. Otherwise a reload would raise the limit dialog
+  again.
 - **Trailing semicolons are stripped before the hand-off** with `stripTrailingSemicolons`, because
   `(SELECT 1;) AS t` is not valid SQL.
 
@@ -85,11 +116,13 @@ Read from the code at `73c66eef`.
 - **Hiding columns or colouring cells in the Query workspace's own results grid.** Exploring the
   result gives both, without a second grid implementation.
 - **Filtering the stored result without re-running.**
-- **The Query workspace's mobile surface** (`QueryMobileView`) and the **Run Query Tab** scope.
+- **The Query workspace's mobile surface** (`QueryMobileView`).
 - **Opening a saved `.sql` file** as an exploration source, and linking the new tab to a saved query.
 - **Sending a result from the Data Explorer back to Query.** SPEC-243 opens the Explorer's generated
   SQL in Query.
-- **Create view from a `sql`-source tab.** The existing refusal stands.
+- **Create view from a `sql`-source tab.** The existing refusal stands, reworded to cover SQL
+  opened from a query.
+- **Per-column refusals for unnamed or duplicate result columns.** The hand-off is refused instead.
 
 ---
 
@@ -121,11 +154,15 @@ results and the status bar then behave as they do for **Run Multiple Queries**.
 #### Description:
 
 `query.sql.ts` exports `isExplorableSql(sql)`: true when the first keyword after leading whitespace
-and comments is `SELECT`, `WITH` or `VALUES`, case-insensitively. The results region shows an
-**Explore in Data Explorer** button beside *Save results* when all of these hold: the
-`dataExplorer` flag is on; the displayed result is a succeeded execution; and the statement that
-produced it, taken from the run's `statements`, is explorable. A run the mobile surface submitted
-never shows it, following the existing `editorOwnsRun` rule.
+and comments is `SELECT`, `WITH` or `VALUES`, case-insensitively. `QueryStatusBar` renders an
+**Explore in Data Explorer** button beside *Save results to my files* when all of these hold: both
+the `query` and `dataExplorer` flags are on; the displayed result is a succeeded execution, whatever
+the batch's verdict; the statement that produced it, taken from the run's `statements`, is
+explorable; and the editor owns the run (`editorOwnsRun`). This applies in every run scope.
+
+The button carries `disabledReason` "Give every column its own name with AS to explore this
+result." when the displayed result's columns include a name matching `^_col\d+$`, or two names equal
+once lowercased.
 
 #### Acceptance Criteria:
 
@@ -135,105 +172,131 @@ never shows it, following the existing `editorOwnsRun` rule.
 - [ ] After a succeeded `SELECT` the button is present, and after a succeeded `SHOW TABLES` it is not.
 - [ ] In a two-tab result where tab 1 is a `SELECT` and tab 2 a `DESCRIBE`, the button is present
   on tab 1 and absent on tab 2.
-- [ ] With `dataExplorer` off the button is absent after a succeeded `SELECT`.
-- [ ] While the batch is running, and after a failed one, the button is absent.
+- [ ] A two-statement selection whose second statement fails displays the first statement's result,
+  and the button is present, as *Save results* is.
+- [ ] A single failed statement shows no button, and while a batch runs there is none.
+- [ ] With `dataExplorer` off, once *Save results to my files* is present after a succeeded `SELECT`,
+  the button is absent.
+- [ ] A run submitted by the mobile surface (`editorOwnsRun` false) shows no button in the editor
+  shell.
+- [ ] A result whose columns are `_col0` and `name`, and one whose columns are `id` and `ID`, each
+  show the button disabled with the sentence above.
+- [ ] After **Run Query Tab** over a single `SELECT`, the button is present.
 
-### FR-003: The hand-off opens one tab, once
+### FR-003: The hand-off opens one tab, once, and runs it again
 
 #### Description:
 
-The button navigates to `/explore` with router state
-`{exploreSql: {body: stripTrailingSemicolons(statement), label: statementHint(statement)}}`. It
-never puts the statement in the URL. `DataExplorerWorkspace` reads that state once, opens a tab with
-source `{kind: 'sql', body, label}` through `openTab`, and replaces the history entry with the same
-path and no state. When `openTab` returns null it raises `ExplorationLimitDialog`, as a link does
-today, and opens nothing. State whose `exploreSql` is not an object with a string `body` and a
-string `label` is ignored.
+`lib/routeHandoff.ts` exports `buildExploreSqlHandoff({body, label})` and `readExploreSqlHandoff(state)`.
+The button navigates to `/explore` with
+`buildExploreSqlHandoff({body: stripTrailingSemicolons(statement), label: statementHint(statement)})`
+as router state, never in the URL. `DataExplorerWorkspace` reads that state with
+`readExploreSqlHandoff`, once, guarded by a ref holding the `location.key` it last consumed, since
+`AppRoot` renders under `StrictMode`. It resets every query under `explorerKeys.sqlSources()`, opens a
+tab with source `{kind: 'sql', body, label}` through `openTab`, and replaces the history entry with
+the same path and no state. When `openTab` returns null it raises `ExplorationLimitDialog`, opens
+nothing, and still replaces the entry. State the reader does not accept is ignored.
 
 #### Acceptance Criteria:
 
-- [ ] Exploring `SELECT name, qty FROM db.orders;` opens a Data Explorer tab labelled with
-  `statementHint` of that statement, whose first execution's SQL is
-  `SELECT *\nFROM (\nSELECT name, qty FROM db.orders\n) AS t`.
-- [ ] After the hand-off `window.location.search` is empty, the statement text appears nowhere in
-  the URL, and the history entry's state no longer carries `exploreSql`.
-- [ ] Re-rendering the workspace after the hand-off (standing in for a reload) opens no second tab.
-- [ ] At the tab limit the hand-off raises the limit dialog and the tab count is unchanged.
-- [ ] State `{exploreSql: {body: 42}}` opens nothing and raises nothing.
+- [ ] `readExploreSqlHandoff(buildExploreSqlHandoff({body: 'SELECT 1', label: 'x'}))` returns
+  `{body: 'SELECT 1', label: 'x'}`, and it returns null for `{exploreSql: {body: 42}}`, `null`, and
+  `{}`.
+- [ ] From the Query side: exploring `SELECT name, qty FROM db.orders;` navigates to `/explore` with
+  state equal to `buildExploreSqlHandoff({body: 'SELECT name, qty FROM db.orders', label: <its
+  statementHint>})` and no query string.
+- [ ] From the Explorer side, rendered under `<StrictMode>` with `browserRouter: true` and that state:
+  exactly one tab opens, labelled with that hint, whose first execution's SQL is
+  `SELECT *\nFROM (\nSELECT name, qty FROM db.orders\n) AS t`. Afterwards `window.history.state.usr`
+  carries no `exploreSql`, and unmounting and mounting a fresh workspace opens no second tab.
+- [ ] With an execution for that statement already cached, the hand-off starts a new execution.
+- [ ] At the tab limit the hand-off raises the limit dialog, the tab count is unchanged, and the
+  history state no longer carries `exploreSql`.
 
 ### FR-004: A tab whose source is SQL works end to end
 
 #### Description:
 
-A `sql`-source tab, with no Glue schema, draws its headers from the first execution's column
-metadata. Each column's type comes from that metadata, so `filterValueKind`, `isTextType` and
-`operatorsFor` pick operators and value kinds from Athena's own type names. Sorting, filtering,
+A `sql`-source tab, with no Glue schema, draws its headers from its execution's column metadata,
+whose types arrive in Glue's spelling (`string`, `int`). `filterValueKind`, `isTextType` and
+`operatorsFor` pick operators and value kinds from those. The first time an execution of the tab's
+source with no grouping succeeds, the tab stores its columns as `sqlSourceColumns`, and
+`useSourceColumns` returns them for a `sql` source, so the Grouping panel can list columns while a
+grouping is applied. `explorationTabs.ts` persists and validates the field. Sorting, filtering,
 grouping, Colors, Calc, copy, *Save results to my files* and *Save as query* work as they do on a
-table tab. *Create view* shows its existing refusal. The tab restores from session storage after a
-reload.
+table tab. *Create view…* refuses with "A view is created in one database, and SQL opened from a
+query or a saved file can read from several. Open a table to create a view from it." The tab restores
+from session storage after a reload.
 
 #### Acceptance Criteria:
 
-- [ ] A `sql`-source tab whose execution reports `name varchar` and `qty integer` shows both headers.
-  The `qty` menu offers no **contains**, and filtering `qty` greater than `5` renders `"qty" > 5`,
-  bare.
+- [ ] A `sql`-source tab whose execution reports `name string` and `qty int` shows both headers. The
+  `qty` menu offers no **contains**, and filtering `qty` greater than `5` renders `"qty" > 5`, bare.
 - [ ] Sorting `name` descending renders `SELECT *\nFROM (\n<body>\n) AS t\nORDER BY "name" DESC`.
-- [ ] Grouping by `name` with `COUNT(*)` renders a statement that groups over the subquery, and the
-  grid shows the grouped columns.
-- [ ] *Save results to my files* on the tab enqueues or copies the tab's own execution output.
-- [ ] *Create view…* shows the sentence the workspace carries today for a non-table source.
-- [ ] A tabs document holding a `sql`-source tab written to session storage restores that tab with
-  its body and label.
+- [ ] Grouping by `name` with `COUNT(*)` renders a statement that groups over the subquery. Reopening
+  the Grouping panel on the grouped tab lists `name` and `qty`, and changing the grouping to `qty`
+  applies.
+- [ ] *Save results to my files* on the tab saves the tab's own execution output.
+- [ ] *Create view…* shows the sentence above.
+- [ ] A tabs document holding a `sql`-source tab with `sqlSourceColumns` restores that tab with its
+  body, label and columns. A document whose `sqlSourceColumns` is not an array of `{name, type}`
+  strings restores the tab without the field.
 
 ### FR-005: The registry and the guides
 
 #### Description:
 
 `gatedSurfaces.ts` gains *Explore in Data Explorer* as a `control` on `/query` under `dataExplorer`,
-and again under `query`, on the *Explore data* precedent. The Query section's `run-script` guide
-says that selecting several statements and choosing **Run Statement** gives each one a result tab,
-and its `run-query` guide says that **Explore in Data Explorer** opens a result in the Data Explorer,
-running the statement again there. The Data
-Explorer's *Start exploring* guide says a query result can be opened there from the Query page.
+and *Explore in Data Explorer on a query result* under `query`, on the *Explore data* precedent. Both
+get a recipe in `gatedSurfaces.test.tsx`. The Query section's `run-script` guide says that selecting
+several statements and choosing **Run Statement** gives each one a result tab. The Data Explorer's
+*Start exploring* guide says a query result can be opened there with **Explore in Data Explorer**,
+which runs the statement again, and that each column needs its own name.
 
 #### Acceptance Criteria:
 
-- [ ] `gatedSurfaces.test.tsx` passes with the two new rows, and fails if the button renders with
-  `dataExplorer` off.
-- [ ] Both guides carry the sentences. This is static copy, so the diff review checks it.
+- [ ] `gatedSurfaces.test.tsx` passes with both rows and their recipes, and fails if the button
+  renders with either flag off.
+- [ ] The guides carry the sentences, and the `run-query` guide gains none. This is static copy, so
+  the diff review checks it.
 
 ---
 
 ## Data Model
 
 ```ts
-// The router state the Query side sends and the Explorer reads.
-// apps/portal/src/features/data-explorer/dataExplorer.types.ts
+// apps/portal/src/lib/routeHandoff.ts
 export type ExploreSqlHandoff = {exploreSql: {body: string; label: string}};
+
+// apps/portal/src/features/data-explorer/dataExplorer.types.ts — ExplorationTab gains
+/** A `sql` source's columns, from its first ungrouped execution. Absent for a table source. */
+sqlSourceColumns?: QueryColumn[];
 ```
 
 ## API / Interface Contract
 
 ```ts
+// apps/portal/src/lib/routeHandoff.ts
+export function buildExploreSqlHandoff(handoff: {body: string; label: string}): ExploreSqlHandoff;
+export function readExploreSqlHandoff(state: unknown): {body: string; label: string} | null;
+
 // apps/portal/src/features/query/query.sql.ts
 export function isExplorableSql(sql: string): boolean;
-
-// apps/portal/src/features/data-explorer — a pure reader beside useExploreDeepLink
-export function readExploreSqlHandoff(state: unknown): {body: string; label: string} | null;
 ```
 
 ## File & Folder Structure
 
 ```
-apps/portal/src/features/query/QueryWorkspace.tsx          (FR-001, FR-002 wiring)
-apps/portal/src/features/query/query.sql.ts (+ queryPure.test.ts)   (FR-002)
-apps/portal/src/features/query/QueryResultsRegion.tsx (+ test)      (FR-002, FR-003)
-apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx (+ test)  (FR-003)
-apps/portal/src/features/data-explorer/useExploreSqlHandoff.ts or a reader beside useExploreDeepLink
-apps/portal/src/features/data-explorer/ — tests for a sql-source tab (FR-004)
-apps/portal/src/features/feature-flags/gatedSurfaces.ts     (FR-005)
-apps/portal/src/features/help/helpContent.ts                (FR-005)
-apps/portal/info/component-inventory/query-feature.md, data-explorer-feature.md
+apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)            (FR-003)
+apps/portal/src/features/query/QueryWorkspace.tsx                        (FR-001, FR-002 wiring)
+apps/portal/src/features/query/QueryStatusBar.tsx (+ test)               (FR-002, FR-003)
+apps/portal/src/features/query/query.sql.ts (+ queryPure.test.ts)        (FR-002)
+apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx (+ test) (FR-003, FR-004 wording)
+apps/portal/src/features/data-explorer/dataExplorer.types.ts, explorationTabs.ts,
+  useExplorationTabs.ts, useSourceColumns.ts                             (FR-004)
+apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ test)         (FR-005)
+apps/portal/src/features/help/helpContent.ts                             (FR-005)
+apps/portal/info/component-inventory/query-feature.md, data-explorer-feature.md, foundations.md
 ```
 
 ## Implementation Phases
@@ -244,12 +307,13 @@ apps/portal/info/component-inventory/query-feature.md, data-explorer-feature.md
 
 ### Phase 2: A `sql`-source tab end to end
 
-- Tests for every FR-004 criterion against a `sql`-source tab, fixing whatever the dormant arm
-  gets wrong. This phase comes before the button, so no user can reach a broken arm.
+- `sqlSourceColumns`, the reworded *Create view…* refusal, and tests for every FR-004 criterion
+  against a `sql`-source tab, fixing whatever else the dormant arm gets wrong. This phase comes
+  before the button, so no user can reach a broken arm.
 
 ### Phase 3: The hand-off
 
-- `isExplorableSql`, the button, the router state, the Explorer's one-time read, the registry rows
+- `routeHandoff.ts`, `isExplorableSql`, the button, the Explorer's one-time read, the registry rows
   and the guides (FR-002, FR-003, FR-005).
 - The live check, run from a signed-in session after deploy: in Query, select two `SELECT`
   statements and choose **Run Statement**; two result tabs appear. On the second, choose **Explore in

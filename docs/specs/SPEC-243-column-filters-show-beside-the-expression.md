@@ -39,6 +39,8 @@ Read from the code at `73c66eef`.
   `onTabLimit`. History's *re-open* loads SQL without running it.
 - **A Query capability on a Data Explorer surface is registered under `query`.** `gatedSurfaces.ts`
   lists *Save as query* and *Create view…* on `/explore` under `query` only.
+- **Neither feature may import the other.** `eslint.config.js` forbids `features/query/` and
+  `features/data-explorer/` importing each other, tests and `import type` included.
 - **Saving already exists.** *Save as query* writes the generated SQL to a `.sql` file. Opening a
   `.sql` file as an exploration source is deferred (`ExplorationTab.savedQuery` docstring).
 
@@ -60,7 +62,22 @@ Read from the code at `73c66eef`.
 - **Open in Query opens a new tab and does not run it.** Running the statement is the user's call,
   as it is when *re-open* loads a history entry, and a new tab never overwrites the user's buffer.
 - **The hand-off travels in router state, never the URL**, and is consumed once. A reload must not
-  open a second tab, and a statement can quote the user's data.
+  open a second tab, and a statement can quote the user's data. `BrowserRouter` keeps navigation
+  state in `window.history.state` across a reload, and `AppRoot` renders under `StrictMode`, which
+  runs an effect twice in development. So the read is guarded by a ref keyed on `location.key`, and
+  the state is then replaced away.
+- **The hand-off's shape lives in `lib/routeHandoff.ts`,** beside SPEC-242's, with a builder the
+  Explorer calls and a reader Query calls, so the two sides cannot hold different copies of it.
+- **On a phone, the hand-off also shows the statement.** Below `tablet` the Query workspace renders
+  `QueryMobileView`, which has no editor, so a new tab alone would be invisible. The read therefore
+  also calls the mobile surface's existing `viewSql(sql, label)`, which shows SQL read-only without
+  running it. The tab is still opened, so the statement is waiting in the editor at a wider width.
+- **Chips keep the order filters were set in.** `setFilter` puts an edited filter last, so an edited
+  filter's chip moves to the end. That reads as "most recently set last", and it is what array order
+  gives without a second ordering rule.
+- **The remove control's name carries the whole filter.** `Chip`'s contract is that a truncated name
+  stays reachable through the remove button's accessible name, so the name is `Remove filter: <label>`
+  rather than naming only the column.
 - **Filter the rows on several columns with the existing gestures.** Nothing new is needed there.
   The chips make the combination visible, and the guide says the filters combine.
 
@@ -71,7 +88,9 @@ Read from the code at `73c66eef`.
 - The chip list of column filters beside the expression box (FR-001).
 - Removing one filter from its chip (FR-002).
 - **Open in Query** and the Query workspace's one-time read of it (FR-003).
-- The registry row and the *Filter and sort* and Query guides (FR-004).
+- The registry row and the Data Explorer's *Filter and sort* and *Save as query* guides (FR-004).
+- `renderWithProviders` accepts router state for a route, so the hand-off can be tested from each
+  side.
 
 ### Out of Scope
 
@@ -95,40 +114,46 @@ Read from the code at `73c66eef`.
 `ExplorationResultsRegion` renders, directly after `ExpressionBar`, a `ChipList` named
 "Column filters" holding one `Chip` per entry of the applied `query.filters`, in array order. It
 renders nothing when there are none. `filterChipLabel(filter)` builds each chip's `name`:
-`<column> <FILTER_OPERATOR_LABELS[operator]>`, followed by the value where the operator has one.
+`<column> <FILTER_OPERATOR_LABELS[operator]>`, followed by a space and the value where the operator
+has one.
 
-- A string-kind value is shown as `“<value>”`, and an empty string as `(empty)`.
-- A number-kind value is shown bare.
-- A list shows its values in their canonical order (SPEC-238 FR-002), quoted the same way, with
-  NULL as `NULL`. Past three values it shows the first three and then `and <n> more`.
+- A value is shown bare when the filter's `valueKind` is `'number'` and the operator is a comparison
+  or a list operator. Every other value is quoted as `“<value>”`: a string kind, an absent
+  `valueKind`, and every value of the four text operators, which SPEC-238 always quotes.
+- An empty string is shown as `(empty)` and a NULL list entry as `NULL`, never quoted.
+- A list shows its values de-duplicated and in canonical order (SPEC-238 FR-002), joined by `, `.
+  With more than three values it shows the first three, then ` and <n> more`, where n counts the
+  de-duplicated values not shown.
 
 #### Acceptance Criteria:
 
 - [ ] Filters `[= 'NY' on state, > 5 (number) on qty]` render a list named "Column filters" with the
   chips `state equals “NY”` and `qty greater than 5`, in that order.
 - [ ] `in ['Zyrtec', 'Abilify', null]` on `brnd_name` renders `brnd_name is one of “Abilify”, “Zyrtec”, NULL`.
-- [ ] `in` with five values renders the first three and `and 2 more`.
+- [ ] `in ['e', 'd', 'c', 'b', 'a', 'a']` renders `c is one of “a”, “b”, “c” and 2 more` for a column
+  named `c`.
+- [ ] `contains` with `valueKind: 'number'` and value `5` renders `name contains “5”`.
 - [ ] `isEmpty` on `last_name` renders `last_name is empty`, and `= ''` renders `name equals (empty)`.
-- [ ] With no filters no "Column filters" list is in the accessible tree, even with an expression
-  applied.
-- [ ] A chip whose label is wider than the region truncates, and its remove control remains a 24px
-  target. The shared `Chip` already asserts this, so the test here asserts only that `Chip` is used.
+- [ ] With an expression applied and no filters, once the *Filter expression* input shows the applied
+  expression, no "Column filters" list is in the accessible tree.
 
 ### FR-002: Removing a chip removes that one filter
 
 #### Description:
 
-Each chip's remove label is `Remove filter on <column>`. Activating it applies
-`clearFilter(query, column)` through the region's single `apply`, so it is one description change:
-at most one execution and one history entry. Focus then moves to the next chip's remove control, or
-the previous one when it was last, or the *Filter expression* input when no chips remain.
+Each chip's remove label is `Remove filter: <label>`, with the label `filterChipLabel` built.
+Activating it applies `clearFilter(query, column)` through the region's single `apply`, so it is one
+description change: at most one execution and one history entry. Focus then moves to the next chip's
+remove control, or the previous one when it was last, or the *Filter expression* input when no chips
+remain. The region finds the chip's remove control by querying, within a wrapper it holds a ref to,
+for the button with that accessible name. `ExpressionBar` gains an `inputRef` prop for the last case.
 
 #### Acceptance Criteria:
 
-- [ ] With filters on `state` and `qty`, activating `Remove filter on state` produces one execution
+- [ ] With filters on `state` and `qty`, activating `Remove filter: state equals “NY”` produces one execution
   whose SQL has the `qty` predicate and no `state` predicate, and the tab's history `past` grows
   by one.
-- [ ] After that, focus is on `Remove filter on qty`.
+- [ ] After that, focus is on `Remove filter: qty greater than 5`.
 - [ ] Removing the only chip moves focus to the *Filter expression* input.
 - [ ] *Back* after the removal restores both filters and both chips.
 
@@ -139,25 +164,40 @@ the previous one when it was last, or the *Filter expression* input when no chip
 `GeneratedSqlDisclosure` gains an optional `onOpenInQuery`. When it is given, and `sql` is not null,
 an **Open in Query** button renders beside the copy button, mounted under the same rule, only while
 the disclosure is open. The Data Explorer gives the prop only when the `query` flag is on. Activating
-it navigates to `/query` with router state `{openSql: {sql, label}}`, where `sql` is the disclosure's
-own `sql` string and `label` is the exploration tab's label. The statement never goes in the URL.
+it navigates to `/query` with router state `buildOpenSqlHandoff({sql, label})`, which is
+`{openSql: {sql, label}}`, where `sql` is the disclosure's own `sql` string and `label` is the
+exploration tab's label. The statement never goes in the URL.
 
-`QueryWorkspace` reads that state once. It calls `tabs.openTab({label, sql})`, which makes the new tab
-active, and replaces the history entry with the same path and no state. It does not run the
-statement. When `openTab` returns null it raises its tab-limit dialog and opens nothing. State whose
-`openSql` is not an object with a string `sql` and a string `label` is ignored.
+`DataExplorerWorkspace` supplies the tab's label and the navigation through a new region prop,
+`onOpenInQuery`, which the region passes to the disclosure only when the `query` flag is on.
+
+`QueryWorkspace` reads that state with `readOpenSqlHandoff`, once, guarded by a ref holding the
+`location.key` it last consumed.
+It calls `tabs.openTab({label, sql})`, which makes the new tab active, and below `tablet` it also calls
+the mobile surface's `viewSql(sql, label)`. It then replaces the history entry with the same path and
+no state. It does not run the statement. When `openTab` returns null it raises its tab-limit dialog
+and opens nothing. State whose `openSql` is not an object with a string `sql` and a string `label` is
+ignored. The history entry is replaced on every read, including when the tab limit refuses the tab.
 
 #### Acceptance Criteria:
 
-- [ ] With the disclosure open and `query` on, **Open in Query** is present. With `query` off, or the
-  disclosure closed, or `sql` null, it is absent.
-- [ ] Activating it on a tab labelled `orders` lands on `/query` with a new active tab labelled
-  `orders` whose editor text equals the disclosure's `sql` exactly, and no execution is started.
-- [ ] After the hand-off the URL has no query string and the history state carries no `openSql`.
-  Re-rendering the workspace opens no second tab.
-- [ ] At `QUERY_TABS_MAX` the hand-off raises the tab-limit dialog and the tab count is unchanged.
-- [ ] State `{openSql: {sql: 1}}` opens nothing and raises nothing.
-- [ ] The Data Explorer tab that was left is unchanged when the user returns to `/explore`.
+- [ ] With the disclosure open and `query` on, **Open in Query** is present. With the disclosure open
+  and `query` off, once the copy button is present, **Open in Query** is absent. With `sql` null it is
+  absent once the disclosure shows `NO_GENERATED_SQL`.
+- [ ] From the Explorer side: activating it on a tab labelled `orders` navigates to `/query` with state
+  `{openSql: {sql: <the disclosure's sql>, label: 'orders'}}` and no query string.
+- [ ] From the Query side: rendering `QueryWorkspace` under `<StrictMode>` at `/query` with that state
+  opens exactly one new tab, active, labelled `orders`, whose editor text equals the `sql` exactly,
+  and starts no execution. Afterwards the history state carries no `openSql`.
+- [ ] Below `tablet`, the same state opens the tab and shows the read-only SQL view titled `orders`.
+- [ ] At `QUERY_TABS_MAX` the hand-off raises the tab-limit dialog, the tab count is unchanged, and
+  the history state no longer carries `openSql`.
+- [ ] `readOpenSqlHandoff(buildOpenSqlHandoff({sql: 'SELECT 1', label: 'x'}))` returns
+  `{sql: 'SELECT 1', label: 'x'}`.
+- [ ] `readOpenSqlHandoff` returns null for `{openSql: {sql: 1}}`, `null` and `{}`, and
+  `QueryWorkspace` given such state opens nothing and raises nothing.
+- [ ] Returning to `/explore` after the hand-off shows the tab whose `exploration.query`,
+  `exploration.presentation` and `history` equal what they were before it.
 
 ### FR-004: The registry and the guides
 
@@ -172,8 +212,8 @@ that changes there do not come back to the exploration.
 
 #### Acceptance Criteria:
 
-- [ ] `gatedSurfaces.test.tsx` passes with the new row, and fails if the button renders with `query`
-  off.
+- [ ] `gatedSurfaces.test.tsx` passes with the new row, whose recipe reaches a non-null `sql` and opens
+  the disclosure, and fails if the button renders with `query` off.
 - [ ] The guides carry the sentences. This is static copy, so the diff review checks it.
 
 ---
@@ -191,21 +231,34 @@ export type GeneratedSqlDisclosureProps = {
   onOpenInQuery?: (sql: string) => void;
 };
 
-// apps/portal/src/features/query — a pure reader of the router state
+// apps/portal/src/lib/routeHandoff.ts, beside SPEC-242's explore hand-off
+export type OpenSqlHandoff = {openSql: {sql: string; label: string}};
+export function buildOpenSqlHandoff(handoff: {sql: string; label: string}): OpenSqlHandoff;
 export function readOpenSqlHandoff(state: unknown): {sql: string; label: string} | null;
+
+// apps/portal/src/features/data-explorer/ExpressionBar.tsx — ExpressionBarProps gains
+inputRef?: React.Ref<HTMLInputElement>;
+
+// apps/portal/src/test/renderWithProviders.tsx — ProviderOptions.route widens to
+route?: string | {pathname: string; state: unknown};
 ```
 
 ## File & Folder Structure
 
 ```
 apps/portal/src/features/data-explorer/explorationQueryOps.ts (+ test)       (FR-001)
-apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx          (FR-001, FR-002)
+apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx          (FR-001–FR-003)
+apps/portal/src/features/data-explorer/ExpressionBar.tsx                     (FR-002: inputRef)
+apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx             (FR-003: label, navigation)
 apps/portal/src/features/data-explorer/GeneratedSqlDisclosure.tsx (+ test)   (FR-003)
 apps/portal/src/features/data-explorer/filtering.test.tsx                    (FR-001, FR-002)
 apps/portal/src/features/query/QueryWorkspace.tsx (+ QueryWorkspace.test.tsx) (FR-003)
-apps/portal/src/features/feature-flags/gatedSurfaces.ts                      (FR-004)
+apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)                (FR-003)
+apps/portal/src/test/renderWithProviders.tsx                                 (router state)
+apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ gatedSurfaces.test.tsx) (FR-004)
 apps/portal/src/features/help/helpContent.ts                                 (FR-004)
-apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md
+apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, test-utilities.md
+apps/portal/info/component-inventory/shared-components.md (the Chip row no longer says "recipient")
 ```
 
 ## Implementation Phases

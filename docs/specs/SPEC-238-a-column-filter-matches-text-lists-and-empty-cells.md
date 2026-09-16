@@ -65,13 +65,20 @@ Read from the code at `73c66eef`.
 - **Text and empty operators are offered only on text columns.** `LIKE` and `= ''` against a
   `bigint` or a `date` are type errors in Trino, not comparisons. A text column is one whose type,
   lowercased and trimmed, is `string`, `varchar`, `char`, or starts with `varchar(` or `char(`. Glue
-  and Athena spell these differently, as `filterValueKind` already notes. The list operators work on
-  every column and use the column's `valueKind` for each value, as the comparisons do.
-- **A NULL cell matches none of the new operators except is empty.** That includes the negative
-  forms: `does not contain 'x'` and `is not one of ('x')` exclude NULL rows. This is SQL's own
-  behaviour and the app's existing rule, since `<>` excludes NULL rows today and a Colors rule
-  matches no NULL cell. In a CSV table blank cells are `''`, which the negative forms do include.
-  **Is empty** exists to find absent values, so it matches both NULL and `''`.
+  and Athena spell these differently, as `filterValueKind` already notes.
+- **List operators are offered on text and numeric columns only.** `IN ('2026-01-01')` against a
+  `date` is the same type error, since the model quotes every non-numeric value. Typed date,
+  timestamp and boolean literals are a model change no tester asked for. SPEC-241 draws the same
+  line. A list uses the column's `valueKind` for each value, as the comparisons do.
+- **A NULL cell matches none of the text operators, a list matches it only through a NULL entry,
+  and is empty matches it.** So `does not contain 'x'` and `is not one of ('x')` exclude NULL rows.
+  This is SQL's own behaviour and the app's existing rule, since `<>` excludes NULL rows today and a
+  Colors rule matches no NULL cell. In a CSV table blank cells are `''`, which the negative forms do
+  include. **Is empty** exists to find absent values, so it matches both NULL and `''`.
+- **The typed list keeps what it cannot show.** A list written by SPEC-241 can hold a NULL entry, an
+  empty string, or a value containing a line break, none of which one-per-line text can express.
+  Editing such a filter in the typed field shows those entries beneath it as *Also kept*, and Apply
+  keeps them. Re-parsing the text alone would silently drop part of a filter the user built.
 - **The filter model carries a list whose entries may be NULL.** `in` and `notIn` read
   `values: (string | null)[]`. The typed-list dialog here never produces a NULL entry, but SPEC-241's
   filter-by-value list shows NULL as a value that can be ticked. Adding the NULL entry now
@@ -79,11 +86,15 @@ Read from the code at `73c66eef`.
 - **A list is rendered in one canonical order**: strings sorted by UTF-16 code unit, then NULL. Two
   lists holding the same values then render identical SQL, which is the execution cache key, and
   compare equal for the filter history.
-- **A list holds at most `EXPLORER_FILTER_VALUES_MAX` = 1,000 values.** It is one constant, shared
-  with SPEC-241's value list, so ticking every value that list can show is always a legal
-  filter. It is an input bound, not the query's real limit. The real limit is Athena's statement
+- **A list holds at most `EXPLORER_FILTER_VALUES_MAX` = 1,000 values**, counted after duplicates
+  collapse, with a NULL entry counting as one. It is one constant, shared with SPEC-241's value list,
+  so ticking every value that list shows is a legal filter, and SPEC-241 refuses a larger selection
+  at its own Apply. It is an input bound, not the query's real limit. The real limit is Athena's statement
   length, which FR-005 measures directly, because 1,000 long values can exceed it where 1,000 short
   ones do not.
+- **A statement over the limit is treated like one that could not render.** `useExploration.sql` is
+  null for it, so *Generated SQL* shows its no-statement sentence and *Save as query* refuses with
+  `NOTHING_TO_SAVE`. Saving a statement Athena will refuse would hand the user a broken file.
 - **The length check counts UTF-8 bytes against 262,144.** The API reference does not say whether
   it counts characters or bytes. A string's UTF-8 byte count is never below its character count, so
   a statement the check admits is under the limit in either unit.
@@ -142,16 +153,19 @@ contains matches every non-NULL row and is never what the user meant.
   The statement contains no single quote outside the literal.
 - [ ] `contains` with `value: ''` and with no `value` each throw `ExplorationRenderError`.
 - [ ] `contains` with `valueKind: 'number'` and value `5` renders the value quoted (`'%5%'`).
-- [ ] A stored tab document carrying a `contains` filter restores. One carrying
-  `{operator: 'contains', value: 7}` is refused by the stored-document check, the same way an
-  unknown operator is refused today.
+- [ ] A stored tab document carrying a `contains` filter restores with that filter in
+  `query.filters`. One carrying `{operator: 'contains', value: 7}` is refused. That second half
+  already holds for every operator today, and it guards against a regression.
 
 ### FR-002: Is one of and is not one of
 
 #### Description:
 
 `FilterOperator` gains `in` and `notIn`. They read `values: (string | null)[]` and ignore `value`.
-Before rendering, the strings are de-duplicated and sorted by UTF-16 code unit. Each one goes through
+`operatorTakesValue` stays true only for the six comparisons and the four text operators, and a new
+`operatorTakesValues` is true for `in` and `notIn`. `setFilter` writes only the field the operator
+reads, and *Order and filter* clears the other field when the operator moves between a single-value
+and a list operator. Before rendering, the strings are de-duplicated and sorted by UTF-16 code unit. Each one goes through
 `sqlLiteral`, or is emitted bare when `valueKind` is `'number'` and `isBareNumeric` accepts it. A
 NULL entry never goes into the list:
 
@@ -161,8 +175,10 @@ NULL entry never goes into the list:
   excludes NULL rows. With only a NULL entry: `"c" IS NOT NULL`.
 
 An absent or empty `values`, more than `EXPLORER_FILTER_VALUES_MAX` entries, or a numeric-kind entry
-that fails `isBareNumeric` is an `ExplorationRenderError`. `canonical()` compares `values` in the
-same sorted form, so two filters holding the same values in different orders are the same query.
+that fails `isBareNumeric` is an `ExplorationRenderError`. The cap counts distinct entries, a NULL
+entry included. `canonical()` compares `values` de-duplicated and in the same sorted form, and
+ignores `value` for a list operator and `values` for any other, so two filters holding the same
+values in different orders or with a stray field are the same query.
 
 #### Acceptance Criteria:
 
@@ -176,8 +192,9 @@ same sorted form, so two filters holding the same values in different orders are
 - [ ] `in` with `values: []`, with no `values`, and with 1,001 distinct values each throw
   `ExplorationRenderError`. With exactly 1,000 it renders.
 - [ ] `sameQuery` is true for two descriptions whose only difference is `['a','b']` against
-  `['b','a']`, and false against `['a','c']`.
-- [ ] A stored tab document carrying an `in` filter with `['a', null]` restores. One whose `values`
+  `['b','a','a']`, true when one of the two `in` filters also carries a stray `value: 'z'`, and false
+  against `['a','c']`.
+- [ ] A stored tab document carrying an `in` filter with `['a', null]` restores with those values. One whose `values`
   holds a number, or is a string rather than an array, is refused by the stored-document check.
 
 ### FR-003: Is empty and is not empty
@@ -204,22 +221,34 @@ parentheses are part of the rendering, so combining several filters with `AND` c
 `explorationQueryOps.ts` gains `isTextType(type)`, the text-column rule from *The decisions*, and
 `operatorsFor(type)`, which returns the operators a column of that type offers, in this order: the
 six comparisons, then (text columns only) contains, does not contain, starts with, ends with, then
-is one of, is not one of, then is null, is not null, then (text columns only) is empty, is not empty.
+(text and numeric columns only) is one of, is not one of, then is null, is not null, then (text
+columns only) is empty, is not empty.
 The column menu and the *Order and filter* select both read `operatorsFor`, so neither lists
 operators by hand. Labels come from `FILTER_OPERATOR_LABELS`: `contains`, `does not contain`,
-`starts with`, `ends with`, `is one of`, `is not one of`, `is empty`, `is not empty`.
+`starts with`, `ends with`, `is one of`, `is not one of`, `is empty`, `is not empty`. Menu items keep
+today's naming: an operator that opens a dialog is `Filter: <label>…`, and one that applies at once
+is `Filter: <label>`.
 
 - A text operator opens `FilterValueDialog` as today. Apply is refused with
   "Enter the text to match." when the value is empty.
 - A list operator opens the dialog in list mode: a labelled multi-line field, one value per line.
-  Blank lines are ignored and duplicates collapse. On a numeric column each line is trimmed and must
-  pass `isBareNumeric`; otherwise Apply is refused with "Line <n> is not a number — this column holds
-  numbers.". Apply is refused with "Enter at least one value." when no line has a value, and with
-  "Enter at most 1,000 values." past the cap. Editing an existing list filter pre-fills its string
-  values one per line.
+  Lines are numbered as the field shows them, blank lines included. A line of length zero is
+  ignored. On a text column every other line is a value, verbatim, spaces included. On a numeric
+  column each line is trimmed, a line that is then empty is ignored, and the rest must pass
+  `isBareNumeric`; otherwise Apply is refused with "Line <n> is not a number — this column holds
+  numbers.". Duplicates collapse, keeping the first. Apply is refused with "Enter at least one
+  value." when no line has a value, and with "Enter at most 1,000 values." when more than 1,000
+  distinct values would be stored, *Also kept* entries included.
+- Editing an existing list filter pre-fills its string values that hold no line break, one per line.
+  Its NULL entry, its empty-string entry and any value holding a line break are listed beneath the
+  field under *Also kept*, as `NULL`, `(empty)` or the value with its line breaks shown as `↵`, and
+  Apply stores them again beside the typed values. To drop one, the user clears the filter or uses
+  SPEC-241's values list.
 - Is empty and is not empty apply straight from the menu, as the null tests do.
-- In *Order and filter*, choosing a list operator shows the multi-line field in place of the single
-  value field, and the same refusals apply before the dialog's Apply.
+- In *Order and filter*, choosing a list operator shows the multi-line field, with its *Also kept*
+  list, in place of the single value field. That dialog's Apply refuses, per column, every case the
+  value dialog refuses: an empty text-operator value with "Enter the text to match.", and each list
+  refusal above.
 
 The *Filter and sort* guide's first step names the new operators. One added sentence says that
 blank cells in a table built from CSV files are empty text shown as `(empty)`, which **is empty**
@@ -227,20 +256,29 @@ finds and **is null** does not.
 
 #### Acceptance Criteria:
 
-- [ ] On a `string` column the header menu offers, in order: equals, does not equal, greater than,
-  greater than or equal to, less than, less than or equal to, contains, does not contain, starts
-  with, ends with, is one of, is not one of, is null, is not null, is empty, is not empty, then
-  Clear filter. Asserted by accessible name in `filtering.test.tsx`.
+- [ ] On a `string` column the header menu's filter items are, in order: `Filter: equals…`,
+  `Filter: does not equal…`, `Filter: greater than…`, `Filter: greater than or equal to…`,
+  `Filter: less than…`, `Filter: less than or equal to…`, `Filter: contains…`,
+  `Filter: does not contain…`, `Filter: starts with…`, `Filter: ends with…`, `Filter: is one of…`,
+  `Filter: is not one of…`, `Filter: is null`, `Filter: is not null`, `Filter: is empty`,
+  `Filter: is not empty`, then `Clear filter`. Asserted by accessible name in `filtering.test.tsx`.
 - [ ] On a `bigint` column the menu offers no contains, does not contain, starts with, ends with,
   is empty or is not empty item, and does offer is one of.
+- [ ] On a `date` column the menu offers the six comparisons and the two null tests, and no text,
+  list or empty operator.
 - [ ] `isTextType` is true for `string`, `varchar`, `VARCHAR(20)`, `char(3)` and `char`, and false
   for `bigint`, `date`, `decimal(10,2)` and `''`.
 - [ ] Choosing contains, typing `abc` and applying produces exactly one execution, whose SQL
   contains `lower("name") LIKE lower('%abc%') ESCAPE '\'`.
 - [ ] Choosing is one of on a numeric column and applying the lines `1`, `x`, `3` shows
   "Line 2 is not a number — this column holds numbers." and starts no execution.
-- [ ] Applying the lines `NY`, a blank line, `NJ`, `NY` produces a filter whose `values` is
-  `['NJ', 'NY']` once rendered.
+- [ ] Applying the lines `NY`, a blank line, `NJ`, `NY` stores a filter whose `values` is
+  `['NY', 'NJ']`.
+- [ ] Editing a stored filter `in ['a', null, '', 'x\ny']` in the typed field shows `a` in the field
+  and `NULL`, `(empty)` and `x↵y` under *Also kept*. Applying without a change stores values equal
+  to the original under `sameQuery`, and pushes no history entry.
+- [ ] In *Order and filter*, choosing contains on a column and pressing Apply without typing a
+  value shows "Enter the text to match." on that column's row and starts no execution.
 - [ ] Choosing is empty from the menu produces one execution without opening a dialog.
 - [ ] In *Order and filter*, setting is one of on one column and contains on another, then Apply,
   produces exactly one execution carrying both.
@@ -254,16 +292,18 @@ finds and **is null** does not.
 `renderExplorationSql.ts` exports `ATHENA_QUERY_STRING_MAX = 262_144` and
 `exceedsAthenaQueryLimit(sql)`, which is true when `new TextEncoder().encode(sql).length` is greater
 than the constant. `useExploration` asks it after rendering and before starting anything. When it is
-true, no execution starts and the exploration's error is a new `ExplorationStatementTooLong` error,
-which `lib/errorMessages.ts` words as: "This filter makes the query too long to run. Use fewer or
-shorter values." The previous rows stay on screen, as they do for a refused render today.
+true, no execution starts, `useExploration` returns `sql: null` as it does for a refused render, and
+the exploration's error is a new `ExplorationStatementTooLong` error, which `lib/errorMessages.ts`
+words as: "This query is too long to run. Use fewer or shorter filter values, or a shorter
+expression." The previous rows stay on screen, as they do for a refused render today.
 
 #### Acceptance Criteria:
 
 - [ ] `exceedsAthenaQueryLimit` is false for a string of 262,144 ASCII characters, true for
   262,145, and true for 131,073 copies of `é` (262,146 bytes).
 - [ ] An exploration whose rendered SQL exceeds the limit starts no execution (the start service
-  mock is not called) and shows the sentence above.
+  mock is not called), shows the sentence above, and returns `sql: null`, so *Generated SQL* shows
+  `NO_GENERATED_SQL`.
 - [ ] The same exploration with the long filter removed starts one execution.
 
 ### FR-006: Colors rules can match an empty cell
@@ -272,8 +312,9 @@ shorter values." The previous rows stay on screen, as they do for a refused rend
 
 `ColourOperator` gains `isEmpty` and `isNotEmpty`, labelled "is empty" and "is not empty". They take
 no value: the rules dialog hides the value field for them, and a stored rule's `value` is ignored.
-`isEmpty` matches a cell that is NULL or `''`, and `isNotEmpty` matches one that is neither. These
-are the only Colors operators that can match a NULL cell, and the comment on `compile()` says so.
+`isEmpty` matches a cell that is NULL or `''`, and `isNotEmpty` matches one that is neither.
+`isEmpty` is the only Colors operator that can match a NULL cell, and the comment on `compile()` says
+so.
 The stored-document check's `COLOUR_OPERATORS` set in `explorationTabs.ts` gains both.
 
 #### Acceptance Criteria:
@@ -285,7 +326,9 @@ The stored-document check's `COLOUR_OPERATORS` set in `explorationTabs.ts` gains
 - [ ] An `isEmpty` rule whose stored `value` is `'x'` still matches the NULL and `''` cells.
 - [ ] Choosing is empty in the rules dialog removes the value field from the accessible tree, and
   Apply succeeds with no value typed.
-- [ ] A stored tab document carrying an `isEmpty` rule restores.
+- [ ] A stored tab document carrying an `isEmpty` rule restores with that rule in
+  `presentation.formatting.rules`. The formatting check swaps an invalid block for the empty state
+  rather than refusing the tab, so asserting only that the tab restores would pass unbuilt.
 
 ---
 

@@ -35,15 +35,26 @@ Read from the code at `73c66eef`.
   <path filter> GROUP BY <every column, partition keys last> HAVING COUNT(*) > 1)`, and
   `report.py` `_duplicates` reads one integer.
 - **The report already stores the user's values.** Each typed column carries `sampleOffending`, up
-  to five offending values, each cut at `MAX_SAMPLE_VALUE_CHARS` (200) with an ellipsis by
-  `report.py`. `_sample_expr` in `sql.py` builds them with Trino's n-ary `max_by`, which keeps only
+  to `DQ_OFFENDING_VALUE_SAMPLE` (10) offending values, of which the page shows five, each cut at
+  `MAX_SAMPLE_VALUE_CHARS` (200) with an ellipsis by `report.py`. `_sample_expr` in `sql.py` builds them with Trino's n-ary `max_by`, which keeps only
   n entries in its accumulator, keyed on the value so a retried query yields the same sample. It
   renders them as JSON, because Athena writes an array into its result CSV with unquoted elements.
 - **Results travel by pointer.** assemble-report reads each query's result CSV from its
   `resultLocation` (`_result_rows`), not from the state.
-- **The statement has a length budget.** `dqcommon.config` holds `DQ_MAX_COLUMNS = 200` and
-  `DQ_MAX_QUERY_BYTES = 262_144`, and `_projection`'s docstring records a profile query that measured
-  324 KB at the column limit before its columns were aliased, with a test pinning the rendered size.
+- **The statement has a length budget, and nothing measures it.** `dqcommon.config` holds
+  `DQ_MAX_COLUMNS = 200` and `DQ_MAX_QUERY_BYTES = 262_144`. `_projection`'s docstring records a
+  profile query that measured 324 KB at the column limit before its columns were aliased, and says a
+  test pins the rendered size. No test under `lambdas/` calls `build_profile_query` or
+  `build_duplicates_query` (grep), so that docstring is stale and this spec adds the test it needs.
+- **A result cell has a size limit when it is read.** `report.parse_result` reads a result CSV with
+  `csv.DictReader`, whose field limit defaults to 131,072 characters, and assemble-report re-raises
+  anything but a missing object. A cell over that limit fails the whole report, not one figure.
+- **The grouping is not the column union.** `build_duplicates_query` drops a data column whose folded
+  name equals a partition key's and appends the partition keys last, so the grouped order differs
+  from the union `report.build` holds. A start-profile-query test shows columns `id, month, Year`
+  under partition keys `year` and `Month` grouping as `"id", "year", "Month"`.
+- **A single-file check's location is the file.** The dialog sends the file's key as `location`, and
+  `sourceFolderPrefix` (`dataQuality.format.ts`) derives its folder.
 - **Nested columns reach the check.** `cpcommon.type_mapping.map_dtype` maps Parquet lists and
   structs to `array<…>` and `struct<…>`. Trino's JSON documentation (read 2026-09-16) lists the types
   that cast to JSON as BOOLEAN, the integer types, REAL, DOUBLE and VARCHAR, and arrays and rows of
@@ -65,6 +76,17 @@ Read from the code at `73c66eef`.
   row's own rendered text, so a retried query writes the same report. The key is a varchar: the
   repeat count left-padded to a fixed width, followed by the row's JSON. That orders the same way as
   "count, then text", and a varchar key's ordering is not in doubt the way an array's might be.
+- **The report's column list and the nested-column test come from `sql.py`.** A second copy of the
+  grouping rule in `report.py` would put values under the wrong headers without any error the moment
+  either copy changed. `sql.py` exports `grouped_column_names` and `has_nested_column`, and both the
+  statement and the report use them.
+- **The reader's field limit is computed from what the statement can return.** For a grouped column
+  count `n`, the samples cell is at most `DQ_DUPLICATE_SAMPLE` arrays of `n + 1` strings, each at most
+  201 characters that JSON can escape to six characters apiece, plus two quotes and a comma per
+  string and two brackets per array, plus the outer brackets. `parse_result` raises
+  `csv.field_size_limit` to that figure for the duplicates result before reading it.
+- **Values render as Athena renders them.** `CAST(… AS varchar)` gives Trino's own text, so a
+  `double` reads `1.5E0`. The sample shows what the engine holds, not a reformatted number.
 - **Each value is cut in SQL and again in Python.** `substr(..., 1, 201)` bounds what the
   accumulator holds. `report.py` then cuts to 200 characters with an ellipsis, as it does for the
   offending values, so a cut value looks the same in both places.
@@ -78,7 +100,7 @@ Read from the code at `73c66eef`.
   The number is not imported across the plane boundary. The data-quality config names it, and a
   test asserts it equals `apicommon.s3_config.MAX_DOCUMENT_BYTES`.
 - **A source with a nested column keeps today's statement, and its samples are recorded as
-  omitted.** Rendering an `array<…>` or `struct<…>` value as text needs a cast whose support for every
+  omitted when it has duplicates.** Rendering an `array<…>` or `struct<…>` value as text needs a cast whose support for every
   element type is not documented, and a cast that fails would fail the whole statement and lose the
   duplicate count that works today. Flat columns cast to varchar, which every scalar type supports.
 - **Files are not named per sample.** Grouping by every column erases which file a row came from,
@@ -94,8 +116,8 @@ Read from the code at `73c66eef`.
 - The duplicates statement keeps up to five samples (FR-003).
 - `report.py` and assemble-report write the samples, within the document cap (FR-004).
 - The page shows the samples (FR-005).
-- The *Past data quality checks* guide in `helpContent.ts` says the report lists up to five
-  duplicated rows and the rows in each file.
+- The *Check data quality* guide (`check-data-quality`) in `helpContent.ts`, which describes what a
+  report holds, says the report lists up to five of the most repeated rows and the rows in each file.
 - At completion: an entry in `docs/decisions/control-planes.md` saying the report holds sampled
   rows of the user's data and is bounded by the document cap. `lambdas/info/planes/data-quality.md`
   gains the samples.
@@ -120,8 +142,8 @@ Read from the code at `73c66eef`.
 #### Description:
 
 When `exact.rowCountsByFile` has more than one entry, the page shows a closed disclosure titled
-"Rows in each file (<n> files)". Inside is a two-column table with the file's path relative to the
-checked location and its row count, in the report's order, with counts formatted as the summary tiles
+"Rows in each file (<n> files)". Inside is a two-column table with the file's path relative to
+`sourceFolderPrefix(report.location)` and its row count, in the report's order, with counts formatted as the summary tiles
 format them. A single-file report shows no disclosure, because its one count is the report's row
 count.
 
@@ -140,15 +162,18 @@ count.
 
 `EncodingFigure.sampleOffsets` becomes `{key: string; offset: number}[]`, and `reportFixtures.ts`
 is corrected to that shape. When the figure is measured and `invalidUtf8Sequences` is above zero,
-the encoding card lists each example as "<path relative to the checked location>, byte <offset>",
-with the offset formatted with thousands separators, under the lead "Examples:". The card says the
-list shows the first examples found, not all of them. A report written before the type change is the
+the encoding card lists each example as "<path relative to `sourceFolderPrefix(report.location)`>,
+byte <offset>", with the offset formatted with thousands separators, under the lead "Examples:". The
+card says "These are the first examples found, not all of them.". A report written before the type change is the
 same shape, since the writer never changed.
 
 #### Acceptance Criteria:
 
 - [ ] A report with 12 invalid sequences and `sampleOffsets` `[{key: 'alice/sales/jan.csv', offset: 4102}]`
-  shows "jan.csv, byte 4,102" in the encoding card.
+  shows "jan.csv, byte 4,102" in the encoding card, and the sentence "These are the first examples
+  found, not all of them.".
+- [ ] A single-file report whose location is `alice/sales/jan.csv` with the same example shows
+  "jan.csv, byte 4,102".
 - [ ] A report with 0 invalid sequences shows no examples list.
 - [ ] A skipped or not-computed encoding figure renders as today.
 - [ ] `tsc -b` passes with the corrected type, and the fixture carries `{key, offset}` entries.
@@ -157,8 +182,10 @@ same shape, since the writer never changed.
 
 #### Description:
 
-When no column's type starts with `array<` or `struct<`, `build_duplicates_query` groups exactly as
-today and projects `COUNT(*)` as `cnt` and each grouped column under a positional alias. Over that,
+`sql.py` exports `grouped_column_names(columns, partition_keys)`, the grouped names in grouped order
+that the statement already computes, and `has_nested_column(columns)`, true when any column's type
+starts with `array<` or `struct<`. When `has_nested_column` is false, `build_duplicates_query` groups
+exactly as today and projects `COUNT(*)` as `cnt` and each grouped column under a positional alias. Over that,
 it builds per group `sample`: an `array(varchar)` whose first element is `CAST(cnt AS varchar)` and
 whose remaining elements are each grouped column's `substr(CAST(<alias> AS varchar), 1, 201)`, in
 the grouped order. Over that, `sample_key`: the count left-padded to 19 digits followed by
@@ -169,8 +196,8 @@ The builder may use as many layers as it needs so that no expression is repeated
 the partition-key ordering and the identifier quoting are unchanged. `DQ_DUPLICATE_SAMPLE = 5` is a
 `dqcommon.config` constant.
 
-When any column's type starts with `array<` or `struct<`, the statement is today's, byte for byte,
-and its result has no `duplicate_samples` column.
+When `has_nested_column` is true, the statement is today's, byte for byte, and its result has no
+`duplicate_samples` column.
 
 #### Acceptance Criteria:
 
@@ -185,8 +212,11 @@ and its result has no `duplicate_samples` column.
   through `CAST(… AS varchar)`.
 - [ ] For a source with one `array<string>` column, the statement equals today's for the same inputs,
   asserted as a whole string.
-- [ ] At `DQ_MAX_COLUMNS` columns, each named with 255 characters, the rendered statement is at most
-  `DQ_MAX_QUERY_BYTES` UTF-8 bytes, pinned by a test in the shape of the profile query's.
+- [ ] A test renders the statement at `DQ_MAX_COLUMNS` columns, each named with 255 characters, plus
+  two partition keys, and asserts its UTF-8 length is at most `DQ_MAX_QUERY_BYTES`.
+- [ ] `grouped_column_names` for columns `id, month, Year` with partition keys `year` and `Month`
+  returns `['id', 'year', 'Month']`, and the statement for the same inputs groups by
+  `"id", "year", "Month"`.
 - [ ] The live check in *Implementation Phases* passes. This criterion cannot settle before the
   push, so it is recorded as owed on the PR.
 
@@ -196,22 +226,31 @@ and its result has no `duplicate_samples` column.
 
 `report.py` reads `duplicate_samples` from the duplicates row and writes
 `exact.duplicateSamples = {columns: [...], rows: [{repeats, values}]}` whenever `duplicateRows` is a
-number and the source has no nested column. When it has one, `duplicateSamples` is
-`{omitted: "<sentence>"}`, saying rows with nested values are not shown. `columns` is the grouped column order the statement used. Each row's `repeats` is its count,
-and its `values` are the cells, each cut to `MAX_SAMPLE_VALUE_CHARS` with an ellipsis and `null`
-kept as `null`. Rows are ordered most-repeated first, ties by rendered text. When `duplicateRows` is
-0, `rows` is `[]`. An unparseable or absent `duplicate_samples` cell writes `rows: []`, and the count
+number and `has_nested_column` is false. When it is true and `duplicateRows` is above 0,
+`duplicateSamples` is `{omitted: "<sentence>"}`, saying rows with nested values are not shown; when
+`duplicateRows` is 0 it is `{columns, rows: []}`. `columns` is `grouped_column_names` for the check's
+columns and partition keys, never the column union. Each row's `repeats` is its count, and its
+`values` are the cells, each cut to `MAX_SAMPLE_VALUE_CHARS` with an ellipsis and `null` kept as
+`null`. Rows keep the order the statement returned them in, which is most-repeated first. When
+`duplicateRows` is 0, `rows` is `[]`. Before reading the duplicates result, `parse_result` raises
+`csv.field_size_limit` to the figure in *The decisions* for the grouped column count. An unparseable or absent `duplicate_samples` cell writes `rows: []`, and the count
 stands. When `duplicateRows` is not computed, `duplicateSamples` is absent.
 
 assemble-report serializes the report exactly as it writes it. If that is more than
 `dqcommon.config.DQ_REPORT_MAX_BYTES` bytes, it writes the report with `duplicateSamples` replaced by
 `{omitted: "<sentence>"}`, which says the samples were left out because the report would be too
-large to open. If the report is still over the cap without them, it is written as today. That
-defect predates this spec, and the log records the size. No sample value reaches a log line, a
-span field, the notification or the runs index.
+large to open. If that document is still over the cap, it is the document written, and the
+over-cap size predates this spec. Only when a cap decision is taken does assemble-report log the
+serialized size, as `report_bytes`. No sample value reaches a log line, a span field, the
+notification or the runs index.
 
 #### Acceptance Criteria:
 
+- [ ] A samples cell for 200 grouped columns of 201-character values, each character one JSON would
+  escape to six, parses, and its samples are written.
+- [ ] Columns `id, month, Year` with partition keys `year` and `Month` and a sample
+  `[["2","7","2025","01"]]` write `columns` `['id', 'year', 'Month']` and values `['7', '2025', '01']`,
+  so each value sits under the header it was grouped under.
 - [ ] A duplicates row with `duplicate_rows` `7` and `duplicate_samples`
   `[["3","a","x"],["2",null,""]]`, over grouped columns `name, city`, produces
   `duplicateSamples` `{columns: ['name','city'], rows: [{repeats: 3, values: ['a','x']}, {repeats: 2, values: [null, '']}]}`.
@@ -220,13 +259,14 @@ span field, the notification or the runs index.
   `rows: []` and `duplicateRows` stays the parsed count.
 - [ ] A not-computed duplicates figure writes no `duplicateSamples`.
 - [ ] A source with an `array<string>` column and 3 duplicates writes `duplicateRows` 3 and
-  `duplicateSamples.omitted` with the nested-values sentence, asserted as a whole string.
+  `duplicateSamples.omitted` with the nested-values sentence, asserted as a whole string. The same
+  source with 0 duplicates writes `rows: []`.
 - [ ] A report whose samples push it past `DQ_REPORT_MAX_BYTES` is written with
   `duplicateSamples.omitted` and every other figure unchanged, asserted by making the fixture's
   samples large rather than by lowering the constant.
 - [ ] A test asserts `DQ_REPORT_MAX_BYTES` equals `apicommon.s3_config.MAX_DOCUMENT_BYTES`.
-- [ ] The notification text, the runs-index entry and assemble-report's observability fields for a
-  report with samples equal those for the same report without them.
+- [ ] For a report under the cap, the notification text, the runs-index entry and assemble-report's
+  observability fields with samples equal those for the same report without them.
 
 ### FR-005: The page shows the duplicate samples
 
@@ -234,10 +274,13 @@ span field, the notification or the runs index.
 
 `DataQualityReport.exact` gains `duplicateSamples?: DuplicateSamples`. When it has rows, the page
 shows, below the summary tiles' duplicate figure, a section "Most repeated rows" with a
-horizontally scrolling table: a *Repeats* column, then one column per `columns` entry. A NULL cell
+horizontally scrolling table: a *Times it appears* column, then one column per `columns` entry.
+Beneath the heading it says "Duplicate rows counts every copy after the first.", so the tile's
+figure and these counts are not read as the same number. A NULL cell
 reads `NULL` and an empty string reads `(empty)`, both in muted italic as the Data Explorer shows
 them. A
-cut value keeps its ellipsis, and a note says values longer than 200 characters are shortened. When
+cut value keeps its ellipsis, and the note "Values longer than 200 characters are shortened." shows
+beneath the table. When
 `duplicateSamples.omitted` is present, the section shows that sentence instead of a table. A report
 with no `duplicateSamples`, from before this spec or with duplicates not computed, renders exactly as
 today. The report's `isReport` check does not require the field.
@@ -245,7 +288,8 @@ today. The report's `isReport` check does not require the field.
 #### Acceptance Criteria:
 
 - [ ] The fixture from FR-004's first criterion renders a table named "Most repeated rows" whose
-  header cells are Repeats, name, city and whose first row reads 3, a, x.
+  header cells are Times it appears, name, city and whose first row reads 3, a, x, with both notes
+  shown.
 - [ ] The second row renders `NULL` and `(empty)` in its two cells.
 - [ ] A report with `duplicateSamples: {omitted: 'The samples were left out…'}` shows that sentence
   and no table.
@@ -300,7 +344,8 @@ Every criterion here is stated against `main` at build time.
 
 ### Phase 2: The plane
 
-- The three-layer duplicates statement and its constant (FR-003).
+- `grouped_column_names`, `has_nested_column`, the layered duplicates statement, its constant and its
+  size test (FR-003). Correct `_projection`'s docstring, which claims a test that does not exist.
 - `report.py`'s samples, assemble-report's cap and omission, the equality test, and the log sweep
   (FR-004).
 - The plane page.
@@ -310,7 +355,7 @@ Every criterion here is stated against `main` at build time.
 - The *Most repeated rows* section (FR-005) and the guide sentence.
 - The live check, run from a signed-in session after deploy: upload `dupes/a.csv` with the header
   `name,city,note` and the rows `Ann,Leeds,` three times, `Bo,,x` twice and `Cy,York,z` once, plus
-  `dupes/b.csv` with one `Ann,Leeds,` row. Check the folder. The report says 4 duplicate rows, lists
-  `Ann, Leeds, (empty)` with 4 repeats first and `Bo, (empty), x` with 2 second, and the per-file
+  `dupes/b.csv` with the same header and one `Ann,Leeds,` row. Check the folder. The report says 4 duplicate rows, lists
+  `Ann, Leeds, (empty)` appearing 4 times first and `Bo, (empty), x` appearing 2 times second, and the per-file
   disclosure shows `a.csv` 6 and `b.csv` 1. Blank CSV cells are empty strings, so no `NULL`
   appears. Fold it into `docs/testing/e2e.md` at completion.
