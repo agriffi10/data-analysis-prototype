@@ -113,38 +113,59 @@ def test_every_submission_carries_a_client_request_token(started):
     assert all(kw.get("client_request_token") for kw in started)
 
 
-# ── SPEC-151 FR-001: a single-file target narrows every query ────────────────
-#
-# create-temp-tables promotes the table LOCATION to the parent FOLDER for a single-file
-# target, because Athena needs a prefix. A LOCATION is read RECURSIVELY, so that table
-# covers every sibling — and the "$path" predicate this verb attaches is the only thing
-# that puts the report back on the file the user actually selected.
+# ── A single-file target narrows every query ─────────────────────────────────
 
-_ONE_FILE_MANIFEST = {
-    "partitionKeys": [],
-    "files": [
-        {
-            "key": "alice/sales/jan.csv",
-            "size": 1,
-            "columns": [
-                {"name": "order_id", "type": "string"},
-                {"name": "amount", "type": "string"},
-            ],
-        }
-    ],
-}
-
+#: The predicate literal all three queries must carry, written out rather than derived from the
+#: event so the expectation and the input do not agree by construction. It is the full ``s3://``
+#: form Athena's path pseudo-column returns — a bare key would match nothing and the report would
+#: come back empty.
 _SELECTED = "'s3://dq-user-bkt/alice/sales/jan.csv'"
 
 
-@pytest.fixture
-def started_single_file(monkeypatch):
-    calls = []
+def test_every_query_is_narrowed_to_the_selected_file(started):
+    """A single-file check reports on the file only because this verb attaches the predicate.
 
-    def _start(**kw):
-        calls.append(kw)
-        return f"qid-{len(calls)}"
+    create-temp-tables promotes a single-file target's LOCATION to the parent folder, because an
+    external table's location is a prefix and pointing it at an object key gives a table over
+    nothing — and a location is read recursively, so that table also covers every sibling. This
+    is the call site that has to pass the filter on: ``dqcommon.sql`` renders the clause, but a
+    verb that stopped passing it would run all three queries over the folder and describe it as
+    the file, with nothing red. The manifest is the folder case's, unchanged — only the requested
+    location differs, which is exactly what ``sql.single_file_path`` keys on.
+    """
+    event = _event(location="alice/sales/jan.csv")
 
-    monkeypatch.setattr(v.athena, "start_query", _start)
-    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: _ONE_FILE_MANIFEST)
-    return calls
+    v.handler(event, None)
+
+    narrowed = {kw["client_request_token"]: kw["query"] for kw in started}
+    assert sorted(narrowed) == sorted(
+        [f"{HEX32}-profile", f"{HEX32}-ragged", f"{HEX32}-dupes"]
+    ), "the three queries this assertion ranges over"
+    for token, query in narrowed.items():
+        assert f'WHERE "$path" = {_SELECTED}' in query, token
+
+
+def test_a_folder_target_attaches_no_predicate(started):
+    """The other direction, and the one nothing else would catch: a folder narrowed to one file.
+
+    A folder check that gained a predicate would report on whichever file it picked and call the
+    answer the folder's. It is the worse half because create-temp-tables promotes a target it
+    believes is a single file a level FURTHER up, so a ``single_file_path`` that answered "one
+    file" for every target would build the table over the user's whole space and profile that. The
+    folder branch also has to render byte-identically to the pre-filter form, which is what lets
+    ``_where`` return nothing at all rather than a clause that is always true.
+
+    The needle is the comparison, not the column: the ragged query names ``"$path"`` in its
+    per-file CASE whatever the target is, so an absence assertion over the column alone could
+    never hold.
+    """
+    event = _event()
+
+    v.handler(event, None)
+
+    rendered = {kw["client_request_token"]: kw["query"] for kw in started}
+    assert sorted(rendered) == sorted(
+        [f"{HEX32}-profile", f"{HEX32}-ragged", f"{HEX32}-dupes"]
+    ), "the three queries this assertion ranges over"
+    for token, query in rendered.items():
+        assert '"$path" = ' not in query, token
