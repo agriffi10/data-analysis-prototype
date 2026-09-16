@@ -101,7 +101,7 @@ class TestKeyContainment:
         assert raised.value.code == "AccessDenied"
 
     def test_an_empty_PREFIX_is_the_space_root_not_a_refusal(self) -> None:
-        """A prefix is not a key, and the file browser's first request has no prefix."""
+        """A prefix is not a key, and an omitted prefix lists the space root."""
         assert protected.contained_prefix(PERSONAL, "") == "alice/"
 
     def test_a_prefix_escaping_the_root_is_refused(self) -> None:
