@@ -59,12 +59,145 @@ describe('errorMessages', () => {
       expect(message).not.toContain('arn:aws');
     });
 
-    it('maps an unqualified-table Athena failure to the add-database fix (FR-005)', () => {
+    it('answers a missing table without asserting the user forgot a database (FR-005)', () => {
+      // FR-005's advice — qualify each table — is now carried only by the catalog refusal that
+      // actually means it. A rule here used to offer it for any bare table token, which Athena
+      // produces for tables that ARE qualified: `Table nope not found in database agriffith`
+      // puts the database in a clause of its own, so the token has no dot and the user who wrote
+      // `agriffith.nope` was told to add a prefix.
+      expect(toUserMessage({code: 'FAILED', message: 'line 1:15: Table sales does not exist'}).message).toMatch(
+        /table wasn’t found/i
+      );
+      expect(
+        toUserMessage({code: 'FAILED', message: 'Table nope_xyz not found in database agriffith'}).message
+      ).not.toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    // Captured from production Athena on 2026-09-15 by running each statement as `agriffith` and
+    // reading `stateChangeReason` off `GET /v1/queries/{id}`. Pasted verbatim, trailing space
+    // included: these are the bytes the rules are graded against, and a hand-written
+    // approximation is what let the unqualified-table rule above sit dead behind a green test.
+    const DENIED_ON = (database: string) =>
+      `Insufficient permissions to execute the query. User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/agriffith is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/${database} because no identity-based policy allows the glue:GetDatabase action `;
+
+    it('tells a user who omitted the database prefix to add one, not to contact an admin', () => {
+      // A statement naming no database resolves against `default`, which nobody is a member of, so
+      // Athena refuses it at the catalog with the same wording as a real permissions failure — and
+      // the user, who simply typed `FROM sales`, was told they lacked permission.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('default')});
+
+      expect(message).toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('tells a user who named an unreachable database something else entirely', () => {
+      // The counter-case, and the reason the rule reads the database NAME rather than merely
+      // classifying the message: the two arrive identical apart from it, and "add a database
+      // prefix" is wrong advice for someone who already wrote one. Compared against the other
+      // rule's own output, so the pair stays discriminating while either sentence is reworded.
+      const denied = toUserMessage({code: 'FAILED', message: DENIED_ON('nodb_xyz')}).message;
+
+      expect(denied).not.toBe(toUserMessage({code: 'FAILED', message: DENIED_ON('default')}).message);
+      expect(denied).toMatch(/isn’t available to you/i);
+    });
+
+    it('does not tell a user to check a name they never typed', () => {
+      // The Data Explorer builds its own SQL from a table picked out of the rail, and maps the
+      // failed execution through this module — so this rule is reached by people who typed no
+      // database name at all. The access half has to lead, and the name check has to be
+      // conditional, or the sentence sends them hunting for a typo that cannot exist.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('marketing')});
+
+      const lower = message.toLowerCase();
+
+      expect(lower).toContain('ask the administrator for access');
+      expect(lower.indexOf('ask the administrator for access')).toBeLessThan(lower.indexOf('if you typed it'));
+    });
+
+    it('reads the database of the denied action, not the first one in the message', () => {
+      // A message carrying two denials. A name grabbed by a separate search takes whichever
+      // `:database/` comes first, which may belong to another action — and picks the opposite
+      // sentence for it.
+      const twoDenials =
+        'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetTable on resource: arn:aws:glue:us-east-1:696000197480:database/default because no identity-based policy allows; ' +
+        'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/salesdb because no identity-based policy allows';
+
+      const {message} = toUserMessage({code: 'FAILED', message: twoDenials});
+
+      expect(message).toMatch(/isn’t available to you/i);
+      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('does not read a LONGER name as the implicit one', () => {
+      // The comparison is exact, so a capture that stops early makes it a prefix test: bounding
+      // the name to `[A-Za-z0-9_]` stopped at the hyphen and answered `default-archive` as though
+      // the user had named no database at all. A hyphen is legal in a Glue database name; it is
+      // this project's own identifier rule, not Glue's, that keeps portal-made names clear of one.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('default-archive')});
+
+      expect(message).toMatch(/isn’t available to you/i);
+      expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it.each([['.'], [')'], ['"']])('is not inverted by a %s after the database name', (punctuation) => {
+      // The name is compared exactly, so any character absorbed into it flips the two sentences.
+      // One period after `default` used to be enough to tell someone who wrote no database at all
+      // to go and check the name.
+      const message = DENIED_ON(`default${punctuation}`);
+
+      expect(toUserMessage({code: 'FAILED', message}).message).toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('sends a missing SCHEMA to the user-SQL rule, so Athena names the schema itself', () => {
+      // `isUnqualifiedTable` used to match any "schema … does not exist", which outranks the
+      // catalog-refusal pair — so a user who HAD qualified their table was told to add a prefix.
+      //
+      // The SENTENCE is asserted, not merely that it is not the old one: `detail` is attached by
+      // `queryFailureDetail` whatever rule fired, so a `detail` assertion alone stays green with
+      // this rule disabled and the message reading "there's a syntax error in your query".
+      const {message, detail} = toUserMessage({
+        code: 'FAILED',
+        message: "SCHEMA_NOT_FOUND: line 1:15: Schema 'awsdatacatalog.nodb' does not exist"
+      });
+
+      expect(message).toBe('Athena couldn’t run this query. Check the SQL and try again.');
+      expect(detail).toContain("Schema 'awsdatacatalog.nodb' does not exist");
+    });
+
+    it('shows no Details for a message that reaches the permission check carrying LF text', () => {
+      // The existing "no Details for a Lake Formation refusal" case exits at the FIRST gate —
+      // an unprefixed message is not a user-SQL error — so it stays green with the permission
+      // check deleted and proves nothing about it. This one opens with an allowlisted class and
+      // carries no ARN, account id or `Service:`, so it passes both earlier gates and the
+      // permission check is the only thing standing between Athena's text and the reader.
+      const composite =
+        'COLUMN_NOT_FOUND: line 1:8: Column x cannot be resolved. Insufficient Lake Formation permission(s) on teamspace.revenue';
+
+      expect(toUserMessage({code: 'FAILED', message: composite}).detail).toBeUndefined();
+    });
+
+    it('still shows Details for an ordinary missing column, whose text always carries an authz clause', () => {
+      // The counter-case, and the reason the check strips that clause first: Athena appends
+      // "or requester is not authorized…" to EVERY COLUMN_NOT_FOUND, so testing the raw text
+      // would suppress Details for every missing column — the case the disclosure exists for.
+      const {detail} = toUserMessage({
+        code: 'FAILED',
+        message:
+          "COLUMN_NOT_FOUND: line 1:8: Column 'nope' cannot be resolved or requester is not authorized to access requested resources"
+      });
+
+      expect(detail).toContain("Column 'nope' cannot be resolved");
+    });
+
+    it('keeps the permission sentence for a Lake Formation denial, which writes "permission(s)"', () => {
+      // The plural spelling matched nothing against Lake Formation's own wording — pinned on the
+      // other side of the wire by `test_catalog_routes.py` — so a real denial, which IS an
+      // administrator's to fix, fell past its own rule to the generic sentence.
       const {message} = toUserMessage({
         code: 'FAILED',
-        message: 'line 1:15: Table sales does not exist'
+        message: 'Insufficient Lake Formation permission(s): Required SELECT on table x'
       });
-      expect(message).toBe('Add a database to each table, like `mydb.sales`.');
+
+      expect(message).toBe('You don’t have permission to run that query. Contact the Administrator.');
     });
 
     it('treats a qualified missing table as a not-found error, not the unqualified fix', () => {

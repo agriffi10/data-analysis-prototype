@@ -68,7 +68,10 @@ const CONTACT_ADMIN = 'Contact the Administrator.';
 
 // ── Rules keyed by app code / AWS name ──────────────────────────────────────
 // Order within a lookup is irrelevant (exact `code` match); `MATCH_RULES` below
-// is ordered because several patterns can match one Athena message.
+// is ordered because several patterns can match one Athena message. Two orderings there
+// are load-bearing rather than incidental: the catalog-refusal pair precedes the permission
+// rule, whose pattern the same denial matches, and the user-SQL rule precedes the syntax
+// catch-all, which reads any `line N:M` as a syntax error.
 
 const CODE_RULES: readonly ErrorRule[] = [
   // ── App codes our file-browser/query services already author.
@@ -448,14 +451,27 @@ export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
 
 // ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there
-// is no app code, so we match the raw engine text. Ordered by specificity: the
-// unqualified-table case is checked before generic not-found, which is checked
-// before the syntax catch-all.
+// is no app code, so we match the raw engine text. Ordered by specificity, and three of the
+// orderings are part of the behaviour rather than incidental: the catalog refusal an
+// unqualified table really arrives as is read BEFORE the permission rule, whose pattern the
+// same denial also matches; the user-SQL rule is read BEFORE the missing-database rule, so a
+// classed `SCHEMA_NOT_FOUND` keeps the Details naming the schema; and the syntax catch-all is
+// LAST, because `line N:M` appears in plenty of messages that are not syntax errors.
 
+/**
+ * Advice with exactly one trigger: the catalog refusal against `default`.
+ *
+ * A rule used to offer it for any "Table <bare name> does not exist" too, on the reasoning that
+ * a name with no dot in it had no database. Athena does not report it that way — a missing table
+ * arrives as `Table nope not found in database agriffith`, whose table token has no dot while the
+ * database sits in a clause of its own — so the sentence reached people who HAD qualified their
+ * table and told them to do the thing they had already done. A missing table is now answered by
+ * the not-found rule, which mentions the database without asserting one is absent.
+ */
 const UNQUALIFIED_FIX = 'Add a database to each table, like `mydb.sales`.';
 
 /** An Athena or Lake Formation refusal on permissions, rather than on what the SQL says. */
-const PERMISSION_FAILURE = /(access denied|not authorized|insufficient (lake formation )?permissions)/i;
+const PERMISSION_FAILURE = /(access denied|not authorized|insufficient (lake formation )?permission)/i;
 
 /**
  * The Trino error classes whose message describes the user's own SQL. A pattern such as `[A-Z_]+:`
@@ -476,6 +492,8 @@ const USER_SQL_ERROR_CLASSES: readonly string[] = [
   'DIVISION_BY_ZERO',
   'NUMERIC_VALUE_OUT_OF_RANGE',
   'EXPRESSION_NOT_AGGREGATE',
+  'EXPRESSION_NOT_SCALAR',
+  'INVALID_COLUMN_REFERENCE',
   'MISSING_COLUMN_ALIASES',
   'DUPLICATE_COLUMN_NAME'
 ];
@@ -506,23 +524,53 @@ function isUserSqlError(msg: string): boolean {
   return userSqlErrorClass(msg) !== undefined || BARE_PARSE_POSITION.test(msg);
 }
 
-/** True when Athena reported a missing table referenced WITHOUT a `database.` prefix. */
-function isUnqualifiedTable(msg: string): boolean {
-  // Queries carry no active database, so an unqualified `FROM sales`
-  // fails as "Table <name> does not exist" / "Schema/Database does not exist".
-  const m = msg.match(/table\s+(\S+?)\s+(?:does not exist|not found)/i);
-  if (m && !m[1].includes('.')) return true; // bare table name → they omitted the db
-  return /(schema|database)\b.*does not exist/i.test(msg);
+/**
+ * A `glue:GetDatabase` denial, with the database it names captured.
+ *
+ * **The action and the name are matched together, deliberately.** A message can carry more than
+ * one denial, and a name grabbed by a separate search takes whichever `:database/` comes first —
+ * which may belong to a different action entirely, and would then pick the opposite sentence.
+ * **The whole name is captured, then trailing punctuation is trimmed.** Bounding the capture to
+ * a character class instead makes the comparison below a PREFIX test: `[A-Za-z0-9_]+` against
+ * `database/default-archive` stops at the hyphen, captures `default`, and tells someone who
+ * explicitly named `default-archive` to add a database prefix. Glue itself permits almost any
+ * UTF-8 string as a database name — it is this project's own `CATALOG_IDENTIFIER_RE`, and the
+ * matching username rule, that keep portal-created names to `[a-z][a-z0-9_]{2,62}`, and the rail
+ * browses every database the caller can reach, not only the ones the portal made.
+ *
+ * If Athena rewords this, the pattern stops matching and the message falls through to the
+ * permission rule — the sentence it had before this pair existed, which is generic but true,
+ * rather than a confidently wrong one.
+ */
+const GLUE_DATABASE_DENIAL = /glue:GetDatabase on resource: arn:\S*:database\/(\S+)/i;
+
+/** Punctuation a message can put after the name, which is never part of one. */
+const TRAILING_PUNCTUATION = /[.,;:)\]}"']+$/;
+
+/**
+ * The database named in a `glue:GetDatabase` denial, or null when the message is not one.
+ *
+ * **This is the shape an unqualified table actually arrives as, and it is a catalog refusal
+ * rather than a missing table.** Queries carry no active database, so `FROM sales` resolves
+ * against `default`; nobody is a member of `default`, so the role is refused `glue:GetDatabase`
+ * on it and the statement never reaches the table. The denial is otherwise indistinguishable
+ * from a real permissions failure, which is why the name is read out rather than the message
+ * merely classified.
+ *
+ * **A user who writes `default.sales` explicitly reads the same sentence as one who wrote no
+ * database at all.** Glue creates a `default` database in every catalog, and nothing in the
+ * denial says whether the name was typed or supplied by resolution, so the two cannot be told
+ * apart here. Advising a prefix to someone who wrote one is the lesser wrong of the two.
+ */
+function glueDeniedDatabase(msg: string): string | null {
+  const denied = GLUE_DATABASE_DENIAL.exec(msg);
+  return denied ? denied[1].replace(TRAILING_PUNCTUATION, '') : null;
 }
 
+/** The database a statement naming none resolves against — nobody is a member of it. */
+const IMPLICIT_DATABASE = 'default';
+
 const MATCH_RULES: readonly ErrorRule[] = [
-  // Trigger: an unqualified base table (there is no active database).
-  // User-fixable — qualify each table as `database.table`. ──
-  {
-    match: isUnqualifiedTable,
-    message: UNQUALIFIED_FIX,
-    userFixable: true
-  },
   // Trigger: a genuinely-missing (but qualified) table/view (incl. Athena's
   // TABLE_NOT_FOUND code). User-fixable — check the name. ──
   {
@@ -535,6 +583,29 @@ const MATCH_RULES: readonly ErrorRule[] = [
   {
     match: (m) => /(cannot be resolved|column_not_found|column .* (does not exist|not found))/i.test(m),
     message: 'A column in your query wasn’t found. Check the column names.',
+    userFixable: true
+  },
+  // Trigger: a table named with no database, refused at the catalog against `default`.
+  // User-fixable — qualify each table. Must precede the permission rule below, which the same
+  // message matches on `not authorized`; without this pair an ordinary missing prefix reads as
+  // a permissions failure and sends the user to an administrator for their own typo. ──
+  {
+    match: (m) => glueDeniedDatabase(m)?.toLowerCase() === IMPLICIT_DATABASE,
+    message: UNQUALIFIED_FIX,
+    userFixable: true
+  },
+  // Trigger: the same refusal naming some OTHER database — it does not exist, or the user is not
+  // a member. The two are deliberately one answer to the caller, so the sentence covers both
+  // rather than guessing which.
+  //
+  // **The sentence may not assume the reader typed the name.** The Data Explorer builds its own
+  // SQL from a table picked out of the rail and maps a failed execution through here, so a member
+  // whose grant is missing reaches this rule having typed nothing at all; "check the name" is the
+  // conditional half for that reason, and the access half leads. ──
+  {
+    match: (m) => glueDeniedDatabase(m) !== null,
+    message:
+      'That database isn’t available to you. Ask the Administrator for access, or check the name if you typed it.',
     userFixable: true
   },
   // Trigger: Athena/Lake-Formation permission failure running the query. Not the
@@ -554,6 +625,17 @@ const MATCH_RULES: readonly ErrorRule[] = [
       return errorClass !== undefined && errorClass !== 'SYNTAX_ERROR';
     },
     message: 'Athena couldn’t run this query. Check the SQL and try again.',
+    userFixable: true
+  },
+  // Trigger: a missing DATABASE reported without an error class in front of it — Athena's DDL
+  // path words it `SemanticException [Error 10072]: Database does not exist: nodb`. Below the
+  // user-SQL rule, so `SCHEMA_NOT_FOUND` keeps the Details that name the schema, and above the
+  // syntax catch-all, which would otherwise be the only thing left to match it — and does not,
+  // so without this rule a missing database is answered by the sentence reserved for what a user
+  // cannot act on. ──
+  {
+    match: (m) => /(schema|database)\b[^.]{0,80}?(does not exist|not found)/i.test(m),
+    message: 'That database wasn’t found. Check the name, and that it is one you can reach.',
     userFixable: true
   },
   // Trigger: a SQL parse/analysis error. User-fixable — fix the SQL. ──
