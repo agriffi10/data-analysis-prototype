@@ -2,7 +2,8 @@
 
 Pure logic, AWS stubbed. The report content itself is covered by test_report_dqcommon.py;
 what is tested here is the READ side (finding Athena's result objects), the WRITE side (a
-key that is a pure function of requestId), and the replay guarantee that follows from it.
+key that is a pure function of requestId), the replay guarantee that follows from it, and the
+location the report, the notification and the runs row name.
 """
 
 import csv
@@ -109,7 +110,8 @@ def _event():
     return {
         "requestId": "req-1",
         "actor": "alice",
-        "location": "alice/sales/",
+        "location": "alice/sales",
+        "pathFilter": None,
         "format": "csv",
         "space": {"kind": "personal", "bucket": BUCKET, "prefix": "alice/"},
         "manifestKey": f"{PREFIX}/manifest.json",
@@ -245,6 +247,56 @@ def test_a_file_with_its_columns_in_another_order_is_reported_only_where_fields_
     document = json.loads(fake.puts[0]["Body"])
     assert document["exact"]["crossFile"] == cross_file
     assert document["topIssues"] == top_issues
+
+
+# ── The location the report names ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("threaded", "path_filter", "named"),
+    [
+        pytest.param("alice/sales", None, "alice/sales/", id="a-folder-ends-in-a-slash"),
+        pytest.param(
+            "alice/sales/a.csv",
+            f"s3://{BUCKET}/alice/sales/a.csv",
+            "alice/sales/a.csv",
+            id="a-file-is-named-exactly",
+        ),
+    ],
+)
+def test_the_report_the_notification_and_the_runs_row_all_name_a_folder_as_a_folder(
+    monkeypatch, threaded, path_filter, named
+):
+    """validate-authorize threads the location normalised, and normalising drops a folder's slash,
+    so the report said ``alice/sales`` and its Open folder opened ``alice/``. Whether the target is
+    a folder is inspect-source's decision, carried as ``pathFilter``, and the three places a user
+    reads the location all take it from there."""
+    fake = _setup(monkeypatch)
+    sent = []
+    monkeypatch.setattr(v.notify, "emit_notification", lambda actor, message, **kw: sent.append(message))
+
+    out = v.handler({**_event(), "location": threaded, "pathFilter": path_filter}, None)
+
+    report = json.loads(fake.puts[0]["Body"])
+    assert report["location"] == named
+    assert out["location"] == named
+    assert [entry["location"] for entry in _index(fake)["entries"]] == [named]
+    assert len(sent) == 1
+    assert f'"{named}"' in sent[0]
+
+
+def test_a_state_without_the_carried_decision_writes_no_report(monkeypatch):
+    """Absent is refused rather than read as a folder, which would name a file's report a folder."""
+    fake = _setup(monkeypatch)
+    event = _event()
+    del event["pathFilter"]
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(event, None)
+
+    assert exc.value.reason == "invalid_request"
+    assert "pathFilter" in exc.value.detail
+    assert fake.puts == []
 
 
 # ── Finding Athena's result objects ──────────────────────────────────────────

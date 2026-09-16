@@ -4,6 +4,7 @@ import {Link, MemoryRouter, Route, Routes} from 'react-router';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityReportPage} from './DataQualityReportPage';
+import {CHECK_AT_ROOT_REFUSAL} from './dataQuality.format';
 import {
   NOTE_RAGGED,
   NOT_COMPUTED_DUPLICATES,
@@ -429,6 +430,35 @@ describe('DataQualityReportPage', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
       // The report the user was reading is still there.
       expect(screen.getByText('alice/sales/')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['a personal space', '/data-quality/alice/req-1', 'alice'],
+      ['a shared space', '/data-quality/team-data/req-1', 'team-data']
+    ])('refuses Re-run on a report of the top of %s, saying why, and starts nothing', async (_space, path, root) => {
+      // Only a report written before the server refused the top of a space can name it, and a
+      // report written then stored the location normalised, without the trailing slash.
+      mockReport.mockResolvedValue(ok(csvReport({location: root})));
+      const {user} = renderReport(path);
+      const rerun = await screen.findByRole('button', {name: 'Re-run check'});
+
+      await user.click(rerun);
+
+      expect(rerun).toHaveAttribute('aria-disabled', 'true');
+      expect(rerun).toHaveAccessibleDescription(CHECK_AT_ROOT_REFUSAL);
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('still re-runs a single file that sits at the top of a space', async () => {
+      // The server allows it — every query over one file carries a path predicate — so the
+      // refusal must not reach a file just because its folder is the root.
+      mockReport.mockResolvedValue(ok(csvReport({location: 'alice/top.csv'})));
+      const {user} = renderReport('/data-quality/alice/req-1');
+
+      await user.click(await screen.findByRole('button', {name: 'Re-run check'}));
+
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      expect(mockEnqueue.mock.calls[0][0]).toMatchObject({location: 'alice/top.csv'});
     });
 
     it('opens the Files browser at the report’s source folder', async () => {

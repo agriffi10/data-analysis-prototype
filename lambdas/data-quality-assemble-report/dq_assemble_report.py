@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 
 from cpcommon import clients, errors, events, observability
 from cpcommon.errors import TerminalError
-from dqcommon import index_store, messages, notify, report
+from dqcommon import index_store, messages, notify, report, sql
 from dqcommon import manifest as manifest_store
 
 logger = logging.getLogger()
@@ -195,6 +195,36 @@ def _write(bucket: str, key: str, document: dict) -> None:
         raise
 
 
+def _reported_location(event: dict, location: str) -> str:
+    """Spells the checked location the way the report, the notification and the runs row carry it.
+
+    A folder ends in a slash and a file does not. That is the form the report and runs-index
+    contracts specify, and the one the report page's Open folder and the runs list read: without
+    the slash a folder reads as a file, and Open folder lands on its parent. The slash cannot be
+    taken from the threaded location, because validate-authorize normalises the location and
+    normalisation drops it.
+
+    So the answer is the one inspect-source decided and carried as ``pathFilter``, which a folder
+    target does not have. It is read through ``sql.carried_path_filter``, as create-temp-tables and
+    start-profile-query read it, so a state without the key is refused rather than read as a
+    folder: a report that named a file as a folder would open the wrong place just as quietly.
+
+    Args:
+      event: The task input, carrying the single-file decision.
+      location: The authorized location as validate-authorize threaded it.
+
+    Returns:
+      The location with one trailing slash for a folder target, or unchanged for a single file.
+
+    Raises:
+      TerminalError: ``invalid_request`` when the state carries no ``pathFilter``, or a malformed
+        one.
+    """
+    if sql.carried_path_filter(event) is not None:
+        return location
+    return f"{location.rstrip('/')}/"
+
+
 def _assemble(event: dict) -> dict:
     """Reads the results and manifest, builds the report, writes it, and summarises it.
 
@@ -209,11 +239,13 @@ def _assemble(event: dict) -> dict:
       event: The task input, carrying the space, manifest key, report prefix and query blocks.
 
     Returns:
-      The event with the report key and summary fields attached.
+      The event with the location spelled as the report spells it, and the report key and summary
+      fields attached.
 
     Raises:
-      TerminalError: ``invalid_request`` for a missing field or a manifest naming a file outside
-        the checked location, or ``query_failed`` when no result object exists or the profile
+      TerminalError: ``invalid_request`` for a missing field — the carried ``pathFilter`` included,
+        refused before anything is read or written — or a manifest naming a file outside the
+        checked location, or ``query_failed`` when no result object exists or the profile
         result is unusable — a failed check, never a clean one, since every exact figure comes
         from the profile query's total row and without it the report would assemble into a green
         verdict over data nothing measured.
@@ -224,11 +256,12 @@ def _assemble(event: dict) -> dict:
     report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
     location = events.require(event, "location", reason=messages.INVALID_REQUEST)
     events.require(event, "requestId", reason=messages.INVALID_REQUEST)
+    request = {**event, "location": _reported_location(event, location)}
 
     manifest = manifest_store.load(bucket, manifest_key, location)
     try:
         document = report.build(
-            event,
+            request,
             manifest,
             _result_rows(event.get("profile")),
             _result_rows(event.get("ragged")),
@@ -242,7 +275,7 @@ def _assemble(event: dict) -> dict:
     key = report_key(report_prefix)
     _write(bucket, key, document)
 
-    out = dict(event)
+    out = dict(request)
     out["reportKey"] = key
     out["verdict"] = document["verdict"]
     out["hasApproximateFigures"] = document["hasApproximateFigures"]

@@ -218,6 +218,12 @@ than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5, §4.14
 | **The foreign projection fixture** (SPEC-153 FR-006 AC2) | The same `GetTable` response. Paste it **verbatim** when you have it — the shipped fixture is docs-transcribed. |
 | **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue. After SPEC-200 FR-008 the **API's execution role** is the only role the IaC lets write one besides the shared-space transfer reader, and both trust `lambda.amazonaws.com` alone, so the assumed session of the API role that this row used to call for, driven from CI, cannot exist. **This row also said a laptop identity has no grant, and that was false:** the operator CLI identity holds `AdministratorAccess` and can send (§2.2's banner). What blocks an agent session is that its production AWS writes are classifier-blocked whatever the chat authorization says, so both are the operator's to run by hand. Recipe: the arc script §H.4, §H.5. |
 
+### Needs a report no current build can write
+
+| Check | Why a fresh session cannot settle it |
+|---|---|
+| **Re-run check is refused, with its reason, on a report of a space's top level** — open an existing report whose location line is the bare space name (`agriffith`, or a shared space's name), and confirm **Re-run check** reads as unavailable, its description is the start picker's sentence (*"A check reads every file in the folder you give it, so it can’t be run here…"*), and pressing it produces no *"Checking…"* toast and no new notification | Read-only, but it needs a report that can no longer be made: data-quality has refused the top of a space since 2026-09-15, so only a report written before then names one. Find it on the `/data-quality` runs list — a row whose location has no folder under the space. If none survives in any space you can reach, the check cannot be run and stays owed; the page's unit test pins the behaviour, not the deployed page. |
+
 ### SPEC-203's two owed checks — one of them EXPIRES
 
 | Check | Blocker | What it takes |

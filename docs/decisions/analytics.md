@@ -127,6 +127,19 @@ The editor splits `;`-separated statements client-side and runs them **sequentia
 
 The report is read at `/data-quality/:space/:requestId` — **the space is in the route, not derived**, because `requestId` alone cannot say which space holds `{space}/_data-quality-reports/{requestId}/report.json`. Resolution precedence: the actor's **own username always wins**; shared-space names are consulted only when the segment differs (SPEC-114's link builder pins the same rule). An unreachable space renders the friendly denied state and **issues no S3 request** — no existence oracle. The SPA's report types mirror `dqcommon/report.py` byte-for-byte; the banner **warns on `hasIncompleteFigures`** and only softly qualifies on `hasApproximateFigures`, which is true on every report the arc can produce. Detail: `spec-delivery/SPEC-113`.
 
+> **Fixed (2026-09-16) — a folder's report named it without its slash, so Open folder opened the
+> parent.** SPEC-112 and SPEC-123 both specify `"location": "alice/sales/"` for the report and the
+> runs-index entry, but validate-authorize normalises the location with `posixpath.normpath`, which
+> drops the slash, and every verb threaded that form — so the report, the completion notification and
+> the runs row all named a folder the way a file is named, and `sourceFolderPrefix` reduced it to its
+> parent. The code never met the contract; the browser's fixtures and assemble-report's own
+> test event were written to the contract, which is why nothing caught it. `assemble-report` now
+> spells the location from the `pathFilter` inspect-source carries — a folder target has none — and
+> threads that form onward, so one fix corrects all three places the location is shown. It reads the
+> value through `carried_path_filter` and refuses a state without it, like the two verbs before it.
+> **Reports written before the fix keep the slash-less form, and Open folder on one still opens the
+> parent** — a known limit, decided, with no browser fallback.
+
 ## Data-quality runs index + dashboard (SPEC-123)
 
 The `/data-quality` list is backed by a per-space **`index.json`**, not by listing the reports prefix — S3 lists **lexicographically by key**, so ordering by `requestId` (a UUID) gives NO chronology, and building rows from the reports themselves costs one GET per row and gets slower the more the feature is used. `assemble-report` appends one small entry (the row's fields and nothing else) under **optimistic ETag CAS** with bounded retry, because checks of DIFFERENT locations run in parallel (the queue serializes only same-location checks **— superseded 2026-09-15: it only starts them in order, so same-location checks run at once too, which the CAS already covers; [the group id entry](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide) —**) — the same lost-update fix SPEC-082 applied to the registry. It was duplicated in `dqcommon` because `casio` sat in a layer the data-quality functions don't attach (**SPEC-125 did NOT merge it** — it folded the shared *client/config/JWT/notify* surface onto `cpcommon` and deliberately left the CAS retry loop domain-side).
@@ -1040,7 +1053,7 @@ catalog with no way to repair it.
 > under `_data-quality-reports/`, so a two-file list written between the verbs left the table over
 > the root and the queries unnarrowed. A create RETRY re-read it too, so moving the call into create
 > alone would still have been once per attempt rather than once per run. Now inspect-source decides
-> over the list it holds in memory and carries `pathFilter`; both verbs read that value and refuse a
+> over the list it holds in memory and carries `pathFilter`; each verb that reads that value refuses a
 > state without it rather than default to "a folder". Two guards narrow what a replaced manifest
 > can still do. The manifest loader refuses any file outside the checked location — byte-scan GETs
 > each listed key under a role that reads both buckets whole, so a forged list was also another
@@ -1054,6 +1067,14 @@ catalog with no way to repair it.
 > create is `IF NOT EXISTS`, so a folder check could inherit a running root-file check's table and
 > query it unnarrowed, held off only by the shared Athena tokens. One execution now claims the id
 > before anything is named from it — [the claim](control-planes.md#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality).
+>
+> **Extended (2026-09-16) — the report page offered a Re-run the server refuses.** A report written
+> before the refusal can name the top of a space, and its **Re-run check** sent that location
+> straight back, to be refused by notification after the click. The button now carries the picker's
+> own sentence as its disabled reason, through `rerunRefusal` beside `CHECK_AT_ROOT_REFUSAL` in
+> `dataQuality.format.ts`, which mirrors the server's check on `isAtRoot` as `createTableRefusal`
+> does. A report written then stored its location in the server's normalised form, without the
+> slash, so the location gains a trailing slash before the comparison; a single file at the root stays re-runnable, for the predicate's reason above.
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 

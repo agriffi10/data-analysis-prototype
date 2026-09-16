@@ -1,3 +1,5 @@
+import {isAtRoot} from '../file-browser/fileBrowser.paths';
+
 /**
  * The last meaningful segment of an S3 key or folder prefix, for use as a short label.
  *
@@ -44,6 +46,51 @@ export function splitLocation(location: string): {parent: string; name: string} 
   const suffix = location.endsWith('/') ? '/' : '';
   if (cut === -1) return {parent: '', name: trimmed + suffix};
   return {parent: trimmed.slice(0, cut + 1), name: trimmed.slice(cut + 1) + suffix};
+}
+
+/**
+ * Why a check cannot be run on the space root, shown on the start picker's disabled confirm and
+ * on a report's Re-run.
+ *
+ * **The space root is not a data folder.** A check builds an external table over the folder it
+ * is given, and Athena reads a table's location recursively, so a check at the top of a space
+ * counts the portal's own bookkeeping — the query-results folder, archive receipts, shared-table
+ * copies — as the user's data. It succeeds and reports the wrong numbers, which is why the
+ * server refuses it (`location_is_space_root`) rather than qualifying the report.
+ *
+ * The picker takes the sentence alone, because it already knows when the user is standing at the
+ * root and compares for itself. A caller holding a checked location rather than a browse position
+ * asks {@link rerunRefusal}. The server's refusal is the real gate; this sentence exists so a user
+ * never reaches it.
+ */
+export const CHECK_AT_ROOT_REFUSAL =
+  'A check reads every file in the folder you give it, so it can’t be run here — the top of a space also ' +
+  'holds your query results, archived copies and shared tables, and they’d be counted as your data. Open the ' +
+  'folder holding the files you want checked, or pick a single file.';
+
+/**
+ * Why a report's check cannot be run again, or null when it can.
+ *
+ * Mirrors the server's top-level check (`location_is_space_root`, in the data-quality plane's
+ * validate-authorize): a location that IS the space root is refused, and a file sitting at the
+ * root is not, since every query over one file carries a path predicate that keeps its numbers its
+ * own. A report can only name the root if it was written before the server refused one, and
+ * re-running it would only be refused again, by notification, after the click.
+ *
+ * A report's location is the server's normalised form, which may lack a folder's trailing slash,
+ * so it gains one before the comparison. The comparison is `isAtRoot`, as `createTableRefusal`'s
+ * is: the browser already owns what "at the root" means.
+ *
+ * @param location - The location the report checked.
+ * @param rootPrefix - The space root, trailing slash.
+ * @returns The explanation, or null when the check can be run again.
+ *
+ * @example
+ * rerunRefusal('alice', 'alice/');         // CHECK_AT_ROOT_REFUSAL
+ * rerunRefusal('alice/top.csv', 'alice/'); // null
+ */
+export function rerunRefusal(location: string, rootPrefix: string): string | null {
+  return isAtRoot(location.replace(/\/*$/, '/'), rootPrefix) ? CHECK_AT_ROOT_REFUSAL : null;
 }
 
 /** A dominant type for display. The Lambda upper-cases matched casts but not `text`. */

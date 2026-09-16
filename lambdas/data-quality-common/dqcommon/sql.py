@@ -678,8 +678,9 @@ def single_file_path(bucket: str, files: list[dict], location: str) -> str | Non
     this over the manifest they each loaded, and the manifest sits at a key a caller can predict,
     under a prefix a caller could write. Overwriting it between the two loads with a two-file list
     left the table promoted and the queries unnarrowed — for a file at the space root, a report
-    over the whole space. So the answer rides the state as ``pathFilter``, and both verbs read it
-    through ``carried_path_filter`` rather than re-deriving it.
+    over the whole space. So the answer rides the state as ``pathFilter``, and every verb that needs it —
+    create, start and assemble-report — reads it through ``carried_path_filter`` rather than
+    re-deriving it.
 
     The returned form is not a choice made here: it is what Athena's path pseudo-column returns,
     which is why the ragged mapping is keyed that way and the report reverses it.
