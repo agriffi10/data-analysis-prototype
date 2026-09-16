@@ -148,6 +148,42 @@ def test_a_location_that_escapes_the_space_is_refused_before_any_ddl(monkeypatch
     assert ran == []
 
 
+# ── Which database the temp tables land in ───────────────────────────────────
+#
+# The resolver moved to `dqcommon.sql` so cleanup could reach the same answer without this
+# verb's output. These pin it from the caller that still has a terminal to raise. None of
+# them is reachable past the validate verb, which pins a personal prefix to the actor and
+# loads a shared space from the registry — they exist because the refusal is what keeps a
+# malformed state from quietly becoming a database NAME, and a resolver with two callers
+# earns the check the single-caller version got for free from `events.require`.
+
+
+@pytest.mark.parametrize(
+    "space,actor",
+    [
+        ({"kind": "wat", "bucket": BUCKET, "prefix": "alice/"}, "alice"),
+        ({"kind": "personal", "bucket": BUCKET, "prefix": "alice/"}, "   "),
+        ({"kind": "shared", "bucket": BUCKET, "prefix": "   "}, "alice"),
+        ({"kind": "shared", "bucket": BUCKET, "prefix": "/"}, "alice"),
+    ],
+    ids=["unknown-kind", "blank-actor", "blank-shared-prefix", "slash-only-shared-prefix"],
+)
+def test_a_state_with_no_resolvable_database_is_a_terminal_not_a_default(space, actor, ran):
+    """Each of these used to have a way of NOT refusing.
+
+    An unknown kind reaching a fallback would create the tables in the actor's own database.
+    A blank actor or prefix would become the database NAME itself, and a slash-only shared
+    prefix an EMPTY one. All four answer None from the resolver, and the refusal is raised
+    here rather than there, because cleanup shares the resolver and may never raise.
+    """
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(space=space, actor=actor), None)
+
+    assert exc.value.reason == messages.INVALID_REQUEST
+    assert "no database for space kind" in exc.value.detail
+    assert ran == []
+
+
 # ── The width cap ────────────────────────────────────────────────────────────
 
 

@@ -104,7 +104,12 @@ describe('StartQualityCheckDialog', () => {
 
       const confirm = await screen.findByRole('button', {name: 'Check this folder'});
       expect(confirm).toBeDisabled();
-      expect(screen.getByText(CHECK_AT_ROOT_REFUSAL)).toBeInTheDocument();
+      // Literals, not just the imported constant. Asserting `getByText(CONSTANT)` proves the
+      // sentence is RENDERED and nothing about what it says — gutting the constant to
+      // "Not allowed." keeps such a test green, which is the opposite of this test's name.
+      const shown = screen.getByText(CHECK_AT_ROOT_REFUSAL);
+      expect(shown).toHaveTextContent('top of a space');
+      expect(shown).toHaveTextContent(/open the folder|pick a single file/i);
       expect(onStart).not.toHaveBeenCalled();
     });
 

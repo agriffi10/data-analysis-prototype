@@ -27,7 +27,7 @@ def _event(**overrides):
         "actor": "alice",
         "space": {"kind": "personal", "bucket": BUCKET, "prefix": "alice/"},
         "reportPrefix": f"alice/_data-quality-reports/{REQUEST_ID}/",
-        "database": "alice",
+        "database": "alice_db",
         "tempTable": f"dq_tmp_{HEX32}",
         "tempRawTable": f"dq_tmp_raw_{HEX32}",
     }
@@ -55,9 +55,12 @@ def _fail_with(monkeypatch, exc):
 def test_it_drops_both_tables(ran):
     out = v.handler(_event(), None)
 
+    # `alice_db`, not `alice`: the fixture's database differs from the one re-derivation
+    # would produce, so this also pins that a state carrying the names is believed over the
+    # fallback. With the two equal, the early return asserted nothing.
     assert [kw["query"] for kw in ran] == [
-        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_{HEX32}`",
-        f"DROP TABLE IF EXISTS `alice`.`dq_tmp_raw_{HEX32}`",
+        f"DROP TABLE IF EXISTS `alice_db`.`dq_tmp_{HEX32}`",
+        f"DROP TABLE IF EXISTS `alice_db`.`dq_tmp_raw_{HEX32}`",
     ]
     assert out["cleanup"]["dropped"] == [f"dq_tmp_{HEX32}", f"dq_tmp_raw_{HEX32}"]
     assert out["cleanup"]["failed"] == []
@@ -131,6 +134,23 @@ def test_a_shared_space_run_derives_its_own_database(ran):
         f"DROP TABLE IF EXISTS `team-data`.`dq_tmp_{HEX32}`",
         f"DROP TABLE IF EXISTS `team-data`.`dq_tmp_raw_{HEX32}`",
     ]
+
+
+def test_a_state_with_a_manifest_but_no_request_id_is_a_no_op_rather_than_a_raise(ran):
+    """The half of the gate that holds this verb's never-raise contract.
+
+    Without it, `event["requestId"]` on the derive path raises KeyError straight through
+    `@notifies_on_failure` — from the one verb whose whole safety argument is that it can be
+    invoked from anywhere and will not raise. Unreachable through the machine today, which is
+    exactly why nothing would notice the line being deleted.
+    """
+    event = _mid_create()
+    event.pop("requestId")
+
+    out = v.handler(event, None)  # must not raise
+
+    assert ran == []
+    assert out["cleanup"]["skipped"] is True
 
 
 def test_a_failure_before_the_create_verb_stays_a_clean_no_op(ran):

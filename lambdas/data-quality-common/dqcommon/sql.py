@@ -132,21 +132,36 @@ def temp_database(space: dict, actor: str | None) -> str | None:
     Answers None rather than raising, because one of its two callers is cleanup, which must never
     raise. The caller that needs a terminal builds it.
 
+    **A blank-but-present value answers None, and that is not incidental.** This replaced a pair
+    of ``events.require`` calls, which reject a whitespace-only string before they return it; a
+    plain truthiness test does not, and would hand back ``"   "`` as a Glue database name. The
+    value is returned UNSTRIPPED, exactly as ``require`` did, so a legitimate name crosses this
+    function byte-identical — the strip decides admission, never the answer. A slash-only shared
+    prefix answers None too, where the old pair returned an EMPTY database name and built a
+    statement quoting nothing against it.
+
+    Nothing reachable relies on this: the validate verb has already pinned the personal prefix to
+    the actor and loaded the shared space from the registry, so a blank of either kind cannot get
+    this far. It is the check the old code got for free, and dropping it silently on a refactor is
+    how a free check disappears.
+
     Args:
       space: The request's space object, carrying its kind and prefix.
       actor: The verified username.
 
     Returns:
-      The database name, or None when the space kind is unknown or the field it needs is missing.
+      The database name, or None when the space kind is unknown, or the field it needs is
+      missing, empty or blank.
 
     Raises:
       None.
     """
     kind = (space or {}).get("kind")
     if kind == "personal":
-        return actor or None
+        return actor if (actor or "").strip() else None
     if kind == "shared":
-        return ((space or {}).get("prefix") or "").strip("/") or None
+        prefix = ((space or {}).get("prefix") or "").strip("/")
+        return prefix if prefix.strip() else None
     return None
 
 
