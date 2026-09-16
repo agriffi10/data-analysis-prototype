@@ -335,6 +335,27 @@ describe('useFileSpace', () => {
       expect(rereadList).toHaveBeenCalledTimes(2);
     });
 
+    it('asks again for a link followed while waiting, in the render where the awaited read settles', () => {
+      // The count is read at render, as `useConnections` reads the query cache, so a read that settled
+      // before React heard of it is counted by the navigation's own render. That render notes it as the
+      // new link's start and the wait goes on — and with the re-read keyed on `pending` alone, which
+      // never changed, nothing asked for the read that ends it.
+      const reads = {settled: 0};
+      const {result, rereadList} = setup('/files?space=sales_2026', {
+        get listReadsSettled() {
+          return reads.settled;
+        }
+      });
+      expect(rereadList).toHaveBeenCalledOnce();
+
+      act(() => {
+        reads.settled = 1;
+        void result.current.navigate('/files?space=sales_2026');
+      });
+      expect(result.current.pending).toBe(true);
+      expect(rereadList).toHaveBeenCalledTimes(2);
+    });
+
     it('selectSpace switches the active space', () => {
       const {result} = setup('/files');
       act(() => result.current.selectSpace('marketing_data'));

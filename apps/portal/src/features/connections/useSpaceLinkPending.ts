@@ -53,10 +53,12 @@ export function useSpaceLinkPending({
 
   const pending = Boolean(username) && Boolean(space) && missing && listReadsSettled <= link.reads;
 
-  // A read already running — the one owed on mount — answers instead of a second.
+  // A read already running — the one owed on mount — answers instead of a second. Keyed on the link too:
+  // a link followed while waiting, in the render where the awaited read settles, starts from that read
+  // and leaves `pending` unchanged, so keyed on `pending` alone nothing would ask for the read it needs.
   useEffect(() => {
     if (pending) void rereadList();
-  }, [pending, rereadList]);
+  }, [pending, link, rereadList]);
 
   return pending;
 }
