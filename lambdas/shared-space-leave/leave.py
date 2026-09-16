@@ -73,12 +73,13 @@ def leave_space(space, actor, request_id, registry):
     cache.write_roster_to_all(
         remaining,
         space,
-        owner,
+        committed.get("owner"),
         committed.get("acknowledged", []),
         committed.get("createdAt"),
     )
+    told = committed.get("owner") or owner
     emit_notification(
-        owner,
+        told,
         f'"{actor}" left the shared workspace "{space}".',
         dedup_id=f"{request_id}:leave:{actor}",
     )

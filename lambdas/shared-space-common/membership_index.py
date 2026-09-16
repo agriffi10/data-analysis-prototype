@@ -5,13 +5,27 @@ a full listing plus a read per space. This module writes the object that answers
 ``GetObject``: one document per user, listing the spaces they belong to, written at the moments
 membership changes.
 
-**It rides the roster fan-out's consistency point and NOT its posture.** ``cache.write_roster_to_all``
-writes after the registry commits, and that is the point this module writes at too. But a per-member
-cache failure there is logged and skipped, because a stale roster is cosmetic — one member sees an
-out-of-date member list. A stale index is an **authorization input that is wrong**, and on a removal
-it is wrong in the granting direction. So every failure here raises, and the plane's per-verb
-catcher turns that into a failed run with a notification. An implementer reusing the fan-out must
-not inherit its ``except: log and continue``.
+**It shares neither the roster fan-out's posture nor its position.** A per-member cache failure is
+logged and skipped, because a stale roster is cosmetic — one member sees an out-of-date member
+list. A stale index is an **authorization input that is wrong**, and on a removal it is wrong in
+the granting direction. So every failure here raises, and the plane's per-verb catcher turns that
+into a failed run with a notification. An implementer reusing the fan-out must not inherit its
+``except: log and continue``.
+
+**A GRANT is written before the registry commit; a REVOCATION after it.** This module used to
+write where the fan-out does, after the commit, on the reasoning that the commit is what makes a
+membership real. For a revocation that still holds and is what every ``drop`` caller does. For a
+grant it was wrong, and measurably: a delete emptying the space between an add's commit and its
+entry here revoked the member and the add then re-created the entry, ``status`` and all, over a
+record with no owner and a blank roster — and an emptied record deliberately keeps ``status``
+active, so the API's index source reads it as a live space. Written before the commit instead,
+the ordering decides it: a delete landing after the commit sees the member in the record
+``empty_space`` returns and revokes them, and one landing before it makes the commit refuse, so
+the granting verb takes the entry back itself — which is why ``add-members`` owns a rollback for
+what it wrote here. **``create-space`` is the one grant that cannot take this ordering**, and the
+reason is in its own docstring: the record reads ``provisioning`` until ``finalize``, so an entry
+written before the commit would name a space no session may reach yet. Its write therefore stays
+after, and what that costs is recorded in the register rather than papered over.
 
 **Absence is an answer and a denial is not.** ``cache.py`` treats ``AccessDenied`` as absence, which
 is safe there only because its create is conditional. Here the same tolerance would let a
@@ -197,8 +211,8 @@ def record(username: str, space: str, status: str) -> None:
     Args:
       username: The member.
       space: The space name.
-      status: The space's status, from the registry record that has just committed. Only an
-        active space yields a session tag, so the status is carried rather than assumed.
+      status: The space's status, from the record the caller is committing against. Only an active
+        space yields a session tag, so the status is carried rather than assumed.
 
     Returns:
       None.
@@ -267,7 +281,7 @@ def record_for_all(members: list[str], space: str, status: str) -> None:
     Args:
       members: The members to record it against.
       space: The space name.
-      status: The space's status from the committed registry record.
+      status: The space's status from the record the caller is committing against.
 
     Returns:
       None.

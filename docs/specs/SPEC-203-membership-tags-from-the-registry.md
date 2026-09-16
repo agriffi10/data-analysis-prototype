@@ -121,7 +121,12 @@ FR-007's comparison is available at every point after this spec lands.
 One object per user, in the admin bucket, listing the spaces that user belongs to. It is written at
 the moments membership changes — and those moments already have a fan-out: `cache.write_roster_to_all`
 runs on add, remove and leave, after the registry write, which its own docstring names as the
-consistency point.
+consistency point. **Superseded 2026-09-15, title included: the index rides that fan-out's moments
+but NOT its position.** A grant is written before the registry commit and only a revocation after
+it, because a delete's revocation landing between an add's commit and its index write let the add
+re-create the entry over an emptied space. `create-space` is the one exception, and its own
+docstring says why. See *A group id orders the STARTS, not the runs* in
+`docs/decisions/control-planes.md`.
 
 **It does not inherit that fan-out's best-effort posture.** A stale roster is cosmetic — one member
 sees an out-of-date member list. A stale index is an authorization input that is wrong, in the
@@ -140,6 +145,10 @@ grant direction on a removal.
       a membership-affecting verb with no index write, so a seventh cannot be added silently.
 - [ ] The write happens **after** the registry write commits — the same consistency point
       `write_roster_to_all` already uses — and **before** the run reports success.
+      **Superseded 2026-09-15:** a GRANT is written *before* the commit and only a revocation
+      after it. Writing a grant here let a delete's revocation land between an add's commit and
+      its index write, and the add then re-created the entry over an emptied space — see *A group
+      id orders the STARTS, not the runs* in `docs/decisions/control-planes.md`.
 - [ ] **An index write failure fails the run**, and is notified through SPEC-152's `NotifyFailure`.
       It is not swallowed the way a roster write is. The AC states the divergence and its reason so
       an implementer reusing the fan-out does not inherit its `except: log and continue`.
@@ -305,7 +314,8 @@ a session may reach. That inversion is deliberate and needs its safety stated, n
 
 - [ ] Three properties make it safe, each asserted: it is **user-unreachable** (admin bucket, FR-005),
       it is written **only** by the plane that owns membership (FR-001), and it is written **under
-      CAS** at the registry's own consistency point.
+      CAS** at the registry's own consistency point. **The third was amended 2026-09-15** to
+      "ordered against the registry commit", for the reason the AC above now carries.
 - [ ] **The residual is a staleness window, and it is smaller than the one it replaces.** A removal
       whose index write is lost leaves a member holding a tag. The `claims` source has exactly this
       property today and worse: `clear_slot` clears the attribute, but the user's *existing token*
@@ -519,7 +529,8 @@ shared-space plane.
 
 ## File & Folder Structure
 
-The index writer lives in `lambdas/shared-space-common/` beside `cache.py`, whose fan-out it rides.
+The index writer lives in `lambdas/shared-space-common/` beside `cache.py`, whose fan-out it rides
+(**its position, not its moments — see FR-001's marker**).
 The two read implementations live behind one interface in `lambdas/api/`, beside SPEC-196's identity
 layer, with `apicommon/spaces.py` calling the same interface.
 

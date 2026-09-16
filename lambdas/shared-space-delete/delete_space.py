@@ -39,27 +39,109 @@ logger.setLevel(logging.INFO)
 observability.init(service="shared-space")
 
 
-def _revoke(members, space):
+def _revoke(members, space, remaining=None):
     """Ends a set of members' access to a space, in the order the grants were given.
 
     Three stores, all idempotent, so a re-run after a partial pass completes it: the Cognito
     slot, which IS the S3 and Glue grant; the membership index a session's tags are built from;
     and the card the browser renders.
 
+    ``remaining`` is how the emptying route knows who it never reached. The rewrite blanks the
+    roster before this runs, so a member left half-revoked when a fault lands exists in no record
+    at all — holding the slot that is their grant, never told, and removable by nobody. Each name
+    is struck off only once all three of its stores are done, so the list the repair restores is
+    the one the repair is for.
+
     Args:
       members: The usernames whose access ends.
       space: The space name.
+      remaining: A list to strike each member from as their revocation completes, passed by the
+        LATECOMER pass alone. The main pass needs none — the record still carries the roster
+        while it runs, so a fault there is repaired from the record itself — and the destroying
+        route frees the name and has no roster to put anyone back on.
 
     Returns:
       None.
 
     Raises:
+      CasExhausted: When a member's membership-index compare-and-swap is exhausted.
+      MembershipIndexUnreadable: When a member's stored index does not parse.
       ClientError: On any S3 or Cognito fault.
     """
     for member in members:
         membership.clear_slot(member, space)
         membership_index.drop(member, space)
         cache.remove_entry(member, space)
+        if remaining is not None and member in remaining:
+            remaining.remove(member)
+
+
+def _hand_the_space_back(space, actor, registry, request_id):
+    """Leaves a space this delete may no longer touch exactly as it found it.
+
+    Reached only when the space changed hands after the request was authorized. Everything here
+    is best-effort and nothing raises: the caller is about to re-raise the refusal, and a fault
+    in the tidy-up must not replace the sentence the actor needs to read.
+
+    **It runs before anything is revoked, which is what keeps it this small.** The only owner
+    check the cascade makes is on its first write, so reaching here means the run has written the
+    deleting status and nothing else. A check on the emptying rewrite would have caught a transfer
+    landing later, during the revocation loop; ``empty_space``'s docstring says why that was tried
+    and abandoned rather than repaired from here.
+
+    Two things are undone. The deleting status, when this run wrote it — the record belongs to
+    the new owner now, and leaving it deleting, or writing the ordinary ``failed``, freezes a
+    healthy space: the authorizer refuses an addition, a transfer and a retry on anything that
+    is not active, so the new owner would hold a space nobody could use or repair. **Only this
+    run's own write is undone**, keyed on the status still being ``deleting`` AND the record
+    still naming this request: the new owner may have started a delete of their own in the same
+    window, and restoring ``active`` over that would hide their cascade or their failure rather
+    than repair ours. That pair of conditions is the whole gate: a flag saying this run got as far
+    as writing would add nothing the record does not already say, and would stop a retry repairing
+    a status its own earlier attempt left behind. And the actor's own cache card, which the
+    validator stamped *deleting*
+    before the verb ran. The actor is still a MEMBER — a transfer leaves the outgoing owner on
+    the roster — so the card is rewritten as the member card it should now be, rather than as a
+    failure the screen offers a Retry on that this verb would refuse again.
+
+    The refusal itself is told by the plane's failure path, which resolves ``OwnerChanged`` to
+    its own sentence, so nothing here notifies.
+
+    Args:
+      space: The space name.
+      actor: The requester, who is no longer the owner.
+      registry: The registry record from the validator, for the space name.
+      request_id: The run's request id.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    try:
+        current = reg.load(space) or {}
+        if current.get("status") == "deleting" and current.get("lastRequestId") == request_id:
+            reg.set_status(registry, "active", request_id)
+    except Exception:
+        logger.exception("failed to clear the deleting status on %s after a refusal", space)
+    try:
+        record = reg.load(space) or {}
+        roster = membership.roster(record)
+        owner = record.get("owner")
+        if owner and actor in roster:
+            cache.write_member_entry(
+                actor,
+                space,
+                owner,
+                roster,
+                reg.effective_acknowledged(record),
+                record.get("createdAt"),
+            )
+        else:
+            cache.remove_entry(actor, space)
+    except Exception:
+        logger.exception("failed to restore the card for %s on %s after a refusal", actor, space)
 
 
 @observability.step("notify-members")
@@ -115,6 +197,36 @@ def delete_space(space, actor, request_id, registry):
     between; and the verb has no status guard in the authorizer to lean on. A record that has
     gone missing refuses rather than proceeding.
 
+    **A record that changed hands refuses, and refuses on the cascade's FIRST WRITE.** Deleting
+    is owner-only and is not an action an operator may ask for, so the actor is the owner the
+    validator verified; a transfer landing between that read and this run leaves the verb about
+    to empty a space belonging to somebody else. The check rides the deleting status rather than
+    a read of its own: a read can only be re-checked by the write that follows it, and putting it
+    on the first write means a refusal has written nothing to a record it may not touch. What it
+    still owes is the requester's own card, which the validator stamped before the verb ran. That is why the ever-active stamp is taken AFTER it and not before:
+    the stamp is a no-op only on a record that already carries the field, and the records the
+    backfill exists for do not — so stamping first would put this run's request id on a record
+    the very next line refuses to touch. An already-emptied record answers from ``previousOwner``,
+    so a retry of a delete that failed after the rewrite is not refused as a lost authorization.
+
+    **That is the ONLY owner check, and a transfer landing later is not caught.** The emptying
+    rewrite could carry one, and for a while it did; ``empty_space``'s docstring records why it
+    does not. The cost is stated rather than repaired: a transfer that commits while the
+    revocation loop runs loses its space, which is a state this system can undo — the objects,
+    the database and the name all survive an emptying — where the half-repairs tried in its place
+    were not.
+
+    **Emptying before revoking was also tried, and reverted.** It closes that refusal cleanly and
+    clears the owner and the roster before anyone is revoked, so a Lambda killed mid-loop — a
+    timeout is none of the four errors the machine retries — leaves every unreached member
+    holding a live grant on a record naming nobody, unreachable even by a retry, since deleting
+    is owner-only and the field is gone. Revoking first shrinks that population to the LATECOMER
+    pass and does not empty it: a kill between the rewrite and a latecomer's revocation strands
+    that latecomer the same way, because the rewrite has already blanked the roster and the
+    replay reads it back empty. What the order does buy is that a FAULT anywhere in the main loop
+    leaves the record untouched and the retry idempotent, and one after the rewrite is repaired
+    by ``restore_owner`` putting the unreached names back.
+
     The roster it revokes is the union of the validator's copy and that fresh read, because both
     are snapshots and a member on either holds a live grant. On the emptying route the rewrite
     hands back the record it replaced, and anyone appearing only there is a latecomer whose slot
@@ -144,6 +256,8 @@ def delete_space(space, actor, request_id, registry):
 
     Raises:
       RegistryRecordMissing: When the fresh read finds no record.
+      OwnerChanged: When the space changed hands between the validator's read and this one, or
+        between this one and the emptying rewrite.
       RegistryRecordResurrected: When a membership write re-created the record after the name
         was freed.
       MembersRemainAfterEmpty: When the roster is not empty after every revocation pass.
@@ -158,12 +272,16 @@ def delete_space(space, actor, request_id, registry):
     destroying = reg.is_destroyable(fresh)
     owner = fresh.get("owner") or registry.get("owner")
     members = list(dict.fromkeys([*registry.get("members", []), *fresh.get("members", [])]))
-    if not destroying:
-        reg.mark_ever_active(space, request_id)
-    reg.set_status(registry, "deleting", request_id)
+    try:
+        reg.set_status(registry, "deleting", request_id, expected_owner=actor)
+    except reg.OwnerChanged:
+        _hand_the_space_back(space, actor, registry, request_id)
+        raise
     emptied = False
     unrevoked = []
     try:
+        if not destroying:
+            reg.mark_ever_active(space, request_id)
         if destroying:
             teardown.delete_shared_prefix(space)
             teardown.revoke_portal_role(space)
@@ -177,11 +295,12 @@ def delete_space(space, actor, request_id, registry):
                 )
         else:
             _committed, replaced = reg.empty_space(space, request_id)
+            replaced_members = replaced.get("members")
+            replaced_members = replaced_members if isinstance(replaced_members, list) else []
             emptied = True
-            latecomers = [m for m in replaced.get("members", []) if m not in members]
-            unrevoked = latecomers
-            _revoke(latecomers, space)
-            unrevoked = []
+            latecomers = [m for m in replaced_members if m not in members]
+            unrevoked = list(latecomers)
+            _revoke(latecomers, space, remaining=unrevoked)
             members.extend(latecomers)
             if (reg.load(space) or {}).get("members"):
                 raise reg.MembersRemainAfterEmpty(

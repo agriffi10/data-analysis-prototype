@@ -372,10 +372,19 @@ def write_roster_to_all(
     prohibition exists because its per-message count is unbounded and it emits into the queue it
     drains; neither is true here.
 
+    **An ownerless roster writes nothing at all.** Every caller reaches this after its registry
+    compare-and-swap, and passes the owner that commit carries; a space a concurrent delete has
+    emptied carries none, because the emptying rewrite clears the field. Fanning out anyway would
+    re-create a card for a space that is gone, on the screen the delete has just cleared, and
+    write the owner projection under a falsy key. The verb is past its consistency point by this
+    point, so the skip is recorded rather than raised.
+
     Args:
       members: The current member names.
       name: The space name.
-      owner: The space's owner.
+      owner: The space's owner, as the committed record carries it rather than as the request was
+        authorized against it. A transfer landing between the two would otherwise fan the roster
+        out naming the FORMER owner, and every member's card would show the space as still theirs.
       acknowledged: The members who have acknowledged.
       created_at: The creation date, when known.
 
@@ -386,6 +395,14 @@ def write_roster_to_all(
       RuntimeError: When the owner projection's CAS attempts are exhausted.
       ClientError: On a non-precondition S3 fault writing the owner projection.
     """
+    if not owner:
+        observability.info(
+            "roster fan-out skipped: the committed record has no owner",
+            space=name,
+            store="cache",
+            written=0,
+        )
+        return
     written, failed = [], []
     for member in members:
         if member == owner:

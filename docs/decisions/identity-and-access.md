@@ -1180,8 +1180,10 @@ plane**; a fleet-level "at least one still admits it" passes while any single pl
 **The registry cannot answer "which spaces is this user in" cheaply.** It is one object per space,
 keyed by space name, so the question costs a full listing plus a read per space — on the
 credential-minting path, on every request. `s3://{admin-bucket}/memberships/{username}.json` answers
-it in one `GetObject`, written under ETag CAS by the six verbs that move a Cognito membership slot,
-at the same consistency point the roster fan-out already uses.
+it in one `GetObject`, written under ETag CAS by the six verbs that move a Cognito membership slot
+— **amended 2026-09-15: beside the Cognito slot rather than beside the roster fan-out, so a GRANT
+lands before the registry commit and a REVOCATION after it** ([the group id
+entry](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)).
 
 **It ships against Cognito, and that is the point.** The index could be built during the transition
 but could not be *proved* there: with no claims to compare against, a wrong implementation is
@@ -1193,7 +1195,10 @@ moment the environment moves.
 forbids it being an authorization input. This index decides what a session may reach. Three
 properties carry that inversion, each asserted: it is **user-unreachable** (admin bucket, not the
 user's own prefix), it is written **only** by the plane that owns membership, and it is written
-**under CAS at the registry's own consistency point**.
+**under CAS, ordered against the registry commit so that no write of it can outlive a revocation**
+— which is the amended form of the third property: it used to say "at the registry's own
+consistency point", and writing a grant there is what let a delete's revocation land between an
+add's commit and its index write.
 
 **The object it is NOT, and the reason that is a sweep rather than a review note.** There is already
 an object listing a user's spaces, one `GetObject` away, keyed by username:

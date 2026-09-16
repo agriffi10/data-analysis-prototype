@@ -98,7 +98,7 @@ def acknowledge_membership(space, actor, request_id, registry):
         return {"status": "ok", "action": "acknowledge_membership", "space": space, "activated": False}
 
     committed = reg.save_members(registry, request_id, acknowledge=[actor])
-    _fan_out_roster(space, owner, committed)
+    _fan_out_roster(space, committed.get("owner"), committed)
     logger.info("acknowledge_membership %s: %s now active", space, actor)
     observability.info(
         "membership acknowledged",

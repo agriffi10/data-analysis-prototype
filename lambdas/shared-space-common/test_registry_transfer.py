@@ -239,3 +239,31 @@ def test_a_transfer_touches_no_object_no_table_and_no_grant():
     assert glue.created == [] and glue.databases == set() and glue.tables == {}
     assert lf.grants == [] and lf.revokes == [] and lf.lf_tags == []
     assert clients._sqs.sent == [], "the registry writer notifies nobody; the verb does"
+
+
+def test_a_transfer_whose_target_was_removed_refuses_rather_than_re_adding_them():
+    # The validator refuses a target who is not a member, from the record it loaded. A removal
+    # landing between that read and this write leaves the refusal passed and the fact false, and
+    # being the owner IS the access — so completing the transfer would hand bob live access the
+    # roster had just taken away.
+    s3, _glue, _lf, _cognito = install()
+    stale = _seed(s3)
+    _seed(s3, members=["alice"], acknowledged=[])
+
+    with pytest.raises(reg.TransferTargetNoLongerMember):
+        reg.set_owner(stale, "alice", "bob", "r1")
+
+    assert json.loads(s3.store[_KEY])["owner"] == "alice"
+
+
+def test_a_roster_that_is_not_a_list_refuses_the_transfer_rather_than_admitting_it():
+    # roster's collapse has a polarity: the question here is "refuse a non-member", so an
+    # unreadable roster reading as empty refuses everybody, which is the safe direction. A DICT
+    # roster is what discriminates — list({"bob": 1}) is ["bob"], so the un-guarded code ADMITS
+    # the transfer, where a comma-joined string collapses to characters and refuses either way.
+    s3, _glue, _lf, _cognito = install()
+    stale = _seed(s3)
+    _seed(s3, members={"bob": 1})
+
+    with pytest.raises(reg.TransferTargetNoLongerMember):
+        reg.set_owner(stale, "alice", "bob", "r1")
