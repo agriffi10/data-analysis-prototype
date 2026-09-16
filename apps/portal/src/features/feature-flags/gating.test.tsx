@@ -407,9 +407,8 @@ describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
       const buckets = vi.mocked(listFiles).mock.calls.map((call) => call[0]);
       expect(buckets).toContain('shared-space');
     });
-    // NOT asserted here: that the personal space is never listed first. It is — but because
-    // the CONNECTIONS cache resolves after the first paint (`useFileSpace` falls back to
-    // personal while `isLoading`), which predates this spec and belongs to SPEC-052/057.
+    // NOT asserted here: that the personal space is never listed first. Whether the
+    // CONNECTIONS list holds a `?space=` back until it answers is `FilesPage`'s own test to pin.
     // What SPEC-163 owes is that the FLAGS never become a second cause of it, which is why
     // `FilesPage` ignores `?space=` only once the flag answer is known rather than while it
     // is in flight. Measuring the flags' contribution separately is what this control is for.

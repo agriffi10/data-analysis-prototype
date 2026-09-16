@@ -1,4 +1,4 @@
-import {useCallback, useMemo, useRef, useState} from 'react';
+import {useCallback, useMemo, useRef} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {unwrap} from '../../lib/serviceResult';
@@ -20,13 +20,15 @@ export type UseConnectionsResult = {
   connections: Connection[];
   isLoading: boolean;
   /**
-   * True while this mount's own first read of the list is outstanding — the first load, the refetch
-   * a stale cached list triggers on mount, or a read already running when it mounted. False from the
-   * start when none is (a list inside its staleTime), and false for good once that read settles,
-   * succeeded or failed, so no later refetch brings it back. `isLoading` clears on ANY cached list,
-   * however old, so a caller about to conclude that a space does NOT exist waits on this instead.
+   * Reads of the list that have settled, succeeded or failed — TanStack's own update counters, the
+   * pair behind `isFetchedAfterMount`, so a direct write to the cache counts too. It only grows. A
+   * caller about to conclude that a space does NOT exist notes it when the question arises and waits
+   * for it to grow, asking with `rereadList` when no read is due: `isLoading` clears on ANY cached
+   * list, and a list read before the question, however fresh, may predate the space.
    */
-  isAwaitingFreshList: boolean;
+  listReadsSettled: number;
+  /** Reads the list once more — unless a read is already running, which then answers instead. */
+  rereadList: () => Promise<void>;
   /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
   error: unknown;
   /**
@@ -80,8 +82,9 @@ export function useConnections(username: string | null): UseConnectionsResult {
       return unwrap(result);
     }
   });
-  // Read on the first render only: a later background refetch is not the read this mount was owed.
-  const [owedReadOnMount] = useState(() => query.isPending || query.isFetching);
+  // Read at render, which every settle causes: it flips `isPending` or `isRefetching`, both read below.
+  const settled = queryClient.getQueryState(key);
+  const listReadsSettled = (settled?.dataUpdateCount ?? 0) + (settled?.errorUpdateCount ?? 0);
 
   const connections = useMemo<Connection[]>(() => {
     if (!username) return [];
@@ -128,6 +131,13 @@ export function useConnections(username: string | null): UseConnectionsResult {
     return queryClient.invalidateQueries({queryKey: key});
   }, [queryClient, key]);
 
+  // A read already running is left to finish rather than cancelled: it answers as well as a new one
+  // would, and cancelling it throws away a request already sent only to send another.
+  const rereadList = useCallback(
+    () => queryClient.invalidateQueries({queryKey: key}, {cancelRefetch: false}),
+    [queryClient, key]
+  );
+
   // Memoized so the returned object's identity is stable unless a real input changes
   // (consumers use `refresh`/`reconcile` as effect deps — a fresh object each render
   // would churn them).
@@ -137,8 +147,8 @@ export function useConnections(username: string | null): UseConnectionsResult {
       // The initial fetch is loading; once we have any data (incl. the empty cache)
       // the list is usable even while a background refetch runs.
       isLoading: query.isPending && username !== null,
-      isAwaitingFreshList:
-        username !== null && owedReadOnMount && !query.isFetchedAfterMount && (query.isPending || query.isFetching),
+      listReadsSettled,
+      rereadList,
       error: query.error ?? null,
       refresh,
       isRefreshing: query.isRefetching,
@@ -148,9 +158,8 @@ export function useConnections(username: string | null): UseConnectionsResult {
       connections,
       username,
       query.isPending,
-      query.isFetching,
-      query.isFetchedAfterMount,
-      owedReadOnMount,
+      listReadsSettled,
+      rereadList,
       query.error,
       query.isRefetching,
       refresh,

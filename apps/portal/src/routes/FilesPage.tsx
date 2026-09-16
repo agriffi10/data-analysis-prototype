@@ -28,7 +28,7 @@ export default function FilesPage() {
   usePageTitle('Files');
   const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
 
-  const {connections, isAwaitingFreshList} = useConnections(user?.username ?? null);
+  const {connections, listReadsSettled, rereadList} = useConnections(user?.username ?? null);
   // The spaces rail and the `?space=` parameter are shared-workspace
   // surfaces. With the flag off the page shows no rail and resolves to the personal space
   // with NO notice — the deep link is ignored, not refused.
@@ -37,7 +37,8 @@ export default function FilesPage() {
   const {space, pending, activeSpaceId, selectSpace, fellBack, dismissFellBack} = useFileSpace({
     username: user?.username ?? null,
     connections,
-    isLoading: isAwaitingFreshList,
+    listReadsSettled,
+    rereadList,
     userSpaceBucket,
     sharedSpaceBucket,
     // Gated on the RESOLVED answer, not on `sharedSpacesEnabled` — which reads false while the

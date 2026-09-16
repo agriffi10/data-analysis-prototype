@@ -246,21 +246,28 @@ describe('useFileSpace', () => {
 
   const ALL = [personal, marketing, provisioning];
 
-  function setup(path: string, overrides: Partial<Parameters<typeof useFileSpace>[0]> = {}) {
+  type Params = Parameters<typeof useFileSpace>[0];
+
+  // Later props arrive through `rerender`, the way a settled read of the list reaches the hook.
+  function setup(path: string, overrides: Partial<Params> = {}) {
     const wrapper = ({children}: {children: ReactNode}) =>
       createElement(MemoryRouter, {initialEntries: [path]}, children);
-    return renderHook(
-      () =>
+    const rereadList = vi.fn().mockResolvedValue(undefined);
+    const rendered = renderHook(
+      (props: Partial<Params>) =>
         useFileSpace({
           username: 'alice',
           connections: ALL,
-          isLoading: false,
+          listReadsSettled: 0,
+          rereadList,
           userSpaceBucket: 'user-bucket',
           sharedSpaceBucket: 'shared-bucket',
-          ...overrides
+          ...overrides,
+          ...props
         }),
-      {wrapper}
+      {wrapper, initialProps: {}}
     );
+    return {...rendered, rereadList};
   }
 
   describe('useFileSpace (SPEC-057)', () => {
@@ -297,8 +304,12 @@ describe('useFileSpace', () => {
       expect(result.current.fellBack).toBe(false);
     });
 
-    it('falls back to personal for a not-yet-usable (provisioning) ?space=', () => {
-      const {result} = setup('/files?space=sales_2026');
+    it('falls back to personal for a not-yet-usable (provisioning) ?space=, on a read since the link', () => {
+      const {result, rerender, rereadList} = setup('/files?space=sales_2026');
+      expect(result.current.pending).toBe(true);
+      expect(rereadList).toHaveBeenCalledOnce();
+
+      rerender({listReadsSettled: 1});
       expect(result.current.space?.kind).toBe('personal');
       expect(result.current.fellBack).toBe(true);
     });

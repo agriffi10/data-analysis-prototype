@@ -5,7 +5,7 @@ import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {UserEvent} from '@testing-library/user-event';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {MemoryRouter} from 'react-router';
+import {BrowserRouter, MemoryRouter} from 'react-router';
 import type {ReactElement, ReactNode} from 'react';
 import {AuthContext} from '../features/auth/authContext';
 import type {AuthContextValue} from '../features/auth/auth.types';
@@ -84,6 +84,16 @@ export type ProviderOptions = {
    * the service and needs the real resolve to be what fills the cache.
    */
   seedFeatureFlags?: boolean;
+  /**
+   * Render under a `BrowserRouter` on the real jsdom history, at `route`, instead of a
+   * `MemoryRouter`.
+   *
+   * For the few tests whose subject is the history itself: a memory history answers no
+   * `popstate`, so a same-document navigation — an in-page anchor such as the shell's "Skip to
+   * main content" — cannot happen under one, and a test that clicks such a link there passes
+   * whatever the component does. The URL is restored when the test finishes.
+   */
+  browserRouter?: boolean;
 };
 
 /**
@@ -113,7 +123,8 @@ export function TestProviders({
   route = '/',
   auth = authValue(),
   queryClient,
-  seedFeatureFlags = true
+  seedFeatureFlags = true,
+  browserRouter = false
 }: ProviderOptions & {children: ReactNode}): ReactElement {
   // Built here rather than required, so a direct caller (an axe render) gets the same seeded
   // client `renderWithProviders` would have handed it.
@@ -127,9 +138,15 @@ export function TestProviders({
   });
   const tree = (
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[route]}>
-        <ToastProvider>{children}</ToastProvider>
-      </MemoryRouter>
+      {browserRouter ? (
+        <BrowserRouter>
+          <ToastProvider>{children}</ToastProvider>
+        </BrowserRouter>
+      ) : (
+        <MemoryRouter initialEntries={[route]}>
+          <ToastProvider>{children}</ToastProvider>
+        </MemoryRouter>
+      )}
     </QueryClientProvider>
   );
   return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;
@@ -141,26 +158,41 @@ export type RenderWithProvidersResult = ReturnType<typeof render> & {
 };
 
 /**
- * Renders `ui` inside the app's provider stack (QueryClient + MemoryRouter +
- * AuthContext) and returns a `userEvent` instance alongside the usual RTL
+ * Renders `ui` inside the app's provider stack (QueryClient + MemoryRouter, or a BrowserRouter on
+ * jsdom's own history with `browserRouter`, + AuthContext) and returns a `userEvent` instance alongside the usual RTL
  * result. This is the default entry point for component/feature tests — mock
  * only the AWS service boundary (`*.service.ts` / `src/lib` clients) and let the
  * real hooks and child components render.
  */
 export function renderWithProviders(
   ui: ReactElement,
-  {route, auth, queryClient, seedFeatureFlags = true, ...options}: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {}
+  {
+    route,
+    auth,
+    queryClient,
+    seedFeatureFlags = true,
+    browserRouter = false,
+    ...options
+  }: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
   clearAfterTest(client);
+  // A BrowserRouter reads jsdom's own history, so the route is put there rather than passed —
+  // and put back afterwards, since that history outlives the test.
+  if (browserRouter) {
+    const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState(null, '', route ?? '/');
+    onTestFinished(() => window.history.replaceState(null, '', before));
+  }
   const result = render(ui, {
     wrapper: ({children}) => (
       <TestProviders
         route={route}
         auth={auth}
         queryClient={client}
-        seedFeatureFlags={seedFeatureFlags}>
+        seedFeatureFlags={seedFeatureFlags}
+        browserRouter={browserRouter}>
         {children}
       </TestProviders>
     ),

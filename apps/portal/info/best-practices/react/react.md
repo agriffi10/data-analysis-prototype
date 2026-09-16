@@ -268,7 +268,7 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
 
 **Cover the happy path and the failure path first.** Those two are what the 1–3 budget is for; a third slot goes to whichever remaining scenario a user actually hits (an empty state, a refusal). Assert the **reason** — the message, the named item — never merely that something failed.
 
-**Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
+**Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}` — pass `browserRouter` for the rare test whose subject is the history itself, since a memory history answers no `popstate`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
 - 🔴 Don't hand-roll a `QueryClientProvider` + `MemoryRouter` wrapper per file — use the harness.
 - 🔴 **But note what "retries off" hides: a hook's own `retry` option is invisible under it.** A
   query that must not be retried — a billed or stateful call — passes identically with the option
