@@ -17,6 +17,7 @@ import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 import type {DataQualityReport} from './dataQuality.types';
+import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 import type {ReactElement, ReactNode} from 'react';
 import {connectionKeys} from '../connections/connectionKeys';
 import * as reportService from './dataQualityReport.service';
@@ -67,13 +68,12 @@ describe('DataQualityReportPage', () => {
     );
   }
 
-  /** A client already holding a spaces list — without `team-data` unless `withTeamData` — read `ageMs` ago
-   *  under the app's 30s staleTime rather than the harness's 0, so whether a read is owed on mount is the
-   *  test's choice. */
-  function clientWithCachedList(ageMs: number, withTeamData = false) {
+  /** A client already holding `list` — no shared spaces unless given — read `ageMs` ago under the app's 30s
+   *  staleTime rather than the harness's 0, so whether a read is owed on mount is the test's choice. */
+  function clientWithCachedList(ageMs: number, list: SharedConnectionsCache = NO_SPACES.data) {
     const client = createTestQueryClient();
     client.setQueryDefaults(connectionKeys.list('alice'), {gcTime: Infinity, staleTime: 30_000});
-    client.setQueryData(connectionKeys.list('alice'), withTeamData ? TEAM_DATA.data : NO_SPACES.data, {
+    client.setQueryData(connectionKeys.list('alice'), list, {
       updatedAt: Date.now() - ageMs
     });
     return client;
@@ -136,7 +136,7 @@ describe('DataQualityReportPage', () => {
     it('opens a report in a space a fresh cached list has, without reading the list', async () => {
       // Only an absence waits: a run row links to a space the list already holds, and waiting on it
       // would put a read and a loading line in front of every one.
-      renderReport('/data-quality/team-data/req-1', clientWithCachedList(0, true));
+      renderReport('/data-quality/team-data/req-1', clientWithCachedList(0, TEAM_DATA.data));
 
       expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
       expect(mockReport).toHaveBeenCalledWith('shared-space', 'team-data', 'req-1');
@@ -145,15 +145,26 @@ describe('DataQualityReportPage', () => {
 
     it('resolves the actor’s own username as PERSONAL even when a shared space shares the name', async () => {
       // Precedence, pinned: username first, shared names only when the segment differs.
-      // Without it a user would read from the shared bucket at their own prefix.
-      mockCache.mockResolvedValue({
-        success: true,
-        data: {version: 1, connections: [{name: 'alice', role: 'member', status: 'active'}]}
-      });
-      renderReport('/data-quality/alice/req-1');
+      // Without it a user would read from the shared bucket at their own prefix. The list is cached
+      // before mount because the report does not wait for it: fetched ahead of the list, the
+      // username resolves personal whatever the precedence, and the key keeps that first answer.
+      renderReport(
+        '/data-quality/alice/req-1',
+        clientWithCachedList(0, {version: 1, connections: [{name: 'alice', role: 'member', status: 'active'}]})
+      );
 
       await waitFor(() => expect(mockReport).toHaveBeenCalled());
       expect(mockReport).toHaveBeenCalledWith('user-space', 'alice', 'req-1');
+    });
+
+    it('opens a personal report without waiting for the spaces list', async () => {
+      // Only a shared space needs the list to resolve; the actor's own username never does.
+      mockCache.mockReturnValue(new Promise(() => {}));
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(mockReport).toHaveBeenCalledWith('user-space', 'alice', 'req-1');
+      expect(screen.queryByText(/loading report/i)).not.toBeInTheDocument();
     });
   });
 

@@ -77,9 +77,9 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
 
   const query = useQuery({
     queryKey: dataQualityKeys.runs(spaceKey),
-    // WAIT FOR THE CONNECTIONS LIST, not merely for a username: until it settles
-    // `sharedSpaceNames` is empty, so a user with shared spaces would otherwise cache a
-    // personal-only list under a key that never refetches when the real answer arrives.
+    // WAIT FOR THE CONNECTIONS LIST, not merely for a username: until it settles only the
+    // personal source is known, so a list that adds a shared source would have the personal
+    // index read twice — once for the personal-only key, again for the key the list changes to.
     enabled: !connectionsLoading && sources.length > 0,
     queryFn: async (): Promise<DataQualityRunSummary[]> => {
       const settled = await Promise.all(
