@@ -825,8 +825,11 @@ back between its verbs. validate-authorize runs the destination rules over each 
 per item, as `destination_name_reserved`. It sits AFTER the same-key no-op, which writes nothing, and
 before into-itself, in every bucket pairing. `_data-quality-reports/` and everything in it is refused
 as a delete or move source, root-anchored like the plane's only write. **No execution-role Deny backs
-either**: the role has no principal tag to anchor a Resource at a root, so `*/_data-quality-reports/*`
-would deny a user's own nested folder of that name part way through a run the validator accepted.
+either, by choice**: the role has no principal tag to anchor a Resource at a root, so
+`*/_data-quality-reports/*` reaches a user's own nested folder too, and every file-ops rule would have
+to refuse it at any depth or the Deny fails a run part way through. Results-conversion's role takes
+that trade for one save location; here it would refuse copying, moving and deleting a folder the
+browser shows as the user's own.
 
 **The space root is refused as an item, and it is the third way to select a protected folder.** Every
 protected rule matches the named folder or something below it; none looks UP. So one item of

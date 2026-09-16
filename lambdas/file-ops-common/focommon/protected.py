@@ -205,10 +205,10 @@ def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal
     beneath a folder item reaches a root-anchored folder its own key does not, and only because
     the two-segment homes share a first segment, ``system_settings/``, that is locked in its own
     right — a folder called that, holding ``athenaresults/``, is refused by its own key. A FILE item
-    named like a locked folder is not that folder, since both rules compare the raw key. The one
-    rule an object BENEATH a folder item can still reach is the shared bucket's any-depth archive
-    Deny, from a folder called ``system_settings`` holding ``archive/``, and that fails at the write
-    with the source untouched.
+    named like a locked folder is not that folder, since both rules compare the raw key. What
+    neither rule mirrors is the execution role's own any-depth Denies — ``*/user_settings/*`` and
+    the ``system_settings`` pairs, in both buckets — so an item, or an object beneath one, can still
+    land under one of those deeper down, and that fails at the write with the source untouched.
 
     Args:
       root: The authorized destination space root.
@@ -249,9 +249,12 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
     Root-anchored in both buckets, because that is the only place the plane writes; a folder a user
     made with that name deeper down is theirs. Copying out stays free, like everywhere else.
 
-    **No execution-role Deny backs it, deliberately.** The role carries no principal tag, so a
-    Resource cannot anchor at a space root, and ``*/_data-quality-reports/*`` would also deny a
-    user's own nested folder of that name part way through a run this rule accepted.
+    **No execution-role Deny backs it, and that is a choice, not a constraint.** The role carries
+    no principal tag, so a Resource cannot anchor at a space root: ``*/_data-quality-reports/*``
+    reaches a user's own nested folder of that name too, and this rule, ``focommon.delete`` and the
+    destination rules would all have to refuse it at any depth, or the Deny fails a run part way
+    through. The results-conversion role takes that trade, where it costs one save location; here
+    it would refuse copying, moving and deleting a folder the browser shows as the user's own.
 
     Args:
       root: The authorized source space root.
