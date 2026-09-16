@@ -834,7 +834,9 @@ def build(
     and the portal types every column entry with a blank ratio it would have to invent. Neither
     marks the report incomplete: that banner points at a skipped or not-computed figure below it,
     and there is none. ``partitionNamedColumns`` says which happened to each such column;
-    cross-file agreement still lists it under the files' name, since the files do carry it.
+    cross-file agreement still lists it under the files' name, since the files do carry it. Its
+    other spellings are looked up by that name too, through the same ``ddl.declare_columns``
+    pairing, because the entry itself carries the new one.
 
     The completion timestamp is the only field a replay changes. The report key is a pure function
     of the request id, so a retry or a redelivery overwrites the same object rather than adding a

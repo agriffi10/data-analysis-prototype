@@ -277,8 +277,9 @@ def other_spellings(files: list[dict]) -> dict[str, list[str]]:
       files: The manifest's file entries, each carrying the columns its header probe produced.
 
     Returns:
-      Each unioned column's declared name to its other distinct spellings, in first-seen order;
-      a column with one spelling is absent.
+      Each unioned column's name, spelled as the union spells it, to its other distinct spellings,
+      in first-seen order; a column with one spelling is absent. A CSV column named after a
+      partition is keyed by that spelling, not by the new name the temp table declares it under.
 
     Raises:
       KeyError: If a probed column is missing its name or type.

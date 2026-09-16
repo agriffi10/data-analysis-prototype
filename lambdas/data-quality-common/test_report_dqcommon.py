@@ -542,6 +542,48 @@ def test_a_csv_column_naming_a_partition_key_gets_its_own_figures_under_its_new_
     assert built["exact"]["crossFile"] == {"columnsAgree": True, "disagreements": []}
 
 
+def test_a_partition_named_column_spelled_two_ways_across_files_is_one_renamed_column():
+    """`Year` in one file and `year` in another are one column to Athena, merged by the union, and
+    that one column names the folder's partition. So the temp table, the profile and the report
+    each carry exactly one `year_in_file`, its other spelling is still disclosed, and the report
+    names the rename once under the first-seen spelling.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    files = [
+        _file("alice/sales/year=2025/a.csv", ["Year", "id"]),
+        _file("alice/sales/year=2025/b.csv", ["year", "id"]),
+    ]
+    partition_keys = [{"name": "year", "values": ["2025"]}]
+    union = sql.union_columns(files)
+    ddl_statement = sql.build_temp_table_ddl("alice", "dq_tmp_x", union, partition_keys, "csv", "s3://b/alice/sales/")
+    query = sql.build_profile_query("alice", "dq_tmp_x", union, partition_keys, "csv")
+
+    built = _build(
+        manifest=dict(_manifest(files), partitionKeys=partition_keys),
+        profile=[_profile_row(40, [{}, {}])],
+    )
+
+    assert "(`year_in_file` string, `id` string) PARTITIONED BY (`year` string)" in ddl_statement
+    assert [name for name, _alias in re.findall(r'"([^"]+)"(?:\), \'\'\))? AS (c\d+)\b', query)] == [
+        "year_in_file",
+        "id",
+    ]
+    assert [(c["name"], c.get("otherSpellings")) for c in built["exact"]["columns"]] == [
+        ("year_in_file", ["year"]),
+        ("id", None),
+    ]
+    assert built["partitionNamedColumns"] == [{"name": "Year", "outcome": "renamed", "as": "year_in_file"}]
+    assert built["exact"]["crossFile"] == {"columnsAgree": True, "disagreements": []}
+
+
 # ── Ragged rows (FR-003) ─────────────────────────────────────────────────────
 
 
