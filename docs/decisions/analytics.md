@@ -54,9 +54,16 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names. A refresh skips the check, or it would strand pre-rule tables, but its diff still refuses a
-  fold collision. **Every step of a refresh folds through `columns.fold`, which is `lower()` and
-  never `casefold()`**: the second merges `ß` into `ss`, so a diff and a write folding differently
-  removed a column without the opt-in.
+  fold collision. **Every step of a refresh, and the DDL builder's partition-key drop, folds through
+  `columns.fold`, which is `lower()` and never `casefold()`**: the second merges `ß` into `ss`, so a
+  diff and a write folding differently removed a column without the opt-in, and a drop by exact
+  name left a header `Year` beside the key `year`, which Athena refuses as a repeated column.
+- **A CSV is read by POSITION, so dropping one of its columns shifts the rest.** A column naming a
+  partition key is left out of the body; in a CSV that is safe only when nothing the table keeps
+  follows it, and anywhere else a create and a data-quality check refuse it as
+  `partition_column_not_last` rather than build a table whose every later column answers with its
+  neighbour's values. Parquet and JSON are matched by name and always drop. **The refresh path is
+  not covered** — it writes Glue columns without this builder.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
@@ -899,8 +906,40 @@ and the create rule, the diff's match and partition-key exclusion, the write's n
 and refusal, and both catalog reads around the update all call it, as does results-conversion's
 duplicate check. The two folds differ only on non-ASCII characters, which the name rule keeps out
 of a create; a refresh skips that rule, and results-conversion never applies it to a query's
-column names. The create path's DDL builder still drops a partition-key collision by exact name.
-The evidence is the documentation and the Hive source, not a live Athena run.
+column names. The evidence that Athena keeps `ß` is the documentation and the Hive source, not a
+live Athena run.
+
+**A column naming a partition key is dropped on the fold, and in a CSV only from the END — the
+drop that reads correctly is a narrower thing than the drop that builds.** `build_create_table_ddl`
+leaves such a column out of the body so the DDL stays valid, and it matched by exact name. Both
+halves were measured live through the portal, and the second is why this entry exists.
+
+*The match.* A CSV header `Year,id,region` under `year=2025/` with the key `year` rendered
+`` (`Year` string, …) PARTITIONED BY (`year` string) ``, and Athena failed it with
+`SemanticException [Error 10035]: Column repeated in partitioning columns`, not retryable — the
+user read "creating the table failed. Please try again or contact the Administrator", which no
+retry can fix. Hive's `CreateTableDesc.validate` compares the two with `equalsIgnoreCase`. A
+data-quality check over the same folder failed on its temp table the same way. So the match folds.
+
+*The drop.* Folding alone would have turned that failure into something worse. **CSV is read by
+POSITION** — OpenCSVSerde takes fields in order and only skips the header — so leaving a column
+out shifts every later one onto its neighbour's field, and every CSV column is a string, so
+nothing errors. The exact-case drop had been doing this since the builder was written: the control
+table built from `year,id,region` over the row `2025,1,south` read `id` as `2025` and `region` as
+`1`, with `south` unreachable, while the rail looked right. Dropping is safe only when nothing the
+table keeps follows — `id,region,year` built and read `1, south, 2025` — and Athena matches Parquet
+and JSON by name, so there the drop is always safe.
+
+So a CSV column naming a partition key anywhere but at the end is **refused**, by table-builder as
+`partition_column_not_last` and by data-quality under its own reason of the same name, each naming
+the column and asking for it to be moved last or taken out. `ddl.shifting_partition_columns` is the
+one place that decides, and `build_create_table_ddl` raises rather than render a shifted statement,
+because a renderer safe only because a caller validated first is one refactor from not being safe.
+Data-quality's duplicate-rows grouping mirrors the drop, so it names only the columns its temp
+table has. Refusing beats renaming the column for the user: a rewritten name no longer matches the
+file's own header, which is the same reason the name rule refuses rather than repairs. The refresh
+path drops the same way and is NOT covered here — it writes Glue columns directly rather than
+through this builder, so a CSV refresh can still shift a live table.
 
 **The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
 backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because

@@ -21,6 +21,11 @@ Attributes:
   SERDE_FORMATS: SerDe library to the format key this repo's inference reports. Both JSON
     SerDes are listed because the two arcs disagree on which to write and a refresh may
     meet either.
+  POSITIONAL_FORMATS: The formats whose SerDe matches a file's fields to the table's columns
+    by POSITION rather than by name, which is what makes dropping a column dangerous rather
+    than merely lossy — see ``shifting_partition_columns``. CSV is read by OpenCSVSerde,
+    which only skips the header and never matches on it; Athena reads Parquet and JSON by
+    name.
   _PARTITION_HIVE: Declared partition type to the Hive column type ``PARTITIONED BY`` renders.
     A type absent from here reaches this map before any validation raises, so an unknown
     declared type surfaces as a ``KeyError`` — see ``build_create_table_ddl``.
@@ -30,6 +35,8 @@ Attributes:
 """
 
 from typing import NamedTuple
+
+from cpcommon import columns as columns_mod
 
 _PARTITION_HIVE = {"integer": "int", "date": "date", "string": "string"}
 
@@ -44,6 +51,81 @@ PARQUET_STORED = "STORED AS PARQUET"
 CSV_SKIP_HEADER = ("skip.header.line.count", "1")
 
 PORTAL_MANAGED = ("portal.managed", "true")
+
+POSITIONAL_FORMATS = frozenset({"csv"})
+
+
+class PartitionColumnShiftError(ValueError):
+    """Dropping a partition-key column would shift a positional format's later columns.
+
+    Carries the offending names so a caller can put them in front of the user: the repair is
+    to move the column to the end of the files or take it out, and neither is guessable from
+    a message that does not name it.
+
+    Attributes:
+      names: The offending column names, in declaration order.
+      summary: A ready-made phrase naming them, bounded as ``columns.describe`` bounds one.
+    """
+
+    def __init__(self, names: list[str]) -> None:
+        """Builds the error from the offending names.
+
+        Args:
+          names: The offending column names, in declaration order.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self.names = names
+        self.summary = columns_mod.describe(names)
+        super().__init__(self.summary)
+
+
+def shifting_partition_columns(columns: list[dict], partition_keys: list[dict], fmt: str) -> list[str]:
+    """The data columns a positional format cannot drop without moving the ones after them.
+
+    A column naming a partition key is dropped from the body so the DDL stays valid, which is
+    safe where the SerDe matches on names. Under OpenCSVSerde it is not: fields are taken in
+    order, so dropping one in the middle feeds every later column its neighbour's values, and
+    the last field is never read. Measured live on a built table — a header of ``year,id,region``
+    over the row ``2025,1,south`` read ``id`` as ``2025`` and ``region`` as ``1``, with ``south``
+    unreachable. Nothing errors, because a CSV column is a string.
+
+    Dropping is safe when the colliding columns are the LAST ones: the fields still line up and
+    the trailing ones are simply not read, which a live build confirmed. So only a collision
+    with a kept column after it is returned, and the caller refuses those.
+
+    Args:
+      columns: Ordered [{name, type}] data columns, as the file declares them.
+      partition_keys: Declared partition keys ([] = flat).
+      fmt: The SOURCE format key, which is what decides how fields are matched; a format outside
+        ``POSITIONAL_FORMATS`` returns nothing. A caller supplying its own storage clause is
+        judged on the format all the same — sound for the one caller whose clause is not the
+        format's default, data-quality's raw-line table, since ``LazySimpleSerDe`` is positional
+        too and that table declares no partition keys at all.
+
+    Returns:
+      The offending names, in declaration order; empty when the drop is safe.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
+    """
+    if fmt not in POSITIONAL_FORMATS:
+        return []
+
+    part_names = {columns_mod.fold(key["name"]) for key in partition_keys}
+    offenders: list[str] = []
+    kept_after = False
+    for column in reversed(columns):
+        if columns_mod.fold(column["name"]) in part_names:
+            if kept_after:
+                offenders.append(column["name"])
+        else:
+            kept_after = True
+    return list(reversed(offenders))
 
 
 class Storage(NamedTuple):
@@ -373,9 +455,19 @@ def build_create_table_ddl(
     """Builds a complete CREATE EXTERNAL TABLE IF NOT EXISTS statement as one line.
 
     A data column colliding with a partition-key name is dropped from the body — the
-    partition key wins — so the DDL stays valid. The LOCATION and every TBLPROPERTY go
-    through ``literal``: an S3 key may contain an apostrophe, and a partition enum value
-    could otherwise inject a property that switched partition projection off.
+    partition key wins — so the DDL stays valid. The two are matched through
+    ``columns.fold``, not by exact name: Athena compares them ignoring case and refuses the
+    pair as "Column repeated in partitioning columns", which it does not retry, so a header
+    ``Year`` beside the key ``year`` failed the build where ``year`` beside it was dropped.
+    **A drop that a positional format could not survive raises instead of rendering** —
+    ``shifting_partition_columns`` says which — because that statement builds a table whose
+    later columns silently hold the wrong field's values. Callers refuse it in their own
+    words before they reach this; the raise is here so a renderer that is safe only because
+    someone else validated first cannot become one that is not.
+
+    The LOCATION and every TBLPROPERTY go through ``literal``: an S3 key may contain an
+    apostrophe, and a partition enum value could otherwise inject a property that switched
+    partition projection off.
 
     Args:
       database: Target Glue/Athena database.
@@ -398,6 +490,9 @@ def build_create_table_ddl(
       The full statement as one line.
 
     Raises:
+      PartitionColumnShiftError: When a positional format's body would lose a column with a
+          kept column after it. A ``ValueError``, so a caller that does not know the type
+          still refuses rather than rendering the shifted statement.
       ValueError: On an unknown format when ``storage`` is omitted, or a non-string partition
           enum value.
       KeyError: If a column or partition key is missing a required field, or a partition key
@@ -408,8 +503,12 @@ def build_create_table_ddl(
     """
     resolved = storage if storage is not None else default_storage(fmt)
 
-    part_names = {k["name"] for k in partition_keys}
-    body = ", ".join(_column(c) for c in columns if c["name"] not in part_names)
+    shifting = shifting_partition_columns(columns, partition_keys, fmt)
+    if shifting:
+        raise PartitionColumnShiftError(shifting)
+
+    part_names = {columns_mod.fold(k["name"]) for k in partition_keys}
+    body = ", ".join(_column(c) for c in columns if columns_mod.fold(c["name"]) not in part_names)
 
     stmt = f"CREATE EXTERNAL TABLE IF NOT EXISTS {quote(database)}.{quote(table_name)} ({body})"
 

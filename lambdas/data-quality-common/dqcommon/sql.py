@@ -58,6 +58,7 @@ Attributes:
   _CAST_TYPES: The casts the type-consistency check tries, in report order.
 """
 
+from cpcommon import columns as columns_mod
 from cpcommon import ddl
 
 from . import config
@@ -254,6 +255,9 @@ def build_temp_table_ddl(
       The full statement.
 
     Raises:
+      PartitionColumnShiftError: When a column names a partition key and the positional CSV
+        body would lose it with a kept column after it. The verb refuses that manifest in the
+        user's words before reaching here.
       ValueError: On an unknown format, or an unrenderable partition key.
     """
     try:
@@ -690,7 +694,15 @@ def build_duplicates_query(
     The result shape is pinned to exactly one row, which is what lets the report verb read the
     result file whole without a bound. Partition columns are included in the grouping because
     they are part of the row: two otherwise-identical rows in different partitions are different
-    rows, not duplicates.
+    rows, not duplicates. A data column naming a partition key is left out through
+    ``columns.fold``, the same match the temp table's DDL drops it on, so the grouping names each
+    of that table's columns once rather than one of them under two spellings.
+
+    ``build_profile_query`` does NOT do this, and the difference is a known wart rather than a
+    pair to keep in step: it projects every unioned column, so a dropped name resolves to the
+    PARTITION column of that name and its figures describe the folder's value instead of the
+    file's field. Leaving it out of the projection instead would break the positional aliases
+    the report maps back, so the two must move together, which is more than this grouping.
 
     Args:
       database: The target database.
@@ -707,8 +719,10 @@ def build_duplicates_query(
     Raises:
       KeyError: If a column or partition key is missing its name.
     """
-    part_names = {key["name"] for key in partition_keys}
-    grouped = [ddl.quote_dml(c["name"]) for c in columns if c["name"] not in part_names]
+    part_names = {columns_mod.fold(key["name"]) for key in partition_keys}
+    grouped = [
+        ddl.quote_dml(c["name"]) for c in columns if columns_mod.fold(c["name"]) not in part_names
+    ]
     grouped.extend(ddl.quote_dml(key["name"]) for key in partition_keys)
     all_columns = ", ".join(grouped)
     table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"

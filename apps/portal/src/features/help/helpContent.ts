@@ -182,7 +182,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.',
           'Checking <b>one file</b> reports on that file alone — its neighbours in the same folder are not counted, even though they sit alongside it.',
           'If a source turns out to have <b>no rows at all</b> — an empty or header-only export — the report says so as a finding rather than calling it clean.',
-          'If the <b>column names</b> in your data won’t work in Athena — a header like <b>Order ID</b>, or two headers that differ only by case — the check stops and the notification names them. There’s no report in that case: those names are also what would stop a table being readable, so they’re worth fixing before anything else.'
+          'If the <b>column names</b> in your data won’t work in Athena — a header like <b>Order ID</b>, or two headers that differ only by case — the check stops and the notification names them. There’s no report in that case: those names are also what would stop a table being readable, so they’re worth fixing before anything else.',
+          'The same goes for a CSV column named after one of the folder’s <b>key=value</b> partitions — <b>Year</b> or <b>year</b> in a folder like <b>year=2026/</b>. A CSV’s columns are read in order, so unless that column comes last the check would report every column after it against the wrong values. It stops instead and names the column: move it to the end of your files, or take it out.'
         ],
         callout: {
           kind: 'tip',
@@ -398,7 +399,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'In the <b>Files</b> tab, tick the folder whose files you want to query — exactly one, and it has to be a folder rather than a file — then click <b>Create table</b>. <b>If you cannot see Create table, the window is too narrow</b> — the toolbar drops it on small screens, so widen the window or use a larger display for this step. <b>Create table</b> is also unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
-          'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
+          'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range. If your files also have a column named after a key, even with different capital letters (<b>Year</b> beside the key <b>year</b>), the table leaves that column out and takes the value from the folder name instead. <b>In a CSV that column has to come last</b>, because a CSV’s columns are read in order — anywhere else the build stops and the notification names it, so move it to the end of your files or take it out.',
           'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
         ],
         callout: {

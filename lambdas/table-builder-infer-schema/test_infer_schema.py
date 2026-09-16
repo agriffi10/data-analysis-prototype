@@ -243,6 +243,20 @@ def test_ddl_is_generated_and_carried():
     assert out["requestId"] == "r1"  # request carried through
 
 
+def test_a_csv_header_naming_a_partition_key_before_a_kept_column_is_refused_by_name():
+    """A column naming a partition key is left out of the body, and OpenCSVSerde takes fields in
+    order — so leaving out `Year` here would read `id` from the file's year field. Refused rather
+    than built, because the table would look right and hold every value one column over."""
+    _use_s3_fixture(b"Year,id,region\n2025,1,south\n")
+    keys = [{"name": "year", "type": "string", "values": ["2025"]}]
+
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("csv", partition_keys=keys), None)
+
+    assert err.value.reason == "partition_column_not_last"
+    assert err.value.tokens["columns"] == '"Year"'
+
+
 # ── The refresh cross-check (SPEC-143 FR-006) ────────────────────────────────
 
 _CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde"
