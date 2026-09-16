@@ -10,6 +10,41 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-16, afternoon (a CSV column named after a partition, `e2e.md` §4.4 and §4.6)
+
+**What was under test.** `origin/main` at **`582e93b2`** (#829). `scripts/watch_ci.py --branch main`
+had settled green on it: Deploy Lambda image, Deploy Lambdas and Deploy SPA image.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
+in the extension's group. It reached the Hosted UI form with the password filled; Andrew signed that
+tab in himself, and nothing was typed into the form.
+
+**Instruments — each a way this run differed from a user's.**
+- **Fixtures by path, not by folder dialog.** `yearcase.csv` and `yeartrail.csv`, generated with
+  §2's recipe, were uploaded through the page's own upload drawer after opening
+  `/files?prefix=agriffith/partrename0916/yearcase/year%3D2025/` (and `yeartrail/…`) directly, so
+  the `key=value` folders came into being from the upload's key rather than from New folder.
+- **Queries and the refresh sent from inside the page.** `fetch` to `api.dataquarry.app` with the
+  tab's own idToken, returning only statuses and rows; the token never left the page. The two
+  creates and the data-quality check went through the UI's own dialogs.
+- **A refresh request built wrongly first.** One `POST /v1/enqueue/table-refresh` carried the key
+  `year` in `partitionKeys` and was refused by notification (*"a refresh keeps the table's existing
+  partition keys"*), which is the designed answer; the UI always sends `[]`. The second, with `[]`,
+  is the reading below.
+
+**Readings.**
+
+| Row | Result |
+|---|---|
+| Build `partrename0916/yearcase/` (header `Year,id,region`), key `year` string `2025`, as `yearcase0916` | Ready notification: *Table "yearcase0916" is ready to query in "agriffith". A column named after a partition key keeps its values under a new name: "Year" is "year_in_file".* `SELECT year_in_file, id, region, year … ORDER BY id` returned `2025, 1, south, 2025`, then `2025, 2, east, 2025` and `2025, 3, west, 2025`; `SELECT *` listed `year_in_file, id, region, year`. **Pass.** |
+| Build `partrename0916/yeartrail/` (header `id,region,year`), same key, as `yeartrail0916` | Notification names `"year" is "year_in_file"`. `SELECT id, region, year_in_file, year` returned `1, south, 2025, 2025`. **Pass.** |
+| Refresh `yearcase0916` with nothing changed | *Table "yearcase0916" is already up to date - no schema changes were found.* **Pass.** |
+| Check `partrename0916/yearcase/` | Report `5383617a-dfe0-4f34-82df-ce100c5a2349`: **No issues found**, 5 rows, 1 file, no cross-file section. Above Columns: *Year is listed as year_in_file. The folder has a partition of the same name, and a CSV’s columns are read in order, so the file’s own column keeps its values under a new name.* Columns `year_in_file` BIGINT 0 0%, `id` BIGINT 0 0%, `region` TEXT 0 0%. **Pass.** |
+
+**Not run.** `yeartrail/`'s data-quality check, and a JSON or Parquet folder's `omitted` line.
+
+---
+
 ## Live-check session — 2026-09-13, evening (SPEC-231's four row-count rows in `e2e.md` §4.3)
 
 **What was under test.** `origin/main` at **`430a1b7e`** (#741). `scripts/watch_ci.py --branch
