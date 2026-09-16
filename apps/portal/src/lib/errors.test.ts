@@ -84,17 +84,62 @@ describe('errorMessages', () => {
       const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('default')});
 
       expect(message).toBe('Add a database to each table, like `mydb.sales`.');
-      expect(message).not.toMatch(/Contact the Administrator/i);
     });
 
-    it('tells a user who named an unreachable database which thing to check', () => {
+    it('tells a user who named an unreachable database something else entirely', () => {
       // The counter-case, and the reason the rule reads the database NAME rather than merely
       // classifying the message: the two arrive identical apart from it, and "add a database
-      // prefix" is wrong advice for someone who already wrote one.
-      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('nodb_xyz')});
+      // prefix" is wrong advice for someone who already wrote one. Compared against the other
+      // rule's own output, so the pair stays discriminating while either sentence is reworded.
+      const denied = toUserMessage({code: 'FAILED', message: DENIED_ON('nodb_xyz')}).message;
 
-      expect(message).toMatch(/database wasn’t found/i);
+      expect(denied).not.toBe(toUserMessage({code: 'FAILED', message: DENIED_ON('default')}).message);
+      expect(denied).toMatch(/isn’t available to you/i);
+    });
+
+    it('does not tell a user to check a name they never typed', () => {
+      // The Data Explorer builds its own SQL from a table picked out of the rail, and maps the
+      // failed execution through this module — so this rule is reached by people who typed no
+      // database name at all. The access half has to lead, and the name check has to be
+      // conditional, or the sentence sends them hunting for a typo that cannot exist.
+      const {message} = toUserMessage({code: 'FAILED', message: DENIED_ON('marketing')});
+
+      expect(message).toMatch(/ask the Administrator for access/i);
+      expect(message).toMatch(/if you typed it/i);
+    });
+
+    it('reads the database of the denied action, not the first one in the message', () => {
+      // A message carrying two denials. A name grabbed by a separate search takes whichever
+      // `:database/` comes first, which may belong to another action — and picks the opposite
+      // sentence for it.
+      const twoDenials =
+        'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetTable on resource: arn:aws:glue:us-east-1:696000197480:database/default because no identity-based policy allows; ' +
+        'User: arn:aws:sts::696000197480:assumed-role/r/u is not authorized to perform: glue:GetDatabase on resource: arn:aws:glue:us-east-1:696000197480:database/salesdb because no identity-based policy allows';
+
+      expect(toUserMessage({code: 'FAILED', message: twoDenials}).message).not.toBe(
+        'Add a database to each table, like `mydb.sales`.'
+      );
+    });
+
+    it.each([['.'], [')'], ['"']])('is not inverted by a %s after the database name', (punctuation) => {
+      // The name is compared exactly, so any character absorbed into it flips the two sentences.
+      // One period after `default` used to be enough to tell someone who wrote no database at all
+      // to go and check the name.
+      const message = DENIED_ON(`default${punctuation}`);
+
+      expect(toUserMessage({code: 'FAILED', message}).message).toBe('Add a database to each table, like `mydb.sales`.');
+    });
+
+    it('sends a missing SCHEMA to the rule that shows Athena its own words', () => {
+      // `isUnqualifiedTable` used to match any "schema … does not exist", which outranks the
+      // catalog-refusal pair — so a user who HAD qualified their table was told to add a prefix.
+      const {message, detail} = toUserMessage({
+        code: 'FAILED',
+        message: "SCHEMA_NOT_FOUND: line 1:15: Schema 'awsdatacatalog.nodb' does not exist"
+      });
+
       expect(message).not.toBe('Add a database to each table, like `mydb.sales`.');
+      expect(detail).toContain("Schema 'awsdatacatalog.nodb' does not exist");
     });
 
     it('keeps the permission sentence for a Lake Formation denial, which writes "permission(s)"', () => {
