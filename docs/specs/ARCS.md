@@ -46,6 +46,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
 - [Observability continuation arc (SPEC-224, 225, 226, 227)](#observability-continuation-arc-spec-224-225-226-227)
+- [Tester-feedback arc (SPEC-238 → 244)](#tester-feedback-arc-spec-238--244)
 
 ---
 
@@ -3124,3 +3125,50 @@ source and 21 in current-tier docs name tests that do not exist** — and then f
 sweep's collateral damage rather than scattered rot, and the guards are largely recoverable from
 `a41bda69^`. A separate arc pays that down and **owns the citation gate**, because the gate is what
 verifies its own paydown; 227 keeps only the two archive comments, which are its own subject.
+
+---
+
+## Tester-feedback arc (SPEC-238 → 244)
+
+Seven specs written together from the testers' feedback of 8–15 September 2026, after #804 and #807
+shipped the batch that needed no spec. Six groups came from the feedback. The seventh is a gap found
+while reviewing them: a tester hides columns in order to export, and export saved every column.
+
+**The one size split.** Filtering was a single group: text operators, lists, empty cells, and a
+DBeaver-style "filter by value". Written as one spec it ran past the FR ceiling, so it was cut where
+the system already has a seam. 238 changes the filter model and the renderer, which is where the
+injection risk sits. 241 adds a second billed query that writes into that model. 241 needs 238's
+list operator and its value cap, so 238 goes first.
+
+**Build order, riskiest first:**
+
+1. **238, filter operators.** It changes the shared filter model that 241 and 243 build on, and
+   every new operator is a renderer path where a quoting mistake is an injection. It also adds the
+   statement-length refusal that 241's query relies on.
+2. **239, export leaves out hidden columns.** It changes a control plane's request contract: a new
+   bounded field, a closed format vocabulary that gains `csv`, a fourth writer, and the state
+   machine's Pass states, which must carry the new field on every request. It also changes which
+   path a CSV save takes. It lands as four pull requests, because the verbs, the machine, the
+   converter and the browser deploy separately and each needs the one before it.
+3. **240, data-quality samples.** It changes the duplicates statement, whose count is an exact
+   figure users act on, adds a schema field, and stores rows of user data in the report. Its browser half, over
+   figures already stored, can ship alone as its first phase.
+4. **241, filter by value.** A second billed statement per exploration, which has to keep the
+   execution cache's cost promise. Needs 238.
+5. **242, a query result opens in Data Explorer.** It brings the `sql` source arm into use for the
+   first time, since no earlier surface opens one. Its phases put the arm's end-to-end tests before
+   the button that reaches it.
+6. **243, filter chips and Open in Query.** Browser-only. It reads 238's labels and adds its hand-off
+   beside 242's.
+7. **244, scoped autocomplete.** Browser-only, with no billing and no security surface.
+
+**Decisions Andrew took while these were written (2026-09-16):** export leaves hidden columns out in
+the converter, not with a second query (239). The data-quality report stores up to five duplicated
+rows (240). The column menu's text filters are contains, does not contain, starts with and ends
+with, ignoring case, and raw `LIKE` patterns stay in the expression box (238). His earlier rulings
+from #804 still stand: destructive triggers get a red outline, a space is named by its database name
+wherever one is picked, and Athena's own text appears only behind Details.
+
+**Left out of every spec, on purpose:** reading blank CSV fields as NULL (it changes what existing
+tables return), and parsing SQL back into the Data Explorer (anything the parser missed would be
+dropped without a word).
