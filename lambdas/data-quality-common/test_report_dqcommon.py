@@ -584,6 +584,32 @@ def test_row_counts_by_file_are_keyed_by_object_key_not_the_s3_uri():
     assert document["exact"]["rowCountsByFile"] == [{"key": "alice/Sales/Part-0.csv", "rows": 1000}]
 
 
+def test_two_keys_that_differ_only_in_case_each_keep_their_own_row_count():
+    """S3 keys are case-sensitive, so `Data.csv` and `data.csv` in one folder are two objects, and
+    each is owed the count Athena gave its own `$path`. A single capitalised key cannot catch a
+    key recovery that folds case when the manifest lookup folds it too, because both sides fold
+    alike and still meet. Two keys that differ only in case can, as long as their counts differ:
+    folded, both recover to the same key, both files are reported with the one count that key
+    kept, and the per-file counts stop summing to `rowCount`. With equal counts the collapsed
+    report would read exactly like the correct one, and the test would pass with the fold in
+    place."""
+    files = [_file("alice/s/Data.csv", ["id"]), _file("alice/s/data.csv", ["id"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[
+            _profile_row(30, [{}]),
+            _profile_row(20, [{}], is_total=0, source_file="s3://bkt/alice/s/Data.csv"),
+            _profile_row(10, [{}], is_total=0, source_file="s3://bkt/alice/s/data.csv"),
+        ],
+    )
+
+    assert document["exact"]["rowCountsByFile"] == [
+        {"key": "alice/s/Data.csv", "rows": 20},
+        {"key": "alice/s/data.csv", "rows": 10},
+    ]
+
+
 def test_a_file_with_no_data_rows_is_reported_as_zero_rather_than_vanishing():
     """Athena emits no `$path` group for a file with no data rows, so a header-only CSV — a
     failed export, one of the commoner real defects — would simply be ABSENT from the array.
