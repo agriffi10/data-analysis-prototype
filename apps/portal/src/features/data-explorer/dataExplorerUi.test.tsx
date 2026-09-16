@@ -1,6 +1,9 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
-import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {Link} from 'react-router';
+import type {QueryClient} from '@tanstack/react-query';
+import type {ReactNode} from 'react';
+import {createTestQueryClient, renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import userEvent from '@testing-library/user-event';
@@ -14,6 +17,7 @@ import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constan
 import {catalogKeys} from '../catalog/catalogKeys';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {connectionKeys} from '../connections/connectionKeys';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
@@ -56,11 +60,30 @@ const SHARED_SPACE: QuerySpace = {
   rootLabel: 'teamspace'
 };
 
-function render(route = '/explore') {
+/** `beside` renders next to the workspace under the same router, standing in for the shell around it. */
+function render(route = '/explore', seededClient?: QueryClient, beside?: ReactNode) {
   const user = userEvent.setup(USER_EVENT_OPTIONS);
-  const {unmount, queryClient} = renderWithProviders(<DataExplorerWorkspace />, {route, auth: authenticated('alice')});
+  const {unmount, queryClient} = renderWithProviders(
+    <>
+      <DataExplorerWorkspace />
+      {beside}
+    </>,
+    {route, auth: authenticated('alice'), ...(seededClient && {queryClient: seededClient})}
+  );
   return {user, unmount, queryClient};
 }
+
+/** A client already holding a spaces list without `teamspace`, read `ageMs` ago under the app's 30s
+ *  staleTime rather than the harness's 0 — so whether a read is owed on mount is the test's choice. */
+function clientWithCachedList(ageMs: number) {
+  const client = createTestQueryClient();
+  client.setQueryDefaults(connectionKeys.list('alice'), {gcTime: Infinity, staleTime: 30_000});
+  client.setQueryData(connectionKeys.list('alice'), {version: 1, connections: []}, {updatedAt: Date.now() - ageMs});
+  return client;
+}
+
+const TEAMSPACE = ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]});
+const TEAMSPACE_LINK = '/explore?space=teamspace&db=teamspace&table=orders';
 
 /** Seed the session's tabs the way a previous visit would have left them. */
 function seedTabs(tabs: {id: string; table: string}[], activeTabId = tabs[0]?.id ?? '') {
@@ -278,17 +301,70 @@ describe('the deep link', () => {
     expect(vi.mocked(runQuery).mock.calls[0][0]).toMatchObject({sql: 'SELECT *\nFROM "alice"."orders"'});
   });
 
-  it('renders the denied state for an unreachable space and asks NOTHING of Glue or Athena', async () => {
-    render('/explore?space=someone_elses&db=someone_elses&table=orders');
+  it.each([
+    ['nothing is cached', () => undefined],
+    ['a fresh cached list lacks it', () => clientWithCachedList(0)]
+  ])(
+    'renders the denied state for an unreachable space and asks NOTHING of Glue or Athena (%s)',
+    async (_c, seeded) => {
+      render('/explore?space=someone_elses&db=someone_elses&table=orders', seeded());
 
-    expect(await screen.findByRole('heading', {name: 'You don’t have access to that space'})).toBeInTheDocument();
-    // The disclosure this guards: a Glue call would answer whether a database the user
-    // cannot see exists, and an Athena call would read it (SPEC-113's rule).
+      expect(await screen.findByRole('heading', {name: 'You don’t have access to that space'})).toBeInTheDocument();
+      // One read of the user's own list, after the link: a cached list may predate a space just joined.
+      expect(readSharedConnectionsCache).toHaveBeenCalledOnce();
+      // The disclosure this guards: a Glue call would answer whether a database the user
+      // cannot see exists, and an Athena call would read it (SPEC-113's rule).
+      expect(getDatabase).not.toHaveBeenCalled();
+      expect(listTables).not.toHaveBeenCalled();
+      expect(runQuery).not.toHaveBeenCalled();
+      // …and no picker either, so nothing else can start a request behind the refusal.
+      expect(screen.queryByRole('button', {name: 'orders'})).not.toBeInTheDocument();
+    }
+  );
+
+  it.each([
+    ['a fresh cached list predates the space', () => clientWithCachedList(0)],
+    ['a stale cached list predates the space', () => clientWithCachedList(60_000)]
+  ])('reads the spaces list before refusing a space it lacks (%s)', async (_cached, seeded) => {
+    // Trusted, a list read before the user joined refused a space they can read. Fresh, nothing read it
+    // again and the refusal stood; stale, it showed until the read owed on mount returned.
+    let resolveRead: (result: unknown) => void = () => {};
+    vi.mocked(readSharedConnectionsCache).mockReturnValue(new Promise((resolve) => (resolveRead = resolve)) as never);
+    render(TEAMSPACE_LINK, seeded());
+
+    await waitFor(() => expect(readSharedConnectionsCache).toHaveBeenCalledOnce());
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'You don’t have access to that space'})).not.toBeInTheDocument();
     expect(getDatabase).not.toHaveBeenCalled();
-    expect(listTables).not.toHaveBeenCalled();
-    expect(runQuery).not.toHaveBeenCalled();
-    // …and no picker either, so nothing else can start a request behind the refusal.
-    expect(screen.queryByRole('button', {name: 'orders'})).not.toBeInTheDocument();
+
+    resolveRead(TEAMSPACE);
+    expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(runQuery).mock.calls[0][0]).toMatchObject({sql: 'SELECT *\nFROM "teamspace"."orders"'});
+  });
+
+  it('reads the spaces list again when a link followed on the open page names a space it lacks', async () => {
+    // The workspace does not remount when a link lands on it, so no read is owed: checked against the
+    // list it opened with, a space joined since was refused, and nothing ever read the list again.
+    vi.mocked(readSharedConnectionsCache).mockResolvedValueOnce(ok({version: 1, connections: []}) as never);
+    const {user, queryClient} = render(
+      '/explore',
+      clientWithCachedList(60_000),
+      <Link to={TEAMSPACE_LINK}>Explore teamspace orders</Link>
+    );
+    await waitFor(() => expect(readSharedConnectionsCache).toHaveBeenCalledOnce());
+    await waitFor(() => expect(queryClient.isFetching({queryKey: connectionKeys.list('alice')})).toBe(0));
+
+    let resolveRead: (result: unknown) => void = () => {};
+    vi.mocked(readSharedConnectionsCache).mockReturnValue(new Promise((resolve) => (resolveRead = resolve)) as never);
+    await user.click(screen.getByRole('link', {name: 'Explore teamspace orders'}));
+
+    expect(screen.queryByRole('heading', {name: 'You don’t have access to that space'})).not.toBeInTheDocument();
+    expect(readSharedConnectionsCache).toHaveBeenCalledTimes(2);
+
+    resolveRead(TEAMSPACE);
+    expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'You don’t have access to that space'})).not.toBeInTheDocument();
   });
 
   it('starts NO execution for a denied link, even with a tab restored from the session', async () => {

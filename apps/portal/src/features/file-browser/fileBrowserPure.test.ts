@@ -20,7 +20,7 @@ import {
 import {createElement} from 'react';
 import type {ReactNode} from 'react';
 import {act, renderHook} from '@testing-library/react';
-import {MemoryRouter} from 'react-router';
+import {MemoryRouter, useNavigate} from 'react-router';
 import {useFileSpace} from './useFileSpace';
 import type {Connection} from '../connections/connection.types';
 import {QueryClient} from '@tanstack/react-query';
@@ -248,14 +248,15 @@ describe('useFileSpace', () => {
 
   type Params = Parameters<typeof useFileSpace>[0];
 
-  // Later props arrive through `rerender`, the way a settled read of the list reaches the hook.
+  // Later props arrive through `rerender`, the way a settled read of the list reaches the hook. `navigate`
+  // rides along so a test can go Back, which no hook result offers.
   function setup(path: string, overrides: Partial<Params> = {}) {
     const wrapper = ({children}: {children: ReactNode}) =>
       createElement(MemoryRouter, {initialEntries: [path]}, children);
     const rereadList = vi.fn().mockResolvedValue(undefined);
     const rendered = renderHook(
-      (props: Partial<Params>) =>
-        useFileSpace({
+      (props: Partial<Params>) => ({
+        ...useFileSpace({
           username: 'alice',
           connections: ALL,
           listReadsSettled: 0,
@@ -265,6 +266,8 @@ describe('useFileSpace', () => {
           ...overrides,
           ...props
         }),
+        navigate: useNavigate()
+      }),
       {wrapper, initialProps: {}}
     );
     return {...rendered, rereadList};
@@ -312,6 +315,24 @@ describe('useFileSpace', () => {
       rerender({listReadsSettled: 1});
       expect(result.current.space?.kind).toBe('personal');
       expect(result.current.fellBack).toBe(true);
+    });
+
+    it('asks again on Back into a space the list lacks, though a read settled after it was last followed', () => {
+      // A POP is not a follow, but it re-arms on the value. Keyed on the navigation alone, Back onto a
+      // space refused earlier would be refused again on whatever read settled in between, and that read
+      // may predate the user joining it.
+      const {result, rerender, rereadList} = setup('/files?space=sales_2026');
+      rerender({listReadsSettled: 1});
+      expect(result.current.fellBack).toBe(true);
+
+      act(() => result.current.selectSpace('marketing_data'));
+      rerender({listReadsSettled: 2});
+      expect(rereadList).toHaveBeenCalledOnce();
+
+      act(() => void result.current.navigate(-1));
+      expect(result.current.pending).toBe(true);
+      expect(result.current.fellBack).toBe(false);
+      expect(rereadList).toHaveBeenCalledTimes(2);
     });
 
     it('selectSpace switches the active space', () => {

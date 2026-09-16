@@ -520,7 +520,10 @@ mount — so a denied link issued a Glue call and swapped to the refusal a tick 
 about a catalog, just about the wrong space. `LoadingState` now holds the page while a resolution is
 pending, and the hook reports `loading` **only when a `?space=` is actually present**: without one
 there is nothing to wait for, and a blanket wait would put a spinner in front of every visit to
-`/explore`. This is `FeatureRoute`'s own rule one layer down. The parameters are then **dropped with
+`/explore`. This is `FeatureRoute`'s own rule one layer down. (Since 2026-09-16 it waits only while
+that space is refused, and until a read of the list after the link rather than on `isLoading`: see
+browser.md, *A `?space=` the cached list lacks is refused only on a read after the link*.) The
+parameters are then **dropped with
 `replace`** once acted on — tabs survive a reload through `sessionStorage`, so a link left in the URL
 would stack a duplicate of the linked table on every reload.
 

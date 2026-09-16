@@ -100,7 +100,9 @@ is a smell.
   is the fill's own trigger: without the guard one failure spins forever. **A poll's stop is
   `enabled` resolving `false`**, never only an interval returning `false`: a failed query is stale
   whatever its `staleTime`, so a reconnect refetches it. **A watch's ceiling is a verdict on a read
-  after it, never on the clock**: the poll pauses while the page is hidden.
+  after it, never on the clock**: the poll pauses while the page is hidden. **So is a linked space's
+  refusal, never on `isLoading`**, which clears on any cached list, however old — every cold-load
+  test passes while a just-joined space is refused; a link consumer calls `useSpaceLinkPending`.
 - **Help & guides document only what is shipped and wired end to end.**
 - **Column geometry is keyed by NAME**, so geometry for a column the result no longer has is
   discarded by construction.
@@ -1437,7 +1439,7 @@ files…" until the connection returns and the read runs, as a cold load already
 list used to refuse it at once.
 
 **The wait is anchored at the link, and measured by count.** `useConnections` exposes TanStack's
-own update counters, the pair behind `isFetchedAfterMount`, as `listReadsSettled`. `useFileSpace`
+own update counters, the pair behind `isFetchedAfterMount`, as `listReadsSettled`. `useSpaceLinkPending`
 notes the count whenever a link is followed, noting it again during render. A link is the
 navigation as well as the `?space=` value: while the notice shows, the address still names the
 space, so following the same link again changes only the navigation, and keyed by the value alone
@@ -1453,6 +1455,15 @@ rather than loading for ever. The
 re-read passes `cancelRefetch: false`, so the read owed on mount answers the link rather than being
 cancelled and sent again, and the stale-list row counts reads to hold that.
 
-**Not done:** the Data Explorer's `?space=` and Data Quality's `:space` resolve against the same
-list and wait only on `isLoading`, so a cached list without a just-joined space refuses both links
-in the same way.
+**Extended to the other two links (2026-09-16, Andrew's ruling).** The Data Explorer's `?space=` and a
+Data Quality report's `:space` resolved against the same list and waited only on `isLoading`, so both
+refused a just-joined space the same way. The report's refusal was reachable through a completion
+notification followed in a second tab. The Explorer's was reachable only through Back and Forward,
+since its one link source, the Query rail, builds from the same list. The anchor now lives in one
+hook, `useSpaceLinkPending`, which each surface calls with whether its own resolution found the space,
+so the POP rule is written once rather than three times. The Explorer keys the wait on its resolver's
+`denied`, which keeps the flag rule in the resolver alone: with shared workspaces off `?space=` is
+never read, so nothing is refused or waited on. **The Data Quality runs page is left alone.** It
+follows no link and refuses nothing; a list without a just-joined space leaves that space's runs out
+until the next read, the same staleness the Files sidebar and the Query rail have, and making it wait
+would spend a read on every visit.
