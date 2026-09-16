@@ -24,7 +24,8 @@ manifest key is a pure function of the caller's own request id, so an object rou
 write there let a caller replace the file list a running check reads between two of its verbs — and
 in a shared space, replace another member's report. Nothing legitimate writes there through this
 API, which is the condition for being stricter than IAM. **This guards the object routes only**: the
-file-ops plane is a writer too, and its refusals are its own.
+file-ops plane is a writer too, and refuses the folder by its own rules in ``focommon.protected`` —
+as where any selected item lands, and as a delete or move source.
 
 **Key containment wraps `cpcommon.paths` rather than calling it bare.** `assert_inside_root`
 raises `TerminalError`, which `errors.for_exception` does not recognise, so an unwrapped call

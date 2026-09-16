@@ -1027,10 +1027,12 @@ catalog with no way to repair it.
 > can still do. The manifest loader refuses any file outside the checked location — byte-scan GETs
 > each listed key under a role that reads both buckets whole, so a forged list was also another
 > tenant's bytes — and that holds whoever wrote the object. The object routes refuse the reports
-> folder (`protected.is_in_reports_folder`), which is NOT every writer: the file-ops plane judges a
-> copy or move by its destination prefix, not each item's derived key, so moving a nested
-> `_data-quality-reports/` folder to the root still writes there, and its deletes are not refused.
-> **Still open, besides that:** a request id reused past the dedup window shares the temp table,
+> folder (`protected.is_in_reports_folder`), and so does the file-ops plane, the other writer a
+> member reaches: it judged a copy or move by its destination prefix alone, so moving a nested
+> `_data-quality-reports/` folder to the root wrote there and deleting a report was accepted. It now
+> refuses each item's derived key and the folder as a delete or move source, with no role Deny
+> behind it by choice — [where each item lands](storage.md#an-item-copied-into-itself-is-refused-per-item-where-a-containment-breach-fails-the-request-spec-187).
+> **Still open:** a request id reused past the dedup window shares the temp table,
 > whose create is `IF NOT EXISTS`, so a folder check can inherit a running root-file check's table
 > and query it unnarrowed, held off only by the shared Athena tokens — [what overlap costs on this plane](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).
 
