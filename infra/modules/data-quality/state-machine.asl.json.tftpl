@@ -1,5 +1,5 @@
 {
-  "Comment": "Data-quality control plane (the canonical state list; later work wires a state to real logic but never adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. NO ASL STATE DECODES AN ERROR CAUSE: States.StringToJson in a Pass state raises an uncatchable States.Runtime on any non-JSON Cause, which killed executions before they could notify. The raw $.error travels to RecordFailure and Python decodes it. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
+  "Comment": "Data-quality control plane. validate-authorize -> StampExecution -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. NO ASL STATE DECODES AN ERROR CAUSE: States.StringToJson in a Pass state raises an uncatchable States.Runtime on any non-JSON Cause, which killed executions before they could notify. The raw $.error travels to RecordFailure and Python decodes it. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -31,6 +31,15 @@
           "Next": "ValidateFailureSeed"
         }
       ],
+      "Next": "StampExecution"
+    },
+    "StampExecution": {
+      "Type": "Pass",
+      "Comment": "Puts the EXECUTION ARN on the state for inspect-source, which claims the request id for this execution before anything is named from it. Every per-run name — the temp tables, the report folder, the Athena tokens — derives from the request id, which the caller chooses and the queue forgets after five minutes, so without the claim a later execution sending the same id would inherit the earlier one's table and drop it on cleanup. The holder must be the execution, not the request id: the id is only what the caller sent, and a Task retry is the same execution and must find its own claim. A redelivered message was measured to re-attach to its first execution rather than start another (infra/info/control-plane-shape.md), but that the Pipe names executions per message is inferred, so the claim does not rely on it. A Pass rather than InspectSource's own Parameters, because reading $$ there means building an object that WRAPS the payload, and every verb and notification path reads the request at the top level. ResultPath adds a key and disturbs nothing.",
+      "Parameters": {
+        "arn.$": "$$.Execution.Id"
+      },
+      "ResultPath": "$.execution",
       "Next": "InspectSource"
     },
     "InspectSource": {

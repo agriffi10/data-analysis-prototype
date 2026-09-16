@@ -1,8 +1,9 @@
 """data-quality inspect-source — the control plane's second verb.
 
-Given an authorized location, lists the objects under it, classifies each by file extension,
-enforces that the folder is a single consistent format, probes every file's header or schema,
-detects Hive-style partition directories, and writes the manifest.
+Given an authorized location, claims the request id for this execution, lists the objects under
+it, classifies each by file extension, enforces that the folder is a single consistent format,
+probes every file's header or schema, detects Hive-style partition directories, and writes the
+manifest.
 
 Two things differ from the Lambda-era design and are deliberate. Parquet is a supported input,
 because the natural workflow is convert-then-verify and rejecting it would leave the two arcs
@@ -51,7 +52,7 @@ import logging
 from cpcommon import bounded_read, clients, errors, events, observability, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
-from dqcommon import config, messages, notify, sql
+from dqcommon import config, messages, notify, run_claim, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -655,7 +656,8 @@ def _manifest_key(report_prefix: str) -> str:
 
     The validate verb derives that prefix from the request id alone, so this key is too. That is
     what makes the pipeline replay-safe: a retry re-runs the whole verb and overwrites the manifest
-    byte-identically, which is the only idempotency this codebase has.
+    byte-identically, which is the only idempotency this codebase has. No other execution writes it,
+    because the request id was claimed for this execution before the key was derived.
 
     Args:
       report_prefix: The request's report prefix.
@@ -710,6 +712,12 @@ def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
 def _inspect(event: dict) -> dict:
     """Lists, caps, classifies, partitions and probes the source, then writes the manifest.
 
+    The request id is claimed for this execution first, before anything is listed or written. The
+    manifest is the first thing named from the id, and every later verb names its tables, output
+    and query tokens from the same id, so a run that does not hold the claim must stop before any
+    of them exist. A refusal here also leaves no manifest key on the state, which is what keeps the
+    failure path's cleanup from dropping the tables of the run that does hold it.
+
     The single-file filter runs before the caps and before the format check, so neither can see —
     nor name in a refusal — a sibling the user did not select.
 
@@ -742,13 +750,16 @@ def _inspect(event: dict) -> dict:
       single-file path filter added.
 
     Raises:
-      TerminalError: Any inspection refusal.
-      TransientError: On a retryable S3 fault.
+      TerminalError: ``request_id_reused`` when another execution holds the request id, or any
+        inspection refusal.
+      TransientError: On a retryable S3 fault, or an interrupted claim write.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
     location = events.require(event, "location", reason=messages.INVALID_REQUEST)
     request_id = events.require(event, "requestId", reason=messages.INVALID_REQUEST)
     report_prefix = events.require(event, "reportPrefix", reason=messages.INVALID_REQUEST)
+    execution_arn = events.require(event, "execution", "arn", reason=messages.INVALID_REQUEST)
+    run_claim.claim(request_id, execution_arn)
 
     listing_prefix, single_file = _resolve_listing_prefix(bucket, location)
     objects = _list_objects(bucket, listing_prefix)

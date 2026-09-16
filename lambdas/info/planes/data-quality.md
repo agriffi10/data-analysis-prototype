@@ -15,7 +15,7 @@ Sampling and Fargate-in-a-VPC were both rejected, and Fargate remains the record
 
 `infra/modules/data-quality/state-machine.asl.json.tftpl`
 
-`ValidateAuthorize → InspectSource → CreateTempTables → StartProfileQuery → WaitForQuery ⇄
+`ValidateAuthorize → StampExecution → InspectSource → CreateTempTables → StartProfileQuery → WaitForQuery ⇄
 CheckQuery → ByteScan → AssembleReport → DropTempTables`
 
 `DropTempTablesOnFailure` is the other arm — **cleanup is reached on every path**. That is safe
@@ -30,6 +30,15 @@ support ticket** — which is the real ceiling on the feature.
 
 `inspect-source` writes a **manifest to S3** and probes every file's header and schema; it reads
 Parquet footers with polars, because Athena needs an explicit column list for Parquet and JSON.
+
+**One execution holds each request id.** Every per-run name — the temp tables, the report folder,
+the Athena tokens — is derived from the caller's `requestId`, so `inspect-source` first claims it
+(`dqcommon.run_claim`): a conditional create of `data-quality/claims/{requestId}.json` in the admin
+bucket naming the execution ARN that `StampExecution` stamps. Its own Task retry finds its own ARN;
+any other execution is refused `request_id_reused`, silently, before it lists a file. Claims never
+expire. Only a lower-case UUID is accepted as a request id, because a table's name is the id without
+its hyphens and Glue folds case, so two spellings of one id would share a table.
+[The decision](../../../docs/decisions/control-planes.md#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality).
 
 **A check cannot target the space root** (`location_is_space_root`, in `validate-authorize`). The
 temp table's `LOCATION` is the target folder and Athena reads one recursively, so a check at the top
@@ -73,7 +82,7 @@ so a large `.gz` is rejected with guidance.
 ## The report, and how it is found
 
 `{space}/_data-quality-reports/{requestId}/report.json`. The key is a pure function of `requestId`,
-so a replay overwrites byte-identically. The folder is hidden in the browser, and the notification
+so a replay overwrites byte-identically, and the claim keeps every other execution from writing it. The folder is hidden in the browser, and the notification
 deep-links to `/data-quality/:space/:requestId`.
 
 The `/data-quality` dashboard reads a per-space `index.json` appended under ETag CAS, capped at 200
@@ -128,6 +137,7 @@ Revisit before real users arrive.
 | `messages` | user-facing wording and reason codes |
 | `notify` | best-effort outcome notifications |
 | `report` | the report shape, its exact-versus-approximate tagging, and the top-issues wording |
+| `run_claim` | claiming a request id for one execution, and the canonical request-id shape |
 | `results` | where the temp-table verbs' DDL writes, beside the request's report |
 | `sql` | Athena SQL generation for the checks |
 

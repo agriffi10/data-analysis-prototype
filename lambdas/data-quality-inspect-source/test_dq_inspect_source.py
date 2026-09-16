@@ -4,6 +4,7 @@ Pure logic, AWS stubbed: s3_listing.list_data_objects and the S3 client are repl
 the verb module, so no bucket is touched.
 """
 
+import io
 import json
 import os
 import sys
@@ -13,11 +14,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import dq_inspect_source as v
 import pytest
+from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError, TransientError
 from dqcommon import messages
 
 BUCKET = "dq-user-bkt"
 LOCATION = "alice/sales"
+REQUEST_ID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+EXECUTION_ARN = "arn:aws:states:eu-west-2:111122223333:execution:dq:run-1"
 
 
 class _FakeClientError(Exception):
@@ -35,16 +39,19 @@ class _FakeClientError(Exception):
 
 
 class _FakeS3:
-    """Stands in for the S3 client's head_object (the folder-vs-file probe).
+    """Stands in for the S3 client's head_object (the folder-vs-file probe) and its writes.
 
     ``keys`` are the object keys that EXIST as exact objects; anything else raises the
-    404 that means "not an object, so treat it as a folder".
+    404 that means "not an object, so treat it as a folder". Writes are kept, and a
+    conditional create over a key already written fails 412, because the request-id claim
+    is exactly that write.
     """
 
     def __init__(self, keys=()):
         self.keys = set(keys)
         self.head_calls = []
         self.puts = []
+        self.written = {}
 
     def head_object(self, Bucket, Key):  # boto3's kwarg casing
         self.head_calls.append(Key)
@@ -54,7 +61,14 @@ class _FakeS3:
 
     def put_object(self, Bucket, Key, Body, **kw):
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, **kw})
+        if kw.get("IfNoneMatch") == "*" and (Bucket, Key) in self.written:
+            raise _FakeClientError("PreconditionFailed")
+        self.written[(Bucket, Key)] = Body
         return {}
+
+    def get_object(self, Bucket, Key):
+        body = self.written[(Bucket, Key)]
+        return {"Body": io.BytesIO(body)}
 
 
 @pytest.fixture(autouse=True)
@@ -102,14 +116,58 @@ def _setup(objects, exact_keys=(), columns=None):
 
 def _event(**over):
     event = {
-        "requestId": "req-1",
+        "requestId": REQUEST_ID,
+        "execution": {"arn": EXECUTION_ARN},
         "actor": "alice",
         "space": {"kind": "personal", "bucket": BUCKET, "prefix": "alice/"},
         "location": LOCATION,
-        "reportPrefix": "alice/_data-quality-reports/req-1/",
+        "reportPrefix": f"alice/_data-quality-reports/{REQUEST_ID}/",
     }
     event.update(over)
     return event
+
+
+class _FakeSqs:
+    def __init__(self):
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+# ── the request id is claimed before anything is named from it ───────────────
+
+
+def test_a_request_id_another_execution_holds_is_refused_before_listing_and_tells_nobody():
+    """The holder's retry carries on; a second execution with its id reads nothing and writes nothing.
+
+    Every later verb names its tables, output and Athena tokens from the request id, so the only
+    safe place to stop a second execution is before the manifest exists. It is silent: the holder
+    is the run that reports, and a reuse is a hand-built request with nothing it should be told.
+    The empty folder at the end is the positive control — the same harness does notify a refusal
+    that is not silent, so the silence above is not a notifier nobody wired up.
+    """
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
+    sqs = _FakeSqs()
+    v.clients._sqs = sqs
+    listed, fake = _setup([("alice/sales/a.csv", 10)])
+    v.handler(_event(), None)
+    v.handler(_event(), None)
+    writes_before, listings_before, probes_before = len(fake.puts), len(listed), len(fake.head_calls)
+
+    with pytest.raises(TerminalError) as err:
+        v.handler(_event(execution={"arn": f"{EXECUTION_ARN}-second"}), None)
+
+    assert err.value.reason == messages.REQUEST_ID_REUSED
+    assert (len(listed), len(fake.head_calls)) == (listings_before, probes_before)
+    assert [put["Bucket"] for put in fake.puts[writes_before:]] == [cpconfig.ADMIN_BUCKET]
+    assert sqs.calls == []
+
+    _setup([])
+    with pytest.raises(TerminalError):
+        v.handler(_event(requestId="6ba7b810-9dad-41d1-80b4-00c04fd430c8"), None)
+    assert len(sqs.calls) == 1
 
 
 # ── FR-001: listing ──────────────────────────────────────────────────────────
@@ -244,8 +302,9 @@ _CHUNK_SLACK = 256 * 1024
 
 
 def _manifest_of(fake):
-    assert len(fake.puts) == 1, f"expected exactly one manifest write, got {len(fake.puts)}"
-    return json.loads(fake.puts[0]["Body"])
+    manifests = [put for put in fake.puts if put["Bucket"] == BUCKET]
+    assert len(manifests) == 1, f"expected exactly one manifest write, got {len(manifests)}"
+    return json.loads(manifests[0]["Body"])
 
 
 # ── FR-006: the state payload bound ──────────────────────────────────────────

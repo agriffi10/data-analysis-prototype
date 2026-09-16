@@ -32,7 +32,7 @@ from cpcommon import actor as cpactor
 from cpcommon import config, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
-from dqcommon import messages, notify
+from dqcommon import messages, notify, run_claim
 from dqcommon.config import MARKER_BASENAME, RESERVED_PREFIXES
 
 logger = logging.getLogger()
@@ -218,6 +218,11 @@ def _validate_and_authorize(event) -> dict:
     Shape checks come before authorization so a malformed envelope is a typed terminal rather than
     a bare error the state machine records as opaque.
 
+    The request id must be a lower-case UUID. Every per-run name is derived from it, and a table's
+    name is the id with its hyphens stripped, which Glue then folds to lower case — so a looser id
+    lets two requests with different ids, and so different claims, share one temp table. The
+    browser mints exactly this form, so nothing it sends is refused.
+
     The terminal is recorded and notified in one place rather than at each of the raise sites: a
     narrative line added by hand next to a raise is one the next raise will be added without. The
     reason is the constant's own value, never scraped out of the rendered prose, and the detail is
@@ -254,6 +259,8 @@ def _validate_and_authorize(event) -> dict:
 
     try:
         request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)
+        if not run_claim.is_canonical_request_id(request_id):
+            raise TerminalError(messages.INVALID_REQUEST, "requestId is not a lower-case UUID")
         space = req.get("space")
         if not isinstance(space, dict):
             raise TerminalError(messages.INVALID_REQUEST, "missing space")

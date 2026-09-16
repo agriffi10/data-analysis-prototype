@@ -53,6 +53,12 @@ defence in depth.
 **reads back** the intermediate results it wrote, so a write-only grant would fail at the very last
 verb, after all the work was done.
 
+**`ClaimRequestIds` grants `PutObject` and `GetObject` on the admin bucket's claim prefix and
+nothing else.** `inspect-source` claims each request id for one execution with a conditional create,
+and reads the claim back only when the create is refused, to tell its own retry from another
+execution. It needs no `ListBucket`: the object a refused create names is there to read, since
+claims are never deleted and the bucket keeps no versions. No lifecycle rule may reach the prefix.
+
 The notification grant is one action on one queue ARN — scoped to the **notifications** queue and
 nothing else: **not** the data-quality request queue (a verb that could re-enqueue its own work is a
 loop), and not the DLQ.

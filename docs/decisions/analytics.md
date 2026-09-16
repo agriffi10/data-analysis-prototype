@@ -1036,9 +1036,10 @@ catalog with no way to repair it.
 > `_data-quality-reports/` folder to the root wrote there and deleting a report was accepted. It now
 > refuses each item's derived key and the folder as a delete or move source, with no role Deny
 > behind it by choice — [where each item lands](storage.md#an-item-copied-into-itself-is-refused-per-item-where-a-containment-breach-fails-the-request-spec-187).
-> **Still open:** a request id reused past the dedup window shares the temp table,
-> whose create is `IF NOT EXISTS`, so a folder check can inherit a running root-file check's table
-> and query it unnarrowed, held off only by the shared Athena tokens — [what overlap costs on this plane](control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).
+> **Closed 2026-09-16:** a request id reused past the dedup window shared the temp table, whose
+> create is `IF NOT EXISTS`, so a folder check could inherit a running root-file check's table and
+> query it unnarrowed, held off only by the shared Athena tokens. One execution now claims the id
+> before anything is named from it — [the claim](control-planes.md#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality).
 
 ## A result's total is Athena's own count, and only a SELECT's count is the grid's (SPEC-231)
 

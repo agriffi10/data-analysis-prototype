@@ -36,6 +36,7 @@ resource "aws_iam_role_policy" "execution" {
     user_space_bucket_arn   = local.user_space_bucket_arn
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
+    claim_prefix            = local.claim_prefix
     glue_catalog_arn        = local.glue_catalog_arn
     glue_database_any       = local.glue_database_any
     glue_table_any          = local.glue_table_any
