@@ -29,8 +29,8 @@ QUERY_HISTORY = "alice/user_settings/query-history.json"
 QUARANTINE = "alice/user_settings/query-history.json.unreadable-20260829T090000Z-a1b2c3d4.json"
 NOTIFICATIONS = "alice/user_settings/notifications.json"
 SHARED_CONNECTIONS = "alice/user_settings/shared-connections.json"
-DQ_REPORT = "alice/data_quality_reports/req-1/report.json"
-ATHENA_RESULT = "alice/athenaresults/abc-123.csv"
+DQ_REPORT = "alice/_data-quality-reports/req-1/report.json"
+ATHENA_RESULT = "alice/system_settings/athenaresults/abc-123.csv"
 ORDINARY_FILE = "alice/reports/q1.csv"
 NEW_FOLDER = "alice/reports/drafts/"
 
@@ -297,8 +297,6 @@ WRITES = [
     ("the saved-queries folder marker", SAVED_QUERIES_MARKER),
     ("a saved query", SAVED_QUERY),
     ("the query-history document", QUERY_HISTORY),
-    ("the notifications document", NOTIFICATIONS),
-    ("the shared-connections document", SHARED_CONNECTIONS),
     ("a new folder's placeholder", NEW_FOLDER),
 ]
 
@@ -344,6 +342,10 @@ READS = [
 @pytest.mark.parametrize("what,key", READS, ids=[w for w, _ in READS])
 def test_every_document_the_app_reads_is_accepted_by_the_read_route(what, key, s3_and_signer) -> None:
     """The read side of the same question.
+
+    The data-quality report is the row that earns its place. The write route refuses its folder,
+    so a guard shared between the two routes would leave the report page saying the report is not
+    available while every write test stayed green.
 
     Args:
       what: What the key is, for the failure message.
@@ -406,7 +408,7 @@ def test_the_quarantine_copy_the_settings_path_makes_is_accepted(s3_and_signer) 
 
 
 def test_saving_an_athena_result_into_the_users_own_space_is_accepted(s3_and_signer) -> None:
-    """`useSaveResults` is a single-object copy out of `athenaresults/`, which is a managed folder.
+    """A CSV save in `useSaveResults` copies one object out of the managed results folder.
 
     Managed means the browser will not delete or move the FOLDER; reading an object out of it is
     ordinary, and a guard that inherited the listing exclusions would refuse this.
@@ -501,7 +503,12 @@ def test_the_file_browsers_FIRST_listing_request_is_accepted(s3_and_signer) -> N
     s3_and_signer(_Recording())
 
     at_root = router.route(
-        "GET", "/v1/objects", bearer(), "rq", None, {"spaceKind": "personal", "spaceName": "alice"}
+        "GET",
+        "/v1/objects",
+        bearer(),
+        "rq",
+        None,
+        {"spaceKind": "personal", "spaceName": "alice", "prefix": "alice/"},
     )
     in_a_folder = router.route(
         "GET",

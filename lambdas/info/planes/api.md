@@ -137,9 +137,9 @@ between the browser and S3.
   rather than calling it bare: that raises `TerminalError`, which the classifier does not recognise,
   so an unwrapped call answers 500 where the requirement is 403. It fails *safely*, so a test
   asserting "no AWS call happened" passes over it — **assert the reason code**.
-- **A prefix is not a key.** `assert_inside_root(root, "")` raises, and an empty prefix is the file
-  browser's very first listing request — so a listing prefix and an object key have different
-  containment rules.
+- **A prefix is not a key.** `assert_inside_root(root, "")` raises, and the file browser's very
+  first listing prefix is the space root, which is that empty string relative to the root — so a
+  listing prefix and an object key have different containment rules.
 - **No route waits, sleeps or polls.** A five-minute query against a 30-second gateway ceiling does
   not fail at the margin, it fails always — so the four loops that poll an execution and page its
   results stay in the browser. What is enforced is the SHAPE, not a count of one: no route sleeps,

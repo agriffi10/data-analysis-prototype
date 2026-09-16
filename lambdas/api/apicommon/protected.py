@@ -76,9 +76,10 @@ def contained_prefix(space: ResolvedSpace, prefix: str) -> str:
     """Returns a listing prefix, having refused one that is not inside the space root.
 
     **A prefix is not a key, and the difference is load-bearing.**
-    ``assert_inside_root(root, "")`` raises — an empty key is meaningless — but an empty prefix is
-    the file browser's very first listing request. So the empty case is admitted here and the
-    containment rule is otherwise identical.
+    ``assert_inside_root(root, "")`` raises — an empty key is meaningless — but the file browser's
+    very first listing prefix is the root itself, which is that empty string relative to the root,
+    and an omitted prefix means the root too. So both are admitted here and the containment rule is
+    otherwise identical.
 
     **A prefix is absolute, like every key the API takes, and it has no second reading.** Accepting
     a prefix relative to the root as well means guessing the form from the value, and the guess is
