@@ -95,9 +95,16 @@ _BODIES = {
     "destination_archive_read_only": (
         "the archive folder is read-only - it holds your archive receipts."
     ),
+    "destination_name_reserved": (
+        "that name belongs to a folder the app manages there. Please choose a different "
+        "destination, or give it a different name first."
+    ),
     "source_folder_undeletable": "that folder is managed for you and cannot be moved or deleted.",
     "results_folder_not_deletable": (
         "query results are managed for you and cannot be moved or deleted."
+    ),
+    "reports_folder_not_deletable": (
+        "data-quality reports are managed for you and cannot be moved or deleted."
     ),
     "archive_read_only": (
         "the archive folder is read-only, so what is inside it cannot be moved or deleted."

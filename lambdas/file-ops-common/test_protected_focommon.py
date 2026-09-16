@@ -11,7 +11,9 @@ to be a test rather than a lint.
 """
 
 import pytest
+from focommon import messages
 from focommon.protected import (
+    derived_destination_refusal,
     destination_refusal,
     settings_source_refusal,
     source_refusal,
@@ -189,3 +191,70 @@ def test_which_rule_answers_first_in_a_SHARED_space_changed_and_is_pinned_here()
 
     # The DEPTH-ONE home is ordinary now — the narrowing removed the last rule that named it.
     assert source_refusal("finance/", "finance/archive/", "delete", "shared") is None
+
+
+@pytest.mark.parametrize(
+    ("root", "key", "kind", "folder"),
+    [
+        ("sales/", "sales/_data-quality-reports/", "shared", "_data-quality-reports/"),
+        ("alice/", "alice/shared_tables/", "personal", "shared_tables/"),
+        ("finance/", "finance/projects/system_settings/archive/", "shared", "archive/"),
+        ("alice/", "alice/_data-quality-reports", "personal", None),
+        ("sales/", "sales/stage/_data-quality-reports/", "shared", None),
+    ],
+    ids=["reports-folder", "shared-tables", "shared-any-depth-archive", "a-file-so-named", "nested-folder"],
+)
+def test_a_derived_key_is_refused_where_the_prefix_rule_refuses_and_names_the_folder(
+    root, key, kind, folder
+):
+    """The item's own landing key, judged by the prefix's two rules under its own reason code.
+
+    The archive row is the one the prefix rule alone cannot reach even in principle: its parent
+    ``finance/projects/system_settings/`` holds no ``system_settings/archive`` pair, so only the
+    derived key does. The two ``None`` rows are what keeps it from refusing a user's own folder.
+    """
+    refusal = derived_destination_refusal(root, key, kind)
+
+    if folder is None:
+        assert refusal is None
+        return
+    assert refusal is not None
+    assert refusal.reason == "destination_name_reserved"
+    assert refusal.detail.startswith(folder)
+
+
+@pytest.mark.parametrize(
+    ("key", "operation", "refused"),
+    [
+        ("sales/_data-quality-reports/req-1/report.json", "delete", True),
+        ("sales/_data-quality-reports/", "move", True),
+        ("sales/_data-quality-reports/req-1/report.json", "copy", False),
+        ("sales/stage/_data-quality-reports/req-1/report.json", "delete", False),
+        ("sales/_data-quality-reports", "delete", False),
+    ],
+    ids=["delete-a-report", "move-the-folder", "copy-out", "nested-folder", "a-file-so-named"],
+)
+def test_the_reports_folder_is_neither_deleted_nor_moved_and_copying_out_stays_free(
+    key, operation, refused
+):
+    """Root-anchored in a SHARED space too, where one folder holds every member's reports."""
+    refusal = source_refusal("sales/", key, operation, "shared")
+
+    if not refused:
+        assert refusal is None
+        return
+    assert refusal is not None
+    assert refusal.reason == "reports_folder_not_deletable"
+
+
+def test_both_new_refusals_reach_the_user_as_their_own_sentence_rather_than_the_fallback():
+    """A reason with no body renders "something went wrong." — the code alone cannot show that."""
+    reserved = messages.item_clause(
+        "move", {"outcome": "protected", "reason": "destination_name_reserved"}
+    )
+    reports = messages.item_clause(
+        "delete", {"outcome": "protected", "reason": "reports_folder_not_deletable"}
+    )
+
+    assert reserved.startswith("that name belongs to a folder the app manages there. Please choose")
+    assert reports == "data-quality reports are managed for you and cannot be moved or deleted."

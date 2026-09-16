@@ -811,11 +811,26 @@ idempotent, while two different items landing on one key lose a file. Collapsing
 alone refuses a request that does exactly what it says — and it is the same rule SPEC-165 recorded
 for file-send, arrived at from the other direction.
 
-**The protected-location rules run FIRST, before either pairing rule.** An item the user may not
-touch should be told so rather than told that nothing happened: `move alice/archive/ → alice/`
-derives its own key, so a pairing-first order answers "no-op" to a request the plane actually
-refuses, and two protected folders answer the same request differently depending on which list they
-are on.
+**The source's protected-location rules run FIRST, before either pairing rule.** An item the user
+may not touch should be told so rather than told that nothing happened: `move alice/archive/ →
+alice/` derives its own key, so a pairing-first order answers "no-op" to a request the plane
+actually refuses, and two protected folders answer the same request differently depending on which
+list they are on.
+
+**Where each item LANDS is judged too, not only the prefix it is put into** (2026-09-16). The prefix
+is the folder a request names and every item lands one name below it, so a prefix-only rule accepted
+moving `sales/stage/_data-quality-reports/` into `sales/`, or renaming a folder `shared_tables` at
+the root — in a shared space, one member replacing another's data-quality reports, which that plane
+reads back between its verbs. validate-authorize runs the destination rules over each item's derived
+key, per item, as `destination_name_reserved`, labelled by the name the item would land under so a
+rename names what the user typed. It sits AFTER the same-key no-op, which writes
+nothing, and before into-itself, in every bucket pairing. `_data-quality-reports/` and everything in
+it is refused as a delete or move source, root-anchored like the plane's only write. **No
+execution-role Deny backs the reports folder on either side, by choice**: the role has no principal
+tag to anchor a Resource at a root, so `*/_data-quality-reports/*` reaches a user's own nested
+folder too, and every file-ops rule would have to refuse it at any depth or the Deny fails a run
+part way through. Results-conversion's role takes that trade for one save location; here it would
+refuse copying, moving and deleting a folder the browser shows as the user's own.
 
 **The space root is refused as an item, and it is the third way to select a protected folder.** Every
 protected rule matches the named folder or something below it; none looks UP. So one item of

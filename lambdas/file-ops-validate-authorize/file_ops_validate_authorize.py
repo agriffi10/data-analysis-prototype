@@ -321,24 +321,39 @@ def _assert_no_derived_collision(items: list, destination_prefix: str) -> None:
 
 
 def _per_item_outcomes(
-    items: list, operation: str, source: dict, destination: dict | None, space_kind: str
+    items: list,
+    operation: str,
+    source: dict,
+    destination: dict | None,
+    space_kind: str,
+    destination_kind: str,
 ) -> list:
     """Decides each item's own outcome, in the order the rules must run.
 
     **The ORDER is the rule, not an implementation detail.**
 
-    The protected-location rules run FIRST, all of them, because they are about the item itself
-    rather than about where it is going — and an item the user may not touch should be reported as
-    such rather than as a no-op. ``move alice/archive/ -> alice/`` derives its own key, so a
-    pairing-first order would answer "nothing happened" to a request the plane actually refuses,
-    and two protected folders would answer the same request differently depending on which list
-    they were on.
+    The source's protected-location rules run FIRST, all of them, because they are about the item
+    itself rather than about where it is going — and an item the user may not touch should be
+    reported as such rather than as a no-op. ``move alice/archive/ -> alice/`` derives its own key,
+    so a pairing-first order would answer "nothing happened" to a request the plane actually
+    refuses, and two protected folders would answer the same request differently depending on
+    which list they were on.
 
     Then same-key precedes into-itself, because the subtree comparison matches the equal case too
     and would turn a rename-to-the-same-name into an error. It precedes the conflict evaluation a
     later verb adds for a second reason: under an overwrite answer S3 rejects a copy whose source
     and destination are identical, so the no-op has to be recognised before anything asks about
     collisions.
+
+    **The derived key's own protected rule sits between those two**, and in no other seat. It is
+    about where the item is going, and a same-key item goes nowhere: copying ``shared_tables/``
+    into its own parent writes nothing, and answering it "choose a different name" would be false.
+    After the no-op it runs in EVERY bucket pairing, since a cross-space copy lands in a locked
+    folder as surely as a same-space one, and before into-itself so an item the plane may not put
+    there is reported as that. The destination prefix was already judged, as a whole-request
+    refusal; this judges each item, because only the item names where it lands. **It is the one
+    outcome labelled by the name the item would land under** — a rename's ``targetName`` — since
+    that name is what the refusal is about, and the browser labels a renamed conflict the same way.
 
     Both pairing rules are confined to ONE bucket. Across buckets the same key string names a
     different object, so a personal space and a shared space that happen to share a name would
@@ -350,6 +365,7 @@ def _per_item_outcomes(
       source: The resolved source location.
       destination: The resolved destination, or None for a delete.
       space_kind: The source space's kind, which selects the bucket-asymmetric rules.
+      destination_kind: The destination space's kind, which selects them for the derived key.
 
     Returns:
       One outcome record per item that has already been decided. An item with no entry is
@@ -370,13 +386,29 @@ def _per_item_outcomes(
             decided.append(outcomes.outcome(item["key"], label, outcomes.PROTECTED, refusal.reason))
             continue
 
-        if destination is None or source["bucket"] != destination["bucket"]:
+        if destination is None:
             continue
 
+        same_bucket = source["bucket"] == destination["bucket"]
         derived = paths.derived_destination_key(destination["prefix"], item)
-        if derived == item["key"]:
+        if same_bucket and derived == item["key"]:
             decided.append(outcomes.outcome(item["key"], label, outcomes.NOOP))
-        elif item["kind"] == "folder" and derived.startswith(normalize_root(item["key"])):
+            continue
+
+        refusal = protected.derived_destination_refusal(
+            destination["root"], derived, destination_kind
+        )
+        if refusal is not None:
+            decided.append(
+                outcomes.outcome(
+                    item["key"], paths.item_name(derived), outcomes.PROTECTED, refusal.reason
+                )
+            )
+        elif (
+            same_bucket
+            and item["kind"] == "folder"
+            and derived.startswith(normalize_root(item["key"]))
+        ):
             decided.append(
                 outcomes.outcome(item["key"], label, outcomes.REFUSED, "destination_inside_source")
             )
@@ -450,6 +482,7 @@ def _validate_and_authorize(event) -> dict:
         source["items"] = _normalize_items(declared.get("items"), source["root"])
 
         destination = None
+        destination_kind = "personal"
         if operation != "delete":
             declared_destination = req["destination"]
             destination = authz.authorize_destination(actor, declared_destination.get("space"))
@@ -460,16 +493,21 @@ def _validate_and_authorize(event) -> dict:
                 declared_destination.get("space", {}).get("kind")
                 if isinstance(declared_destination.get("space"), dict)
                 else None
-            )
+            ) or "personal"
             refusal = protected.destination_refusal(
-                destination["root"], destination["prefix"], destination_kind or "personal"
+                destination["root"], destination["prefix"], destination_kind
             )
             if refusal is not None:
                 raise TerminalError(refusal.reason, refusal.detail)
             _assert_no_derived_collision(source["items"], destination["prefix"])
 
         decided = _per_item_outcomes(
-            source["items"], operation, source, destination, source_space.get("kind") or "personal"
+            source["items"],
+            operation,
+            source,
+            destination,
+            source_space.get("kind") or "personal",
+            destination_kind,
         )
     except TerminalError as err:
         notified = {

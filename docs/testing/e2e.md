@@ -337,6 +337,7 @@ upload or a download.
 | Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
 | Dismiss a card by hand | It goes, and the space is free again immediately. |
 | Copy a FOLDER into the folder it is already in | The auto-number prompt appears **once** (one `POST /v1/objects/free-name`), and confirming enqueues with that name — it is not copied in the browser. |
+| **Rename** a folder at a space root to `_data-quality-reports`; then make `x/_data-quality-reports/` and **Move** it to the space root | Both are accepted and then refused per item: each notification reads *"1 item needs your attention"* and labels the item `_data-quality-reports` — the name it would land under, not the renamed folder's old name — with *"that name belongs to a folder the app manages there. Please choose a different destination, or give it a different name first."* After **Refresh this folder**, both folders are still where they were, and a report opened from an earlier data-quality notification still loads. Its **control** is the same rename to an ordinary name, which completes. |
 | Open **Details** on a folder the plane has just deleted | *This folder no longer exists*, and Rename/Archive are gone. Not merely an empty panel. |
 
 **The conflict round trip.** Move something onto a name that already exists, then open the

@@ -127,7 +127,9 @@ admin bucket are the only places it may write, and it is on the user-space bucke
   uncopied object.
 - **A duplicate is `(kind, key)`, never the key alone.** One key can arrive as both a file and a
   folder; collapsing on the key ships a zero-byte placeholder and reports success.
-- `focommon.protected` refuses the portal's own folders server-side — the first plane to do so.
+- `focommon.protected` refuses the portal's own folders server-side — the first plane to do so —
+  over each item's **derived key** as well as the destination prefix, since an item's own name can
+  land in a locked folder the prefix never names.
 - The browser's async switchover **consults the routing predicate once**, above every submission
   point, in one dispatcher; the in-flight record is session-scoped and settles on a notification
   carrying its request id.

@@ -20,9 +20,10 @@ case — visible, never a paste target, never deletable, and copying *out* of it
 
 So the rule is stated per (side x operation), enumerated against the real constants:
 
-  - as a DESTINATION, the picker-locked folders, plus ``archive/`` under its own depth rule;
+  - as a DESTINATION, the picker-locked folders, plus ``archive/`` under its own depth rule —
+    judged on the destination prefix AND on every item's derived key;
   - as a DELETE or MOVE SOURCE, the undeletable root folders, plus anything beneath
-    ``athenaresults/`` or ``archive/``;
+    ``athenaresults/`` or ``archive/``, plus ``_data-quality-reports/`` and anything in it;
   - for EVERY operation, ``user_settings/`` as a source, by this plane's own rule;
   - for EVERY operation INCLUDING COPY, the marker file by basename — see below;
   - as a COPY SOURCE, no FOLDER rule at all. There is deliberately none, and a test says so.
@@ -47,6 +48,7 @@ from .config import (
     ATHENA_RESULTS_FOLDER,
     MARKER_BASENAME,
     PICKER_LOCKED_FOLDERS,
+    REPORTS_FOLDER,
     UNDELETABLE_ROOT_FOLDERS,
     USER_SETTINGS_FOLDER,
 )
@@ -54,6 +56,7 @@ from .outcomes import Refusal
 from .paths import normalize_root
 
 __all__ = [
+    "derived_destination_refusal",
     "destination_refusal",
     "marker_refusal",
     "settings_source_refusal",
@@ -186,6 +189,45 @@ def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | No
     return None
 
 
+def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal | None:
+    """Refuses an item whose own derived key lands where ``destination_refusal`` refuses a prefix.
+
+    **The prefix is where items are put, not where any of them lands**, so judging it alone let a
+    request name an ordinary folder and still write into a locked one: moving
+    ``sales/stage/_data-quality-reports/`` into ``sales/`` derives ``sales/_data-quality-reports/``,
+    and so does renaming a folder to that name at the root. In a shared space that is one member
+    replacing or adding to another member's reports, which the data-quality plane reads back
+    between its verbs.
+
+    The same two rules run, over the key ``paths.derived_destination_key`` builds, so the answer
+    cannot drift from the prefix's. Once the prefix has passed, a refused derived key is always the
+    item's NAME landing on the locked folder itself, which is what the reason code says. Nothing
+    beneath a folder item reaches a root-anchored folder its own key does not, and only because
+    the two-segment homes share a first segment, ``system_settings/``, that is locked in its own
+    right — a folder called that, holding ``athenaresults/``, is refused by its own key. A FILE item
+    named like a locked folder is not that folder, since both rules compare the raw key. What
+    neither rule mirrors is most of the execution role's any-depth Denies — ``*/user_settings/*``
+    and the ``athenaresults`` pair in both buckets, the ``archive`` pair in a personal space — so an
+    item, or an object beneath one, can still land under one of those deeper down, and that fails at
+    the write with the source untouched.
+
+    Args:
+      root: The authorized destination space root.
+      key: The item's derived destination key, absolute.
+      space_kind: ``personal`` or ``shared``, the destination's.
+
+    Returns:
+      The refusal, naming the folder, or None when the item may land there.
+
+    Raises:
+      None.
+    """
+    refusal = destination_refusal(root, key, space_kind)
+    if refusal is None:
+        return None
+    return Refusal("destination_name_reserved", refusal.detail)
+
+
 def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refusal | None:
     """Refuses a source a delete or a move would destroy, and refuses nothing for a copy.
 
@@ -200,6 +242,20 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
     deletes beneath ``archive/``. Without those two depth rules this plane would accept requests its
     own IAM refuses mid-operation, which is the mismatch the deletability assertion exists to
     prevent.
+
+    ``_data-quality-reports/`` is refused with everything in it for a different reason: no Deny
+    covers it, and what goes wrong is data rather than a denied call. The data-quality plane writes
+    its manifest, report and runs index there under its own role, and in a shared space every
+    member's reports share the one folder, so a delete or move here removes someone else's reports.
+    Root-anchored in both buckets, because that is the only place the plane writes; a folder a user
+    made with that name deeper down is theirs. Copying out stays free, like everywhere else.
+
+    **No execution-role Deny backs it, and that is a choice, not a constraint.** The role carries
+    no principal tag, so a Resource cannot anchor at a space root: ``*/_data-quality-reports/*``
+    reaches a user's own nested folder of that name too, and this rule, ``focommon.delete`` and the
+    destination rules would all have to refuse it at any depth, or the Deny fails a run part way
+    through. The results-conversion role takes that trade, where it costs one save location; here
+    it would refuse copying, moving and deleting a folder the browser shows as the user's own.
 
     Args:
       root: The authorized source space root.
@@ -219,6 +275,9 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
     for name in UNDELETABLE_ROOT_FOLDERS:
         if _is_root_folder(key, root, name):
             return Refusal("source_folder_undeletable", f"{name}/ cannot be moved or deleted")
+
+    if _is_under_root_folder(key, root, REPORTS_FOLDER):
+        return Refusal("reports_folder_not_deletable", f"{REPORTS_FOLDER}/ is managed for you")
 
     if _is_at_or_below(key, root, ATHENA_RESULTS_FOLDER, space_kind=space_kind):
         return Refusal("results_folder_not_deletable", f"{ATHENA_RESULTS_FOLDER}/ is managed for you")
