@@ -628,7 +628,7 @@ def build_profile_query(
     Args:
       database: The target database.
       table_name: The typed temp table.
-      columns: The unioned columns, before a column naming a partition key is left out.
+      columns: The unioned columns, before ``profiled_columns`` maps them.
       partition_keys: The detected partition keys.
       fmt: The source format, which decides whether type consistency is checked.
       path_filter: Restricts the scan to one file. It is what makes a single-file check describe

@@ -98,7 +98,18 @@ def test_a_csv_column_naming_a_partition_is_created_in_its_place_under_a_new_nam
 ):
     """A CSV is read by position, so leaving `Year` out of the typed table would profile `id` and
     `month` against their neighbours' values. The check goes ahead instead, with the file's
-    columns kept where the file put them, under names the partitions do not already hold."""
+    columns kept where the file put them, under names the partitions do not already hold.
+
+    Args:
+      monkeypatch: Used to install the manifest.
+      ran: The DDL statements the fake Athena ran.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     _install_manifest(monkeypatch, _manifest(
         files=[{"key": "alice/sales/year=2025/Month=01/jan.csv", "size": 1, "columns": [
             {"name": "Year", "type": "string"},

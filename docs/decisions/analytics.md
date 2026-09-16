@@ -929,6 +929,13 @@ of a create; a refresh skips that rule, and results-conversion never applies it 
 column names. The evidence that Athena keeps `ß` is the documentation and the Hive source, not a
 live Athena run.
 
+> **Superseded in part (2026-09-16): a CSV no longer drops the column, anywhere.** A CSV column
+> naming a partition key is kept in its place under a new name, in every position, by a create, a
+> refresh and a data-quality check; Parquet and JSON still drop it. The fold match and the
+> measurements below still stand and are why; the drop-from-the-END rule and the
+> `partition_column_not_last` refusal are gone. Full entry: *A CSV column named after a partition
+> keeps its values under a new name, instead of being refused (2026-09-16)*, below.
+
 **A column naming a partition key is dropped on the fold, and in a CSV only from the END — the
 drop that reads correctly is a narrower thing than the drop that builds.** `build_create_table_ddl`
 leaves such a column out of the body so the DDL stays valid, and it matched by exact name. Both
@@ -949,12 +956,6 @@ table built from `year,id,region` over the row `2025,1,south` read `id` as `2025
 `1`, with `south` unreachable, while the rail looked right. Dropping is safe only when nothing the
 table keeps follows — `id,region,year` built and read `1, south, 2025` — and Athena matches Parquet
 and JSON by name, so there the drop is always safe.
-
-> **Superseded in part (2026-09-16): nothing below is refused any more.** A CSV column naming a
-> partition key is kept in its place under a new name, in every position, by a create, a refresh
-> and a data-quality check; Parquet and JSON still drop it. The measurements above still stand and
-> are why. Full entry: *A CSV column named after a partition keeps its values under a new name,
-> instead of being refused (2026-09-16)*, below.
 
 So a CSV column naming a partition key anywhere but at the end is **refused**, by table-builder as
 `partition_column_not_last` and by data-quality under its own reason of the same name, each naming
@@ -1208,9 +1209,8 @@ two types already did; it used to be refused by name first.
 
 ## A CSV column named after a partition keeps its values under a new name, instead of being refused (2026-09-16)
 
-**The ruling (Andrew's).** The refusal above stopped the commonest export shape there is: a groupby
-written out with pandas, or an Excel export, puts the key first, so `sales/year=2025/` holds files
-headed `year,id,region`. Create table had no way through it — inspect-source refuses leaving the
+**The ruling (Andrew's).** The refusal above stopped a common export shape: a pandas groupby written
+out with its index puts the key first, so `sales/year=2025/` holds files headed `year,id,region`. Create table had no way through it — inspect-source refuses leaving the
 keys out when the files sit in `key=value` folders — so the only repairs were rewriting every file
 or renaming every folder. A reviewer driving the real code found it refusing, with the same
 message, a folder whose older files had `year` last and whose later export added a column after
@@ -1254,7 +1254,10 @@ carries `partitionNamedColumns`, one `{name, outcome: "renamed", as}` or `{name,
 the gap where a JSON or Parquet column simply vanished from Columns with nothing saying why. The
 field is optional in the portal type, so an older report renders as before. A refresh says nothing
 extra: a renamed column it adds belongs to a table built before this rule, or to the known limit
-below, and either way its count already says a column was added.
+below, and either way its count already says a column was added. The earlier objection to renaming
+— a new name no longer matches the file's own header — is met by naming both, in the ready
+notification and in the report. A single-file check detects no partitions, so there the column
+keeps its own name.
 
 **A known limit, not refused.** A header that later gains its OWN `year_in_file` column pushes the
 rename to `year_in_file_2` on refresh; the diff reports that name added, and the live

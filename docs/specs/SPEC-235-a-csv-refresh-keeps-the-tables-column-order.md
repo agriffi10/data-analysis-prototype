@@ -155,6 +155,8 @@ stays the first file's.
   holds for JSON. Both tests set `format` explicitly, because apply-refresh's test event factory
   defaults it to `csv`, so a test that leaves it unset exercises only the CSV branch.
 - [ ] An event with no `format` is refused as `malformed_event`, and `update_table` is not called.
+  Already on main: `test_an_event_without_a_format_is_malformed_and_writes_nothing` in
+  `test_apply_refresh.py` asserts it; keep it green rather than adding a second copy.
 
 ### FR-002: The removal refusal on a CSV table says what a removal does to older files
 
@@ -178,9 +180,10 @@ the dialog with the columns named.
 - [ ] On the CSV refusal the reason is `columns_removed` and the link is identical to the one
   today's code builds for the same columns.
 - [ ] A diff-schema event with no `format` and no removal is refused as `malformed_event`. The
-  format is read up front beside the other required fields, not only on the removal path.
+  format is read up front beside the other required fields, not only on the removal path. Already
+  on main: `test_an_event_without_a_format_is_malformed` in `test_diff_schema.py` asserts it.
 - [ ] diff-schema's test event factory carries a format parameter. It already does, defaulting to
-  `csv`, since the change that renamed a CSV partition namesake; the removal tests set it explicitly.
+  `csv`; the removal tests this spec adds set it explicitly.
 
 ### FR-003: The Refresh dialog and the Help guide describe the kept order and the removal's effect
 
@@ -248,7 +251,7 @@ lambdas/table-builder-apply-refresh/test_apply_refresh.py   (FR-001)
 lambdas/table-builder-common/tbcommon/messages.py           (FR-002)
 lambdas/table-builder-diff-schema/diff_schema.py            (FR-002)
 lambdas/table-builder-diff-schema/test_diff_schema.py       (FR-002)
-lambdas/test_child_spans_per_plane.py                       (FR-002: its table-builder event gains a format)
+lambdas/test_child_spans_per_plane.py                       (already carries a format; no change)
 apps/portal/src/features/table-builder/RefreshTableDialog.tsx       (FR-003)
 apps/portal/src/features/table-builder/tableBuilderUi.test.tsx      (FR-003)
 apps/portal/src/features/help/helpContent.ts                        (FR-003)

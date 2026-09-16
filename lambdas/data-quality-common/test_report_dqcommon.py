@@ -253,7 +253,20 @@ def test_a_csv_is_checked_against_the_columns_its_table_declares(fmt, headers, p
     is declared in a CSV too, under a new name, so a file carrying it where the table declares it
     is compared by the files' name and read correctly, and one carrying it elsewhere is misread
     wherever it sits. Names are compared on Athena's fold. The files named are the ones this
-    report misreads, which is not the minority when the minority is listed first."""
+    report misreads, which is not the minority when the minority is listed first.
+
+    Args:
+      fmt: The source format.
+      headers: Each file's header, in listing order.
+      partition_keys: The detected partition keys.
+      expected: The names the body should declare.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     files = [_file(f"f{index}.csv", header) for index, header in enumerate(headers)]
 
     result = report.cross_file(files, fmt, partition_keys)
@@ -466,6 +479,15 @@ def test_a_json_column_naming_a_partition_key_gets_no_figures_and_the_report_say
     JSON, so the dropped column can sit in the middle: a report and a query that number the
     aliases over different lists then disagree about `amount`, and a missing cell reads as zero,
     so the misread column would look clean rather than fail.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     files = [_file("alice/sales/year=2025/a.json", ["id", "Year", "amount"])]
     partition_keys = [{"name": "year", "values": ["2025"]}]
@@ -489,7 +511,17 @@ def test_a_json_column_naming_a_partition_key_gets_no_figures_and_the_report_say
 def test_a_csv_column_naming_a_partition_key_gets_its_own_figures_under_its_new_name():
     """A CSV is read by position, so the temp table keeps `Year` where the file put it, as
     `year_in_file`. The query projects that name and the report reads its figures back from the
-    same alias, rather than the folder's value or a neighbour's; the report says what it became."""
+    same alias, rather than the folder's value or a neighbour's; the report says what it became.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     files = [_file("alice/sales/year=2025/a.csv", ["id", "Year", "amount"])]
     partition_keys = [{"name": "year", "values": ["2025"]}]
     query = sql.build_profile_query("alice", "dq_tmp_x", sql.union_columns(files), partition_keys, "csv")

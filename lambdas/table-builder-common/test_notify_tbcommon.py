@@ -101,7 +101,17 @@ def _state(columns, keys):
 
 def test_more_renames_than_the_cap_are_counted_rather_than_spelled_out():
     """Twenty-five keys each with a column of their name: twenty pairs, then the other five as a
-    count, so a wide partition scheme cannot grow the notification without bound."""
+    count, so a wide partition scheme cannot grow the notification without bound.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     keys = [f"key{index:02d}" for index in range(25)]
 
     message = _sent_message(_state(keys, keys))
@@ -115,7 +125,17 @@ def test_more_renames_than_the_cap_are_counted_rather_than_spelled_out():
 
 def test_a_name_at_the_key_length_limit_is_shown_whole_with_its_new_name():
     """A partition key may be 63 characters, and clipping at 60 cut off exactly the suffix the
-    user needs to find the column."""
+    user needs to find the column.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     key = "k" * 63
 
     message = _sent_message(_state([key.upper()], [key]))
@@ -125,7 +145,17 @@ def test_a_name_at_the_key_length_limit_is_shown_whole_with_its_new_name():
 
 def test_a_name_that_cannot_be_encoded_costs_the_sentence_not_the_notification():
     """A lone surrogate fails the byte cut's UTF-8 encode. The table already exists by the time
-    this is sent, so the user is still told it is ready."""
+    this is sent, so the user is still told it is ready.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     message = _sent_message(_state(["\ud800"], ["\ud800"]))
 
     assert message == 'Table "sales" is ready to query in "alice".'

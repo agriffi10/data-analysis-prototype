@@ -166,9 +166,7 @@ def _confirm_this_run_built_it(event: dict, database: str, table: str) -> None:
     them: they are INFERRED from the LOCATION, so two runs that agree on the location read the
     same folder seconds apart, and a difference between them is a file that changed in between or
     — for JSON — a different sample file, which is behaviour the plane already carries for a
-    single create. Deriving the columns a create renders would also mean a second copy of
-    ``build_create_table_ddl``'s partition-collision drop rule, in a verb that would then be
-    wrong the next time that rule moves.
+    single create.
 
     The LOCATION is compared through the parser the refresh path resolves one with, so "same
     folder" is decided in one place: two strings naming one folder differ by a trailing slash. A

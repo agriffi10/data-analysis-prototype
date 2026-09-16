@@ -116,6 +116,19 @@ def test_every_query_names_the_columns_the_temp_table_declares_for_a_partitions_
 
     `Year` is second, so an alias numbered before the mapping leaves a gap or a stale name that a
     trailing column could never show.
+
+    Args:
+      monkeypatch: Used to install the manifest.
+      started: The queries the fake Athena started.
+      fmt: The source format.
+      expected: The names the body should declare.
+      grouped: The duplicates grouping the statement should carry.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     manifest = {
         "partitionKeys": [{"name": "year", "values": ["2025"]}, {"name": "Month", "values": ["01"]}],

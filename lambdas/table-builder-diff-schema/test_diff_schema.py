@@ -140,7 +140,17 @@ def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
 def test_a_csv_table_built_with_a_renamed_column_refreshes_unchanged_from_the_same_header():
     """A create keeps a CSV's ``year`` beside the key ``year`` as ``year_in_file``. The refresh
     compares under the same rule, so the header that built the table matches it, rather than
-    reporting ``year_in_file`` removed and refusing every refresh without the opt-in."""
+    reporting ``year_in_file`` removed and refusing every refresh without the opt-in.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     event = _event(
         _cols(("year_in_file", "string"), ("id", "string")),
         _cols(("Year", "string"), ("id", "string")),
@@ -154,7 +164,17 @@ def test_a_csv_table_built_with_a_renamed_column_refreshes_unchanged_from_the_sa
 
 def test_two_spellings_of_a_partitions_name_are_refused_as_a_create_refuses_them():
     """Renamed, ``Year`` and ``year`` would be two distinct columns, so the collision check reads
-    the files' names. A create and a data-quality check refuse this header; a refresh agrees."""
+    the files' names. A create and a data-quality check refuse this header; a refresh agrees.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     event = _event(
         _cols(("year_in_file", "string"), ("id", "string")),
         _cols(("Year", "string"), ("year", "string"), ("id", "string")),
@@ -168,7 +188,17 @@ def test_two_spellings_of_a_partitions_name_are_refused_as_a_create_refuses_them
 
 def test_an_event_without_a_format_is_malformed():
     """The format decides what a partition's namesake becomes, so guessing it would compare one
-    list and write another."""
+    list and write another.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     event = _event(_cols(("a", "string")), _cols(("a", "string")))
     del event["format"]
 

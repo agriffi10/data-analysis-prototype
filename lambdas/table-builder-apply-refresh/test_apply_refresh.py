@@ -287,7 +287,17 @@ def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fol
 def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_creates_name():
     """A CSV is read by position, so the write keeps the file's ``Year`` where it sits, under the
     name the create gave it, and carries that column's comment; leaving it out would move every
-    later column onto its neighbour's field."""
+    later column onto its neighbour's field.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     storage = {
         **_live_table()["StorageDescriptor"],
         "Columns": [
@@ -314,7 +324,17 @@ def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_c
 
 def test_an_event_without_a_format_is_malformed_and_writes_nothing():
     """The format decides what a partition's namesake is written as, so guessing it could write
-    a list diff-schema never compared."""
+    a list diff-schema never compared.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     glue, _sqs = _install(table=_live_table())
     event = _event()
     del event["format"]

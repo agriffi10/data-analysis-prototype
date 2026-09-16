@@ -247,7 +247,17 @@ def test_a_csv_header_naming_a_partition_key_first_builds_with_that_column_renam
     """The export shape a groupby writes: the key first. OpenCSVSerde takes fields in order, so
     leaving `Year` out would read `id` from the file's year field, and there is no way through a
     refusal but rewriting every file. So the create builds, keeping the file's column where it is
-    under a name that cannot collide, and the columns carried on stay the file's own."""
+    under a name that cannot collide, and the columns carried on stay the file's own.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     _use_s3_fixture(b"Year,id,region\n2025,1,south\n")
     keys = [{"name": "year", "type": "string", "values": ["2025"]}]
 

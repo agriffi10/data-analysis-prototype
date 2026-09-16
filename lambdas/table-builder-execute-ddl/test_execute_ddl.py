@@ -685,7 +685,17 @@ def test_a_request_whose_own_location_does_not_resolve_is_malformed():
 
 def test_the_ready_notification_names_each_csv_column_kept_under_a_new_name():
     """The rail shows only `year_in_file`, so without this sentence the user meets an unfamiliar
-    column and a familiar one apparently gone. Derived from the state the DDL was built from."""
+    column and a familiar one apparently gone. Derived from the state the DDL was built from.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     _succeeding(partitioned=True)
     queue = _arm_notifications()
     event = dict(
@@ -713,7 +723,17 @@ def test_the_ready_notification_names_each_csv_column_kept_under_a_new_name():
 )
 def test_the_ready_notification_is_plain_when_nothing_was_renamed_or_it_cannot_tell(event_change):
     """The table exists by the time this is sent, so a state the derivation cannot read costs the
-    sentence, never the notification."""
+    sentence, never the notification.
+
+    Args:
+      event_change: The fields the state overrides.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     _succeeding(partitioned=True)
     queue = _arm_notifications()
 

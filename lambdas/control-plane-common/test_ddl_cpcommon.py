@@ -101,13 +101,6 @@ def test_an_apostrophe_in_an_enum_value_cannot_inject_a_property():
 
 
 # ── A column that names a partition key ──────────────────────────────────────
-#
-# Athena compares the two ignoring case and refuses the pair as "Column repeated in
-# partitioning columns", so the match is on the fold. What happens to the column depends on the
-# SerDe: Athena reads Parquet and JSON by name, so there it is left out, while OpenCSVSerde takes
-# fields in order and only skips the header — so a CSV drop moves every later column onto the
-# wrong field. Measured on a built table: a header of `year,id,region` over `2025,1,south` read
-# `id` as `2025`. A CSV keeps the column instead, under a new name, in its place.
 
 _YEAR_KEY = [{"name": "year", "type": "string", "values": ["2025"]}]
 
@@ -137,7 +130,17 @@ def _names(columns, keys, fmt="csv"):
 def test_a_csv_column_naming_a_partition_key_is_rendered_in_its_place_under_a_new_name():
     """The shape pandas and Excel exports produce: the key first, the rest after it. Every field
     stays where the file put it, and the partition keeps its own name. Folded on BOTH sides —
-    data-quality's keys come from folder names, so `Month=01/` is the user's capital letter."""
+    data-quality's keys come from folder names, so `Month=01/` is the user's capital letter.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "string"},
                {"name": "month", "type": "string"}]
     keys = [{"name": "year", "type": "string", "values": ["2025"]},
@@ -170,13 +173,35 @@ def test_a_csv_column_naming_a_partition_key_is_rendered_in_its_place_under_a_ne
 def test_a_new_name_never_folds_to_a_name_the_table_already_has(columns, keys, expected):
     """The candidates run `_in_file`, `_in_file_2`, … and the first whose fold is free wins —
     free of every kept column, every partition key and every name assigned earlier in the pass,
-    or Athena refuses the statement as a repeated column."""
+    or Athena refuses the statement as a repeated column.
+
+    Args:
+      columns: The data column names.
+      keys: The partition key names.
+      expected: The names the body should declare.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     assert _names(columns, keys) == expected
 
 
 def test_a_new_name_is_cut_to_fit_glues_ceiling_in_bytes_not_characters():
     """A refresh skips the name rule, so a header can carry a 255-character name of two-byte
-    characters; Glue's ceiling is in bytes. The cut keeps whole characters and the whole suffix."""
+    characters; Glue's ceiling is in bytes. The cut keeps whole characters and the whole suffix.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     long_ascii = "y" * 255
     long_accented = "é" * 200
 
@@ -206,7 +231,17 @@ def test_every_default_storage_read_by_position_is_declared_positional():
 @pytest.mark.parametrize("fmt", ["parquet", "json"])
 def test_the_same_column_is_left_out_of_a_body_athena_reads_by_name(fmt):
     """A renamed column in a name-matched format would read NULL, since no field carries the
-    new name, and leaving it out moves nothing: the columns after it keep their own values."""
+    new name, and leaving it out moves nothing: the columns after it keep their own values.
+
+    Args:
+      fmt: The source format.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "bigint"}]
 
     ddl = build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, fmt, LOC)

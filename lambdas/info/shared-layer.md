@@ -144,7 +144,7 @@ the column is kept in its place under `<fold>_in_file` (then `_2`, `_3`, … unt
 of every kept column, partition key and earlier rename, cut to Glue's 255 bytes), because
 leaving it out moves every later column onto the wrong field; elsewhere it is left out.
 `body_columns` is the declared list the body renders, and table-builder's refresh verbs and
-data-quality's queries and report read it rather than repeat the rule: a name the body left out
+data-quality's queries and report read it or `declare_columns` rather than repeat the rule: a name the body left out
 does not fail a query, it binds to the partition column.
 
 ## `cpcommon/type_mapping.py` — polars, and the barrier that used to be there
