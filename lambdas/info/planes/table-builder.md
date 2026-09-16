@@ -123,7 +123,8 @@ statements, no window in which the table is absent, and **no verb on this plane 
   unchanged from the header that built it, and its fold-collision check reads the files' names, so
   `Year,year` is refused there as on a create. A header that later gains its own `year_in_file`
   column moves the rename to `year_in_file_2`, and the refresh reports that name added while the
-  live `year_in_file` now reads the file's new column — a known limit, not refused.
+  live `year_in_file`, and the comment carried on it by name, now read the file's new column — a
+  known limit, not refused.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **A create's `IF NOT EXISTS` is confirmed, not trusted.** The statement succeeds identically for a
   run that built the table and a run whose create was a no-op over someone else's, so execute-ddl

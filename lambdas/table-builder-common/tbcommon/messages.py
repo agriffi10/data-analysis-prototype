@@ -26,7 +26,6 @@ Attributes:
 
 import json
 
-from cpcommon import columns as _columns
 from cpcommon import messages as _cpmessages
 
 _BODIES = {
@@ -196,12 +195,16 @@ def renamed_sentence(renamed: list[tuple[str, str]]) -> str:
     by position. The table's rail shows only the new name, so without this sentence the user
     meets an unfamiliar column and a familiar one apparently missing.
 
+    Neither name is clipped, because the new name is the one the user has to find and a clip can
+    cut exactly its suffix. They are short anyway: a column is renamed only when it folds to a
+    declared partition key, which the dialog holds to ``CATALOG_IDENTIFIER_RE``'s 63 characters.
+
     Args:
       renamed: ``(name in the files, name in the table)`` pairs, in declaration order.
 
     Returns:
       The sentence, with a leading space, or "" when nothing was renamed. At most
-      ``MAX_NAMED_COLUMNS`` pairs are spelled out, each name clipped as a refusal clips one.
+      ``MAX_NAMED_COLUMNS`` pairs are spelled out, then a count of the rest.
 
     Raises:
       None.
@@ -209,8 +212,7 @@ def renamed_sentence(renamed: list[tuple[str, str]]) -> str:
     if not renamed:
         return ""
     shown = ", ".join(
-        f"{_columns.describe([source])} is {_columns.describe([declared])}"
-        for source, declared in renamed[:MAX_NAMED_COLUMNS]
+        f'"{source}" is "{declared}"' for source, declared in renamed[:MAX_NAMED_COLUMNS]
     )
     remaining = len(renamed) - MAX_NAMED_COLUMNS
     if remaining > 0:
@@ -244,8 +246,9 @@ def success_message(
       retyped: Columns retyped by a refresh.
       removed: Columns removed by a refresh.
       renamed: A create's ``(name in the files, name in the table)`` pairs, which
-        ``renamed_sentence`` appends. A refresh passes none: only a table built before columns
-        were renamed can gain one on refresh, and its count already says a column was added.
+        ``renamed_sentence`` appends. A refresh passes none: a renamed column a refresh adds
+        belongs to a table built before columns were renamed, or to a header that gained its own
+        column under the new name, and either way its count already says a column was added.
 
     Returns:
       The full actor-facing sentence.

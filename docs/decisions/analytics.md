@@ -1253,13 +1253,14 @@ carries `partitionNamedColumns`, one `{name, outcome: "renamed", as}` or `{name,
 "omitted"}` per such column, and the report page says which above Columns; the omitted half closes
 the gap where a JSON or Parquet column simply vanished from Columns with nothing saying why. The
 field is optional in the portal type, so an older report renders as before. A refresh says nothing
-extra: only a table built before this rule can gain a renamed column on refresh, and its count
-already says a column was added.
+extra: a renamed column it adds belongs to a table built before this rule, or to the known limit
+below, and either way its count already says a column was added.
 
 **A known limit, not refused.** A header that later gains its OWN `year_in_file` column pushes the
 rename to `year_in_file_2` on refresh; the diff reports that name added, and the live
-`year_in_file` now reads the file's new column. It needs a user to name a column after the rename,
-and the refresh notification does report a change.
+`year_in_file` now reads the file's new column, keeping the Glue comment it had, since comments
+are carried by name. It needs a user to name a column after the rename, and the refresh
+notification does report a change.
 
 **Rejected.**
 - *Keep refusing, and word it better.* It leaves Create table with no path for the commonest shape,

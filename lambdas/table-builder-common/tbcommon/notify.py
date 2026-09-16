@@ -182,7 +182,7 @@ def _renamed_columns(event: dict) -> list[tuple[str, str]]:
         return []
     try:
         pairs = ddl.declare_columns(columns, event.get("partitionKeys") or [], fmt)
-    except (KeyError, TypeError, AttributeError) as exc:
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
         observability.warning("renamed columns not derived", error=type(exc).__name__)
         return []
     return [

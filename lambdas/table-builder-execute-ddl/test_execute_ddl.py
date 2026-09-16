@@ -708,6 +708,7 @@ def test_the_ready_notification_names_each_csv_column_kept_under_a_new_name():
         pytest.param({"format": "parquet", "columns": [{"name": "Year", "type": "string"}]}, id="parquet-leaves-it-out"),
         pytest.param({"format": "csv", "columns": None}, id="a-state-without-columns"),
         pytest.param({"format": "csv", "columns": [{"type": "string"}]}, id="a-column-without-a-name"),
+        pytest.param({"format": "csv", "columns": ["Year"]}, id="a-column-that-is-not-an-object"),
     ],
 )
 def test_the_ready_notification_is_plain_when_nothing_was_renamed_or_it_cannot_tell(event_change):
