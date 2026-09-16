@@ -206,9 +206,10 @@ def derived_destination_refusal(root: str, key: str, space_kind: str) -> Refusal
     the two-segment homes share a first segment, ``system_settings/``, that is locked in its own
     right — a folder called that, holding ``athenaresults/``, is refused by its own key. A FILE item
     named like a locked folder is not that folder, since both rules compare the raw key. What
-    neither rule mirrors is the execution role's own any-depth Denies — ``*/user_settings/*`` and
-    the ``system_settings`` pairs, in both buckets — so an item, or an object beneath one, can still
-    land under one of those deeper down, and that fails at the write with the source untouched.
+    neither rule mirrors is most of the execution role's any-depth Denies — ``*/user_settings/*``
+    and the ``athenaresults`` pair in both buckets, the ``archive`` pair in a personal space — so an
+    item, or an object beneath one, can still land under one of those deeper down, and that fails at
+    the write with the source untouched.
 
     Args:
       root: The authorized destination space root.

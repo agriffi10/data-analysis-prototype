@@ -144,7 +144,8 @@ Attributes:
     source, under the bucket asymmetry ``writeLockedPrefix.ts`` mirrors from IAM.
   REPORTS_FOLDER: The data-quality reports folder. Refused as a destination, like every picker-locked
     folder, and as a delete or move source at or beneath it. Root-anchored in both buckets, because
-    the data-quality plane writes only ``{root}_data-quality-reports/`` and no Deny reaches deeper.
+    the data-quality plane writes only ``{root}_data-quality-reports/`` and this plane's role has no
+    Deny there to mirror.
   MARKER_BASENAME: The undeletable marker both bucket policies deny by name at any depth.
   PICKER_LOCKED_FOLDERS: Never a destination. Root-anchored in whichever bucket.
   UNDELETABLE_ROOT_FOLDERS: Never a delete or move SOURCE, at a space root.

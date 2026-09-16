@@ -244,6 +244,45 @@ def test_a_cross_space_copy_is_judged_at_the_destination_it_lands_in():
     assert result["outcomes"][0]["reason"] == "destination_name_reserved"
 
 
+_FINANCE = {"finance": {"status": "active", "owner": "carol", "members": ["alice", "carol"]}}
+
+
+def test_the_derived_rule_is_judged_under_the_DESTINATION_space_s_kind_not_the_source_s():
+    """A personal source into a shared nested ``system_settings/``: only the shared rule refuses it.
+
+    The personal rule is root-anchored and passes the key, so the source's kind here lets the item
+    go ahead and then meet the role's Deny at the write.
+    """
+    result = _run(
+        items=[{"kind": "folder", "key": "alice/stage/", "targetName": "archive"}],
+        destination={"space": {"kind": "shared", "name": "finance"}, "prefix": "finance/x/system_settings/"},
+        spaces=_FINANCE,
+    )
+
+    assert result["outcomes"] == [
+        {
+            "itemKey": "alice/stage/",
+            "label": "stage",
+            "outcome": "protected",
+            "reason": "destination_name_reserved",
+        }
+    ]
+
+
+def test_an_item_both_locked_there_and_inside_itself_is_reported_as_locked():
+    """The derived rule's seat is BEFORE into-itself, so the plane names the rule that refuses it."""
+    result = _run(
+        operation="move",
+        space={"kind": "shared", "name": "finance"},
+        items=[{"kind": "folder", "key": "finance/a/", "targetName": "archive"}],
+        destination={"space": {"kind": "shared", "name": "finance"}, "prefix": "finance/a/system_settings/"},
+        spaces=_FINANCE,
+    )
+
+    assert result["outcomes"][0]["outcome"] == "protected"
+    assert result["outcomes"][0]["reason"] == "destination_name_reserved"
+
+
 def test_a_copy_into_its_own_parent_is_still_a_no_op_rather_than_a_refusal():
     """The derived rule sits AFTER the no-op, which writes nothing and has no destination to judge."""
     result = _run(
