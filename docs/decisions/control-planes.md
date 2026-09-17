@@ -187,7 +187,9 @@ inside the execution the Pipe starts.
   person. Deduplicated across the queue, a request borrowing another member's id dropped that
   member's notice. [Per recipient](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
   A notice sent with **no** dedup id is deduplicated on its body, and a generic sentence is the same
-  for two runs, so it **names its run in the payload**; a sweep refuses a send that names none.
+  for two runs, so it **names its run in the payload**; a sweep refuses a send that names none. A dedup
+  id **replaces** the body as the key, so a token per outcome merges two notices one run words
+  differently on purpose — a token names the reason and recipient too.
   [Named run](#a-notice-with-no-dedup-id-names-its-run-in-the-payload-so-two-runs-ending-alike-stay-two-notices-control-plane-wide).
 - **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
   The portal role holds no grant on the queue, and the API's route accepts only `markRead` and
@@ -2322,10 +2324,22 @@ They pass `dedup_id(requestId, "sent:{kind}:{name}")` and `"received:{kind}:{nam
 recipient and per addressee. A payload would put the sender's request id in another user's inbox,
 where it names nothing they did; a token never leaves the queue.
 
+**Table-share names its run with a token built from the execution's name**, having no request id
+in its API body. `StampExecution` runs directly after validate-authorize, so every notifying verb
+holds `execution.name`; `RecordFailure` copies it from `$$.Execution.Name`, a read no seed has to supply;
+the timeout door reads the event's `detail.name`. Validate-authorize runs before any state exists to
+carry the name and uses the SQS message id, and its notices never meet another door's.
+**The failure token carries the reason** — `failure:{reason}`, plus `:{kind}:{name}` for a
+recipient — because the merge rejected above is live on this plane: the decorator's crash notice
+("something went wrong. Please try again.") and notify-failure's engine notice ("something went
+wrong.") are both sent, and an explicit id replaces the body as what the queue compares, so a token
+of `failure` alone would merge them, and one run's refusals of two recipients alike with them.
+Successes take file-send's `sent:` and `received:{kind}:{name}`.
+`lambdas/test_table_share_notices_name_their_run.py` drives every door through the real sender and
+holds those in-run pairs apart, and the machine's own test pins the paths the name is read from.
+
 **A sweep holds the class rather than the planes.** `lambdas/test_notification_sends_name_their_run.py`
 reads every `emit_notification` call and refuses one passing neither `dedup_id` nor `payload`,
-against counted exemptions, which are every table-share notice. Table-share
-carries no request id in its API body, its state or its Map input; its only run identity is the
-execution name, so naming its runs changes the machine and its verbs, not an emitter. The sweep
+against a counted exemption list, now empty. The sweep
 cannot see a name that is None at run time — it refuses the send that forgot to name the run at
 all, which is how every instance so far was written.

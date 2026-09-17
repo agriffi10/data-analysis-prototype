@@ -39,6 +39,10 @@ The two doors cannot double-notify. The ASL door is reached only through a ``Cat
 timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FAILED``, so an
 execution that reached ``Fail`` normally does not appear on it.
 
+**Both doors name the run in the notice's dedup id**, from the execution's name: the recorded
+failure copies it from the context object, and the timeout event carries it as ``detail.name``.
+Without it two shares ending alike inside the queue's five-minute window were told once.
+
 The timeout door has to recover the sender the hard way. The execution input is what the Pipe
 forwarded — the raw SQS batch — so the actor is the **identity block the API stamped into that
 body**, never the body's own assertion. There is no token here to expire: the API verifies the
@@ -82,9 +86,10 @@ def _verb_already_notified(error) -> bool:
     suppressed exactly the class of failure this function exists to report.
 
     The price is paid deliberately. An unexpected in-verb exception notifies through the
-    decorator and again here, with the same generic sentence. A duplicate notification is
-    preferable to none: a guess that suppresses is unrecoverable, a duplicate is a papercut on a
-    path that is already a bug.
+    decorator as ``unexpected_error`` and again here under the exception's own name, which renders
+    the shorter fallback sentence — two notices, worded differently, and their dedup ids carry the
+    reason so they stay two. A duplicate notification is preferable to none: a guess that
+    suppresses is unrecoverable, a duplicate is a papercut on a path that is already a bug.
 
     Args:
       error: The raw Step Functions error object.
@@ -131,8 +136,8 @@ def _timed_out_request(detail) -> dict:
       detail: The event's ``detail`` block.
 
     Returns:
-      A request-shaped dict carrying the verified actor, the source and the result name — or
-      an empty actor when the input was omitted or cannot be attributed.
+      A request-shaped dict carrying the verified actor, the source, the result name and the
+      execution's name — or an empty actor when the input was omitted or cannot be attributed.
 
     Raises:
       None. Every failure degrades to no verified actor, which the caller logs as a no-op.
@@ -162,6 +167,7 @@ def _timed_out_request(detail) -> dict:
         "actor": actor,
         "source": {"database": source.get("database"), "table": source.get("table")},
         "tableName": body.get("tableName"),
+        "execution": {"name": detail.get("name")},
         "error": {"Error": "States.Timeout", "Cause": None},
     }
 
@@ -200,6 +206,7 @@ def _on_execution_timed_out(event) -> dict:
     notify.emit_notification(
         actor,
         messages.failure_message(_TIMEOUT_REASON, source.get("table") or ""),
+        dedup_id=notify.failure_dedup_id(notify.run_of(request), _TIMEOUT_REASON),
     )
     logger.info("notified %s that their share timed out", actor)
     observability.info(
@@ -220,9 +227,10 @@ def handler(event, context) -> dict:
     function whose whole job is the notification of last resort.
 
     The message uses the whole-request phrasing, with no recipient named: naming one would be a
-    guess, because the failure ended the request before any recipient outcome existed. No dedup
-    id is passed, matching every other emitter on this plane — the queue deduplicates on content
-    and an execution reaches this state at most once.
+    guess, because the failure ended the request before any recipient outcome existed. The dedup
+    id names the run and the reason, as every failure id on this plane does, so a retry of this
+    state is told once and the decorator's differently worded notice for the same fault is not
+    merged into this one.
 
     A failure with no verified sender is a logged no-op rather than a lost message: the body's
     own actor field is attacker-controlled, and notifying it would let anyone deliver text to
@@ -279,6 +287,7 @@ def handler(event, context) -> dict:
     notify.emit_notification(
         actor,
         messages.failure_message(reason, source.get("table") or ""),
+        dedup_id=notify.failure_dedup_id(notify.run_of(request), reason),
     )
     observability.info(
         "notified the sender of a failure",

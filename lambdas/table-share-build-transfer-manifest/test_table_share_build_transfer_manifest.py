@@ -76,6 +76,9 @@ def test_the_manifest_holds_one_line_per_recipient_and_object():
 
     assert out["transfer"]["itemCount"] == 4
     assert len(_lines(fake)) == 4
+    assert out["execution"] == {"name": "exec-1"}, (
+        "the execution name did not survive the manifest builder, so create-table's notices name no run"
+    )
 
 
 def test_a_refused_recipient_contributes_no_lines():

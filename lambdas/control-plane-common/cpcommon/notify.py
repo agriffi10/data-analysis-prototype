@@ -47,8 +47,12 @@ def dedup_id(request_id, step: str) -> str | None:
     reason. table-builder passes the **verb name** from its decorator and ``failure`` from its
     notify-failure verb, on purpose: that plane suppresses the duplicate by identifying the
     verb's error instead, and unifying the tokens would change notification behaviour on paths
-    that already work (see ``tb_notify_failure``'s module docstring). table-share passes
-    nothing at all and relies on the queue's content-based dedup.
+    that already work (see ``tb_notify_failure``'s module docstring). table-share passes its
+    execution's name for ``request_id``, having no request id — the SQS message id in
+    validate-authorize, which runs before the name is stamped — and puts the REASON and the
+    recipient in ``step``: a token per outcome alone would merge two differently worded notices it
+    sends on purpose for one fault, since an explicit id replaces the body as what the queue
+    compares.
 
     Where a plane does collapse a pair this way, the collapse depends on the queue's
     deduplication window: the two emits land seconds apart, comfortably inside it. A future

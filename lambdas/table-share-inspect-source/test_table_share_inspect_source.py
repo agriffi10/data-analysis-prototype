@@ -128,6 +128,7 @@ def _event(recipients=1):
         "source": {"database": "alice", "table": "orders"},
         "tableName": "orders_copy",
         "recipients": [{"kind": "user", "name": f"bob{i}", "valid": True} for i in range(recipients)],
+        "execution": {"name": "exec-1"},
     }
 
 
@@ -151,6 +152,10 @@ def test_flat_external_table_emits_copy_plan():
     assert out["partitioned"] is False
     # The threaded request context is preserved for the Map.
     assert out["actor"] == "alice" and out["tableName"] == "orders_copy"
+    assert out["execution"] == {"name": "exec-1"}, (
+        "the execution name did not survive inspect-source, so every later notice falls back to content "
+        "dedup and two shares ending alike are told once"
+    )
 
 
 def test_clone_carries_definition_and_strips_source_metadata():
