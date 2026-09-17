@@ -169,6 +169,8 @@ files = [
     # Joins on the same precedent, entering at zero. It decides whether a green is real, so
     # a wrong Optional or a widened dict here reports a pass nobody checked.
     "scripts/watch_ci.py",
+    # The supervisor's archive check reads the desktop app's session store, whose shape nothing
+    # else pins, so its types and its test's are held here.
     "scripts/supervisor/done_check.py",
     "scripts/supervisor/done_check_test.py",
     # The one-shot that moves the app-managed folders. It joins the ratchet WITH the change that

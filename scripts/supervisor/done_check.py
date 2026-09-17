@@ -40,6 +40,7 @@ Attributes:
   UNKNOWN_LOCK: What ``lock_branch`` returns when the queue itself cannot be read.
   GIT: The resolved ``git`` executable.
   GH: The resolved ``gh`` executable.
+  _ENV: The environment every subprocess gets, with ``GIT_OPTIONAL_LOCKS=0``.
 """
 
 import argparse
@@ -250,7 +251,11 @@ def merged_branch_head(repo: str, branch: str, head: str) -> bool:
 
 
 def main_is_green(repo: str) -> bool:
-    """Whether every push run on main's newest head concluded cleanly; a failed read is not green.
+    """Whether every push run on the remote main's head concluded cleanly.
+
+    The head is read from the remote rather than taken from the newest run: a push event GitHub
+    dropped leaves the newest run on the previous commit, green, while the merge that is main's
+    head was never deployed. A head with no push run, or any failed read, is not green.
 
     Args:
       repo: The main checkout.
@@ -261,15 +266,16 @@ def main_is_green(repo: str) -> bool:
     Raises:
       None.
     """
-    r = _run([GH, "run", "list", "--branch", "main", "--event", "push", "--limit", "12",
+    head = _run([GIT, "ls-remote", "origin", "refs/heads/main"], cwd=repo)
+    sha = head.stdout.split()[0] if head.returncode == 0 and head.stdout.strip() else None
+    r = _run([GH, "run", "list", "--branch", "main", "--event", "push", "--limit", "20",
               "--json", "headSha,status,conclusion"], cwd=repo)
-    if r.returncode != 0:
+    if sha is None or r.returncode != 0:
         return False
-    runs = json.loads(r.stdout)
-    if not runs:
-        return False
-    mine = [x for x in runs if x["headSha"] == runs[0]["headSha"]]
-    return all(x["status"] == "completed" and x["conclusion"] in ("success", "skipped", "neutral") for x in mine)
+    mine = [x for x in json.loads(r.stdout) if x["headSha"] == sha]
+    return bool(mine) and all(
+        x["status"] == "completed" and x["conclusion"] in ("success", "skipped", "neutral") for x in mine
+    )
 
 
 def lock_branch(repo: str) -> str | None:
@@ -391,10 +397,12 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--self", dest="self_id", required=True, help="this session's id, never offered")
+    parser.add_argument("--no-fetch", action="store_true", help="skip git fetch; watch.sh has fetched")
     parser.add_argument("only", nargs="*", help="limit to these session ids")
     args = parser.parse_args()
     repo = repo_root()
-    git(repo, "fetch", "-q", "origin")
+    if not args.no_fetch:
+        git(repo, "fetch", "-q", "origin")
     green, held = main_is_green(repo), lock_branch(repo)
     for record in sorted(glob.glob(os.path.join(STORE, "*", "*", "local_*.json"))):
         with open(record) as fh:

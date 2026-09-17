@@ -11,6 +11,7 @@ non-zero exit if any case does not behave as declared. It needs no desktop app a
 
 Attributes:
   REPO: A fake main checkout path; nothing is read from it.
+  CASES: Every case, run in order, each in its own fake transcripts root.
 """
 
 import json

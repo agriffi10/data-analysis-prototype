@@ -5,7 +5,8 @@
 #
 # Two modes, because the harness offers two ways to be woken:
 #   --until-change  (default) exit on the first change. Run it with Bash run_in_background and
-#                   relaunch after handling each event; a quiet night costs no wake-ups.
+#                   relaunch after handling each event; a quiet night costs no wake-ups. With no
+#                   state file yet, it prints the baseline as = lines and exits at once.
 #   --stream        print every change and never exit, for the Monitor tool (which it outlives
 #                   by expiring every 30 minutes and needing a re-arm).
 #
@@ -58,21 +59,23 @@ snapshot() {
   if prs=$(gh pr list --state open --json number,headRefName,isDraft --jq '.[]|"PR open #\(.number) \(.headRefName)\(if .isDraft then " DRAFT" else "" end)"' 2>&1); then
     [ -n "$prs" ] && echo "$prs"
   else echo "ALERT gh pr list failed"; fi
-  if runs=$(gh run list --branch main --event push --limit 12 --json headSha,name,status,conclusion 2>&1); then
-    echo "$runs" | python3 -c '
-import json, sys
-runs = json.load(sys.stdin)
-if not runs:
-    print("MAIN no push runs")
-    sys.exit()
-sha = runs[0]["headSha"]
-mine = [r for r in runs if r["headSha"] == sha]
+  # main is judged at the remote's head, not at the newest run: a push GitHub dropped leaves the
+  # newest run on the PREVIOUS commit, green, while the merge was never deployed.
+  head=$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')
+  if [ -z "$head" ]; then
+    echo "ALERT could not read main's head from origin"
+  elif runs=$(gh run list --branch main --event push --limit 20 --json headSha,name,status,conclusion 2>&1); then
+    echo "$runs" | HEAD_SHA="$head" python3 -c '
+import json, os, sys
+sha = os.environ["HEAD_SHA"]
+mine = [r for r in json.load(sys.stdin) if r["headSha"] == sha]
 bad = [r["name"] for r in mine if r["status"] == "completed" and r["conclusion"] not in ("success", "skipped", "neutral")]
 busy = [r for r in mine if r["status"] != "completed"]
-print("MAIN %s %s" % (sha[:8], "RED: " + ", ".join(bad) if bad else ("building" if busy else "green")))'
+verdict = "no push run yet" if not mine else "RED: " + ", ".join(bad) if bad else "building" if busy else "green"
+print("MAIN %s %s" % (sha[:8], verdict))'
   else echo "ALERT gh run list failed"; fi
   "$HERE/overlap.sh" 2>/dev/null | grep -E '^(SHARED|CONFLICT)'
-  if done=$(python3 "$HERE/done_check.py" --self "$SELF" 2>&1); then
+  if done=$(python3 "$HERE/done_check.py" --no-fetch --self "$SELF" 2>&1); then
     printf '%s\n' "$done" | awk -F'\t' '$4=="ARCHIVABLE"{print "ARCHIVABLE " $1 " " $2}'
   else
     echo "ALERT done_check.py failed, so no session is offered for archive: $(printf '%s' "$done" | tail -1)"
