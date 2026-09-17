@@ -22,7 +22,7 @@ from token_shapes import JWT_SHAPED
 
 def _capture():
     sent = []
-    n.notify.emit_notification = lambda user, message: sent.append((user, message))
+    n.notify.emit_notification = lambda user, message, **kw: sent.append((user, message))
     return sent
 
 

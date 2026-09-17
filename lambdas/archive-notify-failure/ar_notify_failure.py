@@ -195,6 +195,9 @@ def _on_execution_timed_out(event) -> dict:
     promise is decided by where the timeout can land: the source deletion sits downstream of the
     commit gate, so a timed-out archive has never deleted anything — whatever else it did.
 
+    The request id for the payload comes from the same raw input as the actor, because the event
+    carries no state and there is no recorded failure to read it from.
+
     Args:
       event: The EventBridge event.
 
@@ -209,6 +212,7 @@ def _on_execution_timed_out(event) -> dict:
     detail = event.get("detail") or {}
     username = ""
     mode = ""
+    payload = None
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
     else:
@@ -217,8 +221,10 @@ def _on_execution_timed_out(event) -> dict:
             logger.info("timed-out execution carries no input; nobody can be attributed")
         else:
             try:
-                mode = _mode_from_raw_request(json.loads(raw))
-                username = _actor_from_raw_request(json.loads(raw))
+                parsed = json.loads(raw)
+                mode = _mode_from_raw_request(parsed)
+                username = _actor_from_raw_request(parsed)
+                payload = notify.request_payload(parsed)
             except ValueError as exc:
                 logger.info("could not attribute the timed-out execution: %s", exc)
 
@@ -232,7 +238,9 @@ def _on_execution_timed_out(event) -> dict:
         return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
 
     reason = _RESTORE_TIMEOUT_REASON if mode == "restore" else _TIMEOUT_REASON
-    notify.emit_notification(username, messages.failure_message(reason, mode=mode))
+    notify.emit_notification(
+        username, messages.failure_message(reason, mode=mode), payload=payload
+    )
     logger.info("notified %s that their %s timed out", username, mode or "archive")
     observability.info(
         "notified the actor that the execution timed out",
@@ -260,8 +268,9 @@ def _verb_already_notified(error) -> bool:
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the
-    decorator and again here, with the same generic sentence. A duplicate is a papercut on a
-    path that is already a bug; a guess that suppresses is unrecoverable.
+    decorator and again here, as two sentences — the decorator's asks the user to try again and
+    this one does not — so the queue keeps both. A duplicate is a papercut on a path that is
+    already a bug; a guess that suppresses is unrecoverable.
 
     Args:
       error: The raw Step Functions error object.
@@ -282,8 +291,10 @@ def handler(event, context) -> dict:
     ``@traced`` is the only decorator here: ``@notifies_on_failure`` would be circular on the
     function whose whole job is the notification of last resort.
 
-    No dedup id is passed, matching every other emitter on this plane: the queue deduplicates on
-    content and an execution reaches this state at most once.
+    No dedup id is passed, matching every other failure emitter on this plane: the queue
+    deduplicates on content and an execution reaches this state at most once. The payload names
+    the run, read from ``requestId`` or, where the error replaced the state, from the forwarded
+    request under ``raw``; without it two runs failing alike render one body and collapse.
 
     A failure with no verified actor is a logged no-op rather than a lost message. The body's
     own actor field is attacker-controlled, and notifying it would let anyone deliver text to
@@ -346,7 +357,9 @@ def handler(event, context) -> dict:
         return request
 
     notify.emit_notification(
-        username, messages.failure_message(reason, mode=_mode(request))
+        username,
+        messages.failure_message(reason, mode=_mode(request)),
+        payload=notify.request_payload(request),
     )
     observability.info(
         "notified the actor of a failure",

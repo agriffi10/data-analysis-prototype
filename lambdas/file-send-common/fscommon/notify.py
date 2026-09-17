@@ -9,18 +9,21 @@ A missed notification must never change or fail the outcome, so every emit goes 
 contract of this plane's producer: the copy has already happened by the time it runs, and a
 message is the only thing it can add.
 
-**No per-message dedup token is passed, and the queue's content-based dedup is load-bearing
-rather than incidental.** The rule is one token per OUTCOME, not per verb; here every
-outcome is emitted from exactly one place, so there is no duplicate-emit pair for a token to
-collapse — while the producer's own state carries a ``Retry``, and a re-invocation after a
-transient Lambda fault would otherwise send every message twice. Content dedup is what makes that
-retry safe.
+**Every message names its run, and the reason is the queue's deduplication.** The rule is one
+token per OUTCOME, not per verb; here every outcome is emitted from exactly one place, so there is
+no duplicate-emit pair for a token to collapse — while the producer's own state carries a
+``Retry``, and a re-invocation after a transient Lambda fault would otherwise send every message
+twice. What makes that retry safe has to also keep two RUNS apart, because a sentence need not name
+anything per run: a sender refused a ``conflict``, who asks the recipient to move what is there and
+re-sends at once, got a second refusal byte-identical to the first, and once the move is made the
+re-send succeeds with the first send's sentence to the sender, the recipient and the space owner.
+Inside the queue's five-minute window each of those second messages was dropped.
 
-The cost is a real one and worth knowing: two sends that render a byte-identical sentence inside
-the queue's five-minute window collapse to one message. The reachable case is a sender who is
-refused a ``conflict``, asks the recipient to move what is there, and re-sends immediately — the
-second refusal reads identically and is dropped, so she sees no response to her second attempt.
-Inherited from table-share rather than introduced here.
+**A failure carries the run's request id in its payload** and relies on content dedup, which a
+retry satisfies by composing the same body. **A success passes a dedup token instead**, per
+recipient and per addressee, because it goes to people other than the sender, and a payload would
+put the sender's request id in their inbox, where it names nothing they did. A token never leaves
+the queue, and a retry composes the same one.
 
 Attributes:
   _FILES_ROUTE: The file browser's route. The link is a PATH, never a URL — the browser's
@@ -37,7 +40,7 @@ import re
 
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, emit_notification
+from cpcommon.notify import actor_of, dedup_id, emit_notification, request_payload
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -57,6 +60,7 @@ __all__ = [
     "emit_unexpected",
     "notifies_on_failure",
     "received_files_link",
+    "request_payload",
 ]
 
 _FILES_ROUTE = "/files"
@@ -135,7 +139,11 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(actor_of(event), failure_message(err.reason, tokens=err.tokens))
+    emit_notification(
+        actor_of(event),
+        failure_message(err.reason, tokens=err.tokens),
+        payload=request_payload(event),
+    )
 
 
 def emit_unexpected(event, step: str) -> None:
@@ -153,7 +161,9 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(actor_of(event), failure_message("unexpected_error"))
+    emit_notification(
+        actor_of(event), failure_message("unexpected_error"), payload=request_payload(event)
+    )
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):
@@ -174,7 +184,9 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
-def emit_recipient_outcome(sender: str, outcome: dict, item_names, object_count: int) -> None:
+def emit_recipient_outcome(
+    sender: str, outcome: dict, item_names, object_count: int, request_id: str | None
+) -> None:
     """Tells everyone who should hear about ONE recipient's outcome, and nobody who should not.
 
     **The sender hears about every outcome; the recipient hears only about a success.** A
@@ -191,6 +203,10 @@ def emit_recipient_outcome(sender: str, outcome: dict, item_names, object_count:
       outcome: One entry from the terminal summary — kind, name, status, reason, detail.
       item_names: The selected item names, for the wording.
       object_count: How many objects the send held.
+      request_id: The run's id, on a failure's payload and in each success's dedup token, so a
+        re-send ending the same way is a second message rather than a duplicate of the first.
+        Required, because every message is named from it and a caller that forgot it would name
+        none while each call still passed a name.
 
     Returns:
       None. Every emit is best-effort: the copy has already happened, and a missed message must
@@ -211,14 +227,22 @@ def emit_recipient_outcome(sender: str, outcome: dict, item_names, object_count:
                 name=name,
                 tokens={"itemName": outcome.get("detail") or ""},
             ),
+            payload=request_payload({"requestId": request_id}),
         )
         return
 
-    emit_notification(sender, success_message(kind, name, item_names, object_count))
+    emit_notification(
+        sender,
+        success_message(kind, name, item_names, object_count),
+        dedup_id=dedup_id(request_id, f"sent:{kind}:{name}"),
+    )
     link = received_files_link(kind, name, sender)
+    received = dedup_id(request_id, f"received:{kind}:{name}")
 
     if kind == "user":
-        emit_notification(name, recipient_message(sender, item_names, object_count), link=link)
+        emit_notification(
+            name, recipient_message(sender, item_names, object_count), dedup_id=received, link=link
+        )
         return
 
     try:
@@ -229,4 +253,9 @@ def emit_recipient_outcome(sender: str, outcome: dict, item_names, object_count:
     if not owner:
         logger.info("space %s has no resolvable owner; skipping the owner notification", name)
         return
-    emit_notification(owner, space_owner_message(sender, name, item_names, object_count), link=link)
+    emit_notification(
+        owner,
+        space_owner_message(sender, name, item_names, object_count),
+        dedup_id=received,
+        link=link,
+    )

@@ -1,11 +1,17 @@
 """Best-effort notification primitives shared by every control plane.
 
-Four pieces are genuinely shared: the sender, the failure-notification skeleton, the
-*shape* of the FIFO deduplication token, and ``is_silent``, the test for a reason nobody is
-told. The domain emitters — ``emit_failure``, ``emit_unexpected`` and the per-arc success
-emitters — stay in each domain layer, because their signatures differ. So do the dedup **strategies**: ``dedup_id`` composes an id, it does
-not decide what goes in one, and the four planes make four different choices (see its
-docstring). A plane relying on the queue's content-based dedup simply does not call it.
+Five pieces are genuinely shared: the sender, the failure-notification skeleton, the *shape* of
+the FIFO deduplication token, ``is_silent``, the test for a reason nobody is told, and the payload
+that names a run. The domain emitters — ``emit_failure``, ``emit_unexpected`` and the per-arc
+success emitters — stay in each domain layer, because their signatures differ. So do the dedup
+**strategies**: ``dedup_id`` composes an id, it does not decide what goes in one, and the planes
+make different choices (see its docstring).
+
+**A plane relying on the queue's content-based dedup still has to name the run in the body**, and
+``request_payload`` is how. The queue hashes the whole body, so a generic sentence that names no
+count or file is byte-identical across runs, and two runs by one user failing alike inside the
+five-minute window became one inbox row. The request id in the payload keeps them apart while a
+retry of one run still composes the same body.
 
 Event-context extraction is domain work too, with **one narrow exception**: ``actor_of`` reads
 the flat ``actor`` envelope file-send introduced and archive inherited, where the
@@ -19,7 +25,7 @@ import hashlib
 import json
 import logging
 
-from . import clients, config
+from . import clients, config, observability
 from .errors import TerminalError, TransientError
 from .events import in_vocabulary
 from .messages import SILENT_REASONS
@@ -93,6 +99,33 @@ def _queue_key(dedup_id: str) -> str:
     if config.FIFO_KEY_RE.fullmatch(dedup_id):
         return dedup_id
     return hashlib.sha256(dedup_id.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def request_payload(event) -> dict | None:
+    """Builds the payload that names the run a notice is about, for a notice sent with no dedup id.
+
+    Two readers want it. The queue deduplicates such a notice on its body, so the id is what stops
+    two runs failing alike from collapsing into one row. And a browser tracking a request in flight
+    settles its record by matching the id, so a run that failed is answered rather than held until
+    the record expires.
+
+    **The id is read from every shape a failure reaches an emitter in**, not only a top-level key:
+    a recorded failure whose error replaced the state carries ``requestId: null`` beside the
+    forwarded request under ``raw``, and a timed-out execution hands over the Pipe's batch itself.
+    Reading only the key answered None on exactly the failures nothing else settles.
+
+    Args:
+      event: The verb's event, a recorded failure, or the Pipe's forwarded batch.
+
+    Returns:
+      ``{"requestId": …}``, or None when no shape names a usable one, which leaves the notice to
+      content dedup exactly as it was.
+
+    Raises:
+      None.
+    """
+    request_id = observability.request_id_of(event)
+    return {"requestId": request_id} if request_id else None
 
 
 def actor_of(event) -> str:

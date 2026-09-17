@@ -331,7 +331,8 @@ def _validate_and_authorize(event) -> dict:
         archive_root = paths.archive_root(source["kind"], source["name"], request_id)
         receipt_key = paths.receipt_key(source["name"], request_id)
     except TerminalError as err:
-        notify.emit_failure({"actor": {"username": actor}, "mode": mode}, err, "validate")
+        notified = {"requestId": req.get("requestId"), "actor": {"username": actor}, "mode": mode}
+        notify.emit_failure(notified, err, "validate")
         raise
 
     validated = {
