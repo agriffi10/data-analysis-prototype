@@ -3,8 +3,8 @@
 The notifications queue deduplicates a send with no dedup id on its body alone. A body naming
 nothing about the run is byte-identical for two runs that end alike, and the queue delivers one.
 That shipped several times, each found late and fixed one plane at a time: archive's success
-notices, file-operations' failures, then archive's and file-send's failures and file-send's
-successes. So this reads every
+notices, file-operations' failures, archive's and file-send's failures and file-send's successes,
+then every table-share notice. So this reads every
 call to ``emit_notification`` under ``lambdas/`` and refuses one that passes neither ``dedup_id``
 nor ``payload``.
 
@@ -13,7 +13,9 @@ nor ``payload``.
 send that forgot to name the run at all, which is how every instance so far was written.
 
 **The exemptions are counted per function**, so a second unnamed send added beside a listed one
-reddens, and one that is fixed must leave the list in the same change or the list goes stale.
+reddens, and one that is fixed must leave the list in the same change or the list goes stale. The
+list is empty: a send that genuinely cannot name its run is added here with its reason, never
+passed a placeholder name to get past the sweep.
 
 Attributes:
   LAMBDAS: The tree the sweep reads.
@@ -43,19 +45,7 @@ NAMING_POSITIONS = frozenset(
     if name in NAMING_KEYWORDS
 )
 
-_TABLE_SHARE = (
-    "table-share carries no request id in its API body, its state or its Map input; its only run "
-    "identity is the execution name, and using it is a change to the machine and its verbs"
-)
-
-EXEMPT = {
-    ("table-share-common/tscommon/notify.py", "emit_failure"): (1, _TABLE_SHARE),
-    ("table-share-common/tscommon/notify.py", "emit_unexpected"): (1, _TABLE_SHARE),
-    ("table-share-common/tscommon/notify.py", "emit_recipient_failure"): (1, _TABLE_SHARE),
-    ("table-share-common/tscommon/notify.py", "emit_recipient_success"): (3, _TABLE_SHARE),
-    ("table-share-notify-failure/ts_notify_failure.py", "_on_execution_timed_out"): (1, _TABLE_SHARE),
-    ("table-share-notify-failure/ts_notify_failure.py", "handler"): (1, _TABLE_SHARE),
-}
+EXEMPT: dict[tuple[str, str], tuple[int, str]] = {}
 
 
 def _sender_names(tree: ast.Module) -> set:
@@ -171,11 +161,11 @@ def sends(source: str) -> list:
     return found
 
 
-def _fleet_sends() -> list:
+def _fleet_sends(root: pathlib.Path = LAMBDAS) -> list:
     """Reads every production module under ``lambdas/``.
 
     Args:
-      None.
+      root: The tree to read, which is ``lambdas/`` everywhere but this file's own corpus.
 
     Returns:
       ``(relative file, function, names its run)`` per send. Test modules are excluded: they call
@@ -185,10 +175,10 @@ def _fleet_sends() -> list:
       None.
     """
     found = []
-    for path in sorted(LAMBDAS.rglob("*.py")):
+    for path in sorted(root.rglob("*.py")):
         if path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py":
             continue
-        relative = path.relative_to(LAMBDAS).as_posix()
+        relative = path.relative_to(root).as_posix()
         found.extend((relative, scope, named) for scope, named in sends(path.read_text(encoding="utf-8")))
     return found
 
@@ -248,10 +238,11 @@ def test_the_sweep_reads_a_send_the_way_the_sender_does(source, expected) -> Non
 
 
 def test_the_sweep_still_reads_the_fleet() -> None:
-    """Guard the guard: a sweep that finds no sends, or none of either kind, proves nothing.
+    """Guard the guard: a sweep that finds no sends, or reads a named send as unnamed, proves nothing.
 
-    Named sends from a bare call and from a module attribute, and an unnamed one, must all be
-    among what it finds, or a path or resolution change has emptied the population under it.
+    Named sends from a bare call and from a module attribute must be among what it finds, or a path
+    or resolution change has emptied the population under it. No production send is unnamed any
+    more, so the unnamed reading is proved by the fixture corpus above rather than by the fleet.
 
     Args:
       None.
@@ -266,7 +257,93 @@ def test_the_sweep_still_reads_the_fleet() -> None:
 
     assert ("archive-common/arcommon/notify.py", "emit_failure", True) in found
     assert ("archive-notify-failure/ar_notify_failure.py", "handler", True) in found
-    assert ("table-share-common/tscommon/notify.py", "emit_failure", False) in found
+    assert found.count(("table-share-common/tscommon/notify.py", "emit_recipient_success", True)) == 3
+    assert ("table-share-notify-failure/ts_notify_failure.py", "_on_execution_timed_out", True) in found
+
+
+def _verdict(found: list, exempt: dict) -> tuple[dict, dict]:
+    """Compares the unnamed sends with the exemptions, in both directions.
+
+    Args:
+      found: ``(file, function, names its run)`` per send.
+      exempt: ``(file, function) -> (count, reason)``.
+
+    Returns:
+      ``(new, stale)``: the sites with more unnamed sends than they are allowed, with their counts,
+      and the exemptions with fewer unnamed sends than they allow, with the count they allow.
+
+    Raises:
+      None.
+    """
+    unnamed = collections.Counter((file, scope) for file, scope, named in found if not named)
+    allowed = {site: count for site, (count, _reason) in exempt.items()}
+    new = {site: count for site, count in unnamed.items() if count > allowed.get(site, 0)}
+    stale = {site: count for site, count in allowed.items() if unnamed.get(site, 0) < count}
+    return new, stale
+
+
+_SITE = ("plane/notify.py", "emit")
+
+
+@pytest.mark.parametrize(
+    ("found", "exempt", "expected"),
+    [
+        ([(*_SITE, False)], {}, ({_SITE: 1}, {})),
+        ([(*_SITE, True)], {}, ({}, {})),
+        ([(*_SITE, False)], {_SITE: (1, "why")}, ({}, {})),
+        ([(*_SITE, False), (*_SITE, False)], {_SITE: (1, "why")}, ({_SITE: 2}, {})),
+        ([(*_SITE, False)], {_SITE: (2, "why")}, ({}, {_SITE: 2})),
+        ([(*_SITE, True)], {_SITE: (1, "why")}, ({}, {_SITE: 1})),
+    ],
+    ids=[
+        "an unnamed send with no exemption is new",
+        "a named send needs no exemption",
+        "an unnamed send its exemption allows is neither",
+        "a second unnamed send beside an exempt one is new",
+        "an exemption allowing more than remain is stale",
+        "an exemption for a send that now names its run is stale",
+    ],
+)
+def test_the_verdict_refuses_a_new_unnamed_send_and_a_stale_exemption(found, exempt, expected) -> None:
+    """The comparison's corpus, because with the fleet's exemption list empty it is otherwise unexercised.
+
+    Args:
+      found: The sends.
+      exempt: The exemptions.
+      expected: ``(new, stale)``.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the comparison misjudges a case.
+    """
+    assert _verdict(found, exempt) == expected
+
+
+def test_the_fleet_reader_reports_an_unnamed_send_and_skips_test_modules(tmp_path) -> None:
+    """Guard the guard's reader: the fleet has no unnamed send left to prove it still reports one.
+
+    Args:
+      tmp_path: The pytest fixture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the reader drops an unnamed send, reads a named one as unnamed, or reads a
+        test module.
+    """
+    plane = tmp_path / "plane"
+    plane.mkdir()
+    (plane / "notify.py").write_text(
+        "def emit(u, m):\n    emit_notification(u, m)\n"
+        "def named(u, m, r):\n    emit_notification(u, m, dedup_id=r)\n"
+    )
+    for skipped in ("test_notify.py", "notify_test.py", "conftest.py"):
+        (plane / skipped).write_text("def f(u, m):\n    emit_notification(u, m)\n")
+
+    assert _fleet_sends(tmp_path) == [("plane/notify.py", "emit", False), ("plane/notify.py", "named", True)]
 
 
 def test_every_send_names_its_run_or_is_exempt() -> None:
@@ -281,10 +358,6 @@ def test_every_send_names_its_run_or_is_exempt() -> None:
     Raises:
       AssertionError: If a send names no run and is not exempt, or an exemption no longer applies.
     """
-    unnamed = collections.Counter((file, scope) for file, scope, named in _fleet_sends() if not named)
-
-    allowed = {site: count for site, (count, _reason) in EXEMPT.items()}
-    new = {site: count for site, count in unnamed.items() if count > allowed.get(site, 0)}
-    stale = {site: count for site, count in allowed.items() if unnamed.get(site, 0) < count}
+    new, stale = _verdict(_fleet_sends(), EXEMPT)
     assert not new, f"these sends name no run, so two runs ending alike collapse into one notice: {new}"
     assert not stale, f"these exemptions no longer match an unnamed send; remove or lower them: {stale}"

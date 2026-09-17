@@ -515,6 +515,7 @@ UNRESOLVED_MESSAGE = "resolves to no declared origin"
 #: carrying something new is caught rather than silently widening the failure state.
 RECORD_FAILURE_ORIGINS = {
     "traceparent": ("stamped", 64),
+    "execution": ("stamped", 128),
     "status": ("stamped", 16),
     "mode": ("stamped", 16),
     "action": ("contract", bounds.MAX_IDENTIFIER_BYTES),

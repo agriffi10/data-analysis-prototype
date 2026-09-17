@@ -20,7 +20,7 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import pytest
 import table_share_collect_transfer_results as m
-from cpcommon import clients
+from cpcommon import clients, config
 from cpcommon.errors import TerminalError
 
 _MANIFEST_KEY = "table-share/h/exec-1/results/run/manifest.json"
@@ -54,7 +54,7 @@ class _S3Error(Exception):
 def _setup(objects=None):
     clients._s3 = _FakeS3(objects or {})
     sent = []
-    m.notify.emit_notification = lambda user, message: sent.append((user, message))
+    m.notify.emit_notification = lambda user, message, **_: sent.append((user, message))
     return sent
 
 
@@ -147,6 +147,75 @@ def test_a_recipient_with_one_failed_item_gets_no_table():
     assert by_name["carol"]["status"] == "failed"
     assert by_name["carol"]["reason"] == "copy_failed"
     assert by_name["carol"]["recipient"] is None, "a failed recipient must not reach create-table"
+
+
+class _FakeSqs:
+    """Records every send the real notification sender makes.
+
+    Attributes:
+      calls: The keyword arguments of each ``send_message``.
+    """
+
+    def __init__(self):
+        """Starts with nothing sent.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        """Keeps one send.
+
+        Args:
+          **kwargs: The send's arguments.
+
+        Returns:
+          A response carrying a message id.
+
+        Raises:
+          None.
+        """
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def test_a_copy_failure_is_told_under_the_runs_name_and_the_name_reaches_create_table(monkeypatch):
+    """The collector hands the notifier, and the finish Map, the state that carries the execution name.
+
+    Table-share's only run identity is the name the machine stamps, and every verb between the stamp
+    and create-table passes the state on in Python, where no template pin can see a key dropped.
+    Driven through the real sender, so the id asserted is the one the queue would compare.
+
+    Args:
+      monkeypatch: The pytest fixture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the copy failure's id does not name the run, or the name is dropped from
+        the state create-table's notices are built from.
+    """
+    clients._s3 = _FakeS3(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]))
+    queue = _FakeSqs()
+    monkeypatch.setattr(clients, "_sqs", queue)
+    monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/n.fifo", raising=False)
+    event = {
+        **_event([{"status": "ok", "recipient": _resolved("bob")}, {"status": "ok", "recipient": _resolved("carol")}]),
+        "execution": {"name": "exec-1"},
+    }
+
+    out = m.handler(event, None)
+
+    assert [call["MessageDeduplicationId"] for call in queue.calls] == ["exec-1:failure:copy_failed:user:carol"]
+    assert out["execution"] == {"name": "exec-1"}
 
 
 def test_an_export_that_covers_only_some_batches_fails_the_whole_request():

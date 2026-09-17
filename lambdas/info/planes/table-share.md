@@ -8,7 +8,7 @@ and a table is created over them in the recipient's own Glue database.
 
 `infra/modules/table-share/state-machine.asl.json.tftpl`
 
-`ValidateAuthorize → InspectSource → GuardRecipients (Map) → BuildTransferManifest →
+`ValidateAuthorize → StampExecution → InspectSource → GuardRecipients (Map) → BuildTransferManifest →
 TransferObjects (Map) → CollectTransferResults → FinishRecipients (Map) → ShapeSummary`
 
 Three Maps: guard each recipient, move the bytes, then create each recipient's table. `InspectSource`
@@ -58,7 +58,9 @@ source space.
   failure is notified from, because the batch verb has no recipient to name.
 - **Notifications:** the sender hears every per-recipient outcome. On success the recipient is told
   too — a user directly, a space through its **owner only**, never its members. Failures notify the
-  sender alone.
+  sender alone. Every notice's dedup id names its run by the **execution's name** (the message id in
+  validate-authorize), and a failure's names its reason as well, so two runs ending alike are two
+  notices and one run's differently worded notices are not merged.
 
 ## Why the copy is a Distributed Map, and not S3 Batch Operations
 

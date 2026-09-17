@@ -324,6 +324,45 @@ def test_the_machine_itself_cannot_notify_a_timeout_so_a_rule_must():
     )
 
 
+# ── the run a notice names ──────────────────────────────────────────────────
+
+
+def test_every_notifier_holds_the_execution_name_its_notices_are_keyed_on():
+    """The paths ``tscommon.notify.run_of`` reads, asserted on the machine that builds them.
+
+    Table-share has no request id, so a notice's dedup id names its run by the execution's name,
+    and a notifier that does not hold the name falls back to the queue's content dedup without a
+    sound — two shares ending alike are told once again. The stamp must therefore come before the
+    first notifying verb, the Maps and create-table must carry the state under ``request`` where
+    ``run_of`` looks, and the recorded failure must copy the name from the context object, since
+    its seed has no state to read it from.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the machine stops carrying the name to a notifier where ``run_of`` reads
+        it. The verbs that pass the state on in Python are held by their own suites.
+    """
+    states = _asl()["States"]
+    finish = states["FinishRecipients"]["ItemProcessor"]["States"]
+
+    assert _asl()["StartAt"] == "ValidateAuthorize"
+    assert states["ValidateAuthorize"]["Next"] == "StampExecution"
+    assert states["StampExecution"]["Parameters"] == {"name.$": "$$.Execution.Name"}
+    assert states["StampExecution"]["ResultPath"] == "$.execution"
+    assert states["StampExecution"]["Next"] == "InspectSource"
+    for task in ("InspectSource", "BuildTransferManifest", "CollectTransferResults"):
+        assert states[task]["Parameters"]["Payload.$"] == "$", f"{task} no longer receives the whole state"
+    assert states["GuardRecipients"]["ItemSelector"]["request.$"] == "$"
+    assert states["FinishRecipients"]["ItemSelector"]["request.$"] == "$"
+    assert finish["CreateTable"]["Parameters"]["Payload"]["request.$"] == "$.request"
+    assert states["RecordFailure"]["Parameters"]["execution"] == {"name.$": "$$.Execution.Name"}
+
+
 # ── FR-006: which role holds the Map's permissions ──────────────────────────
 
 

@@ -975,7 +975,8 @@ import json
 body = {"requestId": "probe", "tableName": "probe",
         "identity": {"actor": "<your-username>", "delegated_by": None, "assurance": "interactive"},
         "source": {"database": "<you>", "table": "sales"}}
-detail = {"executionArn": "arn:aws:states:us-east-1:<acct>:execution:M:probe",
+detail = {"executionArn": "arn:aws:states:us-east-1:<acct>:execution:M:probe-1",
+          "name": "probe-1",
           "stateMachineArn": "<state-machine-arn>", "status": "TIMED_OUT",
           "inputDetails": {"included": True},
           "input": json.dumps([{"body": json.dumps(body)}])}
@@ -986,7 +987,8 @@ with open("event.json", "w") as f:
 ```
 
 Expect the notification in **your own** inbox; repeat with a `username` in the body naming someone
-else and confirm it **still** arrives in yours — the actor comes from the `identity` block, which is
+else — and a new `name`, since the notice's dedup id is built from it and a repeat under the same
+name inside five minutes is deduplicated — and confirm it **still** arrives in yours — the actor comes from the `identity` block, which is
 the whole point of this second assertion. **An agent session cannot do the invoke half**: the
 harness refuses an agent's production AWS writes. `events:PutEvents` measured `allowed` for the
 operator CLI identity on 2026-09-09, so the block is the harness, not the grant.

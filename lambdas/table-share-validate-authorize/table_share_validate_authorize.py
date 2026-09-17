@@ -29,6 +29,29 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-share")
 
 
+def _message_id(event) -> str | None:
+    """Reads the SQS message id of the request this run was started from.
+
+    It names the run in validate-authorize's own refusal notices. The machine stamps the
+    execution's name onto the state only after this verb, and its input is the Pipe's record, so
+    the message id is the one identity it holds: one per enqueued request, the same on a retry and
+    on a redelivery. Its notices never meet another door's, since notify-failure tells nobody of a
+    refusal a verb already told and has no sender on this verb's failure seed.
+
+    Args:
+      event: The Pipe payload, in either shape ``events.parse_sqs_request`` accepts.
+
+    Returns:
+      The message id, or None when the record carries no usable one.
+
+    Raises:
+      None.
+    """
+    record = event[0] if isinstance(event, list) and event else event
+    value = record.get("messageId") if isinstance(record, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
 def _authorize_source(source, actor) -> dict:
     """Authorizes the actor's read access to the source table and normalises it.
 
@@ -227,7 +250,7 @@ def _validate_and_authorize(event) -> dict:
         recipients = _annotate_recipients(_normalize_recipients(req.get("recipients")))
     except TerminalError as err:
         raw_source = req.get("source") if isinstance(req.get("source"), dict) else {}
-        notify.emit_failure({"actor": actor, "source": raw_source}, err, "validate")
+        notify.emit_failure({"actor": actor, "source": raw_source}, err, "validate", run=_message_id(event))
         raise
 
     validated = {
