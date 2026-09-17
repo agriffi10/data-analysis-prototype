@@ -6,6 +6,7 @@ at all.
 """
 
 import json
+import logging
 import os
 import sys
 
@@ -84,6 +85,31 @@ def test_a_request_with_no_identity_block_degrades_rather_than_raising(monkeypat
     verb.handler(_failed(raw=_raw(identity=False)), None)
 
     assert sent == []
+
+
+def test_a_reused_request_id_a_verb_raised_is_told_to_nobody_here_either(sent, caplog):
+    """The verb's decorator keeps this reason quiet because the run holding the id reports, and
+    this state is the other half of that silence: it drops every ``TerminalError`` as already
+    handled. Were it to let this one through, the user would read that something went wrong
+    beside the first run's "Archived".
+
+    The engine failure after it is the positive control: the same recovered actor IS told.
+    """
+    reused = {
+        "Error": "TerminalError",
+        "Cause": json.dumps(
+            {"errorType": "TerminalError", "errorMessage": "request_id_reused: prefix occupied"}
+        ),
+    }
+
+    with caplog.at_level(logging.INFO):
+        verb.handler(_failed(error=reused), None)
+    silent = list(sent)
+    verb.handler(_failed(), None)
+
+    assert silent == []
+    assert "request_id_reused is told to nobody" in caplog.text
+    assert [user for user, _ in sent] == ["alice"]
 
 
 # ── The second door: a run the machine's own ceiling stopped (SPEC-169) ──────

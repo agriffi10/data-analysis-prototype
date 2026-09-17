@@ -148,6 +148,11 @@ def test_a_request_id_that_has_been_used_before_is_refused_before_anything_is_re
     run fails its commit gate — its ROLLBACK deletes the FIRST archive's objects out of a bucket
     with versioning off. That last one is unrecoverable, which is why this refuses rather than
     being left to the producer's conventions.
+
+    **And it tells nobody.** The objects under the prefix are the first run's, and that run
+    reports under this id; a second message saying nothing was archived would sit beside its
+    "Archived". The run after it is the positive control: the same actor, through the same
+    decorator, IS told a refusal that is not silent.
     """
     fake = _install(
         {"alice/reports/a.csv": 5},
@@ -156,7 +161,13 @@ def test_a_request_id_that_has_been_used_before_is_refused_before_anything_is_re
 
     with pytest.raises(TerminalError) as err:
         m.handler(_event(), None)
+    silent = list(_no_real_notifications)
+    _install({})
+    with pytest.raises(TerminalError) as told:
+        m.handler(_event(), None)
 
     assert err.value.reason == "request_id_reused"
     assert fake.puts == []
+    assert silent == []
+    assert told.value.reason == "nothing_to_archive"
     assert [user for user, _ in _no_real_notifications] == ["alice"]

@@ -33,7 +33,7 @@ import logging
 import re
 
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, dedup_id, emit_notification
+from cpcommon.notify import actor_of, dedup_id, emit_notification, is_silent
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -98,6 +98,12 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Functions record. Its tokens are the opposite channel and ARE forwarded, because they exist
     to fill the markers in a body.
 
+    A silent reason sends nothing, and says so in the log. The only one this plane raises is a
+    reused request id, refused because the archive prefix already holds objects: the run that
+    put them there reports under that id, and a message beside its "Archived" saying nothing was
+    archived would contradict it. The price is that a hand-built request reusing an id, which has
+    no such run to hear from, is told nothing at all; its refusal is on the execution.
+
     Args:
       event: The verb's event.
       err: The terminal error being reported.
@@ -110,6 +116,13 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
+    if is_silent(err.reason):
+        logger.info(
+            "not notifying %s for %s",
+            err.reason,
+            event.get("requestId") if isinstance(event, dict) else None,
+        )
+        return
     emit_notification(
         actor_of(event), failure_message(err.reason, tokens=err.tokens, mode=_mode(event))
     )

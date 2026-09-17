@@ -104,6 +104,11 @@ its emitter's event by hand, so it names the id there. Both doors of `notify-fai
 forwarded request under `raw` still carries it. The browser reads a row with an id and no
 `operation` as a refusal, and settles the card on it. The shared DLQ drain writes the same
 `{requestId}` for a request that dead-letters, so that request's card settles as a refusal too.
+Besides a request with no verified actor, which has no inbox, **one refusal writes no row:
+`request_id_reused`**, raised when a plan under the id names another
+execution. That run reports under the id and its outcome row settles the card, so a refusal row could
+only settle it as *Refused* for an operation that may have finished
+([the decision](../../../docs/decisions/control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
 The link is the destination when anything landed, the source otherwise, and for a `delete` the common
 folder of the items' **parents**. Its prefix is **percent-encoded**, which no other plane's link

@@ -161,7 +161,10 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
 - **One body table, two prefixes, and the failure path carries `mode`.** The codes only one mode can
   reach are unambiguous; the ones BOTH reach — `forbidden`, `malformed_event`, `invalid_request` — are
   exactly the ones a single "Couldn't archive that" prefix gets wrong. Every failure seed supplies
-  `mode`, a literal `null` on the pre-identity one, whose input is the raw error.
+  `mode`, a literal `null` on the pre-identity one, whose input is the raw error. One code has no
+  body at all: `request_id_reused`, refused in `InspectSource` when the archive prefix already holds
+  objects, is told to nobody, because the run that archived under that id is the one that reports
+  ([the decision](../../../docs/decisions/control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
 ## The two budgets
 

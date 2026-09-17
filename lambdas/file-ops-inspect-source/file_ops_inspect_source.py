@@ -494,7 +494,8 @@ def handler(event, context) -> dict:
 
     Raises:
       TerminalError: ``overlapping_items``, a cap reason, ``request_id_reused`` or a containment
-        reason — each a whole-request failure, notified before the Catch records it.
+        reason — each a whole-request failure, notified before the Catch records it, except
+        ``request_id_reused``, which is told to nobody because the run holding the id reports.
       TransientError: On a retryable S3 fault.
     """
     return _inspect_source(event)

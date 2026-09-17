@@ -37,6 +37,15 @@ Attributes:
   ACCESS_DENIED_REASONS: The base codes that mean "not allowed", which every plane
     short-circuits to a clause naming no resource — the request may not have got far enough
     to trust one.
+  REQUEST_ID_REUSED: The refusal of a request id another execution already holds. Raised by
+    data quality, file operations and archive, each by its own test of what "holds" means.
+  SILENT_REASONS: Reasons that end a run without telling anyone, registered valid here and given
+    no wording anywhere. ``notify.is_silent`` is the one predicate a failure emitter reads to
+    keep one quiet. A reused request id is the only member: the run holding the id is the one
+    that reports, so a notice from the refused run could only contradict it — a "nothing was
+    changed" beside that run's own result. Registered in this module rather than by each plane,
+    because a code a plane forgot to register still validates in a suite that imports every
+    domain into one process, and fails only in the deployed function that imports its own.
   _MARKER_PATTERN: Marker discovery for blank-when-absent. Matches any brace group rather
     than lowercase words, because the surrounding code is camelCase and a camelCase marker
     would otherwise be missed and rendered raw to a user — the exact failure it exists to
@@ -64,9 +73,13 @@ BASE_REASONS = frozenset(BASE_MESSAGES)
 
 ACCESS_DENIED_REASONS = frozenset({UNAUTHORIZED, FORBIDDEN})
 
+REQUEST_ID_REUSED = "request_id_reused"
+
+SILENT_REASONS = frozenset({REQUEST_ID_REUSED})
+
 _MARKER_PATTERN = re.compile(r"\{([^{}]*)\}")
 
-_known_reasons: set[str] = set(BASE_REASONS)
+_known_reasons: set[str] = set(BASE_REASONS | SILENT_REASONS)
 
 
 def _fill(text: str, tokens: Mapping[str, str]) -> str:
@@ -160,11 +173,16 @@ class Resolver:
           None.
 
         Raises:
-          ValueError: If the domain re-defines a shared base reason code.
+          ValueError: If the domain re-defines a shared base reason code, or words a silent one
+            — a sentence for a reason nobody is told is one a reader takes for what the user
+            reads.
         """
         overlap = set(domain_messages) & BASE_REASONS
         if overlap:
             raise ValueError(f"domain re-defines shared base reason codes: {sorted(overlap)}")
+        worded = set(domain_messages) & SILENT_REASONS
+        if worded:
+            raise ValueError(f"domain words reason codes that are never told: {sorted(worded)}")
         self._domain = domain_messages
         self._prefix = prefix
         self._access_denied = access_denied
@@ -281,7 +299,7 @@ def register(
       A ``Resolver`` scoped to that domain.
 
     Raises:
-      ValueError: If the domain re-defines a shared base reason code.
+      ValueError: If the domain re-defines a shared base reason code, or words a silent one.
     """
     return Resolver(
         domain_messages,

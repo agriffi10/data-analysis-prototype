@@ -46,8 +46,9 @@ def handler(event, context) -> dict:
       The request merged with the copy plan's key, object count and byte total.
 
     Raises:
-      TerminalError: The reused-id refusal, or any expansion or cap rejection — notified to the
-        actor before the Catch records it.
+      TerminalError: The reused-id refusal, or any expansion or cap rejection — each notified to
+        the actor before the Catch records it, except the reused id, which is told to nobody
+        because the run that archived under that id reports.
       TransientError: On a retryable S3 fault.
     """
     return _inspect_source(event)

@@ -328,7 +328,9 @@ PREVIOUS, completed archive's objects, out of a bucket with versioning off. Unre
 inspect-source now refuses up front when the archive prefix already holds anything
 (``request_id_reused``), one ``ListObjectsV2`` before a single ``HeadObject`` is spent. It
 **narrows rather than closes**, exactly as table-share's conflict guard does: two concurrent
-executions can both find the prefix empty. What it removes is the ordinary case.
+executions can both find the prefix empty. What it removes is the ordinary case. The refusal is told
+to nobody: the objects under the prefix are the first run's, and that run's *"Archived"* is the
+message to read ([the decision](control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
 ## An object this plane could copy but could not delete is refused, not archived
 

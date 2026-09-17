@@ -54,6 +54,7 @@ import logging
 from cpcommon import actor as cpactor
 from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
+from cpcommon.notify import is_silent
 from focommon import messages, notify
 
 logger = logging.getLogger()
@@ -194,7 +195,10 @@ def _verb_already_notified(error) -> bool:
 
     One name, not a heuristic, and the narrowness is the point. ``TerminalError`` is the only
     error treated as already-reported, because it is the only positive evidence: a verb raised
-    it deliberately and the decorator fired on the way out.
+    it deliberately and the decorator fired on the way out. Firing is not always sending — the
+    plane's ``emit_failure`` keeps a reason ``cpcommon.notify.is_silent`` names quiet — so this
+    is also the half of that silence that runs here: a reused request id stays told by nobody
+    only because this suppresses it too.
 
     The tempting heuristic — a dotted error name means the engine, a bare one means a handler
     ran — is wrong in the dangerous direction, and this fleet has the outage to prove it: a
@@ -267,6 +271,16 @@ def handler(event, context) -> dict:
 
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)
+
+    if _verb_already_notified(request.get("error")) and is_silent(reason):
+        logger.info("reason %s is told to nobody; nothing was sent for it", reason)
+        observability.info(
+            "suppressed a silent refusal",
+            outcome="suppressed",
+            reason=reason,
+            notified=False,
+        )
+        return request
 
     if _verb_already_notified(request.get("error")):
         logger.info("reason %s came from a verb; the decorator already notified", reason)

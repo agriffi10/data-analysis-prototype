@@ -22,7 +22,7 @@ import file_ops_inspect_source as m
 import pytest
 from cpcommon import clients
 from cpcommon.errors import TerminalError
-from focommon import notify
+from focommon import notify, plan
 
 _EXECUTION = "arn:aws:states:us-east-1:1:execution:file-ops:run-1"
 
@@ -189,6 +189,39 @@ def test_one_item_containing_another_refuses_the_WHOLE_request():
         , None)
 
     assert err.value.reason == "overlapping_items"
+
+
+def test_a_request_id_another_run_planned_is_refused_and_told_to_nobody(monkeypatch):
+    """The run that wrote the plan reports under this id, and its outcome row settles the
+    browser's in-flight card; a refusal row with the same id would read to that card as Refused.
+
+    The overlapping request after it is the positive control: the same actor, through the same
+    decorator, IS told a refusal that is not silent.
+    """
+    sent = []
+    monkeypatch.setattr(notify, "emit_notification", lambda user, *a, **kw: sent.append(user))
+    other_run = json.dumps({"executionArn": _EXECUTION.replace("run-1", "run-0")}).encode()
+    fake = _install({"alice/reports/a.csv": 1}, admin={plan.plan_key(_event()): other_run})
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+    silent = list(sent)
+    with pytest.raises(TerminalError) as told:
+        m.handler(
+            _event(
+                [
+                    {"kind": "folder", "key": "alice/reports/"},
+                    {"kind": "file", "key": "alice/reports/a.csv"},
+                ]
+            ),
+            None,
+        )
+
+    assert err.value.reason == "request_id_reused"
+    assert fake.puts == []
+    assert silent == []
+    assert told.value.reason == "overlapping_items"
+    assert sent == ["alice"]
 
 
 def test_a_duplicate_is_kind_AND_key_never_the_key_alone():

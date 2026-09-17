@@ -367,6 +367,7 @@ upload or a download.
 | **Rename** a folder at a space root to `_data-quality-reports`; then make `x/_data-quality-reports/` and **Move** it to the space root | Both are accepted and then refused per item: each notification reads *"1 item needs your attention"* and labels the item `_data-quality-reports` — the name it would land under, not the renamed folder's old name — with *"that name belongs to a folder the app manages there. Please choose a different destination, or give it a different name first."* After **Refresh this folder**, both folders are still where they were, and a report opened from an earlier data-quality notification still loads. Its **control** is the same rename to an ordinary name, which completes. |
 | Inside any folder make `x/user_settings/`, select **two** files elsewhere and **Copy** them into it | Refused before anything runs, and the notification says *"that folder, or one it sits in, has a name the app keeps for its own folders, so folders and groups of files cannot be put into it."* Nothing lands in the folder. |
 | Open **Details** on a folder the plane has just deleted | *This folder no longer exists*, and Rename/Archive are gone. Not merely an empty panel. |
+| **Copy** a folder somewhere, take its request id from the `POST /v1/enqueue/file-ops` response in the Network panel, and once its notification has arrived and five minutes have passed, send the same body again, while the copied folder is still there — the selection is expanded before the id is checked | **No notification arrives**, and nothing new lands. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused` and released the space's lock. |
 
 **The conflict round trip.** Move something onto a name that already exists, then open the
 notification and use **Review conflicts** — including from a tab that did not submit it (paste the
@@ -751,6 +752,18 @@ desktop-only check):
 
 Also archive a **single file from its Details panel** — the only route to archiving something you
 have not ticked, and a different component from the toolbar's.
+
+#### B1a. A reused archive id is told to nobody
+
+Before B2 — a completed restore empties the archive prefix, and an empty prefix no longer refuses
+the id. Once the folder archive's notification has arrived and five minutes have passed, re-send its
+`POST /v1/enqueue/archive` body from the Network panel with the same `requestId` and a throwaway
+file from the same space as the only item. Expect **no notification**, the throwaway file still in
+the space, and — from a read-only CLI — the second execution failed at `InspectSource` with
+`request_id_reused`, refused on one listing of the archive prefix before the selection is expanded.
+**If *Archived* arrives instead, stop and redo B1 before B2:** a second run under a used id
+overwrites the first archive's `_manifest.json` and receipt, and one that failed its commit gate
+would roll back by deleting the first archive's objects.
 
 #### B2. Request the restore — the point of no return
 
