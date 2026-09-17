@@ -146,7 +146,7 @@ def list_data_objects(
     rule in ``is_ignored`` is anchored at the LISTING PREFIX, which is right for the three
     analytics planes — they list a table's or a check's own folder — and wrong for file-send,
     whose listing prefix is whichever item the user picked. There the same rule would drop a
-    user's own ``reports/athenaresults/`` and any underscore-prefixed folder from a copy,
+    user's own ``reports/_drafts/``, and any other underscore-prefixed folder, from a copy,
     silently. So the predicate is a parameter rather than a fork of the paginator: one place
     still pages past 1000 keys, and a plane whose exclusions are anchored somewhere else says
     so at the call site.
