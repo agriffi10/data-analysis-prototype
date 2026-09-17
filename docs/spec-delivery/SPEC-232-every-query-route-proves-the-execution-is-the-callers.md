@@ -5,18 +5,19 @@
 - **Status, results and stop prove ownership before they answer or act.** Each one reads the
   execution through `_owned_execution` in `lambdas/api/routes/athena.py` before any other Athena
   call. An execution whose recorded output location is not under the caller's own results prefix
-  gets the same 404 `NotFound` as an id Athena does not know, so the API cannot be used to ask
-  whether an execution exists. The span's `execution_ownership` attribute records which case it was.
+  gets the same 404 `NotFound` as an id Athena does not know, so within the portal's workgroup the
+  API cannot be used to ask whether an execution exists. An id from AWS's `primary` workgroup still
+  gets IAM's 403. The span's `execution_ownership` attribute records which case it was.
 - **One predicate, shared.** `cpcommon.results.owned_results_key` holds the rule. Results-conversion's
   validate-authorize now calls it, with its behaviour unchanged, so the rule exists in one copy.
 - **A guard derived from the contract.** A test covers every route whose path names
-  `{queryExecutionId}`, drives each one against a foreign execution and an unknown id, and fails on
-  any other path, query or body field that names an execution. Results-conversion's body field is
-  the one exemption, because that plane proves the id itself.
+  `{queryExecutionId}`, drives each one against a foreign execution and an unknown id, and fails when
+  a path, query or body field it does not expect names an execution. The one it expects outside
+  those routes is results-conversion's body field, which that plane proves with the same predicate.
 - **The record matches.** The register entry *An execution id is a claim, and every route that
   names one proves it first* and its Fences bullet in `docs/decisions/identity-and-access.md`, the
-  trap on `lambdas/info/planes/api.md`, and supersede markers wherever SPEC-199 or SPEC-231 stated
-  the old premise.
+  trap on `lambdas/info/planes/api.md`, and supersede markers in SPEC-199's spec and delivery doc,
+  where the old premise was stated.
 - Nothing a user sees changed, and there was no browser, contract, IAM or infrastructure change.
 
 ### Deliberate deviations

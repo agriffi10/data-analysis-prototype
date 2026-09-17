@@ -957,8 +957,14 @@ only, never `FAILED`, or every caught failure notifies twice.
 **The cost of `TIMED_OUT` only is accepted, not closed.** A run that ends on an error no `Catch`
 takes ends `FAILED` and reaches neither door, so nobody is told. The two such errors are
 `States.DataLimitExceeded`, which `States.ALL` does not match, and `States.Runtime`, which nothing can
-catch. On archive and file-ops that silence can follow a move or a delete. The machines are built
-so that neither error is raised, and tests compute the payload bounds that keep it so. A second
+catch. On archive and file-ops that silence can follow a move or a delete, and on archive,
+data-quality, table-builder and table-share an uncaught error after the notify state ends a run the
+user was already told had succeeded. The machines are built so that neither error is raised, and
+tests compute the payload bounds that keep it so. **Two traps wait for whoever adds a `FAILED`
+door.** Every door picks its wording on the detail-type alone and never reads `detail.status`, so a
+`FAILED` event reaching today's handler would be worded as a timeout. And
+`lambdas/test_timeout_doors_fleet.py` reads only the first `event_pattern` in a file, so a second
+rule admitting `FAILED` would pass it green. A second
 rule, matching `FAILED` only for those two error names, was SPEC-236; Andrew cancelled it on
 2026-09-16.
 

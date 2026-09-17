@@ -73,9 +73,11 @@ Read from the code at `73c66eef`.
   Colors rule matches no NULL cell. In a CSV table blank cells are `''`, which the negative forms do
   include. **Is empty** exists to find absent values, so it matches both NULL and `''`.
 - **A list holds strings only.** `in` and `notIn` read `values: string[]`, which is exactly what
-  one-per-line text can express: no NULL entry, no empty string and no line break. A list that should
-  also keep NULL rows is written in the filter expression, as anything else one filter per column
-  cannot hold is.
+  one-per-line text can express: no NULL entry, no empty string and no line break. The
+  stored-document check refuses a list holding any of the three, so an edit can always pre-fill it
+  line for line. A list that should also keep NULL rows is written whole in the filter expression,
+  as `"c" IN (…) OR "c" IS NULL` with no list filter on that column, because the expression and the
+  column filters combine with `AND`.
 - **A list is rendered in one canonical order**: strings sorted by UTF-16 code unit. Two
   lists holding the same values then render identical SQL, which is the execution cache key, and
   compare equal for the filter history.
@@ -180,7 +182,8 @@ values in different orders or with a stray field are the same query.
   `['b','a','a']`, true when one of the two `in` filters also carries a stray `value: 'z'`, and false
   against `['a','c']`.
 - [ ] A stored tab document carrying an `in` filter with `['a', 'b']` restores with those values. One whose `values`
-  holds a number or a `null`, or is a string rather than an array, is refused by the stored-document check.
+  holds a number, a `null`, an empty string or a value containing a line break, or is a string rather
+  than an array, is refused by the stored-document check.
 
 ### FR-003: Is empty and is not empty
 
