@@ -1,9 +1,16 @@
 # Spec: A Run That Ends on an Error No Catch Takes Still Tells the User
 
 **ID:** SPEC-236
-**Status:** Draft
-**Last Updated:** 2026-09-14
+**Status:** Cancelled
+**Last Updated:** 2026-09-16
 **Depends On:** SPEC-152, SPEC-161, SPEC-201
+
+## Why this spec was cancelled
+
+**Andrew's decision, 2026-09-16: the work is not being done.** The spec was never built. The gap it
+describes is still live: a run ending on `States.DataLimitExceeded` or `States.Runtime` reaches no
+notifier. The gap is recorded as accepted in `docs/decisions/control-planes.md`, in the entry *The
+machine's ceiling cannot notify on its own*. The rest of this file is the Draft as it stood.
 
 ## Overview
 

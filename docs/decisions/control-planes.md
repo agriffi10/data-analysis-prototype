@@ -954,6 +954,14 @@ failures**: the timeout terminates the run outright, so no state runs, no `Catch
 machine's own `NotifyFailure` is unreachable on the one failure it most exists for. `TIMED_OUT`
 only, never `FAILED`, or every caught failure notifies twice.
 
+**The cost of `TIMED_OUT` only is accepted, not closed.** A run that ends on an error no `Catch`
+takes ends `FAILED` and reaches neither door, so nobody is told. The two such errors are
+`States.DataLimitExceeded`, which `States.ALL` does not match, and `States.Runtime`, which nothing can
+catch. On archive and file-ops that silence can follow a move or a delete. The machines are built
+so that neither error is raised, and tests compute the payload bounds that keep it so. A second
+rule, matching `FAILED` only for those two error names, was SPEC-236; Andrew cancelled it on
+2026-09-16.
+
 **The budget is computed, every term of it**: copying 6,597 s + per-child overhead 939 s + guard Map
 600 s + serial verbs 735 s = 8,871 s against 10,800 s. The only input without a measurement behind
 it is the per-**round** child overhead — charged per round because slots pipeline — and it is

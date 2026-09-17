@@ -1,8 +1,8 @@
 # Spec: Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim
 
 **ID:** SPEC-232
-**Status:** In Progress
-**Last Updated:** 2026-09-10
+**Status:** Completed
+**Last Updated:** 2026-09-16
 **Depends On:** SPEC-199, SPEC-220, SPEC-221
 
 ## Overview

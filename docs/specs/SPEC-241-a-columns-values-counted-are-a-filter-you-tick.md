@@ -1,9 +1,16 @@
 # Spec: A Column's Values, Counted, Are a Filter You Tick
 
 **ID:** SPEC-241
-**Status:** Draft
+**Status:** Cancelled
 **Last Updated:** 2026-09-16
 **Depends On:** SPEC-238, SPEC-178, SPEC-181
+
+## Why this spec was cancelled
+
+**Andrew's decision, 2026-09-16: filter by value is not being built.** SPEC-238 had shaped its list
+model for this spec: NULL list entries, an *Also kept* list, and a value cap shared with this spec.
+Those were trimmed, and 238 now carries only what its own typed list can write. The rest of this
+file is the Draft as it stood.
 
 ## Overview
 
