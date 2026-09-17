@@ -111,7 +111,9 @@ inside the execution the Pipe starts.
   look alike as integers.
 - **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
   execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
-  every caught failure double-notifies).
+  every caught failure double-notifies). The cost, an uncaught `DataLimitExceeded` or `Runtime`
+  telling nobody, is accepted, and a `FAILED` door has three traps
+  ([entry](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)).
 - **Past the `Catch`, a raised refusal keeps its reason and loses its `tokens`**, which never reach
   a `Cause`. So a raise names what its verb found — a column, a colliding item, for a refusal of
   the whole request — only when that verb tells it on the way out, as `columns_removed` does; a
@@ -589,6 +591,17 @@ catcher that names it, and none in the fleet does, so it still ends a run FAILED
 FAILED. The machines are built so neither is raised, which is why the data-quality footer carries
 no "always".
 
+**That gap is accepted, not scheduled.** On archive and file-ops the silence can follow a move or a
+delete. On archive, data-quality, table-builder and table-share, an uncaught error after the notify
+state ends a run the user was already told had succeeded. A second EventBridge rule, matching
+`FAILED` only for those two error names, was SPEC-236, which Andrew cancelled on 2026-09-16; its
+draft keeps the per-plane survey. **Three traps wait for whoever adds a `FAILED` door.** Every door
+picks its wording on the detail-type alone and never reads `detail.status`, so a `FAILED` event
+reaching today's handler would be worded as a timeout. Every plane's failure sentence opens by
+asserting failure ("Couldn't archive that: "), which would contradict a success already delivered.
+And `lambdas/test_timeout_doors_fleet.py` reads only the first `event_pattern` in a file, so a second
+rule admitting `FAILED` would pass it green.
+
 **A fifth plane cannot ship without it.** `test_state_machines_cpcommon.py` enumerates every
 `state-machine.asl.json.tftpl` under `infra/modules/` and asserts each has a `NotifyFailure` Task with
 a `States.ALL` Catch, plus that its `RecordFailure` copies `$.error` **whole**. The exemption list is
@@ -952,7 +965,9 @@ verb's raise to 60s, and the deploy role's `events:` grant.
 **Why together.** AWS catchers cover Task, Parallel and Map states but **not top-level execution
 failures**: the timeout terminates the run outright, so no state runs, no `Catch` fires, and the
 machine's own `NotifyFailure` is unreachable on the one failure it most exists for. `TIMED_OUT`
-only, never `FAILED`, or every caught failure notifies twice.
+only, never `FAILED`, or every caught failure notifies twice. A second
+rule, matching `FAILED` only for those two error names, was SPEC-236; Andrew cancelled it on
+2026-09-16.
 
 **The budget is computed, every term of it**: copying 6,597 s + per-child overhead 939 s + guard Map
 600 s + serial verbs 735 s = 8,871 s against 10,800 s. The only input without a measurement behind

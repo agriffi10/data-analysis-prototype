@@ -56,8 +56,8 @@ Read from the code at `73c66eef`.
   filter*, which already edit it. The shared `Chip` stays remove-only, since it also serves three
   recipient lists.
 - **The label is the filter in words.** It uses the operator labels the menu uses. A text value is
-  shown in quotation marks, so leading and trailing spaces are visible. A number is shown bare. A
-  NULL entry reads `NULL` and an empty string `(empty)`. A list shows its first three values, then
+  shown in quotation marks, so leading and trailing spaces are visible. A number is shown bare. An
+  empty string reads `(empty)`. A list shows its first three values, then
   "and <n> more".
 - **Open in Query opens a new tab and does not run it.** Running the statement is the user's call,
   as it is when *re-open* loads a history entry, and a new tab never overwrites the user's buffer.
@@ -121,7 +121,7 @@ has one.
 - A value is shown bare when the filter's `valueKind` is `'number'` and the operator is a comparison
   or a list operator. Every other value is quoted as `“<value>”`: a string kind, an absent
   `valueKind`, and every value of the four text operators, which SPEC-238 always quotes.
-- An empty string is shown as `(empty)` and a NULL list entry as `NULL`, never quoted.
+- An empty string is shown as `(empty)`, never quoted.
 - A list shows its values de-duplicated and in canonical order (SPEC-238 FR-002), joined by `, `.
   With more than three values it shows the first three, then ` and <n> more`, where n counts the
   de-duplicated values not shown.
@@ -130,7 +130,7 @@ has one.
 
 - [ ] Filters `[= 'NY' on state, > 5 (number) on qty]` render a list named "Column filters" with the
   chips `state equals “NY”` and `qty greater than 5`, in that order.
-- [ ] `in ['Zyrtec', 'Abilify', null]` on `brnd_name` renders `brnd_name is one of “Abilify”, “Zyrtec”, NULL`.
+- [ ] `in ['Zyrtec', 'Abilify']` on `brnd_name` renders `brnd_name is one of “Abilify”, “Zyrtec”`.
 - [ ] `in ['e', 'd', 'c', 'b', 'a', 'a']` renders `c is one of “a”, “b”, “c” and 2 more` for a column
   named `c`.
 - [ ] `contains` with `valueKind: 'number'` and value `5` renders `name contains “5”`.

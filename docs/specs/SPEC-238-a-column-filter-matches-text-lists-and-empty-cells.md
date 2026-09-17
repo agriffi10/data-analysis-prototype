@@ -17,8 +17,7 @@ blank field as an empty string, not as NULL, so the null tests never match it.
 This spec adds eight filter operators to the column menu and to *Order and filter*: **contains**,
 **does not contain**, **starts with**, **ends with**, **is one of**, **is not one of**, **is empty**
 and **is not empty**. It adds **is empty** and **is not empty** to the Colors rules, and it refuses a
-statement too long for Athena to run before one is started. It also extends the filter model so the
-filter-by-value list SPEC-241 adds can write into it without changing it again.
+statement too long for Athena to run before one is started.
 
 ### What was checked, and how
 
@@ -68,28 +67,22 @@ Read from the code at `73c66eef`.
   and Athena spell these differently, as `filterValueKind` already notes.
 - **List operators are offered on text and numeric columns only.** `IN ('2026-01-01')` against a
   `date` is the same type error, since the model quotes every non-numeric value. Typed date,
-  timestamp and boolean literals are a model change no tester asked for. SPEC-241 draws the same
-  line. A list uses the column's `valueKind` for each value, as the comparisons do.
-- **A NULL cell matches none of the text operators, a list matches it only through a NULL entry,
-  and is empty matches it.** So `does not contain 'x'` and `is not one of ('x')` exclude NULL rows.
+  timestamp and boolean literals are a model change no tester asked for. A list uses the column's `valueKind` for each value, as the comparisons do.
+- **A NULL cell matches none of the text or list operators, and is empty matches it.** So `does not contain 'x'` and `is not one of ('x')` exclude NULL rows.
   This is SQL's own behaviour and the app's existing rule, since `<>` excludes NULL rows today and a
   Colors rule matches no NULL cell. In a CSV table blank cells are `''`, which the negative forms do
   include. **Is empty** exists to find absent values, so it matches both NULL and `''`.
-- **The typed list keeps what it cannot show.** A list written by SPEC-241 can hold a NULL entry, an
-  empty string, or a value containing a line break, none of which one-per-line text can express.
-  Editing such a filter in the typed field shows those entries beneath it as *Also kept*, and Apply
-  keeps them. Re-parsing the text alone would silently drop part of a filter the user built.
-- **The filter model carries a list whose entries may be NULL.** `in` and `notIn` read
-  `values: (string | null)[]`. The typed-list dialog here never produces a NULL entry, but SPEC-241's
-  filter-by-value list shows NULL as a value that can be ticked. Adding the NULL entry now
-  means the model changes once, not twice.
-- **A list is rendered in one canonical order**: strings sorted by UTF-16 code unit, then NULL. Two
+- **A list holds strings only.** `in` and `notIn` read `values: string[]`, which is exactly what
+  one-per-line text can express: no NULL entry, no empty string and no line break (`\n` or `\r`). The
+  stored-document check refuses a list holding any of the three, so an edit can always pre-fill it
+  line for line. A list that should also keep NULL rows is written whole in the filter expression,
+  as `"c" IN (…) OR "c" IS NULL` with no list filter on that column, because the expression and the
+  column filters combine with `AND`.
+- **A list is rendered in one canonical order**: strings sorted by UTF-16 code unit. Two
   lists holding the same values then render identical SQL, which is the execution cache key, and
   compare equal for the filter history.
 - **A list holds at most `EXPLORER_FILTER_VALUES_MAX` = 1,000 values**, counted after duplicates
-  collapse, with a NULL entry counting as one. It is one constant, shared with SPEC-241's value list,
-  so ticking every value that list shows is a legal filter, and SPEC-241 refuses a larger selection
-  at its own Apply. It is an input bound, not the query's real limit. The real limit is Athena's statement
+  collapse. It is an input bound, not the query's real limit. The real limit is Athena's statement
   length, which FR-005 measures directly, because 1,000 long values can exceed it where 1,000 short
   ones do not.
 - **A statement over the limit is treated like one that could not render.** `useExploration.sql` is
@@ -116,8 +109,8 @@ Read from the code at `73c66eef`.
   has checked OpenCSVSerde's support for it. The grid keeps showing `NULL` and `(empty)` as
   different things, because they are.
 - **Relabelling `(empty)`.** The label is accurate. The guide explains it instead.
-- **A filter-by-value list** of a column's distinct values. That is SPEC-241, which writes the
-  `in` filter this spec defines.
+- **A filter-by-value list** of a column's distinct values. SPEC-241 would have built it, and was
+  cancelled.
 - **More than one filter on a column.** One filter per column stays. The expression bar covers
   anything else.
 - **Case-sensitive or raw-pattern operators in the menu.** Those belong in the expression bar.
@@ -161,22 +154,18 @@ contains matches every non-NULL row and is never what the user meant.
 
 #### Description:
 
-`FilterOperator` gains `in` and `notIn`. They read `values: (string | null)[]` and ignore `value`.
+`FilterOperator` gains `in` and `notIn`. They read `values: string[]` and ignore `value`.
 `operatorTakesValue` stays true only for the six comparisons and the four text operators, and a new
 `operatorTakesValues` is true for `in` and `notIn`. `setFilter` writes only the field the operator
 reads, and *Order and filter* clears the other field when the operator moves between a single-value
 and a list operator. Before rendering, the strings are de-duplicated and sorted by UTF-16 code unit. Each one goes through
-`sqlLiteral`, or is emitted bare when `valueKind` is `'number'` and `isBareNumeric` accepts it. A
-NULL entry never goes into the list:
-
-- `in` with strings only: `"c" IN (<values>)`. With strings and a NULL entry:
-  `("c" IN (<values>) OR "c" IS NULL)`. With only a NULL entry: `"c" IS NULL`.
-- `notIn` with strings, with or without a NULL entry: `"c" NOT IN (<values>)`, which already
-  excludes NULL rows. With only a NULL entry: `"c" IS NOT NULL`.
+`sqlLiteral`, or is emitted bare when `valueKind` is `'number'` and `isBareNumeric` accepts it.
+`in` renders `"c" IN (<values>)`, and `notIn` renders `"c" NOT IN (<values>)`, which excludes NULL
+rows.
 
 An absent or empty `values`, more than `EXPLORER_FILTER_VALUES_MAX` entries, or a numeric-kind entry
-that fails `isBareNumeric` is an `ExplorationRenderError`. The cap counts distinct entries, a NULL
-entry included. `canonical()` compares `values` de-duplicated and in the same sorted form, and
+that fails `isBareNumeric` is an `ExplorationRenderError`. The cap counts distinct entries.
+`canonical()` compares `values` de-duplicated and in the same sorted form, and
 ignores `value` for a list operator and `values` for any other, so two filters holding the same
 values in different orders or with a stray field are the same query.
 
@@ -184,9 +173,7 @@ values in different orders or with a stray field are the same query.
 
 - [ ] `in` on `brnd_name` with `['Abilify', 'Abacavir', 'Abilify']` renders
   `"brnd_name" IN ('Abacavir', 'Abilify')`.
-- [ ] `in` with `['a', null]` renders `("c" IN ('a') OR "c" IS NULL)`, and with `[null]` renders
-  `"c" IS NULL`.
-- [ ] `notIn` with `['a', null]` renders `"c" NOT IN ('a')`, and with `[null]` renders `"c" IS NOT NULL`.
+- [ ] `notIn` on `c` with `['b', 'a']` renders `"c" NOT IN ('a', 'b')`.
 - [ ] `in` with `valueKind: 'number'` and `['10', '2.5']` renders `"qty" IN (10, 2.5)`. With
   `['10', '0x1f']` it throws `ExplorationRenderError`.
 - [ ] `in` with `values: []`, with no `values`, and with 1,001 distinct values each throw
@@ -194,8 +181,9 @@ values in different orders or with a stray field are the same query.
 - [ ] `sameQuery` is true for two descriptions whose only difference is `['a','b']` against
   `['b','a','a']`, true when one of the two `in` filters also carries a stray `value: 'z'`, and false
   against `['a','c']`.
-- [ ] A stored tab document carrying an `in` filter with `['a', null]` restores with those values. One whose `values`
-  holds a number, or is a string rather than an array, is refused by the stored-document check.
+- [ ] A stored tab document carrying an `in` filter with `['a', 'b']` restores with those values. One whose `values`
+  holds a number, a `null`, an empty string or a value containing `\n` or `\r`, or is a string rather
+  than an array, is refused by the stored-document check.
 
 ### FR-003: Is empty and is not empty
 
@@ -219,8 +207,7 @@ parentheses are part of the rendering, so combining several filters with `AND` c
 #### Description:
 
 `explorationQueryOps.ts` gains `isTextType(type)`, the text-column rule from *The decisions*, and
-`operatorsFor(type)`. A numeric column is one where `filterValueKind(type)` is `'number'`, the
-predicate SPEC-241 also uses. `operatorsFor` returns the operators a column of that type offers, in this order: the
+`operatorsFor(type)`. A numeric column is one where `filterValueKind(type)` is `'number'`. `operatorsFor` returns the operators a column of that type offers, in this order: the
 six comparisons, then (text columns only) contains, does not contain, starts with, ends with, then
 (text and numeric columns only) is one of, is not one of, then is null, is not null, then (text
 columns only) is empty, is not empty.
@@ -239,15 +226,14 @@ is `Filter: <label>`.
   `isBareNumeric`; otherwise Apply is refused with "Line <n> is not a number — this column holds
   numbers.". Duplicates collapse, keeping the first. Apply is refused with "Enter at least one
   value." when no line has a value, and with "Enter at most 1,000 values." when more than 1,000
-  distinct values would be stored, *Also kept* entries included.
-- Editing an existing list filter pre-fills its string values that hold no line break, one per line.
-  Its NULL entry, its empty-string entry and any value holding a line break are listed beneath the
-  field under *Also kept*, as `NULL`, `(empty)` or the value with its line breaks shown as `↵`, and
-  Apply stores them again beside the typed values. To drop one, the user clears the filter or uses
-  SPEC-241's values list.
+  distinct values would be stored.
+- List mode pre-fills from the column's existing `in` or `notIn` filter, one value per line in their
+  stored order, including when the user moves from one of the two to the other. A single-value
+  filter leaves list mode empty, and a list filter leaves the single-value field empty, as *Order
+  and filter* clears the other field when the mode changes.
 - Is empty and is not empty apply straight from the menu, as the null tests do.
-- In *Order and filter*, choosing a list operator shows the multi-line field, with its *Also kept*
-  list, in place of the single value field. That dialog's Apply refuses, per column, every case the
+- In *Order and filter*, choosing a list operator shows the multi-line field in place of the single
+  value field. That dialog's Apply refuses, per column, every case the
   value dialog refuses: an empty text-operator value with "Enter the text to match.", and each list
   refusal above.
 
@@ -275,9 +261,9 @@ finds and **is null** does not.
   "Line 2 is not a number — this column holds numbers." and starts no execution.
 - [ ] Applying the lines `NY`, a blank line, `NJ`, `NY` stores a filter whose `values` is
   `['NY', 'NJ']`.
-- [ ] Editing a stored filter `in ['a', null, '', 'x\ny']` in the typed field shows `a` in the field
-  and `NULL`, `(empty)` and `x↵y` under *Also kept*. Applying without a change stores values equal
-  to the original under `sameQuery`, and pushes no history entry.
+- [ ] Editing a stored filter `in ['NY', 'NJ']` shows the lines `NY` and `NJ` in the field.
+  Applying without a change stores values equal to the original under `sameQuery`, and pushes no
+  history entry.
 - [ ] In *Order and filter*, choosing contains on a column and pressing Apply without typing a
   value shows "Enter the text to match." on that column's row and starts no execution.
 - [ ] Choosing is empty from the menu produces one execution without opening a dialog.
@@ -350,8 +336,8 @@ export type ColumnFilter = {
   operator: FilterOperator;
   /** The comparisons and the four text operators. Absent otherwise. */
   value?: string;
-  /** `in` and `notIn` only. A NULL entry means the column's NULL cells. */
-  values?: (string | null)[];
+  /** `in` and `notIn` only. */
+  values?: string[];
   valueKind?: FilterValueKind;
 };
 
@@ -378,8 +364,8 @@ export function exceedsAthenaQueryLimit(sql: string): boolean;
 ```
 
 `FilterValueDialog` gains `mode: 'single' | 'list'`, derived by its host from the operator, and
-`onApply` takes `{value: string} | {values: (string | null)[]}`, and the dialog takes the column's
-existing filter, so list mode can show and keep its *Also kept* entries.
+`onApply` takes `{value: string} | {values: string[]}`, and the dialog takes the column's existing
+filter, so list mode can pre-fill it.
 
 ## File & Folder Structure
 

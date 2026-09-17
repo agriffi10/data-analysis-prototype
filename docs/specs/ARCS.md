@@ -3145,11 +3145,14 @@ the system already has a seam. 238 changes the filter model and the renderer, wh
 injection risk sits. 241 adds a second billed query that writes into that model. 241 needs 238's
 list operator and its value cap, so 238 goes first.
 
+> **SPEC-241 was cancelled (Andrew, 2026-09-16).** Filter by value is not being built. SPEC-238 was
+> trimmed back to what its own typed list can write, so its NULL list entries, its *Also kept* list
+> and the value cap it shared with 241 are gone. The 1,000-value cap itself stays in 238.
+
 **Build order, riskiest first:**
 
-1. **238, filter operators.** It changes the shared filter model that 241 and 243 build on, and
-   every new operator is a renderer path where a quoting mistake is an injection. It also adds the
-   statement-length refusal that 241's query relies on.
+1. **238, filter operators.** It changes the shared filter model that 243 builds on, and every new
+   operator is a renderer path where a quoting mistake is an injection.
 2. **239, export leaves out hidden columns.** It changes a control plane's request contract: a new
    bounded field, a closed format vocabulary that gains `csv`, a fourth writer, and the state
    machine's Pass states, which must carry the new field on every request. It also changes which
@@ -3158,8 +3161,7 @@ list operator and its value cap, so 238 goes first.
 3. **240, data-quality samples.** It changes the duplicates statement, whose count is an exact
    figure users act on, adds a schema field, and stores rows of user data in the report. Its browser half, over
    figures already stored, can ship alone as its first phase.
-4. **241, filter by value.** A second billed statement per exploration, which has to keep the
-   execution cache's cost promise. Needs 238.
+4. ~~**241, filter by value.**~~ Cancelled; see the note above.
 5. **242, a query result opens in Data Explorer.** It brings the `sql` source arm into use for the
    first time, since no earlier surface opens one. Its phases put the arm's end-to-end tests before
    the button that reaches it.
