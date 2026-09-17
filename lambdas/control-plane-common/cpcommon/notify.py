@@ -219,8 +219,8 @@ def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
         an AccessDenied, a bug, a bad response. This is what closes the silent-failure gap.
       emit_terminal: The domain's TerminalError emitter, called as
         ``emit_terminal(event, err, step)``. When supplied, a TerminalError is handed to it
-        before re-raising, so handlers need no ``try/except TerminalError`` of their own; the
-        emitter sends nothing for a reason ``is_silent`` names.
+        before re-raising, so handlers need no ``try/except TerminalError`` of their own. A
+        plane that raises a silent reason owes an emitter that sends nothing for it.
         When None, a TerminalError passes through un-notified — for a verb that owns its own
         actor-aware notification, such as a validate-authorize that notifies only once the
         actor is bound.
