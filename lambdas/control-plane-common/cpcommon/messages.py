@@ -299,7 +299,7 @@ def register(
       A ``Resolver`` scoped to that domain.
 
     Raises:
-      ValueError: If the domain re-defines a shared base reason code.
+      ValueError: If the domain re-defines a shared base reason code, or words a silent one.
     """
     return Resolver(
         domain_messages,

@@ -2247,22 +2247,22 @@ its refusal on the execution.
   `ValueError` in its deployed function, where the error is no longer a `TerminalError` and the user is
   told twice that something went wrong. Data quality's first version registered its own copy. A test
   in a fresh interpreter holding only `cpcommon` holds the new home.
-- **The check sits in `emit_failure`, not in `notifies_on_failure`.** The validators call their plane's
-  `emit_failure` directly, and a check in the decorator would miss them.
 - **A `Resolver` refuses a domain that words a silent reason.** File operations and archive each
   carried a body for it, now deleted, and a sentence nobody is told reads to the next person in the
   table as what the user sees.
 
 **The other half of the silence is `notify-failure`, and it differs by plane.** File operations' and
-archive's drop every `TerminalError` as already handled, so a silenced reason stays silent there
-without reading the predicate; data quality's reads `is_silent` itself. A test on each of the first two
-pins that half, because narrowing their name check would send the fallback *"something went wrong"*
-while every verb test stayed green.
+archive's drop every `TerminalError` as already handled, so what keeps a silenced reason silent there
+is that name check; they read `is_silent` only to log the suppression as a silent refusal rather than
+a duplicate of a notice nobody sent. Data quality's decides on `is_silent` itself. A test on each of
+the first two pins that half, because narrowing their name check would send the fallback *"something
+went wrong"* while every verb test stayed green.
 
-**A plane that adds the refusal gets the registration for free and the silence only by asking.** File
-send is due one; it is silent only once its own `emit_failure` reads `is_silent`.
+**A plane that adds the refusal gets the registration for free and the silence only by asking** — file
+send is due one. A fleet test derives the planes from where a silent code is named in their source,
+and holds each one's `emit_failure` to sending nothing for it, so a plane that starts raising the code
+without asking is red before it deploys.
 
 **Rejected.** *A copy of `SILENT_REASONS` and `is_silent` in each domain*, data quality's first shape:
-three copies of one policy, each carrying the registration trap. *Reading the predicate in file
-operations' and archive's `notify-failure`*: dead on the only path it would guard, since that state
-already drops the error.
+three copies of one policy, each carrying the registration trap. *The check in `notifies_on_failure`
+alone*: the validators call `emit_failure` directly, and would tell what the decorator keeps quiet.

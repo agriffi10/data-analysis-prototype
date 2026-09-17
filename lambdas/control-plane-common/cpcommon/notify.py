@@ -1,9 +1,9 @@
 """Best-effort notification primitives shared by every control plane.
 
 Four pieces are genuinely shared: the sender, the failure-notification skeleton, the
-*shape* of the FIFO deduplication token, and ``is_silent``, the test for a reason nobody is told. The domain emitters — ``emit_failure``,
-``emit_unexpected`` and the per-arc success emitters — stay in each domain layer, because
-their signatures differ. So do the dedup **strategies**: ``dedup_id`` composes an id, it does
+*shape* of the FIFO deduplication token, and ``is_silent``, the test for a reason nobody is
+told. The domain emitters — ``emit_failure``, ``emit_unexpected`` and the per-arc success
+emitters — stay in each domain layer, because their signatures differ. So do the dedup **strategies**: ``dedup_id`` composes an id, it does
 not decide what goes in one, and the four planes make four different choices (see its
 docstring). A plane relying on the queue's content-based dedup simply does not call it.
 

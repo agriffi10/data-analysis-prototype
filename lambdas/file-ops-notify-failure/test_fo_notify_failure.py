@@ -6,6 +6,7 @@ nobody when it should, telling somebody twice, and telling the wrong person.
 """
 
 import json
+import logging
 import os
 import sys
 
@@ -84,7 +85,7 @@ def test_an_engine_failure_notifies_the_actor():
     assert sent[0][0] == "alice"
 
 
-def test_a_reused_request_id_a_verb_raised_is_told_to_nobody_here_either():
+def test_a_reused_request_id_a_verb_raised_is_told_to_nobody_here_either(caplog):
     """The verb's decorator keeps this reason quiet because the run holding the id reports, and
     this state is the other half of that silence: it drops every ``TerminalError`` as already
     handled. Were it to let this one through, its ``{requestId}`` row would settle the browser's
@@ -100,11 +101,13 @@ def test_a_reused_request_id_a_verb_raised_is_told_to_nobody_here_either():
         ),
     }
 
-    n.handler(_request(reused), None)
+    with caplog.at_level(logging.INFO):
+        n.handler(_request(reused), None)
     silent = list(sent)
     n.handler(_request({"Error": "States.Timeout", "Cause": None}), None)
 
     assert silent == []
+    assert "request_id_reused is told to nobody" in caplog.text
     assert [user for user, _ in sent] == ["alice"]
 
 

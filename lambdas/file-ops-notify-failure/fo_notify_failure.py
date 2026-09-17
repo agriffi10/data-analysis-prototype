@@ -54,6 +54,7 @@ import logging
 from cpcommon import actor as cpactor
 from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
+from cpcommon.notify import is_silent
 from focommon import messages, notify
 
 logger = logging.getLogger()
@@ -270,6 +271,16 @@ def handler(event, context) -> dict:
 
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)
+
+    if _verb_already_notified(request.get("error")) and is_silent(reason):
+        logger.info("reason %s is told to nobody; nothing was sent for it", reason)
+        observability.info(
+            "suppressed a silent refusal",
+            outcome="suppressed",
+            reason=reason,
+            notified=False,
+        )
+        return request
 
     if _verb_already_notified(request.get("error")):
         logger.info("reason %s came from a verb; the decorator already notified", reason)
