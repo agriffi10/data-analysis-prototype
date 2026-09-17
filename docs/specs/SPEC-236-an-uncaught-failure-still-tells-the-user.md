@@ -9,8 +9,8 @@
 
 **Andrew's decision, 2026-09-16: the work is not being done.** The spec was never built. The gap it
 describes is still live: a run ending on `States.DataLimitExceeded` or `States.Runtime` reaches no
-notifier. The gap is recorded as accepted in `docs/decisions/control-planes.md`, in the entry *The
-machine's ceiling cannot notify on its own*. The rest of this file is the Draft as it stood.
+notifier. The gap is recorded as accepted in `docs/decisions/control-planes.md`, in the entry *Every
+plane notifies on a pre-verb failure*, together with the traps a later fix would meet. The rest of this file is the Draft as it stood.
 
 ## Overview
 

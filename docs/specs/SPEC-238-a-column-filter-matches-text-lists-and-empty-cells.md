@@ -73,7 +73,7 @@ Read from the code at `73c66eef`.
   Colors rule matches no NULL cell. In a CSV table blank cells are `''`, which the negative forms do
   include. **Is empty** exists to find absent values, so it matches both NULL and `''`.
 - **A list holds strings only.** `in` and `notIn` read `values: string[]`, which is exactly what
-  one-per-line text can express: no NULL entry, no empty string and no line break. The
+  one-per-line text can express: no NULL entry, no empty string and no line break (`\n` or `\r`). The
   stored-document check refuses a list holding any of the three, so an edit can always pre-fill it
   line for line. A list that should also keep NULL rows is written whole in the filter expression,
   as `"c" IN (…) OR "c" IS NULL` with no list filter on that column, because the expression and the
@@ -182,7 +182,7 @@ values in different orders or with a stray field are the same query.
   `['b','a','a']`, true when one of the two `in` filters also carries a stray `value: 'z'`, and false
   against `['a','c']`.
 - [ ] A stored tab document carrying an `in` filter with `['a', 'b']` restores with those values. One whose `values`
-  holds a number, a `null`, an empty string or a value containing a line break, or is a string rather
+  holds a number, a `null`, an empty string or a value containing `\n` or `\r`, or is a string rather
   than an array, is refused by the stored-document check.
 
 ### FR-003: Is empty and is not empty
@@ -227,7 +227,10 @@ is `Filter: <label>`.
   numbers.". Duplicates collapse, keeping the first. Apply is refused with "Enter at least one
   value." when no line has a value, and with "Enter at most 1,000 values." when more than 1,000
   distinct values would be stored.
-- Editing an existing list filter pre-fills its values, one per line, in their stored order.
+- List mode pre-fills from the column's existing `in` or `notIn` filter, one value per line in their
+  stored order, including when the user moves from one of the two to the other. A single-value
+  filter leaves list mode empty, and a list filter leaves the single-value field empty, as *Order
+  and filter* clears the other field when the mode changes.
 - Is empty and is not empty apply straight from the menu, as the null tests do.
 - In *Order and filter*, choosing a list operator shows the multi-line field in place of the single
   value field. That dialog's Apply refuses, per column, every case the

@@ -8,8 +8,8 @@
 ## Why this spec was cancelled
 
 **Andrew's decision, 2026-09-16: filter by value is not being built.** SPEC-238 had shaped its list
-model for this spec: NULL list entries, an *Also kept* list, and a value cap shared with this spec.
-Those were trimmed, and 238 now carries only what its own typed list can write. The rest of this
+model for this spec, with NULL list entries and an *Also kept* list. Those were trimmed, and 238 now
+carries only what its own typed list can write. Its 1,000-value cap stays, for its own list only. The rest of this
 file is the Draft as it stood.
 
 ## Overview
