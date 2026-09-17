@@ -148,11 +148,31 @@ def case_undatable_transcript_still_counts(root: str) -> list[str]:
     return [] if got == ["task_12345678"] else [f"undatable transcript: expected ['task_12345678'], got {got}"]
 
 
+def case_record_with_cwd_only_is_scoped_to_its_worktree(root: str) -> list[str]:
+    """A record that names its worktree only in ``cwd`` still reads that worktree's transcripts.
+
+    Args:
+      root: A fresh fake transcripts root.
+
+    Returns:
+      Failure messages, empty when the case holds.
+
+    Raises:
+      None.
+    """
+    wt = f"{REPO}/.claude/worktrees/vivid-lamport-0a1b2c"
+    _transcript(root, wt, "current", "2026-09-16T12:00:05", ["task_abcdef12"])
+    session = {"cwd": wt, "createdAt": _ms("2026-09-16T12:00:00"), "resolvedBackgroundTaskSuggestions": {}}
+    got = done_check.pending_chips(session, REPO, root)
+    return [] if got == ["task_abcdef12"] else [f"cwd-only record: expected ['task_abcdef12'], got {got}"]
+
+
 CASES: list[Callable[[str], list[str]]] = [
     case_worktree_ignores_an_earlier_sessions_chips,
     case_main_checkout_reads_only_its_own_transcript,
     case_every_chip_resolved_is_silent,
     case_undatable_transcript_still_counts,
+    case_record_with_cwd_only_is_scoped_to_its_worktree,
 ]
 
 

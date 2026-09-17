@@ -47,6 +47,8 @@ message is a teammate's report, not Andrew's approval.
   - one rule written in two places;
   - a handler rewrite that bypasses the other branch's new guard;
   - two sessions creating the same new file (an add/add conflict).
+- **`CONFLICT-ALSO-MAIN`:** the pair's conflicting files already conflict with main for one side,
+  usually because the other side rebased. Look at the hunks once before dismissing it.
 - **`CONFLICT`:** tell the session that lands second exactly which hunks, and that both sides are
   kept. A session stacked on an unmerged branch needs `git rebase --onto origin/main <the base sha it
   built on>` after that branch squash-merges, or it replays the squashed commits.
@@ -82,7 +84,7 @@ sign in yourself.
 ## Archiving
 
 Archive a session only when it is completely done:
-1. `scripts/supervisor/done_check.py --self <id> <session>` prints `ARCHIVABLE`. That means every PR
+1. `python3 scripts/supervisor/done_check.py --self <id> <session>` prints `ARCHIVABLE`. That means every PR
    merged, main green, no lock held, no pending chip, and clean worktrees.
 2. `get_session` shows `isRunning: false`. Otherwise subscribe with
    `SendMessage(notify_when_idle: true)` and check again when notified. If it is already idle, the

@@ -25,7 +25,7 @@ Q=$(sed -n "s/^Q=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$common/hooks/pre-p
 MODE=until-change SELF=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --self) SELF=${2:-}; shift 2;;
+    --self) [ $# -ge 2 ] || { echo "--self needs a session id" >&2; exit 2; }; SELF=$2; shift 2;;
     --until-change) MODE=until-change; shift;;
     --stream) MODE=stream; shift;;
     *) echo "unknown argument: $1" >&2; exit 2;;
@@ -41,6 +41,8 @@ snapshot() {
   cd "$REPO" || return
   if [ -z "$Q" ]; then
     echo "ALERT no Q= line in $common/hooks/pre-push; queue not watched"
+  elif [ ! -d "$Q" ]; then
+    echo "ALERT the queue named by the pre-push hook does not exist: $Q"
   elif [ -f "$Q/lock/holder" ]; then
     spec=$(awk '$1=="spec"{print $2}' "$Q/lock/holder"); br=$(awk '$1=="branch"{print $2}' "$Q/lock/holder")
     since=$(awk '$1=="since"{print $2}' "$Q/lock/holder")
@@ -70,7 +72,11 @@ busy = [r for r in mine if r["status"] != "completed"]
 print("MAIN %s %s" % (sha[:8], "RED: " + ", ".join(bad) if bad else ("building" if busy else "green")))'
   else echo "ALERT gh run list failed"; fi
   "$HERE/overlap.sh" 2>/dev/null | grep -E '^(SHARED|CONFLICT)'
-  python3 "$HERE/done_check.py" --self "$SELF" 2>/dev/null | awk -F'\t' '$4=="ARCHIVABLE"{print "ARCHIVABLE " $1 " " $2}'
+  if done=$(python3 "$HERE/done_check.py" --self "$SELF" 2>&1); then
+    printf '%s\n' "$done" | awk -F'\t' '$4=="ARCHIVABLE"{print "ARCHIVABLE " $1 " " $2}'
+  else
+    echo "ALERT done_check.py failed, so no session is offered for archive: $(printf '%s' "$done" | tail -1)"
+  fi
 }
 
 while true; do

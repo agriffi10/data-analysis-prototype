@@ -37,6 +37,7 @@ Attributes:
     result (a grep of a transcript, say) still matches, which only over-counts: a session kept
     open by a chip it never offered is the safe mistake.
   TIMESTAMP: A transcript line's timestamp, with or without a space after the colon.
+  UNKNOWN_LOCK: What ``lock_branch`` returns when the queue itself cannot be read.
   GIT: The resolved ``git`` executable.
   GH: The resolved ``gh`` executable.
 """
@@ -56,6 +57,7 @@ PROJECTS = os.path.expanduser("~/.claude/projects")
 CREATED_SLACK_MS = 60_000
 CHIP_ID = re.compile(r"Noted \(position \d+, task_id: (task_[0-9a-f]{8})\)")
 TIMESTAMP = re.compile(r'"timestamp":\s*"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)')
+UNKNOWN_LOCK = "<queue unreadable>"
 GIT = shutil.which("git") or "git"
 GH = shutil.which("gh") or "gh"
 _ENV = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
@@ -169,7 +171,7 @@ def transcripts(session: dict, repo: str, projects: str = PROJECTS) -> list[str]
     Raises:
       None.
     """
-    wt = session.get("worktreePath")
+    wt = session.get("worktreePath") or session.get("cwd")
     if not wt or wt == repo:
         own = os.path.join(projects, slug(repo), f"{session.get('cliSessionId')}.jsonl")
         return [own] if os.path.exists(own) else []
@@ -273,11 +275,14 @@ def main_is_green(repo: str) -> bool:
 def lock_branch(repo: str) -> str | None:
     """Returns the branch holding the PR-queue lock, reading the queue path from the pre-push hook.
 
+    A queue that cannot be found is not a free lock: a lost ``Q=`` line would otherwise wave through
+    a session that still holds it, so that case is ``UNKNOWN_LOCK`` and keeps every session with a PR.
+
     Args:
       repo: The main checkout.
 
     Returns:
-      The branch name, or None when the lock is free or the queue cannot be found.
+      The branch name; None when the lock is free; ``UNKNOWN_LOCK`` when the queue cannot be read.
 
     Raises:
       None.
@@ -285,23 +290,33 @@ def lock_branch(repo: str) -> str | None:
     try:
         with open(os.path.join(repo, ".git", "hooks", "pre-push")) as fh:
             m = re.search(r"^Q=['\"]?([^'\"\n]+)['\"]?$", fh.read(), re.MULTILINE)
-        if not m:
-            return None
+    except OSError:
+        return UNKNOWN_LOCK
+    if not m or not os.path.isdir(m.group(1)):
+        return UNKNOWN_LOCK
+    try:
         with open(os.path.join(m.group(1), "lock", "holder")) as fh:
             for line in fh:
                 if line.startswith("branch "):
                     return line.split(" ", 1)[1].strip()
-    except OSError:
+    except FileNotFoundError:
         return None
-    return None
+    except OSError:
+        return UNKNOWN_LOCK
+    return UNKNOWN_LOCK
 
 
-def scratch_worktrees(repo: str, name: str) -> list[str]:
-    """Returns the scratchpad worktrees a session created, found by its worktree name in their path.
+def scratch_worktrees(repo: str, name: str, cli_session_id: str | None) -> list[str]:
+    """Returns the scratchpad worktrees a session created.
+
+    A worktree session's scratchpad sits under a folder named for its worktree; a main-checkout
+    session's sits under the main checkout's folder, told apart only by the session's own id. Both
+    are matched, and a match on a reused worktree name only keeps a session open.
 
     Args:
       repo: The main checkout.
-      name: The session's worktree name.
+      name: The session's worktree name, or the checkout's name for a main-checkout session.
+      cli_session_id: The session's transcript id.
 
     Returns:
       Absolute paths of those worktrees.
@@ -311,7 +326,8 @@ def scratch_worktrees(repo: str, name: str) -> list[str]:
     """
     _, out = git(repo, "worktree", "list", "--porcelain")
     paths = [line[9:] for line in out.splitlines() if line.startswith("worktree ")]
-    return [p for p in paths if f"claude-worktrees-{name}/" in p]
+    marks = [f"claude-worktrees-{name}/"] + ([f"/{cli_session_id}/scratchpad/"] if cli_session_id else [])
+    return [p for p in paths if "/scratchpad/" in p and any(m in p for m in marks)]
 
 
 def problems_for(session: dict, repo: str, green: bool, held: str | None) -> list[str]:
@@ -341,11 +357,13 @@ def problems_for(session: dict, repo: str, green: bool, held: str | None) -> lis
     if prs and not green:
         problems.append("main not green")
     branches = {p.get("branch") for p in (session.get("prs") or [])} | set(session.get("writtenBranches") or [])
-    if held and held in branches:
+    if prs and held == UNKNOWN_LOCK:
+        problems.append("queue unreadable, so the lock holder is unknown")
+    elif held and held in branches:
         problems.append(f"holds queue lock on {held}")
     merged_heads = {h for state, h in heads.values() if state == "MERGED" and h}
     wt = session.get("worktreePath") or session.get("cwd") or repo
-    for path in [wt, *scratch_worktrees(repo, os.path.basename(wt))]:
+    for path in [wt, *scratch_worktrees(repo, os.path.basename(wt), session.get("cliSessionId"))]:
         if not os.path.isdir(path) or path == repo:
             continue
         _, dirty = git(repo, "status", "--porcelain", cwd=path)
