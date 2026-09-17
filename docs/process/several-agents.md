@@ -62,3 +62,7 @@ PR open at a time, taken in the order agents asked, with `main` settled and gree
   parallel run.
 
 Full protocol, configuration and the stale-entry rules: `scripts/pr-queue/PROTOCOL.md`.
+
+**A supervisor session** watches the queue, main and where sessions' work meets, relays what git
+will not catch, and archives finished sessions — `/supervise` (`.claude/skills/supervise/SKILL.md`),
+driven by `scripts/supervisor/`.
