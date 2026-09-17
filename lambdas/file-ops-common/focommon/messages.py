@@ -50,7 +50,10 @@ lesser argument.
 Attributes:
   _BODIES: Reason code to the clause following the prefix. The cap bodies that can name a number
     carry a marker rather than the number, so the sentence is filled from ``config`` and cannot
-    drift from the constant that enforces it.
+    drift from the constant that enforces it. ``request_id_reused`` has no body because nobody is
+    told it: it is one of ``cpcommon.messages.SILENT_REASONS``, and the run that wrote the plan
+    under that id is the one whose outcome message — and whose ``requestId`` payload, which the
+    browser settles its card on — the user should read.
   copy_resolver: The domain resolver under copy wording.
   move_resolver: The same table under move wording.
   delete_resolver: The same table under delete wording.
@@ -177,10 +180,6 @@ _BODIES = {
     "plan_superseded": (
         "another request for that space was already in flight. Nothing was changed. Please try "
         "again."
-    ),
-    "request_id_reused": (
-        "that looks like a repeat of a request already in flight. Nothing was changed. Please "
-        "refresh and try again."
     ),
     "operation_timed_out": (
         "it took too long and was stopped part-way, so some of it may have happened and some may "

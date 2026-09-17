@@ -161,10 +161,10 @@ def test_a_non_canonical_id_or_a_missing_arn_is_refused_before_any_write(request
 
 
 def test_the_silent_reason_is_raisable_with_only_this_domain_imported():
-    """Two sibling domains register the same code, and a deployed function imports only its own.
+    """The shared layer registers the code, and a deployed function imports only its own domain.
 
-    The suite imports every domain into one process, where a code this domain forgot to register
-    still validates. A fresh interpreter with only ``dqcommon`` on the path is what production is.
+    The suite imports every domain into one process, where a code one of them registers validates
+    for all of them. A fresh interpreter with only ``dqcommon`` on the path is what production is.
     """
     script = (
         "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]\n"

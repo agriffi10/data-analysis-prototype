@@ -20,11 +20,10 @@ Attributes:
 import logging
 
 from cpcommon.errors import TerminalError
-from cpcommon.events import in_vocabulary
-from cpcommon.notify import dedup_id, emit_notification
+from cpcommon.notify import dedup_id, emit_notification, is_silent
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
-from .messages import SILENT_REASONS, UNEXPECTED_ERROR, failure_message, success_message
+from .messages import UNEXPECTED_ERROR, failure_message, success_message
 
 logger = logging.getLogger()
 
@@ -138,24 +137,6 @@ def emit_completed(event: dict) -> None:
         dedup_id=dedup_id(event.get("requestId"), SUCCESS_STEP),
         link=report_link(actor, space, event.get("requestId", "")),
     )
-
-
-def is_silent(reason: object) -> bool:
-    """Reports whether a terminal reason ends the run without a notification.
-
-    The one predicate both failure emitters consult — the verb decorator's and the notify state's —
-    so the two cannot disagree about which refusals stay quiet.
-
-    Args:
-      reason: The terminal reason code, of any type.
-
-    Returns:
-      True when the reason is one of ``messages.SILENT_REASONS``.
-
-    Raises:
-      None.
-    """
-    return in_vocabulary(reason, SILENT_REASONS)
 
 
 def emit_failure(event: dict, err: TerminalError, step: str = FAILURE_STEP) -> None:

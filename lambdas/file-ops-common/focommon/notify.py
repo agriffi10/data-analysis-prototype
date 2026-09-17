@@ -31,7 +31,7 @@ from urllib.parse import quote
 
 from cpcommon import observability
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, dedup_id, emit_notification
+from cpcommon.notify import actor_of, dedup_id, emit_notification, is_silent
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from . import config, outcomes
@@ -111,6 +111,13 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Functions record. Its TOKENS are the opposite channel and are forwarded, because they exist
     to fill the markers in a body.
 
+    A silent reason sends nothing, and says so in the log. The only one this plane raises is a
+    reused request id, refused because a plan under that id names another execution: that run
+    reports under the id, and its outcome row is what settles the browser's in-flight card. A
+    refusal row carrying the same id would read to that card as "Refused", for an operation that
+    may have finished. The price is that a hand-built request reusing an id, which has no such run
+    to hear from, is told nothing at all; its refusal is on the execution.
+
     Args:
       event: The verb's event.
       err: The terminal error being reported.
@@ -126,6 +133,11 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
+    if is_silent(err.reason):
+        logger.info(
+            "not notifying %s for %s", err.reason, observability.request_id_of(event)
+        )
+        return
     emit_notification(
         actor_of(event),
         failure_message(operation_of(event), err.reason, err.tokens),

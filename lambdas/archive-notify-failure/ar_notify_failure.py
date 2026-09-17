@@ -248,7 +248,10 @@ def _verb_already_notified(error) -> bool:
 
     One name, not a heuristic, and the narrowness is the point. ``TerminalError`` is the only
     error treated as already-reported, because it is the only positive evidence: a verb raised
-    it deliberately and the decorator fired on the way out.
+    it deliberately and the decorator fired on the way out. Firing is not always sending — the
+    plane's ``emit_failure`` keeps a reason ``cpcommon.notify.is_silent`` names quiet — so this
+    is also the half of that silence that runs here: a reused request id stays told by nobody
+    only because this suppresses it too.
 
     The tempting heuristic — a dotted error name means the engine, a bare one means a handler
     ran — is wrong in the dangerous direction, and this fleet has the outage to prove it: a

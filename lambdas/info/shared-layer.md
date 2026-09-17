@@ -27,8 +27,8 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `glue` | Glue catalog reads shared by the planes that read a live table |
 | `jwks` | the cooldown JWKS client |
 | `lock` | the object-lock protocol: conditional acquire, staleness steal, release by overwrite |
-| `messages` | the failure-message resolver a domain layer extends |
-| `notify` | the FIFO notifications send and its dedup id |
+| `messages` | the failure-message resolver a domain layer extends, and the reasons nobody is told |
+| `notify` | the FIFO notifications send, its dedup id, and `is_silent` — the test a plane's `emit_failure` reads before telling anyone |
 | `observability` | structured logging — the one door to `log-foundry` |
 | `paths` | key containment: is this key inside the root I authorized? |
 | `registry` | shared-space registry reads |

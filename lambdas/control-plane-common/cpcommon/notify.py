@@ -1,7 +1,7 @@
 """Best-effort notification primitives shared by every control plane.
 
-Three pieces are genuinely shared: the sender, the failure-notification skeleton and the
-*shape* of the FIFO deduplication token. The domain emitters — ``emit_failure``,
+Four pieces are genuinely shared: the sender, the failure-notification skeleton, the
+*shape* of the FIFO deduplication token, and ``is_silent``, the test for a reason nobody is told. The domain emitters — ``emit_failure``,
 ``emit_unexpected`` and the per-arc success emitters — stay in each domain layer, because
 their signatures differ. So do the dedup **strategies**: ``dedup_id`` composes an id, it does
 not decide what goes in one, and the four planes make four different choices (see its
@@ -21,6 +21,8 @@ import logging
 
 from . import clients, config
 from .errors import TerminalError, TransientError
+from .events import in_vocabulary
+from .messages import SILENT_REASONS
 
 logger = logging.getLogger()
 
@@ -181,6 +183,26 @@ def emit_notification(
         logger.exception("emit_notification failed for %s", username)
 
 
+def is_silent(reason: object) -> bool:
+    """Reports whether a terminal reason ends the run without a notification.
+
+    The one predicate a domain's ``emit_failure`` reads before it sends, so no plane keeps its
+    own list of which refusals stay quiet. It sits in the emitter rather than in
+    ``notifies_on_failure``, because a validator calls its plane's ``emit_failure`` directly and
+    would otherwise tell a silent reason the decorator keeps quiet.
+
+    Args:
+      reason: The terminal reason code, of any type.
+
+    Returns:
+      True when the reason is one of ``messages.SILENT_REASONS``.
+
+    Raises:
+      None.
+    """
+    return in_vocabulary(reason, SILENT_REASONS)
+
+
 def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
     """Builds a decorator that notifies the actor of a verb failure before it propagates.
 
@@ -196,8 +218,9 @@ def notifies_on_failure(step: str, emit_unexpected, emit_terminal=None):
         ``emit_unexpected(event, step)`` for an exception the handler did not anticipate —
         an AccessDenied, a bug, a bad response. This is what closes the silent-failure gap.
       emit_terminal: The domain's TerminalError emitter, called as
-        ``emit_terminal(event, err, step)``. When supplied, a TerminalError is notified here
-        before re-raising, so handlers need no ``try/except TerminalError`` of their own.
+        ``emit_terminal(event, err, step)``. When supplied, a TerminalError is handed to it
+        before re-raising, so handlers need no ``try/except TerminalError`` of their own; the
+        emitter sends nothing for a reason ``is_silent`` names.
         When None, a TerminalError passes through un-notified — for a verb that owns its own
         actor-aware notification, such as a validate-authorize that notifies only once the
         actor is bound.

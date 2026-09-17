@@ -60,11 +60,11 @@ Attributes:
   REQUEST_ID_REUSED: inspect-source terminal. The request id is already claimed by another
     execution, so every name this run would derive from it — its temp tables, its report folder,
     its Athena tokens — already belongs to that one. Refused before anything is listed or written.
-  SILENT_REASONS: Reasons that end a run without telling anyone. Registered as valid terminal
-    reasons but given no wording, and both failure emitters skip them through
-    ``notify.is_silent``. A reused request id is the only member. The run it collided with is the
-    one that reports, and the browser mints a fresh id per submit, so a reuse comes from a request
-    somebody built by hand, which has nothing it should be told.
+    The shared layer's code, registered there and given no wording: it is one of
+    ``cpcommon.messages.SILENT_REASONS``, so both failure emitters skip it through
+    ``notify.is_silent``. The run it collided with is the one that reports, and the browser mints
+    a fresh id per submit, so a reuse comes from a request somebody built by hand, which has
+    nothing it should be told.
   _BODIES: Reason code to the clause following the "Couldn't check data quality" prefix. Caps
     are baked in from the config at import, so a message quoting a limit cannot drift from the
     constant that enforces it. The remaining markers carry per-request context only a raise site
@@ -99,9 +99,7 @@ INVALID_COLUMN_NAMES = "invalid_column_names"
 INVALID_PARTITION_NAMES = "invalid_partition_names"
 QUERY_FAILED = "query_failed"
 QUERY_TIMEOUT = "query_timeout"
-REQUEST_ID_REUSED = "request_id_reused"
-
-SILENT_REASONS = frozenset({REQUEST_ID_REUSED})
+REQUEST_ID_REUSED = _cpmessages.REQUEST_ID_REUSED
 
 _BODIES = {
     INVALID_REQUEST: "the request was malformed. Please try again.",
@@ -161,7 +159,6 @@ resolver = _cpmessages.register(
     prefix="Couldn't check data quality{where}: ",
     access_denied="You don't have access to check data quality there.",
 )
-_cpmessages.register_reasons(SILENT_REASONS)
 
 
 def failure_message(reason: str, location: str = "", **tokens: str) -> str:

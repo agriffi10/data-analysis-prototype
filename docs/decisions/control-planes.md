@@ -59,6 +59,7 @@ entry you need, not the file.**
 - [A group id orders the STARTS, not the runs, and what overlap costs on each plane (control-plane-wide)](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)
 - [A data-quality request id is claimed by one execution before anything is named from it (data quality)](#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality)
 - [Notifications deduplicate per recipient, so a borrowed request id cannot drop someone else's notice (control-plane-wide)](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide)
+- [A reused request id is told to nobody, because the run holding the id is the one that reports (data quality, file operations, archive)](#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)
 
 ## Fences
 
@@ -1143,7 +1144,9 @@ A reader settles its in-flight record by matching it, and a clean run has nothin
 scoping the field to "what a re-submit needs" would leave successful operations unsettled. The same
 argument applies one path over, to a run that **failed** before the producer ever ran, which settles
 nothing otherwise; so the two failure emitters carry a minimal `{requestId}` payload too. That is
-beyond the spec's own acceptance criteria and was built deliberately.
+beyond the spec's own acceptance criteria and was built deliberately. The one refusal that writes no
+row at all is a reused request id: the run holding the id reports under it, and its outcome row is the
+one the card should settle on ([told to nobody](#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
 **Built into the emitters, it still never reached a failure row, and why is the lesson.** The
 emitters forward whatever id their event names, and their test handed them one. The validator
@@ -2174,8 +2177,8 @@ collided with is the one that reports. The question put to Andrew also gave a re
 click as the realistic trigger, one that would tell a person a running check had failed. That rested
 on redelivery starting a second execution, and [reusing an execution name was measured](../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
 to return the first run instead — only that a redelivery reuses its name is inferred — so the
-decision stands on the reason above. `messages.SILENT_REASONS` registers the code without wording, and
-`notify.is_silent` is the one predicate both failure emitters read. That a notice under a borrowed id
+decision stands on the reason above. The code and the predicate that keeps it quiet now live in the
+shared layer, [where file operations and archive read them too](#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive). That a notice under a borrowed id
 could drop someone else's is closed for every plane at the queue, by [per-recipient deduplication](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
 
 **What stays open.** Runs from before the claim hold none, so reusing one of their ids claims it
@@ -2214,3 +2217,52 @@ producer is the per-site answer the class had already outrun twice.
 
 **What it does not change.** The same person can still lose a notice to another of their own under
 the same key — two of their requests sent with one id — because that is what deduplication is for.
+
+## A reused request id is told to nobody, because the run holding the id is the one that reports (data quality, file operations, archive)
+
+**All three planes that refuse `request_id_reused` refuse it silently.** Each decides that an id is
+held its own way — data quality by a claim naming another execution, file operations by a plan naming
+another execution ARN, archive by an archive prefix that already holds objects — and in each the id
+belongs to a run that reports under it: data quality's report notice, file operations'
+`{requestId}:outcomes` row, archive's `archived` and restore rows. A notice from the refused run could
+only contradict that run. On file operations it said *"that looks like a repeat of a request already in
+flight. Nothing was changed"* and carried `{requestId}` with no `operation`, so it could settle the
+browser's in-flight card as *Refused* on an operation that finished. On archive it said nothing was
+archived, beside *"Archived N files"*. Neither dropped the first run's notice — its success rows carry
+explicit dedup ids and the failure text differed — so this was wording, not a lost message.
+
+**Decided 2026-09-16 (Andrew): silent on file operations and archive, as on data quality.** Rewording
+the notice to say a duplicate was ignored was the alternative, and it would still land a row carrying
+the card's id. Who actually sends a reuse is argued in [the data-quality entry](#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality): the browser
+mints an id per submit, and a redelivered message was measured to return the running execution rather
+than start another. So the likely sender is a hand-built request, which is now told nothing and finds
+its refusal on the execution.
+
+**The mechanism is one vocabulary and one predicate, both in the shared layer.**
+`cpcommon.messages.SILENT_REASONS` holds the code and registers it at import, and
+`cpcommon.notify.is_silent` is what each plane's `emit_failure` reads before it sends.
+
+- **The shared layer registers the code, not each plane.** The suite imports every domain into one
+  process, so a plane that forgot to register a code another plane registers passes locally and raises
+  `ValueError` in its deployed function, where the error is no longer a `TerminalError` and the user is
+  told twice that something went wrong. Data quality's first version registered its own copy. A test
+  in a fresh interpreter holding only `cpcommon` holds the new home.
+- **The check sits in `emit_failure`, not in `notifies_on_failure`.** The validators call their plane's
+  `emit_failure` directly, and a check in the decorator would miss them.
+- **A `Resolver` refuses a domain that words a silent reason.** File operations and archive each
+  carried a body for it, now deleted, and a sentence nobody is told reads to the next person in the
+  table as what the user sees.
+
+**The other half of the silence is `notify-failure`, and it differs by plane.** File operations' and
+archive's drop every `TerminalError` as already handled, so a silenced reason stays silent there
+without reading the predicate; data quality's reads `is_silent` itself. A test on each of the first two
+pins that half, because narrowing their name check would send the fallback *"something went wrong"*
+while every verb test stayed green.
+
+**A plane that adds the refusal gets the registration for free and the silence only by asking.** File
+send is due one; it is silent only once its own `emit_failure` reads `is_silent`.
+
+**Rejected.** *A copy of `SILENT_REASONS` and `is_silent` in each domain*, data quality's first shape:
+three copies of one policy, each carrying the registration trap. *Reading the predicate in file
+operations' and archive's `notify-failure`*: dead on the only path it would guard, since that state
+already drops the error.

@@ -328,7 +328,9 @@ execution's name proceeds, because a `Retry` of inspect-source is not a reuse; a
 name refuses `request_id_reused` before the copy plan is written. A claim that is absent on read-back,
 or whose read fails other than transiently, also refuses. A `409` on the write, or a transient failure
 on the read-back, raises `TransientError`. A request with no `$.execution` raises `malformed_event`,
-for the reason `arcommon.plan`'s execution-keyed paths already do.
+for the reason `arcommon.plan`'s execution-keyed paths already do. `request_id_reused` is one of
+`cpcommon.messages.SILENT_REASONS`, so every one of these refusals notifies nobody — including the
+absent or unreadable claim, where no run can be shown to hold the id and report under it.
 
 #### Acceptance Criteria:
 

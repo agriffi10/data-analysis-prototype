@@ -30,6 +30,12 @@ Attributes:
     speaking, and the two bodies that cannot say it (``source_delete_incomplete``,
     ``receipt_write_failed``) say instead that nothing has been lost.
 
+    There is no ``request_id_reused`` body, because that refusal is told to nobody. It is the
+    shared layer's code, one of ``cpcommon.messages.SILENT_REASONS``: the prefix it finds occupied
+    belongs to the run that first held the id, and that run's own "Archived" message is the one
+    the user should read, so a second message saying nothing was archived could only contradict
+    it.
+
     There is no ``unknown_space`` body: a shared space that does not exist fails
     ``authorize_source`` as ``forbidden``, deliberately, because "no such space" and "you are
     not a member" must not be distinguishable to a caller — the difference is an existence
@@ -99,10 +105,6 @@ _BODIES = {
     ),
     "object_too_large": (
         "one of those files is too large to archive. Please contact an administrator."
-    ),
-    "request_id_reused": (
-        "that archive has already been started once, so nothing was archived. "
-        "Please try again from the file browser."
     ),
     "undeletable_folder": (
         'what you selected contains a folder named "{folderName}", which Data Quarry manages and '
