@@ -303,7 +303,8 @@ def _validate_and_authorize(event) -> dict:
         source["items"] = _normalize_items(declared.get("items"), source)
         recipients = _annotate_recipients(_normalize_recipients(req.get("recipients")))
     except TerminalError as err:
-        notify.emit_failure({"actor": {"username": actor}}, err, "validate")
+        notified = {"requestId": req.get("requestId"), "actor": {"username": actor}}
+        notify.emit_failure(notified, err, "validate")
         raise
 
     validated = {

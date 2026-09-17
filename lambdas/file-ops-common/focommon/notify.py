@@ -31,7 +31,13 @@ from urllib.parse import quote
 
 from cpcommon import observability
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, dedup_id, emit_notification, is_silent
+from cpcommon.notify import (
+    actor_of,
+    dedup_id,
+    emit_notification,
+    is_silent,
+    request_payload,
+)
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from . import config, outcomes
@@ -406,32 +412,6 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
     if dropped or len(carried) < len(conflicted):
         payload["more"] = True
     return payload
-
-
-def request_payload(event) -> dict | None:
-    """Builds the minimal payload a WHOLE-REQUEST failure carries.
-
-    The same argument as the outcome payload's ``requestId``, applied one path over: a run that
-    failed before it reached the producer settles nothing otherwise, and a reader's in-flight
-    record for it is held until its own expiry rather than answered. The rest of the payload is
-    absent because there is no terminal to build it from.
-
-    **The id is read from every shape a failure reaches an emitter in**, not only a top-level key:
-    a recorded failure whose error replaced the state carries ``requestId: null`` beside the
-    forwarded request under ``raw``, and a timed-out execution hands over the Pipe's batch itself.
-    Reading only the key answered None on exactly the failures nothing else settles.
-
-    Args:
-      event: The verb's event, a recorded failure, or the Pipe's forwarded batch.
-
-    Returns:
-      ``{"requestId": …}``, or None when no shape names a usable one.
-
-    Raises:
-      None.
-    """
-    request_id = observability.request_id_of(event)
-    return {"requestId": request_id} if request_id else None
 
 
 def _destination_label(prefix: str) -> str:

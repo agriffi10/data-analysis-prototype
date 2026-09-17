@@ -60,6 +60,7 @@ entry you need, not the file.**
 - [A data-quality request id is claimed by one execution before anything is named from it (data quality)](#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality)
 - [Notifications deduplicate per recipient, so a borrowed request id cannot drop someone else's notice (control-plane-wide)](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide)
 - [A reused request id is told to nobody, because the run holding the id is the one that reports (data quality, file operations, archive)](#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)
+- [A notice with no dedup id names its run in the payload, so two runs ending alike stay two notices (control-plane-wide)](#a-notice-with-no-dedup-id-names-its-run-in-the-payload-so-two-runs-ending-alike-stay-two-notices-control-plane-wide)
 
 ## Fences
 
@@ -185,6 +186,9 @@ inside the execution the Pipe starts.
   and every sender's group is the recipient: two notices collapse only when they go to the same
   person. Deduplicated across the queue, a request borrowing another member's id dropped that
   member's notice. [Per recipient](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide).
+  A notice sent with **no** dedup id is deduplicated on its body, and a generic sentence is the same
+  for two runs, so it **names its run in the payload**; a sweep refuses a send that names none.
+  [Named run](#a-notice-with-no-dedup-id-names-its-run-in-the-payload-so-two-runs-ending-alike-stay-two-notices-control-plane-wide).
 - **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
   The portal role holds no grant on the queue, and the API's route accepts only `markRead` and
   `markAllRead`. The writer's check names only the portal role, so against the API's own role the
@@ -2285,3 +2289,43 @@ without asking is red before it deploys.
 **Rejected.** *A copy of `SILENT_REASONS` and `is_silent` in each domain*, data quality's first shape:
 three copies of one policy, each carrying the registration trap. *The check in `notifies_on_failure`
 alone*: the validators call `emit_failure` directly, and would tell what the decorator keeps quiet.
+
+## A notice with no dedup id names its run in the payload, so two runs ending alike stay two notices (control-plane-wide)
+
+**The queue deduplicates such a notice on its body, and a body can name nothing about the run.**
+Archive's and file-send's failure notices passed no dedup id and relied on content dedup to make a
+verb's retry safe, the shape both inherited from table-share. Their generic sentences — "something
+went wrong", a timeout — carry no count or file, so two runs by one user failing alike inside five
+minutes rendered byte-identical bodies and were delivered once, and the second run's failure was
+never told. It was the third time a notice shipped naming no run, after archive's success notices
+and file-operations' failure rows — whose missing id an in-flight reader noticed rather than the
+queue — each found late and repaired one plane at a time.
+
+**Each such notice now carries `payload: {"requestId": …}`**, built by
+`cpcommon.notify.request_payload`, which reads the id through `observability.request_id_of` from
+every shape a failure reaches an emitter in: a verb's event, validate-authorize's own refusal, the
+forwarded request where the error replaced the state, and the raw input of a timed-out execution —
+never the state, which the timeout event does not carry. A retry of one run composes the same body, so content
+dedup still collapses it. The browser keeps a payload whose `requestId` is well formed and renders
+no control for one without conflicts, so the only thing a user sees change is the second notice.
+`lambdas/test_failure_notices_name_their_run.py` drives every door through the real sender to a
+recording queue, and with the id removed its positive control still shows the two runs collapsing.
+
+**Rejected: a dedup token per failure outcome.** It would merge the verb decorator's
+unexpected-error notice with notify-failure's engine-error notice. The two sentences differ and both
+are sent on purpose; a token that collapsed them is a behaviour change this repair does not make.
+
+**File-send's success notices take a token, not a payload**, and a review found them in the same
+class: after a conflict the recipient moves the first delivery, the re-send succeeds with the first
+send's sentence, and the sender, the recipient and the space owner each lost the second notice.
+They pass `dedup_id(requestId, "sent:{kind}:{name}")` and `"received:{kind}:{name}"`, one per
+recipient and per addressee. A payload would put the sender's request id in another user's inbox,
+where it names nothing they did; a token never leaves the queue.
+
+**A sweep holds the class rather than the planes.** `lambdas/test_notification_sends_name_their_run.py`
+reads every `emit_notification` call and refuses one passing neither `dedup_id` nor `payload`,
+against counted exemptions, which are every table-share notice. Table-share
+carries no request id in its API body, its state or its Map input; its only run identity is the
+execution name, so naming its runs changes the machine and its verbs, not an emitter. The sweep
+cannot see a name that is None at run time — it refuses the send that forgot to name the run at
+all, which is how every instance so far was written.

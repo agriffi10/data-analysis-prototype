@@ -24,6 +24,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_notify as m
 import pytest
+from cpcommon import clients, config
 from fscommon import notify, paths
 
 _PORTAL = pathlib.Path(__file__).resolve().parents[2] / "apps" / "portal" / "src"
@@ -36,7 +37,7 @@ def sent(monkeypatch):
     monkeypatch.setattr(
         notify,
         "emit_notification",
-        lambda user, message, dedup_id=None, link=None: captured.append((user, message, link)),
+        lambda user, message, link=None, **kw: captured.append((user, message, link)),
     )
     return captured
 
@@ -70,6 +71,73 @@ def _summary(recipients, sender="alice", item_names=("reports", "notes.txt"), ob
         "objectCount": objects,
         "recipients": recipients,
     }
+
+
+class _Queue:
+    """Records every send the real sender makes, as the notifications queue would receive it.
+
+    Attributes:
+      calls: The keyword arguments of each ``send_message``, in order.
+    """
+
+    def __init__(self):
+        """Starts with nothing sent.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self.calls = []
+
+    def send_message(self, **kwargs):
+        """Keeps one send.
+
+        Args:
+          **kwargs: The send's arguments.
+
+        Returns:
+          A response carrying a message id.
+
+        Raises:
+          None.
+        """
+        self.calls.append(kwargs)
+        return {"MessageId": "m"}
+
+
+def test_two_sends_delivered_alike_are_two_notices_to_everyone_and_a_retry_is_one(monkeypatch):
+    """The re-send after a conflict, once the recipient moved the first delivery, succeeds with the
+    first send's sentence. The queue deduplicates per recipient on the dedup id, so each addressee's
+    second notice survives only if its id names the run — and a retry of the producer must compose
+    the same ids, or one run is told twice.
+
+    The bodies are asserted identical across the two runs, which is what makes the differing keys
+    evidence: nothing but the id keeps them apart. ``bob`` is both a user recipient and the owner of
+    the space recipient, so his two notices share a message group and meet on their tokens.
+    """
+    queue = _Queue()
+    monkeypatch.setattr(clients, "_sqs", queue)
+    monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/n.fifo", raising=False)
+    monkeypatch.setattr(notify.reg, "load", lambda name: {"owner": "bob"})
+    recipients = [_ok(), _ok(kind="space", name="finance")]
+    runs = []
+    for request_id in ("run-a", "run-b", "run-a"):
+        before = len(queue.calls)
+        m.handler({**_summary(recipients), "requestId": request_id}, None)
+        runs.append(queue.calls[before:])
+    first, second, retry = ([(c["MessageGroupId"], c.get("MessageDeduplicationId")) for c in r] for r in runs)
+
+    assert [group for group, _id in first] == ["alice", "bob", "alice", "bob"]
+    assert [c["MessageBody"] for c in runs[0]] == [c["MessageBody"] for c in runs[1]]
+    assert all(dedup for _group, dedup in first), "a success went out with no dedup id"
+    assert len(set(first)) == len(first), "one run's notices collapse into each other"
+    assert not set(first) & set(second), "two runs' notices collapse"
+    assert retry == first, "a retry of one run is told twice"
 
 
 def test_a_delivered_send_tells_the_sender_and_the_recipient(sent):

@@ -14,10 +14,17 @@ the one-token-per-outcome rule exists to prevent.
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.
 
-**The FAILURE emitters pass no dedup token and rely on the queue's content-based dedup** — the
-shape inherited from table-share. Every failure body names its own reason and most name a count
-or a file, so two distinct runs rendering byte-identical text is remote, and content dedup is
-what makes a verb's ``Retry`` safe.
+**The FAILURE emitters pass no dedup token and rely on the queue's content-based dedup, so every
+one carries the run's request id in its payload.** Content dedup is what makes a verb's ``Retry``
+safe: a re-invocation composes the same body. But the body is all it hashes, and the generic
+reasons name no count or file — "something went wrong", a timeout — so two archives by one user
+failing alike inside the five-minute window rendered byte-identical text and became one inbox row,
+and the second run's failure was never told. ``request_payload`` makes the body per run.
+
+**A payload rather than a token**, because a token would have to choose what it collapses. The
+decorator's unexpected-error sentence and notify-failure's engine-error sentence differ, and both
+are sent on purpose (``ar_notify_failure._verb_already_notified``); one token per failure outcome
+would silently merge them. With the id in the body the two still differ and both still send.
 
 **The three SUCCESS emitters pass one, and that closes a real hole rather than a
 stylistic difference.** ``restore_started_message`` says only how many files are being retrieved;
@@ -33,7 +40,13 @@ import logging
 import re
 
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, dedup_id, emit_notification, is_silent
+from cpcommon.notify import (
+    actor_of,
+    dedup_id,
+    emit_notification,
+    is_silent,
+    request_payload,
+)
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -55,6 +68,7 @@ __all__ = [
     "emit_restored",
     "emit_unexpected",
     "notifies_on_failure",
+    "request_payload",
     "space_link",
 ]
 
@@ -124,7 +138,9 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
         )
         return
     emit_notification(
-        actor_of(event), failure_message(err.reason, tokens=err.tokens, mode=_mode(event))
+        actor_of(event),
+        failure_message(err.reason, tokens=err.tokens, mode=_mode(event)),
+        payload=request_payload(event),
     )
 
 
@@ -143,7 +159,11 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(actor_of(event), failure_message("unexpected_error", mode=_mode(event)))
+    emit_notification(
+        actor_of(event),
+        failure_message("unexpected_error", mode=_mode(event)),
+        payload=request_payload(event),
+    )
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):

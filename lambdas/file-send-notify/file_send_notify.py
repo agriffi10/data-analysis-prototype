@@ -100,7 +100,9 @@ def _notify(event) -> dict:
 
     for outcome in recipients:
         try:
-            notify.emit_recipient_outcome(sender, outcome, item_names, object_count)
+            notify.emit_recipient_outcome(
+                sender, outcome, item_names, object_count, request_id=summary.get("requestId")
+            )
         except Exception:
             logger.exception(
                 "could not notify the outcome for %s:%s; continuing with the rest",
