@@ -101,7 +101,7 @@ absolute source key and its size: everything the manifest builder needs, with no
   while a **repeated** item collapses.
 - **Exclusion rules anchor at the listing prefix** — whichever item the user picked — so this plane
   anchors its own at the **space root** instead. Reusing `is_ignored` would silently drop a user-made
-  `reports/athenaresults/` and any `_drafts/` from a copy. `list_data_objects` took an optional
+  `reports/_drafts/` from a copy. `list_data_objects` took an optional
   `ignore` predicate rather than being forked. A genuinely empty **file** is sent; a folder
   **placeholder** (zero bytes, trailing slash) is not, so an empty subfolder does not survive a send.
 - **The guard's expected refusals are RETURN VALUES**, not exceptions, because a conflict must name

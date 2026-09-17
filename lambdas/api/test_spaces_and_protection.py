@@ -14,6 +14,7 @@ import pytest
 from apicommon import config, protected, s3_config, spaces
 from apicommon.envelope import ApiError
 from apicommon.identity import UserIdentity
+from cpcommon.s3_listing import is_ignored
 
 PERSONAL = spaces.ResolvedSpace("personal", "alice", "user-bucket", "alice/")
 SHARED = spaces.ResolvedSpace("shared", "finance", "shared-bucket", "finance/")
@@ -209,14 +210,29 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         """By basename, not by substring — `DO_NOT_DELETE.txt.bak` is an ordinary file."""
         protected.assert_replaceable(PERSONAL, "alice/DO_NOT_DELETE.txt.bak")
 
-    def test_the_marker_rule_does_not_inherit_the_listing_exclusions(self) -> None:
-        """`cpcommon.is_ignored` also hides `athenaresults/` and `user_settings/`.
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "alice/user_settings/query-history.json",
+            "alice/exports/_SUCCESS",
+        ],
+    )
+    def test_the_marker_rule_does_not_inherit_the_listing_exclusions(self, key) -> None:
+        """`s3_listing.is_ignored` also skips the `user_settings/` sub-tree and any hidden segment.
 
-        Those are listing conveniences, not write rules. Taking the predicate instead of the
-        constant would make both undeletable through the API, which no bucket policy says.
+        Those decide what a plane reads as source data, not what may be replaced. This check also
+        gates an overwrite, and the browser rewrites its query history document in place through
+        it, so taking the predicate instead of the constant would refuse the app's own write. The
+        sub-tree is matched only when the predicate is handed the space root; a hidden BASENAME is
+        matched under whichever folder above it is handed as the prefix, the listed folder
+        included, so it is the key that still reddens when the defect picks some other prefix.
+
+        The premise is asserted first because it is what goes stale. No results-folder key serves:
+        the predicate matches only `system_settings/athenaresults/`, which `assert_writable` refuses
+        by its own rule, so a key there cannot tell the two rules apart.
         """
-        protected.assert_replaceable(PERSONAL, "alice/athenaresults/result.csv")
-        protected.assert_replaceable(PERSONAL, "alice/user_settings/notifications.json")
+        assert is_ignored(key, 1, PERSONAL.root), "the listing exclusions no longer match this key"
+        protected.assert_replaceable(PERSONAL, key)
 
 
 class TestTheReportsFolderIsTheDataQualityPlanes:

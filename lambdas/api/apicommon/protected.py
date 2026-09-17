@@ -112,9 +112,12 @@ def contained_prefix(space: ResolvedSpace, prefix: str) -> str:
 def is_marker(key: str) -> bool:
     """Whether a key is a folder marker, by BASENAME.
 
-    Takes ``cpcommon``'s constant rather than its ``is_ignored`` predicate: that one also folds in
-    ``athenaresults/`` and ``user_settings/``, which are listing conveniences the API must not
-    inherit as write rules.
+    Takes ``cpcommon``'s constant rather than its ``is_ignored`` predicate: that one also skips the
+    ``user_settings/`` and query-results sub-trees, folder keys and hidden segments, which decide
+    what a plane reads as source data, not what may be replaced. The results and data-quality
+    reports folders have their own rules in ``assert_writable``; the rest is not this rule's to
+    refuse, and ``user_settings/`` must stay overwritable, since the app rewrites its query history
+    there in place.
 
     Args:
       key: The object key.
