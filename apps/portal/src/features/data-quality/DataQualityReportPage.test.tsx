@@ -21,6 +21,7 @@ import type {DataQualityReport} from './dataQuality.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 import type {ReactElement, ReactNode} from 'react';
 import {connectionKeys} from '../connections/connectionKeys';
+import {dataQualityKeys} from './dataQualityKeys';
 import * as reportService from './dataQualityReport.service';
 import * as sharedSpaces from '../shared-spaces/sharedSpaces.service';
 import * as dqService from './dataQuality.service';
@@ -373,6 +374,80 @@ describe('DataQualityReportPage', () => {
 
       expect(await screen.findByText(/loading report/i)).toBeInTheDocument();
       expect(screen.queryByText('alice/sales/')).not.toBeInTheDocument();
+    });
+
+    it('keeps a loaded report, under a notice, through a re-read that does not get through', async () => {
+      const {queryClient} = renderReport('/data-quality/alice/req-1');
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      mockReport.mockResolvedValue({success: false, error: {message: '', code: 'NetworkUnavailable'}});
+
+      await queryClient.invalidateQueries({queryKey: dataQualityKeys.report('alice', 'req-1')});
+
+      const notice = (await screen.findByText('Couldn’t refresh this report')).closest('[role="alert"]');
+      expect(notice).toHaveTextContent(/copy loaded earlier\. Can’t reach the server/);
+      expect(screen.getByText('alice/sales/')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Re-run check'})).toBeInTheDocument();
+      expect(screen.queryByText('Report not available')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['finds it gone', notFound, /may still be running, or it may have been deleted/],
+      [
+        'fails with a code nobody listed',
+        {success: false as const, error: {message: '', code: 'Unlisted'}},
+        /went wrong/
+      ]
+    ])(
+      'takes a loaded report off once a re-read %s, and a later re-read that does not get through leaves it off',
+      async (_label, refusal, wording) => {
+        // A failed refetch keeps the query's data: the report showed under "Report not available", whose
+        // own words say it may have been deleted, and came back under the next read that did not get through.
+        const {queryClient} = renderReport('/data-quality/alice/req-1');
+        expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+        mockReport.mockResolvedValue(refusal);
+        await queryClient.invalidateQueries({queryKey: dataQualityKeys.report('alice', 'req-1')});
+        mockReport.mockResolvedValue({success: false, error: {message: '', code: 'RequestTimeout'}});
+
+        await queryClient.invalidateQueries({queryKey: dataQualityKeys.report('alice', 'req-1')});
+
+        expect(mockReport).toHaveBeenCalledTimes(3);
+        const banner = (await screen.findByText('Report not available')).closest('[role="alert"]');
+        expect(banner).toHaveTextContent(wording);
+        expect(screen.queryByText('alice/sales/')).not.toBeInTheDocument();
+        expect(screen.queryByText('Couldn’t refresh this report')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', {name: 'Re-run check'})).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', {name: 'Open folder'})).not.toBeInTheDocument();
+      }
+    );
+
+    it('looks again for a report it could not find when a link on the open page comes back to it', async () => {
+      // A refusal is never a fresh answer. Kept as one under the app's staleTime, a report looked for before it
+      // was written stayed "not available" when the route, which does not remount, came back to it.
+      const client = createTestQueryClient();
+      client.setQueryDefaults(dataQualityKeys.all, {gcTime: Infinity, staleTime: 30_000});
+      mockReport
+        .mockResolvedValueOnce(notFound)
+        .mockImplementation(async (_bucket, _space, id) =>
+          ok(csvReport({location: id === 'req-2' ? 'alice/other/' : 'alice/sales/'}))
+        );
+      const {user} = renderReport(
+        '/data-quality/alice/req-1',
+        client,
+        <>
+          <Link to="/data-quality/alice/req-2">Open req-2</Link>
+          <Link to="/data-quality/alice/req-1">Open req-1</Link>
+        </>
+      );
+      expect(await screen.findByText('Report not available')).toBeInTheDocument();
+      await user.click(screen.getByRole('link', {name: 'Open req-2'}));
+      expect(await screen.findByText('alice/other/')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('link', {name: 'Open req-1'}));
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(mockReport).toHaveBeenCalledTimes(3);
+      expect(mockReport).toHaveBeenLastCalledWith('user-space', 'alice', 'req-1');
+      expect(screen.queryByText('Report not available')).not.toBeInTheDocument();
     });
 
     it('reads the spaces list again when a link followed on the open page names a space it lacks', async () => {

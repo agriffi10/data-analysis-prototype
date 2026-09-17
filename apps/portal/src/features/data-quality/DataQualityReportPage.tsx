@@ -453,7 +453,7 @@ export function DataQualityReportPage() {
   const navigate = useNavigate();
   usePageTitle('Data quality report');
 
-  const {report, space, isLoading, error, isInaccessible} = useDataQualityReport(spaceName, requestId);
+  const {report, space, isLoading, error, refreshError, isInaccessible} = useDataQualityReport(spaceName, requestId);
   const {start, isPending} = useDataQualityCheck();
 
   const handleRerun = async () => {
@@ -527,6 +527,14 @@ export function DataQualityReportPage() {
 
       {report && (
         <>
+          {refreshError && (
+            <Banner
+              variant="warning"
+              title="Couldn’t refresh this report">
+              This is the copy loaded earlier. {refreshError}
+            </Banner>
+          )}
+
           <Banner
             variant={report.verdict === 'clean' && !report.hasIncompleteFigures ? 'success' : 'warning'}
             role="status"

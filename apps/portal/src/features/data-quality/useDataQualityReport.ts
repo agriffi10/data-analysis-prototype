@@ -7,6 +7,8 @@ import {isConnectionUsable} from '../connections/connection.types';
 import {toUserText} from '../../lib/errorMessages';
 import {unwrap} from '../../lib/serviceResult';
 import {spaceBuckets} from '../../lib/userSpace';
+import type {ApiClientCode} from '../../lib/apiClient';
+import type {ApiErrorCode} from '../../types/apiContract.generated';
 import {dataQualityKeys} from './dataQualityKeys';
 import {getQualityReport} from './dataQualityReport.service';
 import type {DataQualityReport, DataQualitySpace} from './dataQuality.types';
@@ -15,16 +17,38 @@ export type UseDataQualityReportResult = {
   /**
    * Only while the space resolves. A report cached before the connections list withdrew its space is
    * not returned, so it cannot show beside that space's refusal or while a link back to it waits.
+   * Nor is one a later read refused; a later read that did not get through leaves it, beside `refreshError`.
    */
   report: DataQualityReport | undefined;
   /** The resolved space, for the page's "Re-run check" and "Open folder" actions. */
   space: DataQualitySpace | undefined;
   isLoading: boolean;
-  /** Already passed through `toUserMessage` — render it directly. */
+  /** Why no report can be shown. Already passed through `toUserMessage` — render it directly. */
   error: string | undefined;
+  /** Why a later read of the report on screen did not get through. Set only beside `report`. */
+  refreshError: string | undefined;
   /** The `:space` segment named no space this user can reach. */
   isInaccessible: boolean;
 };
+
+/**
+ * The failures that say a read never got through, and so say nothing about the report itself.
+ *
+ * A report is written once per check, so a copy already on screen stays right through any of these.
+ * The list is closed so that everything else — a report deleted or unreadable, a refusal, a code
+ * added later — takes the report off the page rather than leaving one the server may no longer serve.
+ */
+const UNDELIVERED_CODES: ReadonlySet<unknown> = new Set<ApiErrorCode | ApiClientCode>([
+  'NetworkUnavailable',
+  'RequestTimeout',
+  'RateLimited',
+  'InternalError',
+  'ApiUnavailable'
+]);
+
+function isUndelivered(error: unknown): boolean {
+  return UNDELIVERED_CODES.has((error as {code?: unknown} | null)?.code);
+}
 
 /**
  * Resolve a `:space` route segment to the space that holds the report.
@@ -97,15 +121,25 @@ export function useDataQualityReport(spaceName: string, requestId: string): UseD
     // A missing report is a terminal answer ("still running, or deleted"), not a
     // transient fault worth three more round trips.
     retry: false,
-    queryFn: async (): Promise<DataQualityReport> =>
-      unwrap(await getQualityReport((space as DataQualitySpace).bucket, spaceName, requestId))
+    queryFn: async ({client, queryKey}): Promise<DataQualityReport> => {
+      const read = await getQualityReport((space as DataQualitySpace).bucket, spaceName, requestId);
+      // A failed read keeps the report beneath a refusal, so a read that says nothing new must not
+      // replace that refusal: the report would show again beside it.
+      const held = client.getQueryState(queryKey)?.error;
+      if (!read.success && isUndelivered(read.error) && held && !isUndelivered(held)) throw held;
+      return unwrap(read);
+    }
   });
 
+  const report = space && (!query.error || isUndelivered(query.error)) ? query.data : undefined;
+  const error = query.error ? toUserText(query.error) : undefined;
+
   return {
-    report: space ? query.data : undefined,
+    report,
     space,
     isLoading: space ? query.isPending : connectionsLoading || pending,
-    error: query.error ? toUserText(query.error) : undefined,
+    error: report ? undefined : error,
+    refreshError: report ? error : undefined,
     isInaccessible
   };
 }
