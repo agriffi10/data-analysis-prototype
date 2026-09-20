@@ -88,8 +88,21 @@ def test_no_body_promises_a_partial_outcome_except_the_one_that_is():
     for reason, body in messages._BODIES.items():
         if reason in _DELIBERATELY_PARTIAL:
             continue
-        assert "some of" not in body.lower(), reason
-        assert "were restored" not in body.lower(), reason
+        for phrase in _PARTIAL_PHRASES:
+            assert phrase not in body.lower(), f"{reason} says {phrase!r}"
+
+
+#: The phrasings that admit part of the request went through. **Widened so that every member of
+#: the exemption set above is load-bearing**: with only "some of" and "were restored", removing
+#: `restore_timed_out` or `restore_archive_cleared` from the set changed nothing, so two of its
+#: four members were documentation wearing a guard's clothes. Each of these appears in a body the
+#: set exempts, and none in a body it does not — measured, not assumed.
+_PARTIAL_PHRASES = (
+    "some of",
+    "were restored",
+    "may already be back",
+    "came back",
+)
 
 
 
