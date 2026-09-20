@@ -350,13 +350,33 @@ def test_a_throttle_followed_by_a_good_listing_still_earns_the_complete_body():
     assert len(fake.listed) == 2, "the retry did not run"
 
 
-def test_the_receipt_never_says_the_archive_is_intact_on_either_branch():
-    """The sentence this whole branch exists to remove. It is asserted as an absence over both
-    values of the flag, because the flag is what selects between the two replacements."""
-    for vault in (_VAULT_OBJECTS, []):
-        fake = _install(vault=vault)
-        with pytest.raises(TerminalError):
-            m.handler(_incomplete(), None)
-        written = _written(fake)
-        assert "The archive is intact" not in written
-        assert "archive is still intact" not in written
+@pytest.mark.parametrize(
+    ("vault", "replacement"),
+    [
+        (_VAULT_OBJECTS, "The archive was still complete when this restore stopped."),
+        ([], "The archive could not be confirmed as complete when this restore stopped."),
+    ],
+    ids=["counted-complete", "counted-short"],
+)
+def test_the_receipt_never_says_the_archive_is_intact_and_says_what_it_counted_instead(
+    vault, replacement
+):
+    """The sentence this whole branch exists to remove, over both values of the flag that selects
+    between its two replacements.
+
+    **The absence is asserted WITH the positive, and that pairing is the point.** An assertion
+    that a retired string is missing passes against whatever renders — including an empty
+    document, a failed write, or a third sentence nobody intended. It stops meaning anything the
+    moment the wording moves, and no reviewer can see that, because a reviewer reads what the
+    assertion says rather than what still produces the string. Pinning the replacement is what
+    keeps this checking the code rather than checking the past.
+    """
+    fake = _install(vault=vault)
+
+    with pytest.raises(TerminalError):
+        m.handler(_incomplete(), None)
+
+    written = _written(fake)
+    assert replacement in written
+    assert "The archive is intact" not in written
+    assert "archive is still intact" not in written
