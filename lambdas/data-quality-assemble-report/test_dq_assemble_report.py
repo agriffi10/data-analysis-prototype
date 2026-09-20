@@ -313,3 +313,248 @@ def test_a_result_that_is_nowhere_raises_a_terminal_with_a_friendly_reason(monke
     assert excinfo.value.reason == "query_failed"
 
 
+# ── The samples, and the cap the report is read through ──────────────────────
+
+
+def _samples_cell(rows, count=None):
+    """One duplicates result whose samples cell is rendered as ``json_format`` renders it.
+
+    Args:
+      rows: The sampled rows, each a list whose first element is the repeat count as text.
+      count: The duplicate-row figure, defaulting to the repeats past the first of each row.
+
+    Returns:
+      The result object's bytes.
+
+    Raises:
+      None.
+    """
+    total = count if count is not None else sum(int(row[0]) - 1 for row in rows)
+    return _csv([{"duplicate_rows": total, "duplicate_samples": json.dumps(rows)}])
+
+
+def _report(fake):
+    """The report document this run wrote.
+
+    Args:
+      fake: The stubbed S3.
+
+    Returns:
+      The parsed report.
+
+    Raises:
+      None.
+    """
+    written = [p for p in fake.puts if p["Key"].endswith("report.json")]
+    return json.loads(written[-1]["Body"])
+
+
+def test_the_samples_reach_the_report_through_a_reader_sized_for_them(monkeypatch):
+    """Reads a duplicates cell wider than the CSV reader's default and writes what it held.
+
+    The route end to end: assemble-report sizes the limit from the grouping it derives, hands it
+    to the one read that needs it, and the samples land in the document. The cell is built past
+    the default deliberately — at a comfortable width the read would succeed with the limit
+    removed, and this test would be asserting nothing.
+    """
+    wide = ["z" * 200, "y" * 200]
+    rows = [["3", *wide], ["2", *wide]]
+    padding = ["q" * 200] * 2
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    [*rows, *[[str(n), *padding] for n in range(3, 5)]], count=4
+                )
+            }
+        ),
+    )
+
+    v.handler(_event(), None)
+
+    samples = _report(fake)["exact"]["duplicateSamples"]
+    assert samples["columns"] == ["id", "amount"]
+    assert samples["rows"][0] == {"repeats": 3, "values": wide}
+
+
+def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
+    monkeypatch, captured_events
+):
+    """Drops the samples — and nothing else — from a report too large for the browser to open.
+
+    The browser reads a report through the document route's size cap, so a report above it is not
+    a large report but an unreadable one, and every finding in it is lost with the part that made
+    it big. Made over-cap by enlarging the fixture's SAMPLES rather than by lowering the constant:
+    a test that moves the cap proves the branch can run, not that the samples are what reaches it.
+    """
+    huge = [[str(n), "z" * 200, "y" * 200] for n in range(2, 7)]
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    huge, count=5
+                )
+            }
+        ),
+    )
+    monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", 1500)
+
+    v.handler(_event(), None)
+
+    document = _report(fake)
+    assert document["exact"]["duplicateSamples"] == {
+        "omitted": v.report.SAMPLES_OMITTED_TOO_LARGE
+    }
+    assert document["exact"]["duplicateRows"] == 5
+    assert document["exact"]["rowCount"] == 1000
+    assert document["verdict"] == "issues_found"
+    assert len(fake.puts[0]["Body"]) <= 1500
+    # The size is reported once, and it is the size of the document that did NOT fit — the
+    # written one is under the cap by construction and saying so would tell an operator nothing.
+    over = [e for e in captured_events.events if e.get("message") == v.OVER_CAP_EVENT]
+    assert [e["fields"]["report_bytes"] for e in over] == [
+        _samples_body(document, huge)
+    ]
+
+
+def _samples_body(document, rows):
+    """How large the same report would have been with its samples still attached.
+
+    Derived from the document that WAS written rather than re-measured from a second assembly, so
+    the figure the log claims is checked against the only other thing it can be.
+
+    Args:
+      document: The report as written, carrying the omission sentence.
+      rows: The sampled rows the statement returned.
+
+    Returns:
+      The byte length of that report with its samples.
+
+    Raises:
+      None.
+    """
+    restored = json.loads(json.dumps(document))
+    restored["exact"]["duplicateSamples"] = {
+        "columns": ["id", "amount"],
+        "rows": [{"repeats": int(row[0]), "values": list(row[1:])} for row in rows],
+    }
+    return len(v._serialize(restored))
+
+
+def test_a_report_that_fits_says_nothing_about_its_size(monkeypatch, captured_events):
+    """Logs the report's size only on the run that had to act on it.
+
+    A number emitted on every run is one nobody reads, and the run where it mattered would look
+    like all the others.
+    """
+    _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    [["3", "a", "x"]], count=2
+                )
+            }
+        ),
+    )
+
+    v.handler(_event(), None)
+
+    assert [
+        e for e in captured_events.events if e.get("message") == v.OVER_CAP_EVENT
+    ] == []
+
+
+def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had(
+    monkeypatch,
+):
+    """Leaves a true explanation in place rather than replacing it with a false one.
+
+    A nested source's samples were never written, so dropping them frees nothing and the report is
+    over the cap for some other reason. Overwriting its sentence would tell the user the samples
+    were left out for size, which is not what happened — and the document would still not fit.
+    """
+    manifest = json.loads(json.dumps(MANIFEST))
+    manifest["files"][0]["columns"][1] = {"name": "amount", "type": "array<string>"}
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 4}]
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", 10)
+
+    v.handler(_event(), None)
+
+    assert _report(fake)["exact"]["duplicateSamples"] == {
+        "omitted": v.report.SAMPLES_OMITTED_NESTED
+    }
+
+
+def test_no_sampled_value_reaches_the_notification_the_index_or_a_span(
+    monkeypatch, captured_events
+):
+    """Holds everything OUTSIDE the report byte-identical whether or not the samples were written.
+
+    The report is read by the one person who asked for the check, through a signed request. A
+    notification, a runs-index row and a log line are not: they fan out, they are retained, and
+    they are read by whoever can see the plane. So the samples go in the document and nowhere
+    else. Asserted as an equality between two runs rather than as a substring search for the
+    fixture's values, since a search only ever covers the strings somebody thought to look for.
+    """
+    sent = []
+    monkeypatch.setattr(
+        v.notify, "emit_notification", lambda actor, message, **kw: sent.append(message)
+    )
+
+    # The SAME report both times, differing only in whether the statement returned a samples
+    # cell. A baseline with a different duplicate count would compare two different reports and
+    # the equality below would be measuring the count, not the samples.
+    plain = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 2}]
+                )
+            }
+        ),
+    )
+    v.handler(_event(), None)
+    without = (list(sent), _index(plain), [dict(e) for e in captured_events.events])
+
+    sent.clear()
+    sampled = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    [["3", "secret-value", "another-secret"]], count=2
+                )
+            }
+        ),
+    )
+    v.handler(_event(), None)
+    with_samples = (
+        list(sent),
+        _index(sampled),
+        [dict(e) for e in captured_events.events][len(without[2]) :],
+    )
+
+    # The samples really did land, so the comparison below is between two different reports.
+    assert _report(sampled)["exact"]["duplicateSamples"]["rows"][0]["values"] == [
+        "secret-value",
+        "another-secret",
+    ]
+    assert with_samples[0] == without[0]
+    assert with_samples[1] == without[1]
+    assert [e for e in with_samples[2] if e.get("verb")] == [
+        e for e in without[2] if e.get("verb")
+    ]

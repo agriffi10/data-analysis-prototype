@@ -85,10 +85,30 @@ export type RaggedRowsFigure =
   | NotComputedFigure // a degraded query, or a line over Athena's 200 MB limit
   | SkippedFigure; // non-CSV — not a line-delimited text format
 
+/**
+ * One example of invalid text encoding: which object it is in, and how far into that object.
+ *
+ * A bare offset is unreadable across a folder, so `dq_byte_scan.py::_scan_all` records the key
+ * beside it and `report.py::_encoding` passes the entries through untouched. This file typed the
+ * field `number[]` for as long as nothing rendered it, which cost nothing and was never true.
+ */
+export type EncodingExample = {key: string; offset: number};
+
+/**
+ * Up to `DQ_DUPLICATE_SAMPLE` of the most-repeated rows, or the sentence saying why there are
+ * none to show.
+ *
+ * `columns` is the grouping's own column list — `sql.grouped_column_names`, the profiled columns
+ * followed by the partition keys — and NOT the report's `exact.columns`, which is a different
+ * list in a CSV whose header names a partition. Each row's `values` line up with it positionally.
+ */
+export type DuplicateSamples =
+  {columns: string[]; rows: {repeats: number; values: (string | null)[]}[]} | {omitted: string};
+
 export type EncodingFigure =
   | {
       invalidUtf8Sequences: number;
-      sampleOffsets: number[];
+      sampleOffsets: EncodingExample[];
       /** Absent on a malformed byte-scan block; treat an absent value as sampled. */
       coverage?: 'complete' | 'sampled';
       coveragePercent: number;
@@ -141,6 +161,11 @@ export type DataQualityReport = {
     /** Sorted by key and reconciled against the manifest, so its length === fileCount. */
     rowCountsByFile: {key: string; rows: number}[];
     duplicateRows: number | NotComputedFigure;
+    /**
+     * Absent on a report written before the samples existed, and on one whose duplicate count was
+     * not computed. Absent reads as nothing to show, never as no duplicates.
+     */
+    duplicateSamples?: DuplicateSamples;
     columns: ColumnFinding[];
     crossFile: {columnsAgree: boolean; disagreements: CrossFileDisagreement[]};
   };

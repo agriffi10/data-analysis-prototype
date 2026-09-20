@@ -1154,3 +1154,232 @@ def test_the_same_invariant_holds_across_a_multi_file_folder_target():
     exact = document["exact"]
     assert exact["rowCount"] == 700
     assert sum(entry["rows"] for entry in exact["rowCountsByFile"]) == 700
+
+
+# ── The sampled duplicate rows ───────────────────────────────────────────────
+
+
+def _dupes_row(count, samples):
+    """One duplicates result row, with its samples rendered as the statement renders them.
+
+    ``json.dumps`` rather than a hand-written string: the cell is what ``json_format`` produces,
+    and a literal typed here would agree with this file rather than with the statement.
+    """
+    return {"duplicate_rows": count, "duplicate_samples": json.dumps(samples)}
+
+
+def test_a_sampled_row_lands_under_the_headers_it_was_grouped_by():
+    """Heads the samples with the GROUPING's columns, which a CSV's partition-named header moves.
+
+    The failure this guards against is silent and total: a report headed with ``exact.columns``
+    would put every value one name out on a source where the two lists differ, and the table would
+    still render perfectly. The fixture is that source — a JSON header ``Year`` beside the
+    partition ``year``, and ``month`` beside ``Month`` — where the grouping is the keys' names and
+    the report's own column list is neither.
+    """
+    files = [_file("alice/sales/year=2026/Month=01/a.json", ["id", "month", "Year"])]
+    manifest = _manifest(files, fmt="json")
+    manifest["partitionKeys"] = [
+        {"name": "year", "values": ["2026"]},
+        {"name": "Month", "values": ["01"]},
+    ]
+
+    document = _build(
+        request=_request(format="json"),
+        manifest=manifest,
+        profile=[_profile_row(100, [{}])],
+        dupes=[_dupes_row(2, [["2", "7", "2025", "01"]])],
+    )
+
+    samples = document["exact"]["duplicateSamples"]
+    assert samples["columns"] == ["id", "year", "Month"]
+    assert samples["rows"] == [{"repeats": 2, "values": ["7", "2025", "01"]}]
+
+
+def test_a_sampled_row_keeps_its_count_its_cells_and_the_difference_between_null_and_blank():
+    """Reads the repeat count off the row's own first cell, and leaves NULL as an absence.
+
+    NULL and the empty string are two different findings — a missing field and a field someone
+    wrote nothing into — and the whole sample is worth less if the report blurs them. A cell put
+    through the offending-value truncator would come back as the string ``"null"``, which reads on
+    the page as a column whose value is literally that word.
+    """
+    files = [_file("alice/sales/a.csv", ["name", "city"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(100, [{}, {}])],
+        dupes=[_dupes_row(7, [["3", "a", "x"], ["2", None, ""]])],
+    )
+
+    assert document["exact"]["duplicateRows"] == 7
+    assert document["exact"]["duplicateSamples"] == {
+        "columns": ["name", "city"],
+        "rows": [
+            {"repeats": 3, "values": ["a", "x"]},
+            {"repeats": 2, "values": [None, ""]},
+        ],
+    }
+
+
+def test_a_long_sample_value_is_cut_with_an_ellipsis_as_an_offending_value_is():
+    """Cuts an oversized cell exactly where an offending value is cut, so the two look alike.
+
+    The statement already bounded it one character longer than this, which is what makes the cut
+    detectable rather than a value that happened to end at the limit.
+    """
+    files = [_file("alice/sales/a.csv", ["note"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(100, [{}])],
+        dupes=[_dupes_row(1, [["2", "y" * 250]])],
+    )
+
+    value = document["exact"]["duplicateSamples"]["rows"][0]["values"][0]
+    assert value == "y" * report.MAX_SAMPLE_VALUE_CHARS + "…"
+
+
+@pytest.mark.parametrize(
+    "cell",
+    ["", "not json at all", '{"not": "a list"}', "null"],
+    ids=["blank", "unparseable", "an object", "a null aggregate"],
+)
+def test_an_unusable_samples_cell_costs_the_samples_and_never_the_count(cell):
+    """Keeps the duplicate count when the samples cell cannot be read.
+
+    They arrive in one result row but they are not one finding: the count is what a user acts on,
+    the samples are what helps them start. Losing the first to a malformed second would be a wrong
+    report where this is a thinner one.
+    """
+    files = [_file("alice/sales/a.csv", ["name"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(100, [{}])],
+        dupes=[{"duplicate_rows": 9, "duplicate_samples": cell}],
+    )
+
+    assert document["exact"]["duplicateRows"] == 9
+    assert document["exact"]["duplicateSamples"] == {"columns": ["name"], "rows": []}
+
+
+def test_a_duplicates_figure_that_was_not_computed_carries_no_samples_at_all():
+    """Writes no samples key beside a figure with no statement behind it.
+
+    An empty table there would read as "no duplicates", which is the opposite of what a
+    not-computed figure says.
+    """
+    request = _request(
+        duplicates={"status": "not_computed", "reason": "EXCEEDED_RESOURCES"}
+    )
+
+    document = _build(request=request, dupes=[])
+
+    assert "duplicateSamples" not in document["exact"]
+
+
+def test_a_nested_source_says_why_it_has_no_samples_only_when_it_has_duplicates():
+    """Explains an absence a reader would notice, and stays quiet about one they would not.
+
+    A source of lists and objects has duplicates its statement can count and cannot render, so the
+    report says so in full. With no duplicates there is nothing missing from an empty table, and a
+    sentence explaining it would be noise beside a clean figure.
+    """
+    files = [
+        {
+            "key": "alice/sales/a.json",
+            "size": 100,
+            "columns": [
+                {"name": "id", "type": "bigint"},
+                {"name": "tags", "type": "array<string>"},
+            ],
+        }
+    ]
+    manifest = _manifest(files, fmt="json")
+
+    found = _build(
+        request=_request(format="json"),
+        manifest=manifest,
+        profile=[_profile_row(100, [{}, {}])],
+        dupes=[{"duplicate_rows": 3}],
+    )
+    clean = _build(
+        request=_request(format="json"),
+        manifest=manifest,
+        profile=[_profile_row(100, [{}, {}])],
+        dupes=[{"duplicate_rows": 0}],
+    )
+
+    assert found["exact"]["duplicateRows"] == 3
+    assert found["exact"]["duplicateSamples"] == {
+        "omitted": report.SAMPLES_OMITTED_NESTED
+    }
+    assert clean["exact"]["duplicateSamples"] == {"columns": ["id", "tags"], "rows": []}
+
+
+def test_the_widest_samples_cell_the_statement_can_return_still_parses():
+    """Reads a samples cell at the statement's own worst case, which the reader's default refuses.
+
+    ``csv`` caps a field at 131,072 characters and assemble-report re-raises everything but a
+    missing object, so one oversized cell fails the whole report rather than one figure. The worst
+    case is the column cap's worth of values at the statement's cut, every character one JSON
+    escapes to six — a file of control characters, which is not a file anyone would notice was
+    unusual. The raised limit is asserted to be what made the difference, by reading the same cell
+    at the default first and watching it refuse.
+    """
+    names = [f"c{index}" for index in range(config.DQ_MAX_COLUMNS)]
+    files = [_file("alice/sales/a.csv", names)]
+    worst = [chr(1) * sql.SAMPLE_VALUE_CHARS] * config.DQ_MAX_COLUMNS
+    body = _csv(
+        [{"duplicate_rows": "4", "duplicate_samples": json.dumps([["4", *worst]])}]
+    )
+    limit = report.duplicates_field_size_limit(len(names))
+
+    with pytest.raises(csv.Error):
+        report.parse_result(body)
+
+    # ``report.build`` directly, not ``_build``: the helper re-renders its rows through a
+    # default-limit parse, which is the very read under test.
+    document = report.build(
+        _request(),
+        _manifest(files),
+        _rows([_profile_row(100, [{} for _ in names])]),
+        _rows([{"ragged_rows": 0, "total_lines": 101}]),
+        report.parse_result(body, limit),
+        _encoding(),
+        completed_at=COMPLETED,
+    )
+
+    rows = document["exact"]["duplicateSamples"]["rows"]
+    assert rows[0]["repeats"] == 4
+    assert len(rows[0]["values"]) == config.DQ_MAX_COLUMNS
+    assert rows[0]["values"][0] == chr(1) * report.MAX_SAMPLE_VALUE_CHARS + "…"
+
+
+def test_the_field_limit_only_ever_rises_above_the_readers_default():
+    """Never hands back a limit below the one the reader already had.
+
+    The computed figure is smaller than ``csv``'s default for any table under about twenty columns,
+    and returning it would TIGHTEN the reader on cells that parse today — a raise that quietly
+    becomes a lowering is how a guard starts causing the failure it was added to prevent. The
+    default is read from the module rather than spelled out, since it is CPython's number and not
+    this repo's.
+    """
+    default = csv.field_size_limit()
+
+    assert report.duplicates_field_size_limit(2) == default
+    assert report.duplicates_field_size_limit(config.DQ_MAX_COLUMNS) > default
+
+
+def test_reading_one_result_at_a_raised_limit_leaves_the_next_read_at_the_default():
+    """Puts the reader's process-global limit back, so one result's raise is not every result's.
+
+    This verb parses three results per invocation on a container that is reused across requests. A
+    limit that only ever climbs would end up doing no work at all, and nothing would say so.
+    """
+    default = csv.field_size_limit()
+
+    report.parse_result(_csv([{"a": "1"}]), default * 4)
+
+    assert csv.field_size_limit() == default

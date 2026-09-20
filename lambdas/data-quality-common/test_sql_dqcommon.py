@@ -177,8 +177,11 @@ def test_every_identifier_in_the_three_queries_is_quoted_for_trino():
             'COUNT_IF("line" IS NOT NULL AND "line" <> \'\') AS total_lines '
             f'FROM "team""data"."{RAW_TABLE}"'
         ),
+        # Each grouped name is rendered TWICE now — once aliased into the projection the samples
+        # read, once in the grouping — so the fragment covers both sites rather than the older one.
         "duplicates": (
-            f'(SELECT COUNT(*) AS cnt FROM "team""data"."{TABLE}" '
+            '(SELECT COUNT(*) AS cnt, "he said ""hi""" AS c0, "n""1" AS c1, '
+            f'"the ""year""" AS c2 FROM "team""data"."{TABLE}" '
             'GROUP BY "he said ""hi""", "n""1", "the ""year""" HAVING'
         ),
     }
@@ -254,4 +257,279 @@ def test_the_profile_query_fits_athenas_query_string_limit_at_the_column_cap():
     query = sql.build_profile_query(DATABASE, TABLE, widest, [], "csv", path_filter)
 
     assert query.count("_sample_non_temporal") == config.DQ_MAX_COLUMNS
+    assert len(query.encode()) <= _ATHENA_QUERY_STRING_LIMIT, len(query.encode())
+
+
+# ── The duplicates statement's samples ──────────────────────────────────────
+
+_SAMPLE_COLUMNS = [
+    {"name": "name", "type": "string"},
+    {"name": "cnt", "type": "string"},
+    {"name": "duplicate_rows", "type": "bigint"},
+]
+_SAMPLE_KEYS = [{"name": "year", "values": ["2026"]}]
+
+
+def _duplicates(columns, partition_keys, fmt, path_filter=None) -> str:
+    """Renders the duplicates statement over one source shape.
+
+    Args:
+      columns: The unioned columns.
+      partition_keys: The detected partition keys.
+      fmt: The source format.
+      path_filter: The single-file predicate's path, or None.
+
+    Returns:
+      The rendered statement.
+
+    Raises:
+      None.
+    """
+    return sql.build_duplicates_query(
+        DATABASE, TABLE, columns, partition_keys, fmt, path_filter
+    )
+
+
+def test_the_duplicates_statement_samples_rows_under_names_no_source_column_can_hold():
+    """Pins the whole statement, over a source whose columns are named after its own outputs.
+
+    Spelled out as one string rather than probed for fragments: the criterion is that no layer's
+    output name is a source column's, and a fragment test cannot see a name that appears in a
+    layer it did not quote. The source is named adversarially — ``name``, and the statement's own
+    ``cnt`` and ``duplicate_rows`` — because a builder that projected a grouped column under its own
+    name would render a statement Athena still parses, with two columns called ``cnt`` and the
+    sample reading whichever one the engine bound.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    query = _duplicates(_SAMPLE_COLUMNS, _SAMPLE_KEYS, "csv")
+
+    assert query == (
+        "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows, "
+        "json_format(CAST(max_by(sample, sample_key, 5) AS JSON)) AS duplicate_samples FROM "
+        "(SELECT cnt, sample, lpad(CAST(cnt AS varchar), 19, '0') "
+        "|| json_format(CAST(sample AS JSON)) AS sample_key FROM "
+        "(SELECT cnt, ARRAY[CAST(cnt AS varchar), "
+        "substr(CAST(c0 AS varchar), 1, 201), "
+        "substr(CAST(c1 AS varchar), 1, 201), "
+        "substr(CAST(c2 AS varchar), 1, 201), "
+        "substr(CAST(c3 AS varchar), 1, 201)] AS sample FROM "
+        '(SELECT COUNT(*) AS cnt, "name" AS c0, "cnt" AS c1, "duplicate_rows" AS c2, '
+        f'"year" AS c3 FROM "{DATABASE}"."{TABLE}" '
+        'GROUP BY "name", "cnt", "duplicate_rows", "year" HAVING COUNT(*) > 1)))'
+    )
+    # The names are projected INTO the statement and never out of it: each appears only as the
+    # right-hand side of an alias, so nothing downstream can bind to a source column's own name.
+    for name in ('"name" AS', '"cnt" AS', '"duplicate_rows" AS'):
+        assert query.count(name) == 1, name
+    assert ' AS "' not in query
+
+
+def test_the_duplicates_statement_keeps_a_bounded_accumulator():
+    """Holds the sample to an n-ary max-by, which is the only aggregate here that is bounded.
+
+    ``array_agg`` over the same rows would accumulate every duplicate GROUP — every column of it —
+    on exactly the datasets that have the most duplicates, and fail the query instead of sampling
+    it. The absence is asserted rather than assumed because the two read almost identically at the
+    call site, and the failure only appears at a scale no test runs at.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    query = _duplicates(_SAMPLE_COLUMNS, _SAMPLE_KEYS, "csv")
+
+    assert query.count("max_by(") == 1
+    assert "array_agg(" not in query
+
+
+def test_the_duplicates_count_and_grouping_are_unchanged_by_the_samples():
+    """Holds the count, grouping and filter byte-identical to the statement that shipped before.
+
+    The samples are an addition, and the figure they sit beside is the one users already act on.
+    Each clause is spelled out here rather than compared against another call of the builder, since
+    a builder compared with itself agrees however both halves moved.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    query = _duplicates(_SAMPLE_COLUMNS, _SAMPLE_KEYS, "csv")
+
+    assert "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows" in query
+    assert (
+        'GROUP BY "name", "cnt", "duplicate_rows", "year" HAVING COUNT(*) > 1' in query
+    )
+    assert "SELECT COUNT(*) AS cnt," in query
+
+    narrowed = _duplicates(
+        _SAMPLE_COLUMNS, _SAMPLE_KEYS, "csv", "s3://b/alice/sales/jan.csv"
+    )
+
+    assert ' WHERE "$path" = \'s3://b/alice/sales/jan.csv\' GROUP BY "name"' in narrowed
+
+
+@pytest.mark.parametrize(
+    "column_type", ["string", "bigint", "date", "timestamp", "decimal(10,2)"]
+)
+def test_every_scalar_type_is_rendered_through_one_cast_to_varchar(column_type):
+    """Renders each scalar column's value as Trino's own text, whatever its declared type.
+
+    One cast covers every scalar family, which is what lets the sample show what the engine holds
+    rather than a reformatted number — a ``double`` reads ``1.5E0`` here, as it does in the Data
+    Explorer. Parametrised over the families the temp table can declare, since a builder that
+    branched on type would work for the one a hand-written test happened to pick.
+
+    Args:
+      column_type: The column's declared type.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    query = _duplicates([{"name": "v", "type": column_type}], [], "csv")
+
+    assert "substr(CAST(c0 AS varchar), 1, 201)" in query
+
+
+def test_a_nested_column_keeps_the_statement_that_already_worked():
+    """Leaves a source holding a list or an object with today's statement, byte for byte.
+
+    Trino documents no cast from an array or a row to varchar, and a cast the engine refuses fails
+    the whole statement — which would trade the duplicate count that works today for a sample. The
+    expected string is written out rather than taken from a second builder call, so a change that
+    moved both arms together would still be visible here.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    nested = [
+        {"name": "id", "type": "bigint"},
+        {"name": "tags", "type": "array<string>"},
+    ]
+
+    query = _duplicates(nested, _SAMPLE_KEYS, "json")
+
+    assert query == (
+        "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
+        f'(SELECT COUNT(*) AS cnt FROM "{DATABASE}"."{TABLE}" '
+        'GROUP BY "id", "tags", "year" HAVING COUNT(*) > 1)'
+    )
+    assert "duplicate_samples" not in query
+
+
+@pytest.mark.parametrize(
+    ("fmt", "expected", "grouped"),
+    [
+        ("json", ["id", "year", "Month"], '"id", "year", "Month"'),
+        (
+            "csv",
+            ["id", "month_in_file", "year_in_file", "year", "Month"],
+            '"id", "month_in_file", "year_in_file", "year", "Month"',
+        ),
+    ],
+    ids=[
+        "json drops a column naming a partition",
+        "csv keeps it in place under a new name",
+    ],
+)
+def test_the_grouped_names_and_the_statement_agree_on_a_partition_named_column(
+    fmt, expected, grouped
+):
+    """Holds the exported grouping list and the rendered GROUP BY to the same answer.
+
+    The list exists so the report can head its sample columns with it, and the only thing that
+    makes that safe is that the statement groups by exactly it. Asserted together, in one test,
+    because the failure this guards against is the two agreeing separately with two different
+    lists — each half passing its own test while a value sits under its neighbour's header.
+
+    The inputs are a source whose header names its own partitions: ``month`` beside the key
+    ``Month``, ``Year`` beside ``year``. A CSV is read by position so both are kept under new
+    names; JSON is read by name so both are left out and the keys stand in their place.
+
+    Args:
+      fmt: The source format.
+      expected: The names ``grouped_column_names`` must return.
+      grouped: The GROUP BY clause the statement must render.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    columns = [
+        {"name": "id", "type": "bigint"},
+        {"name": "month", "type": "string"},
+        {"name": "Year", "type": "string"},
+    ]
+    partition_keys = [
+        {"name": "year", "values": ["2026"]},
+        {"name": "Month", "values": ["01"]},
+    ]
+
+    assert sql.grouped_column_names(columns, partition_keys, fmt) == expected
+    assert f"GROUP BY {grouped} HAVING" in _duplicates(columns, partition_keys, fmt)
+
+
+def test_the_duplicates_query_fits_athenas_query_string_limit_at_the_column_cap():
+    """Holds a duplicates query at the column cap within the query-string limit Athena enforces.
+
+    The sibling of the profile query's size test, and owed for the same reason: the samples add
+    three more renderings of every column to a statement that used to carry two, and Athena refuses
+    an over-length statement only when it runs, after every step before it has been paid for. Every
+    part the checked source can lengthen is at its longest — every name as long as the column rule
+    admits, the cap's worth of them, two partition keys, and a single-file predicate over an object
+    key of S3's maximum length made of apostrophes, because the literal doubles each one.
+
+    The column count is asserted before the size, since a query that lost columns would fit for the
+    wrong reason.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    widest = [
+        {"name": f"{index:03d}".ljust(MAX_COLUMN_NAME_LENGTH, "x"), "type": "string"}
+        for index in range(config.DQ_MAX_COLUMNS)
+    ]
+    keys = [
+        {"name": f"k{index}".ljust(MAX_COLUMN_NAME_LENGTH, "z"), "values": ["2026"]}
+        for index in range(2)
+    ]
+    path_filter = f"s3://{BUCKET}/" + "'" * 1024
+
+    query = _duplicates(widest, keys, "csv", path_filter)
+
+    assert query.count("substr(CAST(c") == config.DQ_MAX_COLUMNS + len(keys)
     assert len(query.encode()) <= _ATHENA_QUERY_STRING_LIMIT, len(query.encode())

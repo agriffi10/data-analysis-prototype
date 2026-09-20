@@ -23,6 +23,9 @@ the ``verb`` field.
 
 Attributes:
   REPORT_BASENAME: Basename of the artefact, under the request's report prefix.
+  OVER_CAP_EVENT: The one event this verb emits about its own output's size, named here so the
+    test that holds it to the over-cap path alone matches on the module's string rather than on a
+    literal of its own.
   _RESULT_SUFFIX: Athena names a result object after its execution id. The key is constructed
     rather than listed — one read instead of a list plus a read, and deterministic under replay.
 """
@@ -33,7 +36,7 @@ from datetime import UTC, datetime
 
 from cpcommon import clients, errors, events, observability
 from cpcommon.errors import TerminalError
-from dqcommon import index_store, messages, notify, report, sql
+from dqcommon import config, index_store, messages, notify, report, sql
 from dqcommon import manifest as manifest_store
 
 logger = logging.getLogger()
@@ -42,6 +45,8 @@ logger.setLevel(logging.INFO)
 observability.init(service="data-quality")
 
 REPORT_BASENAME = "report.json"
+
+OVER_CAP_EVENT = "report over the document cap"
 
 _RESULT_SUFFIX = ".csv"
 
@@ -99,7 +104,7 @@ def _read(bucket: str, key: str) -> bytes:
 
 
 @observability.step("read-results")
-def _result_rows(block) -> list[dict]:
+def _result_rows(block, field_size_limit: int | None = None) -> list[dict]:
     """Reads one query's result rows, or none when it produced no readable result.
 
     Athena writes a select's results to a file named after its execution id under the output
@@ -110,6 +115,9 @@ def _result_rows(block) -> list[dict]:
 
     Args:
       block: The state's block for one query, or None when it was never submitted.
+      field_size_limit: Raises the CSV reader's per-field limit for this read alone. Only the
+        duplicates result needs it — its samples cell carries whole rows of the user's data, and
+        one cell past the reader's default would fail the entire report rather than one figure.
 
     Returns:
       The parsed rows, empty for a query that was not computed.
@@ -124,7 +132,7 @@ def _result_rows(block) -> list[dict]:
     bucket, prefix = _split_uri(block["resultLocation"])
     key = f"{prefix}{block['queryExecutionId']}{_RESULT_SUFFIX}"
     try:
-        return report.parse_result(_read(bucket, key))
+        return report.parse_result(_read(bucket, key), field_size_limit)
     except Exception as err:
         if errors.error_code(err) not in ("NoSuchKey", "404"):
             raise
@@ -135,7 +143,7 @@ def _result_rows(block) -> list[dict]:
         raise TerminalError(
             messages.QUERY_FAILED, f"no result object under {bucket}/{prefix}"
         )
-    return report.parse_result(_read(bucket, found))
+    return report.parse_result(_read(bucket, found), field_size_limit)
 
 
 @observability.step("find-result")
@@ -167,14 +175,32 @@ def _find_result(bucket: str, prefix: str) -> str:
     return keys[0] if keys else ""
 
 
+def _serialize(document: dict) -> bytes:
+    """Renders the report exactly as it is written.
+
+    The one serializer, because the size check and the write must not be able to disagree: a cap
+    measured on a different rendering than the one that lands is a cap on nothing.
+
+    Args:
+      document: The assembled report.
+
+    Returns:
+      The bytes that would be written.
+
+    Raises:
+      None.
+    """
+    return json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+
+
 @observability.step("write-report")
-def _write(bucket: str, key: str, document: dict) -> None:
+def _write(bucket: str, key: str, body: bytes) -> None:
     """Writes the report object.
 
     Args:
       bucket: The reports bucket.
       key: The report key.
-      document: The assembled report.
+      body: The serialized report, from ``_serialize``.
 
     Returns:
       None.
@@ -185,7 +211,6 @@ def _write(bucket: str, key: str, document: dict) -> None:
         so a retry rewrites it.
       ClientError: Any deterministic fault propagates.
     """
-    body = json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
     try:
         clients.s3().put_object(
             Bucket=bucket, Key=key, Body=body, ContentType="application/json"
@@ -193,6 +218,42 @@ def _write(bucket: str, key: str, document: dict) -> None:
     except Exception as err:
         errors.raise_if_transient(err, f"put {bucket}/{key}")
         raise
+
+
+def _within_document_cap(document: dict) -> bytes:
+    """Serializes the report, dropping the duplicate samples if that is what keeps it openable.
+
+    The browser reads a report through the document route's size cap, so a report above it is not
+    a large report — it is an unreadable one, and every other finding in it is lost with the part
+    that made it big. The samples are the only figure here that scales with the user's own data
+    rather than with their schema, so they are the only thing dropped.
+
+    Dropped only when there are samples to drop. A report already over the cap without them was
+    over it before this existed, and replacing an absent field — or the sentence a nested source
+    already wrote there — would swap a true explanation for a false one and still not fit.
+
+    The size is logged only on the path that had to act. Logged on every run it would be a number
+    nobody reads, and the one run where it mattered would look like all the others.
+
+    Args:
+      document: The assembled report, modified in place when the samples are dropped.
+
+    Returns:
+      The bytes to write.
+
+    Raises:
+      None.
+    """
+    body = _serialize(document)
+    samples = document["exact"].get("duplicateSamples")
+    if len(body) <= config.DQ_REPORT_MAX_BYTES or not (samples or {}).get("rows"):
+        return body
+
+    observability.info(OVER_CAP_EVENT, report_bytes=len(body))
+    document["exact"]["duplicateSamples"] = {
+        "omitted": report.SAMPLES_OMITTED_TOO_LARGE
+    }
+    return _serialize(document)
 
 
 def _reported_location(event: dict, location: str) -> str:
@@ -259,13 +320,17 @@ def _assemble(event: dict) -> dict:
     request = {**event, "location": _reported_location(event, location)}
 
     manifest = manifest_store.load(bucket, manifest_key, location)
+    union, partition_keys, fmt = report.source_shape(request, manifest)
+    duplicates_limit = report.duplicates_field_size_limit(
+        len(sql.grouped_column_names(union, partition_keys, fmt))
+    )
     try:
         document = report.build(
             request,
             manifest,
             _result_rows(event.get("profile")),
             _result_rows(event.get("ragged")),
-            _result_rows(event.get("duplicates")),
+            _result_rows(event.get("duplicates"), duplicates_limit),
             event.get("encoding") or {},
             completed_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
@@ -273,7 +338,7 @@ def _assemble(event: dict) -> dict:
         raise TerminalError(messages.QUERY_FAILED, f"profile result unusable: {err}") from err
 
     key = report_key(report_prefix)
-    _write(bucket, key, document)
+    _write(bucket, key, _within_document_cap(document))
 
     out = dict(request)
     out["reportKey"] = key

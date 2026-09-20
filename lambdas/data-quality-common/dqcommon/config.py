@@ -56,6 +56,19 @@ Attributes:
   DQ_OFFENDING_VALUE_SAMPLE: How many non-parsing values the profile query keeps per column. The
     aggregate collecting them must be bounded — a naive collect-then-truncate accumulates every
     row, which on a large source with a badly-typed column is the whole column in memory.
+  DQ_DUPLICATE_SAMPLE: How many of the most-repeated rows the duplicates query keeps. Bounded for
+    the same reason as the offending-value sample, and more sharply: a duplicate group is a whole
+    ROW, so keeping every group to sort them afterwards would hold every column of every group in
+    memory on exactly the datasets that have the most duplicates. Five is what a reader can scan
+    beside the count without the section becoming a second results grid; the Data Explorer's
+    grouping is where all of them are found.
+  DQ_REPORT_MAX_BYTES: The largest report document this plane writes with its samples attached.
+    Computed from the size the browser can actually READ a report through — a Lambda response's
+    6 MiB halved for JSON escaping — not chosen. The number is re-declared here rather than
+    imported, because the API is a different plane and this layer does not depend on it; a
+    fleet-level test holds the two equal, which is what keeps the duplication honest. A report
+    already over the cap before this sample existed stays over it: dropping the samples is the
+    only reduction this plane makes, never a truncation of a figure.
   DQ_QUERY_POLL_SECONDS: The Step Function's wait between query polls. Declared here so the
     constant and the state machine cannot drift; the template carries the same number with a
     pointer back to this line.
@@ -193,6 +206,8 @@ def _validate_caps() -> None:
         ("DQ_OFFSET_SAMPLE", DQ_OFFSET_SAMPLE),
         ("DQ_SCAN_READ_CHUNK_BYTES", DQ_SCAN_READ_CHUNK_BYTES),
         ("DQ_OFFENDING_VALUE_SAMPLE", DQ_OFFENDING_VALUE_SAMPLE),
+        ("DQ_DUPLICATE_SAMPLE", DQ_DUPLICATE_SAMPLE),
+        ("DQ_REPORT_MAX_BYTES", DQ_REPORT_MAX_BYTES),
         ("DQ_QUERY_POLL_SECONDS", DQ_QUERY_POLL_SECONDS),
         ("DQ_INDEX_MAX_ENTRIES", DQ_INDEX_MAX_ENTRIES),
     ):
@@ -216,6 +231,10 @@ DQ_MAX_QUERY_BYTES = 262_144
 DQ_TYPE_DOMINANCE_THRESHOLD = 0.90
 
 DQ_OFFENDING_VALUE_SAMPLE = 10
+
+DQ_DUPLICATE_SAMPLE = 5
+
+DQ_REPORT_MAX_BYTES = 6 * 1024 * 1024 // 2
 
 DQ_QUERY_POLL_SECONDS = 30
 
