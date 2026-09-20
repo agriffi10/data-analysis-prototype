@@ -119,9 +119,11 @@ def declare_columns(
     order and only skips the header, so a missing column moves every later one onto its
     neighbour's field, and nothing errors because every CSV column is a string. Measured on a
     built table, ``year,id,region`` over ``2025,1,south`` read ``id`` as ``2025``. So in a
-    positional format the column is KEPT, in its place and in every place, under
-    ``_renamed``'s name — ``year`` becomes ``year_in_file`` — and the file's values stay where
-    the file put them.
+    positional format the column is KEPT, in its place in THIS list and in every place, under
+    ``_renamed``'s name — ``year`` becomes ``year_in_file``. On a create that is the order the
+    body renders, so the file's values stay where the file put them; a refresh re-sorts this list
+    onto the live table's order, where keeping the column is what stops the SHIFT but its position
+    is the table's rather than the file's.
 
     The new name never folds to a name the table already declares, a partition key, or a name
     assigned earlier in the same pass, and it is a pure function of the three arguments, so a

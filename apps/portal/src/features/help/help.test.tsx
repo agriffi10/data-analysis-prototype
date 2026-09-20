@@ -486,6 +486,25 @@ describe('the delete-space guide (SPEC-205)', () => {
   });
 });
 
+describe('the refresh-table guide', () => {
+  it('promises the kept order, tells the user to put a new CSV column last, and does not blame the older files', () => {
+    // Asserted on the guide OBJECT, like the delete-space case above: the content module is the
+    // source of truth. The three negatives are the claims a CSV refresh keeping the table's order
+    // makes false — a refresh that reorders the table, a misplaced column misreading the OLDER
+    // files rather than the one that misplaced it, and advice to reorder a file to restore the
+    // table's order. Each shipped in this guide at some point, so each is pinned.
+    const section = HELP_SECTIONS.find((s) => s.id === 'tables');
+    const guide = section?.guides.find((g) => g.id === 'refresh-table');
+
+    expect(guide).toBeDefined();
+    const text = `${guide!.subtitle} ${guide!.intro} ${guide!.callout?.text ?? ''}`;
+    expect(text).toMatch(/never moves the columns it already has/i);
+    expect(text).toMatch(/put a new column last/i);
+    expect(text).toMatch(/returns as a <b>new<\/b> column at the end/i);
+    expect(text).not.toMatch(/older files/i);
+  });
+});
+
 describe('the upload guide', () => {
   it('names the collision prompt’s choices and promises no suggested name', () => {
     // The prompt starts its rename field at the colliding name; only a same-folder copy proposes a

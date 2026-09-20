@@ -72,8 +72,10 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   create, a refresh's diff and write, and data-quality's temp table and figures — because dropping
   it answers every later column with its neighbour's values; Parquet and JSON are matched by name
   and leave it out. **"In its place" is the DECLARED list's place, and a CSV refresh's write does
-  not take that list's order** (next fence), so a namesake the table already declares keeps its
-  position and one it does not is new and lands last.
+  not take that list's order** (next fence), so on a refresh a namesake keeps the TABLE's position
+  for it, and one the table does not yet declare is new and lands last. In a CSV, cross-file
+  agreement checks each file against the columns the table DECLARES, by the files' names —
+  comparing files with each other read a swap as agreement.
 - **A CSV table's declared column order is a positional contract, so a refresh never moves a column
   the table already holds.** apply-refresh writes the LIVE table's order — minus what the first
   file dropped — then appends what is new, in the first file's order; JSON and Parquet keep the
@@ -85,8 +87,7 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   column. The sort is STABLE over a LIST, never a dict keyed on the fold: two names that fold
   together must survive as two entries to reach `update_failed`. A removal is the case this cannot
   help, so the `columns_removed` refusal says what it costs a file that still has the column,
-  worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact. In a CSV, cross-file agreement checks each file against the columns the table
-  DECLARES, by the files' names — comparing files with each other read a swap as agreement.
+  worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
@@ -1275,7 +1276,9 @@ characters, to Glue's 255-byte ceiling. Each part is there for a reason:
   held a create's header to `[a-z0-9_]`, so the result passes the same rule.
 - *Every position*, rather than dropping a trailing one as before: one rule to explain, and the
   data-quality report then profiles the column wherever it sits. A table built under the old drop
-  gains `year_in_file` as an added column on its next refresh.
+  gains `year_in_file` as an added column on its next refresh — **added, not moved into place**,
+  since a refresh keeps the table's order, so that table stays shifted and repairing it is a
+  rebuild.
 - *The taken set includes kept columns and the keys*, or `year` beside a header's own
   `Year_In_File`, or beside a second key named `year_in_file`, renders a repeated column Athena
   refuses.
@@ -1309,10 +1312,14 @@ notification and in the report. A single-file check detects no partitions, so th
 keeps its own name.
 
 **A known limit, not refused.** A header that later gains its OWN `year_in_file` column pushes the
-rename to `year_in_file_2` on refresh; the diff reports that name added, and the live
-`year_in_file` now reads the file's new column, keeping the Glue comment it had, since comments
-are carried by name. It needs a user to name a column after the rename, and the refresh
-notification does report a change.
+rename to `year_in_file_2` on refresh, and the diff reports that name added. WHICH file column the
+live `year_in_file` then reads is decided by the table's order, not the file's, since the refresh
+keeps the live order: live `year_in_file,id` against a header `Year,id,year_in_file` writes
+`year_in_file, id, year_in_file_2`, so the live column reads the file's `Year` and the new
+`year_in_file_2` reads the file's own `year_in_file` — the other way round before the order was
+kept. Either way the live column keeps the Glue comment it had, since comments are carried by
+name. It needs a user to name a column after the rename, and the refresh notification does report
+a change.
 
 **Rejected.**
 - *Keep refusing, and word it better.* It leaves Create table with no path for the commonest shape,
@@ -1445,8 +1452,23 @@ CSV column goes last, in every file that has it — worth following. Nothing can
 because a refresh reads one file. A first file that merely reorders the table's columns still
 reports "already up to date", and that file is still misread.
 
-**A removal is the case the order cannot help.** Removing `b` from `a,b,c` leaves `a,c`, and a file
-that still has `b` reads its `b` values as `c`. The opt-in stays the whole gate, so the
+**A removal is the case the order cannot help, and it does not heal.** Removing `b` from `a,b,c`
+leaves `a,c`, and a file that still has `b` reads its `b` values as `c`. **Putting `b` back in the
+first file does not put the table back**: `b` is now new to the table, so it lands last and the
+table becomes `a,c,b`, under which every file headed `a,b,c` has `b` and `c` swapped. The old
+first-file-order write happened to repair that sequence, and this one does not — a lost repair,
+not a new misread, since the opted-in removal is what shifted the table and the repair was an
+accident of taking an order this rule exists to stop taking. Repairing a drifted table is Out of
+Scope in the spec, and refusing the refresh was put to Andrew and rejected; what this build owes
+instead is that the sequence is pinned by a test rather than argued about, and that the Refresh
+guide says a removed column comes back at the end. Rebuilding the table is the repair.
+
+**Data-quality cannot see this, and says so about the FILES only.** `dqcommon.report.cross_file`
+judges each file against the declared union of the folder's headers, in first-seen order — never
+against the live table, which it does not read. While a refresh took the first file's order the two
+effectively agreed; now a table whose order has drifted from its folder reads a clean data-quality
+report, because the files do agree with each other. The report's `shifted` finding is a claim about
+the folder, not about the catalog. The opt-in stays the whole gate, so the
 `columns_removed` refusal gained a sentence saying it: `tbcommon.messages.removed_tokens` takes the
 format and supplies a `removalEffect` token the template renders, empty where the SerDe matches by
 name. It is unconditional for the format rather than judged on which columns went — removing only
@@ -1470,4 +1492,3 @@ as `malformed_event` rather than quietly taking one branch.
   changing it was not part of the ruling.
 - *Report the position change in the diff.* A column's position is not a diff class, the counts
   stay what they were, and the written order is asserted on what `update_table` receives instead.
-

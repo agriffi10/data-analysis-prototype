@@ -284,10 +284,15 @@ def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fol
     assert out["appliedColumnCount"] == 4
 
 
-def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_creates_name():
-    """A CSV is read by position, so the write keeps the file's ``Year`` where it sits, under the
-    name the create gave it, and carries that column's comment; leaving it out would move every
-    later column onto its neighbour's field.
+def test_a_csv_column_naming_a_partition_key_is_written_under_the_creates_name_in_the_tables_place():
+    """A CSV is read by position, so the write KEEPS the file's ``Year`` rather than leaving it
+    out, under the name the create gave it and carrying that column's comment; leaving it out
+    would move every later column onto its neighbour's field.
+
+    Where it lands is the TABLE's business, not the file's: the live table already declares
+    ``year_in_file`` first, so that is where it goes. The fixture's live order and the file's
+    agree, which is the ordinary case; the row below covers the one where the table does not
+    declare the namesake at all.
 
     Args:
       None.
@@ -442,6 +447,73 @@ def test_a_name_matched_format_still_writes_the_first_files_order(fmt):
 
     written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
     assert written == ["a", "new", "b", "c"]
+
+
+def test_a_csv_namesake_the_table_does_not_yet_declare_is_new_and_lands_last():
+    """A partition namesake the live table has never declared is a NEW column, so the reorder puts
+    it last like any other — it does not take the file's position.
+
+    This is the one case where a partitioned CSV table's write differs from what it was before the
+    order was kept, and it is the accepted cost rather than a defect: a table built under the old
+    drop rule gains `year_in_file` at the end, so it stays shifted and repairing it is a rebuild.
+    Asserted here because four documents state it and nothing else runs it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "id", "Type": "string"}, {"Name": "region", "Type": "string"}],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "year", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Year", "type": "string"},
+        {"name": "id", "type": "string"},
+        {"name": "region", "type": "string"},
+    ]
+    keys = [{"name": "year", "type": "string", "values": ["2025"]}]
+
+    m.handler(_event(columns=columns, partitionKeys=keys), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["id", "region", "year_in_file"]
+
+
+def test_a_removed_csv_column_comes_back_at_the_end_rather_than_in_its_old_place():
+    """A column the table dropped is NEW when it returns, so it lands last and the table does not
+    go back to the order it had. Pinned because it is the cost this rule accepts, not an accident.
+
+    An opted-in removal is what shifts a CSV table — `a,b,c` minus `b` reads a file headed `a,b,c`
+    with `b`'s values under `c` — and restoring `b` to the first file cannot undo that here: the
+    live table no longer records where `b` sat. Writing the first file's order did repair this one
+    sequence, and that repair is what taking the table's order gives up; taking the file's order is
+    the far commoner harm this rule exists to stop. Repairing a drifted table is out of the spec's
+    scope and a refusal was rejected, so the table is rebuilt instead, and the Refresh guide says
+    so. If this starts failing, the rule changed — revisit the decision, do not delete the test.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "c"]))
+    columns = [{"name": name, "type": "string"} for name in ("a", "b", "c")]
+
+    m.handler(_event(columns=columns), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["a", "c", "b"]
 
 
 def test_an_event_without_a_format_is_malformed_and_writes_nothing():

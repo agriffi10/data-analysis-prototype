@@ -122,12 +122,14 @@ statements, no window in which the table is absent, and **no verb on this plane 
   `ddl.body_columns` for the event's `format` — so a table built with `year_in_file` refreshes
   unchanged from the header that built it, and its fold-collision check reads the files' names, so
   `Year,year` is refused there as on a create. **What a refresh does not take from that list is its
-  ORDER**: in a positional format the write keeps the live table's order and appends what is new,
-  so "in its place" holds on a create and on a refresh of a table that already declares the column,
-  while a namesake the table has not yet declared is new and goes last like any other new column. A header that later gains its own `year_in_file`
-  column moves the rename to `year_in_file_2`, and the refresh reports that name added while the
-  live `year_in_file`, and the comment carried on it by name, now read the file's new column — a
-  known limit, not refused.
+  ORDER**: in a positional format the write keeps the live table's order and appends what is new.
+  So on a refresh "its place" is the TABLE's place for that column, not the file's — a namesake the
+  table already declares lands where the table holds it, and one it does not is new and goes last
+  like any other new column. A header that later gains its own `year_in_file`
+  column moves the rename to `year_in_file_2`, and the refresh reports that name added; which file
+  column the live `year_in_file` then reads follows the TABLE's order, so live `year_in_file,id`
+  against a header `Year,id,year_in_file` leaves it reading the file's `Year` — a known limit, not
+  refused. The comment rides on the name either way.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **A create's `IF NOT EXISTS` is confirmed, not trusted.** The statement succeeds identically for a
   run that built the table and a run whose create was a no-op over someone else's, so execute-ddl

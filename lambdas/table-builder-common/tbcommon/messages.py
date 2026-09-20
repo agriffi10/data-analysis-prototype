@@ -138,6 +138,15 @@ def removed_tokens(names: list[str], fmt: str) -> dict:
     only member; the tests pin the membership, so a format joining it reddens there rather than
     shipping a sentence calling Parquet a CSV.
 
+    The sentence is ordered BEFORE the names in the returned mapping, and that is not cosmetic:
+    the resolver substitutes markers by ``str.replace`` in mapping order, so a column literally
+    named ``{removalEffect}`` would otherwise have this sentence spliced into the middle of the
+    column list. Filled first, its marker is gone before any user value is placed, so such a name
+    blanks exactly as a column named ``{removed}`` already did rather than injecting a sentence.
+    Blanking is the resolver's ``blank_unfilled`` and is not fixed here; the markers the message
+    layer adds AFTER the tokens are still substituted into user values — a column named ``{name}``
+    renders as the table's name — which is the resolver's to close, not this function's.
+
     Args:
       names: Every column name that would be removed.
       fmt: The source format, which decides whether the removal costs more than the columns.
@@ -156,9 +165,9 @@ def removed_tokens(names: list[str], fmt: str) -> dict:
     if remaining > 0:
         display += f", and {remaining} more"
     return {
+        "removalEffect": _REMOVAL_EFFECT if fmt in ddl.POSITIONAL_FORMATS else "",
         "removed": display,
         "removedNames": json.dumps(shown),
-        "removalEffect": _REMOVAL_EFFECT if fmt in ddl.POSITIONAL_FORMATS else "",
     }
 
 
