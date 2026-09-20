@@ -65,6 +65,12 @@ Attributes:
     case costs twelve, and it is the one that decides the bound. Derived rather than measured, because
     the cell is the user's own data and its worst case is a file of emoji — not a file anyone would
     notice was unusual.
+
+    **The twelve rests on an escaping behaviour nobody here has run against Athena, and is safe
+    anyway**: the figure only ever raises a ``max()`` floor on a REFUSAL threshold, so if Trino's
+    ``json_format`` emits the raw UTF-8 character instead of a surrogate pair, this is merely
+    conservative. Six would be the wrong direction to be wrong in — it would refuse a cell the
+    statement was entitled to return, and fail the whole report.
   _CSV_DEFAULT_FIELD_CHARS: ``csv``'s own per-field limit, captured at import so the floor in
     ``duplicates_field_size_limit`` is the DEFAULT rather than whatever the limit happens to be when
     it is called.

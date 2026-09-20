@@ -439,6 +439,10 @@ def test_every_refused_prefix_has_a_column_to_refuse():
       None.
     """
     assert set(_NESTED_EXAMPLES) == set(sql._NESTED_TYPES)
+    # And that each example is of the type its key names. Equal key SETS cannot see an example
+    # copy-pasted from a neighbour: swap the two values and every prefix is still "covered" while
+    # neither is exercised by its own key, which is the drift this test is named for.
+    assert all(example.startswith(prefix) for prefix, example in _NESTED_EXAMPLES.items())
 
 
 @pytest.mark.parametrize("prefix", sql._NESTED_TYPES, ids=list(sql._NESTED_TYPES))

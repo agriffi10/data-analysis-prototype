@@ -1334,9 +1334,14 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
     **The fixture is the WHOLE worst case, and that is what makes the derivation testable.** At one
     row it sits a fifth of the way to the computed limit, and the row-count term or the escape
     factor could each be cut by more than half with the number still large enough — wrong, and every
-    suite green. At ``DQ_DUPLICATE_SAMPLE`` rows the cell is within about five thousand characters
-    of the limit, so every term is load-bearing. The margin is asserted rather than left implicit,
-    since a later change that widened the limit would restore the slack this test exists to remove.
+    suite green. At ``DQ_DUPLICATE_SAMPLE`` rows the cell is within half a percent of the limit, so
+    every term is load-bearing.
+
+    The margin is asserted as a RATIO rather than as a figure, and that is deliberate: when the
+    escape factor doubled, the slack doubled with it, and a sentence naming a character count would
+    have gone stale in the same commit that made it wrong. A later change that widened the limit
+    would restore the slack this test exists to remove, and the ratio catches that whatever the
+    absolute numbers are.
 
     Args:
       None.

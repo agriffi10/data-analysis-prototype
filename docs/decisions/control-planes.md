@@ -2418,19 +2418,23 @@ not which figure carries them.** The drop mechanism is scoped to the samples bec
 this spec added and the one absence the report can explain in a sentence — not because they dominate
 the document. Measured at `DQ_MAX_COLUMNS`, serialized as the write serializes:
 
-| | plain ASCII | control or BMP (escapes to 6) | astral (escapes to 12) |
+| whole report, full `sampleOffending` on every column | alone | with samples | verdict |
 |---|---|---|---|
-| widest `duplicateSamples` block | 206,481 B | 1,216,481 B | 2,428,481 B |
-| whole report with a full `sampleOffending` on every column | 428,817 B | — | **4,828,817 B** |
+| printable ASCII (1 char) | 428,803 B — 14% | 631,927 B — 20% | under either way |
+| **control or BMP (escapes to 6)** | **2,428,803 B — 77%** | **3,631,927 B — 116%** | **over only WITH samples** |
+| astral (escapes to 12) | 4,828,803 B — 154% | 7,231,927 B — 230% | over either way |
 
-against a cap of 3,145,728 B. **In plain ASCII neither figure is close; in astral text either one
-is within reach and `sampleOffending` alone clears the cap at 154% of it.** Three columns, not two,
-because the spread between them IS the finding — the same block, counted three ways. The multiplier is ~11.8,
+against a cap of 3,145,728 B. **The middle row is the only band in which this mechanism does
+anything at all, and it is the ordinary one** — "BMP" is Cyrillic, Greek, CJK and accented Latin,
+which is to say most human writing. Above it the report is unreadable whatever is dropped; below it
+nothing was ever at risk. A two-row table of the best and worst cases would have omitted the only
+case that demonstrates the guarantee, which an earlier draft of this entry did. The multiplier is ~11.8,
 and it is the unit trap this area's fences name: both figures are bounded in CHARACTERS
 (`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and JSON escapes one astral code point as a surrogate
 pair — twelve characters where a control character or a BMP character costs six. A report of astral
 `sampleOffending` is written over the cap and the page refuses to open it — the mechanism runs and
-sheds the samples if there are any, and the document still does not fit.
+sheds the samples if there are any, and the document still does not fit. The multiplier between the
+bands is ~11.3 on the whole report and ~11.8 on the samples block alone.
 
 The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
 rather than six: Trino's `substr` cuts by code point, so a sampled value can be
@@ -2448,8 +2452,10 @@ source, serialize it with `json.dumps(..., sort_keys=True, separators=(",", ":")
 `dq_assemble_report._serialize` does, so the figure is the one the cap compares — and read its
 length. **Make the columns numeric-DOMINANT with a few stragglers**, or `_column` writes no
 `sampleOffending` at all and the report measures 22 KB: a first attempt at these figures did exactly
-that and read 1% of the cap. Then run it three times — plain ASCII, a control character, an astral one — because two
-runs cannot show that the spread is the character set rather than the figure.
+that and read 1% of the cap. Then run it three times — a printable ASCII letter, a control character, an astral one —
+and each of those twice, with and without the samples attached. Two classes cannot show that the
+spread is the character set rather than the figure, and one pass per class cannot show which band
+the drop actually rescues.
 
 **Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
 recovering it means aggregating paths for every group or scanning a second time. The per-file row
