@@ -240,7 +240,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 232 — Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim | Completed |
 | 233 — A Failed Status Poll Ends the Query Tab's Run, and Says Why | Completed |
 | 234 — A Long Query Settles at the Ceiling, and Says Where Its Results Go | Completed |
-| 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Draft |
+| 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Completed |
 | 236 — A Run That Ends on an Error No Catch Takes Still Tells the User | Cancelled |
 | 237 — A Restore Never Copies Over a File, and One Archive Id Is One Run | Draft |
 | 238 — A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell | Completed |

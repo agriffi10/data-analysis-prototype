@@ -200,6 +200,11 @@ w("part0b.csv", ["ID","Region","Amount","Straße","STRASSE"],
 w("yearcase.csv", ["Year","id","region"], [[2025,i,regions[i%4]] for i in range(1,6)])
 w("yeartrail.csv", ["id","region","year"], [[i,regions[i%4],2025] for i in range(1,6)])
 
+# a CSV refresh's column order: part-001 builds the table, part-000 sorts FIRST and
+# inserts a column mid-header, which is what used to shift part-001's row by one
+w("part-001.csv", ["a","b","c"], [[1,2,3]])
+w("part-000.csv", ["a","new","b","c"], [[10,99,20,30]])
+
 # data quality: agreeing pair, and one that disagrees on columns
 w("dq_a.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(1,21)])
 w("dq_b.csv", ["id","region","amount"], [[i,regions[i%4],i*3] for i in range(21,41)])
@@ -244,6 +249,7 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `dtkey/dt=2025-01-02/` | a copy of `part2.csv` | " |
 | `yearcase/year=2025/` | `yearcase.csv` | a CSV column named after the partition, first |
 | `yeartrail/year=2025/` | `yeartrail.csv` | the same column, last |
+| `csvorder/` | `part-001.csv` **only**, up front | a CSV refresh's column order — `part-000.csv` is uploaded during the check |
 | `dq_agree/` | `dq_a.csv`, `dq_b.csv` | data-quality clean control |
 | `dq_disagree/` | `dq_a.csv`, `dq_bad.csv` | cross-file finding |
 | `dq_reorder/` | `dq_a.csv`, `dq_reorder.csv` | cross-file finding on a CSV's column order |
@@ -534,6 +540,18 @@ the **first** partition.
    over that same rail is the defect: a diff folding `ß` into `ss` while the write keeps it.
 9. Delete `part0b.csv` and refresh with the opt-in. → `2 columns removed`, and the fixture is back
    to `id, region, amount`.
+
+10. **The column-order control** — a refresh must not move a column the files already rely on.
+    Build the flat table **`csvorder`** from `csvorder/` (holding `part-001.csv` alone), confirm the
+    rail reads `a, b, c`, then upload `part-000.csv` into the same folder and **Refresh table**.
+    → `1 column added`, and the rail reads **`a, b, c, new`** — NOT `a, new, b, c`. Then
+    `SELECT "$path", a, b, c, new FROM {db}.csvorder ORDER BY "$path"` returns part-000's row as
+    `a=10, b=99, c=20, new=30` and **part-001's row as `a=1, b=2, c=3, new=NULL`**.
+    `a, new, b, c` in the rail, or part-001 reading `a=1, new=2, b=3, c=NULL`, is the defect: every
+    CSV column is `string`, so the shift never errors and the notification still says success.
+    part-000 reading shifted is the accepted cost — a column put anywhere but last is misread in
+    the file that misplaced it. Finish by dropping `csvorder` from the rail's ⋮ menu and deleting
+    the folder.
 
 > Refresh-lock contention is **not runnable from the UI** — two submits 2 s apart both return
 > independently, because a small table's refresh finishes inside that window. See `owed.md`.

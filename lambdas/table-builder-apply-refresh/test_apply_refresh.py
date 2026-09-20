@@ -322,6 +322,128 @@ def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_c
     ]
 
 
+def _live_with(names, comments=None):
+    """A live table carrying the named columns, in that order, optionally with comments.
+
+    Args:
+      names: The live column names, in the order the table declares them.
+      comments: Optional name-to-comment mapping.
+
+    Returns:
+      A live Glue table dict.
+
+    Raises:
+      None.
+    """
+    comments = comments or {}
+    columns = []
+    for name in names:
+        column = {"Name": name, "Type": "string"}
+        if name in comments:
+            column["Comment"] = comments[name]
+        columns.append(column)
+    storage = {**_live_table()["StorageDescriptor"], "Columns": columns}
+    return _live_table(StorageDescriptor=storage)
+
+
+@pytest.mark.parametrize(
+    ("first_file", "expected"),
+    [
+        (["a", "new", "b", "c"], ["a", "b", "c", "new"]),
+        (["c", "a", "b", "d"], ["a", "b", "c", "d"]),
+        (["y", "a", "x", "b", "c"], ["a", "b", "c", "y", "x"]),
+        (["a", "c"], ["a", "c"]),
+    ],
+)
+def test_a_csv_refresh_keeps_the_tables_order_and_appends_what_is_new(first_file, expected):
+    """A CSV is read by position, so the table's order is a contract with every file already in
+    the folder: the write keeps it and adds new columns at the end.
+
+    Taking the first file's order instead shifted every older file by one and said nothing —
+    every CSV column is a string, so no value fails to fit the column it lands in, and the
+    refresh notification reported success. The four headers are the shapes that produced it: a
+    column inserted mid-header, the same columns in another order, two new columns around the
+    old ones, and a removal diff-schema has already let through, which leaves the survivors in
+    their places rather than closing up around the first file's order.
+
+    Args:
+      first_file: The header the refresh inferred, in the first file's order.
+      expected: The column names the update must carry, in order.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "b", "c"]))
+    columns = [{"name": name, "type": "string"} for name in first_file]
+
+    m.handler(_event(columns=columns), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == expected
+
+
+def test_a_reordered_csv_header_keeps_the_live_order_and_the_comment_on_a_moved_column():
+    """The carry is keyed on the folded name, not on a position, so a column the first file moved
+    still arrives with the metadata the table holds for it.
+
+    The header also re-cases two of the names, because the reorder and the fold have to agree:
+    sorted on the file's own casing, ``Region`` would rank as a name the live table does not
+    hold and go last.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    live = _live_with(["amount", "region"], {"region": "the sales region"})
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Region", "type": "string"},
+        {"name": "Amount", "type": "string"},
+        {"name": "Notes", "type": "string"},
+    ]
+
+    m.handler(_event(columns=columns), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [(c["Name"], c.get("Comment")) for c in written] == [
+        ("amount", None), ("region", "the sales region"), ("notes", None)
+    ]
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "json"])
+def test_a_name_matched_format_still_writes_the_first_files_order(fmt):
+    """Parquet and JSON are read by name, so the order decides only how ``SELECT *`` lays the
+    columns out and the reorder must not reach them.
+
+    The format is set explicitly: the event factory defaults it to ``csv``, so a test that left
+    it alone would exercise the branch this one exists to stay out of.
+
+    Args:
+      fmt: The name-matched source format under test.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "b", "c"]))
+    columns = [{"name": name, "type": "string"} for name in ("a", "new", "b", "c")]
+
+    m.handler(_event(columns=columns, format=fmt), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["a", "new", "b", "c"]
+
+
 def test_an_event_without_a_format_is_malformed_and_writes_nothing():
     """The format decides what a partition's namesake is written as, so guessing it could write
     a list diff-schema never compared.

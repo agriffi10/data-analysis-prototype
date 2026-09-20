@@ -22,10 +22,16 @@ Attributes:
     first time a caller forgets it.
   MAX_NAMED_COLUMNS: Longest list of column names named in a body or carried in a link, so
     neither a notification nor a URL is unbounded by a user's schema.
+  _REMOVAL_EFFECT: The sentence a removal refusal adds where the SerDe matches by position and
+    a removed column therefore shifts every file that still has it. Carried as a token rather
+    than a second template, so the two formats' wording cannot drift apart around the one
+    clause that differs. It opens with a space, because the marker sits against the column
+    list's full stop and the empty case has to leave today's spacing untouched.
 """
 
 import json
 
+from cpcommon import ddl
 from cpcommon import messages as _cpmessages
 
 _BODIES = {
@@ -69,7 +75,8 @@ _BODIES = {
     "format_changed": "the folder's file format no longer matches the table's - build a new table instead.",
     "columns_removed": (
         "these columns aren't in the first file in the table's folder and would be removed: "
-        "{removed}. Nothing was changed - refresh again and confirm the removal to apply it."
+        "{removed}.{removalEffect} Nothing was changed - refresh again and confirm the removal "
+        "to apply it."
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
     "table_changed_during_refresh": (
@@ -101,9 +108,14 @@ _MARKERS = resolver.markers
 
 MAX_NAMED_COLUMNS = 20
 
+_REMOVAL_EFFECT = (
+    " Because this is a CSV table, any file that still has them would have the values after "
+    "them read into the wrong columns."
+)
 
-def removed_tokens(names: list[str]) -> dict:
-    """Builds both halves of the tokens a columns-removed refusal carries.
+
+def removed_tokens(names: list[str], fmt: str) -> dict:
+    """Builds every token a columns-removed refusal carries, the format's own sentence included.
 
     Built together so the cap and the encoding cannot drift apart. Two separate values rather
     than one re-split string, because splitting the display string back apart is wrong twice
@@ -112,12 +124,28 @@ def removed_tokens(names: list[str]) -> dict:
     containing a comma, a space or an ampersand would be silently mangled. JSON is the
     separator-free encoding that makes the round trip exact.
 
+    The removal warning is the refusal, so where a removal costs more than the column it names,
+    the refusal says so. In a positional format it does: the table's remaining columns close up,
+    and every file that still carries the removed one reads the values after it one column
+    across. A refresh keeping the table's order does not help here — the column is gone from the
+    table either way — so the opt-in stays the whole gate and this sentence is what the user
+    weighs. It is unconditional for the format rather than judged on which columns were removed:
+    removing only the last column is harmless, and a refusal that said so would have to know
+    which columns are last, which the dialog carrying the same sentence cannot.
+
+    ``ddl.POSITIONAL_FORMATS`` is the predicate rather than a literal, so the sentence and the
+    write that makes it true branch on one fact. It names CSV in words because CSV is that set's
+    only member; the tests pin the membership, so a format joining it reddens there rather than
+    shipping a sentence calling Parquet a CSV.
+
     Args:
       names: Every column name that would be removed.
+      fmt: The source format, which decides whether the removal costs more than the columns.
 
     Returns:
-      ``{"removed": …, "removedNames": …}`` — the capped display string the message body
-      renders, and the JSON list the notification link is built from.
+      ``{"removed": …, "removedNames": …, "removalEffect": …}`` — the capped display string the
+      message body renders, the JSON list the notification link is built from, and the
+      format's sentence, empty where the SerDe matches by name.
 
     Raises:
       None.
@@ -127,7 +155,11 @@ def removed_tokens(names: list[str]) -> dict:
     remaining = len(names) - len(shown)
     if remaining > 0:
         display += f", and {remaining} more"
-    return {"removed": display, "removedNames": json.dumps(shown)}
+    return {
+        "removed": display,
+        "removedNames": json.dumps(shown),
+        "removalEffect": _REMOVAL_EFFECT if fmt in ddl.POSITIONAL_FORMATS else "",
+    }
 
 
 def failure_message(

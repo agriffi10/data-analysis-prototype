@@ -118,10 +118,13 @@ statements, no window in which the table is absent, and **no verb on this plane 
   CSV column is a string, so nothing errors and the rail looks right. `ddl.declare_columns` keeps
   it in its place, in any position, as `<fold>_in_file` (numbered on a clash), and the created
   notification names each rename. Parquet and JSON are matched by name and still leave it out.
-  **A refresh applies the same rule** — diff-schema compares, and apply-refresh writes,
+  **A refresh applies the same rule** — diff-schema compares, and apply-refresh declares,
   `ddl.body_columns` for the event's `format` — so a table built with `year_in_file` refreshes
   unchanged from the header that built it, and its fold-collision check reads the files' names, so
-  `Year,year` is refused there as on a create. A header that later gains its own `year_in_file`
+  `Year,year` is refused there as on a create. **What a refresh does not take from that list is its
+  ORDER**: in a positional format the write keeps the live table's order and appends what is new,
+  so "in its place" holds on a create and on a refresh of a table that already declares the column,
+  while a namesake the table has not yet declared is new and goes last like any other new column. A header that later gains its own `year_in_file`
   column moves the rename to `year_in_file_2`, and the refresh reports that name added while the
   live `year_in_file`, and the comment carried on it by name, now read the file's new column — a
   known limit, not refused.

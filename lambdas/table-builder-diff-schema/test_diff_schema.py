@@ -19,7 +19,8 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 import json
 
 import diff_schema as m
-from cpcommon import clients, config
+import pytest
+from cpcommon import clients, config, ddl
 from cpcommon.errors import TerminalError
 
 
@@ -211,6 +212,24 @@ def test_an_event_without_a_format_is_malformed():
 
 
 def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
+    """The refusal IS the warning, so on a CSV table it says what the removal does to the files
+    that still carry the column, not only which columns go.
+
+    Athena reads a CSV by position: the table's remaining columns close up around the removed
+    one, and every file that still has it reads the values after it one column across, silently,
+    because every CSV column is a string. The whole message is asserted rather than a substring,
+    since the sentence is inserted mid-body and a containment check would pass on it landing
+    after "Nothing was changed", or twice.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
     queue = _arm_notifications()
     event = _event(_cols(("keep", "string"), ("gone", "bigint")), _cols(("keep", "string")))
 
@@ -218,8 +237,68 @@ def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
 
     assert json.loads(exc.tokens["removedNames"]) == ["gone"]
     body = json.loads(queue.calls[0]["MessageBody"])
-    assert "gone" in body["message"]
+    assert body["message"] == (
+        'Couldn\'t refresh table "sales_2026": these columns aren\'t in the first file in the '
+        "table's folder and would be removed: gone. Because this is a CSV table, any file that "
+        "still has them would have the values after them read into the wrong columns. Nothing "
+        "was changed - refresh again and confirm the removal to apply it."
+    )
     assert body["link"] == "/query?refreshTable=alice.sales_2026&removed=gone"
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "json"])
+def test_a_removal_refusal_on_a_name_matched_format_says_nothing_about_positions(fmt):
+    """Parquet and JSON are matched by name, so a removal costs the column and nothing more and
+    the refusal says exactly what it said before.
+
+    Asserted as the whole string, because the sentence the CSV case adds is carried as a token
+    the body always renders: an empty token that left a doubled space, or a stray fragment,
+    reaches the user in a notification and no substring check would see it.
+
+    Args:
+      fmt: The name-matched source format under test.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    queue = _arm_notifications()
+    event = _event(
+        _cols(("keep", "string"), ("gone", "bigint")),
+        _cols(("keep", "string")),
+        fmt=fmt,
+    )
+
+    _expect_reason(event, "columns_removed")
+
+    body = json.loads(queue.calls[0]["MessageBody"])
+    assert body["message"] == (
+        'Couldn\'t refresh table "sales_2026": these columns aren\'t in the first file in the '
+        "table's folder and would be removed: gone. Nothing was changed - refresh again and "
+        "confirm the removal to apply it."
+    )
+
+
+def test_the_removal_sentence_names_every_format_that_earns_it():
+    """The sentence above says "CSV" in words while the code branches on
+    ``ddl.POSITIONAL_FORMATS``, and those agree only because CSV is that set's one member.
+
+    A format joining it would ship a refusal calling Parquet or ORC a CSV table, and nothing
+    else would notice: the wording is a string, not a name a type checker follows. This is where
+    that reddens. The fix is to reword the sentence, not to widen this assertion.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    assert set(ddl.POSITIONAL_FORMATS) == {"csv"}
 
 
 def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():

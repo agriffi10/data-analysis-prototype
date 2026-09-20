@@ -116,7 +116,8 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
             id={consequenceId}
             className="mt-0.5 block leading-relaxed text-text-2">
             A column missing from the first file in the table&rsquo;s folder is dropped from the table, even if other
-            files still have it. Any saved query or view that references it will stop working.
+            files still have it. Any saved query or view that references it will stop working. In a table built from CSV
+            files, a file that still has a removed column will have the values after it read into the wrong columns.
           </span>
         </span>
       </label>

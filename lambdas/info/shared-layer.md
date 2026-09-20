@@ -145,7 +145,10 @@ of every kept column, partition key and earlier rename, cut to Glue's 255 bytes)
 leaving it out moves every later column onto the wrong field; elsewhere it is left out.
 `body_columns` is the declared list the body renders, and table-builder's refresh verbs and
 data-quality's queries and report read it or `declare_columns` rather than repeat the rule: a name the body left out
-does not fail a query, it binds to the partition column.
+does not fail a query, it binds to the partition column. The list's ORDER is the create's, and the
+refresh's write is the one caller that does not take it: for a positional format it re-sorts the
+declared columns onto the live table's order and appends what is new, because there the order is a
+contract with every file already in the folder rather than a presentation choice.
 
 ## `cpcommon/type_mapping.py` — polars, and the barrier that used to be there
 

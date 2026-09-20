@@ -1,8 +1,8 @@
 # Spec: A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End
 
 **ID:** SPEC-235
-**Status:** Draft
-**Last Updated:** 2026-09-15
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-144, SPEC-145, SPEC-149, and the Refresh table copy fix, #755 (see *Scope*)
 
 ## Overview
@@ -135,15 +135,15 @@ stays the first file's.
 
 #### Acceptance Criteria:
 
-- [ ] CSV, live `a,b,c`, first file `a,new,b,c`: `update_table` receives the columns `a,b,c,new`.
+- [x] CSV, live `a,b,c`, first file `a,new,b,c`: `update_table` receives the columns `a,b,c,new`.
   This criterion fails against the code at `5391198d`.
-- [ ] CSV, live `a,b,c`, first file `c,a,b,d`: `update_table` receives `a,b,c,d`.
-- [ ] CSV, live `a,b,c`, first file `y,a,x,b,c`: `update_table` receives `a,b,c,y,x`.
-- [ ] CSV, live `a,b,c`, first file `a,c` (a removal diff-schema has already let through):
+- [x] CSV, live `a,b,c`, first file `c,a,b,d`: `update_table` receives `a,b,c,d`.
+- [x] CSV, live `a,b,c`, first file `y,a,x,b,c`: `update_table` receives `a,b,c,y,x`.
+- [x] CSV, live `a,b,c`, first file `a,c` (a removal diff-schema has already let through):
   `update_table` receives `a,c`.
-- [ ] CSV, live `amount,region` with a comment on `region`, first file `Region,Amount,Notes`:
+- [x] CSV, live `amount,region` with a comment on `region`, first file `Region,Amount,Notes`:
   `update_table` receives `amount,region,notes`, and `region` still carries its comment.
-- [ ] CSV, live `amount,region`, first file `Amount,region,amount,notes`: apply-refresh refuses it
+- [x] CSV, live `amount,region`, first file `Amount,region,amount,notes`: apply-refresh refuses it
   as `update_failed`, and `update_table` is not called. In the pipeline diff-schema refuses this
   header first, as `invalid_column_names`; apply-refresh's guard is the backstop.
   `test_columns_differing_only_by_case_are_refused_before_the_update` in `test_apply_refresh.py`
@@ -151,10 +151,10 @@ stays the first file's.
   copy. It matters here because a reorder keyed on the folded name merges the two columns silently
   while every other criterion here still passes. The read-back cannot catch it either, because it
   compares name sets.
-- [ ] Parquet, live `a,b,c`, first file `a,new,b,c`: `update_table` receives `a,new,b,c`. The same
+- [x] Parquet, live `a,b,c`, first file `a,new,b,c`: `update_table` receives `a,new,b,c`. The same
   holds for JSON. Both tests set `format` explicitly, because apply-refresh's test event factory
   defaults it to `csv`, so a test that leaves it unset exercises only the CSV branch.
-- [ ] An event with no `format` is refused as `malformed_event`, and `update_table` is not called.
+- [x] An event with no `format` is refused as `malformed_event`, and `update_table` is not called.
   Already on main: `test_an_event_without_a_format_is_malformed_and_writes_nothing` in
   `test_apply_refresh.py` asserts it; keep it green rather than adding a second copy.
 
@@ -172,17 +172,17 @@ the dialog with the columns named.
 
 #### Acceptance Criteria:
 
-- [ ] A CSV refresh whose first file lacks `b`, without the opt-in, sends a notification whose text
+- [x] A CSV refresh whose first file lacks `b`, without the opt-in, sends a notification whose text
   is the `columns_removed` text on `main` at build time with the new sentence after the column
   list, asserted as the whole string.
-- [ ] The same refusal on Parquet, and on JSON, sends today's text exactly, asserted as the whole
+- [x] The same refusal on Parquet, and on JSON, sends today's text exactly, asserted as the whole
   string.
-- [ ] On the CSV refusal the reason is `columns_removed` and the link is identical to the one
+- [x] On the CSV refusal the reason is `columns_removed` and the link is identical to the one
   today's code builds for the same columns.
-- [ ] A diff-schema event with no `format` and no removal is refused as `malformed_event`. The
+- [x] A diff-schema event with no `format` and no removal is refused as `malformed_event`. The
   format is read up front beside the other required fields, not only on the removal path. Already
   on main: `test_an_event_without_a_format_is_malformed` in `test_diff_schema.py` asserts it.
-- [ ] diff-schema's test event factory carries a format parameter. It already does, defaulting to
+- [x] diff-schema's test event factory carries a format parameter. It already does, defaulting to
   `csv`; the removal tests this spec adds set it explicitly.
 
 ### FR-003: The Refresh dialog and the Help guide describe the kept order and the removal's effect
@@ -208,11 +208,11 @@ The browser does not know a table's format, so the copy names CSV rather than de
 
 #### Acceptance Criteria:
 
-- [ ] The dialog's checkbox has an accessible description containing the new sentence, asserted
+- [x] The dialog's checkbox has an accessible description containing the new sentence, asserted
   in `tableBuilderUi.test.tsx`.
-- [ ] The Refresh guide's text contains the kept-order statement, the "goes last" instruction and
+- [x] The Refresh guide's text contains the kept-order statement, the "goes last" instruction and
   the removal sentence. This is static copy, so the diff review checks it, not a test.
-- [ ] The PR body records the sweep's grep and what each hit was.
+- [x] The PR body records the sweep's grep and what each hit was.
 
 ---
 
