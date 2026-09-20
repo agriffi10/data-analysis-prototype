@@ -7,7 +7,7 @@ import {apiRetryPolicy} from '../../lib/apiClient';
 import {unwrap} from '../../lib/serviceResult';
 import {NO_KEY} from '../../lib/queryKeys';
 import {explorerKeys, explorationSourceScope} from './explorerKeys';
-import {renderExplorationSql} from './renderExplorationSql';
+import {exceedsAthenaQueryLimit, ExplorationStatementTooLong, renderExplorationSql} from './renderExplorationSql';
 import type {QueryState} from '../catalog/catalog.types';
 import type {ExecutionCost, Exploration} from './dataExplorer.types';
 
@@ -59,7 +59,13 @@ export function useExploration(exploration: Exploration | null, tabId?: string):
   const rendered = useMemo((): {sql: string; error: null} | {sql: null; error: unknown} => {
     if (!exploration) return {sql: null, error: null};
     try {
-      return {sql: renderExplorationSql(exploration.source, exploration.query), error: null};
+      const sql = renderExplorationSql(exploration.source, exploration.query);
+      // A statement over Athena's length limit is treated exactly like one that could not
+      // render: no execution, and `sql` null — so *Generated SQL* shows its no-statement
+      // sentence and *Save as query* refuses, rather than handing the user a file holding
+      // a statement Athena will not run.
+      if (exceedsAthenaQueryLimit(sql)) return {sql: null, error: new ExplorationStatementTooLong()};
+      return {sql, error: null};
     } catch (error) {
       return {sql: null, error};
     }

@@ -7,8 +7,16 @@ import {
 } from './dataExplorer.constants';
 import type {EffectiveTheme} from '../../lib/theme.types';
 import {isBareNumeric} from './renderExplorationSql';
+import {colourOperatorTakesValue} from './dataExplorer.constants';
 import {resolveUrl} from './urlTransformer';
-import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer} from './dataExplorer.types';
+import type {
+  ColourOperator,
+  ColourRule,
+  ColourToken,
+  FormattingState,
+  SurfaceToken,
+  Transformer
+} from './dataExplorer.types';
 
 // the arithmetic: which cells a rule paints, what shade a gradient gives them, and
 // where one band of equal rows ends and the next begins.
@@ -203,7 +211,10 @@ export function ruleRefusal(rule: ColourRule): string | null {
     if (!rule.column) return GRADIENT_COLUMN_REFUSAL;
     const {min, max} = rule.gradient;
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return GRADIENT_RANGE_REFUSAL;
-  } else {
+  } else if (colourOperatorTakesValue(rule.operator)) {
+    // Skipped WHOLE for an operator that reads no value: the two presence tests ignore
+    // whatever the field last held, and a rule refused for the length of a string it does
+    // not look at is a rule that vanishes for a reason nothing on screen can explain.
     if (rule.value.length > FORMATTING_PATTERN_MAX) return PATTERN_TOO_LONG_REFUSAL;
     if (rule.operator === 'regex') {
       try {
@@ -240,58 +251,76 @@ export function isRuleApplicable(rule: ColourRule, columns: string[]): boolean {
 /** How a rule's condition is tested, compiled once per page rather than once per cell. */
 type Compiled = {rule: ColourRule; matches: (value: string | null) => boolean};
 
+function matchesPattern(target: string, ignoreCase: boolean): Compiled['matches'] {
+  const expression = likeExpression(target, ignoreCase);
+  return (value) => value !== null && expression.test(value);
+}
+
+function matchesRegex(target: string): Compiled['matches'] {
+  let expression: RegExp;
+  try {
+    // See `ruleRefusal`, which has already refused anything that does not compile.
+    // eslint-disable-next-line security/detect-non-literal-regexp
+    expression = new RegExp(target);
+  } catch {
+    return () => false;
+  }
+  return (value) => value !== null && expression.test(value);
+}
+
+// Ordering comparisons read as numbers when BOTH sides are plainly numeric and as text
+// otherwise, using the renderer's own numeric predicate rather than a second one — a
+// panel that disagreed with the filter about which values are numbers would order a
+// column one way and colour it another. Text comparison is by code unit: deterministic,
+// and the same order the Text view already prints.
+function ordering(target: string, decide: (left: string | number, right: string | number) => boolean) {
+  const numericTarget = isBareNumeric(target) ? Number(target) : null;
+  return (value: string | null) => {
+    if (value === null) return false;
+    const numeric = numericTarget !== null && isBareNumeric(value);
+    return decide(numeric ? Number(value) : value, numeric ? numericTarget : target);
+  };
+}
+
+/**
+ * One predicate builder per colour operator, exhaustive over the union by TYPE.
+ *
+ * It was a chain of `if`s ending in a `default` that treated anything unrecognised as
+ * `<=`, so an operator added to the union and missed here coloured cells by a comparison
+ * nobody asked for, silently and with nothing to fail.
+ */
+const COMPILE_RULE: Record<ColourOperator, (target: string) => Compiled['matches']> = {
+  '=': (target) => (value) => value !== null && value === target,
+  '<>': (target) => (value) => value !== null && value !== target,
+  '>': (target) => ordering(target, (left, right) => left > right),
+  '>=': (target) => ordering(target, (left, right) => left >= right),
+  '<': (target) => ordering(target, (left, right) => left < right),
+  '<=': (target) => ordering(target, (left, right) => left <= right),
+  like: (target) => matchesPattern(target, false),
+  ilike: (target) => matchesPattern(target, true),
+  regex: (target) => matchesRegex(target),
+  // The ONE operator that matches a NULL cell, and the only reason the paragraph above
+  // has an exception: finding absent values is the whole job it was added for. A table
+  // built from CSV files holds a blank field as `''` rather than NULL, so both spellings
+  // of "nothing here" have to match or the rule finds half the empty cells.
+  isEmpty: () => (value) => value === null || value === '',
+  isNotEmpty: () => (value) => value !== null && value !== ''
+};
+
 /**
  * A rule's condition as a predicate over a raw cell value.
  *
- * **A NULL cell matches nothing**, including `<>`. Athena hands every value back as a
- * string and NULL is the one thing that is not one, so "is not equal to `x`" over an
- * absent value is a question about a value that was never there — the honest answer is to
- * leave it unstyled rather than to paint every empty cell in the column.
+ * **A NULL cell matches nothing except `is empty`**, including under `<>`. Athena hands
+ * every value back as a string and NULL is the one thing that is not one, so "is not equal
+ * to `x`" over an absent value is a question about a value that was never there — the
+ * honest answer is to leave it unstyled rather than to paint every empty cell in the
+ * column. `is empty` is the exception because it asks that question directly.
  *
  * @param rule - The rule to compile.
  * @returns The predicate.
  */
 function compile(rule: ColourRule): Compiled['matches'] {
-  const target = rule.value;
-  if (rule.operator === 'like' || rule.operator === 'ilike') {
-    const expression = likeExpression(target, rule.operator === 'ilike');
-    return (value) => value !== null && expression.test(value);
-  }
-  if (rule.operator === 'regex') {
-    let expression: RegExp;
-    try {
-      // See `ruleRefusal`, which has already refused anything that does not compile.
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      expression = new RegExp(target);
-    } catch {
-      return () => false;
-    }
-    return (value) => value !== null && expression.test(value);
-  }
-  if (rule.operator === '=') return (value) => value !== null && value === target;
-  if (rule.operator === '<>') return (value) => value !== null && value !== target;
-
-  // Ordering comparisons read as numbers when BOTH sides are plainly numeric and as text
-  // otherwise, using the renderer's own numeric predicate rather than a second one — a
-  // panel that disagreed with the filter about which values are numbers would order a
-  // column one way and colour it another. Text comparison is by code unit: deterministic,
-  // and the same order the Text view already prints.
-  const numericTarget = isBareNumeric(target) ? Number(target) : null;
-  return (value) => {
-    if (value === null) return false;
-    const left = numericTarget !== null && isBareNumeric(value) ? Number(value) : value;
-    const right = numericTarget !== null && isBareNumeric(value) ? numericTarget : target;
-    switch (rule.operator) {
-      case '>':
-        return left > right;
-      case '>=':
-        return left >= right;
-      case '<':
-        return left < right;
-      default:
-        return left <= right;
-    }
-  };
+  return COMPILE_RULE[rule.operator](rule.value);
 }
 
 /**

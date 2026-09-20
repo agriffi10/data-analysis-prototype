@@ -8,7 +8,9 @@ import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../t
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
-import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
+import {NUMERIC_VALUE_REFUSAL, VALUES_FIELD_LABEL} from './FilterValueDialog';
+import {EMPTY_TEXT_REFUSAL, NO_VALUES_REFUSAL, numericLineRefusal} from './explorationQueryOps';
+import {NO_HISTORY_BACK} from './FilterHistoryControls';
 import {UNFILTERABLE_VALUE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -61,8 +63,8 @@ function lastSql(): string {
 
 function render() {
   const user = userEvent.setup(USER_EVENT_OPTIONS);
-  renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
-  return {user};
+  const {container} = renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+  return {user, container};
 }
 
 function seedTab() {
@@ -213,14 +215,15 @@ describe('the column header menu', () => {
     expect(menu).toHaveStyle({maxHeight: '292px'});
   });
 
-  it('offers all six comparisons, and each one composes its own operator', async () => {
+  it('offers every operator a text column takes, and each one composes its own', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
 
     await user.click(screen.getByRole('button', {name: 'Column options: note'}));
-    // The menu's list is derived from `FILTER_OPERATORS`, not re-written: a hand-written
-    // array cast to `FilterOperator[]` type-checks with three of the six missing, and
-    // nothing here exercised more than two of them.
+    // The menu's list is derived from the operator table, not re-written: a hand-written
+    // array cast to `FilterOperator[]` type-checks with half of them missing, and nothing
+    // here exercised more than two. The ORDER is asserted because it is the offer order,
+    // and an operator that needs something typed keeps the trailing ellipsis.
     const labels = screen.getAllByRole('menuitem').map((item) => item.textContent);
     expect(labels).toEqual([
       'Sort ascending',
@@ -232,8 +235,16 @@ describe('the column header menu', () => {
       'Filter: greater than or equal to…',
       'Filter: less than…',
       'Filter: less than or equal to…',
+      'Filter: contains…',
+      'Filter: does not contain…',
+      'Filter: starts with…',
+      'Filter: ends with…',
+      'Filter: is one of…',
+      'Filter: is not one of…',
       'Filter: is null',
       'Filter: is not null',
+      'Filter: is empty',
+      'Filter: is not empty',
       'Clear filter',
       'Hide column'
     ]);
@@ -332,5 +343,242 @@ describe('the header menu inside the grid', () => {
     // Clicking the header itself selects the whole column (SPEC-180 FR-002 AC3); clicking
     // the menu inside it must not, or every filter gesture would select 100 cells first.
     expect(within(screen.getByRole('grid')).queryAllByRole('gridcell', {selected: true})).toHaveLength(0);
+  });
+});
+
+// ─── SPEC-238 FR-004: which operators a column offers, and the two value inputs ──────────
+
+/** Every filter item the column's menu offers, in the order it offers them. */
+async function filterItemsOf(user: ReturnType<typeof userEvent.setup>, column: string): Promise<string[]> {
+  await user.click(await screen.findByRole('button', {name: new RegExp(`^Column options: ${column}`)}));
+  return screen
+    .getAllByRole('menuitem')
+    .map((item) => item.textContent ?? '')
+    .filter((label) => label.startsWith('Filter:') || label === 'Clear filter');
+}
+
+describe('the operators a column offers, by its type', () => {
+  it('offers a number column the list tests but no text or empty one', async () => {
+    // A `bigint` column, because `LIKE` and `= ''` against one are Trino TYPE ERRORS
+    // rather than comparisons — offering them would take the exploration to an error banner.
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({columns: [{name: 'qty', type: 'bigint'}], rows: [['1']]}) as never
+    );
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    const items = await filterItemsOf(user, 'qty');
+    expect(items).toContain('Filter: is one of…');
+    for (const label of [
+      'Filter: contains…',
+      'Filter: does not contain…',
+      'Filter: starts with…',
+      'Filter: ends with…',
+      'Filter: is empty',
+      'Filter: is not empty'
+    ]) {
+      expect(items, label).not.toContain(label);
+    }
+  });
+
+  it('offers a date column the comparisons and the null tests only', async () => {
+    // `IN ('2026-01-01')` against a `date` is the same type error, since the model quotes
+    // every non-numeric value.
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({columns: [{name: 'day', type: 'date'}], rows: [['2026-01-01']]}) as never
+    );
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    expect(await filterItemsOf(user, 'day')).toEqual([
+      'Filter: equals…',
+      'Filter: does not equal…',
+      'Filter: greater than…',
+      'Filter: greater than or equal to…',
+      'Filter: less than…',
+      'Filter: less than or equal to…',
+      'Filter: is null',
+      'Filter: is not null',
+      'Clear filter'
+    ]);
+  });
+});
+
+describe('the text and empty operators from the menu', () => {
+  it('folds case on both sides and names the escape character', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: contains…');
+    await user.type(screen.getByLabelText('Value'), 'abc');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`lower("note") LIKE lower('%abc%') ESCAPE '\\'`);
+    expect(runQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses an empty pattern, which would match every non-NULL row', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: starts with…');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    expect(await screen.findByText(EMPTY_TEXT_REFUSAL)).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies is empty straight from the menu, without opening a dialog', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is empty');
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(lastSql()).toContain(`WHERE ("note" IS NULL OR "note" = '')`);
+  });
+});
+
+describe('the list operators from the menu', () => {
+  it('ignores blank lines, collapses duplicates, and keeps the first of each', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), 'NY\n\nNJ\nNY');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    // Rendered sorted — two lists holding the same values are one statement and one bill.
+    expect(lastSql()).toContain(`WHERE "note" IN ('NJ', 'NY')`);
+  });
+
+  it('pre-fills an edit in the STORED order, and re-applying it unchanged runs nothing new', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), 'NY\nNJ');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    // The lines the user typed, not the order the renderer sorts them into.
+    expect(await screen.findByLabelText(VALUES_FIELD_LABEL)).toHaveValue('NY\nNJ');
+
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // Same query, so no second execution and no history entry to step back through: Back
+    // reaches the UNFILTERED statement, which it could not if the re-apply had pushed one.
+    expect(runQuery).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await waitFor(() =>
+      expect(screen.getByRole('button', {name: 'Back to previous filters'})).toHaveAttribute('title', NO_HISTORY_BACK)
+    );
+  });
+
+  it('opens with the list field focused, and Enter in it is a new line rather than a submit', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    const field = await screen.findByLabelText(VALUES_FIELD_LABEL);
+    // `FormDialog` focuses its first control when no ref is passed, and that ref doubles as
+    // the one field Enter submits from — which a list of values must not be.
+    expect(field).toHaveFocus();
+
+    await user.type(field, 'NY{Enter}NJ');
+    expect(field).toHaveValue('NY\nNJ');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no accessibility violations in list mode, refusal included', async () => {
+    const {user, container} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+    // Asserted with the refusal RENDERED: the message carries `role="alert"` and is wired
+    // by `aria-describedby`, and an empty field is the state that has neither.
+    expect(await screen.findByText(NO_VALUES_REFUSAL)).toBeInTheDocument();
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('names the line a number column cannot read, counting blank lines', async () => {
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({columns: [{name: 'qty', type: 'bigint'}], rows: [['1']]}) as never
+    );
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'qty', 'Filter: is one of…');
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), '1\nx\n3');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    expect(await screen.findByText(numericLineRefusal(2))).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Order and filter refuses what the value dialog refuses', () => {
+  const openOrderFilter = async (user: ReturnType<typeof userEvent.setup>) => {
+    await chooseExplorationOption(user, 'Order and filter');
+    return screen.findByRole('dialog', {name: 'Order and filter'});
+  };
+
+  it('refuses an empty text operator on that column’s row, and starts nothing', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    const dialog = await openOrderFilter(user);
+    await user.selectOptions(within(dialog).getByLabelText('Filter note'), 'contains');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    expect(await screen.findByText(EMPTY_TEXT_REFUSAL)).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('pre-fills a list that is ALREADY applied, so Apply does not refuse a column nobody touched', async () => {
+    // The dialog unmounts on Cancel, so an empty start showed a blank field for a list that
+    // was still applied — and then refused Apply for a column the user had not been near,
+    // with the list only reappearing if they cycled the operator dropdown.
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), 'NY\nNJ');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+
+    const dialog = await openOrderFilter(user);
+    expect(within(dialog).getByLabelText('Values for note, one per line')).toHaveValue('NY\nNJ');
+
+    // Apply without touching the list: the dialog closes, and the statement is unchanged —
+    // so the staged list reached the query rather than being parsed from an empty field.
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Order and filter'})).not.toBeInTheDocument());
+    expect(runQuery).toHaveBeenCalledTimes(2);
+    expect(lastSql()).toContain(`"note" IN ('NJ', 'NY')`);
+  });
+
+  it('applies a list on one column and a pattern on another as ONE execution', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    const dialog = await openOrderFilter(user);
+    await user.selectOptions(within(dialog).getByLabelText('Filter note'), 'in');
+    await user.type(within(dialog).getByLabelText('Values for note, one per line'), 'NY\nNJ');
+    await user.selectOptions(within(dialog).getByLabelText('Filter id'), 'contains');
+    await user.type(within(dialog).getByLabelText('Value for id'), 'a');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    // The whole point of the staged dialog: several changes are one execution, not one each.
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    const sql = lastSql();
+    expect(sql).toContain(`"note" IN ('NJ', 'NY')`);
+    expect(sql).toContain(`lower("id") LIKE lower('%a%') ESCAPE '\\'`);
   });
 });

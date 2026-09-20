@@ -4,6 +4,7 @@ import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {
   COLOUR_OPERATORS,
+  colourOperatorTakesValue,
   COLOUR_OPERATOR_LABELS,
   FORMATTING_BACKGROUNDS,
   FORMATTING_COLOUR_LABELS,
@@ -181,14 +182,20 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
                     ))}
                   </select>
 
-                  <span className="basis-40">
-                    <Input
-                      aria-label={`Rule ${position} value`}
-                      value={rule.value}
-                      error={errors[rule.id] || null}
-                      onChange={(e) => editRule(rule.id, {value: e.target.value})}
-                    />
-                  </span>
+                  {/* The two presence tests take no value, so the field LEAVES the tree
+                      rather than being disabled: a disabled input beside a rule that
+                      ignores it is a control that looks like it still means something. A
+                      stored value survives the switch and is ignored while it does. */}
+                  {colourOperatorTakesValue(rule.operator) && (
+                    <span className="basis-40">
+                      <Input
+                        aria-label={`Rule ${position} value`}
+                        value={rule.value}
+                        error={errors[rule.id] || null}
+                        onChange={(e) => editRule(rule.id, {value: e.target.value})}
+                      />
+                    </span>
+                  )}
                 </>
               )}
 

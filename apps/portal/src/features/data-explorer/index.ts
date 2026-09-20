@@ -6,8 +6,11 @@
 // — this feature composes both and may not import `features/query/`.
 export {
   renderExplorationSql,
+  ATHENA_QUERY_STRING_MAX,
   ExplorationRenderError,
+  ExplorationStatementTooLong,
   aggregateAlias,
+  exceedsAthenaQueryLimit,
   groupingOrderingViolation,
   isBareNumeric
 } from './renderExplorationSql';
@@ -28,11 +31,18 @@ export {
   clearSort,
   filterOf,
   filterValueKind,
+  filterValuesText,
   groupingApplyRefusal,
   isEmptyQuery,
+  isFilterOperator,
+  isTextType,
   moveSortPriority,
   moveSortRefusal,
   operatorTakesValue,
+  operatorTakesValues,
+  operatorUsesValueKind,
+  operatorsFor,
+  parseFilterValues,
   sameQuery,
   setFilter,
   setGrouping,
@@ -72,6 +82,7 @@ export {
   CALC_FUNCTIONS,
   COLOUR_OPERATORS,
   COLOUR_OPERATOR_LABELS,
+  EXPLORER_FILTER_VALUES_MAX,
   FORMATTING_BACKGROUNDS,
   FORMATTING_COLOUR_LABELS,
   FORMATTING_FOREGROUNDS,
@@ -82,6 +93,7 @@ export {
   EXPLORATION_PAGE_SIZE,
   EXPLORATION_TABS_MAX,
   EXPLORER_FILTER_HISTORY_MAX,
+  colourOperatorTakesValue,
   ROW_NUMBER_COLUMN_WIDTH,
   SQL_SOURCE_ALIAS,
   TEXT_VIEW_MAX_COLUMN_CHARS

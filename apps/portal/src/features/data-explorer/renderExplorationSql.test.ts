@@ -1,5 +1,13 @@
 import {describe, expect, it} from 'vitest';
-import {ExplorationRenderError, groupingOrderingViolation, renderExplorationSql} from './renderExplorationSql';
+import {
+  ATHENA_QUERY_STRING_MAX,
+  exceedsAthenaQueryLimit,
+  ExplorationRenderError,
+  groupingOrderingViolation,
+  renderExplorationSql
+} from './renderExplorationSql';
+import {EXPLORER_FILTER_VALUES_MAX} from './dataExplorer.constants';
+import {FILTER_OPERATORS, operatorTakesValue, operatorTakesValues, operatorUsesValueKind} from './explorationQueryOps';
 import {emptyExplorationQuery, newExploration} from './exploration';
 import type {ExplorationQuery, ExplorationSource, Grouping} from './dataExplorer.types';
 
@@ -302,5 +310,149 @@ describe('newExploration (FR-001)', () => {
   it('does not carry the bucket or the S3 location — those are the file browser’s concern', () => {
     const exploration = newExploration(TABLE);
     expect(Object.keys(exploration.source).sort()).toEqual(['database', 'kind', 'spaceId', 'table']);
+  });
+});
+
+// The eight operators SPEC-238 adds. Every case asserts the WHOLE `WHERE` clause rather
+// than a fragment of it: a substring assertion passes on a clause that also carries
+// something it did not expect, and what reaches Athena is the whole string.
+const whereOf = (query: ExplorationQuery): string => {
+  const [, , where] = renderExplorationSql(TABLE, query).split('\n');
+  return where;
+};
+const filtered = (filter: ExplorationQuery['filters'][number]): string => whereOf(q({filters: [filter]}));
+
+describe('the text operators (FR-001)', () => {
+  it('escapes the wildcards and the escape character itself, in that order', () => {
+    expect(filtered({column: 'name', operator: 'contains', value: 'a%b_c\\d'})).toBe(
+      "WHERE lower(\"name\") LIKE lower('%a\\%b\\_c\\\\d%') ESCAPE '\\'"
+    );
+  });
+
+  it('anchors starts with at the front and ends with at the back', () => {
+    expect(filtered({column: 'name', operator: 'startsWith', value: "O'Brien"})).toBe(
+      "WHERE lower(\"name\") LIKE lower('O''Brien%') ESCAPE '\\'"
+    );
+    expect(filtered({column: 'name', operator: 'endsWith', value: 'x'})).toBe(
+      "WHERE lower(\"name\") LIKE lower('%x') ESCAPE '\\'"
+    );
+  });
+
+  it('keeps an injection attempt inside the literal under NOT LIKE', () => {
+    const where = filtered({column: 'name', operator: 'notContains', value: "' OR 1=1 --"});
+    expect(where).toBe("WHERE lower(\"name\") NOT LIKE lower('%'' OR 1=1 --%') ESCAPE '\\'");
+    // The real claim, and the one a golden string alone would not make: every quote in the
+    // statement is part of a literal, so nothing the user typed is being parsed as SQL.
+    const outside = renderExplorationSql(
+      TABLE,
+      q({filters: [{column: 'name', operator: 'notContains', value: "' OR 1=1 --"}]})
+    ).replace(/'(?:[^']|'')*'/g, '');
+    expect(outside).not.toContain("'");
+  });
+
+  it('refuses an empty pattern, which would match every non-NULL row', () => {
+    expect(() => filtered({column: 'name', operator: 'contains', value: ''})).toThrow(ExplorationRenderError);
+    expect(() => filtered({column: 'name', operator: 'contains'})).toThrow(ExplorationRenderError);
+  });
+
+  it('quotes its value on a NUMERIC column, where a comparison would emit it bare', () => {
+    expect(filtered({column: 'name', operator: 'contains', value: '5', valueKind: 'number'})).toBe(
+      "WHERE lower(\"name\") LIKE lower('%5%') ESCAPE '\\'"
+    );
+  });
+});
+
+describe('the list operators (FR-002)', () => {
+  it('de-duplicates and sorts by code unit, so two orders render one statement', () => {
+    expect(filtered({column: 'brnd_name', operator: 'in', values: ['Abilify', 'Abacavir', 'Abilify']})).toBe(
+      "WHERE \"brnd_name\" IN ('Abacavir', 'Abilify')"
+    );
+    expect(filtered({column: 'c', operator: 'notIn', values: ['b', 'a']})).toBe("WHERE \"c\" NOT IN ('a', 'b')");
+  });
+
+  it('emits a numeric column’s values bare, and refuses one that is not a number', () => {
+    expect(filtered({column: 'qty', operator: 'in', values: ['10', '2.5'], valueKind: 'number'})).toBe(
+      'WHERE "qty" IN (10, 2.5)'
+    );
+    expect(() => filtered({column: 'qty', operator: 'in', values: ['10', '0x1f'], valueKind: 'number'})).toThrow(
+      ExplorationRenderError
+    );
+  });
+
+  it('refuses an empty list, an absent one, and one over the cap — and renders AT the cap', () => {
+    expect(() => filtered({column: 'c', operator: 'in', values: []})).toThrow(ExplorationRenderError);
+    expect(() => filtered({column: 'c', operator: 'in'})).toThrow(ExplorationRenderError);
+    const atCap = Array.from({length: EXPLORER_FILTER_VALUES_MAX}, (_, i) => `v${i}`);
+    expect(filtered({column: 'c', operator: 'in', values: atCap})).toContain('"c" IN (');
+    expect(() => filtered({column: 'c', operator: 'in', values: [...atCap, 'one-more']})).toThrow(
+      ExplorationRenderError
+    );
+  });
+});
+
+describe('the empty operators (FR-003)', () => {
+  it('tests both spellings of absent, parenthesized so a neighbour cannot capture the OR', () => {
+    expect(filtered({column: 'last_name', operator: 'isEmpty'})).toBe(
+      'WHERE ("last_name" IS NULL OR "last_name" = \'\')'
+    );
+    expect(filtered({column: 'c', operator: 'isNotEmpty'})).toBe('WHERE ("c" IS NOT NULL AND "c" <> \'\')');
+  });
+
+  it('keeps the OR bound to its own column when a second filter joins it', () => {
+    const where = whereOf(
+      q({
+        filters: [
+          {column: 'a', operator: 'isEmpty'},
+          {column: 'b', operator: '=', value: 'x'}
+        ]
+      })
+    );
+    expect(where).toBe('WHERE (("a" IS NULL OR "a" = \'\') AND "b" = \'x\')');
+  });
+});
+
+describe('every operator renders (FR-001–FR-003)', () => {
+  it('has a rendering for each member of the union, and none of them is undefined', () => {
+    // A POPULATION guard, and the count is asserted first: `[].every` is true, so a loop
+    // over an empty list would pass while proving nothing. It is the runtime half of the
+    // claim `Record<FilterOperator, …>` makes at compile time.
+    expect(FILTER_OPERATORS).toHaveLength(16);
+    for (const operator of FILTER_OPERATORS) {
+      const filter = {
+        column: 'c',
+        operator,
+        ...(operatorTakesValue(operator) ? {value: 'x'} : {}),
+        ...(operatorTakesValues(operator) ? {values: ['x']} : {})
+      };
+      const where = filtered(filter);
+      // The quoted column, not a prefix match on `WHERE`: every renderer emits
+      // `sqlIdentifier(column)`, and a pattern loose enough to match any clause at all
+      // would pass on the `undefined` this exists to catch.
+      expect(where, operator).toContain('"c"');
+      expect(where, operator).not.toContain('undefined');
+    }
+  });
+
+  it('never emits a value bare for an operator whose spec says the column’s kind does not apply', () => {
+    // The flag the renderer and both value inputs read. If it were flipped for a text
+    // operator, this is where a non-numeric value on a numeric column would start throwing
+    // instead of being quoted — and the inputs would start refusing what the renderer takes.
+    const unaffected = FILTER_OPERATORS.filter((o) => operatorTakesValue(o) && !operatorUsesValueKind(o));
+    expect(unaffected).toEqual(['contains', 'notContains', 'startsWith', 'endsWith']);
+    for (const operator of unaffected) {
+      expect(() => filtered({column: 'c', operator, value: 'not a number', valueKind: 'number'})).not.toThrow();
+    }
+  });
+});
+
+describe('exceedsAthenaQueryLimit (FR-005)', () => {
+  it('counts UTF-8 BYTES, not characters', () => {
+    expect(exceedsAthenaQueryLimit('a'.repeat(ATHENA_QUERY_STRING_MAX))).toBe(false);
+    expect(exceedsAthenaQueryLimit('a'.repeat(ATHENA_QUERY_STRING_MAX + 1))).toBe(true);
+    // 131,073 two-byte characters is 262,146 bytes — over the limit on a count this
+    // assertion would miss entirely if the check counted characters (131,073 of them).
+    const twoByte = 'é'.repeat(131_073);
+    expect(twoByte).toHaveLength(131_073);
+    expect(exceedsAthenaQueryLimit(twoByte)).toBe(true);
   });
 });

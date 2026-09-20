@@ -434,3 +434,33 @@ describe('the fixes review found', () => {
     expect(panelLink).not.toHaveAttribute('tabindex');
   });
 });
+
+describe('a rule that tests for an empty cell (SPEC-238 FR-006)', () => {
+  it('takes no value: the field leaves the tree, and Apply succeeds without one', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    const dialog = await openColours(user);
+    await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
+    // The value field is there for the default operator, so its absence below is a change
+    // rather than a query that never matched anything.
+    expect(within(dialog).getByRole('textbox', {name: 'Rule 1 value'})).toBeInTheDocument();
+
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 test'}), 'isEmpty');
+    // REMOVED, not disabled: a disabled input beside a rule that ignores it still reads as
+    // a control that means something.
+    expect(within(dialog).queryByRole('textbox', {name: 'Rule 1 value'})).not.toBeInTheDocument();
+
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 column'}), 'qty');
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 background'}), 'Amber tint');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Colors'})).not.toBeInTheDocument());
+    // `qty` is NULL on the third row and a number on the first two — so the rule paints
+    // the one cell that holds nothing, and Colors runs no query to do it.
+    await waitFor(() => expect(cell(2, 'qty')).toHaveStyle({backgroundColor: 'var(--color-warning-soft)'}));
+    expect(cell(0, 'qty')).not.toHaveStyle({backgroundColor: 'var(--color-warning-soft)'});
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+});

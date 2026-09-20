@@ -41,6 +41,7 @@ import {
   filterOf,
   filterValueKind,
   operatorTakesValue,
+  operatorsFor,
   setFilter,
   setGrouping,
   setSort,
@@ -376,22 +377,26 @@ export function ExplorationResultsRegion({
     valueKindOf,
     sort: (column, direction) => apply({ordering: setSort(query, column, direction).ordering}),
     clearSort: (column) => apply({ordering: clearSort(query, column).ordering}),
-    filter: (column, operator, value) =>
+    operatorsOf: (column) => operatorsFor(typeOf.get(column) ?? ''),
+    // `setFilter` drops whichever of the two fields this operator does not read, so a
+    // caller cannot leave a stale value behind on the way to a list operator.
+    filter: (column, operator, input) =>
       apply({
         filters: setFilter(query, {
           column,
           operator,
-          value: operatorTakesValue(operator) ? (value ?? '') : undefined,
+          value: input && 'value' in input ? input.value : operatorTakesValue(operator) ? '' : undefined,
+          values: input && 'values' in input ? input.values : undefined,
           valueKind: valueKindOf(column)
         }).filters
       }),
     clearFilter: (column) => apply({filters: clearFilter(query, column).filters})
   };
 
-  // The value already on that column, so re-filtering it is an edit rather than a retype.
+  // The filter already on that column, so re-filtering it is an edit rather than a retype.
+  // The dialog decides for itself which half of it to pre-fill from, since a single-value
+  // filter leaves list mode empty and a list leaves the single-value field empty.
   const pendingExisting = pendingFilter ? filterOf(query, pendingFilter.column) : null;
-  const pendingInitialValue =
-    pendingExisting && operatorTakesValue(pendingExisting.operator) ? (pendingExisting.value ?? '') : '';
 
   // Below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
@@ -497,7 +502,7 @@ export function ExplorationResultsRegion({
     // A NULL cell is `IS NULL`, not `= ''`. Athena hands every value back as
     // a string, so nothing below this line could tell the two apart.
     if (cursorValue === null) actions.filter(cursorColumn.name, 'isNull');
-    else actions.filter(cursorColumn.name, '=', cursorValue);
+    else actions.filter(cursorColumn.name, '=', {value: cursorValue});
   };
 
   const body = () => {
@@ -751,9 +756,9 @@ export function ExplorationResultsRegion({
           column={pendingFilter.column}
           operator={pendingFilter.operator}
           valueKind={valueKindOf(pendingFilter.column)}
-          initialValue={pendingInitialValue}
-          onApply={(value) => {
-            actions.filter(pendingFilter.column, pendingFilter.operator, value);
+          existing={pendingExisting}
+          onApply={(result) => {
+            actions.filter(pendingFilter.column, pendingFilter.operator, result);
             setPendingFilter(null);
           }}
           onCancel={() => setPendingFilter(null)}

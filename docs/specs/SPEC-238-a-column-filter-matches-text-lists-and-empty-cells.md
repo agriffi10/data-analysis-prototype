@@ -1,8 +1,8 @@
 # Spec: A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell
 
 **ID:** SPEC-238
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-178, SPEC-181, SPEC-184
 
 ## Overview
