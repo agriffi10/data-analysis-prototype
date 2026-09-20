@@ -5,6 +5,7 @@ reader's two attribution paths — including the one a FAILED-only collector sil
 AWS is stubbed with a recording fake.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -1177,3 +1178,470 @@ def test_the_reason_code_is_the_callers_and_never_this_layers():
         results_mod.results_location({}, unreadable_reason="a_second_planes_wording")
 
     assert caught.value.reason == "a_second_planes_wording"
+
+
+# ── the conditional copy (SPEC-237) ─────────────────────────────────────────
+
+
+_OCCUPIED = "destination_occupied_during_copy"
+
+messages.register_reasons([_OCCUPIED])
+
+
+def _conditional(rel="part-0.parquet", size=10, **overrides):
+    """A manifest line that refuses to overwrite, as a restore's copy-back writes it."""
+    return {**_item(rel=rel, size=size), "ifAbsent": True, **overrides}
+
+
+def test_a_conditional_line_under_the_threshold_conditions_the_copy_object():
+    """FR-001 AC1. Asserted on the ARGUMENT SET rather than on "a copy happened": the whole
+    behaviour is one header, so a test that only counted calls would pass with it missing."""
+    fake = _setup()
+
+    copy_mod.copy_batch([_conditional()], _FAILED, echo_fields=_ECHO)
+
+    assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource", "MetadataDirective", "IfNoneMatch"}
+    assert fake.copies[0]["IfNoneMatch"] == "*"
+    assert fake.multipart == []
+
+
+def test_a_conditional_line_over_the_threshold_conditions_ONLY_the_completion():
+    """FR-001 AC1, and the half an obvious implementation gets wrong in both directions. S3
+    accepts the condition on neither ``CreateMultipartUpload`` nor ``UploadPartCopy`` — passing it
+    there is rejected — and omitting it from the completion leaves a multipart copy overwriting
+    silently while every object under 5 GiB is protected."""
+    fake = _setup()
+    creates = []
+    real_create = fake.create_multipart_upload
+    fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
+
+    copy_mod.copy_batch([_conditional(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
+
+    completions = [m["complete"] for m in fake.multipart if "complete" in m]
+    part_copies = [m for m in fake.multipart if "complete" not in m]
+    assert fake.copies == []
+    assert part_copies, "the multipart path did not run — this test is measuring nothing"
+    assert completions[0]["IfNoneMatch"] == "*"
+    assert not any("IfNoneMatch" in create for create in creates)
+    assert not any("IfNoneMatch" in part for part in part_copies)
+
+
+@pytest.mark.parametrize("line", [_item(), {**_item(), "ifAbsent": False}], ids=["absent", "false"])
+def test_a_line_that_asks_for_no_condition_issues_exactly_the_request_it_always_did(line):
+    """THE PROPERTY THE FOUR EXISTING CALLERS DEPEND ON, asserted the way the storage class's
+    equivalent is: on the exact argument set, not on a call count. A neighbouring code path
+    produces the same count."""
+    fake = _setup()
+
+    copy_mod.copy_batch([line], _FAILED, echo_fields=_ECHO)
+
+    assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource", "MetadataDirective"}
+
+
+@pytest.mark.parametrize("size", [10, 6 * GIB], ids=["single", "multipart"])
+def test_a_line_that_asks_for_no_condition_issues_the_same_multipart_requests_too(size):
+    fake = _setup()
+
+    copy_mod.copy_batch([_item(rel="f.parquet", size=size)], _FAILED, echo_fields=_ECHO)
+
+    issued = fake.copies + list(fake.multipart)
+    assert issued, "nothing was issued — this test is measuring nothing"
+    assert not any("IfNoneMatch" in str(request) for request in issued)
+
+
+def test_a_non_boolean_ifAbsent_fails_its_item_and_issues_no_copy():
+    """FR-001 AC3. Both ways to be lenient are worse than a reported failure: a truthy string
+    would condition a copy nobody asked to condition, and an unrecognised value read as False
+    turns a line that asked not to overwrite into one that does."""
+    fake = _setup()
+
+    out = copy_mod.copy_batch(
+        [{**_item(), "ifAbsent": "true"}, _item(recipient="carol")], _FAILED, echo_fields=_ECHO
+    )
+
+    assert out["copied"] == 1
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
+    assert len(fake.copies) == 1
+
+
+def test_a_conflict_on_a_conditional_write_retries_the_batch():
+    """FR-001 AC4. S3 documents the conflict as retryable on both conditioned operations — it is
+    an answer about the race, not about the object — so reading it as occupied would turn a write
+    race with this run's OWN earlier attempt into a false collision."""
+    _setup(copy_error=_S3Error("ConditionalRequestConflict"))
+
+    with pytest.raises(TransientError):
+        copy_mod.copy_batch([_conditional()], _FAILED, echo_fields=_ECHO)
+
+
+def test_the_same_conflict_on_an_UNconditional_line_is_classified_as_it_always_was():
+    """The other half of AC4: the classification only changes where a condition was asked for."""
+    _setup(copy_error=_S3Error("ConditionalRequestConflict"))
+
+    out = copy_mod.copy_batch([_item()], _FAILED, echo_fields=_ECHO)
+
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
+
+
+# ── resolving a refused write (FR-002) ──────────────────────────────────────
+#
+# The fake below honours ``IfNoneMatch`` and computes ETags the way SSE-S3 does, over REAL
+# bytes: the MD5 of the object for a single copy, and the MD5 of the concatenated part MD5s
+# with ``-N`` for a multipart one. The thresholds are shrunk so the multipart arithmetic runs on
+# bytes a test can hold, rather than on a synthetic stand-in for 5 GiB — an ETag model that
+# agreed with itself by construction would prove nothing about the comparison it feeds.
+#
+# Every bucket in this repo is AES256, which is what makes an ETag content-derived and this
+# whole resolution possible; under SSE-KMS it is not, and every retried item would read as
+# occupied.
+
+_TINY_THRESHOLD = 8
+_TINY_PART = 4
+
+
+def _single_etag(body: bytes) -> str:
+    return '"' + hashlib.md5(body).hexdigest() + '"'  # noqa: S324 - S3's own ETag algorithm
+
+
+def _multipart_etag(body: bytes, part_size: int) -> str:
+    parts = [body[i : i + part_size] for i in range(0, len(body), part_size)]
+    joined = b"".join(hashlib.md5(part).digest() for part in parts)  # noqa: S324 - as above
+    return '"' + hashlib.md5(joined).hexdigest() + f'-{len(parts)}"'  # noqa: S324 - as above
+
+
+class _ConditionalS3:
+    """An S3 fake that refuses a conditional write over an existing key and computes real ETags.
+
+    ``writes`` records every key this fake actually stored, which is how a test asserts that a
+    refused copy left the destination ALONE rather than merely reporting that it did.
+    """
+
+    def __init__(self, part_size=_TINY_PART):
+        self.objects = {}
+        self.writes = []
+        self.aborted = []
+        self.head_errors = {}
+        self.transient_once = set()
+        self._uploads = {}
+        self._part_size = part_size
+
+    def seed(self, bucket, key, body, content_type="text/csv", metadata=None, multipart=False):
+        """Puts an object there with the ETag the copy engine itself would have produced.
+
+        ``multipart`` is how a vault object written by this same engine above the threshold is
+        modelled: its ETag is composite, and the copy-back re-parts at the same size, which is
+        the property that makes the two agree.
+        """
+        self.objects[(bucket, key)] = {
+            "body": body,
+            "ContentType": content_type,
+            "Metadata": metadata or {},
+            "ETag": _multipart_etag(body, self._part_size) if multipart else _single_etag(body),
+        }
+
+    def head_object(self, Bucket, Key):
+        error = self.head_errors.get((Bucket, Key))
+        if error:
+            raise error
+        try:
+            stored = self.objects[(Bucket, Key)]
+        except KeyError as err:
+            raise _S3Error("NotFound") from err
+        return {
+            "ETag": stored["ETag"],
+            "ContentLength": len(stored["body"]),
+            "ContentType": stored["ContentType"],
+            "Metadata": stored["Metadata"],
+        }
+
+    def _refuse_if_taken(self, kwargs, bucket, key):
+        if kwargs.get("IfNoneMatch") == "*" and (bucket, key) in self.objects:
+            raise _S3Error("PreconditionFailed")
+
+    def _maybe_transient(self, key):
+        if key in self.transient_once:
+            self.transient_once.discard(key)
+            raise _S3Error("SlowDown")
+
+    def copy_object(self, Bucket, Key, CopySource, **kwargs):
+        self._maybe_transient(Key)
+        self._refuse_if_taken(kwargs, Bucket, Key)
+        source = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        self.objects[(Bucket, Key)] = {
+            **source,
+            "ETag": _single_etag(source["body"]),
+        }
+        self.writes.append(Key)
+
+    def create_multipart_upload(self, Bucket, Key, **kwargs):
+        upload_id = f"u{len(self._uploads) + 1}"
+        self._uploads[upload_id] = {
+            "Bucket": Bucket,
+            "Key": Key,
+            "ContentType": kwargs.get("ContentType", "binary/octet-stream"),
+            "Metadata": kwargs.get("Metadata", {}),
+            "parts": [],
+        }
+        return {"UploadId": upload_id}
+
+    def upload_part_copy(self, Bucket, Key, UploadId, PartNumber, CopySource, CopySourceRange):
+        start, end = (int(n) for n in CopySourceRange.removeprefix("bytes=").split("-"))
+        chunk = self.objects[(CopySource["Bucket"], CopySource["Key"])]["body"][start : end + 1]
+        self._uploads[UploadId]["parts"].append(chunk)
+        return {"CopyPartResult": {"ETag": _single_etag(chunk)}}
+
+    def complete_multipart_upload(self, Bucket, Key, UploadId, MultipartUpload, **kwargs):
+        self._maybe_transient(Key)
+        self._refuse_if_taken(kwargs, Bucket, Key)
+        upload = self._uploads[UploadId]
+        body = b"".join(upload["parts"])
+        joined = b"".join(hashlib.md5(part).digest() for part in upload["parts"])  # noqa: S324
+        self.objects[(Bucket, Key)] = {
+            "body": body,
+            "ContentType": upload["ContentType"],
+            "Metadata": upload["Metadata"],
+            "ETag": '"' + hashlib.md5(joined).hexdigest() + f'-{len(upload["parts"])}"',  # noqa: S324
+        }
+        self.writes.append(Key)
+
+    def abort_multipart_upload(self, Bucket, Key, UploadId):
+        self.aborted.append(Key)
+        self._uploads.pop(UploadId, None)
+
+
+@pytest.fixture
+def conditional(monkeypatch):
+    """Installs the honouring fake with thresholds small enough for real bytes to flow."""
+    monkeypatch.setattr(copy_mod, "MULTIPART_COPY_THRESHOLD", _TINY_THRESHOLD)
+    monkeypatch.setattr(copy_mod, "MULTIPART_PART_SIZE", _TINY_PART)
+    fake = _ConditionalS3()
+    clients._s3 = fake
+    return fake
+
+
+def _restore_line(key, size, dest="alice/reports/a.csv"):
+    return {
+        "srcBucket": "archive-bkt",
+        "srcKey": key,
+        "destBucket": "user-bkt",
+        "destKey": dest,
+        "size": size,
+        "ifAbsent": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("size", "body"),
+    [(6, b"abcdef"), (12, b"abcdefghijkl")],
+    ids=["single-copy", "multipart-copy"],
+)
+def test_a_batch_RETRIED_after_a_transient_fault_reports_its_own_earlier_writes_as_copied(
+    conditional, size, body
+):
+    """**THE TEST THE WHOLE 412 RESOLUTION EXISTS FOR, at both copy sizes.**
+
+    ``copy_batch`` re-raises one item's transient fault once every copy in the batch has
+    settled, and the Map's ``Retry`` then re-runs the WHOLE batch — so the items the first
+    attempt already finished are copied again, and every one of them answers a conditional write
+    with a refusal. Read as "occupied", each would be reported to the user as a file in the way,
+    put there by the run reporting it. Resolved by comparing, each is what it is: this run's own
+    output.
+
+    The vault object above the threshold is seeded with a COMPOSITE ETag, because the archive's
+    copy into the vault was made by this same engine at this same part size. That is the property
+    decision 2 rests on, and it is why the two sides agree rather than being made to.
+    """
+    conditional.seed("archive-bkt", "vault/a", body, multipart=size > _TINY_THRESHOLD)
+    conditional.seed("archive-bkt", "vault/b", body, multipart=size > _TINY_THRESHOLD)
+    items = [
+        _restore_line("vault/a", size, dest="alice/a.csv"),
+        _restore_line("vault/b", size, dest="alice/b.csv"),
+    ]
+    conditional.transient_once.add("alice/b.csv")
+
+    with pytest.raises(TransientError):
+        copy_mod.copy_batch(items, _FAILED, echo_fields=(), occupied_reason=_OCCUPIED)
+    out = copy_mod.copy_batch(items, _FAILED, echo_fields=(), occupied_reason=_OCCUPIED)
+
+    assert conditional.writes.count("alice/a.csv") == 1, "the first attempt did not land"
+    assert out == {"copied": 2, "failures": []}
+
+
+def test_a_destination_holding_DIFFERENT_bytes_is_occupied_and_is_never_written_over(conditional):
+    """FR-002 AC3, and the assertion that matters is the second one: reporting the item is
+    worthless if the bytes went anyway."""
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"the user's newer file")
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 8, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _OCCUPIED}]}
+    assert conditional.writes == []
+    assert conditional.objects[("user-bkt", "alice/a.csv")]["body"] == b"the user's newer file"
+
+
+def test_the_SAME_bytes_under_a_different_content_type_are_occupied(conditional):
+    """FR-002 AC3's second half. A copy carries the content type, so a destination that does not
+    match on it is not this copy's output — and keeping the archive costs the user nothing, where
+    sweeping the vault over a file this run cannot account for costs them a copy."""
+    conditional.seed("archive-bkt", "vault/a", b"identical", content_type="text/csv")
+    conditional.seed("user-bkt", "alice/a.csv", b"identical", content_type="application/json")
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 9, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out["failures"] == [{"reason": _OCCUPIED}]
+    assert conditional.writes == []
+
+
+def test_the_same_bytes_under_different_user_metadata_are_occupied(conditional):
+    conditional.seed("archive-bkt", "vault/a", b"identical", metadata={"origin": "archive"})
+    conditional.seed("user-bkt", "alice/a.csv", b"identical", metadata={})
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 9, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out["failures"] == [{"reason": _OCCUPIED}]
+    assert conditional.writes == []
+
+
+@pytest.mark.parametrize(
+    ("target", "code"),
+    [(("user-bkt", "alice/a.csv"), "AccessDenied"), (("archive-bkt", "vault/a"), "NoSuchKey")],
+    ids=["destination-403", "source-404"],
+)
+def test_a_head_that_answers_anything_but_transiently_resolves_to_occupied(
+    conditional, target, code
+):
+    """FR-002 AC4. **A 403 and a 404 give the same answer here, and that is the safe direction**:
+    the caller's move on either is to leave the destination alone and keep the archive, so an
+    ambiguous read costs a file that is not restored and never an overwrite. Neither is counted
+    as copied."""
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"something")
+    conditional.head_errors[target] = _S3Error(code)
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 8, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _OCCUPIED}]}
+    assert conditional.writes == []
+
+
+@pytest.mark.parametrize(
+    "target",
+    [("user-bkt", "alice/a.csv"), ("archive-bkt", "vault/a")],
+    ids=["destination-head", "source-head"],
+)
+def test_a_transient_fault_on_either_head_raises_out_of_the_batch(conditional, target):
+    """A throttle is not evidence about the destination, so it must not become a collision the
+    user is told about. The batch retries and the comparison is asked again."""
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"something")
+    conditional.head_errors[target] = _S3Error("SlowDown")
+
+    with pytest.raises(TransientError):
+        copy_mod.copy_batch(
+            [_restore_line("vault/a", 8, dest="alice/a.csv")],
+            _FAILED,
+            echo_fields=(),
+            occupied_reason=_OCCUPIED,
+        )
+
+
+def test_a_destination_head_that_fails_means_the_SOURCE_is_never_headed(conditional):
+    """Stated in the docstring, so it is pinned: there is nothing to compare against once the
+    destination cannot be read, and a second call would be a request made to answer nothing."""
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"something")
+    conditional.head_errors[("user-bkt", "alice/a.csv")] = _S3Error("AccessDenied")
+    headed = []
+    real_head = conditional.head_object
+    conditional.head_object = lambda **kw: headed.append(kw["Key"]) or real_head(**kw)
+
+    copy_mod.copy_batch(
+        [_restore_line("vault/a", 8, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert headed == ["alice/a.csv"]
+
+
+def test_a_multipart_completion_refused_by_the_condition_aborts_its_upload(conditional):
+    """FR-001 AC5. An upload left open accrues storage until a lifecycle rule sweeps it, and the
+    abort is what stops the refusal being expensive as well as unsuccessful."""
+    conditional.seed("archive-bkt", "vault/a", b"abcdefghijkl")
+    conditional.seed("user-bkt", "alice/a.csv", b"a different twelve!!")
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 12, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out["failures"] == [{"reason": _OCCUPIED}]
+    assert conditional.aborted == ["alice/a.csv"]
+
+
+def test_an_occupied_item_reports_the_CALLERS_reason_and_defaults_to_the_failure_one(conditional):
+    """The keyword defaults to None so no existing caller changes: a plane that does not tell the
+    two outcomes apart gets the reason it already had."""
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"different")
+    line = _restore_line("vault/a", 8, dest="alice/a.csv")
+
+    named = copy_mod.copy_batch([line], _FAILED, echo_fields=(), occupied_reason=_OCCUPIED)
+    conditional.objects[("user-bkt", "alice/a.csv")] = {
+        "body": b"different",
+        "ContentType": "text/csv",
+        "Metadata": {},
+        "ETag": _single_etag(b"different"),
+    }
+    unnamed = copy_mod.copy_batch([line], _FAILED, echo_fields=())
+
+    assert named["failures"] == [{"reason": _OCCUPIED}]
+    assert unnamed["failures"] == [{"reason": _FAILED}]
+
+
+def test_no_existing_caller_can_reach_the_comparison_because_none_writes_ifAbsent():
+    """FR-002 AC6, asserted against the SOURCE of all four callers rather than a fixture — absent
+    in the manifest is what makes absent in the request. The restore's own builder is the one
+    that sets it, and it is excluded by name rather than by the grep missing it."""
+    lambdas = pathlib.Path(__file__).resolve().parent.parent
+    writers = [
+        "table-share-build-transfer-manifest",
+        "file-send-build-transfer-manifest",
+        "file-ops-build-transfer-manifest",
+        "archive-build-transfer-manifest",
+    ]
+    for verb in writers:
+        sources = [p for p in (lambdas / verb).glob("*.py") if not p.name.startswith("test_")]
+        assert sources, f"{verb} has no production module — this test is measuring nothing"
+        body = "".join(p.read_text() for p in sources)
+        assert "ifAbsent" not in body, f"{verb} now writes a conditional line"
+
+    restore_builder = lambdas / "archive-build-restore-manifest"
+    written = "".join(
+        p.read_text() for p in restore_builder.glob("*.py") if not p.name.startswith("test_")
+    )
+    assert '"ifAbsent": True' in written, "the restore's own builder stopped conditioning its lines"

@@ -176,10 +176,21 @@ def restore_lines(restore: dict) -> dict:
     landed there — it records the attempt and what it left behind, so the receipt never claims a
     restore that did not finish.
 
+    **It never says the archive is intact, and that is not a wording preference.** A second
+    restore of the same archive can be running beside this one and sweeps the vault when it
+    finishes, so a receipt written now and read tomorrow would be vouching for something it
+    never looked at. What it says instead is bounded by what was counted: a full count earns
+    "was still complete when this restore stopped", which stays true afterwards because it is
+    about a moment, and anything else says the archive could not be confirmed. The count is the
+    caller's — the verb takes it once and puts it on the state, so this line and the
+    notification cannot disagree about it.
+
     Args:
       restore: The restore's state — its ``requestedAt`` timestamp, its ``status``
-        (``requested``, ``restored`` or ``incomplete``), the destination path and, on the
-        incomplete path, how many objects did land.
+        (``requested``, ``restored`` or ``incomplete``), the destination path, and, on the
+        incomplete path, how many objects did land and whether the vault count found the archive
+        complete. A missing ``archiveIntact`` reads as not confirmed, which is the direction that
+        cannot cost a user their only copy.
 
     Returns:
       ``{label: value}`` for the two restore lines.
@@ -194,10 +205,14 @@ def restore_lines(restore: dict) -> dict:
     if status == "restored":
         landed = destination
     elif status == "incomplete":
+        archive = (
+            "The archive was still complete when this restore stopped."
+            if restore.get("archiveIntact") is True
+            else "The archive could not be confirmed as complete when this restore stopped."
+        )
         landed = (
             f"Restore did not finish - {restore.get('restored') or 0} of "
-            f"{restore.get('expected') or 0} file(s) were written to {destination}. "
-            "The archive is intact."
+            f"{restore.get('expected') or 0} file(s) were written to {destination}. {archive}"
         )
     else:
         landed = _ABSENT

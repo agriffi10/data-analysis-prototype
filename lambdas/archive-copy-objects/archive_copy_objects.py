@@ -17,6 +17,14 @@ so one unreadable key never costs its siblings their copy; collect-transfer-resu
 failures out of the Map Run's export and the commit gate refuses the whole archive on any one of
 them. A transient failure does raise, so Step Functions retries the whole idempotent batch.
 
+**TWO REASONS, BECAUSE A FILE LEFT ALONE IS NOT A FILE THAT FAILED.** This verb serves both arms,
+and only the restore's manifest asks for a conditional write — so only a restore can produce the
+second outcome, where the copy was refused because something arrived at the destination and this
+run declined to overwrite it. The file is intact and it is not the archive's; reporting it as a
+copy failure would tell the user their data could not be moved, when what happened is that their
+own newer file was protected. Both counts still make the verdict incomplete, so the archive is
+kept either way; what the split buys is the sentence the user reads.
+
 **No ``@notifies_on_failure``, deliberately.** A batch is a fragment of a request with no actor on
 it, so the decorator's emit would resolve to nothing and send nothing — a decoration that reads
 like a guarantee while providing none.
@@ -36,6 +44,7 @@ logger.setLevel(logging.INFO)
 observability.init(service="archive")
 
 COPY_FAILED = "copy_failed"
+DESTINATION_OCCUPIED = "destination_occupied_during_copy"
 
 
 @observability.traced("copy-objects")
@@ -65,7 +74,9 @@ def handler(event, context) -> dict:
       TransientError: When any item failed retryably, so the Map retries the whole batch.
     """
     items = event.get("Items") or []
-    outcome = copy_mod.copy_batch(items, COPY_FAILED, echo_fields=())
+    outcome = copy_mod.copy_batch(
+        items, COPY_FAILED, echo_fields=(), occupied_reason=DESTINATION_OCCUPIED
+    )
 
     logger.info("copied %d of %d items in this batch", outcome["copied"], len(items))
     observability.info(

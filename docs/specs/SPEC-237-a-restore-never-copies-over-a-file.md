@@ -1,7 +1,7 @@
 # Spec: A Restore Never Copies Over a File, and One Archive Id Is One Run
 
 **ID:** SPEC-237
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-15
 **Depends On:** SPEC-169, SPEC-170, SPEC-171
 
@@ -83,8 +83,12 @@ anything. It does this with S3's own conditional writes rather than a lock.
 2. **A `412` is resolved by comparing the bytes' identity, not read as "occupied".** Otherwise every
    batch retry would report the files it had just restored as collisions. When the destination and
    the source both head with the same ETag, length, content type and user metadata, the item counts
-   as copied: it is this run's own earlier write, or an object identical to it in everything the copy
-   carries, and in either case nothing is lost when the vault is swept. Both copy paths carry the
+   as copied: it is this run's own earlier write, or an object matching it in all four, and in either
+   case nothing is lost when the vault is swept. **Those four, not everything the copy carries** —
+   the multipart path also re-states content encoding, disposition, language, cache control, expiry
+   and a website redirect, and comparing those would risk a false collision whenever S3 renders one
+   back differently from the way it was supplied, which is the failure this resolution exists to
+   prevent. The residual is recorded in the register entry. Both copy paths carry the
    content type and user metadata (`MetadataDirective: COPY`, and the multipart path's carried
    headers), so the run's own write always matches; a user's file with the same bytes but different
    metadata reads as occupied, which keeps the archive. A head that fails transiently raises

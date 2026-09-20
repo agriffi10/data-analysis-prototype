@@ -17,7 +17,17 @@ cross-check only: a restore still works when it is missing, and refuses when it 
 is the whole reason the manifest is described as a report rather than a record, and
 ``test_no_restore_verb_requires_the_manifest`` holds it open from the other side.
 
+**And it answers a third question, after the fact: is the archive still all there.** Two restores
+of one archive can run at once, and the one that finishes first sweeps the vault — so a run that
+stopped short cannot say the archive is intact on the strength of not having deleted it. It counts,
+through the same exclusion rule the object list was built with, and fails closed on anything it
+cannot count.
+
 Attributes:
+  _INTACT_ATTEMPTS: How many times the vault count may ask S3 before it gives up and reports the
+    archive unconfirmed. One attempt plus two retries, sized to sit well inside the verb's own
+    30-second timeout rather than against the machine's ceiling: the caller is already on a
+    failure path, and a verb killed for taking too long loses the report entirely.
   ALLOWED_FIELDS: The complete set of top-level fields a RESTORE request may carry. It is a
     different set from the archive request's — ``space`` and ``archiveId`` in place of
     ``source`` — which is why the unknown-field check is made per mode rather than once: a
@@ -29,7 +39,7 @@ import json
 import logging
 
 from cpcommon import clients, errors, events, observability, s3_listing
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 
 from . import manifest as _manifest
 from . import (
@@ -40,6 +50,8 @@ from .authz import authorize_source
 from .config import archive_bucket
 
 logger = logging.getLogger()
+
+_INTACT_ATTEMPTS = 3
 
 ALLOWED_FIELDS = frozenset(
     {"requestId", "mode", "actor", "space", "archiveId", "identity", "traceparent"}
@@ -109,37 +121,49 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
     }
 
 
-def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tuple:
-    """Lists an archive and rebuilds every destination it would write back.
+def is_archived_object(key: str, archive_root: str) -> bool:
+    """Reports whether a key under an archive prefix is archived DATA rather than this plane's record.
 
-    Pagination is ``cpcommon.s3_listing``'s — the same paginator the expansion and the rollback
-    use, and the third listing of this same prefix — with a predicate of this plane's own. The
-    DEFAULT predicate is what must not be reused: it drops zero-byte objects, hidden segments and
-    folder keys, and every one of those is something this archive deliberately CARRIED (the expansion's
-    ``_excluder`` keeps what the others drop, so an archived empty folder comes back). Restoring
-    through a filter the archive did not write through would silently return less than was taken.
-    That is exactly the split the send plane recorded: the pagination is shared, the exclusions are not.
+    Lifted out of ``derive_destinations`` so the restore's object list and the vault count that
+    checks it cannot disagree about what an archived object is. They answer two different
+    questions — what comes back, and how many are still there — and a count taken through a
+    different rule would compare a number against a number built from another population, which
+    is the one way a "the archive is still complete" claim could be wrong while looking right.
 
     ``_manifest.json`` is excluded by its EXACT KEY at the archive root, never by basename: a
-    user's own ``reports/_manifest.json`` three folders down was archived like any other file
-    and must come back, while the record this plane wrote must not land in the user's space as a
-    stray file.
+    user's own ``reports/_manifest.json`` three folders down was archived like any other file and
+    is data here, while the record this plane wrote at the root is not.
 
     Args:
-      bucket: The archive bucket.
+      key: The absolute object key.
       archive_root: The archive prefix, ending in a slash.
-      space_root: The authorized space root the objects are restored into.
 
     Returns:
-      ``(objects, total_bytes)``, each object carrying its archive key, its destination key and
-      its size. The size rides so the restore can tell the user how much is coming back and
-      the retrieval can bound its wait.
+      True for archived data, False for the record.
 
     Raises:
-      TerminalError: ``forbidden`` from the destination reconstruction.
-      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
+      None.
     """
-    record_key = f"{archive_root}{_manifest.BASENAME}"
+    return key != f"{archive_root}{_manifest.BASENAME}"
+
+
+def _ignores_the_record(archive_root: str):
+    """Builds the listing predicate both readers of an archive prefix pass.
+
+    ``list_data_objects`` asks what to IGNORE and ``is_archived_object`` answers what to KEEP, so
+    the inversion happens here and in one place — a predicate whose polarity is written out at
+    each call site is one that is eventually written backwards at one of them, and backwards here
+    means listing the record as data and every real object as the record.
+
+    Args:
+      archive_root: The archive prefix, ending in a slash.
+
+    Returns:
+      A predicate in ``list_data_objects``' ``(key, size, prefix)`` shape.
+
+    Raises:
+      None.
+    """
 
     def ignore(key: str, size: int, prefix: str) -> bool:
         """Reports whether a listed key is this plane's own record rather than archived data.
@@ -156,7 +180,122 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
           None.
         """
         del size, prefix
-        return key == record_key
+        return not is_archived_object(key, archive_root)
+
+    return ignore
+
+
+def archive_is_intact(bucket: str, archive_root: str, expected) -> bool:
+    """Reports whether the vault still holds every object the plan counted, and FAILS CLOSED.
+
+    **The only thing that earns a message the right to call an archive complete.** A second
+    restore of the same archive can run beside this one and sweeps the vault when it finishes,
+    so "the archive is intact" cannot be asserted from the fact that this run did not delete it.
+    Counting is the evidence, and it is evidence about the moment it was taken — which is why the
+    sentence it earns is time-scoped rather than a claim about now.
+
+    **Anything short of a full count returns False**, including a listing that keeps failing, an
+    empty prefix and a prefix holding only the record. The asymmetry is the whole design: a wrong
+    "could not be confirmed" costs a user a conversation with an administrator, and a wrong "still
+    complete" can cost them the only copy of their files.
+
+    A transient fault is retried rather than read as a sweep, because a throttle is not evidence
+    about the vault. The listing raises a RAW client error — pagination is shared and the
+    classification is the caller's job — so the fault is classified here rather than assumed to
+    arrive already named; two retries are well inside the verb's own timeout, and a verb killed
+    anyway surfaces as a sandbox timeout on the state's ``Catch``, whose generic wording makes no
+    claim about the archive at all.
+
+    Args:
+      bucket: The archive bucket.
+      archive_root: The archive prefix, ending in a slash.
+      expected: The object count the restore plan recorded. A value that is not an integer is not
+        a count, and answers False rather than raising — this runs on a path that is already
+        reporting a failure, and it must not become the reason that report is lost.
+
+    Returns:
+      True only when the prefix holds exactly ``expected`` archived objects.
+
+    Raises:
+      None.
+    """
+    if not isinstance(expected, int) or isinstance(expected, bool):
+        logger.warning("no usable object count to check %s/%s against", bucket, archive_root)
+        return False
+    for attempt in range(_INTACT_ATTEMPTS):
+        try:
+            return _count_archived(bucket, archive_root) == expected
+        except TransientError as err:
+            logger.info(
+                "listing %s/%s was throttled on attempt %d: %s",
+                bucket,
+                archive_root,
+                attempt + 1,
+                err,
+            )
+        except Exception as err:  # noqa: BLE001 - an unreadable vault is an unconfirmed one
+            logger.warning("could not count %s/%s: %s", bucket, archive_root, err)
+            return False
+    logger.warning("gave up counting %s/%s after %d attempts", bucket, archive_root, _INTACT_ATTEMPTS)
+    return False
+
+
+def _count_archived(bucket: str, archive_root: str) -> int:
+    """Counts the archived objects under a prefix, through the restore's own exclusion rule.
+
+    Args:
+      bucket: The archive bucket.
+      archive_root: The archive prefix, ending in a slash.
+
+    Returns:
+      How many archived objects the prefix holds.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller can retry rather than conclude.
+      Exception: The raw fault on a deterministic one.
+    """
+    try:
+        return sum(
+            1
+            for _ in s3_listing.list_data_objects(
+                bucket, archive_root, ignore=_ignores_the_record(archive_root)
+            )
+        )
+    except Exception as err:
+        errors.raise_if_transient(err, f"list {bucket}/{archive_root}")
+        raise
+
+
+def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tuple:
+    """Lists an archive and rebuilds every destination it would write back.
+
+    Pagination is ``cpcommon.s3_listing``'s — the same paginator the expansion and the rollback
+    use, and the third listing of this same prefix — with a predicate of this plane's own. The
+    DEFAULT predicate is what must not be reused: it drops zero-byte objects, hidden segments and
+    folder keys, and every one of those is something this archive deliberately CARRIED (the expansion's
+    ``_excluder`` keeps what the others drop, so an archived empty folder comes back). Restoring
+    through a filter the archive did not write through would silently return less than was taken.
+    That is exactly the split the send plane recorded: the pagination is shared, the exclusions are not.
+
+    ``_manifest.json`` is excluded by its EXACT KEY at the archive root — ``is_archived_object``
+    holds that rule, and ``archive_is_intact`` counts through the same one, so what comes back and
+    what is counted as still there cannot mean two different things.
+
+    Args:
+      bucket: The archive bucket.
+      archive_root: The archive prefix, ending in a slash.
+      space_root: The authorized space root the objects are restored into.
+
+    Returns:
+      ``(objects, total_bytes)``, each object carrying its archive key, its destination key and
+      its size. The size rides so the restore can tell the user how much is coming back and
+      the retrieval can bound its wait.
+
+    Raises:
+      TerminalError: ``forbidden`` from the destination reconstruction.
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
+    """
+    ignore = _ignores_the_record(archive_root)
 
     objects: list = []
     total_bytes = 0

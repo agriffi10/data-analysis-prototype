@@ -13,7 +13,9 @@ Athena text is never placed in a message body — it stays in logs and the SFN r
 A resolver renders a whole sentence, not only its tail. Every control plane composes the
 same three parts — an access-denied short-circuit, a prefix naming the operation, and the
 body for the reason — so those are resolver configuration rather than three hand-written
-copies of one algorithm. The prefix and the access-denied clause are
+copies of one algorithm. A fourth is optional and one mode uses it: a SUFFIX every message
+ends with, which exists because "every message this mode can render" is not a list anybody
+can keep — a safety sentence carried body by body is one a later code silently omits. The prefix and the access-denied clause are
 marker-substituted templates like the bodies, because table-builder's verb varies per
 request and reaches its access-denied clause too: a create-only line would tell a user they
 cannot create a table they were trying to refresh.
@@ -130,8 +132,8 @@ class Resolver:
     own wording without rebuilding the resolver.
 
     Attributes:
-      markers: Every marker this resolver's wording declares — bodies, prefix and
-        access-denied clause alike — discovered from that wording rather than listed, so a new
+      markers: Every marker this resolver's wording declares — bodies, prefix, access-denied
+        clause and suffix alike — discovered from that wording rather than listed, so a new
         one is blanked-when-absent automatically instead of shipping literally the first time
         a caller forgets it. The prefix is included precisely because it is the template most
         likely to grow one. Empty unless ``blank_unfilled``.
@@ -151,6 +153,7 @@ class Resolver:
         access_denied: str = "",
         fallback: str | None = None,
         blank_unfilled: bool = False,
+        suffix: str = "",
     ):
         """Builds the layered table and marks the domain's codes valid.
 
@@ -168,6 +171,13 @@ class Resolver:
             An absent token must leave a sentence rather than a literal brace group on the
             user's screen; off by default because a domain whose emitters always pass their
             tokens would rather see the marker in a test than a gap in a sentence.
+          suffix: Optional sentence appended to every whole message this resolver renders —
+            each body, the access-denied clause and the fallback alike. **It belongs to the
+            resolver rather than to the bodies because the population it has to cover is not
+            enumerable**: a mode whose every message needs one safety sentence would otherwise
+            need every body to remember it, including the ones a future code adds and the
+            generic clause a killed verb produces. It is NOT appended by ``body``, so a domain's
+            own tests still read its table rather than its table plus a sentence.
 
         Returns:
           None.
@@ -188,10 +198,11 @@ class Resolver:
         self._access_denied = access_denied
         self._fallback = BASE_MESSAGES[UNEXPECTED_ERROR] if fallback is None else fallback
         self._blank_unfilled = blank_unfilled
+        self._suffix = suffix
         self.markers: frozenset[str] = (
             frozenset(
                 _MARKER_PATTERN.findall(
-                    " ".join([*domain_messages.values(), prefix, access_denied])
+                    " ".join([*domain_messages.values(), prefix, access_denied, suffix])
                 )
             )
             if blank_unfilled
@@ -268,14 +279,17 @@ class Resolver:
 
         Returns:
           The access-denied clause for an access-denied reason, otherwise the prefix
-          followed by the body.
+          followed by the body — and, on a resolver that declares one, the suffix after
+          either.
 
         Raises:
           None.
         """
         if self._access_denied and reason in ACCESS_DENIED_REASONS:
-            return self._blank(_fill(self._access_denied, tokens))
-        return self._blank(_fill(self._prefix, tokens)) + self.body(reason, **tokens)
+            return self._blank(_fill(self._access_denied, tokens)) + self._suffix
+        return (
+            self._blank(_fill(self._prefix, tokens)) + self.body(reason, **tokens) + self._suffix
+        )
 
 
 def register(
@@ -285,6 +299,7 @@ def register(
     access_denied: str = "",
     fallback: str | None = None,
     blank_unfilled: bool = False,
+    suffix: str = "",
 ) -> Resolver:
     """Builds a domain resolver over the shared base table and registers its codes.
 
@@ -294,6 +309,7 @@ def register(
       access_denied: Optional marker-substituted template for the access-denied reasons.
       fallback: Optional wording for a reason absent from both tables.
       blank_unfilled: Whether an unfilled declared marker renders empty rather than raw.
+      suffix: Optional sentence appended to every whole message the resolver renders.
 
     Returns:
       A ``Resolver`` scoped to that domain.
@@ -307,6 +323,7 @@ def register(
         access_denied=access_denied,
         fallback=fallback,
         blank_unfilled=blank_unfilled,
+        suffix=suffix,
     )
 
 

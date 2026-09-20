@@ -41,19 +41,54 @@ Attributes:
     not a member" must not be distinguishable to a caller — the difference is an existence
     oracle over other people's spaces.
 
-    **``restore_incomplete`` is the one body that has to say three things**,
-    and the third is the one an author would leave out. A partial restore cannot be rolled back
-    the way a partial archive can: the user's space now holds some of their data, and deleting it
-    to make the operation atomic would destroy the very thing the restore was for. So the archive
-    is deliberately kept, the id stays valid — and **re-requesting will hit the destination guard
-    against the files that DID land**. Without that sentence the obvious next action produces a
-    refusal that reads like a new bug, on a run that already went wrong.
+    **TWO RULES BIND EVERY BODY A RESTORE CAN RENDER, and a test holds the whole table to them.**
+    A second restore of one archive can run beside the first, and it sweeps the vault when it
+    finishes — so a sentence that is merely misleading on one run can cost the only copy on two.
+    (1) No sentence tells the user to destroy anything: the remediation is "move or rename", and
+    a user who wants a file gone does not need this app to suggest it. (2) No sentence states the
+    archive's present condition as fact, because a sibling can sweep the vault after the message
+    is sent; the one permitted form is time-scoped — "was still complete when this restore
+    stopped" — and it is earned by ``restore.archive_is_intact`` counting the prefix, never
+    assumed. The population is this table less ``ARCHIVE_ONLY``, so a code added later is held to
+    both rules by default. **Per-sentence fixes were tried first and each review round found
+    another sentence**, which is why this is a rule over a population rather than a list.
+
+    **``restore_incomplete`` still has to say three things**, and the third is the one an author
+    would leave out. A partial restore cannot be rolled back the way a partial archive can: the
+    user's space now holds some of their data, and removing it to make the operation atomic would
+    destroy the very thing the restore was for. So the archive is deliberately kept, the id stays
+    valid — and **re-requesting will hit the destination guard against the files that DID land**.
+    Without that sentence the obvious next action produces a refusal that reads like a new bug, on
+    a run that already went wrong.
+
+    **``restore_incomplete_occupied`` is its sibling for the run that met a file in the way**, and
+    "of the rest" in it is deliberate: items can also fail for other reasons, so ``{occupied}`` is
+    at most ``{total} - {restored}`` and the sentence stays true without explaining the
+    difference. **``restore_archive_cleared`` is what both of them become when the count does not
+    add up** — it is the fail-closed outcome, and it says only what the count proves.
+
+    **``destination_occupied_during_copy`` is a PER-ITEM reason, not a refusal**, the sibling of
+    ``copy_failed``: nothing raises it for a whole request, and its body is written for the one
+    file it would describe.
 
     ``restore_archive_incomplete`` is the manifest-disagreement refusal, and it does NOT
     reuse the ``archive_incomplete`` name the rule proposed: that code was already registered by the archive's own body for a copy that fell
     short, whose body promises "nothing was deleted and your files
     are exactly where they were", and the ASL seeds the literal in ``RollbackReturnedSeed``. One
     code cannot carry both sentences, and the shorter name belongs to the arm that shipped first.
+
+  ARCHIVE_ONLY: The codes only an ARCHIVE can produce, and so the ones the two restore rules
+    above do not hold to. It is an explicit set rather than a derived one because "which arm can
+    reach this code" is a fact about the verbs, not about the wording — and it is stated as the
+    EXCLUSION so that a code added to the table later is checked by default, which is the safe
+    direction to be wrong in. Three groups, each unreachable for the same reason:
+    the selection refusals, which need a selection a restore request does not carry; the
+    expansion and cap refusals, which need a source expansion a restore never runs; and the
+    archive's own copy, commit-gate and source-deletion outcomes, none of which exist on an arm
+    that deletes nothing. **Four codes both arms reach are deliberately absent from it**:
+    ``plan_unreadable``, ``plan_superseded``, ``transfer_results_unreadable`` and
+    ``protected_marker``, the last because the vault sweep goes through the same deletion guard
+    the archive does. ``copy_failed`` is absent too — one copy verb serves both arms.
 
   resolver: The domain-scoped resolver for an ARCHIVE, carrying that mode's prefix,
     access-denied clause and fallback.
@@ -64,6 +99,12 @@ Attributes:
     ``invalid_request``) are exactly the ones a single prefix would get wrong. A user who
     clicked Restore and reads "Couldn't archive that" is being told about an operation they did
     not ask for, which is the same class of defect the refusal wording exists to avoid.
+
+    **It also carries the SUFFIX, and that is the only place the safety sentence lives.** Every
+    message this resolver renders ends with it — each body, the access-denied clause, and the
+    generic fallback a killed verb produces — so a code reachable after a copy-back has begun
+    needs no list to carry it and cannot be forgotten. The archive resolver passes none, so an
+    archive's wording is unchanged.
 """
 
 from cpcommon import messages as _cpmessages
@@ -152,8 +193,8 @@ _BODIES = {
         "exactly where they were. Please try again with a smaller selection."
     ),
     "restore_timed_out": (
-        "that restore ran for too long and was stopped. Nothing was changed in your space and the "
-        "archive is untouched. Please try again."
+        "that restore ran for too long and was stopped, and some files may already be back in "
+        "your space. Please contact an administrator before requesting this restore again."
     ),
     "archive_not_found": (
         'no archive with the id "{archiveId}" was found in "{spaceName}". Please check the id '
@@ -168,25 +209,41 @@ _BODIES = {
         "your space."
     ),
     "restore_never_requested": (
-        "the archived files were not all retrieved from long-term storage, so nothing was "
-        "restored. Nothing was changed in your space and the archive is untouched. "
-        "Please try again."
+        "the archived files were not all retrieved from long-term storage, so this restore "
+        "copied nothing into your space. Please try again."
     ),
     "restore_incomplete": (
         "{restored} of {total} file(s) were restored to your space before the restore stopped, "
-        "so it did not finish. The archive is still intact and can still be restored under the "
-        "same id. Requesting it again will report that some files are already there - move, "
-        "rename or delete the ones that came back and then request the restore again."
+        "so it did not finish. The archive was still complete when this restore stopped, so it "
+        "can be requested again once the paths are clear - requesting it will report the files "
+        "that came back, so move or rename them first."
+    ),
+    "restore_incomplete_occupied": (
+        "{restored} of {total} file(s) were restored to your space. {occupied} of the rest were "
+        "not, because a file appeared at the same path while the restore was copying - nothing "
+        "was overwritten. The archive was still complete when this restore stopped, so it can be "
+        "requested again once the paths are clear: move or rename the files now in the way, "
+        "including the ones this restore put back."
+    ),
+    "restore_archive_cleared": (
+        "{restored} of {total} file(s) came back before this restore stopped, and the archive "
+        "could not be confirmed as still complete - another restore of it may have finished "
+        "first, in which case the rest are back too. Please contact an administrator before "
+        "requesting this restore again."
+    ),
+    "destination_occupied_during_copy": (
+        "a file appeared at that path while the restore was copying, so it was not restored and "
+        "nothing was overwritten."
     ),
     "destination_occupied": (
         "these files already exist where they would be restored to, so nothing was restored: "
-        "{sample}. There may be more. Please move, rename or delete them and then request the "
+        "{sample}. There may be more. Please move or rename them and then request the "
         "restore again."
     ),
     "destination_occupied_after_retrieval": (
         "these files appeared where they would be restored to while the restore was being "
-        "prepared, so nothing was restored: {sample}. There may be more. Please move, rename or "
-        "delete them and then request the restore again - the files have already been retrieved "
+        "prepared, so nothing was restored: {sample}. There may be more. Please move or rename "
+        "them and then request the restore again - the files have already been retrieved "
         "from long-term storage and will stay ready for a few days, so trying again soon will "
         "not mean another long wait."
     ),
@@ -205,12 +262,41 @@ resolver = _cpmessages.register(
     blank_unfilled=True,
 )
 
+ARCHIVE_ONLY = frozenset(
+    {
+        "no_items",
+        "invalid_items",
+        "too_many_items",
+        "selection_too_large",
+        "reserved_folder",
+        "reserved_object_name",
+        "source_missing",
+        "nothing_to_archive",
+        "too_many_objects",
+        "source_too_large",
+        "object_too_large",
+        "undeletable_folder",
+        "manifest_write_failed",
+        "archive_incomplete",
+        "archive_rollback_incomplete",
+        "source_delete_incomplete",
+        "receipt_write_failed",
+        "archive_timed_out",
+    }
+)
+
+RESTORE_SAFETY_SUFFIX = (
+    " If any files from this archive are already back in your space, please don't delete or "
+    "overwrite them - they may be the only copy."
+)
+
 restore_resolver = _cpmessages.register(
     _BODIES,
     prefix="Couldn't restore that: ",
     access_denied="You don't have access to restore those files.",
     fallback="something went wrong.",
     blank_unfilled=True,
+    suffix=RESTORE_SAFETY_SUFFIX,
 )
 
 

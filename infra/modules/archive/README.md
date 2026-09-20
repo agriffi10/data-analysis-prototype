@@ -152,18 +152,30 @@ no lock**, so here is what overlap does.
   (`docs/testing/sessions.md`, *The archive and restore, run under §4.11's approval gate*). A
   second guard pass that runs after the other run has copied any file back refuses as occupied,
   over files that are the restore itself. If both second passes run before any copy lands, both
-  copy back with an unconditional `CopyObject`, and if one run sweeps the vault while the other is
-  still copying, the other reports `restore_incomplete` over a restore that fully landed. **That
-  message is worse than wrong**: it says the archive is intact and tells the user to delete the
-  files that came back and request again, when those files are now the only copy and the request
-  will find no archive. **And a file the user edits after the first run
-  restored it is overwritten if the second run copies it while the vault copy still exists** —
-  silently, which is the loss the guard exists to prevent.
-- **One request id sent twice, past the five-minute dedup window, is the unrecoverable case.** The two
-  runs share one prefix, and a second run that fails its gate has its rollback delete the first
-  run's completed archive after the first has deleted the source. `assert_archive_unused` narrows
-  that and does not close it, and the queue does not close it either. The browser mints a fresh id per
-  submit, so reaching it takes a hand-built replay.
+  copy back — **conditionally**, since every restore manifest line carries `ifAbsent`, so neither
+  run can write over a file the other put back and neither can write over a file the USER created
+  while the Map was running. A refused write is resolved by comparing the destination against the
+  source rather than reported as a collision, so a batch retrying after a transient fault does not
+  report the files it just restored as being in the way.
+
+  **What overlap still costs is reports, and that is the accepted price.** Both runs may send
+  "started" and "restored"; where one sweeps the vault before the other finishes copying, the
+  other reports an incomplete restore over files that all landed; where it sweeps before the other
+  polls again, the other fails as `archive_object_unreadable`. **What it no longer costs is the
+  only copy**: no restore message tells the user to delete anything, and none calls the archive
+  intact without counting it — the incomplete arm counts the objects still under the prefix and
+  says only what that count proves.
+- **One request id sent twice, past the five-minute dedup window, used to be the unrecoverable
+  case.** The two runs share one prefix, and a second run that fails its gate has its rollback
+  delete the first run's completed archive after the first has deleted the source.
+  `assert_archive_unused` narrows that and cannot close it — two runs reaching it together both
+  find the prefix empty. **inspect-source therefore claims the id** with a create-only write to
+  `archive/{requestId}/claim.json` in the admin bucket, taken after the listing and before
+  anything else is written, so S3 rather than either run decides which one proceeds; the loser
+  refuses `request_id_reused`, silently, because the winner reports under that id. The claim
+  expires with the admin prefix after 30 days, which is safe only because no second run of an id
+  can start that late — the queue and its DLQ hold a message for at most fourteen days and a run
+  lasts at most twelve hours. A test reads those three numbers and fails if the margin closes.
 
 > The restore's group id is derived server-side, by the API, since the queue moved behind it,
 > so the property the browser used to be trusted with is held where it is now computed.

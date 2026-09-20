@@ -18,12 +18,18 @@ explicitly told a restore is in flight and invited to go and do something else. 
 file in that window is not an exotic race; it is the ordinary case the guard was written for,
 arriving late. With versioning off, a single check at the start would have let the copy-back
 overwrite that file silently and report success. The second pass costs one round of heads
-against a run that has already waited hours, and it is the only thing that makes the guard's
-"any occupied destination refuses the whole restore" still TRUE when the copy-back starts
-rather than only at the moment of the promise. **It is not true at every write.** The copy is
-unconditional and runs for as long as its Map does, and a second restore of the same archive can
-run beside this one because the Pipe starts executions fire-and-forget, so a file that lands at a
-path the copy has not reached yet is still overwritten.
+against a run that has already waited hours, and it is what makes the guard's "any occupied
+destination refuses the whole restore" still true when the copy-back STARTS rather than only at
+the moment of the promise.
+
+**And the rule now holds at every WRITE as well, which this pass alone could not deliver.** The
+copy-back Map runs for as long as the archive copy it mirrors, and a second restore of the same
+archive can run beside it because the Pipe starts executions fire-and-forget — so a file arriving
+at a path the Map has not reached yet is still in front of an unfinished copy. Every restore
+manifest line therefore carries ``ifAbsent``, and S3 itself refuses the write. **This pass is not
+redundant beside it**: the conditional copy protects one object at a time and cannot refuse a
+restore, while this one refuses the WHOLE restore up front with the colliding paths named, before
+the user has been told anything is under way.
 
 **A ``403`` counts as OCCUPIED.** A key this role cannot head is a key it must not overwrite —
 and on these buckets that is a live case rather than a hypothetical, because the execution

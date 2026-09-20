@@ -5,15 +5,17 @@
 #
 # ⚠ NEITHER KEY SERIALIZES EXECUTION. The Pipe starts the machine FIRE_AND_FORGET, so a group
 # orders the STARTS, and two archives from one space or two restores of one archive can run at
-# once. The commit gate is what keeps overlapping archives of DIFFERENT ids safe. Overlapping
-# restores are not safe: the copy-back overwrites, so a second restore can land on a file the user
-# edited after the first. README.md says what each overlap does.
+# once. The commit gate is what keeps overlapping archives of DIFFERENT ids safe. Two restores of
+# one archive still both run, and still both report — what is no longer at risk is the user's
+# data: every restore manifest line is a conditional write, so a copy-back never lands on a file
+# that was not there when it started. README.md says what each overlap does.
 #
 # content_based_deduplication is OFF; the explicit MessageDeduplicationId IS the archive's
 # permanent identity, so a resend cannot open a second archive under a second uuid. Past the
 # five-minute window it opens a second RUN under the same one, which the queue does not stop —
-# and a second run whose gate fails rolls back the first run's finished archive after the first
-# has deleted the source. That is this plane's one unrecoverable case.
+# and inspect-source claims the id with a create-only write before it writes anything else, so
+# the second run refuses before it can reach the first run's archive. That claim, not this queue,
+# is what closed this plane's one unrecoverable case.
 #
 # Its OWN queue and its OWN DLQ, registered with the drain sweep. README.md.
 

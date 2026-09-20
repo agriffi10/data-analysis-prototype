@@ -848,6 +848,13 @@ original path **while the restore is waiting**, then let it finish.
   **relative to the space root**, says there may be more, and says the files **"have already been
   retrieved from long-term storage and will stay ready for a few days"**. That last clause is how
   you tell the second guard from the first.
+- **Read the remediation and the tail, which is the half a click can settle and no test can.** It
+  must say **"move or rename"** and **never "delete"** — a second restore of this archive could be
+  running, and the files it names could be that run's output and the only copy. Every restore
+  message also ends with *"If any files from this archive are already back in your space, please
+  don't delete or overwrite them - they may be the only copy."* An archive failure must NOT carry
+  that sentence; provoke one (archive a selection containing a `DO_NOT_DELETE.txt`) and read its
+  notification to confirm the two modes are worded apart.
 - **The assertion this exists for:** the file you wrote is **still there and still yours**. Without
   the second guard the copy-back would have overwritten it, reported success and swept the vault —
   versioning is off, so unrecoverably.

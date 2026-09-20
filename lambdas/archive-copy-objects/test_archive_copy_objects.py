@@ -94,3 +94,26 @@ def test_a_transient_failure_raises_so_the_map_retries_the_whole_batch():
 
     with pytest.raises(TransientError):
         m.handler(_batch(), None)
+
+
+def test_the_verb_names_a_SEPARATE_reason_for_an_item_it_declined_to_overwrite():
+    """FR-003 AC2. One copy verb serves both arms, and only the restore's manifest asks for a
+    conditional write — so only a restore can produce the second outcome. Asserted on the
+    recorded call rather than on an outcome, because the reason is the caller's vocabulary and
+    the engine never chooses it."""
+    recorded = {}
+
+    def fake_copy_batch(items, failure_reason, **kwargs):
+        recorded.update({"items": items, "failure_reason": failure_reason, **kwargs})
+        return {"copied": len(items), "failures": []}
+
+    original = m.copy_mod.copy_batch
+    m.copy_mod.copy_batch = fake_copy_batch
+    try:
+        m.handler({"Items": [{"srcKey": "a"}], "BatchInput": {"requestId": "r"}}, None)
+    finally:
+        m.copy_mod.copy_batch = original
+
+    assert recorded["failure_reason"] == "copy_failed"
+    assert recorded["occupied_reason"] == "destination_occupied_during_copy"
+    assert recorded["echo_fields"] == ()

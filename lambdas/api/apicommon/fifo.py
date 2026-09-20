@@ -271,7 +271,9 @@ def _group_archive_restore(principal: Principal, payload: Mapping[str, Any]) -> 
 
     It does not serialize them: the Pipe starts the machine fire-and-forget, so a double-submitted
     restore still runs twice at once and can pass the destination guard twice, and
-    ``infra/modules/archive/README.md`` says what follows. The archive bucket is deliberately
+    ``infra/modules/archive/README.md`` says what follows. What that no longer costs is the user's
+    data — every restore copies under a create-only condition, so neither run can write over a file
+    the other put back — and the duplicate reports are the accepted price. The archive bucket is deliberately
     absent: the browser had no relationship with that bucket by decision, it is one constant across
     every restore this app can make, and the ``personal/``/``shared/`` segment already makes the
     archive root globally unique.

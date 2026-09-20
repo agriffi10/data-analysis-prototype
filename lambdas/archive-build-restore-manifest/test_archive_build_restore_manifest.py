@@ -119,6 +119,7 @@ def test_the_manifest_names_the_archive_as_source_and_the_space_as_destination()
         "destKey": "alice/reports/q1.csv",
         "size": 9,
         "storageClass": RESTORE_STORAGE_CLASS,
+        "ifAbsent": True,
     }
 
 
@@ -140,3 +141,30 @@ def test_a_plan_that_is_not_this_runs_refuses_and_notifies(_sink):
 
     assert caught.value.reason == "plan_superseded"
     assert _sink and _sink[0][0] == "alice"
+
+
+def test_every_line_the_restore_writes_refuses_to_overwrite():
+    """**The property the whole conditional copy-back rests on, asserted over EVERY line rather
+    than the first.** A builder that set it on the first item and not the rest would pass the
+    shape assertion above and leave most of a restore overwriting silently."""
+    fake = _install()
+
+    m.handler(_request(), None)
+
+    lines = _lines(fake)
+    assert len(lines) > 1, "one line is not a population — this test is measuring nothing"
+    assert all(line["ifAbsent"] is True for line in lines)
+
+
+def test_the_archive_arm_writes_no_condition_at_all():
+    """The other end of the same guarantee, and it is about the ABSENCE of a key rather than a
+    false value: an archive's copy writes under a prefix the claim makes one run's alone, so a
+    condition there buys nothing and costs a comparison on every retried batch. Asserted against
+    the SOURCE of the archive's own builder — absent in the manifest is what makes absent in the
+    request."""
+    import pathlib
+
+    verb = pathlib.Path(__file__).resolve().parent.parent / "archive-build-transfer-manifest"
+    sources = [p for p in verb.glob("*.py") if not p.name.startswith("test_")]
+    assert sources, "the archive's manifest builder has no production module"
+    assert "ifAbsent" not in "".join(p.read_text() for p in sources)

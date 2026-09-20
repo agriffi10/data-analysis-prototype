@@ -23,6 +23,14 @@ into per-recipient outcomes; an archive has one destination, so there is nobody 
 and the counts are the whole answer. That is also why the copy verb's empty ``recipient`` fields
 are correct rather than a gap.
 
+**It counts one KIND of failure apart from the rest, and that count changes no verdict.** An item
+the copy declined to overwrite is short exactly as a failed copy is short, so ``complete`` is
+false either way and the restore gate routes to the arm that deletes nothing. What the separate
+count buys is downstream: the receipt and the notification can say a file was left alone rather
+than that it could not be copied. The field rides on BOTH arms and is zero on the archive's,
+because only the restore's manifest asks for a conditional write — a field present on one arm and
+absent on the other is the shape a reader has to branch on.
+
 The service name is the control plane, not the function, so one archive's invocations and its Map
 fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
@@ -40,6 +48,7 @@ logger.setLevel(logging.INFO)
 observability.init(service="archive")
 
 COPY_FAILED = "copy_failed"
+DESTINATION_OCCUPIED = "destination_occupied_during_copy"
 RESULTS_UNREADABLE = "transfer_results_unreadable"
 
 
@@ -134,14 +143,16 @@ def _collect_transfer_results(event) -> dict:
         echo_fields=(),
     )
     failed = len(outcome["failures"])
+    occupied = sum(1 for item in outcome["failures"] if item.get("reason") == DESTINATION_OCCUPIED)
     unaccounted = expected - outcome["items"]
     copied = outcome["items"] - failed
     complete = failed == 0 and unaccounted == 0
 
     logger.info(
-        "transfer verdict: %d copied, %d failed, %d unaccounted of %d planned",
+        "transfer verdict: %d copied, %d failed (%d occupied), %d unaccounted of %d planned",
         copied,
         failed,
+        occupied,
         unaccounted,
         expected,
     )
@@ -149,6 +160,7 @@ def _collect_transfer_results(event) -> dict:
         "transfer results collected",
         objects=copied,
         failed=failed,
+        occupied=occupied,
         unaccounted=unaccounted,
         expected=expected,
         complete=complete,
@@ -159,6 +171,7 @@ def _collect_transfer_results(event) -> dict:
             "copied": copied,
             "failed": failed + max(unaccounted, 0),
             "expected": expected,
+            "occupied": occupied,
             "complete": complete,
         },
     }

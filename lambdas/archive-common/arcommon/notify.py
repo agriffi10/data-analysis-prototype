@@ -113,10 +113,14 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     to fill the markers in a body.
 
     A silent reason sends nothing, and says so in the log. The only one this plane raises is a
-    reused request id, refused because the archive prefix already holds objects: the run that
-    put them there reports under that id, and a message beside its "Archived" saying nothing was
-    archived would contradict it. The price is that a hand-built request reusing an id, which has
-    no such run to hear from, is told nothing at all; its refusal is on the execution.
+    reused request id, refused either because the archive prefix already holds objects or because
+    another execution holds the id's claim: the run that holds it reports under that id, and a
+    message beside its "Archived" saying nothing was archived would contradict it. The price is
+    that a hand-built request reusing an id, which has no such run to hear from, is told nothing
+    at all; its refusal is on the execution. **The claim's read-back branch stretches that
+    justification and is accepted anyway**: where the claim cannot be read there is no run that
+    can be shown to hold the id, so nobody reports — narrow, because a create-only write was just
+    refused and the object is therefore there to read.
 
     Args:
       event: The verb's event.

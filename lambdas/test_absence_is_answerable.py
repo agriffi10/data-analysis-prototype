@@ -167,6 +167,23 @@ DISPOSITIONS = {
     # encloses propagate every S3 failure, absence included, as a fault. Swept because the
     # handler returns a value, and kept here for the same reason as the row above it.
     "lambdas/results-conversion-convert/rc_convert.py::_convert": ABSENCE_IS_TERMINAL,
+    # Reached ONLY after a create-only write was refused, which is what makes every failed read
+    # here safe in one direction. A 403 and a 404 give the same answer on purpose: both resolve
+    # to "occupied", the caller leaves the destination alone and keeps the archive, and nothing
+    # is overwritten. So the ambiguity costs a file that is not restored and can never cost one
+    # that is destroyed — the opposite direction from every LIST_GRANT row above, where reading
+    # a denial as absence is what would do the damage. The archive role does hold the covering
+    # list grants (SourceDataRead on both space buckets, ArchiveVaultWrite on the vault), and
+    # that is not what makes this sound; the fail-closed resolution is. A transient fault is
+    # re-raised before any of this applies.
+    "lambdas/control-plane-common/cpcommon/transfer/copy.py::_already_copied": DENIAL_IS_ABSENT,
+    # The same shape and the same direction. It runs only after a create-only claim write was
+    # refused, so the object IS there and the only question is whose; an absent or unparseable
+    # claim answers None, and the caller REFUSES on None rather than proceeding. Reading a
+    # denial as "nobody holds it" is the one mistake here that ends in two runs sharing an
+    # archive id, which is this plane's unrecoverable case. A throttle raises instead, so a
+    # run that may well hold the claim is asked again rather than refused.
+    "lambdas/archive-common/arcommon/plan.py::_claim_holder": DENIAL_IS_ABSENT,
 }
 
 

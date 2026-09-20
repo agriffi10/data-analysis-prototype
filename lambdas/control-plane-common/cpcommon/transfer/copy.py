@@ -17,6 +17,14 @@ the failure is attributed downstream from the exported result. A transient fault
 opposite: it raises, because the whole batch retrying is both correct and cheap (copy is
 idempotent, and the conflict guard already ran).
 
+**A copy can REFUSE to overwrite, per item, and that is what makes a restore safe.** A line
+carrying ``ifAbsent`` conditions the write on the destination not existing, so a file created at
+that path after the plan was made is left alone rather than destroyed — the only guard that holds
+for the whole length of a Map rather than at the moment it starts. **The condition has two homes,
+like the storage class**: ``CopyObject`` takes it directly, and on the multipart path it belongs to
+``CompleteMultipartUpload`` alone, because S3 accepts it on neither the create nor the part copies.
+A refusal is then resolved rather than reported — ``_already_copied`` says why.
+
 **A copy carries the source object's metadata, and the two paths do that DIFFERENTLY**
 . ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
 now passed explicitly. A multipart copy has no such directive: ``UploadPartCopy`` moves bytes
@@ -49,7 +57,7 @@ Attributes:
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from .. import clients, errors, observability
+from .. import cas, clients, errors, observability
 from ..errors import TransientError
 
 logger = logging.getLogger(__name__)
@@ -69,6 +77,131 @@ _CARRIED_HEADERS = {
     "WebsiteRedirectLocation": "WebsiteRedirectLocation",
     "Metadata": "Metadata",
 }
+
+
+class DestinationOccupied(Exception):
+    """A conditional copy was refused and the destination is not this run's own write.
+
+    Distinct from every other deterministic fault because it is attributed differently: the
+    caller names a reason for it, and the sentence a user reads about a file that was left
+    alone is not the sentence they read about one that could not be copied. It is not a
+    ``TerminalError`` — a per-item outcome is reported out of the batch, never raised past it.
+    """
+
+
+def _already_copied(s3, src_bucket: str, src_key: str, dest_bucket: str, dest_key: str) -> bool:
+    """Reports whether a refused destination is indistinguishable from this copy's own output.
+
+    **This is the predicate that stops a batch retry reporting the files it just wrote as
+    collisions.** A batch re-raises one item's transient fault once every copy has settled, so
+    the retry re-copies the items the first attempt already finished, and every one of those
+    answers the condition with a refusal. Read as "occupied", each would be a file the user is
+    told was left in the way — by the run that put it there.
+
+    True means the destination is this run's own earlier write, or an object identical to it in
+    ETag, length, content type and user metadata. Either way nothing is lost by counting it
+    copied: the bytes the caller wanted at that key are at that key. **The run's own write
+    always matches**, on both copy paths — the single copy carries the source's metadata under
+    ``MetadataDirective``, the multipart create re-states it from ``_CARRIED_HEADERS``, and every
+    bucket here is ``AES256``, so an ETag is derived from the bytes. A re-part at the same
+    ``MULTIPART_PART_SIZE`` over the same length gives the same part boundaries and so the same
+    composite tag.
+
+    **The comparison is narrower than "everything a copy carries", deliberately.** The multipart
+    create also re-states content encoding, disposition, language, cache control, expiry and a
+    website redirect, and those are not compared. Comparing them would tighten this against a
+    user's file that matched on all four — unreachable today, since nothing in this portal sets
+    any of them — at the cost of a false collision whenever S3 renders one of them back
+    differently from the way it was supplied, and a false collision here is a file the user is
+    wrongly told to move. The residual runs the other way: a destination matching on all four
+    and differing on one of the six is counted copied, and the archived copy's header is lost
+    when the vault is swept, while the bytes survive.
+
+    **Every failed head resolves to occupied**, which is why a ``403`` and a ``404`` may give
+    the same answer: the caller's next move on False is to leave the destination alone and keep
+    the archive, so an ambiguous read costs a file that is not restored and never an overwrite.
+    A transient fault is the one exception — it raises, so the batch retries rather than
+    reporting a collision it cannot substantiate. The source is not headed when the destination
+    could not be.
+
+    Args:
+      s3: The S3 client.
+      src_bucket: Source bucket.
+      src_key: Source key.
+      dest_bucket: Destination bucket.
+      dest_key: Destination key.
+
+    Returns:
+      True when the destination may be counted as copied.
+
+    Raises:
+      TransientError: When either head failed retryably.
+    """
+    try:
+        destination = s3.head_object(Bucket=dest_bucket, Key=dest_key)
+    except Exception as exc:  # noqa: BLE001 - any answer but a transient one means leave it alone
+        errors.raise_if_transient(exc, f"head {dest_bucket}/{dest_key}")
+        logger.warning("could not head the refused destination %s/%s: %s", dest_bucket, dest_key, exc)
+        return False
+    try:
+        source = s3.head_object(Bucket=src_bucket, Key=src_key)
+    except Exception as exc:  # noqa: BLE001 - same rule, and it cannot be reached without the head above
+        errors.raise_if_transient(exc, f"head {src_bucket}/{src_key}")
+        logger.warning("could not head the copy source %s/%s: %s", src_bucket, src_key, exc)
+        return False
+
+    tag, length = destination.get("ETag"), destination.get("ContentLength")
+    if not tag or length is None:
+        return False
+    return (
+        source.get("ETag") == tag
+        and source.get("ContentLength") == length
+        and source.get("ContentType") == destination.get("ContentType")
+        and (source.get("Metadata") or {}) == (destination.get("Metadata") or {})
+    )
+
+
+def _settle_refused_copy(
+    s3, exc: Exception, src_bucket: str, src_key: str, dest_bucket: str, dest_key: str
+) -> None:
+    """Decides what a refused conditional write means, and returns only when it means "copied".
+
+    The two codes S3 answers a conditional write with are different questions, which is why
+    ``cas`` tells them apart rather than collapsing them here. A ``412`` is an answer about the
+    object — something is at the key — and is settled by comparing it. A ``409`` is an answer
+    about the race: S3 documents both conditioned operations as retryable on it, and says
+    nothing is known about what is at the key, so comparing would be comparing against whatever
+    the other writer happened to have finished.
+
+    Reading a ``409`` as occupied is the mistake that looks correct, and one plane makes the
+    opposite call for a sound reason: a conversion writes one object once, so for it a conflict
+    IS the collision. A batch copy retries, and after the retry the comparison decides, so here
+    a conflict is a fault to retry and never a verdict.
+
+    Args:
+      s3: The S3 client.
+      exc: The write fault, already known to be a precondition failure of one kind or the other.
+      src_bucket: Source bucket.
+      src_key: Source key.
+      dest_bucket: Destination bucket.
+      dest_key: Destination key.
+
+    Returns:
+      None, when the destination may be counted as copied.
+
+    Raises:
+      TransientError: On a conflict, or when a head could not settle the comparison.
+      DestinationOccupied: When something that is not this copy's own output holds the key.
+    """
+    if cas.is_conditional_conflict(exc):
+        raise TransientError(
+            f"a concurrent write interrupted the copy to {dest_bucket}/{dest_key}"
+        ) from exc
+    if _already_copied(s3, src_bucket, src_key, dest_bucket, dest_key):
+        return
+    raise DestinationOccupied(
+        f"{dest_bucket}/{dest_key} already holds something this copy did not write"
+    ) from exc
 
 
 def _source_headers(s3, src_bucket: str, src_key: str) -> dict:
@@ -112,6 +245,7 @@ def copy_one(
     dest_key: str,
     size: int,
     storage_class: str = "",
+    if_absent: bool = False,
 ) -> None:
     """Copies one object server-side, choosing single or multipart by its size.
 
@@ -146,16 +280,23 @@ def copy_one(
         all**, which is S3's own default (``STANDARD``) — deliberately not the literal
         ``"STANDARD"``, so the two existing callers' requests are byte-identical to what they
         issued before this parameter existed.
+      if_absent: Whether the copy may overwrite. False means the argument is not passed at all,
+        for the storage class's reason: the four callers that do not ask for it issue exactly
+        the requests they issued before it existed.
 
     Returns:
       None.
 
     Raises:
-      TransientError: On a retryable fault.
+      TransientError: On a retryable fault, and on a conflict against a conditional write.
+      DestinationOccupied: When a conditional write was refused by something this copy did not
+        write.
       Exception: The raw fault on a deterministic one, for the caller to attribute.
     """
     source = {"Bucket": src_bucket, "Key": src_key}
     extra = {"StorageClass": storage_class} if storage_class else {}
+    condition = {"IfNoneMatch": "*"} if if_absent else {}
+    detail = f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}"
     if size <= MULTIPART_COPY_THRESHOLD:
         try:
             s3.copy_object(
@@ -164,9 +305,13 @@ def copy_one(
                 CopySource=source,
                 MetadataDirective="COPY",
                 **extra,
+                **condition,
             )
         except Exception as exc:
-            errors.raise_if_transient(exc, f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}")
+            if if_absent and cas.is_precondition(exc):
+                _settle_refused_copy(s3, exc, src_bucket, src_key, dest_bucket, dest_key)
+                return
+            errors.raise_if_transient(exc, detail)
             raise
         return
 
@@ -195,13 +340,17 @@ def copy_one(
             Key=dest_key,
             UploadId=upload_id,
             MultipartUpload={"Parts": parts},
+            **condition,
         )
     except Exception as exc:
         try:
             s3.abort_multipart_upload(Bucket=dest_bucket, Key=dest_key, UploadId=upload_id)
         except Exception:  # noqa: BLE001
             logger.warning("abort_multipart_upload failed for %s/%s", dest_bucket, dest_key)
-        errors.raise_if_transient(exc, f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}")
+        if if_absent and cas.is_precondition(exc):
+            _settle_refused_copy(s3, exc, src_bucket, src_key, dest_bucket, dest_key)
+            return
+        errors.raise_if_transient(exc, detail)
         raise
 
 
@@ -215,18 +364,30 @@ def _copy_item(item: dict) -> None:
     The storage class is the one field read with a default rather than indexed: it is optional
     by design, and a manifest written by table share or file send carries none.
 
+    **``ifAbsent`` is optional but not permissive.** A line carrying something that is not a
+    boolean fails its own item rather than being copied, because the two ways to be lenient are
+    both worse than a reported failure: treating a truthy string as True conditions a copy the
+    caller may not have meant to condition, and treating an unrecognised value as False turns a
+    line that asked not to overwrite into one that does. A missing key is a different thing from
+    a malformed one and stays the unconditional default.
+
     Args:
       item: A manifest line — source and destination bucket and key, the size the plan measured,
-        and optionally the destination storage class.
+        and optionally the destination storage class and whether the copy may overwrite.
 
     Returns:
       None.
 
     Raises:
       TransientError: On a retryable fault.
+      DestinationOccupied: When a conditional line met something it did not write.
       KeyError: When the line is missing a location field.
+      TypeError: When ``ifAbsent`` is present and is not a boolean.
       Exception: The raw fault on a deterministic one.
     """
+    if_absent = item.get("ifAbsent", False)
+    if not isinstance(if_absent, bool):
+        raise TypeError(f"ifAbsent is a {type(if_absent).__name__}, which is not a boolean")
     copy_one(
         clients.s3(),
         item["srcBucket"],
@@ -235,6 +396,7 @@ def _copy_item(item: dict) -> None:
         item["destKey"],
         item.get("size") or 0,
         item.get("storageClass") or "",
+        if_absent=if_absent,
     )
 
 
@@ -244,6 +406,7 @@ def copy_batch(
     failure_reason: str,
     *,
     echo_fields: tuple,
+    occupied_reason: str | None = None,
     concurrency: int = COPY_CONCURRENCY,
 ) -> dict:
     """Copies every item in a batch, isolating deterministic per-item failures.
@@ -283,6 +446,11 @@ def copy_batch(
         caller wants them. An EMPTY tuple is meaningful and is what a plane with one destination
         passes — the archive needs only the count, and echoing two fields its manifest never
         carried wrote ``{"recipient": null, "kind": null}`` onto every archive failure.
+      occupied_reason: The domain's reason code for an item a conditional copy would have
+        overwritten, which is a different outcome from a copy that failed — the file is intact,
+        it is simply not this run's. **None means the caller does not tell the two apart** and
+        both report as ``failure_reason``, which is what every caller that sets no ``ifAbsent``
+        gets, since none of them can reach the outcome at all.
       concurrency: Worker pool size.
 
     Returns:
@@ -303,6 +471,17 @@ def copy_batch(
                 future.result()
             except TransientError as exc:
                 transient = transient or exc
+            except DestinationOccupied as exc:
+                logger.info(
+                    "destination occupied for %s/%s: %s",
+                    item.get("destBucket"),
+                    item.get("destKey"),
+                    exc,
+                )
+                failures.append(
+                    {field: item.get(field) for field in echo_fields}
+                    | {"reason": occupied_reason or failure_reason}
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "copy failed for %s/%s: %s", item.get("srcBucket"), item.get("srcKey"), exc

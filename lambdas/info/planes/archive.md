@@ -91,11 +91,15 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   *whole* restore, and a **403 counts as occupied**. The second pass (`ReCheckDestinationClear`) is
   the spec correcting itself: the billed 3–5 hours are spent telling the user a restore is in
   flight, so re-creating a file meanwhile is the ordinary case — and the copy-back would otherwise
-  have overwritten it, reported success, and swept the vault. **It is absolute at the check, not yet
-  at every write**: the copy-back is unconditional, and two restores of one archive can run at once
-  because the Pipe starts executions `FIRE_AND_FORGET` —
+  have overwritten it, reported success, and swept the vault. **It holds at every WRITE as well,
+  and that takes a second mechanism**: every restore manifest line carries `ifAbsent`, so S3 itself
+  refuses a copy onto a key that exists. The two are not redundant — the condition protects one
+  object and cannot refuse a restore, while the guard refuses the whole thing up front with the
+  paths named. A refused write is RESOLVED by comparing destination against source, never read as
+  occupied outright, or a batch retrying after a transient fault would report the files it just
+  restored as collisions —
   [the register](../../../docs/decisions/archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
-  says what that does.
+  says what overlap still costs.
 - **Retrieval is the point of no return.** `RetrieveObjects` tolerates **no** failure, where
   `CopyBackObjects` tolerates 100% — a fault there means nothing was copied and the archive is
   untouched. What makes that free is that `archive-initiate-restore` tolerates two codes,
@@ -134,8 +138,11 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   the SOURCE; this one protects the ARCHIVE, and the reason runs the other way — a partial restore
   cannot be rolled back, because the user's space already holds some of their own data. So the
   failure arm deletes **nothing**, and the archive it keeps is the only complete copy left.
-  `restore_incomplete` says all three things: how many came back, that the archive is intact under
-  the same id, and that re-requesting will report the files that DID land.
+  **Which of three bodies it raises is decided by COUNTING the vault**, because a sibling restore
+  may already have swept it: a full count earns "was still complete when this restore stopped",
+  and a short one, an empty prefix or a listing that will not answer all select the cleared body.
+  No restore message tells the user to delete anything and none states the archive's present
+  condition — both rules are enforced over the whole table by a test.
 - **Completion is the `Restore` HEADER, and an absent header is a FAILURE.** Nothing about an
   archived object changes when its retrieval finishes — it stays `GLACIER`, and what appears beside
   it is a temporary copy the header describes — so "no header" on a Glacier object means nobody ever
@@ -163,7 +170,8 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   exactly the ones a single "Couldn't archive that" prefix gets wrong. Every failure seed supplies
   `mode`, a literal `null` on the pre-identity one, whose input is the raw error. One code has no
   body at all: `request_id_reused`, refused in `InspectSource` when the archive prefix already holds
-  objects, is told to nobody, because the run that archived under that id is the one that reports
+  objects **or when another execution holds the id's create-only claim**, is told to nobody, because
+  the run that holds that id is the one that reports
   ([the decision](../../../docs/decisions/control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
 ## The two budgets
