@@ -95,11 +95,20 @@ _PAIRS = {
 #: mid-chain state compares that fixture with itself and would agree with any state at all. These
 #: seven are rooted at the plane's real API envelope (or, for the two Map children, the plane's own
 #: item fixture) and the verb builds the dict, so the key set is the verb's decision.
+#:
+#: **`columnIndexes` is dropped by the two results-conversion states for exactly one release**,
+#: and the change that teaches those states to read it deletes both entries — the drop is applied
+#: to the verb side of the equality, so it reddens the moment the ASL names the key. The drop is
+#: the safe half of a deploy the workflows give no ordering to: `Deploy Infrastructure` applies
+#: the ASL while `Deploy Lambdas` separately repoints the functions, on the same push, so a verb
+#: has to return a new key FIRST, in a release where no state reads it. The other order is an ASL
+#: reading `$.columnIndexes` off a state the still-live image does not produce. Declared here
+#: rather than tolerated, which is the whole point of pinning the drops per pair.
 _CHECKED = {
     ("archive", "Validated"): frozenset(),
     ("file-send", "Validated"): frozenset(),
-    ("results-conversion", "Validated"): frozenset(),
-    ("results-conversion", "Described"): frozenset(),
+    ("results-conversion", "Validated"): frozenset({"columnIndexes"}),
+    ("results-conversion", "Described"): frozenset({"columnIndexes"}),
     ("results-conversion", "Converted"): frozenset(),
     ("table-share", "GuardRecipients/RecipientCleared"): frozenset({"request"}),
     ("table-share", "FinishRecipients/RecipientSucceeded"): frozenset({"request"}),

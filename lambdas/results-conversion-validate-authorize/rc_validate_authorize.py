@@ -18,7 +18,10 @@ and recorded by the machine's Catch. Only an unpredicted fault raises past that.
 Attributes:
   _ALLOWED_FIELDS: The complete set of top-level request fields. Unknown fields are REJECTED
     rather than ignored: a field the producer thinks it is sending and this verb silently drops
-    is a contract break that shows up as behaviour nobody asked for.
+    is a contract break that shows up as behaviour nobody asked for. It is held equal to the
+    API's declared fields by a fleet guard, which is why ``columnIndexes`` is not here: this
+    release teaches the verbs to EMIT the key so that a later one can teach the machine to carry
+    it, and the field is admitted in that later release, beside the contract that declares it.
   _UUID_RE: The shape of an Athena execution id. A value of any other shape cannot name an
     execution and is refused as a malformed request rather than sent to Athena.
   _PENDING: The two Athena states in which the result set does not exist yet.
@@ -239,9 +242,12 @@ def _validate_and_authorize(event) -> dict:
       event: The EventBridge Pipe envelope.
 
     Returns:
-      Exactly: request id, username, format, conflict answer, execution id, result key and the
-      resolved destination. A downstream state reading a key that is absent raises an
-      uncatchable ``States.Runtime``, so the key set is a contract the machine's own test pins.
+      Exactly: request id, username, format, conflict answer, execution id, result key, the
+      resolved destination and the chosen columns. A downstream state reading a key that is
+      absent raises an uncatchable ``States.Runtime``, so the key set is a contract the
+      machine's own test pins — and it is why ``columnIndexes`` is emitted as ``None`` rather
+      than omitted. Nothing can send the field yet, so ``None`` is the only value it takes in
+      this release; what matters is that the key is THERE, ahead of the state that will read it.
 
     Raises:
       TerminalError: ``unauthorized`` for an unusable identity block, or any reason this plane
@@ -284,6 +290,7 @@ def _validate_and_authorize(event) -> dict:
         "onConflict": req["onConflict"],
         "queryExecutionId": req["queryExecutionId"],
         "resultsKey": results_key,
+        "columnIndexes": req.get("columnIndexes"),
         "destination": {
             "bucket": space["bucket"],
             "key": key,

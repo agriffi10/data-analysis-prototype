@@ -2,7 +2,7 @@
 
 **ID:** SPEC-239
 **Status:** Draft
-**Last Updated:** 2026-09-16
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-185, SPEC-221, SPEC-222, SPEC-223, SPEC-229
 
 ## Overview
@@ -153,9 +153,11 @@ validate-authorize adds `columnIndexes` to `_ALLOWED_FIELDS`. When the field is 
 first checks it is a list, then that every entry is an `int` and not a `bool` (Python's `bool`
 subclasses `int`), then that the list is non-empty, then that entries are distinct and at least 0.
 Anything else is refused with a new reason, `invalid_columns`, before any set is built from the
-entries and before any verb reads Athena. Its wording is "The columns chosen for this file don't
-match the query's results, so nothing was saved.". The verb emits `columnIndexes`, as `null` when the
-request had none.
+entries and before any verb reads Athena. Its wording is "the columns chosen for this file don't
+match the query's results, so nothing was saved." — lower-cased in the build, as every other
+body on this plane is, because the resolver renders it after the prefix `Couldn't save the query
+results{asFormat}: ` and a capital there reads as two half-sentences. The verb emits
+`columnIndexes`, as `null` when the request had none.
 
 #### Acceptance Criteria:
 
@@ -356,7 +358,7 @@ apps/portal/info/component-inventory/catalog-feature.md (useSaveResults, SaveRes
 
 ## Implementation Phases
 
-### Phases 1 to 3: The plane, in three pull requests, in this order
+### Phases 1 and 2: The plane, in two pull requests, in this order
 
 The verbs, the state machine and the browser deploy in separate workflows, and `Deploy
 Infrastructure` and `Deploy Lambdas` run in parallel on one push (`lambdas/info/deployment.md`). A
@@ -366,20 +368,38 @@ such save. The invariant: every pull request leaves `main`'s suites green, and e
 works during and after its deploys. So each change lands after the one it needs, and the plan review
 decides the test mechanics that keep each step green:
 
-1. **The verbs emit the key.** `rccommon` reasons and wording only, with every `csv` config entry
-   left to step 3; validate-authorize and describe-results accept `columnIndexes` and emit it, `null`
-   when absent (FR-001's verb half, FR-002's verb half). Today's Pass states drop the extra key
-   harmlessly. describe-results reads it with a `null` default rather than requiring it, because
-   today's `Validated` drops it before describe-results runs. The state-machine test's key equality
-   admits `columnIndexes` on the verbs' side for this step only, named as an exemption that step 2
-   deletes. Nothing sends the key yet, and the API still refuses the field.
-2. **The machine carries it.** The two Pass states name `columnIndexes` and the state-machine test is
-   updated (FR-002). Watched through the infrastructure deploy.
-3. **The converter and the API.** convert's projection and the CSV writer with its measurement run
-   (FR-003, FR-004), then the contract, the bound and its equality test, and the regenerated
-   TypeScript (FR-001's API half). The plane page's envelope and writer list.
+1. **The verbs emit the key, and nothing else.** validate-authorize and describe-results return
+   `columnIndexes`, `null` when the request named none. Today's Pass states drop the extra key
+   harmlessly, and both verbs read it with a `null` default rather than requiring it, because no
+   state carries it yet. **Nothing else lands here, and the reason is that nothing else CAN
+   fire.** The field is not admitted (`_ALLOWED_FIELDS` is held equal to the API's declared
+   fields by a fleet guard), no state carries it, so a shape check, an index check, a reason code
+   and its wording would all be unreachable for a release — a refusal that can deny nobody, which
+   this plane's own decisions refuse. They land in step 2, where the contract makes them
+   reachable in the same push. Two cross-checks admit `columnIndexes` on the VERBS' side only,
+   each named as an exemption step 2 deletes: the plane's own state-machine test, and the
+   fleet-wide one, whose per-pair drop table is the mechanism for exactly this. One-sided is
+   load-bearing — subtracted from both sides, an exemption survives step 2 in silence — and each
+   verb test therefore asserts the key's presence directly, since the equalities have gone quiet
+   about it.
+2. **The machine carries it, the converter uses it, and the API accepts it.** The two Pass states
+   name `columnIndexes` and both exemptions are deleted (FR-002); `rccommon`'s reason and its
+   wording, validate-authorize's `_ALLOWED_FIELDS` and its shape checks, and describe-results'
+   check of each position against the described columns (FR-001's verb half, FR-002's verb half);
+   convert's projection and the CSV writer with its measurement run (FR-003, FR-004); the
+   contract, the bound and its equality test, and the regenerated TypeScript (FR-001's API half).
+   The plane page's envelope and writer list, and the live-check fixture's format loop.
+   **This was authored as two pull requests and is one**, because the key is returned by step 1's
+   image: by the time the ASL can name it a deployed image already does, so every order of this
+   push is safe — the ASL first (step 1's verbs return it), the fleet first (the old ASL drops it
+   and convert reads `null`), or a failed apply (nothing reads it). The condition that makes that
+   true is load-bearing: **convert and describe-results read the key with `get`, never
+   `events.require`**, which refuses a `null` value as well as an absent one. Splitting it would
+   also re-point every function in the fleet for two lines of JSON, since `deploy-lambdas.yml`
+   fires on `infra/modules/**` too. The push carries its own race between the API image and the
+   convert image, harmless only because nothing sends `csv` or a list until step 3.
 
-### Phase 4: The browser, in a fourth pull request
+### Phase 3: The browser, in a third pull request
 
 - `exportColumnIndexes`, `convertsFor`, `useSaveResults`, `SaveResultsDialog`, the region and the
   workspace, the Query workspace's `null`, and the guide (FR-005).
