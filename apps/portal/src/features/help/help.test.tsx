@@ -486,6 +486,36 @@ describe('the delete-space guide (SPEC-205)', () => {
   });
 });
 
+describe('the refresh-table guide', () => {
+  it('promises the kept order, tells the user to put a new CSV column last, and does not blame the older files', () => {
+    // Asserted on the guide OBJECT, like the delete-space case above: the content module is the
+    // source of truth. The STEPS are in the text because the card renders them, and a negative
+    // assertion that skips them forbids nothing — a forbidden sentence lands in a step just as
+    // readably as in the intro.
+    //
+    // The three negatives are FR-003's, the claims a CSV refresh keeping the table's order makes
+    // false: that a refresh reorders the table to match its first file, that a misplaced column
+    // misreads the OLDER files rather than the one that misplaced it, and that the user should
+    // reorder a file to restore the table's order. Each shipped in this guide at some point.
+    const section = HELP_SECTIONS.find((s) => s.id === 'tables');
+    const guide = section?.guides.find((g) => g.id === 'refresh-table');
+
+    expect(guide).toBeDefined();
+    //
+    // The copy is authored with typographic apostrophes, so the text is normalized before
+    // matching: a pattern written with a plain `'` matches nothing against `\u2019` and the
+    // negative assertions would forbid nothing at all.
+    const text = [guide!.subtitle, guide!.intro ?? '', ...guide!.steps, guide!.callout?.text ?? '']
+      .join(' ')
+      .replace(/\u2019/g, "'");
+    expect(text).toMatch(/never moves the columns it already has/i);
+    expect(text).toMatch(/put a new column last/i);
+    expect(text).toMatch(/comes back as a <b>new<\/b> column, at the <b>end<\/b> of the table/i);
+    expect(text).not.toMatch(/older files/i);
+    expect(text).not.toMatch(/reorder(ing)? (the |your )?(columns|file)|to match the order|restore the table's order/i);
+  });
+});
+
 describe('the upload guide', () => {
   it('names the collision prompt’s choices and promises no suggested name', () => {
     // The prompt starts its rename field at the colliding name; only a same-folder copy proposes a

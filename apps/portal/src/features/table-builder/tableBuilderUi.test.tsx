@@ -224,6 +224,17 @@ describe('RefreshTableDialog', () => {
       expect(onConfirm).toHaveBeenCalledWith(false);
     });
 
+    // The consequence is a DESCRIPTION on the control, not prose beside it: a user who reaches
+    // the checkbox with a screen reader has to hear what ticking it costs before they tick it.
+    // A CSV table reads by position, so a removal shifts every file that still carries the
+    // column — the dialog cannot know the format, so the copy names CSV instead of branching.
+    it('tells the checkbox what removing a column does to a CSV file that still has it', () => {
+      render();
+      expect(optIn()).toHaveAccessibleDescription(
+        /In a table built from CSV files, a file that still has a removed column will have the values after it read into the wrong columns\./
+      );
+    });
+
     it('passes the ticked opt-in to confirm', async () => {
       const {onConfirm, user} = render();
       await user.click(optIn());

@@ -92,8 +92,26 @@ def _write_columns(
     A data column colliding with a partition key is never written under that name: Glue keeps
     partition keys in their own field, which this verb passes through untouched, and one name
     declared in both is not a valid table. The columns written are ``ddl.body_columns``, the create
-    path's own rule, so a CSV's column is written under the name a create gave it, in its place,
-    and a JSON or Parquet one is left out. Diff-schema compares the same list.
+    path's own rule, so a CSV's column is declared under the name a create gave it, in its place in
+    that list, and a JSON or Parquet one is left out. Diff-schema compares the same list.
+
+    In a positional format the ORDER written is the live table's, not the first file's. Athena
+    reads a CSV by position and every CSV column is a string, so moving a column moves the values
+    every other file already puts under it, and nothing errors. Taking the first file's order made
+    that a routine outcome: a column inserted mid-header, or a different file sorting first with
+    the same columns in another order, shifted every older file by one. So the kept columns are
+    stably sorted on their rank in the live table and the new ones follow in the first file's
+    order. That does not prevent a misread — it decides which file takes it: a column inserted
+    mid-header is now misread in the file that misplaced it rather than in every older one, and
+    the table's order stops moving under the files that already agree with it. A column the live
+    table does not hold is new, including a partition namesake the table has not yet declared, so
+    it goes last like any other. JSON and Parquet are matched by name, where order decides only
+    how ``SELECT *`` lays the columns out, and keep the first file's.
+
+    The sort is stable and keyed on a list rather than a dict, so two names that fold together
+    survive it as two entries, sorted adjacent, and reach the refusal below. Keyed on the folded
+    name in a mapping they would have merged silently, and nothing after it would notice: the
+    read-back compares name sets, where both spellings collapse on each side and compare equal.
 
     Args:
       columns: The freshly inferred columns.
@@ -103,7 +121,8 @@ def _write_columns(
       fmt: The source format.
 
     Returns:
-      The Glue column entries to write.
+      The Glue column entries to write, in the live table's order followed by what is new to it
+      when the format is positional, and in the first file's order otherwise.
 
     Raises:
       TerminalError: ``update_failed`` when the fold collapses two columns into one. Diff-schema
@@ -117,6 +136,7 @@ def _write_columns(
         column and failed at query time.
     """
     carried = {columns_mod.fold(c.get("Name") or ""): c for c in live_columns}
+    live_order = {name: rank for rank, name in enumerate(carried)}
     partition_keys = [{"name": k.get("Name") or ""} for k in live_partition_keys]
 
     written = []
@@ -129,6 +149,9 @@ def _write_columns(
         if live.get("Parameters"):
             entry["Parameters"] = live["Parameters"]
         written.append(entry)
+
+    if fmt in ddl.POSITIONAL_FORMATS:
+        written.sort(key=lambda entry: live_order.get(entry["Name"], len(live_order)))
 
     names = [entry["Name"] for entry in written]
     duplicates = sorted({name for name in names if names.count(name) > 1})

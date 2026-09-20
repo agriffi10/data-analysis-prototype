@@ -35,10 +35,12 @@ def _by_folded_name(columns: list[dict], partition_keys: list[dict], fmt: str) -
     """Indexes the columns a table declares by the name Athena gives each.
 
     The columns are ``ddl.body_columns``, the create path's own rule for a column naming a
-    partition key: renamed in a CSV, left out otherwise. Apply-refresh writes the same list, so
+    partition key: renamed in a CSV, left out otherwise. Apply-refresh declares the same list, so
     what this verb compares and refuses is what the write would land, and a CSV table built with
     ``year_in_file`` compares its live column with the header's ``year`` rather than reporting it
-    removed on every refresh.
+    removed on every refresh. What the write then does with the ORDER of that list is its own —
+    in a positional format it keeps the table's — and nothing here depends on it: this index is
+    keyed by name and the counts it reports name no positions.
 
     Args:
       columns: Column dicts, each carrying at least a name.
@@ -208,7 +210,9 @@ def _diff(event: dict) -> dict:
         ``compute_diff`` and so always ahead of a removal, which opting in cannot fix.
         ``columns_removed`` when a removal was not opted into. Either way nothing is changed,
         and the tokens are what carry the column names into the notification and, for a
-        removal, the link the browser names them back from.
+        removal, the link the browser names them back from and the sentence the format earns:
+        where the SerDe matches by position, a file that still has a removed column reads the
+        values after it one column across, which is the cost the opt-in is weighing.
     """
     existing = events.require(event, "existingColumns")
     inferred = events.require(event, "columns")
@@ -243,7 +247,7 @@ def _diff(event: dict) -> dict:
         raise TerminalError(
             "columns_removed",
             f"{len(removed_names)} column(s) would be removed and allowRemovals is false",
-            notify.removed_tokens(removed_names),
+            notify.removed_tokens(removed_names, fmt),
         )
 
     out = dict(event)

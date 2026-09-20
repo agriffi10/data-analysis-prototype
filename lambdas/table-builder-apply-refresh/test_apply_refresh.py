@@ -284,10 +284,15 @@ def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fol
     assert out["appliedColumnCount"] == 4
 
 
-def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_creates_name():
-    """A CSV is read by position, so the write keeps the file's ``Year`` where it sits, under the
-    name the create gave it, and carries that column's comment; leaving it out would move every
-    later column onto its neighbour's field.
+def test_a_csv_column_naming_a_partition_key_is_written_under_the_creates_name_in_the_tables_place():
+    """A CSV is read by position, so the write KEEPS the file's ``Year`` rather than leaving it
+    out, under the name the create gave it and carrying that column's comment; leaving it out
+    would move every later column onto its neighbour's field.
+
+    Where it lands is the TABLE's business, not the file's: the live table already declares
+    ``year_in_file`` first, so that is where it goes. The fixture's live order and the file's
+    agree, which is the ordinary case; the row below covers the one where the table does not
+    declare the namesake at all.
 
     Args:
       None.
@@ -320,6 +325,195 @@ def test_a_csv_column_naming_a_partition_key_is_written_in_its_place_under_the_c
     assert [(c["Name"], c.get("Comment")) for c in written] == [
         ("year_in_file", "the export's year"), ("id", None), ("region", None)
     ]
+
+
+def _live_with(names, comments=None):
+    """A live table carrying the named columns, in that order, optionally with comments.
+
+    Args:
+      names: The live column names, in the order the table declares them.
+      comments: Optional name-to-comment mapping.
+
+    Returns:
+      A live Glue table dict.
+
+    Raises:
+      None.
+    """
+    comments = comments or {}
+    columns = []
+    for name in names:
+        column = {"Name": name, "Type": "string"}
+        if name in comments:
+            column["Comment"] = comments[name]
+        columns.append(column)
+    storage = {**_live_table()["StorageDescriptor"], "Columns": columns}
+    return _live_table(StorageDescriptor=storage)
+
+
+@pytest.mark.parametrize(
+    ("first_file", "expected"),
+    [
+        (["a", "new", "b", "c"], ["a", "b", "c", "new"]),
+        (["c", "a", "b", "d"], ["a", "b", "c", "d"]),
+        (["y", "a", "x", "b", "c"], ["a", "b", "c", "y", "x"]),
+        (["a", "c"], ["a", "c"]),
+    ],
+)
+def test_a_csv_refresh_keeps_the_tables_order_and_appends_what_is_new(first_file, expected):
+    """A CSV is read by position, so the table's order is a contract with every file already in
+    the folder: the write keeps it and adds new columns at the end.
+
+    Taking the first file's order instead shifted every older file by one and said nothing —
+    every CSV column is a string, so no value fails to fit the column it lands in, and the
+    refresh notification reported success. The four headers are the shapes that produced it: a
+    column inserted mid-header, the same columns in another order, two new columns around the
+    old ones, and a removal diff-schema has already let through, which leaves the survivors in
+    their places rather than closing up around the first file's order.
+
+    Args:
+      first_file: The header the refresh inferred, in the first file's order.
+      expected: The column names the update must carry, in order.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "b", "c"]))
+    columns = [{"name": name, "type": "string"} for name in first_file]
+
+    m.handler(_event(columns=columns), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == expected
+
+
+def test_a_reordered_csv_header_keeps_the_live_order_and_the_comment_on_a_moved_column():
+    """The carry is keyed on the folded name, not on a position, so a column the first file moved
+    still arrives with the metadata the table holds for it.
+
+    The header also re-cases two of the names, because the reorder and the fold have to agree:
+    sorted on the file's own casing, ``Region`` would rank as a name the live table does not
+    hold and go last.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    live = _live_with(["amount", "region"], {"region": "the sales region"})
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Region", "type": "string"},
+        {"name": "Amount", "type": "string"},
+        {"name": "Notes", "type": "string"},
+    ]
+
+    m.handler(_event(columns=columns), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [(c["Name"], c.get("Comment")) for c in written] == [
+        ("amount", None), ("region", "the sales region"), ("notes", None)
+    ]
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "json"])
+def test_a_name_matched_format_still_writes_the_first_files_order(fmt):
+    """Parquet and JSON are read by name, so the order decides only how ``SELECT *`` lays the
+    columns out and the reorder must not reach them.
+
+    The format is set explicitly: the event factory defaults it to ``csv``, so a test that left
+    it alone would exercise the branch this one exists to stay out of.
+
+    Args:
+      fmt: The name-matched source format under test.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "b", "c"]))
+    columns = [{"name": name, "type": "string"} for name in ("a", "new", "b", "c")]
+
+    m.handler(_event(columns=columns, format=fmt), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["a", "new", "b", "c"]
+
+
+def test_a_csv_namesake_the_table_does_not_yet_declare_is_new_and_lands_last():
+    """A partition namesake the live table has never declared is a NEW column, so the reorder puts
+    it last like any other — it does not take the file's position.
+
+    This is the one case where a partitioned CSV table's write differs from what it was before the
+    order was kept, and it is the accepted cost rather than a defect: a table built under the old
+    drop rule gains `year_in_file` at the end, so it stays shifted and repairing it is a rebuild.
+    Asserted here because four documents state it and nothing else runs it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "id", "Type": "string"}, {"Name": "region", "Type": "string"}],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "year", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Year", "type": "string"},
+        {"name": "id", "type": "string"},
+        {"name": "region", "type": "string"},
+    ]
+    keys = [{"name": "year", "type": "string", "values": ["2025"]}]
+
+    m.handler(_event(columns=columns, partitionKeys=keys), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["id", "region", "year_in_file"]
+
+
+def test_a_removed_csv_column_comes_back_at_the_end_rather_than_in_its_old_place():
+    """A column the table dropped is NEW when it returns, so it lands last and the table does not
+    go back to the order it had. Pinned because it is the cost this rule accepts, not an accident.
+
+    An opted-in removal is what shifts a CSV table — `a,b,c` minus `b` reads a file headed `a,b,c`
+    with `b`'s values under `c` — and restoring `b` to the first file cannot undo that here: the
+    live table no longer records where `b` sat. Writing the first file's order did repair this one
+    sequence, and that repair is what taking the table's order gives up; taking the file's order is
+    the far commoner harm this rule exists to stop. Repairing a drifted table is out of the spec's
+    scope and a refusal was rejected, so the table is rebuilt instead, and the Refresh guide says
+    so. If this starts failing, the rule changed — revisit the decision, do not delete the test.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, _sqs = _install(table=_live_with(["a", "c"]))
+    columns = [{"name": name, "type": "string"} for name in ("a", "b", "c")]
+
+    m.handler(_event(columns=columns), None)
+
+    written = [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]]
+    assert written == ["a", "c", "b"]
 
 
 def test_an_event_without_a_format_is_malformed_and_writes_nothing():

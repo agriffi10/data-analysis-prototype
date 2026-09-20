@@ -39,6 +39,7 @@ entry you need, not the file.**
 - [A CSV column named after a partition keeps its values under a new name, instead of being refused (2026-09-16)](#a-csv-column-named-after-a-partition-keeps-its-values-under-a-new-name-instead-of-being-refused-2026-09-16)
 - [A partition key is named after its folder, so its name may be one character (2026-09-16)](#a-partition-key-is-named-after-its-folder-so-its-name-may-be-one-character-2026-09-16)
 - [One operator table, because four lists is how an operator reaches three of them (SPEC-238)](#one-operator-table-because-four-lists-is-how-an-operator-reaches-three-of-them-spec-238)
+- [A CSV refresh keeps the table's column order and appends what is new (SPEC-235)](#a-csv-refresh-keeps-the-tables-column-order-and-appends-what-is-new-spec-235)
 
 ## Fences
 
@@ -70,8 +71,24 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   dropped or refused.** `ddl.declare_columns` renames it `<fold>_in_file` in its place — in a
   create, a refresh's diff and write, and data-quality's temp table and figures — because dropping
   it answers every later column with its neighbour's values; Parquet and JSON are matched by name
-  and leave it out. In a CSV, cross-file agreement checks each file against the columns the table
-  DECLARES, by the files' names — comparing files with each other read a swap as agreement.
+  and leave it out. **"In its place" is the DECLARED list's place, and a CSV refresh's write does
+  not take that list's order** (next fence), so on a refresh a namesake keeps the TABLE's position
+  for it, and one the table does not yet declare is new and lands last. In a CSV, cross-file
+  agreement checks each file against the columns the table DECLARES, by the files' names —
+  comparing files with each other read a swap as agreement.
+- **A CSV table's declared column order is a positional contract, so a refresh never moves a column
+  the table already holds. This does NOT prevent a misread — it decides which file takes it**, now
+  the one that misplaced the column rather than every older one. apply-refresh writes the LIVE
+  table's order, minus what the first file dropped, then appends what is new; JSON and Parquet keep
+  the first file's, where order only lays out `SELECT *`. Taking the first file's order shifted
+  every older file by one whenever a column was inserted mid-header, or a different file sorted
+  first, and **nothing errored**: every CSV column is `string`, the diff folds names and never
+  compares positions, and the read-back compares name SETS. The sort is STABLE over a LIST, never
+  a dict keyed on the fold — keyed on the fold two colliding names merge and no refusal fires,
+  which reddens `test_columns_differing_only_by_case_are_refused_before_the_update`. A removal is
+  the case this cannot help, and it does not heal: a removed column returns as a NEW one, at the
+  end. So the `columns_removed` refusal says what a removal costs a file that still has the
+  column, worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
@@ -1260,7 +1277,9 @@ characters, to Glue's 255-byte ceiling. Each part is there for a reason:
   held a create's header to `[a-z0-9_]`, so the result passes the same rule.
 - *Every position*, rather than dropping a trailing one as before: one rule to explain, and the
   data-quality report then profiles the column wherever it sits. A table built under the old drop
-  gains `year_in_file` as an added column on its next refresh.
+  gains `year_in_file` as an added column on its next refresh — **added, not moved into place**,
+  since a refresh keeps the table's order, so that table stays shifted and repairing it is a
+  rebuild.
 - *The taken set includes kept columns and the keys*, or `year` beside a header's own
   `Year_In_File`, or beside a second key named `year_in_file`, renders a repeated column Athena
   refuses.
@@ -1294,10 +1313,14 @@ notification and in the report. A single-file check detects no partitions, so th
 keeps its own name.
 
 **A known limit, not refused.** A header that later gains its OWN `year_in_file` column pushes the
-rename to `year_in_file_2` on refresh; the diff reports that name added, and the live
-`year_in_file` now reads the file's new column, keeping the Glue comment it had, since comments
-are carried by name. It needs a user to name a column after the rename, and the refresh
-notification does report a change.
+rename to `year_in_file_2` on refresh, and the diff reports that name added. WHICH file column the
+live `year_in_file` then reads is decided by the table's order, not the file's, since the refresh
+keeps the live order: live `year_in_file,id` against a header `Year,id,year_in_file` writes
+`year_in_file, id, year_in_file_2`, so the live column reads the file's `Year` and the new
+`year_in_file_2` reads the file's own `year_in_file` — the other way round before the order was
+kept. Either way the live column keeps the Glue comment it had, since comments are carried by
+name. It needs a user to name a column after the rename, and the refresh notification does report
+a change.
 
 **Rejected.**
 - *Keep refusing, and word it better.* It leaves Create table with no path for the commonest shape,
@@ -1394,4 +1417,83 @@ the expression bar's job, and the guide now points there for the conditions the 
 cannot say. **Not built:** reading blank CSV fields as NULL, which would change what existing tables
 return; relabelling `(empty)`, which is accurate; a length check in the Query workspace, where the
 user wrote the statement and Athena's own refusal is the honest report.
+## A CSV refresh keeps the table's column order and appends what is new (SPEC-235)
 
+**The defect.** Athena reads a CSV by POSITION — OpenCSVSerde skips the header line and takes each
+row's fields in order — and a refresh wrote the table's columns in the order of the folder's FIRST
+file. So a user adding a column to the middle of that file's header made every older file read one
+column across from where its values belong. The same happened when a different file started sorting
+first with the same columns in another order. Nothing raised: every CSV column is `string`, so any
+value fits any column; `compute_diff` matches names through `columns.fold` and reports a pure
+reorder as unchanged; and the post-condition read-back compares name SETS. The refresh notification
+reported success. Reproduced on an in-memory fixture over the real `compute_diff` and
+`_write_columns`: live `a,b,c` with an older file `a,b,c / 1,2,3`, first file `a,new,b,c` — the
+older file then read `new=2, b=3, c=NULL`.
+
+**The rule (Andrew's ruling, 2026-09-14), in `apply_refresh._write_columns`.** For a format in
+`ddl.POSITIONAL_FORMATS` the written list is the live table's columns in their order, minus any the
+first file no longer has, followed by every column new to the table in the first file's order. It
+is a STABLE sort of the declared list on each column's rank in the live table, new columns taking a
+rank past the end. Everything else the write does is unchanged: names folded through `columns.fold`
+and never `casefold()`, comments and column parameters carried from the live column of the same
+folded name, a partition namesake declared as `ddl.body_columns` says, and a fold collision refused
+as `update_failed`. JSON and Parquet are matched by name, where the order only decides how
+`SELECT *` lays the columns out, and keep the first file's.
+
+**Why a list and a stable sort, not a dict.** Keyed on the folded name, `Amount,region,amount`
+would merge to one entry and the write would land a table silently short a column — the read-back
+cannot catch it, because it compares name sets and both spellings collapse on each side. The sort
+keeps both entries, adjacent, and the existing duplicate refusal still fires ahead of `update_table`.
+
+**What this does NOT do, so the rule is not over-claimed.** Keeping the order does not prevent a
+misread; it decides which file takes it. A column inserted mid-header is now misread in that file,
+and in every file laid out like it, instead of in the older ones. What it buys is that the table's
+order stops moving under the files that already agree with it, which makes the guide's rule — a new
+CSV column goes last, in every file that has it — worth following. Nothing can enforce that rule,
+because a refresh reads one file. A first file that merely reorders the table's columns still
+reports "already up to date", and that file is still misread.
+
+**A removal is the case the order cannot help, and it does not heal.** Removing `b` from `a,b,c`
+leaves `a,c`, and a file that still has `b` reads its `b` values as `c`. **Putting `b` back in the
+first file does not put the table back**: `b` is now new to the table, so it lands last and the
+table becomes `a,c,b`, under which every file headed `a,b,c` has `b` and `c` swapped. The old
+first-file-order write happened to repair that sequence, and this one does not — a lost repair,
+not a new misread, since the opted-in removal is what shifted the table and the repair was an
+accident of taking an order this rule exists to stop taking. Repairing a drifted table is Out of
+Scope in the spec, and refusing the refresh was put to Andrew and rejected; what this build owes
+instead is that the sequence is pinned by a test rather than argued about, and that the Refresh
+guide says a removed column comes back at the end. Rebuilding the table is the repair.
+
+**The refusal is where the user is told.** The opt-in stays the whole gate, so the
+`columns_removed` refusal gained a sentence saying what the removal costs:
+`tbcommon.messages.removed_tokens` takes the format and supplies a `removalEffect` token the
+template renders, empty where the SerDe matches by name. The sentence is placed BEFORE the names
+in the returned mapping, because the resolver substitutes by `str.replace` in mapping order and a
+column literally named `{removalEffect}` would otherwise have it spliced into the column list. It is unconditional for the format rather than judged on which columns went — removing only
+the last column is harmless, but a refusal that said so would have to know which columns are last,
+which the dialog carrying the same sentence cannot. The wording names CSV while the code branches
+on `POSITIONAL_FORMATS`; a test pins that set's membership, so a format joining it reddens there
+rather than shipping a sentence calling Parquet a CSV.
+
+**Data-quality cannot see this, and says so about the FILES only.** `dqcommon.report.cross_file`
+judges each file against the declared union of the folder's headers, in first-seen order — never
+against the live table, which it does not read. While a refresh took the first file's order the two
+effectively agreed; now a table whose order has drifted from its folder reads a clean data-quality
+report, because the files do agree with each other. The report's `shifted` finding is a claim about
+the folder, not about the catalog.
+
+**One source for the format.** Both verbs read `format` off the state as a required field — it is
+already there, set by inspect-source and carried whole, and infer-schema has already refused any
+disagreement between it and the live table's SerDe. A missing `format` is a wiring defect and fails
+as `malformed_event` rather than quietly taking one branch.
+
+**Rejected.**
+- *Refuse a CSV refresh that would move an existing column.* It catches every harmful case, but
+  only if every existing column must keep its INDEX — a check on the shared columns' relative order
+  misses a mid-header insertion, since `a,new,b,c` keeps `a,b,c` in the same relative order. Not
+  chosen because it blocks the refresh rather than doing the safe thing.
+- *Record the first file's order as accepted*, with the Help copy as the only protection.
+- *Reorder JSON and Parquet too.* Both read by name, so there the order is presentation only, and
+  changing it was not part of the ruling.
+- *Report the position change in the diff.* A column's position is not a diff class, the counts
+  stay what they were, and the written order is asserted on what `update_table` receives instead.
