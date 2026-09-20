@@ -230,3 +230,99 @@ def test_the_commit_gate_guards_its_comparison_and_fails_closed():
     assert {c["Variable"] for c in clauses} == {"$.transferOutcome.complete"}
     assert gate["Default"] == "Rollback"
     assert gate["Choices"][0]["Next"] != "Rollback"
+
+
+# ── the stamp runs before the verb that needs it ────────────────────────────
+
+
+def test_the_execution_is_stamped_before_the_first_verb_that_reads_it():
+    """**The ordering the archive id's claim depends on, and nothing else in the tree holds it.**
+
+    inspect-source reads ``$.execution.name`` to claim the id. A stamp placed after it would
+    leave that read empty on EVERY archive, which the verb refuses as malformed — so the whole
+    plane would stop archiving, and the suite would not have noticed: the broken order is a
+    perfectly legal state graph, and it was planted and run green before this test existed.
+
+    It matters most across a deploy. The two deploy workflows are not sequenced, so the reorder
+    and the claim land in separate PRs precisely to keep the stamp in front; a later edit that
+    quietly moved it back would reopen that window with nothing to say so. Table-share and
+    data-quality pin their own stamps the same way — this is the archive arm's missing copy.
+    """
+    assert STATES["ChooseMode"]["Choices"][0]["Next"] == "StampExecution"
+    assert STATES["StampExecution"]["ResultPath"] == "$.execution"
+    assert STATES["StampExecution"]["Parameters"] == {
+        "name.$": "$$.Execution.Name",
+        "startedAt.$": "$$.Execution.StartTime",
+    }
+    assert STATES["StampExecution"]["Next"] == "InspectSource"
+    assert STATES["InspectSource"]["Next"] == "BuildTransferManifest"
+
+
+def _reads_the_execution(states: dict) -> set:
+    """Every state whose own Parameters read ``$.execution``, derived rather than listed."""
+    return {
+        name
+        for name, state in states.items()
+        if "$.execution" in json.dumps(state.get("Parameters") or {})
+    }
+
+
+def _reachable_without_stamping(states: dict) -> set:
+    """Every state a path from the mode branch reaches WITHOUT passing through a stamp.
+
+    The stamps are sinks rather than starting points, and that distinction is the whole rule: a
+    walk that began AT a stamp would count its successors as covered even when nothing reaches
+    the stamp at all, which is precisely the break this is looking for.
+    """
+    stamps = {"StampExecution", "StampRestoreExecution"}
+    seen, frontier = set(), ["ChooseMode"]
+    while frontier:
+        name = frontier.pop()
+        if not name or name in seen or name not in states or name in stamps:
+            continue
+        seen.add(name)
+        state = states[name]
+        frontier.append(state.get("Next"))
+        frontier.append(state.get("Default"))
+        frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+        frontier.extend(c.get("Next") for c in state.get("Choices", []) or [])
+    return seen
+
+
+def _unstamped(states: dict) -> set:
+    """Readers of ``$.execution`` a path can reach without a stamp having run."""
+    return _reachable_without_stamping(states) & _reads_the_execution(states)
+
+
+def test_no_state_reads_the_execution_on_a_path_that_never_stamped_it():
+    """The rule rather than the instance. A reader a path reaches without passing a stamp gets
+    an ABSENT key, and on a ``Pass`` that is an uncatchable ``States.Runtime`` — the failure this
+    machine's own comments keep warning about, arriving on a path nobody walked.
+
+    The population is derived from the rendered machine, so a state that starts reading
+    ``$.execution`` joins it by existing. The three readers today are all restore seeds; the
+    archive arm's reader is inside inspect-source rather than in ASL, which is why the test above
+    pins that ordering separately and this one cannot.
+    """
+    readers = _reads_the_execution(STATES)
+
+    assert readers, "no state reads $.execution — this test is measuring nothing"
+    assert _unstamped(STATES) == set()
+
+
+def test_that_rule_actually_catches_a_stamp_lifted_out_of_its_arm():
+    """**The positive control, and it is not ceremony.** The assertion above is an emptiness
+    check, and an emptiness check passes just as happily when the derivation has stopped finding
+    anything. Routing the restore arm straight past its stamp has to flag the three seeds that
+    then read a key nothing put there."""
+    mutant = {name: dict(state) for name, state in STATES.items()}
+    mutant["CheckDestinationClear"] = {
+        **mutant["CheckDestinationClear"],
+        "Next": "BuildRestoreManifest",
+    }
+
+    assert _unstamped(mutant) == {
+        "SeedRestoreRequested",
+        "SeedRestoreDone",
+        "SeedRestoreIncomplete",
+    }

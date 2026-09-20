@@ -40,6 +40,11 @@ including validate-authorize and notify-failure).
 
 **The state machine**
 
+> **Superseded 2026-09-20 (the stamp's position only).** `StampExecution` now runs FIRST on the
+> archive arm — `ChooseMode → StampExecution → InspectSource → BuildTransferManifest` — so the
+> execution's identity is on the state for inspect-source, which claims the archive id. Every
+> other state and edge below is as it shipped.
+
 `InspectSource → StampExecution → BuildTransferManifest → HasTransferItems → TransferObjects
 (Distributed Map) → CollectTransferResults → **CommitOrRollback** → WriteManifest → DeleteSource →
 WriteReceipt → ArchiveComplete`, with `Rollback` on the gate's other arm. Plus the top-level

@@ -126,6 +126,12 @@ def test_the_plan_key_comes_back_and_the_object_list_does_not():
     assert "objects" not in result
     assert len(json.dumps(result).encode()) < 4096
     assert fake.puts[0]["Bucket"] == "admin-bkt"
+    # The stamp runs ABOVE this verb, and this state is threaded Payload.$=$ with
+    # OutputPath=$.Payload — so the verb's return REPLACES the state, and $.execution survives
+    # only because the verb echoes its input. That is a behavioural property where it used to be
+    # a structural one, and nothing downstream would fail loudly if it stopped holding: the
+    # manifest key would simply refuse as malformed on every archive.
+    assert result["execution"] == {"name": _EXECUTION, "startedAt": "2026-09-17T09:30:00.000Z"}
 
 
 def test_a_refusal_notifies_the_actor_before_the_catch_records_it(_no_real_notifications):
