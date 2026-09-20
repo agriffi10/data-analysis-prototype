@@ -152,7 +152,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'warning',
-          text: 'A restore puts every file back where it came from, and it refuses to overwrite anything: if even one of those files exists again, <b>nothing</b> is restored and the notification names the files in the way. Move, rename or delete them and request the restore again. The <b>archive</b> folder itself — under <b>system_settings</b> — is read-only: you can open and download receipts, but not upload into it, rename it or delete it.'
+          text: 'A restore puts every file back where it came from, and it refuses to overwrite anything: if even one of those files exists again, <b>nothing</b> is restored and the notification names the files in the way. Move or rename them and request the restore again. The same rule holds while the restore is running, file by file — if something appears at one of those paths in the hours a restore takes, that file is left exactly as it is and the notification tells you how many were skipped. The <b>archive</b> folder itself — under <b>system_settings</b> — is read-only: you can open and download receipts, but not upload into it, rename it or delete it.'
         }
       },
       {

@@ -191,6 +191,12 @@ wording has to be argued for rather than merely passing.
 
 ## Not met by this spec, deliberately and not silently
 
+> **Superseded 2026-09-20 by SPEC-237 (this section's first bullet, and `restore_incomplete`'s
+> wording).** The residual below is closed: every copy-back line is a conditional write, so nothing
+> lands on an occupied key however late it arrives. And `restore_incomplete` no longer says the
+> archive is intact or tells the user to delete anything — a sibling restore can sweep the vault,
+> so the claim is earned by counting and the remediation is "move or rename".
+
 - **The guard's residual TOCTOU is narrowed, not closed** — as table-share's and file-send's are.
   Two concurrent writers can still land a file between the second head and the copy. What the
   second pass removes is the *hours-long* window this spec introduced, which is a different thing

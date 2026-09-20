@@ -3,7 +3,8 @@
 #
 # ⚠ SO ORDERED DELIVERY DOES NOT SERIALIZE EXECUTION. The Pipe returns once StartExecution does,
 # and the next message in the group starts a second run while the first is still going. This
-# plane holds no lock; README.md says what overlap costs, and why two archives survive it only
+# plane holds no lock — it uses S3's own conditional writes instead, one on the archive id and one
+# per restored object; README.md says what overlap costs, and why two archives survive it only
 # when their request ids differ.
 #
 # At-least-once delivery gives no re-run: a redelivered message returns the original ARN or

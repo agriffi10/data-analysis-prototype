@@ -40,7 +40,14 @@ logger = logging.getLogger()
 
 MAX_ATTEMPTS = 6
 
-__all__ = ["MAX_ATTEMPTS", "CasExhausted", "cas_mutate", "is_precondition"]
+__all__ = [
+    "MAX_ATTEMPTS",
+    "CasExhausted",
+    "cas_mutate",
+    "is_conditional_conflict",
+    "is_precondition",
+    "is_precondition_failed",
+]
 
 
 class CasExhausted(RuntimeError):
@@ -53,6 +60,48 @@ class CasExhausted(RuntimeError):
     """
 
 
+def is_precondition_failed(exc):
+    """Reports whether a conditional write found the condition already false.
+
+    The SEQUENTIAL answer: the tag did not match, or a create-only write found the key taken.
+    It is a fact about the object rather than about the race, so a caller that needs to know
+    WHICH of the two happened asks this one — the copy engine resolves a refused create-only
+    copy by comparing the destination against the source, and that comparison is meaningless
+    for a conflict where nothing is known to be there yet.
+
+    Args:
+      exc: The write fault.
+
+    Returns:
+      True when the fault is a failed precondition.
+
+    Raises:
+      None.
+    """
+    return error_code(exc) in ("PreconditionFailed", "412")
+
+
+def is_conditional_conflict(exc):
+    """Reports whether a concurrent request interrupted a conditional write.
+
+    The SIMULTANEOUS answer, and S3 documents it as retryable on both of the operations this
+    fleet conditions: ``CopyObject`` says to retry the upload, and ``CompleteMultipartUpload``
+    says to re-initiate the upload and re-copy every part. The copy engine satisfies the
+    stricter of the two by construction — it aborts the upload and raises, so the batch's own
+    retry runs ``CreateMultipartUpload`` again rather than re-sending the completion.
+
+    Args:
+      exc: The write fault.
+
+    Returns:
+      True when the fault is a conditional-request conflict.
+
+    Raises:
+      None.
+    """
+    return error_code(exc) in ("ConditionalRequestConflict", "409")
+
+
 def is_precondition(exc):
     """Reports whether a conditional write lost to a concurrent writer.
 
@@ -63,6 +112,11 @@ def is_precondition(exc):
     records: exactly the case where the object does not exist yet and two writers are most
     likely to create it at once.
 
+    **It collapses the two on purpose**, and that is why the halves above exist beside it: a
+    compare-and-set retries on either, so asking one question is right here and wrong for a
+    caller whose two answers differ. Keeping the union as the union of the two predicates is
+    what stops a later edit teaching one of them a code the other does not know.
+
     Args:
       exc: The write fault.
 
@@ -72,7 +126,7 @@ def is_precondition(exc):
     Raises:
       None.
     """
-    return error_code(exc) in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409")
+    return is_precondition_failed(exc) or is_conditional_conflict(exc)
 
 
 def cas_mutate[T](

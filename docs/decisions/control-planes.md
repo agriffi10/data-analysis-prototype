@@ -2191,8 +2191,12 @@ run's cleanup dropped the other's table. In a shared space another member's ids 
 execution ARN that `StampExecution` puts on the state. A `412` reads the claim back: this
 execution's own ARN is a Task retry and carries on, and anything else — a claim that does not parse
 included — is refused `request_id_reused` before the verb lists a file. A `409` means a concurrent
-request interrupted the create, and is retried. Nothing releases, takes over or expires a claim; a
-test keeps every expiring admin-bucket lifecycle rule off the prefix. The refusal puts no
+request interrupted the create, and is retried. Nothing releases, takes over or expires THIS
+plane's claim; a test keeps every expiring admin-bucket lifecycle rule off the prefix. **That is
+data quality's choice, not a rule about claims** — the archive plane took the other side
+deliberately, putting its claim under a prefix that expires at 30 days and pinning the arithmetic
+that makes the expiry safe instead
+([why](archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)). The refusal puts no
 `manifestKey` on the state, so the failure path's cleanup drops nothing.
 
 **A claim makes the names unique only if distinct ids derive distinct names, and they did not.** A
@@ -2261,7 +2265,8 @@ the same key — two of their requests sent with one id — because that is what
 
 **All three planes that refuse `request_id_reused` refuse it silently.** Each decides that an id is
 held its own way — data quality by a claim naming another execution, file operations by a plan naming
-another execution ARN, archive by an archive prefix that already holds objects — and in each the id
+another execution ARN, archive by an archive prefix that already holds objects **or by another
+execution holding its create-only claim** — and in each the id
 belongs to a run that reports under it: data quality's report notice, file operations'
 `{requestId}:outcomes` row, archive's `archived` row — only an archive raises it, since a restore's
 own id may not be its archive's. A notice from the refused run could

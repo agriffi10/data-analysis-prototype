@@ -62,6 +62,13 @@ def _inspect_source(event) -> dict:
     one would mix two archives under one prefix and put the first one inside the second's rollback
     blast radius. One ``ListObjectsV2`` refuses that before a single ``HeadObject`` is spent.
 
+    **Then the id is CLAIMED, and the order of those two is the whole point.** The listing cannot
+    separate two runs that reach it together — both see an empty prefix — and the claim can,
+    because S3 decides a create-only write rather than either run. Taking the claim second keeps
+    the listing's cheaper, better-worded refusal for the ordinary case and still writes nothing at
+    all on it; taking it before anything else is written is what makes the loser of a real race
+    refuse before it can overwrite the winner's plan.
+
     Args:
       event: The validated request.
 
@@ -69,7 +76,9 @@ def _inspect_source(event) -> dict:
       The request with the plan key, object count and byte total.
 
     Raises:
-      TerminalError: ``request_id_reused`` when the archive prefix already holds objects,
+      TerminalError: ``request_id_reused`` when the archive prefix already holds objects or
+        another execution holds the id's claim, ``malformed_event`` when no execution was
+        stamped,
         ``source_missing`` for a file that is no longer there, ``nothing_to_archive`` when the
         selection resolves to no objects, ``undeletable_folder`` for an object this plane could
         copy but could not delete, ``too_many_objects``, ``source_too_large`` or
@@ -80,6 +89,7 @@ def _inspect_source(event) -> dict:
     actor = (event.get("actor") or {}).get("username")
 
     plan.assert_archive_unused(event)
+    plan.claim_archive_id(event)
     objects, total_bytes = plan.expand(source)
 
     logger.info(

@@ -22,6 +22,14 @@ copy is what actually changes the class: the object a retrieval materialises is 
 without an explicit ``STANDARD`` the restored object is still ``GLACIER`` and expires back to
 unreadable.
 
+**EVERY LINE IS CONDITIONAL, and this is the only manifest in the fleet that is.** The destination
+guard refuses the whole restore if anything is in the way, and it runs again immediately before the
+copy — but the copy-back Map then runs for as long as the archive copy it mirrors, hours during
+which the user has been told their restore is in flight and has every reason to be working in their
+own space. ``ifAbsent`` is what makes the guard's rule true at the moment of each WRITE rather than
+at the moment of the last check: a file that appears at a path this Map has not reached yet is left
+alone, and the archive is kept because the item did not land.
+
 The service name is the control plane, not the function, so one restore's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
@@ -60,6 +68,7 @@ def _items(loaded: dict) -> list:
             "destKey": entry["destKey"],
             "size": entry.get("bytes") or 0,
             "storageClass": RESTORE_STORAGE_CLASS,
+            "ifAbsent": True,
         }
         for entry in loaded["objects"]
     ]

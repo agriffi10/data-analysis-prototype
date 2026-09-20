@@ -62,17 +62,20 @@ class _S3Error(Exception):
         super().__init__(code)
 
 
-def _succeeded_record(copied, failures=0):
+def _succeeded_record(copied, failures=0, reason="copy_failed"):
     """One SUCCEEDED child record, in the shape Step Functions exports it.
 
     The batch verb's own output is a JSON STRING inside the record, which is the detail a reader
     written against a guess gets wrong.
+
+    ``reason`` is a parameter because the copy verb now emits two: a failed copy and an item it
+    declined to overwrite, which the collector counts apart.
     """
     return {
         "Output": json.dumps({
             "copied": copied,
             "failures": [
-                {"recipient": None, "kind": None, "reason": "copy_failed"} for _ in range(failures)
+                {"recipient": None, "kind": None, "reason": reason} for _ in range(failures)
             ],
         })
     }
@@ -141,6 +144,7 @@ def test_a_complete_transfer_commits():
         "copied": 8,
         "failed": 0,
         "expected": 8,
+        "occupied": 0,
         "complete": True,
     }
 
@@ -168,3 +172,52 @@ def test_an_unreadable_export_notifies_the_actor_and_leaves_the_source_alone(_no
 
     assert err.value.reason == "transfer_results_unreadable"
     assert [user for user, _ in _no_real_notifications] == ["alice"]
+
+
+def test_items_left_alone_are_counted_apart_from_items_that_failed():
+    """FR-004 AC1. Both counts make the verdict incomplete — the restore gate routes either to
+    the arm that deletes nothing — so the split changes no decision. What it changes is the
+    sentence: "we could not copy your file" and "your own newer file was in the way, so we left
+    it" call for different next actions from the user."""
+    _install(
+        _export(
+            succeeded=[
+                _succeeded_record(3, failures=2, reason="destination_occupied_during_copy")
+            ]
+        )
+    )
+
+    result = m.handler(_event(item_count=5, object_count=5), None)
+
+    assert result["transferOutcome"]["complete"] is False
+    assert result["transferOutcome"]["copied"] == 3
+    assert result["transferOutcome"]["occupied"] == 2
+
+
+def test_a_mix_of_causes_counts_only_the_occupied_ones_as_occupied():
+    """``{occupied}`` is at most ``{total} - {restored}`` and can be less, which is exactly why
+    the body that names it says "of the rest" rather than accounting for the difference."""
+    _install(
+        _export(
+            succeeded=[
+                _succeeded_record(2, failures=1, reason="destination_occupied_during_copy"),
+                _succeeded_record(0, failures=2, reason="copy_failed"),
+            ]
+        )
+    )
+
+    result = m.handler(_event(item_count=5, object_count=5), None)
+
+    assert result["transferOutcome"]["failed"] == 3
+    assert result["transferOutcome"]["occupied"] == 1
+
+
+def test_the_archive_arm_reports_zero_occupied_rather_than_omitting_the_field():
+    """A field present on one arm and absent on the other is a shape every reader has to branch
+    on. The archive's manifest asks for no condition, so the count is zero by construction —
+    which is a different statement from the key not being there."""
+    _install(_export(succeeded=[_succeeded_record(8)]))
+
+    result = m.handler(_event(), None)
+
+    assert result["transferOutcome"]["occupied"] == 0

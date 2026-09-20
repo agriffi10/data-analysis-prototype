@@ -84,6 +84,34 @@ sys.exit('\n'.join(f'{f}:{n} {l!r} carries no version constraint' for f, n, l in
       --requirement /tmp/requirements/results-conversion-convert.txt \
  && rm -rf /tmp/requirements
 
+# THE RESTORE'S COPY-BACK IS CONDITIONAL, AND THE PARAMETER THAT CARRIES THE CONDITION IS NEWER
+# THAN SOME BOTOCORES THAT WOULD OTHERWISE RUN THIS IMAGE. S3 gained `If-None-Match` on
+# CopyObject in October 2025; CompleteMultipartUpload and PutObject had it earlier. botocore
+# rejects an argument its own service model does not declare, so on a botocore without it the
+# failure is not a cold start — it is a restore that spends three to five billed hours of Glacier
+# retrieval and then fails its copy-back, having already told the user it was under way.
+#
+# ASSERTED AT BUILD RATHER THAN AT IMPORT, deliberately. An import-time check fails at the first
+# cold start of whichever function happens to be invoked, in production, which is the same
+# nine-day silence this whole image layout was built to end. Here it fails the build.
+#
+# No requirements file pins boto3 or botocore — the runtime provides them, and both files above
+# say so — so this reads exactly the botocore a handler will import. It runs AFTER the install
+# because a dependency could pull a different one in.
+#
+# NOT `hasattr` ON THE CLIENT: every botocore client answers every operation name through
+# __getattr__, so the question has to be asked of the service MODEL, which is where the
+# parameter list actually lives.
+RUN python -c "\
+import botocore, botocore.session, sys; \
+model = botocore.session.get_session().get_service_model('s3'); \
+wanted = ('CopyObject', 'CompleteMultipartUpload'); \
+missing = [op for op in wanted \
+           if 'IfNoneMatch' not in model.operation_model(op).input_shape.members]; \
+sys.exit(f'botocore {botocore.__version__} accepts no IfNoneMatch on {\", \".join(missing)}, so a \
+conditional copy would be rejected before it reached S3') \
+    if missing else print(f'botocore {botocore.__version__}: IfNoneMatch accepted on {\", \".join(wanted)}')"
+
 # The tree. What is shared code and what is a function is decided by the assembler from the tree
 # itself, so this is the whole of the build's input.
 COPY lambdas /tmp/source/lambdas

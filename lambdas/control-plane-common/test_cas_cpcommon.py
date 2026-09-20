@@ -58,6 +58,44 @@ def test_an_unrelated_fault_is_not_a_precondition(code):
     assert not cas.is_precondition(_Fault(code))
 
 
+@pytest.mark.parametrize(
+    ("code", "failed", "conflict"),
+    [
+        ("PreconditionFailed", True, False),
+        ("412", True, False),
+        ("ConditionalRequestConflict", False, True),
+        ("409", False, True),
+        ("AccessDenied", False, False),
+        ("", False, False),
+    ],
+)
+def test_the_two_halves_answer_their_own_code_and_not_the_other_one(code, failed, conflict):
+    """The collapse is right for a compare-and-set and wrong for a caller whose two answers
+    differ. A conditional copy has to tell them apart: a precondition failure is a fact about
+    the OBJECT and is settled by comparing it, while a conflict is a fact about the RACE, where
+    nothing is yet known to be at the key — so comparing would be comparing against whatever the
+    other writer had happened to finish.
+
+    Asserted in BOTH directions per code, because a half that answered True to everything would
+    satisfy a one-sided check and would make the union useless."""
+    assert cas.is_precondition_failed(_Fault(code)) is failed
+    assert cas.is_conditional_conflict(_Fault(code)) is conflict
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["PreconditionFailed", "412", "ConditionalRequestConflict", "409", "AccessDenied", "NoSuchKey", "", "InternalError"],
+)
+def test_the_union_still_answers_exactly_what_it_answered_before_it_was_split(code):
+    """Every input the tests above give it, asserted against the halves rather than against a
+    second copy of the code list — a list written twice is a list that is eventually wrong in one
+    copy, and here the wrong copy would be a retry that stopped happening."""
+    fault = _Fault(code)
+    assert cas.is_precondition(fault) == (
+        cas.is_precondition_failed(fault) or cas.is_conditional_conflict(fault)
+    )
+
+
 def test_the_transform_is_re_applied_to_the_freshly_read_value():
     """The whole point of the loop. Re-using a value read before a losing write would
     re-introduce the lost update the CAS exists to prevent."""

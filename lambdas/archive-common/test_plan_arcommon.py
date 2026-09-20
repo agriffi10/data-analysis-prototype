@@ -9,6 +9,8 @@ complete.
 
 import json
 import os
+import pathlib
+import re
 import sys
 
 import pytest
@@ -681,3 +683,130 @@ def test_a_retryable_fault_stays_transient_on_both_sides_of_the_round_trip():
     _install(get_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
         plan.load("archive/req/copy-plan.json", {})
+
+
+# ── the claim outlives every run that could reuse its id (SPEC-237 FR-005) ──────────────────
+
+
+def _hcl_blocks(text, opener):
+    """Every brace-delimited block opening with a given header, by depth rather than by regex."""
+    blocks = []
+    for match in re.finditer(opener, text):
+        depth, start = 0, match.end() - 1
+        for index in range(start, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    blocks.append(text[start : index + 1])
+                    break
+    return blocks
+
+
+#: SQS's own default message retention, which applies to a queue that declares none. Named here
+#: because the requests queue declares none, and a test that silently used 0 for the value that
+#: actually bounds this race would print a margin far wider than the real one.
+_SQS_DEFAULT_RETENTION_SECONDS = 345_600
+
+
+def _queue_retention(sqs: str, resource: str) -> int:
+    """The retention one queue declares, or SQS's default when it declares none.
+
+    Args:
+      sqs: The module's ``sqs.tf``.
+      resource: The ``aws_sqs_queue`` resource name.
+
+    Returns:
+      The retention in seconds.
+
+    Raises:
+      AssertionError: When the resource is not in the file at all, which means the parse has
+        stopped matching rather than that the queue has no retention.
+    """
+    blocks = _hcl_blocks(sqs, rf'resource\s+"aws_sqs_queue"\s+"{resource}"\s*\{{')
+    assert len(blocks) == 1, f"expected one {resource} queue, found {len(blocks)}"
+    declared = re.search(r"message_retention_seconds\s*=\s*(\d+)", blocks[0])
+    return int(declared.group(1)) if declared else _SQS_DEFAULT_RETENTION_SECONDS
+
+
+def test_the_claim_outlives_every_message_that_could_start_a_second_run_of_one_id():
+    """**The bound that makes an expiring claim safe, and it is not self-evident.**
+
+    A claim is what makes an archive id one run's, and this one expires: it sits under the admin
+    bucket's ``archive/`` prefix so the plane's existing grant and lifecycle rule both already
+    cover it, and that rule deletes after ``admin_results_retention_days``. That is only safe
+    while no second run of the same id can start after the claim is gone — and the thing that
+    bounds THAT is not in this plane at all: it is how long a message can survive in the queues
+    plus the longest a run can last.
+
+    **The chain is summed, not maxed, and the REQUESTS queue is the term that matters.** A
+    dead-letter message starts no execution — the drain notifies and deletes, it never redrives —
+    so the DLQ's retention only counts as the time a message can wait before an operator moves it
+    back with ``StartMessageMoveTask``, after which the requests queue's own retention runs from
+    the start again. Reading the DLQ alone names a queue that cannot begin a run; taking the max
+    of the two models a redrive as free. The requests queue declares no retention, so SQS's
+    default applies, and that is read explicitly rather than allowed to parse as nothing.
+
+    Data quality's claim is never expired and a test keeps every expiring rule off its prefix.
+    This one takes the other side deliberately, so the arithmetic is what has to hold, and
+    ``admin_results_retention_days`` is shared by five prefixes — a later cost cut aimed at
+    Athena results would shorten this one too, with nothing on either side looking wrong.
+
+    Every value is READ rather than restated, and every parse is asserted to have found something:
+    a regex that stops matching returns nothing, and nothing compares clean.
+    """
+    infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
+    lifecycle = (infra / "modules" / "analytics" / "s3.tf").read_text()
+    variables = (infra / "modules" / "analytics" / "variables.tf").read_text()
+    sqs = (infra / "modules" / "archive" / "sqs.tf").read_text()
+    locals_tf = (infra / "modules" / "archive" / "locals.tf").read_text()
+
+    configurations = _hcl_blocks(
+        lifecycle, r'resource\s+"aws_s3_bucket_lifecycle_configuration"[^{]*\{'
+    )
+    assert configurations, "the admin lifecycle configuration was not found"
+    claim_rules = [
+        block
+        for block in _hcl_blocks(configurations[0], r"\brule\s*\{")
+        if re.search(rf'prefix\s*=\s*"{plan.PREFIX}/"', block)
+    ]
+    assert len(claim_rules) == 1, (
+        f"expected one rule filtering {plan.PREFIX}/, found {len(claim_rules)}"
+    )
+
+    expiry_var = re.search(r"expiration\s*\{[^}]*days\s*=\s*var\.(\w+)", claim_rules[0])
+    assert expiry_var, f"the {plan.PREFIX}/ rule names no expiry in days"
+    default = re.search(
+        rf'variable\s+"{expiry_var.group(1)}"\s*\{{(?:[^{{}}]|\{{[^}}]*\}})*?default\s*=\s*(\d+)',
+        variables,
+    )
+    assert default, f"{expiry_var.group(1)} has no default to read"
+
+    ceiling = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", locals_tf)
+    assert ceiling, "the machine has no timeout to read"
+
+    dlq = _queue_retention(sqs, "requests_dlq")
+    requests = _queue_retention(sqs, "requests")
+    claim_lifetime = int(default.group(1)) * 86_400
+    latest_second_run = dlq + requests + int(ceiling.group(1))
+
+    assert claim_lifetime > latest_second_run, (
+        f"a claim expires after {claim_lifetime}s, but a second run of one id could still be "
+        f"going {latest_second_run}s after the first started — {dlq}s waiting in the DLQ, "
+        f"{requests}s in the requests queue after a redrive, and {ceiling.group(1)}s of run. "
+        "Shortening the claim's expiry, or lengthening either retention, reopens the reused-id "
+        "race silently."
+    )
+
+
+def test_the_claim_sits_under_the_prefix_the_grant_and_the_lifecycle_rule_already_cover():
+    """The claim's key is not a new decision: it is the copy plan's folder with another basename,
+    which is what makes the test above read the right lifecycle rule and what keeps the execution
+    role's existing grant sufficient. Derived from ``claim_key`` rather than restated."""
+    request = _request()
+
+    assert plan.claim_key(request).startswith(f"{plan.PREFIX}/")
+    assert plan.claim_key(request) == plan.plan_key(request).replace(
+        plan.BASENAME, plan.CLAIM_BASENAME
+    )

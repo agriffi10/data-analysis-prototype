@@ -21,6 +21,14 @@ two overlapping executions of one request must not clobber each other's dataset 
 reading it. Nothing else on this plane needs that distinction, and stating it here is
 cheaper than re-deriving it at three call sites.
 
+**What makes a request-keyed key safe at all is ``claim_archive_id``.** Every key here, and the
+VAULT prefix the rollback lists and deletes wholesale, is derived from the request id alone — so
+they are one run's only while one run holds that id. The listing before the expansion narrows
+that and cannot close it; the create-only claim is what does, by letting S3 rather than either
+run decide between two that arrive together. Remove the claim and these keys stop being unique
+under concurrency, and the state that notices is the rollback, by deleting somebody else's
+finished archive.
+
 ``messages`` is imported for its side effect as well as tidiness: it registers this domain's
 reason codes, and a terminal error validates its reason at construction. Without the import, a
 process importing only this module raises a validation error where it meant to write a refusal.
@@ -62,6 +70,10 @@ Attributes:
     tolerates NO item failure, so a failed child fails the Map Run and the state's ``Catch``
     reports it — and it exists because a Distributed Map with no ``ResultWriter`` aggregates its
     children's output onto the state, which at 2,500 children is the same 256 KB failure.
+  CLAIM_BASENAME: The create-only object that makes an archive id ONE RUN'S. It sits beside the
+    copy plan, under the same request folder, so the plane's existing admin-bucket grant and the
+    bucket's existing expiry rule both already cover it — a claim outside either would deny every
+    archive, or never expire, and neither would look wrong in review.
   RESTORE_RESULTS_FOLDER: The copy-back Map's export folder, which the collector DOES read.
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
@@ -78,8 +90,9 @@ Attributes:
 """
 
 import json
+import logging
 
-from cpcommon import clients, errors, events, s3_listing
+from cpcommon import cas, clients, errors, events, s3_listing
 from cpcommon import config as cpconfig
 from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
@@ -87,7 +100,7 @@ from cpcommon.app_managed import (
     app_managed_prefixes,
     segments_hold_app_managed,
 )
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import assert_inside_root, normalize_root
 
 from . import manifest, messages  # noqa: F401
@@ -101,6 +114,7 @@ from .config import (
 
 PREFIX = "archive"
 BASENAME = "copy-plan.json"
+CLAIM_BASENAME = "claim.json"
 RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESTORE_MANIFEST_BASENAME = "restore-manifest.jsonl"
@@ -108,6 +122,8 @@ PROGRESS_BASENAME = "restore-progress.json"
 RESULTS_FOLDER = "results"
 RETRIEVAL_RESULTS_FOLDER = "retrieval-results"
 RESTORE_RESULTS_FOLDER = "restore-results"
+
+logger = logging.getLogger()
 
 _UNDELETABLE_FOLDERS = (RECEIPT_FOLDER, ATHENA_RESULTS_FOLDER, "user_settings")
 
@@ -163,6 +179,130 @@ def restore_plan_key(request: dict) -> str:
       TerminalError: ``malformed_event`` when the request carries no usable id.
     """
     return f"{_request_folder(request, 'restore plan')}{RESTORE_BASENAME}"
+
+
+def claim_key(request: dict) -> str:
+    """Derives the archive id's claim key, beside the copy plan and under the same folder.
+
+    Args:
+      request: The validated archive request.
+
+    Returns:
+      The claim key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'archive claim')}{CLAIM_BASENAME}"
+
+
+def _claim_holder(key: str) -> str | None:
+    """Reads which execution holds an existing claim, or None when that cannot be established.
+
+    **None is not "free"** — the caller refuses on it. That is the opposite of how a missing
+    object usually reads, and it is deliberate: this is only ever called after a create-only
+    write was refused, so something IS at the key and the question is only whose. An answer that
+    cannot be read is an answer that cannot clear this run, and proceeding on it would hand the
+    id to a second run, which is the unrecoverable case the claim exists to remove.
+
+    A transient fault raises instead, so the state's ``Retry`` asks again rather than refusing a
+    run that may well hold the claim itself.
+
+    Args:
+      key: The claim key.
+
+    Returns:
+      The holding execution's name, or None when the object is absent, unreadable or not a claim.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+    """
+    try:
+        raw = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
+    except Exception as err:  # noqa: BLE001 - an unreadable claim clears nobody
+        errors.raise_if_transient(err, f"read claim {cpconfig.ADMIN_BUCKET}/{key}")
+        logger.warning("the claim at %s could not be read (%s)", key, err)
+        return None
+    try:
+        document = json.loads(raw)
+    except ValueError as err:
+        logger.warning("the claim at %s is not readable JSON (%s)", key, err)
+        return None
+    holder = document.get("execution") if isinstance(document, dict) else None
+    return holder if isinstance(holder, str) and holder else None
+
+
+def claim_archive_id(request: dict) -> None:
+    """Makes an archive id this execution's, or refuses the run.
+
+    **This is the step that closes what ``assert_archive_unused`` only narrows.** The listing
+    above it refuses an id reused minutes or days later, and cannot refuse two runs that reach it
+    together — both find the prefix empty and both proceed, and if the second fails its commit
+    gate its ROLLBACK deletes the first archive's objects after the first has already deleted the
+    source. A create-only write is the one step that can decide between them, because S3 decides
+    it rather than either run.
+
+    **The holder is the execution NAME rather than its ARN**, which is the one place this differs
+    from the shape data quality uses: this plane already stamps the name onto the state for its
+    manifest keys, so the claim reads a value that is on the state for an independent reason
+    rather than adding a second thing the machine has to supply. Step Functions refuses a
+    duplicate execution name for far longer than a claim lives, so the name identifies the run.
+    Both fields come from ``$.execution``, so a ``Retry`` of this verb writes the same bytes —
+    and meets its own claim on the second attempt, which is why the read-back exists at all.
+
+    **The refusal tells nobody**, because ``request_id_reused`` is silent fleet-wide: the run
+    holding the id reports under it, so a second message could only contradict it. That
+    justification does NOT cover the absent-or-unreadable branch, where no run can be shown to
+    hold the id — the exposure is accepted because a create-only write was just refused, so the
+    object is there and a read of it failing is a fault rather than an ordinary outcome.
+
+    Args:
+      request: The validated archive request, carrying the stamped execution.
+
+    Returns:
+      None, once this execution holds the id, whether it wrote the claim now or on an earlier
+      attempt.
+
+    Raises:
+      TerminalError: ``malformed_event`` when no execution was stamped, and ``request_id_reused``
+        when another execution holds the id or the claim at the key cannot be read as one.
+      TransientError: When a concurrent write interrupted the create, or on a retryable S3 fault.
+    """
+    execution = request.get("execution") or {}
+    name = execution.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise TerminalError(events.MALFORMED, "an archive claim needs the execution name")
+    name = name.strip()
+
+    key = claim_key(request)
+    body = json.dumps(
+        {
+            "execution": name,
+            "requestId": (request.get("requestId") or "").strip(),
+            "claimedAt": execution.get("startedAt"),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except Exception as err:
+        if cas.is_conditional_conflict(err):
+            raise TransientError(f"the claim write for {key} was interrupted") from err
+        if not cas.is_precondition_failed(err):
+            errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+            raise
+        if _claim_holder(key) != name:
+            raise TerminalError(
+                "request_id_reused",
+                f"{key} is held by another execution, so this request id has been used before",
+            ) from err
 
 
 def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: int) -> str:
@@ -227,7 +367,9 @@ def load_restore_plan(key: str, request: dict) -> dict:
     guard that cleared destinations the restore then did not check, and the restore copying back
     over whatever it did not know about. The request-identity check is the other half of
     ``assert_describes``' finding: the key is a pure function of the request id, so a second run
-    under a reused id overwrites it.
+    under a reused id overwrites it. A RESTORE's request id is not claimed, deliberately: two runs
+    of one restore request write the same plan with the same content, their manifests are
+    execution-keyed, and the conditional copy-back is what protects the user's files.
 
     Args:
       key: The restore plan's key.
@@ -686,10 +828,12 @@ def assert_archive_unused(request: dict) -> None:
     archive's objects out of a bucket with versioning off. That last one is unrecoverable, and it
     is the reason this check exists rather than being left to the producer's conventions.
 
-    **It narrows rather than closes**, exactly as table-share's conflict guard does: two concurrent
-    executions can both find the prefix empty. What it removes is the ordinary case — an id reused
-    minutes or days later — and it is one ``ListObjectsV2`` against a bucket this plane is the only
-    reader of.
+    **It does not close the concurrent case on its own** — two executions reaching it together
+    both find the prefix empty — and it is not asked to: ``claim_archive_id`` runs immediately
+    after it and is the atomic step that decides between them. This one stays because it is the
+    cheaper and better-worded refusal for the ordinary case, an id reused minutes or days later:
+    one ``ListObjectsV2`` against a bucket this plane is the only reader of, refusing before
+    anything at all has been written.
 
     Args:
       request: The validated request, carrying the resolved archive destination.
