@@ -73,8 +73,14 @@ function Callout({tone, lead, children}: {tone: 'info' | 'warning'; lead: string
 
 // ── Sections ────────────────────────────────────────────────────────────────
 
-function SectionHeading({children}: {children: React.ReactNode}) {
-  return <h2 className="text-sm font-semibold text-text">{children}</h2>;
+function SectionHeading({children, id}: {children: React.ReactNode; id?: string}) {
+  return (
+    <h2
+      id={id}
+      className="text-sm font-semibold text-text">
+      {children}
+    </h2>
+  );
 }
 
 function Tile({label, value, isProblem}: {label: string; value: string; isProblem?: boolean}) {
@@ -247,11 +253,7 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
 
   return (
     <section className="flex flex-col gap-2">
-      <h2
-        id={headingId}
-        className="text-sm font-semibold text-text">
-        Most repeated rows
-      </h2>
+      <SectionHeading id={headingId}>Most repeated rows</SectionHeading>
       <p className="text-xs text-text-2">{SAMPLES_COUNTING_NOTE}</p>
       <div
         role="region"
