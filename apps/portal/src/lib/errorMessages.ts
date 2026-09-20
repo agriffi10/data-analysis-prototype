@@ -134,6 +134,13 @@ const CODE_RULES: readonly ErrorRule[] = [
   // large for StartExecution, which dead-letters and reaches the user minutes later as a
   // failure notification for something they could have fixed by selecting less.
   {code: 'SelectionTooLarge', userFixable: true, passthrough: true},
+  // The Data Explorer rendered a statement longer than StartQueryExecution accepts, caught
+  // before anything was started. The user's way out is their own filters, so it says which.
+  {
+    code: 'ExplorationStatementTooLong',
+    message: 'This query is too long to run. Use fewer or shorter filter values, or a shorter expression.',
+    userFixable: true
+  },
 
   // Trigger: a saved query's `.sql` file is gone — deleted from the file browser, or by a
   // colleague in a shared space, between the listing and the open. Passthrough because the

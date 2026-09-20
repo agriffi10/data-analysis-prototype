@@ -1,4 +1,5 @@
-import {aggregateAlias, groupingNameCollision, groupingOrderingViolation} from './renderExplorationSql';
+import {aggregateAlias, groupingNameCollision, groupingOrderingViolation, isBareNumeric} from './renderExplorationSql';
+import {EXPLORER_FILTER_VALUES_MAX, FILTER_OPERATOR_SPECS} from './dataExplorer.constants';
 import type {
   ColumnFilter,
   ExplorationQuery,
@@ -17,33 +18,99 @@ import type {
 // Every function here is total and returns a NEW description — nothing mutates, so a
 // staged edit in a dialog cannot leak into the running exploration before Apply.
 
-/** Operators that carry no value; `IS NULL` and `IS NOT NULL` apply straight from a menu. */
-const VALUELESS_OPERATORS = new Set<FilterOperator>(['isNull', 'isNotNull']);
-
-/**
- * Whether an operator needs a value, i.e. whether choosing it must open an input.
- *
- * @param operator - The filter operator.
- * @returns True for the six comparisons, false for the two null tests.
- */
-export function operatorTakesValue(operator: FilterOperator): boolean {
-  return !VALUELESS_OPERATORS.has(operator);
-}
+/** Every operator, in the one order every surface offers them in. */
+export const FILTER_OPERATORS = Object.keys(FILTER_OPERATOR_SPECS) as FilterOperator[];
 
 /** Menu and select wording for each operator, so one label is never spelt two ways. */
-export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
-  '=': 'equals',
-  '<>': 'does not equal',
-  '>': 'greater than',
-  '>=': 'greater than or equal to',
-  '<': 'less than',
-  '<=': 'less than or equal to',
-  isNull: 'is null',
-  isNotNull: 'is not null'
-};
+export const FILTER_OPERATOR_LABELS = Object.fromEntries(
+  FILTER_OPERATORS.map((operator) => [operator, FILTER_OPERATOR_SPECS[operator].label])
+) as Record<FilterOperator, string>;
 
-/** The order the header menu and the settings dialog both offer them in. */
-export const FILTER_OPERATORS: FilterOperator[] = ['=', '<>', '>', '>=', '<', '<=', 'isNull', 'isNotNull'];
+/**
+ * Whether a string is an operator this app knows.
+ *
+ * `Object.hasOwn`, never the `in` operator: `in` walks the prototype chain, so `'toString'`
+ * and `'constructor'` would both pass and the renderer would splice one into a statement.
+ * The stored-document check is the only caller that matters, and a document is the one
+ * untrusted input this model has.
+ *
+ * @param value - Any string, typically off a restored document.
+ * @returns True when it names a filter operator.
+ */
+export function isFilterOperator(value: string): value is FilterOperator {
+  return Object.hasOwn(FILTER_OPERATOR_SPECS, value);
+}
+
+/**
+ * Whether an operator needs a single value, i.e. whether choosing it must open an input.
+ *
+ * @param operator - The filter operator.
+ * @returns True for the six comparisons and the four text operators.
+ */
+export function operatorTakesValue(operator: FilterOperator): boolean {
+  return FILTER_OPERATOR_SPECS[operator].takes === 'value';
+}
+
+/**
+ * Whether an operator needs a LIST of values, i.e. whether its input is the multi-line one.
+ *
+ * @param operator - The filter operator.
+ * @returns True for `in` and `notIn`, false for everything else.
+ */
+export function operatorTakesValues(operator: FilterOperator): boolean {
+  return FILTER_OPERATOR_SPECS[operator].takes === 'values';
+}
+
+/**
+ * Whether the column's `valueKind` decides how this operator's value reaches the SQL.
+ *
+ * The renderer reads the same field, so a value input refuses exactly what the renderer
+ * refuses. It matters for the four text operators: they build a pattern and quote it
+ * whatever the column holds, so a numeric column must NOT refuse text typed into one —
+ * a refusal there would turn back a filter the renderer accepts.
+ *
+ * @param operator - The filter operator.
+ * @returns True when a numeric column's value must be a number.
+ */
+export function operatorUsesValueKind(operator: FilterOperator): boolean {
+  return FILTER_OPERATOR_SPECS[operator].valueKindApplies;
+}
+
+/**
+ * Whether a column holds text, and so can be asked the text and empty questions.
+ *
+ * Glue and Athena spell these differently and only one side is normalised, so both
+ * spellings are listed here for the reason `filterValueKind` lists both of its own.
+ *
+ * @param type - The column's Athena or Glue type.
+ * @returns True for `string`, `varchar`, `char` and the parameterised forms of the last two.
+ */
+export function isTextType(type: string): boolean {
+  const normalized = type.trim().toLowerCase();
+  if (normalized === 'string' || normalized === 'varchar' || normalized === 'char') return true;
+  return normalized.startsWith('varchar(') || normalized.startsWith('char(');
+}
+
+/**
+ * The operators a column of this type offers, in offer order.
+ *
+ * Derived from the one table rather than listed at each surface: the header menu and the
+ * settings dialog both call this, so neither can offer an operator the other does not, and
+ * neither can offer one against a column type Trino would reject it on.
+ *
+ * @param type - The column's Athena or Glue type.
+ * @returns The operators to offer, in the order to offer them.
+ */
+export function operatorsFor(type: string): FilterOperator[] {
+  const text = isTextType(type);
+  const numeric = filterValueKind(type) === 'number';
+  return FILTER_OPERATORS.filter((operator) => {
+    const offeredOn = FILTER_OPERATOR_SPECS[operator].offeredOn;
+    if (offeredOn === 'any') return true;
+    if (offeredOn === 'text') return text;
+    return text || numeric;
+  });
+}
 
 // Trino and Hive spell several of these differently and only one side is normalised —
 // `useSourceColumns` maps Glue's names, while an execution's own metadata arrives raw
@@ -82,6 +149,67 @@ export function filterValueKind(type: string): FilterValueKind {
   return normalized.startsWith('decimal(') || normalized === 'decimal' ? 'number' : 'string';
 }
 
+/** Refused when the multi-line field holds no value at all. */
+export const NO_VALUES_REFUSAL = 'Enter at least one value.';
+
+/** Refused when a text operator is applied with nothing typed; an empty `contains` matches every row. */
+export const EMPTY_TEXT_REFUSAL = 'Enter the text to match.';
+
+/** Refused when more distinct values would be stored than one filter may hold. */
+export const TOO_MANY_VALUES_REFUSAL = `Enter at most ${EXPLORER_FILTER_VALUES_MAX.toLocaleString('en-US')} values.`;
+
+/**
+ * Refused when a line of a numeric column's list is not a number.
+ *
+ * @param line - The line's 1-based number as the FIELD shows it, blank lines counted.
+ * @returns The sentence to show.
+ */
+export function numericLineRefusal(line: number): string {
+  return `Line ${line} is not a number — this column holds numbers.`;
+}
+
+/** What a list filter's values look like in the multi-line field: one per line, in stored order. */
+export function filterValuesText(values: string[]): string {
+  return values.join('\n');
+}
+
+/**
+ * The ONE reading of the multi-line value field.
+ *
+ * Both surfaces that offer a list operator call this, so neither can accept a list the
+ * other refuses — and the renderer's own numeric gate is the predicate used, rather than a
+ * second numeric rule that could disagree with it.
+ *
+ * Lines are numbered as the FIELD shows them, blank lines included, because the number in
+ * the refusal is what the user counts down to. A line of length zero is ignored; on a
+ * numeric column a line is trimmed first and ignored if it is then empty, since surrounding
+ * space is never part of a number. A text column's line is a value verbatim, spaces
+ * included — a trailing space is something a cell can genuinely hold.
+ *
+ * @param text - The field's raw text.
+ * @param valueKind - How the column's values reach the SQL.
+ * @returns The values to store, or the sentence to show instead.
+ */
+export function parseFilterValues(text: string, valueKind: FilterValueKind): {values: string[]} | {refusal: string} {
+  // Split on every line ending, not on `\n` alone: a `\r` left on the end of a value is one
+  // the stored-document check refuses, so the tab would restore without the filter.
+  const lines = text.split(/\r\n|\r|\n/);
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    if (line === '') continue;
+    const value = valueKind === 'number' ? line.trim() : line;
+    if (value === '') continue;
+    if (valueKind === 'number' && !isBareNumeric(value)) return {refusal: numericLineRefusal(index + 1)};
+    if (seen.has(value)) continue;
+    seen.add(value);
+    values.push(value);
+  }
+  if (values.length === 0) return {refusal: NO_VALUES_REFUSAL};
+  if (values.length > EXPLORER_FILTER_VALUES_MAX) return {refusal: TOO_MANY_VALUES_REFUSAL};
+  return {values};
+}
+
 /**
  * A description with nothing to clear: no filters, no expression, no ordering, no grouping.
  *
@@ -118,10 +246,16 @@ function canonicalGrouping(grouping: ExplorationQuery['grouping']) {
 function canonical(query: ExplorationQuery): string {
   return JSON.stringify({
     filters: [...query.filters]
+      // Each operator is compared on the field it actually READS, and the other is dropped
+      // rather than compared as absent: a document written before an operator changed can
+      // carry a stray `value` beside a list, and comparing it would make an apply that
+      // changed nothing push a history entry. The list itself is compared de-duplicated and
+      // sorted the way the renderer sorts it, since that is what decides the SQL.
       .map((f) => ({
         column: f.column,
         operator: f.operator,
-        value: f.value ?? null,
+        value: operatorTakesValue(f.operator) ? (f.value ?? null) : null,
+        values: operatorTakesValues(f.operator) ? [...new Set(f.values ?? [])].sort() : null,
         valueKind: f.valueKind ?? 'string'
       }))
       .sort((a, b) => a.column.localeCompare(b.column) || a.operator.localeCompare(b.operator)),
@@ -155,7 +289,21 @@ export function sameQuery(a: ExplorationQuery, b: ExplorationQuery): boolean {
  */
 export function setFilter(query: ExplorationQuery, filter: ColumnFilter): ExplorationQuery {
   const others = query.filters.filter((f) => f.column !== filter.column);
-  return {...query, filters: [...others, filter]};
+  // Only the field the operator READS is written, whatever the caller passed: a surface
+  // that left a value behind on the way to `is one of` would store a filter carrying both,
+  // and the two would then disagree about what the column is filtered by.
+  const {value, values, ...rest} = filter;
+  return {
+    ...query,
+    filters: [
+      ...others,
+      {
+        ...rest,
+        ...(operatorTakesValue(filter.operator) ? {value} : {}),
+        ...(operatorTakesValues(filter.operator) ? {values} : {})
+      }
+    ]
+  };
 }
 
 /** Drops any filter on one column. */

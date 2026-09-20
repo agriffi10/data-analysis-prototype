@@ -3,18 +3,24 @@ import {Button} from '../../components/Button';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
-import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
+import {NUMERIC_VALUE_REFUSAL, VALUES_FIELD_LABEL} from './FilterValueDialog';
+import {FilterValuesField} from './FilterValuesField';
 import {SELECT_CLASS} from './dataExplorer.constants';
 import {
-  FILTER_OPERATORS,
+  EMPTY_TEXT_REFUSAL,
   FILTER_OPERATOR_LABELS,
   clearFilter,
   clearSort,
   filterOf,
   filterValueKind,
+  filterValuesText,
   moveSortPriority,
   moveSortRefusal,
   operatorTakesValue,
+  operatorTakesValues,
+  operatorUsesValueKind,
+  operatorsFor,
+  parseFilterValues,
   setFilter,
   setSort,
   sortOf
@@ -72,6 +78,10 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     pinnedColumns: columns.filter((c) => c.pinned).map((c) => c.name)
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // The multi-line field's RAW text, per column, held apart from the staged query: a list
+  // is `string[]`, which cannot represent a blank line the user has just opened or a
+  // duplicate they are half way through typing. It is parsed once, on Apply.
+  const [listText, setListText] = useState<Record<string, string>>({});
 
   const editQuery = (update: (q: ExplorationQuery) => ExplorationQuery) =>
     setDraft((d) => ({...d, query: update(d.query)}));
@@ -83,6 +93,15 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
 
   const changeOperator = (column: string, operator: FilterOperator | '') => {
     setErrors((e) => ({...e, [column]: ''}));
+    // Seeded OUTSIDE the query updater: a `setState` call inside another one runs twice
+    // under StrictMode, and an updater that is not pure is a bug that only shows up there.
+    // Moving between the two list operators keeps the list, so `is one of` to `is not one
+    // of` is one click rather than a retype. Moving between a list and a single value
+    // carries nothing across: `setFilter` writes only the field the new operator reads.
+    if (operator !== '' && operatorTakesValues(operator)) {
+      const stored = filterOf(draft.query, column)?.values ?? [];
+      setListText((t) => ({...t, [column]: t[column] ?? filterValuesText(stored)}));
+    }
     editQuery((q) => {
       if (operator === '') return clearFilter(q, column);
       const existing = filterOf(q, column);
@@ -90,8 +109,9 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
         column,
         operator,
         // The value survives an operator change (`= 5` to `> 5` is one keystroke's worth
-        // of intent) and is dropped for the null tests, which must carry none.
+        // of intent) and is dropped for the tests that must carry none.
         value: operatorTakesValue(operator) ? (existing?.value ?? '') : undefined,
+        values: operatorTakesValues(operator) ? (existing?.values ?? []) : undefined,
         valueKind: filterValueKind(columns.find((c) => c.name === column)?.type ?? '')
       });
     });
@@ -102,8 +122,25 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     // refusal is an `ExplorationRenderError` naming a column and an operator, which
     // the error-wording rule forbids showing anyone. Same predicate, so the two cannot disagree.
     const bad: Record<string, string> = {};
+    let query = draft.query;
     for (const filter of draft.query.filters) {
+      if (operatorTakesValues(filter.operator)) {
+        // Parsed HERE and nowhere else in this dialog, through the same reader the value
+        // dialog uses — the two surfaces must refuse the same lists, and the way they
+        // would come to disagree is a second parser.
+        const parsed = parseFilterValues(listText[filter.column] ?? '', filter.valueKind ?? 'string');
+        if ('refusal' in parsed) bad[filter.column] = parsed.refusal;
+        else query = setFilter(query, {...filter, values: parsed.values});
+        continue;
+      }
       if (!operatorTakesValue(filter.operator)) continue;
+      // The numeric refusal follows the OPERATOR, not the column: the four text operators
+      // quote their value whatever the column holds, so refusing text typed into one of
+      // them here would turn back a filter the renderer accepts.
+      if (!operatorUsesValueKind(filter.operator)) {
+        if ((filter.value ?? '') === '') bad[filter.column] = EMPTY_TEXT_REFUSAL;
+        continue;
+      }
       if (filter.valueKind === 'number' && !isBareNumeric((filter.value ?? '').trim())) {
         bad[filter.column] = NUMERIC_VALUE_REFUSAL;
       }
@@ -112,7 +149,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
       setErrors(bad);
       return;
     }
-    onApply(draft);
+    onApply({...draft, query});
   };
 
   return (
@@ -217,7 +254,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                 value={filter?.operator ?? ''}
                 onChange={(e) => changeOperator(column.name, e.target.value as FilterOperator | '')}>
                 <option value="">No filter</option>
-                {FILTER_OPERATORS.map((operator) => (
+                {operatorsFor(column.type).map((operator) => (
                   <option
                     key={operator}
                     value={operator}>
@@ -238,6 +275,19 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                     }}
                   />
                 </span>
+              )}
+
+              {filter && operatorTakesValues(filter.operator) && (
+                <FilterValuesField
+                  className="basis-full"
+                  label={`${VALUES_FIELD_LABEL} for ${column.name}`}
+                  value={listText[column.name] ?? ''}
+                  error={errors[column.name] || null}
+                  onChange={(next) => {
+                    setErrors((errs) => ({...errs, [column.name]: ''}));
+                    setListText((t) => ({...t, [column.name]: next}));
+                  }}
+                />
               )}
             </li>
           );

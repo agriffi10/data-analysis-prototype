@@ -1,7 +1,14 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
 // sizing are `features/catalog/` — this feature adds no second pager.
 
-import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToken} from './dataExplorer.types';
+import type {
+  CalcFunction,
+  ColourOperator,
+  ColourToken,
+  CopyOptions,
+  FilterOperator,
+  SurfaceToken
+} from './dataExplorer.types';
 import type {Hex} from '../../lib/contrast';
 import {PALETTE} from '../../lib/palette';
 import type {EffectiveTheme} from '../../lib/theme.types';
@@ -60,6 +67,17 @@ export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
  * `sessionStorage` document small rather than about memory. Oldest is dropped first.
  */
 export const EXPLORER_FILTER_HISTORY_MAX = 25;
+
+/**
+ * How many values one `is one of` / `is not one of` filter may hold, counted after
+ * duplicates collapse.
+ *
+ * An INPUT bound, not the query's real limit. The real limit is the length of the
+ * statement Athena will accept, which `exceedsAthenaQueryLimit` measures directly —
+ * a thousand long values can exceed it where a thousand short ones do not. This one
+ * exists so a paste of a whole column is refused at the field rather than after a render.
+ */
+export const EXPLORER_FILTER_VALUES_MAX = 1000;
 
 /**
  * The Calc panel's functions, in the ONE order they are ever listed.
@@ -193,27 +211,117 @@ export const FORMATTING_COLOUR_LABELS: Record<ColourToken | SurfaceToken, string
   'danger-soft': 'Red tint'
 };
 
-/** The colour rule operators, in the one order they are ever offered. */
-export const COLOUR_OPERATORS: ColourOperator[] = ['=', '<>', '>', '>=', '<', '<=', 'like', 'ilike', 'regex'];
+/** What every surface and the renderer need to know about a filter operator. */
+type FilterOperatorSpec = {
+  /** Menu and select wording, so one operator is never spelt two ways. */
+  label: string;
+  /** Which field of the filter the operator reads: one `value`, a list of `values`, or neither. */
+  takes: 'value' | 'values' | 'nothing';
+  /**
+   * The column types that offer it.
+   *
+   * `LIKE` and `= ''` against a `bigint` or a `date` are type errors in Trino rather than
+   * comparisons, and so is `IN ('2026-01-01')` against a `date`, since every non-numeric
+   * value is quoted. So the text operators are offered on text columns, the list operators
+   * on text and numeric ones, and the comparisons and null tests on anything.
+   */
+  offeredOn: 'any' | 'text' | 'textOrNumber';
+  /**
+   * Whether the column's `valueKind` decides how the value reaches the SQL.
+   *
+   * False for the four text operators, which build a pattern and quote it whatever the
+   * column holds. Read by the RENDERER and by both value inputs, so the input cannot
+   * refuse a value the renderer would have accepted — the `isBareNumeric` precedent, one
+   * field rather than two rules that can disagree.
+   */
+  valueKindApplies: boolean;
+};
 
 /**
- * The one wording for each colour operator.
+ * Every filter operator, in the one order every surface offers them in.
  *
- * The first six deliberately match `FILTER_OPERATOR_LABELS` word for word: they are the
- * same comparisons, and a user who has just filtered on "greater than" should not have to
- * work out whether "is above" means the same thing. The last three are this spec's own.
+ * The single source. The offered list, the labels, which field an operator reads, which
+ * columns offer it, how its value is rendered and the stored-document check all derive
+ * from this table, so an operator added to `FilterOperator` and missed here is a compile
+ * error. It used to be four separate lists, and the one that failed SILENTLY was the
+ * stored-document check: a tab carrying an operator missing from its set was discarded
+ * whole, with no error anywhere.
+ *
+ * The KEY ORDER is the offer order — the six comparisons, the text operators, the list
+ * operators, the null tests, then the empty tests.
  */
-export const COLOUR_OPERATOR_LABELS: Record<ColourOperator, string> = {
-  '=': 'equals',
-  '<>': 'does not equal',
-  '>': 'greater than',
-  '>=': 'greater than or equal to',
-  '<': 'less than',
-  '<=': 'less than or equal to',
-  like: 'matches (% and _)',
-  ilike: 'matches, ignoring case',
-  regex: 'matches a pattern'
+export const FILTER_OPERATOR_SPECS: Record<FilterOperator, FilterOperatorSpec> = {
+  '=': {label: 'equals', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  '<>': {label: 'does not equal', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  '>': {label: 'greater than', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  '>=': {label: 'greater than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  '<': {label: 'less than', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  '<=': {label: 'less than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true},
+  contains: {label: 'contains', takes: 'value', offeredOn: 'text', valueKindApplies: false},
+  notContains: {label: 'does not contain', takes: 'value', offeredOn: 'text', valueKindApplies: false},
+  startsWith: {label: 'starts with', takes: 'value', offeredOn: 'text', valueKindApplies: false},
+  endsWith: {label: 'ends with', takes: 'value', offeredOn: 'text', valueKindApplies: false},
+  in: {label: 'is one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true},
+  notIn: {label: 'is not one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true},
+  isNull: {label: 'is null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false},
+  isNotNull: {label: 'is not null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false},
+  isEmpty: {label: 'is empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false},
+  isNotEmpty: {label: 'is not empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false}
 };
+
+/** What a surface needs to know about a colour operator, so no list of them is written twice. */
+type ColourOperatorSpec = {
+  /**
+   * The one wording for this operator.
+   *
+   * The six comparisons deliberately match `FILTER_OPERATOR_LABELS` word for word: they are
+   * the same comparisons, and a user who has just filtered on "greater than" should not have
+   * to work out whether "is above" means the same thing. So do the two empty tests.
+   */
+  label: string;
+  /** False for the two that test presence; the rules dialog hides their value field. */
+  takesValue: boolean;
+};
+
+/**
+ * Every colour operator, in the one order they are ever offered.
+ *
+ * The single source: the offered list, the labels and the stored-document check all derive
+ * from this, so an operator added to `ColourOperator` and missed here is a compile error
+ * rather than one that is silently never offered or silently discarded on restore. The KEY
+ * ORDER is the offer order.
+ */
+const COLOUR_OPERATOR_SPECS: Record<ColourOperator, ColourOperatorSpec> = {
+  '=': {label: 'equals', takesValue: true},
+  '<>': {label: 'does not equal', takesValue: true},
+  '>': {label: 'greater than', takesValue: true},
+  '>=': {label: 'greater than or equal to', takesValue: true},
+  '<': {label: 'less than', takesValue: true},
+  '<=': {label: 'less than or equal to', takesValue: true},
+  like: {label: 'matches (% and _)', takesValue: true},
+  ilike: {label: 'matches, ignoring case', takesValue: true},
+  regex: {label: 'matches a pattern', takesValue: true},
+  isEmpty: {label: 'is empty', takesValue: false},
+  isNotEmpty: {label: 'is not empty', takesValue: false}
+};
+
+/** The colour rule operators, in the one order they are ever offered. */
+export const COLOUR_OPERATORS = Object.keys(COLOUR_OPERATOR_SPECS) as ColourOperator[];
+
+/** The one wording for each colour operator. */
+export const COLOUR_OPERATOR_LABELS = Object.fromEntries(
+  COLOUR_OPERATORS.map((operator) => [operator, COLOUR_OPERATOR_SPECS[operator].label])
+) as Record<ColourOperator, string>;
+
+/**
+ * Whether a colour rule of this operator needs a value typed.
+ *
+ * @param operator - The rule's operator.
+ * @returns False for the two presence tests, true for everything else.
+ */
+export function colourOperatorTakesValue(operator: ColourOperator): boolean {
+  return COLOUR_OPERATOR_SPECS[operator].takesValue;
+}
 
 /**
  * How many shades a gradient is quantised to.

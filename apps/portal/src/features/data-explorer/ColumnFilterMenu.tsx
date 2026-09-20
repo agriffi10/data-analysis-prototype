@@ -2,8 +2,9 @@ import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
 import {contentBottomOf, contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor, menuMaxHeightFor} from './menuAlign';
-import {FILTER_OPERATORS, FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
+import {FILTER_OPERATOR_LABELS, operatorTakesValue, operatorTakesValues} from './explorationQueryOps';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
+import type {FilterValueResult} from './FilterValueDialog';
 
 /**
  * What a per-column surface can do to the query description.
@@ -31,9 +32,17 @@ export type ColumnQueryActions = {
   filterOf: (column: string) => ColumnFilter | null;
   /** The kind a filter on this column must carry, from its declared type. */
   valueKindOf: (column: string) => FilterValueKind;
+  /**
+   * The operators this column's type offers, in offer order.
+   *
+   * Asked rather than listed, so the header menu and the settings dialog cannot come to
+   * disagree about which columns take a `LIKE` — and so neither offers one against a type
+   * Trino would reject it on.
+   */
+  operatorsOf: (column: string) => FilterOperator[];
   sort: (column: string, direction: 'asc' | 'desc') => void;
   clearSort: (column: string) => void;
-  filter: (column: string, operator: FilterOperator, value?: string) => void;
+  filter: (column: string, operator: FilterOperator, input?: FilterValueResult) => void;
   clearFilter: (column: string) => void;
 };
 
@@ -52,15 +61,15 @@ export type ColumnFilterMenuProps = {
 };
 
 /**
- * The per-column header menu: ordering, the six comparisons, the two null tests, and Hide.
+ * The per-column header menu: ordering, every filter operator the column's type offers, and Hide.
  *
  * Composed on the `Menu` primitive, and its accessible name **names its column** — two
  * columns' menus are otherwise indistinguishable to anything that queries by name, which
  * is every test and every screen reader.
  *
- * A comparison ASKS THE REGION for a value; the null tests apply straight away, because
- * there is nothing to ask for. Either way exactly one description change reaches the tab,
- * so exactly one execution is minted.
+ * An operator that needs something typed ASKS THE REGION for it; the null and empty tests
+ * apply straight away, because there is nothing to ask for. Either way exactly one
+ * description change reaches the tab, so exactly one execution is minted.
  *
  * The dialog is raised by the region rather than rendered here because `Modal` does not
  * portal: opened from inside a header cell it would be confined to that cell's stacking
@@ -83,15 +92,19 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
         {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},
         {kind: 'action', label: 'Clear sort', disabled: !sort, onSelect: () => actions.clearSort(column)},
         {kind: 'separator'},
-        // Derived from the operator list rather than re-listed: a hand-written array cast to
-        // `FilterOperator[]` type-checks with three of the six missing.
-        ...FILTER_OPERATORS.filter(operatorTakesValue).map((operator): MenuItem => ({
-          kind: 'action',
-          label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
-          onSelect: () => onRequestValue(column, operator)
-        })),
-        {kind: 'action', label: 'Filter: is null', onSelect: () => actions.filter(column, 'isNull')},
-        {kind: 'action', label: 'Filter: is not null', onSelect: () => actions.filter(column, 'isNotNull')},
+        // Derived from the operator table rather than re-listed, and in ITS order: a
+        // hand-written array cast to `FilterOperator[]` type-checks with half of them
+        // missing, and a second list here is one that can offer what the settings dialog
+        // does not. An operator that needs something typed opens the dialog and keeps the
+        // trailing ellipsis; one that applies at once does not.
+        ...actions.operatorsOf(column).map((operator): MenuItem => {
+          const asks = operatorTakesValue(operator) || operatorTakesValues(operator);
+          return {
+            kind: 'action',
+            label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}${asks ? '…' : ''}`,
+            onSelect: () => (asks ? onRequestValue(column, operator) : actions.filter(column, operator))
+          };
+        }),
         {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}
       ];
   // Offered whether or not the query can address the column: a column the SQL does not have

@@ -1,7 +1,8 @@
 import {sqlIdentifier, sqlLiteral} from '../../lib/sql';
-import {SQL_SOURCE_ALIAS} from './dataExplorer.constants';
+import {EXPLORER_FILTER_VALUES_MAX, FILTER_OPERATOR_SPECS, SQL_SOURCE_ALIAS} from './dataExplorer.constants';
 import type {
   ColumnFilter,
+  FilterOperator,
   ExplorationQuery,
   ExplorationSource,
   Grouping,
@@ -55,14 +56,46 @@ export function isBareNumeric(value: string): boolean {
   return Number.isFinite(Number(value));
 }
 
-const OPERATOR_SQL: Record<Exclude<ColumnFilter['operator'], 'isNull' | 'isNotNull'>, string> = {
-  '=': '=',
-  '<>': '<>',
-  '>': '>',
-  '>=': '>=',
-  '<': '<',
-  '<=': '<='
-};
+/**
+ * The longest statement `StartQueryExecution` accepts.
+ *
+ * Athena's own documented bound on `QueryString`. It is the REAL limit on how many values
+ * a list filter can carry — `EXPLORER_FILTER_VALUES_MAX` bounds the count, and a thousand
+ * long values exceed this where a thousand short ones do not.
+ */
+export const ATHENA_QUERY_STRING_MAX = 262_144;
+
+/**
+ * Whether a rendered statement is too long for Athena to be asked to run it.
+ *
+ * Counted in UTF-8 BYTES. The API reference does not say whether its bound is characters
+ * or bytes, and a string's byte count is never below its character count — so a statement
+ * this admits is under the limit in either unit, where counting characters would admit one
+ * that is over it in bytes.
+ *
+ * @param sql - The rendered statement.
+ * @returns True when it must not be started.
+ */
+export function exceedsAthenaQueryLimit(sql: string): boolean {
+  return new TextEncoder().encode(sql).length > ATHENA_QUERY_STRING_MAX;
+}
+
+/**
+ * A statement Athena would refuse for its length, caught before anything is started.
+ *
+ * Carries a `code` rather than a message a surface could render: `lib/errorMessages.ts` owns
+ * the wording, as it does for every error a user can see. Treated exactly like a refused
+ * render — no execution, no statement to disclose and nothing to save — because saving a
+ * statement Athena will not run hands the user a broken file.
+ */
+export class ExplorationStatementTooLong extends Error {
+  readonly code = 'ExplorationStatementTooLong';
+
+  constructor() {
+    super('The rendered statement is longer than Athena accepts.');
+    this.name = 'ExplorationStatementTooLong';
+  }
+}
 
 /**
  * The column name an aggregate produces, and the name an `ORDER BY` may reference.
@@ -78,26 +111,116 @@ export function aggregateAlias(aggregate: GroupingAggregate): string {
   return `${aggregate.fn.toLowerCase()}_${aggregate.column === '*' ? 'all' : aggregate.column}`;
 }
 
-function renderValue(filter: ColumnFilter): string {
-  const value = filter.value;
-  if (value === undefined) {
-    throw new ExplorationRenderError(`Filter on "${filter.column}" uses ${filter.operator} but carries no value.`);
+// Emitted bare or quoted by the operator's own `valueKindApplies`, never by a second rule
+// here: the four text operators build a pattern and quote it whatever the column holds, and
+// a check written out again in this file is a check that can disagree with the one the two
+// value inputs read.
+function quoteOrBare(filter: ColumnFilter, raw: string): string {
+  if (!FILTER_OPERATOR_SPECS[filter.operator].valueKindApplies || filter.valueKind !== 'number') {
+    return sqlLiteral(raw);
   }
-  if (filter.valueKind !== 'number') return sqlLiteral(value);
-  if (!isBareNumeric(value)) {
+  if (!isBareNumeric(raw)) {
     // Refused, never quoted as a fallback: quoting it would restore exactly the
     // varchar-vs-bigint comparison the numeric kind exists to avoid, and the query would
     // fail against Athena instead of here.
     throw new ExplorationRenderError(`Filter on "${filter.column}" is numeric but its value is not a number.`);
   }
+  return raw;
+}
+
+function requireValue(filter: ColumnFilter): string {
+  const value = filter.value;
+  if (value === undefined) {
+    throw new ExplorationRenderError(`Filter on "${filter.column}" uses ${filter.operator} but carries no value.`);
+  }
   return value;
 }
 
+function renderValue(filter: ColumnFilter): string {
+  return quoteOrBare(filter, requireValue(filter));
+}
+
+/**
+ * The character that escapes a wildcard in the patterns this file builds.
+ *
+ * Trino gives a backslash no meaning inside a string literal — the only escape there is
+ * doubling the quote — so `'\'` is a one-character string and can be named as the escape
+ * without the literal itself needing to escape it.
+ */
+const LIKE_ESCAPE = '\\';
+
+// Every backslash is doubled BEFORE the wildcards are escaped, or the backslashes this
+// function itself introduces would be doubled in turn and `%` would come out matching a
+// literal backslash followed by anything. The operator's own wildcards are added after,
+// so they stay wildcards, and `sqlLiteral` runs LAST, over the finished pattern — a quote
+// in the user's text can then never leave the literal.
+function likePattern(value: string): string {
+  return value.replaceAll(LIKE_ESCAPE, LIKE_ESCAPE + LIKE_ESCAPE).replace(/[%_]/g, (char) => LIKE_ESCAPE + char);
+}
+
+function renderLike(filter: ColumnFilter, negated: boolean, prefix: string, suffix: string): string {
+  const value = requireValue(filter);
+  if (value === '') {
+    // An empty `contains` matches every non-NULL row, which is never what the gesture
+    // meant — and the surfaces refuse it at the input, so reaching here is a caller bug.
+    throw new ExplorationRenderError(`Filter on "${filter.column}" uses ${filter.operator} but its value is empty.`);
+  }
+  const pattern = quoteOrBare(filter, `${prefix}${likePattern(value)}${suffix}`);
+  // Case is folded by TRINO on both sides rather than by lowering the value in the browser:
+  // JavaScript's case rules and Trino's disagree on some characters, and lowering one side
+  // here would apply one rule to the pattern and the other to the column.
+  const test = negated ? 'NOT LIKE' : 'LIKE';
+  return `lower(${sqlIdentifier(filter.column)}) ${test} lower(${pattern}) ESCAPE '${LIKE_ESCAPE}'`;
+}
+
+// De-duplicated and sorted by UTF-16 code unit before anything is emitted, so two lists
+// holding the same values in different orders render an IDENTICAL statement — which is the
+// execution cache key, and what makes re-applying such a pair free rather than a second bill.
+function renderValues(filter: ColumnFilter): string {
+  const values = filter.values;
+  if (values === undefined || values.length === 0) {
+    throw new ExplorationRenderError(`Filter on "${filter.column}" uses ${filter.operator} but carries no values.`);
+  }
+  const distinct = [...new Set(values)].sort();
+  if (distinct.length > EXPLORER_FILTER_VALUES_MAX) {
+    throw new ExplorationRenderError(
+      `Filter on "${filter.column}" holds ${distinct.length} values, over the ${EXPLORER_FILTER_VALUES_MAX} allowed.`
+    );
+  }
+  return distinct.map((value) => quoteOrBare(filter, value)).join(', ');
+}
+
+/**
+ * One renderer per operator, exhaustive over the union by TYPE.
+ *
+ * The exhaustiveness is the point: this was a map of operator symbols that EXCLUDED the two
+ * null tests, so an operator added to the union and missed here rendered `undefined` into
+ * the middle of a statement and sent it to `StartQueryExecution` rather than refusing it.
+ * A `Record` over the whole union cannot be written with a member missing.
+ */
+const RENDER_FILTER: Record<FilterOperator, (filter: ColumnFilter) => string> = {
+  '=': (filter) => `${sqlIdentifier(filter.column)} = ${renderValue(filter)}`,
+  '<>': (filter) => `${sqlIdentifier(filter.column)} <> ${renderValue(filter)}`,
+  '>': (filter) => `${sqlIdentifier(filter.column)} > ${renderValue(filter)}`,
+  '>=': (filter) => `${sqlIdentifier(filter.column)} >= ${renderValue(filter)}`,
+  '<': (filter) => `${sqlIdentifier(filter.column)} < ${renderValue(filter)}`,
+  '<=': (filter) => `${sqlIdentifier(filter.column)} <= ${renderValue(filter)}`,
+  contains: (filter) => renderLike(filter, false, '%', '%'),
+  notContains: (filter) => renderLike(filter, true, '%', '%'),
+  startsWith: (filter) => renderLike(filter, false, '', '%'),
+  endsWith: (filter) => renderLike(filter, false, '%', ''),
+  in: (filter) => `${sqlIdentifier(filter.column)} IN (${renderValues(filter)})`,
+  notIn: (filter) => `${sqlIdentifier(filter.column)} NOT IN (${renderValues(filter)})`,
+  isNull: (filter) => `${sqlIdentifier(filter.column)} IS NULL`,
+  isNotNull: (filter) => `${sqlIdentifier(filter.column)} IS NOT NULL`,
+  // Parenthesized by the RENDERING rather than by the caller: several filters join with
+  // `AND`, and an unparenthesized `OR` would be captured by the neighbour on its left.
+  isEmpty: (filter) => `(${sqlIdentifier(filter.column)} IS NULL OR ${sqlIdentifier(filter.column)} = '')`,
+  isNotEmpty: (filter) => `(${sqlIdentifier(filter.column)} IS NOT NULL AND ${sqlIdentifier(filter.column)} <> '')`
+};
+
 function renderFilter(filter: ColumnFilter): string {
-  const column = sqlIdentifier(filter.column);
-  if (filter.operator === 'isNull') return `${column} IS NULL`;
-  if (filter.operator === 'isNotNull') return `${column} IS NOT NULL`;
-  return `${column} ${OPERATOR_SQL[filter.operator]} ${renderValue(filter)}`;
+  return RENDER_FILTER[filter.operator](filter);
 }
 
 function renderFrom(source: ExplorationSource): string {

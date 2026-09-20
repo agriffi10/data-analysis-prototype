@@ -31,7 +31,23 @@ export type ExplorationSource =
       label: string;
     };
 
-export type FilterOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'isNull' | 'isNotNull';
+export type FilterOperator =
+  | '='
+  | '<>'
+  | '>'
+  | '>='
+  | '<'
+  | '<='
+  | 'contains'
+  | 'notContains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'in'
+  | 'notIn'
+  | 'isNull'
+  | 'isNotNull'
+  | 'isEmpty'
+  | 'isNotEmpty';
 
 /**
  * How a filter value is rendered into SQL.
@@ -50,8 +66,24 @@ export type FilterValueKind = 'string' | 'number';
 export type ColumnFilter = {
   column: string;
   operator: FilterOperator;
-  /** Absent for `isNull` / `isNotNull`; a raw cell value otherwise, quoted at render time. */
+  /**
+   * The six comparisons and the four text operators. Absent for every other operator.
+   *
+   * A raw cell value, quoted at render time. The four text operators quote it whatever
+   * `valueKind` says, because `LIKE` against a number is a type error rather than a match.
+   */
   value?: string;
+  /**
+   * `in` and `notIn` only, and the reason it is a separate field rather than a delimited
+   * `value`: a delimiter is a character a cell can hold, so splitting one back out would
+   * make some real values unfilterable and do it silently.
+   *
+   * Strings only — no NULL entry, no empty string and no line break — which is exactly
+   * what the one-value-per-line field can express, so an edit can always pre-fill it line
+   * for line. A list that should also keep NULL rows is written whole in the filter
+   * expression, since the expression and the column filters combine with `AND`.
+   */
+  values?: string[];
   /** Defaults to `'string'`. The filter picks it from the column's Glue/Athena type. */
   valueKind?: FilterValueKind;
 };
@@ -137,7 +169,8 @@ export type ColourToken = 'text' | 'text-2' | 'accent-text' | 'success' | 'dange
 /** A colour a rule may paint a cell's background in — the soft tints, for the same reason. */
 export type SurfaceToken = 'accent-soft' | 'success-soft' | 'warning-soft' | 'danger-soft';
 
-export type ColourOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'ilike' | 'regex';
+export type ColourOperator =
+  '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'ilike' | 'regex' | 'isEmpty' | 'isNotEmpty';
 
 /**
  * What a matching rule paints.

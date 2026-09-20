@@ -10,6 +10,7 @@ import {
   FORMATTING_PATTERN_MAX,
   formattingBaseSurfaces,
   formattingTokenHex,
+  COLOUR_OPERATORS,
   NUMERIC_TRANSFORMER_ERROR,
   TRUNCATION_INDICATOR
 } from './dataExplorer.constants';
@@ -434,5 +435,101 @@ describe('hostile column names and values do not escape', () => {
     // the grid's render rather than out of a refusal.
     expect(() => transformCell('\uD800', {kind: 'url', template: 'https://example.com/${value}'})).not.toThrow();
     expect(transformCell('\uD800', {kind: 'url', template: 'https://example.com/${value}'})?.href).toBeUndefined();
+  });
+});
+
+describe('is empty and is not empty (SPEC-238 FR-006)', () => {
+  // A NULL cell, an EMPTY-STRING cell and a filled one, in that order. The empty string is
+  // the case the null tests never reach: a table built from CSV files holds every blank
+  // field as `''`, which is why colouring "the (empty) cells" was impossible to express.
+  const EMPTY_COLUMNS: FormattingColumn[] = [{name: 'last_name', index: 0, type: 'varchar'}];
+  const EMPTY_ROWS: (string | null)[][] = [[null], [''], ['Brien']];
+
+  it('paints BOTH spellings of absent, and nothing else', () => {
+    const {formats} = formatPage(
+      state({
+        rules: [
+          rule({column: 'last_name', operator: 'isEmpty', value: '', foreground: undefined, background: 'warning-soft'})
+        ]
+      }),
+      EMPTY_COLUMNS,
+      EMPTY_ROWS
+    );
+    expect(formats[0].last_name).toEqual({backgroundColor: colourValue('warning-soft')});
+    expect(formats[1].last_name).toEqual({backgroundColor: colourValue('warning-soft')});
+    expect(formats[2].last_name).toBeUndefined();
+  });
+
+  it('paints exactly the other cells under is not empty', () => {
+    const {formats} = formatPage(
+      state({
+        rules: [
+          rule({
+            column: 'last_name',
+            operator: 'isNotEmpty',
+            value: '',
+            foreground: undefined,
+            background: 'warning-soft'
+          })
+        ]
+      }),
+      EMPTY_COLUMNS,
+      EMPTY_ROWS
+    );
+    expect(formats[0].last_name).toBeUndefined();
+    expect(formats[1].last_name).toBeUndefined();
+    expect(formats[2].last_name).toEqual({backgroundColor: colourValue('warning-soft')});
+  });
+
+  it('ignores a value a stored rule still carries', () => {
+    // The dialog hides the field, but a rule written before it did keeps whatever was typed.
+    const {formats} = formatPage(
+      state({
+        rules: [
+          rule({
+            column: 'last_name',
+            operator: 'isEmpty',
+            value: 'x',
+            foreground: undefined,
+            background: 'warning-soft'
+          })
+        ]
+      }),
+      EMPTY_COLUMNS,
+      EMPTY_ROWS
+    );
+    expect(formats[0].last_name).toBeDefined();
+    expect(formats[1].last_name).toBeDefined();
+    expect(formats[2].last_name).toBeUndefined();
+  });
+
+  it('is the ONLY operator that reaches a NULL cell', () => {
+    // The claim the evaluator's own doc comment makes, asserted over the whole population
+    // rather than on the two operators this spec happened to add.
+    const reaching = COLOUR_OPERATORS.filter((operator) => {
+      const {formats} = formatPage(
+        state({
+          rules: [rule({column: 'last_name', operator, value: '', foreground: undefined, background: 'warning-soft'})]
+        }),
+        EMPTY_COLUMNS,
+        EMPTY_ROWS
+      );
+      return formats[0].last_name !== undefined;
+    });
+    expect(COLOUR_OPERATORS.length).toBeGreaterThan(1);
+    expect(reaching).toEqual(['isEmpty']);
+  });
+});
+
+describe('ruleRefusal ignores the field a valueless operator does not read (SPEC-238 FR-006)', () => {
+  it('keeps an is-empty rule whose stored value is longer than a pattern may be', () => {
+    // The dialog hides the field, so an over-long value can only arrive from a rule that
+    // was something else first. Refusing it would drop a valid rule for the length of a
+    // string the evaluator never looks at.
+    const long = 'x'.repeat(FORMATTING_PATTERN_MAX + 1);
+    expect(ruleRefusal(rule({operator: 'isEmpty', value: long}))).toBeNull();
+    // The same value still refuses the operators that DO read it, so the check is narrowed
+    // rather than removed.
+    expect(ruleRefusal(rule({operator: 'like', value: long}))).toBe(PATTERN_TOO_LONG_REFUSAL);
   });
 });

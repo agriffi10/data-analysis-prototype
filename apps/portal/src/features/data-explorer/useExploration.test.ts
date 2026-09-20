@@ -5,6 +5,7 @@ import {useExploration} from './useExploration';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {getQueryStatus, runQuery, getQueryResults} from '../catalog/athena.service';
 import {newExploration} from './exploration';
+import {toUserText} from '../../lib/errorMessages';
 import {explorerKeys, explorationSourceScope} from './explorerKeys';
 import type {Exploration, ExplorationSource} from './dataExplorer.types';
 import type {QueryState} from '../catalog/catalog.types';
@@ -349,6 +350,40 @@ describe('useExploration — a description that cannot render (FR-002)', () => {
     rerender({exploration: withFilter(base, "O'Brien")});
     await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
     expect(result.current.sql).toContain("'O''Brien'");
+    expect(result.current.error).toBeNull();
+  });
+});
+
+describe('useExploration — a statement Athena would refuse for its length (SPEC-238 FR-005)', () => {
+  // One `in` filter big enough to push the statement past the limit, built from values
+  // long enough that a thousand of them would not have done it — which is the reason the
+  // byte check exists beside the value cap rather than instead of it.
+  const longList = Array.from({length: 400}, (_, i) => `${'v'.repeat(700)}${i}`);
+
+  const withList = (values: string[]): Exploration => {
+    const base = newExploration(TABLE);
+    return {...base, query: {...base.query, filters: [{column: 'brnd_name', operator: 'in', values}]}};
+  };
+
+  it('starts NOTHING, reports the sentence, and has no statement to show or save', async () => {
+    const {result} = renderHookWithProviders(() => useExploration(withList(longList)));
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    // The claim that costs money if it is wrong.
+    expect(runQuery).not.toHaveBeenCalled();
+    // `sql: null` is what makes *Generated SQL* show its no-statement sentence and
+    // *Save as query* refuse, rather than handing over a file Athena will not run.
+    expect(result.current.sql).toBeNull();
+    expect(toUserText(result.current.error)).toBe(
+      'This query is too long to run. Use fewer or shorter filter values, or a shorter expression.'
+    );
+  });
+
+  it('starts one execution once the long filter is gone, so the refusal is about the LENGTH', async () => {
+    const {result} = renderHookWithProviders(() => useExploration(withList(['Abilify'])));
+
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
+    expect(runQuery).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBeNull();
   });
 });

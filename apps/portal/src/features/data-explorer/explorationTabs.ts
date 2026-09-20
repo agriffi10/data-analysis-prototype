@@ -1,12 +1,14 @@
 import {
   BINARY_TRANSFORMER_MAX_LENGTH,
   EXPLORATION_TABS_STORAGE_PREFIX,
+  COLOUR_OPERATORS,
   EXPLORER_FILTER_HISTORY_MAX,
   FORMATTING_BACKGROUNDS,
   FORMATTING_FOREGROUNDS,
   NUMERIC_TRANSFORMER_MAX_PRECISION
 } from './dataExplorer.constants';
 import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
+import {isFilterOperator} from './explorationQueryOps';
 import type {
   ExplorationPresentation,
   ExplorationQuery,
@@ -60,15 +62,25 @@ function isValidSource(value: unknown): boolean {
 // on, because a filter with an unrecognised operator renders `"a" undefined 'x'` — invalid
 // SQL, sent to StartQueryExecution rather than refused — and a `grouping` of `{}` throws a
 // raw TypeError out of the renderer instead of an ExplorationRenderError.
-const FILTER_OPERATORS = new Set(['=', '<>', '>', '>=', '<', '<=', 'isNull', 'isNotNull']);
 const AGGREGATE_FUNCTIONS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
+
+// A list holds STRINGS only, and the three it refuses are the three the one-value-per-line
+// field cannot express: a `null` or a number is not a line, an empty string is a line the
+// field ignores, and a value carrying `\n` or `\r` would come back as two lines. Refusing
+// them here is what lets an edit pre-fill the field line for line and get the same list back.
+function isValidFilterValues(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry !== '' && !/[\n\r]/.test(entry))
+  );
+}
 
 function isValidFilter(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const filter = value as Record<string, unknown>;
   if (typeof filter.column !== 'string') return false;
-  if (typeof filter.operator !== 'string' || !FILTER_OPERATORS.has(filter.operator)) return false;
+  if (typeof filter.operator !== 'string' || !isFilterOperator(filter.operator)) return false;
   if (filter.value !== undefined && typeof filter.value !== 'string') return false;
+  if (filter.values !== undefined && !isValidFilterValues(filter.values)) return false;
   return filter.valueKind === undefined || filter.valueKind === 'string' || filter.valueKind === 'number';
 }
 
@@ -213,7 +225,9 @@ function finiteWidths(value: unknown): Record<string, number> | null {
   return Object.fromEntries(entries) as Record<string, number>;
 }
 
-const COLOUR_OPERATORS = new Set(['=', '<>', '>', '>=', '<', '<=', 'like', 'ilike', 'regex']);
+// Derived from the offered list, never written out again: a second copy here was the half
+// that failed SILENTLY, discarding a whole session's tabs over an operator it had not heard of.
+const VALID_COLOUR_OPERATORS = new Set<string>(COLOUR_OPERATORS);
 
 function isValidColourRule(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
@@ -221,7 +235,7 @@ function isValidColourRule(value: unknown): boolean {
   if (typeof rule.id !== 'string' || rule.id === '') return false;
   if (rule.column !== undefined && typeof rule.column !== 'string') return false;
   if (rule.scope !== undefined && rule.scope !== 'cell' && rule.scope !== 'row') return false;
-  if (typeof rule.operator !== 'string' || !COLOUR_OPERATORS.has(rule.operator)) return false;
+  if (typeof rule.operator !== 'string' || !VALID_COLOUR_OPERATORS.has(rule.operator)) return false;
   if (typeof rule.value !== 'string') return false;
   // The colours are checked against the PALETTE, not merely against `string`: a stored
   // `#ff0000` would be rendered verbatim as an inline style, and the contrast the palette

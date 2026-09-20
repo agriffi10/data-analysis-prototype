@@ -2,6 +2,7 @@ import {act, renderHook} from '@testing-library/react';
 import {beforeEach, describe, expect, it} from 'vitest';
 import {useExplorationTabs} from './useExplorationTabs';
 import {EXPLORATION_TABS_MAX, EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
+import {FILTER_OPERATORS, operatorTakesValue, operatorTakesValues} from './explorationQueryOps';
 import type {ExplorationSource} from './dataExplorer.types';
 
 const TABLE: ExplorationSource = {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'};
@@ -317,6 +318,98 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
     sessionStorage.clear();
     sessionStorage.setItem(KEY, stored);
     expect(setup().result.current.tabs).toHaveLength(1);
+  });
+});
+
+describe('useExplorationTabs — the operators a stored document may carry (SPEC-238)', () => {
+  const documentWith = (over: Record<string, unknown>) => ({
+    version: 1,
+    tabs: [
+      {
+        id: 'a',
+        label: 'orders',
+        exploration: {
+          id: 'e',
+          source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'},
+          query: {filters: [], expression: null, ordering: [], grouping: null},
+          presentation: {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}},
+          ...over
+        },
+        scannedByExecution: {}
+      }
+    ],
+    activeTabId: 'a'
+  });
+
+  const restoredQuery = (over: Record<string, unknown>) => {
+    sessionStorage.setItem(KEY, JSON.stringify(documentWith(over)));
+    return setup().result.current.tabs[0]?.exploration.query ?? null;
+  };
+
+  it('restores a tab carrying EVERY operator the app offers', () => {
+    // The guard on the one derivation that is not compile-checked. A hand-written set here
+    // — which is what this used to be — silently discarded a whole session's tabs over an
+    // operator it had not heard of. The length is asserted so the loop cannot be vacuous.
+    expect(FILTER_OPERATORS).toHaveLength(16);
+    const filters = FILTER_OPERATORS.map((operator, index) => ({
+      column: `c${index}`,
+      operator,
+      ...(operatorTakesValue(operator) ? {value: 'x'} : {}),
+      ...(operatorTakesValues(operator) ? {values: ['a', 'b']} : {})
+    }));
+    const query = restoredQuery({query: {filters, expression: null, ordering: [], grouping: null}});
+    expect(query?.filters).toEqual(filters);
+  });
+
+  it('restores a list filter with its values in their stored order', () => {
+    const filters = [{column: 'state', operator: 'in', values: ['NY', 'NJ']}];
+    const query = restoredQuery({query: {filters, expression: null, ordering: [], grouping: null}});
+    expect(query?.filters).toEqual(filters);
+  });
+
+  it('discards a document whose filter is shaped wrong', () => {
+    // Each of these is a shape the one-value-per-line field cannot express, so a filter
+    // carrying one could never be edited back into the form it came from.
+    const bad = [
+      {column: 'a', operator: 'contains', value: 7},
+      {column: 'a', operator: 'in', values: ['a', 7]},
+      {column: 'a', operator: 'in', values: ['a', null]},
+      {column: 'a', operator: 'in', values: ['a', '']},
+      {column: 'a', operator: 'in', values: ['a', 'b\nc']},
+      {column: 'a', operator: 'in', values: ['a', 'b\rc']},
+      {column: 'a', operator: 'in', values: 'NY'},
+      {column: 'a', operator: 'toString', value: 'x'}
+    ];
+    for (const filter of bad) {
+      sessionStorage.setItem(
+        KEY,
+        JSON.stringify(documentWith({query: {filters: [filter], expression: null, ordering: [], grouping: null}}))
+      );
+      expect(setup().result.current.tabs, JSON.stringify(filter)).toEqual([]);
+    }
+  });
+
+  it('restores an is-empty COLOUR RULE into the formatting it belongs to', () => {
+    // Asserted on the rule itself, not on the tab: the formatting check swaps an invalid
+    // block for the empty state rather than refusing the document, so "the tab restored"
+    // would pass with the rule silently gone.
+    const rules = [{id: 'r1', column: 'last_name', operator: 'isEmpty', value: '', background: 'warning-soft'}];
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify(
+        documentWith({
+          presentation: {
+            hiddenColumns: [],
+            columnOrder: [],
+            pinnedColumns: [],
+            columnWidths: {},
+            formatting: {rules, colourByType: false, stripeColumns: [], transformers: {}}
+          }
+        })
+      )
+    );
+    const restored = setup().result.current.tabs[0]?.exploration.presentation.formatting.rules;
+    expect(restored).toEqual(rules);
   });
 });
 
