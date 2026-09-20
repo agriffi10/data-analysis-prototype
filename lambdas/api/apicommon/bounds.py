@@ -73,6 +73,15 @@ Attributes:
     dropped. Two answers to one question, differing by more than twice, would have let the API
     admit a request the operator path already refuses as unable to finish. A guard holds them
     equal.
+  MAX_COLUMN_INDEXES_PER_REQUEST: How many result columns one conversion may choose — a COUNT,
+    like the member cap and for the same reason: the values are small integers, and a byte
+    budget over them would say nothing about how many there are. Its budget is
+    ``rccommon.config.MAX_RESULT_COLUMNS``, the widest result this plane converts in any format:
+    a request cannot choose more columns than the result it is chosen from may have, so the two
+    are one number and a guard holds them equal. Mirrored rather than imported, for the reason
+    ``Bound.owner`` gives. It is an ``api`` bound rather than a ``verb`` one because the list is
+    the field that makes the chain's worst case unmeasurable while it is unbounded, and that has
+    to be settled before the message is built.
   FIELD_BOUNDS: Every declared bound, one per (route, path).
 """
 
@@ -131,6 +140,7 @@ MAX_S3_KEY_BYTES: Final[int] = 1024
 MAX_BUCKET_NAME_BYTES: Final[int] = _plain(63)
 MAX_TIMESTAMP_BYTES: Final[int] = _plain(32)
 MAX_MEMBERS_PER_REQUEST: Final[int] = 44
+MAX_COLUMN_INDEXES_PER_REQUEST: Final[int] = 1_500
 MAX_PARTITION_KEYS_BYTES: Final[int] = 40 * 1024
 MAX_PARTITION_VALUE_BYTES: Final[int] = 255
 MAX_PARTITION_VALUES_BYTES: Final[int] = MAX_PARTITION_KEYS_BYTES // 4
@@ -433,6 +443,12 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "resultsConversion.enqueue", "submittedAt", MAX_TIMESTAMP_BYTES, "api",
         "an ISO-8601 instant's own length",
+    ),
+    Bound(
+        "resultsConversion.enqueue", "columnIndexes", MAX_COLUMN_INDEXES_PER_REQUEST, "api",
+        "the widest result this plane converts, which is the most columns there can be to choose",
+        "",
+        "items",
     ),
 )
 

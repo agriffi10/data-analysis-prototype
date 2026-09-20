@@ -1,7 +1,7 @@
 # `results-conversion` — the save-a-query's-results-as control plane
 
 Takes a **finished Athena execution** and writes its result set into a space the actor may write
-to, as Parquet, JSON or Excel. This module is the whole plane: the queue, the pipe, the machine,
+to, as Parquet, JSON, Excel or CSV. This module is the whole plane: the queue, the pipe, the machine,
 the execution role and five verbs. Users reach it through the **Format** choice in the Query tab's
 save-results dialog and the Data Explorer's export dialog (SPEC-223), gated on the
 `resultsConversion` flag; the route itself is unflagged.

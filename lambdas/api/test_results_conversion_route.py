@@ -35,8 +35,34 @@ def test_a_well_formed_body_passes_the_door():
     assert _code(_BODY) is None
 
 
-def test_csv_is_refused_with_the_same_code_as_any_unknown_format():
-    assert _code({**_BODY, "format": "csv"}) == _code({**_BODY, "format": "tsv"}) != None  # noqa: E711
+def test_csv_is_accepted_and_a_format_with_no_writer_is_still_refused():
+    """`csv` used to be refused here, because the plane had no CSV writer and the synchronous
+    copy produced the object instead. It has one now — reached when the file is to carry a
+    subset of the result's columns, which a copy cannot produce — so the vocabulary is four, and
+    the positive control beside it is a name that still has no writer."""
+    assert _code({**_BODY, "format": "csv"}) is None
+    assert _code({**_BODY, "format": "tsv"}) is not None
+
+
+@pytest.mark.parametrize(
+    "chosen",
+    [[2, 0], [0], list(range(1500))],
+    ids=["reordered-subset", "one-column", "at-the-bound"],
+)
+def test_a_chosen_column_list_is_a_body_this_route_accepts(chosen):
+    assert _code({**_BODY, "columnIndexes": chosen}) is None
+
+
+def test_a_chosen_column_list_over_the_bound_is_refused_before_a_message_is_built():
+    """The length is the API's, not the plane's: the list rides every link of the chain, and a
+    verb bound would be applied only after the Pipe had already started an execution with it."""
+    from apicommon import bounds
+
+    over = {**_BODY, "columnIndexes": list(range(1501))}
+    breached = bounds.over_bound(_ROUTE, over)
+
+    assert breached is not None and breached.path == "columnIndexes"
+    assert bounds.over_bound(_ROUTE, {**_BODY, "columnIndexes": list(range(1500))}) is None
 
 
 @pytest.mark.parametrize(
@@ -75,7 +101,15 @@ def test_the_apis_output_location_is_the_shared_user_results_prefix(monkeypatch)
 
 
 def test_the_generated_typescript_carries_the_closed_format_vocabulary():
+    """The union is matched to its TERMINATOR, and that is the whole point of the semicolon.
+
+    This read `"format: 'parquet' | 'json' | 'xlsx'" in generated` while the vocabulary was three,
+    and appending a fourth member left that substring intact — so the assertion went vacuous
+    rather than red on exactly the change it exists to notice. Anchored on the `;` that ends the
+    property, a member added or removed cannot leave it passing.
+    """
     generated = (pathlib.Path(__file__).resolve().parents[2] / "apps" / "portal" / "src" / "types" / "apiContract.generated.ts").read_text(encoding="utf-8")
-    assert "format: 'parquet' | 'json' | 'xlsx'" in generated
+    assert "format: 'parquet' | 'json' | 'xlsx' | 'csv';" in generated
+    assert "columnIndexes?: number[]" in generated
     assert "'resultsConversion.enqueue': {method: 'POST', path: '/v1/enqueue/results-conversion'" in generated
     assert json.dumps(_BODY)  # the body above is what the browser will send, serialisable as-is

@@ -106,6 +106,35 @@ def _check_columns(described: list[dict], tokens: dict) -> None:
         )
 
 
+def _check_column_indexes(described: list[dict], chosen: list[int] | None, tokens: dict) -> None:
+    """Refuses a chosen-column list that names a position this result does not have.
+
+    The SHAPE of the list — a non-empty list of distinct, non-negative whole numbers — is proved
+    by validate-authorize, the plane's one authority on the request, in the same release as this.
+    What only this verb can decide is the upper bound, because it is the first state that knows
+    how many columns the result has.
+
+    Args:
+      described: The columns, as ``_columns`` returns them.
+      chosen: The request's ``columnIndexes``, or None when it named none.
+      tokens: The wording tokens the refusal carries.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``invalid_columns`` when any position is at or past the column count.
+    """
+    if chosen is None:
+        return
+    if any(index >= len(described) for index in chosen):
+        raise TerminalError(
+            reasons.INVALID_COLUMNS,
+            f"a chosen column is past the result's {len(described)} column(s)",
+            tokens=tokens,
+        )
+
+
 def _size(key: str) -> int:
     """Reads the result object's size, in exactly one call.
 
@@ -142,7 +171,7 @@ def handler(event, context) -> dict:
       nothing else.
 
     Raises:
-      TerminalError: Any of the three refusals this verb registers.
+      TerminalError: Any of the refusals this verb registers.
     """
     return _describe(event)
 
@@ -152,10 +181,9 @@ def _describe(event) -> dict:
 
     **``columnIndexes`` is read with ``get`` and never with ``events.require``**, which refuses
     a ``None`` value as well as an absent key. It is null whenever the request named no columns,
-    and it is absent altogether from a state the ``Validated`` Pass has not yet been taught to
-    name — which is every state in this release, so ``require`` would refuse every conversion.
-    The key is emitted here for the same reason it is emitted by the verb before: a Pass state
-    cannot be taught to read a key until a deployed image already returns it.
+    and it is absent altogether from a state built by an ASL applied before the one this
+    release ships — the two deploy on one push with no ordering between them, so ``require``
+    would refuse every conversion in that window.
 
     Args:
       event: The validated request object.
@@ -173,6 +201,7 @@ def _describe(event) -> dict:
     tokens = {"format": carried["format"], "filename": carried["destination"]["key"].rsplit("/", 1)[-1]}
     described = _columns(carried["queryExecutionId"])
     _check_columns(described, tokens)
+    _check_column_indexes(described, chosen, tokens)
     size = _size(carried["resultsKey"])
     cap = max_result_bytes(carried["format"])
     if size > cap:

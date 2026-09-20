@@ -2,8 +2,12 @@
 
 Attributes:
   SPACE_KINDS: The two space kinds. The kind decides which bucket a destination resolves in.
-  FORMATS: The closed set of output formats. CSV is deliberately absent — the CSV Athena wrote
-    is copied by the synchronous path, and this plane never re-serialises it.
+  FORMATS: The closed set of output formats. **CSV is here, and what it means is narrower than
+    the other three.** The CSV Athena wrote is still copied by the synchronous path whenever the
+    file wanted is that object — that copy is instant and bills nothing — and a conversion is
+    asked for only when the file is to carry a SUBSET of the result's columns, or the same
+    columns in another order, which a copy cannot produce. So this plane re-serialises a CSV
+    only where there is something to re-serialise.
   FORMAT_LABELS: How each format is named to a user.
   ON_CONFLICT: The two answers to a name already taken at the destination.
   MAX_FILENAME_BYTES: The longest file name accepted, in UTF-8 bytes — S3's own key-segment
@@ -25,7 +29,19 @@ Attributes:
   DISK_RESERVE / MEMORY_RESERVE: The fraction of each the budget does NOT spend, so the
     converter is not sized to fill a disk exactly or to run at the edge of an OOM.
   OUTPUT_EXPANSION: MEASURED bytes of output per byte of CSV, per format — the worst figure
-    observed across the fixture sizes, not the average.
+    observed across the fixture sizes, not the average. ``scripts/measure_conversion_expansion.py``
+    re-measures it by driving this plane's own read and write, so the figures have a derivation a
+    reader can run rather than a sentence they have to trust.
+    **CSV's figure sits at the ceiling, and it took a second shape to find it.** A corpus of
+    fields each holding a comma and a quote measured 0.976 and read as the maximum, which it was
+    not: the two quotes polars sheds per field are a vanishing share of a long field, so the same
+    corpus at 2,000-character fields measures 1.000. The ceiling is exactly 1 — polars quotes a
+    SUBSET of the fields Athena quotes, which is all of them, and doubles an inner quote exactly
+    as Athena does — so this is the figure rather than a figure. It is recorded because it was
+    measured, not because of that argument; what the argument buys is knowing there is nothing
+    further up. The cap floors to 896 MiB anywhere up to 1.057, where the downloaded object and
+    the written file together come to 1,792 MiB against 1,843 usable, so it has room above the
+    ceiling as well.
   EXCEL_MAX_ROWS: Excel's own data-row ceiling — one less than its 1,048,576 rows, because the
     header takes one. Declared here rather than in the converter because the cell cap below is
     derived from it: the per-row cost is paid on every admitted row.
@@ -105,9 +121,9 @@ from . import reasons
 
 SPACE_KINDS = frozenset({"personal", "shared"})
 
-FORMATS = frozenset({"parquet", "json", "xlsx"})
+FORMATS = frozenset({"parquet", "json", "xlsx", "csv"})
 
-FORMAT_LABELS = {"parquet": "Parquet", "json": "JSON", "xlsx": "Excel"}
+FORMAT_LABELS = {"parquet": "Parquet", "json": "JSON", "xlsx": "Excel", "csv": "CSV"}
 
 ON_CONFLICT = frozenset({"refuse", "overwrite"})
 
@@ -125,7 +141,7 @@ DISK_RESERVE = 0.10
 
 MEMORY_RESERVE = 0.15
 
-OUTPUT_EXPANSION = {"parquet": 0.252, "json": 1.481, "xlsx": 0.603}
+OUTPUT_EXPANSION = {"parquet": 0.252, "json": 1.481, "xlsx": 0.603, "csv": 1.0}
 
 EXCEL_MAX_ROWS = 1_048_575
 
@@ -145,6 +161,7 @@ RESULTS_MAX_BYTES = {
     "parquet": 1472 * 1024**2,
     "json": 704 * 1024**2,
     "xlsx": 64 * 1024**2,
+    "csv": 896 * 1024**2,
 }
 
 MAX_RESULT_COLUMNS = 1_500
@@ -158,7 +175,15 @@ MEASURED_ON = (
     "scripts/measure_excel_peak.py on an image built from the commit that introduced these "
     "constants, which read each shape at or below them. Anchored to the converter's own REPORT "
     "lines of 2026-09-10: a 490,000 x 4 result at 933 MiB and a 1,048,575 x 15 one that timed out "
-    "at 3,008"
+    "at 3,008. CSV by scripts/measure_conversion_expansion.py in the same image, over the same "
+    "four sizes and three generated shapes — an Athena-shaped mix of types, one whose every "
+    "field holds a comma and a quote, and one of the same at 2,000 characters a field — on "
+    "arm64: expansion ran from 0.889 to 1.000, the worst being the wide shape at every size, "
+    "and throughput from 299 to 1,062 MB/s. Other machines have measured the throughput lower, "
+    "down to 216; nothing rests on it, because the timeout check breaks even at about 8 MB/s. "
+    "The same run re-measured Parquet at 0.045 and JSON at 1.403 on those shapes, inside the "
+    "figures above rather than against them, which is corroboration of those two and not a "
+    "re-derivation: the shapes are this script's and not the ones their own line names"
 )
 
 

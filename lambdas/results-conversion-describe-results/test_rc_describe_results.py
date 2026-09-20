@@ -220,9 +220,11 @@ def test_no_column_name_reaches_a_span_on_the_happy_path(captured_events):
 
 def test_a_state_that_does_not_carry_the_key_at_all_is_read_as_no_choice():
     """`events.require` refuses a None value as well as an absent key, so this one is read with
-    `get` — and the key really is absent from every state in this release, because the `Validated`
-    Pass does not name it yet. Reading it any other way would refuse every conversion until the
-    machine catches up, which is the deploy window this ordering exists to survive."""
+    `get`. The absent state is not hypothetical: `Deploy Infrastructure` applies the ASL and
+    `Deploy Lambdas` repoints the functions on one push with no ordering between them, so this
+    verb's new image runs against the previous ASL for as long as that takes — and that ASL's
+    `Validated` Pass does not name the key. Reading it any other way refuses every conversion in
+    that window."""
     _setup()
     validated = _validated()
     assert "columnIndexes" not in validated
@@ -231,3 +233,37 @@ def test_a_state_that_does_not_carry_the_key_at_all_is_read_as_no_choice():
 
     assert "columnIndexes" in described
     assert described["columnIndexes"] is None
+
+
+_FOUR = (("a", "varchar"), ("b", "varchar"), ("c", "varchar"), ("d", "varchar"))
+
+
+def test_a_chosen_column_past_the_last_one_is_refused_before_the_size_is_read():
+    """The upper bound is this verb's to apply, because it is the first state that knows how
+    wide the result is. The size read comes after it, so an untouched `head_object` is the
+    evidence that the refusal stopped the verb rather than merely preceding its return."""
+    sent, _, s3 = _setup(columns=_FOUR)
+    with pytest.raises(TerminalError) as err:
+        d.handler({**_validated(), "columnIndexes": [0, 4]}, None)
+
+    assert err.value.reason == "invalid_columns"
+    assert s3.calls == [], "the result object is never sized once the request is refused"
+    assert len(sent) == 1 and sent[0][0] == "alice"
+    assert sent[0][1] == (
+        "Couldn't save the query results as Excel: the columns chosen for this file don't "
+        "match the query's results, so nothing was saved."
+    )
+
+
+def test_the_last_column_is_a_position_a_request_may_choose():
+    """The positive control for the refusal above — the bound is `>=` the count, so the last
+    column is index 3 of 4 and is accepted. Without this, refusing every list would pass."""
+    _setup(columns=_FOUR)
+    described = d.handler({**_validated(), "columnIndexes": [3, 0]}, None)
+
+    assert described["columnIndexes"] == [3, 0], "the order the request asked for is kept"
+    assert [column["name"] for column in described["columns"]] == ["a", "b", "c", "d"], (
+        "every described column still travels: the converter needs the whole header to check "
+        "the CSV against, and the chosen list says only which of them to write"
+    )
+    assert described["resultsBytes"] == 1234

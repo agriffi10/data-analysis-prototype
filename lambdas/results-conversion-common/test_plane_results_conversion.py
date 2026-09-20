@@ -338,6 +338,7 @@ def test_every_code_any_verb_on_this_plane_can_raise_is_registered_and_worded():
         reasons.DESTINATION_OCCUPIED,
         reasons.TOO_MANY_COLUMNS,
         reasons.INVALID_COLUMN_NAME,
+        reasons.INVALID_COLUMNS,
         reasons.DUPLICATE_COLUMN,
         reasons.RESULTS_TOO_LARGE,
         reasons.EXECUTION_NOT_FOUND,
@@ -415,6 +416,19 @@ GOLDEN_CELL_LIMIT = (
     "(15,728,625 cells), which is more than the 4,100,000 cells an Excel file can be made from "
     'here, so "big.xlsx" was not written. Please save them as Parquet instead, or narrow the query.'
 )
+
+
+def test_the_unreadable_refusal_states_what_happened_and_offers_the_cast_as_a_CONDITIONAL():
+    """This sentence used to assert its own cause — "one of the values didn't match the type the
+    query gave its column" — and a CSV conversion falsifies that outright: it types nothing, so a
+    type mismatch can never be why it failed, and the reader also refuses some large results
+    holding newlines inside quoted values. Asserted whole, because the body is a bare literal and
+    nothing else in the plane pins what a user reads."""
+    assert messages.failure_message(reasons.RESULTS_UNREADABLE, {"format": "csv", "filename": "q1.csv"}) == (
+        'Couldn\'t save the query results as CSV: part of the results could not be read, so '
+        '"q1.csv" was not written. If a column\'s values don\'t all match the type the query gave '
+        "it, casting that column and running the query again will fix it."
+    )
 
 
 def test_the_cell_limit_refusal_reads_as_the_spec_wrote_it():
@@ -730,7 +744,16 @@ def test_each_formats_size_cap_is_computed_from_the_measured_converter_budget():
     it one: a cell must cost more than the long-text bytes it covers, or a result of fewer and
     longer cells would out-weigh the corner the cap was derived at.
     """
-    assert set(config.RESULTS_MAX_BYTES) == set(config.OUTPUT_EXPANSION) == {"parquet", "json", "xlsx"}
+    assert set(config.RESULTS_MAX_BYTES) == set(config.OUTPUT_EXPANSION) == {
+        "parquet",
+        "json",
+        "xlsx",
+        "csv",
+    }, "the literal is here so a format LEAVING every table at once is still visible"
+    assert config.FORMATS == set(config.FORMAT_LABELS) == set(config.OUTPUT_EXPANSION), (
+        "a format the vocabulary admits and a table does not know is a conversion that reaches "
+        "the converter and falls to the smallest cap of the formats that are there"
+    )
     for fmt, cap in config.RESULTS_MAX_BYTES.items():
         assert cap == _derived_cap(fmt), f"{fmt}'s cap is not what the budget derives"
         assert cap % _MIB == 0, "the cap must render in whole units to a user"
@@ -741,6 +764,14 @@ def test_each_formats_size_cap_is_computed_from_the_measured_converter_budget():
     )
     assert config.max_result_bytes("nonsense") == min(config.RESULTS_MAX_BYTES.values()), (
         "an unknown format falls to the smallest cap, never the largest"
+    )
+    assert config.OUTPUT_EXPANSION["csv"] >= 1.0, (
+        "a CSV conversion re-quotes rather than re-renders, and polars quotes a SUBSET of the "
+        "fields Athena quotes — which is all of them — so its output approaches its input and "
+        "cannot pass it. The measured corpus reaches 1.000 at wide fields. Pinned because the "
+        "cap floors to the same 896 MiB anywhere from 0.93 to 1.057: lowering this number is "
+        "invisible to every other assertion here, and it is the recorded MEASUREMENT as well as "
+        "an input to the cap"
     )
     covered_cost = config.EXCEL_PEAK_BYTES_PER_LONG_BYTE * config.EXCEL_COVERED_BYTES_PER_CELL
     assert covered_cost < config.EXCEL_PEAK_BYTES_PER_CELL, (
@@ -840,11 +871,20 @@ def test_the_query_that_timed_out_in_production_is_refused_by_its_cell_count():
 def test_the_converter_can_finish_its_largest_input_inside_its_own_timeout():
     """The time bound for the STREAMED formats is a check on their caps, not an input to them.
 
-    Measured in the fleet image, Parquet and JSON convert at 130 MB/s or better; the figure is
-    slowed by the measured local-to-production ratio before it is compared. Excel's time is not
-    here: it is set per cell, like its memory, and is held shape by shape in the guard above.
+    Measured in the fleet image, the three streamed formats convert at 130 MB/s or better; the
+    figure is slowed by the measured local-to-production ratio before it is compared. Excel's
+    time is not here: it is set per cell, like its memory, and is held shape by shape in the
+    guard above. CSV's figure is the WORST of the runs
+    ``scripts/measure_conversion_expansion.py`` made, not the best, because a mean would let one
+    fast shape pay for a slow one.
+
+    **None of these three figures is load-bearing, and it is worth saying which number is.** They
+    vary by machine and by load — csv was measured between 299 and 1,062 MB/s here and lower
+    elsewhere — while what this test actually asks is whether the cap fits the timeout, and the
+    break-even for csv's 896 MiB cap is about 8 MB/s. Every observation is a factor of thirty or
+    more above it, so the assertion is answered by the MARGIN rather than by the figure.
     """
-    measured_mb_per_second = {"parquet": 212.0, "json": 132.0}
+    measured_mb_per_second = {"parquet": 212.0, "json": 132.0, "csv": 298.9}
     usable = config.CONVERTER_TIMEOUT_SECONDS - _TIMEOUT_RESERVE_SECONDS
     assert usable > 0
     for fmt, mb_per_second in measured_mb_per_second.items():

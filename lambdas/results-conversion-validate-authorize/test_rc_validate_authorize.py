@@ -284,8 +284,8 @@ def test_a_file_merely_named_like_a_protected_folder_is_a_file():
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [
-        ("format", "csv", "invalid_request"),
         ("format", "tsv", "invalid_request"),
+        ("format", "avro", "invalid_request"),
         ("onConflict", "ask", "invalid_request"),
         ("queryExecutionId", "not-an-id", "invalid_request"),
         ("submittedAt", "yesterday", "invalid_request"),
@@ -351,7 +351,7 @@ def test_a_CONTRACT_refusal_carries_the_request_id_but_not_the_format_it_refused
     """The id was named only after the contract passed, so a contract refusal carried no payload
     at all. The format is the half that must wait: it is rendered into the sentence, and here it
     is the very field that failed."""
-    err, sent, _ = _refused(_body(format="csv"))
+    err, sent, _ = _refused(_body(format="tsv"))
 
     assert err.reason == "invalid_request"
     assert [kwargs["payload"] for _, _, kwargs in sent] == [{"requestId": "req-1"}]
@@ -404,9 +404,9 @@ def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(field, 
 
 def test_the_validated_state_always_carries_the_chosen_columns_even_as_null():
     """A Pass state's JSONPath hard-fails on an ABSENT key, so the key can never be conditional:
-    the machine is taught to read it in a later release, and by then every live image must
-    already be returning it. Null is what "the request named no columns" looks like on the
-    state, and in this release it is the only value the key can take."""
+    the machine was taught to read it only once every live image already returned it. Null is
+    what "the request named no columns" looks like on the state, and it is what every request
+    that names none puts there — the key is present whether or not it carries a list."""
     _setup()
     validated = v.handler(_event(), None)
 
@@ -414,14 +414,39 @@ def test_the_validated_state_always_carries_the_chosen_columns_even_as_null():
     assert validated["columnIndexes"] is None
 
 
-def test_the_field_itself_is_not_admitted_yet_and_that_is_what_makes_the_order_safe():
-    """The plane's allowed-field set is held equal to the API's declared fields by a fleet guard,
-    and the API does not declare this one yet. So the verb returns the key while no caller can
-    send it — the only safe order, because `Deploy Infrastructure` and `Deploy Lambdas` run on
-    one push with no ordering, and a Pass state may not read a key a live image does not return.
-    The release that adds the field to the contract adds it here too."""
-    error, _, athena = _refused(_body(columnIndexes=[0, 2]))
+def test_a_chosen_column_list_passes_through_unchanged():
+    _setup()
+    chosen = v.handler(_event(_body(columnIndexes=[3, 1])), None)
+
+    assert chosen["columnIndexes"] == [3, 1], "the list is emitted in the order it arrived"
+
+
+@pytest.mark.parametrize(
+    "chosen",
+    [[], [0, 0], [-1], [1.5], ["0"], [True], [[0]], "0,1", {"0": 1}],
+    ids=["empty", "repeat", "negative", "float", "string", "bool", "nested", "csv-string", "object"],
+)
+def test_a_chosen_column_list_that_is_not_one_is_refused_before_athena_is_asked(chosen):
+    """Every shape has to REFUSE rather than raise, and the two that make that non-obvious are
+    the nested list and the bool: `set([[0]])` raises TypeError, and `True` is an `int` to
+    `isinstance`, so a duplicate check before the element check, or an element check without the
+    bool clause, turns one of these into an unexplained fault on the execution instead."""
+    error, sent, athena = _refused(_body(columnIndexes=chosen))
+
+    assert error.reason == "invalid_columns"
+    assert athena.calls == [], "the request is refused before the execution is described"
+    assert [message for _, message, _ in sent] == [
+        (
+            "Couldn't save the query results: the columns chosen for this file don't match the "
+            "query's results, so nothing was saved."
+        )
+    ]
+
+
+def test_a_misspelled_chosen_column_field_is_still_an_unknown_field():
+    """The allowed set is a closed vocabulary, so the field had to be ADDED to it — and the
+    neighbouring spelling still refuses, with a different code and a different sentence."""
+    error, _, _ = _refused(_body(columnIndices=[0]))
 
     assert error.reason == "malformed_event"
-    assert "columnIndexes" in error.detail
-    assert athena.calls == [], "an unknown field is refused before the execution is described"
+    assert "columnIndices" in error.detail

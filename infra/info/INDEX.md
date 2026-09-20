@@ -61,7 +61,7 @@ and shared traps: [`control-plane-shape.md`](control-plane-shape.md).
 | `file-send` | send files to another user or space | [README](../modules/file-send/README.md) |
 | `archive` | archive to a GLACIER vault and restore, **and the archive bucket (Bucket 5)** | [README](../modules/archive/README.md) |
 | `file-ops` | move, copy and delete, behind a per-space lock | [README](../modules/file-ops/README.md) |
-| `results-conversion` | a finished execution's result set into a space, as Parquet, JSON or Excel | [README](../modules/results-conversion/README.md) |
+| `results-conversion` | a finished execution's result set into a space, as Parquet, JSON, Excel or CSV | [README](../modules/results-conversion/README.md) |
 
 ## Standalone
 

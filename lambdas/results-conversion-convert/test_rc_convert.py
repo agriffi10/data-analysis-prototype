@@ -10,6 +10,7 @@ import os
 import pathlib
 import re
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 
 import polars as pl
@@ -126,10 +127,15 @@ def s3(tmp_path, monkeypatch):
     return fake
 
 
-def _event(fmt="parquet", on_conflict="refuse", columns=None, filename=None):
-    """The described request, as the machine's Described state hands it over."""
+def _event(fmt="parquet", on_conflict="refuse", columns=None, filename=None, chosen=None):
+    """The described request, as the machine's Described state hands it over.
+
+    `columnIndexes` is always present and is null when the request named no columns, because the
+    `Described` Pass state names it and a Pass hard-fails on an absent key.
+    """
     name = filename or f"q1.{fmt}"
     return {
+        "columnIndexes": chosen,
         "requestId": "req-1",
         "username": "alice",
         "format": fmt,
@@ -448,15 +454,23 @@ def test_the_count_is_the_csvs_own_rows(s3, monkeypatch):
     assert c.handler(event, None)["outcome"] == "converted"
 
 
-def _multi_line_payload(rows: int) -> bytes:
+def _multi_line_payload(rows: int, width: int = 200) -> bytes:
     """A result whose every tenth value is a multi-line JSON document, as Athena quotes it.
 
     Large enough that polars splits the file across threads, which is where a count that tracks
     quotes chunk by chunk goes wrong: polars' fast count read this shape as 3,256 rows of 5,000.
+
+    **`width` is not decoration.** At 200 characters and about 60,000 rows this shape stops being
+    readable by polars' STREAMING sink at all — measured on 1.12.0, `sink_csv` and `sink_parquet`
+    both raise `ComputeError: field is not properly escaped` on a file that Python's own `csv`
+    module and polars' non-streaming `collect` each read correctly, and the same file at 50,000
+    rows sinks fine. That is a limit this plane already had, not one the CSV writer introduced;
+    the plane page records it. A test that needs the file both SPLIT and WRITABLE therefore takes
+    the narrower document, where the fast count is still wrong by tens of thousands of rows.
     """
     lines = ['"id","doc"']
     for i in range(rows):
-        doc = '{\n  ""k"": 1,\n  ""v"": ""' + "z" * 200 + '""\n}' if i % 10 == 0 else "{}"
+        doc = '{\n  ""k"": 1,\n  ""v"": ""' + "z" * width + '""\n}' if i % 10 == 0 else "{}"
         lines.append(f'"{i}","{doc}"')
     return ("\n".join(lines) + "\n").encode()
 
@@ -557,16 +571,32 @@ def test_the_streamed_writers_never_materialise_the_frame(s3, monkeypatch):
 
     Excel is deliberately left unpatched — it CANNOT stream, which is why its size cap is set by
     memory instead of by the disk.
+
+    **CSV is the one streamed format that collects anything**, and the guard had to change shape
+    to admit it: its row count is a projected read of the file it wrote, which cannot leave a
+    LazyFrame without a `collect`. Refusing every `collect` outright would have forbidden an
+    honest count; admitting "a 1x1 result" would have admitted the WRONG count just as readily,
+    since polars' broken fast count collects a 1x1 frame too. So the guard records widths instead
+    and holds Parquet and JSON to collecting NOTHING, which is strictly what they did before.
     """
 
     def refuse(*args, **kwargs):
         raise AssertionError("a streamed conversion materialised the frame")
 
-    monkeypatch.setattr(pl.LazyFrame, "collect", refuse)
     monkeypatch.setattr(pl, "read_csv", refuse)
 
+    widths = _collected_widths(monkeypatch)
     assert c.handler(_event("parquet"), None)["outcome"] == "converted"
     assert c.handler(_event("json"), None)["outcome"] == "converted"
+    assert widths == [], "neither Parquet nor JSON collects anything at all"
+
+    assert c.handler(_event("csv"), None)["outcome"] == "converted"
+    assert widths == [1], (
+        "a CSV conversion collects exactly one thing, one column wide: the row count. The WIDTH "
+        "is all this can see — `pl.len()` and `pl.first().len()` both collect a 1x1 frame — so "
+        "which of the two it is, is asserted by counting a split file with quoted newlines in "
+        "`test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len`"
+    )
 
 
 def test_the_scratch_disk_is_empty_when_the_next_conversion_starts(s3):
@@ -709,7 +739,7 @@ def test_the_row_count_is_the_csvs_own_data_row_count(s3):
     independent = sum(1 for _ in csv.reader(_io.StringIO(s3.payload.decode()))) - 1
     assert independent == rows, "the fixture builder and the CSV parser disagree"
 
-    for fmt in ("parquet", "json", "xlsx"):
+    for fmt in ("parquet", "json", "xlsx", "csv"):
         s3.written.clear()
         assert c.handler(_event(fmt), None)["rows"] == independent, f"{fmt} miscounted"
 
@@ -797,3 +827,250 @@ def test_a_personal_conversion_emits_all_three_child_spans(s3, captured_events):
             f"convert emitted {len(children)} {name!r} child spans, expected exactly one"
         )
         assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
+# ── The chosen columns, and the fourth writer (SPEC-239 FR-003, FR-004) ──────
+
+_ABC = (("a", "varchar", '"1"'), ("b", "varchar", '"2"'), ("c", "varchar", '"3"'))
+
+
+def _abc(s3, rows=1):
+    """Points the fake at a three-column result `a, b, c` and returns its described columns."""
+    s3.payload = _csv(_ABC, rows=rows, decimal=False)
+    s3.size = len(s3.payload)
+    return _columns(_ABC, decimal=False)
+
+
+def test_a_parquet_conversion_writes_only_the_chosen_columns_in_the_chosen_order(s3, tmp_path):
+    columns = _abc(s3)
+
+    result = c.handler(_event("parquet", columns=columns, chosen=[2, 0]), None)
+
+    assert result["outcome"] == "converted"
+    written = pl.read_parquet(_uploaded(s3, tmp_path, ".parquet"))
+    assert written.columns == ["c", "a"], "the file's schema is the chosen order, not the result's"
+    assert written.rows() == [("3", "1")], "and each column carries its own values"
+
+
+def test_a_json_conversion_writes_only_the_chosen_columns_in_the_chosen_order(s3, tmp_path):
+    columns = _abc(s3)
+
+    c.handler(_event("json", columns=columns, chosen=[2, 0]), None)
+
+    lines = [json.loads(line) for line in s3.written[0].decode().splitlines()]
+    assert [list(line) for line in lines] == [["c", "a"]], "keys are exactly the chosen two, in order"
+    assert lines[0] == {"c": "3", "a": "1"}
+
+
+def test_an_excel_conversion_writes_only_the_chosen_columns_in_the_chosen_order(s3, tmp_path):
+    columns = _abc(s3)
+
+    c.handler(_event("xlsx", columns=columns, chosen=[2, 0]), None)
+
+    workbook = zipfile.ZipFile(io.BytesIO(s3.written[0]))
+    shared = [
+        node.text
+        for node in ET.fromstring(workbook.read("xl/sharedStrings.xml")).iter()  # noqa: S314
+        if node.tag.endswith("}t")
+    ]
+    assert shared[:2] == ["c", "a"], "the header row is the chosen columns, in order"
+
+
+def test_a_column_left_out_cannot_be_the_reason_the_file_is_refused(s3, tmp_path):
+    """A `decimal` with no precision is a type this plane refuses outright — `athena_type_of`
+    will not invent a scale. Refusing a whole export over a column the file does not contain
+    would make hiding a column unable to rescue an export that a column's type broke."""
+    pairs = (("a", "varchar", '"1"'), ("b", "decimal", '"2.5"'), ("c", "varchar", '"3"'))
+    s3.payload = _csv(pairs, decimal=False)
+    s3.size = len(s3.payload)
+    columns = _columns(pairs, decimal=False)
+
+    refused = c.handler(_event("parquet", columns=columns), None)
+    assert refused["outcome"] == "refused" and refused["reason"] == "unsupported_column_type"
+
+    s3.written.clear()
+    kept = c.handler(_event("parquet", columns=columns, chosen=[0, 2]), None)
+
+    assert kept["outcome"] == "converted"
+    assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).columns == ["a", "c"]
+
+
+def test_the_excel_cell_cap_counts_the_columns_the_workbook_will_hold(s3, monkeypatch):
+    """The cap is about what the workbook costs to BUILD, so it has to be charged the kept
+    columns. Charged the result's width instead, hiding columns could not rescue a result the
+    cell cap refuses — which is the one repair a user has for it."""
+    wide = tuple((f"c{i}", "varchar", '"x"') for i in range(20))
+    columns = _columns(wide, decimal=False)
+    monkeypatch.setattr(c, "EXCEL_MAX_CELLS", 5_000_000)
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_CELLS", 5_000_000)
+    monkeypatch.setattr(c, "_write_excel", lambda frame, schema, target: _stub_workbook(frame, schema, target))
+
+    s3.payload = _csv(wide, rows=1, decimal=False)
+    s3.size = len(s3.payload)
+
+    assert c.handler(_event("xlsx", columns=columns, chosen=list(range(8))), None)["outcome"] == "converted"
+
+
+def _stub_workbook(frame, schema, target):
+    """The Excel writer with the workbook build replaced, so the refusal is what is measured."""
+    c._refuse_what_excel_cannot_hold(500_000, len(schema))
+    target.write_bytes(b"stub")
+    return 500_000, False
+
+
+def test_the_cell_cap_still_refuses_the_same_result_when_no_columns_are_chosen(s3, monkeypatch):
+    """The positive control for the test above: 500,000 rows of 20 columns is over the cap and
+    8 of them is under it, so the pass there is about the projection and not about the number."""
+    wide = tuple((f"c{i}", "varchar", '"x"') for i in range(20))
+    columns = _columns(wide, decimal=False)
+    monkeypatch.setattr(c, "EXCEL_MAX_CELLS", 5_000_000)
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_CELLS", 5_000_000)
+    monkeypatch.setattr(c, "_write_excel", lambda frame, schema, target: _stub_workbook(frame, schema, target))
+    s3.payload = _csv(wide, rows=1, decimal=False)
+    s3.size = len(s3.payload)
+
+    refused = c.handler(_event("xlsx", columns=columns), None)
+
+    assert refused["outcome"] == "refused" and refused["reason"] == "excel_cell_limit"
+
+
+def test_a_csv_conversion_writes_athenas_own_text_and_keeps_null_apart_from_empty(s3, tmp_path):
+    """The whole claim of the CSV writer: a file made this way holds what a copy of the object
+    would. Only the quoting may differ, and the two encodings agree where it matters — an
+    unquoted empty field is NULL and `""` is an empty string, going in and coming out."""
+    pairs = (
+        ("dbl", "double", '"1.50"'),
+        ("ts", "timestamp", '"2026-09-16 10:00:00.000"'),
+        ("txt", "varchar", '"He said ""hi"", then\nleft"'),
+        ("nothing", "varchar", ""),
+        ("blank", "varchar", '""'),
+    )
+    s3.payload = _csv(pairs, decimal=False)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event("csv", columns=_columns(pairs, decimal=False)), None)
+
+    assert result["outcome"] == "converted" and result["rows"] == 1
+    put = next(kwargs for name, kwargs in s3.calls if name == "put_object")
+    assert put["ContentType"] == "text/csv"
+    read_back = pl.read_csv(
+        _uploaded(s3, tmp_path, ".csv"),
+        schema_overrides={name: pl.String() for name, _, _ in pairs},
+        infer_schema_length=0,
+    )
+    assert read_back.rows() == [("1.50", "2026-09-16 10:00:00.000", 'He said "hi", then\nleft', None, "")], (
+        "the double keeps its trailing zero, the timestamp its space and its milliseconds, the "
+        "quoted newline its newline, and NULL is still not the empty string"
+    )
+
+
+def test_a_csv_conversion_types_nothing_so_a_type_this_plane_cannot_map_is_no_obstacle(s3, tmp_path):
+    """`decimal` with no precision refuses every other format. CSV never asks `schema_of` at all,
+    so the column's own text is written and the conversion succeeds."""
+    pairs = (("a", "varchar", '"1"'), ("b", "decimal", '"2.5"'))
+    s3.payload = _csv(pairs, decimal=False)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event("csv", columns=_columns(pairs, decimal=False), chosen=[1]), None)
+
+    assert result["outcome"] == "converted"
+    assert s3.written[0] == b"b\n2.5\n", "the header is the one kept column and the value is its text"
+
+
+def test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len(s3):
+    """The count `pl.len()` gets wrong, on the shape that makes it wrong: a file large enough for
+    polars to split across threads, holding values with newlines inside their quotes.
+
+    The number is the point, and it is asserted rather than quoted: how far the fast count is
+    wrong moves with the machine's thread count, so a figure written here would not reproduce.
+    Measured on two machines it was tens of thousands of rows short, in the same direction. The
+    second assertion is the positive control — without it a fixture that stopped splitting would
+    make this pass against the broken count as readily as against the right one.
+    """
+    columns = [{"name": "id", "type": "varchar"}, {"name": "doc", "type": "varchar"}]
+    s3.payload = _multi_line_payload(100_000, width=20)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event("csv", columns=columns), None)
+
+    assert result["rows"] == 100_000
+    assert pl.scan_csv(io.BytesIO(s3.payload), infer_schema_length=0).select(
+        pl.len()
+    ).collect().item() != 100_000, (
+        "the fixture no longer splits the way it must, so this test would pass against the "
+        "broken count as well as the right one"
+    )
+
+
+def test_an_occupied_destination_refuses_a_csv_conversion_as_it_refuses_a_parquet_one(s3):
+    s3.occupied = True
+
+    refused = c.handler(_event("csv"), None)
+
+    assert refused["outcome"] == "refused" and refused["reason"] == "destination_occupied"
+    assert s3.written == []
+
+
+@pytest.mark.parametrize(
+    "chosen",
+    [[-1], [0, -1], [1, 1], [], [3], [True], ["1"], [1.0], [[0]], {0: 1}, (0, 2), "02"],
+    ids=[
+        "negative", "negative-among-valid", "repeat", "empty", "past-the-end", "bool", "string",
+        "float", "nested", "object", "tuple", "string-of-digits",
+    ],
+)
+def test_a_chosen_list_that_is_not_positions_of_this_result_is_a_LOUD_fault(s3, chosen):
+    """Every one of these writes a FILE if it is not checked, which is why the check is here as
+    well as upstream. `[-1]` indexes from the end and would write the LAST column while reporting
+    success; `[1, 1]` collapses in the schema dict and writes one column where two were asked
+    for; `[]` writes a Parquet file of no columns at all, and it uploads. Measured, before this
+    guard: `[-1]` converted and the file held column `c`.
+
+    The last four are about the clause ORDER rather than about writing a file: a list holding a
+    list must be caught before `set` is asked to hash it, and a dict of valid positions must be
+    caught before anything iterates its KEYS — which would satisfy every remaining clause and
+    convert as though the contract permitted a mapping here.
+
+    A fault rather than a refusal, because validate-authorize refuses all of these and
+    describe-results the upper bound — reaching convert means the states disagree, which is the
+    same class as the header check and is treated the same way."""
+    columns = _abc(s3)
+
+    with pytest.raises(RuntimeError, match="distinct positions"):
+        c.handler(_event("csv", columns=columns, chosen=chosen), None)
+
+    assert s3.written == [], "nothing is uploaded when the state cannot be trusted"
+
+
+def test_convert_survives_a_state_that_does_not_carry_the_key_at_all(s3, tmp_path):
+    """The deploy window this whole ordering exists for, from the other side: this verb's new
+    image runs against the PREVIOUS ASL for as long as the two deploys take, and that ASL's
+    `Described` Pass names no `columnIndexes`. Reading it with `events.require` instead of `get`
+    is a KeyError on every conversion in that window — and every other fixture here sets the key,
+    so nothing else in this file would notice."""
+    event = _event("parquet")
+    del event["columnIndexes"]
+
+    result = c.handler(event, None)
+
+    assert result["outcome"] == "converted"
+    assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).width == len(_columns())
+
+
+def test_a_dropped_columns_VALUES_are_never_parsed_either(s3, tmp_path):
+    """The type half of this is covered above; this is the value half, which is the one a user
+    meets. A `bigint` column holding text refuses the whole conversion — and leaving that column
+    out converts, because the projection pushes down past it and the value is never read."""
+    pairs = (("a", "varchar", '"1"'), ("b", "bigint", '"not-a-number"'), ("c", "varchar", '"3"'))
+    s3.payload = _csv(pairs, decimal=False)
+    s3.size = len(s3.payload)
+    columns = _columns(pairs, decimal=False)
+
+    refused = c.handler(_event("parquet", columns=columns), None)
+    assert refused["outcome"] == "refused" and refused["reason"] == "results_unreadable"
+
+    s3.written.clear()
+    kept = c.handler(_event("parquet", columns=columns, chosen=[0, 2]), None)
+
+    assert kept["outcome"] == "converted"
+    assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).columns == ["a", "c"]
