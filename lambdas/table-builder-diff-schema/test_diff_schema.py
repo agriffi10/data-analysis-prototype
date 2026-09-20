@@ -281,6 +281,45 @@ def test_a_removal_refusal_on_a_name_matched_format_says_nothing_about_positions
     )
 
 
+def test_a_column_named_after_the_sentences_own_marker_does_not_splice_it_into_the_list():
+    """The sentence is substituted before the column names, so a column literally named
+    ``{removalEffect}`` cannot have it spliced into the middle of the list it introduces.
+
+    Column names come verbatim from a Glue column and are validated nowhere on this path, so a
+    table created through the Glue API can carry one. ``cpcommon.messages._fill`` walks the token
+    mapping in order with ``str.replace``, so the guard is the mapping's ORDER and nothing else —
+    reordered back, the sentence lands inside the column list and then again in its own slot.
+    What this does NOT fix, and is the resolver's to close rather than this verb's: the markers
+    the message layer adds after the tokens are still substituted into user values, so a column
+    named ``{name}`` still renders as the table's name. The sentence appears exactly once here,
+    which a containment check could not tell from twice.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    queue = _arm_notifications()
+    event = _event(
+        _cols(("keep", "string"), ("{removalEffect}", "string")), _cols(("keep", "string"))
+    )
+
+    _expect_reason(event, "columns_removed")
+
+    message = json.loads(queue.calls[0]["MessageBody"])["message"]
+    assert message.count("Because this is a CSV table") == 1, message
+    assert message == (
+        'Couldn\'t refresh table "sales_2026": these columns aren\'t in the first file in the '
+        "table's folder and would be removed: . Because this is a CSV table, any file that still "
+        "has them would have the values after them read into the wrong columns. Nothing was "
+        "changed - refresh again and confirm the removal to apply it."
+    )
+
+
 def test_the_removal_sentence_names_every_format_that_earns_it():
     """The sentence above says "CSV" in words while the code branches on
     ``ddl.POSITIONAL_FORMATS``, and those agree only because CSV is that set's one member.

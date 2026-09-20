@@ -152,9 +152,10 @@ def removed_tokens(names: list[str], fmt: str) -> dict:
       fmt: The source format, which decides whether the removal costs more than the columns.
 
     Returns:
-      ``{"removed": …, "removedNames": …, "removalEffect": …}`` — the capped display string the
-      message body renders, the JSON list the notification link is built from, and the
-      format's sentence, empty where the SerDe matches by name.
+      ``{"removalEffect": …, "removed": …, "removedNames": …}``, in that order — the format's
+      sentence, empty where the SerDe matches by name; the capped display string the message body
+      renders; and the JSON list the notification link is built from. The order is load-bearing,
+      for the reason above.
 
     Raises:
       None.

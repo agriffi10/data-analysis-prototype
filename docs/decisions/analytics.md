@@ -77,17 +77,18 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   agreement checks each file against the columns the table DECLARES, by the files' names —
   comparing files with each other read a swap as agreement.
 - **A CSV table's declared column order is a positional contract, so a refresh never moves a column
-  the table already holds.** apply-refresh writes the LIVE table's order — minus what the first
-  file dropped — then appends what is new, in the first file's order; JSON and Parquet keep the
-  first file's, where order only lays out `SELECT *`. Taking the first file's order shifted every
-  older file by one whenever a column was inserted mid-header or a different file sorted first, and
-  **nothing errored**: every CSV column is `string`, the diff folds names and never compares
-  positions, and the read-back compares name SETS, so the refresh reported success. Keeping the
-  order does not prevent a misread — it decides which file takes it, now the one that misplaced the
-  column. The sort is STABLE over a LIST, never a dict keyed on the fold: two names that fold
-  together must survive as two entries to reach `update_failed`. A removal is the case this cannot
-  help, so the `columns_removed` refusal says what it costs a file that still has the column,
-  worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
+  the table already holds. This does NOT prevent a misread — it decides which file takes it**, now
+  the one that misplaced the column rather than every older one. apply-refresh writes the LIVE
+  table's order — minus what the first file dropped — then appends what is new, in the first file's
+  order; JSON and Parquet keep the first file's, where order only lays out `SELECT *`. Taking the
+  first file's order shifted every older file by one whenever a column was inserted mid-header or a
+  different file sorted first, and **nothing errored**: every CSV column is `string`, the diff folds
+  names and never compares positions, and the read-back compares name SETS, so the refresh reported
+  success. The sort is STABLE over a LIST, never a dict keyed on the fold: two names that fold
+  together must survive as two entries to reach `update_failed` (the collision test reddens on the
+  dict). A removal is the case this cannot help and it does not heal — a removed column returns as
+  a NEW one, at the end — so the `columns_removed` refusal says what it costs a file that still has
+  the column, worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
@@ -1463,19 +1464,23 @@ Scope in the spec, and refusing the refresh was put to Andrew and rejected; what
 instead is that the sequence is pinned by a test rather than argued about, and that the Refresh
 guide says a removed column comes back at the end. Rebuilding the table is the repair.
 
+**The refusal is where the user is told.** The opt-in stays the whole gate, so the
+`columns_removed` refusal gained a sentence saying what the removal costs:
+`tbcommon.messages.removed_tokens` takes the format and supplies a `removalEffect` token the
+template renders, empty where the SerDe matches by name. The sentence is placed BEFORE the names
+in the returned mapping, because the resolver substitutes by `str.replace` in mapping order and a
+column literally named `{removalEffect}` would otherwise have it spliced into the column list. It is unconditional for the format rather than judged on which columns went — removing only
+the last column is harmless, but a refusal that said so would have to know which columns are last,
+which the dialog carrying the same sentence cannot. The wording names CSV while the code branches
+on `POSITIONAL_FORMATS`; a test pins that set's membership, so a format joining it reddens there
+rather than shipping a sentence calling Parquet a CSV.
+
 **Data-quality cannot see this, and says so about the FILES only.** `dqcommon.report.cross_file`
 judges each file against the declared union of the folder's headers, in first-seen order — never
 against the live table, which it does not read. While a refresh took the first file's order the two
 effectively agreed; now a table whose order has drifted from its folder reads a clean data-quality
 report, because the files do agree with each other. The report's `shifted` finding is a claim about
-the folder, not about the catalog. The opt-in stays the whole gate, so the
-`columns_removed` refusal gained a sentence saying it: `tbcommon.messages.removed_tokens` takes the
-format and supplies a `removalEffect` token the template renders, empty where the SerDe matches by
-name. It is unconditional for the format rather than judged on which columns went — removing only
-the last column is harmless, but a refusal that said so would have to know which columns are last,
-which the dialog carrying the same sentence cannot. The wording names CSV while the code branches
-on `POSITIONAL_FORMATS`; a test pins that set's membership, so a format joining it reddens there
-rather than shipping a sentence calling Parquet a CSV.
+the folder, not about the catalog.
 
 **One source for the format.** Both verbs read `format` off the state as a required field — it is
 already there, set by inspect-source and carried whole, and infer-schema has already refused any
