@@ -532,7 +532,10 @@ describe('exporting what the grid shows (SPEC-239 FR-005)', () => {
     await grid();
 
     const dialog = await saveAs(user, 'out');
-    expect(within(dialog).queryByText(/columns shown are saved/)).not.toBeInTheDocument();
+    // Matched on the sentence the dialog ACTUALLY renders. This read `/columns shown are saved/`,
+    // which the copy had since been reworded away from — a negative query pointed at a string
+    // nothing produces passes whatever the dialog shows.
+    expect(within(dialog).queryByText(/The file holds \d+ result column/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
 
     await waitFor(() => expect(copyObject).toHaveBeenCalledTimes(1));

@@ -1,7 +1,7 @@
 # Spec: An Export Leaves Out the Columns the Grid Hides
 
 **ID:** SPEC-239
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-20
 **Depends On:** SPEC-185, SPEC-221, SPEC-222, SPEC-223, SPEC-229
 

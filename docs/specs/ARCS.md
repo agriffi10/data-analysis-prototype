@@ -1568,6 +1568,13 @@ virtual keys — is out for the same kind of reason: an Athena result is not an 
 > second bill" true, and it is also why exporting a *selection* is out of scope: a partial export
 > would need either a second query or a re-serialization of rows that are not all loaded.
 >
+> > **Partly superseded by SPEC-239 (2026-09-20).** A partial export by COLUMN ships, and it took
+> > the second of the two branches this paragraph names: the results-conversion plane re-serialises
+> > the execution's own result object, so there is still no second query and no second bill, and a
+> > CSV that keeps only some of the columns is converted rather than copied. Exporting a *row*
+> > selection remains out of scope for the reason given. Full entry: `docs/decisions/control-planes.md`,
+> > *A conversion may keep a subset of the result's columns*.
+>
 > **Reusing `useSaveResults` turned out to require moving it**, which the spec had listed as out of
 > scope on a reading of "change" that a relocation does not meet. It sat in `features/query/`, which
 > this feature may not import — the same wall SPEC-176 and SPEC-177 were built to take modules
@@ -3143,6 +3150,11 @@ verifies its own paydown; 227 keeps only the two archive comments, which are its
 Seven specs written together from the testers' feedback of 8–15 September 2026, after #804 and #807
 shipped the batch that needed no spec. Six groups came from the feedback. The seventh is a gap found
 while reviewing them: a tester hides columns in order to export, and export saved every column.
+
+> **SPEC-239 shipped 2026-09-20**, in three releases: the verbs return the key, the machine carries
+> it and the converter writes a subset (gaining a CSV writer, because a copy cannot produce a file
+> the grid's columns shape), and the browser sends what it is showing. The sentence above is now
+> history rather than a live defect.
 
 **The one size split.** Filtering was a single group: text operators, lists, empty cells, and a
 DBeaver-style "filter by value". Written as one spec it ran past the FR ceiling, so it was cut where

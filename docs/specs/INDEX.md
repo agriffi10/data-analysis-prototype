@@ -244,7 +244,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 236 — A Run That Ends on an Error No Catch Takes Still Tells the User | Cancelled |
 | 237 — A Restore Never Copies Over a File, and One Archive Id Is One Run | Completed |
 | 238 — A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell | Completed |
-| 239 — An Export Leaves Out the Columns the Grid Hides | Draft |
+| 239 — An Export Leaves Out the Columns the Grid Hides | Completed |
 | 240 — A Data-Quality Report Shows Where Its Issues Are | Completed |
 | 241 — A Column's Values, Counted, Are a Filter You Tick | Cancelled |
 | 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | Draft |
