@@ -57,10 +57,14 @@ Attributes:
   _TEXT: What a column whose dominant type covers too little of its non-null values is called. It
     is not a broken numeric column, it is free text that happens to contain numbers.
   _JSON_ESCAPED_STRING_CHARS: Longest one string of a duplicate-samples cell can be once JSON has
-    escaped it, in CHARACTERS: every one of ``sql.SAMPLE_VALUE_CHARS`` escaping to six, plus the two
-    quotes and the comma separating it from the next. Derived rather than measured, because the cell
-    is the user's own data and its worst case is a file of control characters — not a file anyone
-    would notice was unusual.
+    escaped it, in CHARACTERS: every one of ``sql.SAMPLE_VALUE_CHARS`` escaping to TWELVE, plus the
+    two quotes and the comma separating it from the next. Twelve rather than six because the cut
+    that bounds the value is Trino's ``substr``, which counts CODE POINTS — so a value may be 201
+    astral code points, and JSON escapes each of those as a surrogate PAIR — twelve characters,
+    two backslash-u sequences. A control character or a BMP character costs six; only the astral
+    case costs twelve, and it is the one that decides the bound. Derived rather than measured, because
+    the cell is the user's own data and its worst case is a file of emoji — not a file anyone would
+    notice was unusual.
   _CSV_DEFAULT_FIELD_CHARS: ``csv``'s own per-field limit, captured at import so the floor in
     ``duplicates_field_size_limit`` is the DEFAULT rather than whatever the limit happens to be when
     it is called.
@@ -130,7 +134,7 @@ class MissingProfileError(ValueError):
     """The profile result had no total row; the caller raises the terminal."""
 
 
-_JSON_ESCAPED_STRING_CHARS = sql.SAMPLE_VALUE_CHARS * 6 + 3
+_JSON_ESCAPED_STRING_CHARS = sql.SAMPLE_VALUE_CHARS * 12 + 3
 
 _CSV_DEFAULT_FIELD_CHARS = csv.field_size_limit()
 

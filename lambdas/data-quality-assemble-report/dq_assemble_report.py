@@ -229,15 +229,17 @@ def _within_document_cap(document: dict) -> bytes:
     one whose absence the report can explain in a sentence.
 
     **They are not the largest thing a report can carry, and this mechanism does not make a report
-    fit.** Measured over a 200-column source: the widest ``duplicateSamples`` block is about 1.2 MB,
-    while ``exact.columns[].sampleOffending`` — ten values of 200 characters per column, also the
-    user's own data, also multiplied by the schema — reaches about 2.4 MB in ASCII and about 4.8 MB
-    when the values are non-BMP, which is over the cap on its own. Such a report is written over the
-    cap with nothing to shed, and the page cannot open it. That is a pre-existing gap this spec
-    neither introduced nor closed; it is recorded in the control-planes register rather than left
-    for the next reader to rediscover by measuring. What this mechanism guarantees is narrower and
-    worth having: a report that WOULD have opened does not stop opening because samples were added
-    to it.
+    fit.** Measured at the column cap: a whole report whose every column carries a full
+    ``sampleOffending`` is 428,817 bytes of ASCII and 4,828,817 bytes of astral text — 154% of the
+    cap, on its own, with no samples in it at all. Such a report is written over the cap with
+    nothing to shed, and the page cannot open it. That is a pre-existing gap this spec neither
+    introduced nor closed, recorded with its figures and its method in the control-planes register
+    rather than left to be rediscovered.
+
+    What decides that is the CHARACTER SET rather than which figure carries the values: both are
+    bounded in characters and spent in bytes, and JSON escapes an astral code point as a surrogate
+    pair. What this mechanism guarantees is correspondingly narrow, and still worth having: a report
+    that WOULD have opened does not stop opening because samples were added to it.
 
     Dropped only when there are samples to drop. A report already over the cap without them was
     over it before this existed, and replacing an absent field — or the sentence a nested source

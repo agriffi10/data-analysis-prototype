@@ -35,6 +35,8 @@ Attributes:
   FIXTURES: The browser module mirroring this plane's report wording.
   PAGE: The report view, which states the value cut in a note beneath the samples table.
   HELP: The in-app guide, which states how many rows the report keeps.
+  _SPELLED: Small counts as the Help guide spells them. A value outside it is not a bug in the
+    guide — it is a constant this test cannot check, and it says so rather than raising.
   _ESCAPES: The TypeScript string escapes this reader resolves. Deliberately a closed set: an
     escape it does not know is a value it would compare wrongly, so ``_string_literals`` refuses
     one rather than passing the backslash through and failing with a confusing diff.
@@ -69,6 +71,8 @@ PAGE = FIXTURES.parent / "DataQualityReportPage.tsx"
 HELP = FIXTURES.parent.parent / "help" / "helpContent.ts"
 
 _ESCAPES = {"'": "'", '"': '"', "\\": "\\", "n": "\n", "t": "\t"}
+
+_SPELLED = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven"}
 
 
 def _string_literals(declaration: str) -> list[str]:
@@ -219,11 +223,8 @@ def test_the_literal_reader_handles_the_source_the_formatter_actually_produces()
 
 @pytest.mark.parametrize(
     ("path_name", "sentence", "expected"),
-    [
-        ("PAGE", "Values longer than {} characters are shortened.", report.MAX_SAMPLE_VALUE_CHARS),
-        ("HELP", "it lists up to {} of the most repeated ones", "five"),
-    ],
-    ids=["the page's truncation note", "the Help guide's sample count"],
+    [("PAGE", "Values longer than {} characters are shortened.", report.MAX_SAMPLE_VALUE_CHARS)],
+    ids=["the page's truncation note"],
 )
 def test_the_browser_states_this_planes_figures_and_not_its_own(path_name, sentence, expected):
     """Holds each figure the browser TYPES OUT against the constant that actually decides it.
@@ -254,11 +255,15 @@ def test_the_browser_states_this_planes_figures_and_not_its_own(path_name, sente
 
 
 def test_the_help_guides_word_for_the_sample_count_is_the_one_the_config_sets():
-    """Ties the guide's spelled-out "five" to ``DQ_DUPLICATE_SAMPLE`` rather than to a habit.
+    """Reads the guide's spelled-out count THROUGH ``DQ_DUPLICATE_SAMPLE`` rather than beside it.
 
-    The test above pins the guide's sentence to the literal word, which holds the prose still but
-    would keep passing if the constant were raised to six. This is the other half: the word and the
-    number, mapped, so raising the constant fails here and names what to edit.
+    The guide writes the figure as an English word, so the number cannot be compared directly and a
+    test that pinned the literal "five" would hold the prose still while the constant moved beneath
+    it. Spelling the constant and searching for THAT sentence ties the two together in one
+    assertion: raise the constant and the search fails, naming the sentence to edit.
+
+    An unspellable value fails with the repair rather than with a ``KeyError`` from inside a
+    lookup — a guard whose own failure has to be decoded is one the next reader works around.
 
     Args:
       None.
@@ -269,6 +274,10 @@ def test_the_help_guides_word_for_the_sample_count_is_the_one_the_config_sets():
     Raises:
       None.
     """
-    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    spelled = _SPELLED.get(config.DQ_DUPLICATE_SAMPLE)
+    assert spelled is not None, (
+        f"DQ_DUPLICATE_SAMPLE is {config.DQ_DUPLICATE_SAMPLE}, which this test has no word for: "
+        "add it to _SPELLED, then edit the Help guide's sentence to match"
+    )
 
-    assert words[config.DQ_DUPLICATE_SAMPLE] == "five"
+    assert f"it lists up to {spelled} of the most repeated ones" in HELP.read_text(encoding="utf-8")

@@ -1324,8 +1324,11 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
     ``csv`` caps a field at 131,072 characters and assemble-report re-raises everything but a
     missing object, so one oversized cell fails the whole report rather than one figure. The worst
     case is ``DQ_DUPLICATE_SAMPLE`` rows of the column cap's worth of values at the statement's cut,
-    every character one JSON escapes to six — a file of control characters, which is not a file
-    anyone would notice was unusual. The raised limit is asserted to be what made the difference, by
+    every character an ASTRAL one — a file of emoji, which is not a file anyone would notice was
+    unusual. Astral rather than a control character because the statement's cut counts code points
+    and JSON escapes an astral code point as a surrogate pair: twelve characters where a control
+    character costs six, so this is the case that decides the bound and a control-character fixture
+    would leave the limit half as large as it needs to be, with the suite green. The raised limit is asserted to be what made the difference, by
     reading the same cell at the default first and watching it refuse.
 
     **The fixture is the WHOLE worst case, and that is what makes the derivation testable.** At one
@@ -1346,7 +1349,7 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
     """
     names = [f"c{index}" for index in range(config.DQ_MAX_COLUMNS)]
     files = [_file("alice/sales/a.csv", names)]
-    worst = [chr(1) * sql.SAMPLE_VALUE_CHARS] * config.DQ_MAX_COLUMNS
+    worst = [chr(0x1F600) * sql.SAMPLE_VALUE_CHARS] * config.DQ_MAX_COLUMNS
     sampled = [[str(5 - index), *worst] for index in range(config.DQ_DUPLICATE_SAMPLE)]
     cell = json.dumps(sampled)
     body = _csv([{"duplicate_rows": "4", "duplicate_samples": cell}])
@@ -1371,7 +1374,7 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
     assert len(written) == config.DQ_DUPLICATE_SAMPLE
     assert written[0]["repeats"] == 5
     assert len(written[0]["values"]) == config.DQ_MAX_COLUMNS
-    assert written[0]["values"][0] == chr(1) * report.MAX_SAMPLE_VALUE_CHARS + "\u2026"
+    assert written[0]["values"][0] == chr(0x1F600) * report.MAX_SAMPLE_VALUE_CHARS + "\u2026"
     # The cell really does sit at the limit's shoulder, so no term of the arithmetic has slack to
     # hide in: halve any of them and the computed limit falls below this cell.
     assert limit > len(cell) > limit - limit // 100, (len(cell), limit)

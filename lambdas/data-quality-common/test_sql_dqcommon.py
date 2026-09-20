@@ -411,12 +411,38 @@ def test_every_scalar_type_is_rendered_through_one_cast_to_varchar(column_type):
     assert "substr(CAST(c0 AS varchar), 1, 201)" in query
 
 
-@pytest.mark.parametrize(
-    "nested_type",
-    ["array<string>", "struct<a:string,b:bigint>"],
-    ids=["a list column", "an object column"],
-)
-def test_a_nested_column_keeps_the_statement_that_already_worked(nested_type):
+#: One declarable column type per prefix ``_NESTED_TYPES`` refuses, keyed BY that prefix so the
+#: population below is the constant's rather than a copy of it. A prefix added without an example
+#: here fails ``test_every_refused_prefix_has_a_column_to_refuse`` by name — which is the whole
+#: point: a hand-listed population drifts silently, and the drift looks exactly like a passing test.
+_NESTED_EXAMPLES = {
+    "array<": "array<string>",
+    "struct<": "struct<a:string,b:bigint>",
+}
+
+
+def test_every_refused_prefix_has_a_column_to_refuse():
+    """Holds the nested-type examples equal to the prefixes the builder actually refuses.
+
+    Equality, not a subset: a subset passes while the constant declares a prefix no test exercises,
+    which is the case this exists to catch. Adding ``map<`` to ``_NESTED_TYPES`` without a column
+    of that type here fails HERE, naming the prefix, rather than leaving the new arm untested and
+    green — the shape that let ``struct<`` go unexercised in the first place.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    assert set(_NESTED_EXAMPLES) == set(sql._NESTED_TYPES)
+
+
+@pytest.mark.parametrize("prefix", sql._NESTED_TYPES, ids=list(sql._NESTED_TYPES))
+def test_a_nested_column_keeps_the_statement_that_already_worked(prefix):
     """Leaves a source holding a list or an object with today's statement, byte for byte.
 
     Trino documents no cast from an array or a row to varchar, and a cast the engine refuses fails
@@ -424,13 +450,14 @@ def test_a_nested_column_keeps_the_statement_that_already_worked(nested_type):
     expected string is written out rather than taken from a second builder call, so a change that
     moved both arms together would still be visible here.
 
-    Both nested families are exercised, because ``_NESTED_TYPES`` names two prefixes and a test of
-    one cannot see the other go missing: dropping ``struct<`` sends a Parquet source with an object
-    column down the sampling arm, where ``CAST(struct AS varchar)`` fails the whole statement and
-    takes the duplicate count with it.
+    Parametrised over ``_NESTED_TYPES`` ITSELF rather than over a list written here, so the
+    population is the constant's and grows with it. A test of one prefix cannot see another go
+    missing: dropping ``struct<`` sends a Parquet source with an object column down the sampling
+    arm, where ``CAST(struct AS varchar)`` fails the whole statement and takes the duplicate count
+    with it.
 
     Args:
-      nested_type: The declared type of the column the statement must refuse to render.
+      prefix: One prefix the builder refuses, from the constant that lists them.
 
     Returns:
       None.
@@ -440,7 +467,7 @@ def test_a_nested_column_keeps_the_statement_that_already_worked(nested_type):
     """
     nested = [
         {"name": "id", "type": "bigint"},
-        {"name": "tags", "type": nested_type},
+        {"name": "tags", "type": _NESTED_EXAMPLES[prefix]},
     ]
 
     query = _duplicates(nested, _SAMPLE_KEYS, "json")

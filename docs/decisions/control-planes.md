@@ -2413,18 +2413,41 @@ A source with an `array<…>` or `struct<…>` column keeps the previous stateme
 records its samples as omitted: Trino documents no cast from either to varchar, and a cast the engine
 refuses fails the whole statement — trading the count that works today for a sample.
 
-**Measured and NOT closed: the samples are not the largest thing a report carries.** The drop
-mechanism is scoped to them because they are what this spec added and the one absence the report can
-explain in a sentence — not because they dominate the document. Over a 200-column source the widest
-`duplicateSamples` block is about **1.2 MB**, while `exact.columns[].sampleOffending` — ten values of
-`MAX_SAMPLE_VALUE_CHARS` per column, equally the user's data and equally multiplied by the schema —
-reaches about **2.4 MB** of ASCII and about **4.8 MB** when those values are non-BMP, which is over
-the cap on its own. Such a report is written over the cap with nothing for the mechanism to shed,
-and the page refuses to open it. That predates this spec and is recorded rather than fixed here,
+**Measured and NOT closed: what decides a report's size is the CHARACTER SET of the user's values,
+not which figure carries them.** The drop mechanism is scoped to the samples because they are what
+this spec added and the one absence the report can explain in a sentence — not because they dominate
+the document. Measured at `DQ_MAX_COLUMNS`, serialized as the write serializes:
+
+| | ASCII values | astral values (emoji) |
+|---|---|---|
+| widest `duplicateSamples` block | 206,481 B | 2,428,481 B |
+| whole report with a full `sampleOffending` on every column | 428,817 B | **4,828,817 B** |
+
+against a cap of 3,145,728 B. **In ASCII neither figure is close; in astral text either one is
+within reach and `sampleOffending` alone clears the cap at 154% of it.** The multiplier is ~11.8,
+and it is the unit trap this area's fences name: both figures are bounded in CHARACTERS
+(`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and JSON escapes one astral code point as a surrogate
+pair — twelve characters where a control character or a BMP character costs six. A report of astral
+`sampleOffending` is written over the cap with nothing for the mechanism to shed, and the page
+refuses to open it.
+
+The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
+rather than six: Trino's `substr` cuts by code point, so a sampled value can be
+`SAMPLE_VALUE_CHARS` astral ones. Sized at six — which it was, until the figures above were
+measured — a genuinely emoji-heavy wide table would fail the whole report on a cell the statement
+was entitled to return. That predates this spec and is recorded rather than fixed here,
 because bounding the offending values is a change to a figure users already read. What the cap does
 guarantee is narrower and still worth having: **a report that would have opened does not stop
-opening because samples were added to it.** Re-measure before assuming the numbers above still hold;
-they move with `DQ_OFFENDING_VALUE_SAMPLE`, `MAX_SAMPLE_VALUE_CHARS` and `DQ_MAX_COLUMNS`.
+opening because samples were added to it.**
+
+**The method, so the next reader re-measures instead of trusting** (the figures move with
+`DQ_OFFENDING_VALUE_SAMPLE`, `MAX_SAMPLE_VALUE_CHARS`, `DQ_MAX_COLUMNS` and `DQ_DUPLICATE_SAMPLE`,
+and were taken 2026-09-20): build a report through `report.build` over a `DQ_MAX_COLUMNS`-wide
+source, serialize it with `json.dumps(..., sort_keys=True, separators=(",", ":"))` — what
+`dq_assemble_report._serialize` does, so the figure is the one the cap compares — and read its
+length. **Make the columns numeric-DOMINANT with a few stragglers**, or `_column` writes no
+`sampleOffending` at all and the report measures 22 KB: a first attempt at these figures did exactly
+that and read 1% of the cap. Then run it twice, once with ASCII values and once with astral ones.
 
 **Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
 recovering it means aggregating paths for every group or scanning a second time. The per-file row
