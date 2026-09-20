@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import dq_assemble_report as v
 import pytest
 from cpcommon.errors import TerminalError
+from dqcommon import report
 
 BUCKET = "dq-user-bkt"
 PREFIX = "alice/_data-quality-reports/req-1"
@@ -313,3 +314,353 @@ def test_a_result_that_is_nowhere_raises_a_terminal_with_a_friendly_reason(monke
     assert excinfo.value.reason == "query_failed"
 
 
+# ── The samples, and the cap the report is read through ──────────────────────
+
+
+def _samples_cell(rows, count=None):
+    """One duplicates result whose samples cell is rendered as ``json_format`` renders it.
+
+    Args:
+      rows: The sampled rows, each a list whose first element is the repeat count as text.
+      count: The duplicate-row figure, defaulting to the repeats past the first of each row.
+
+    Returns:
+      The result object's bytes.
+
+    Raises:
+      None.
+    """
+    total = count if count is not None else sum(int(row[0]) - 1 for row in rows)
+    return _csv([{"duplicate_rows": total, "duplicate_samples": json.dumps(rows)}])
+
+
+def _wide_profile(columns: int) -> bytes:
+    """A profile result over ``columns`` string columns, for the wide-source fixture.
+
+    ``report.build`` zips the manifest's columns against the profile's positional aliases with
+    ``strict=True``, so a wide manifest needs a profile of the same width or the report raises
+    before the read under test can matter.
+
+    Args:
+      columns: How many columns the source declares.
+
+    Returns:
+      The profile result object's bytes.
+
+    Raises:
+      None.
+    """
+    row = {"source_file": "", "is_total": 1, "row_count": 1000}
+    for index in range(columns):
+        alias = f"c{index}"
+        row[f"{alias}_missing"] = 0
+        for cast in ("bigint", "double", "timestamp", "date"):
+            row[f"{alias}_not_{cast}"] = 0
+        row[f"{alias}_sample_non_numeric"] = ""
+        row[f"{alias}_sample_non_temporal"] = ""
+    return _csv([row])
+
+
+def _report(fake):
+    """The report document this run wrote.
+
+    Args:
+      fake: The stubbed S3.
+
+    Returns:
+      The parsed report.
+
+    Raises:
+      None.
+    """
+    written = [p for p in fake.puts if p["Key"].endswith("report.json")]
+    return json.loads(written[-1]["Body"])
+
+
+def test_the_samples_reach_the_report_through_a_reader_sized_for_them(monkeypatch):
+    """Reads a duplicates cell wider than the CSV reader's default and writes what it held.
+
+    The route end to end, and the only test that covers it: ``report.parse_result`` is handed the
+    computed limit by THIS verb, and the unit tests that prove the limit itself works call it
+    directly rather than through a handler.
+
+    So the cell has to be one the DEFAULT refuses, and that takes a WIDE source. At the two columns
+    every other fixture here uses, five rows of ``sql.SAMPLE_VALUE_CHARS`` values cannot approach
+    131,072 characters however badly they escape — the limit only binds past about twenty grouped
+    columns, which is the whole reason it is computed from the column count rather than set once.
+    Hence the thirty-column manifest, and the two measurements before the run: without them a
+    comfortable cell would read fine with the limit removed and this test would assert nothing.
+    """
+    names = [f"col{index}" for index in range(30)]
+    manifest = {
+        "format": "csv",
+        "fileCount": 1,
+        "files": [
+            {
+                "key": "alice/sales/a.csv",
+                "size": 300,
+                "columns": [{"name": name, "type": "string"} for name in names],
+            }
+        ],
+    }
+    first = ["z" * 200] * len(names)
+    # Every character one JSON escapes to six, which is what the computed limit is sized against.
+    filler = [chr(1) * 200] * len(names)
+    samples = [["3", *first], *[[str(n), *filler] for n in range(2, 6)]]
+    encoded = json.dumps(samples)
+    assert len(encoded) > csv.field_size_limit()
+    assert report.duplicates_field_size_limit(len(names)) > len(encoded)
+
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+                "alice/athenaresults/data-quality/req-1/profile/q1.csv": _wide_profile(len(names)),
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 4, "duplicate_samples": encoded}]
+                ),
+            }
+        ),
+    )
+
+    v.handler(_event(), None)
+
+    written = _report(fake)["exact"]["duplicateSamples"]
+    assert written["columns"] == names
+    assert written["rows"][0] == {"repeats": 3, "values": first}
+
+
+def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
+    monkeypatch, captured_events
+):
+    """Drops the samples — and nothing else — from a report too large for the browser to open.
+
+    The browser reads a report through the document route's size cap, so a report above it is not
+    a large report but an unreadable one, and every finding in it is lost with the part that made
+    it big.
+
+    This lowers the cap AND enlarges the samples, and the first half is unavoidable rather than a
+    shortcut. The samples are bounded by the statement that produces them — ``DQ_DUPLICATE_SAMPLE``
+    rows of ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS`` each — so measured as the
+    write measures them, SERIALIZED, the block runs 206 KB of plain ASCII to 2.4 MB of astral text
+    against a 3 MiB cap. No samples fixture crosses that on its own. In production the branch needs
+    a report whose OTHER figures already sit within about 700 KB of the cap, which a unit test would
+    have to build a 200-column report with full offending-value samples to reproduce.
+
+    The three figures are the same block counted three ways, and the spread is the point: a
+    character count is not a byte count, and JSON escapes a control character to six and an astral
+    code point to twelve. An earlier draft of this paragraph quoted the raw character count, 204 KB,
+    as if it were the serialized size, and understated the production window by a factor of ten. What the lowered cap cannot hide is a wrong constant, which
+    ``test_data_quality_report_contract.py`` pins against the API's independently — and the samples
+    are still what crosses the cap here, which is what the assertions below check.
+    """
+    huge = [[str(n), "z" * 200, "y" * 200] for n in range(2, 7)]
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    huge, count=5
+                )
+            }
+        ),
+    )
+    monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", 1500)
+
+    v.handler(_event(), None)
+
+    document = _report(fake)
+    assert document["exact"]["duplicateSamples"] == {
+        "omitted": v.report.SAMPLES_OMITTED_TOO_LARGE
+    }
+    assert document["exact"]["duplicateRows"] == 5
+    assert document["exact"]["rowCount"] == 1000
+    assert document["verdict"] == "issues_found"
+    assert len(fake.puts[0]["Body"]) <= 1500
+    # The size is reported once, and it is the size of the document that did NOT fit — the
+    # written one is under the cap by construction and saying so would tell an operator nothing.
+    over = [e for e in captured_events.events if e.get("message") == v.OVER_CAP_EVENT]
+    assert [e["fields"]["report_bytes"] for e in over] == [
+        _samples_body(document, huge)
+    ]
+
+
+def _samples_body(document, rows):
+    """How large the same report would have been with its samples still attached.
+
+    Derived from the document that WAS written rather than re-measured from a second assembly, so
+    the figure the log claims is checked against the only other thing it can be.
+
+    Args:
+      document: The report as written, carrying the omission sentence.
+      rows: The sampled rows the statement returned.
+
+    Returns:
+      The byte length of that report with its samples.
+
+    Raises:
+      None.
+    """
+    restored = json.loads(json.dumps(document))
+    restored["exact"]["duplicateSamples"] = {
+        "columns": ["id", "amount"],
+        "rows": [{"repeats": int(row[0]), "values": list(row[1:])} for row in rows],
+    }
+    return len(v._serialize(restored))
+
+
+def test_a_report_that_fits_says_nothing_about_its_size(monkeypatch, captured_events):
+    """Logs the report's size only on the run that had to act on it.
+
+    A number emitted on every run is one nobody reads, and the run where it mattered would look
+    like all the others.
+    """
+    _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    [["3", "a", "x"]], count=2
+                )
+            }
+        ),
+    )
+
+    v.handler(_event(), None)
+
+    assert [
+        e for e in captured_events.events if e.get("message") == v.OVER_CAP_EVENT
+    ] == []
+
+
+def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had(
+    monkeypatch,
+):
+    """Leaves a true explanation in place rather than replacing it with a false one.
+
+    A nested source's samples were never written, so dropping them frees nothing and the report is
+    over the cap for some other reason. Overwriting its sentence would tell the user the samples
+    were left out for size, which is not what happened — and the document would still not fit.
+    """
+    manifest = json.loads(json.dumps(MANIFEST))
+    manifest["files"][0]["columns"][1] = {"name": "amount", "type": "array<string>"}
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 4}]
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", 10)
+
+    v.handler(_event(), None)
+
+    assert _report(fake)["exact"]["duplicateSamples"] == {
+        "omitted": v.report.SAMPLES_OMITTED_NESTED
+    }
+
+
+def _caller_fields(events) -> list[tuple]:
+    """Every event's message and the fields this verb CHOSE to put on it, in order.
+
+    Spans included, which is the point: the test using this says no sampled value reaches a span
+    field, and a comparison that skipped spans could not say that. What is dropped is only what two
+    runs can never match on — the timestamps, the trace, span and log ids, and the duration — none
+    of which a verb supplies. Everything left is a value this code passed in, which is where a leak
+    would appear.
+
+    Args:
+      events: Captured log-foundry events.
+
+    Returns:
+      One ``(message, fields)`` pair per event.
+
+    Raises:
+      None.
+    """
+    return [(e.get("message"), e.get("fields")) for e in events]
+
+
+def _summary_fields(events) -> dict:
+    """The fields of the one event this verb emits about the report it assembled.
+
+    Args:
+      events: Captured log-foundry events.
+
+    Returns:
+      That event's ``fields`` dict.
+
+    Raises:
+      StopIteration: When no such event was emitted, which is itself the finding.
+    """
+    return next(e for e in events if e.get("message") == "assembled report")["fields"]
+
+
+def test_no_sampled_value_reaches_the_notification_the_index_or_a_span(
+    monkeypatch, captured_events
+):
+    """Holds everything OUTSIDE the report byte-identical whether or not the samples were written.
+
+    The report is read by the one person who asked for the check, through a signed request. A
+    notification, a runs-index row and a log line are not: they fan out, they are retained, and
+    they are read by whoever can see the plane. So the samples go in the document and nowhere
+    else. Asserted as an equality between two runs rather than as a substring search for the
+    fixture's values, since a search only ever covers the strings somebody thought to look for.
+    """
+    sent = []
+    monkeypatch.setattr(
+        v.notify, "emit_notification", lambda actor, message, **kw: sent.append(message)
+    )
+
+    # The SAME report both times, differing only in whether the statement returned a samples
+    # cell. A baseline with a different duplicate count would compare two different reports and
+    # the equality below would be measuring the count, not the samples.
+    plain = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 2}]
+                )
+            }
+        ),
+    )
+    v.handler(_event(), None)
+    without = (list(sent), _index(plain), [dict(e) for e in captured_events.events])
+
+    sent.clear()
+    sampled = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
+                    [["3", "secret-value", "another-secret"]], count=2
+                )
+            }
+        ),
+    )
+    v.handler(_event(), None)
+    with_samples = (
+        list(sent),
+        _index(sampled),
+        [dict(e) for e in captured_events.events][len(without[2]) :],
+    )
+
+    # The samples really did land, so the comparison below is between two different reports.
+    assert _report(sampled)["exact"]["duplicateSamples"]["rows"][0]["values"] == [
+        "secret-value",
+        "another-secret",
+    ]
+    assert with_samples[0] == without[0]
+    assert with_samples[1] == without[1]
+    # `fields`, not the top level: log-foundry nests every caller-supplied field under it, so a
+    # top-level read yields [] on both sides — an equality that holds whatever the verb logs.
+    # EVERY event, spans included, since this test's claim is about spans too; only the values no
+    # verb supplies are dropped, which is what lets two runs be compared at all.
+    assert _caller_fields(with_samples[2]) == _caller_fields(without[2])
+    assert _summary_fields(without[2])["row_count"] == 1000

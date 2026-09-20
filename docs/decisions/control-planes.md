@@ -61,6 +61,7 @@ entry you need, not the file.**
 - [Notifications deduplicate per recipient, so a borrowed request id cannot drop someone else's notice (control-plane-wide)](#notifications-deduplicate-per-recipient-so-a-borrowed-request-id-cannot-drop-someone-elses-notice-control-plane-wide)
 - [A reused request id is told to nobody, because the run holding the id is the one that reports (data quality, file operations, archive)](#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)
 - [A notice with no dedup id names its run in the payload, so two runs ending alike stay two notices (control-plane-wide)](#a-notice-with-no-dedup-id-names-its-run-in-the-payload-so-two-runs-ending-alike-stay-two-notices-control-plane-wide)
+- [A report may carry the user's ROWS, and it is bounded by the size it is read through (SPEC-240)](#a-report-may-carry-the-users-rows-and-it-is-bounded-by-the-size-it-is-read-through-spec-240)
 
 ## Fences
 
@@ -102,6 +103,19 @@ inside the execution the Pipe starts.
   on eight states rather than theoretical. What stops it generalising is the cap SPEC-229 supplies:
   **every caller-controlled field on an enqueue request declares a bound**, and the four-link chain
   is measured against the 256 KiB state limit for every route rather than argued about.
+- **A durable artefact may carry the user's ROWS; nothing that fans out may.** A data-quality
+  report holds up to five duplicated rows cell by cell — the first figure in this fleet that is the
+  user's data rather than a measurement of it. The notification, the runs-index row and every log
+  line still carry counts and keys only, held by an EQUALITY between two runs of the same report
+  with and without samples, never a substring search for the fixture's values. And **the writer's
+  cap is the only cap, because the reader's is a refusal**: above
+  `apicommon.s3_config.MAX_DOCUMENT_BYTES` the page cannot open the report at all, so every other
+  finding is lost with the part that made it big — assemble-report measures what it is about to
+  write and DROPS the samples, never truncates a figure. The re-declared `DQ_REPORT_MAX_BYTES` is
+  held EQUAL to that number, not under it, by a fleet-level test, since the two planes may not
+  import each other. A third cap sits between them and is a different question: `csv`'s
+  131,072-character field limit, which one samples cell can exceed — raised from what the statement
+  can return, **never below the reader's default**, and restored after the one read.
 - **Every cap is COMPUTED against the budget that sized it** — memory, makespan, or a service
   quota — and it names that budget. A hard-coded number hides a wrong model, and so does the right
   number against the wrong quota: the fleet message cap was derived from SQS's message limit, which
@@ -2343,3 +2357,111 @@ reads every `emit_notification` call and refuses one passing neither `dedup_id` 
 against a counted exemption list, now empty. The sweep
 cannot see a name that is None at run time — it refuses the send that forgot to name the run at
 all, which is how every instance so far was written.
+
+
+## A report may carry the user's ROWS, and it is bounded by the size it is read through (SPEC-240)
+
+Every figure this fleet produces until now is a MEASUREMENT of the user's data — a count, a ratio, a
+file name. A data-quality report now carries up to `DQ_DUPLICATE_SAMPLE` (5) of the duplicated rows
+themselves, cell by cell, because the count alone could not answer the question a tester actually
+asked: *which* rows repeat. That crosses a line the rest of the fleet does not, and three
+consequences follow that are easy to miss one at a time.
+
+**The report object is the only place those cells may appear.** A report is written to the
+requester's own prefix and read back by them through a signed request. A notification fans out, a
+runs-index row sits on a dashboard, and a log line is retained and readable by whoever can see the
+plane — so none of them may carry a cell. `dq_assemble_report` holds the parsed result in memory and
+projects only counts and keys onto what it threads onward, and
+`test_no_sampled_value_reaches_the_notification_the_index_or_a_span` asserts the notification text,
+the index entry and the span fields **equal** between two runs of the same report that differ only in
+whether the statement returned samples. An equality, not a substring search for the fixture's
+values: a search only ever covers the strings somebody thought to look for.
+
+**A cap on the WRITER is the only cap there is, because the reader's is a refusal.** The page reads a
+report through `objects.readContent`, which refuses a document over
+`apicommon.s3_config.MAX_DOCUMENT_BYTES`. Above that a report is not a large report, it is an
+unreadable one — and every other finding in it is lost with the part that made it big. So
+assemble-report serializes, measures what it is about to write, and drops the samples if that is what
+keeps the document openable, saying so in the report. Dropping is the only reduction it makes:
+truncating a figure would hand back a number that is wrong rather than a report that is thinner.
+`DQ_REPORT_MAX_BYTES` is re-declared in `dqcommon.config` rather than imported — the API ships inside
+its own function's package, and a layer reaching into it would couple every data-quality verb to the
+API's configuration — and `lambdas/test_data_quality_report_contract.py` holds the two **equal**, in
+both directions, at the fleet level, which is the only place the two planes may be imported into one
+process. Equality, not a bound: the cap is not a safety margin under the reader's limit, it IS the
+reader's limit, and a one-sided assertion would let the writer drift in the direction it permits.
+
+**The reader between them has a cap of its own, and it is not the document's.** `csv` refuses a field
+past a process-global limit of 131,072 characters, and assemble-report re-raises everything but a
+missing object — so one oversized cell fails the whole report rather than one figure. The duplicates
+cell is the only one this check can push past it, because it carries whole rows rather than single
+values and a wide table multiplies it by the column count. `report.duplicates_field_size_limit`
+computes the figure from what the statement can return and **never returns less than the reader
+already had**: at twenty grouped columns the computed figure is below the default, and returning it
+would tighten the reader on cells that parse today — a raise that quietly becomes a lowering is how a
+guard starts causing the failure it was added to prevent. The raise is scoped to that one read and
+restored in a `finally`, because the limit is process-global and this verb parses three results on a
+container that is reused.
+
+**The statement that produces them keeps today's when it cannot.** The samples ride the query that
+already counts duplicates, through the n-ary `max_by` the offending-value samples use, keyed on the
+count left-padded to 19 digits — `bigint`'s width, so the pad never truncates — followed by the row's
+own JSON, so the five kept are the most-repeated with ties broken by their text and a retry writes the
+same report. The grouped columns are projected under positional aliases, which is what lets a source
+column named `cnt` or `duplicate_rows` exist without colliding with the statement's own output names.
+A source with an `array<…>` or `struct<…>` column keeps the previous statement **byte for byte** and
+records its samples as omitted: Trino documents no cast from either to varchar, and a cast the engine
+refuses fails the whole statement — trading the count that works today for a sample.
+
+**Measured and NOT closed: what decides a report's size is the CHARACTER SET of the user's values,
+not which figure carries them.** The drop mechanism is scoped to the samples because they are what
+this spec added and the one absence the report can explain in a sentence — not because they dominate
+the document. Measured at `DQ_MAX_COLUMNS`, serialized as the write serializes:
+
+| whole report, full `sampleOffending` on every column | alone | with samples | verdict |
+|---|---|---|---|
+| printable ASCII (1 char) | 428,803 B — 14% | 631,927 B — 20% | under either way |
+| **control or BMP (escapes to 6)** | **2,428,803 B — 77%** | **3,631,927 B — 116%** | **over only WITH samples** |
+| astral (escapes to 12) | 4,828,803 B — 154% | 7,231,927 B — 230% | over either way |
+
+against a cap of 3,145,728 B. **The middle row is the only band in which this mechanism does
+anything at all, and it is the ordinary one** — "BMP" is Cyrillic, Greek, CJK and accented Latin,
+which is to say most human writing. Above it the report is unreadable whatever is dropped; below it
+nothing was ever at risk. A two-row table of the best and worst cases would have omitted the only
+case that demonstrates the guarantee, which an earlier draft of this entry did. The multiplier is ~11.8,
+and it is the unit trap this area's fences name: both figures are bounded in CHARACTERS
+(`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and JSON escapes one astral code point as a surrogate
+pair — twelve characters where a control character or a BMP character costs six. A report of astral
+`sampleOffending` is written over the cap and the page refuses to open it — the mechanism runs and
+sheds the samples if there are any, and the document still does not fit. The multiplier between the
+bands is ~11.3 on the whole report and ~11.8 on the samples block alone.
+
+The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
+rather than six: Trino's `substr` cuts by code point, so a sampled value can be
+`SAMPLE_VALUE_CHARS` astral ones. Sized at six — which it was, until the figures above were
+measured — a genuinely emoji-heavy wide table would fail the whole report on a cell the statement
+was entitled to return. That predates this spec and is recorded rather than fixed here,
+because bounding the offending values is a change to a figure users already read. What the cap does
+guarantee is narrower and still worth having: **a report that would have opened does not stop
+opening because samples were added to it.**
+
+**The method, so the next reader re-measures instead of trusting** (the figures move with
+`DQ_OFFENDING_VALUE_SAMPLE`, `MAX_SAMPLE_VALUE_CHARS`, `DQ_MAX_COLUMNS` and `DQ_DUPLICATE_SAMPLE`,
+and were taken 2026-09-20): build a report through `report.build` over a `DQ_MAX_COLUMNS`-wide
+source, serialize it with `json.dumps(..., sort_keys=True, separators=(",", ":"))` — what
+`dq_assemble_report._serialize` does, so the figure is the one the cap compares — and read its
+length. **Make the columns numeric-DOMINANT with a few stragglers**, or `_column` writes no
+`sampleOffending` at all and the report measures 22 KB: a first attempt at these figures did exactly
+that and read 1% of the cap. Then run it three times — a printable ASCII letter, a control character, an astral one —
+and each of those twice, with and without the samples attached. Two classes cannot show that the
+spread is the character set rather than the figure, and one pass per class cannot show which band
+the drop actually rescues.
+
+**Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
+recovering it means aggregating paths for every group or scanning a second time. The per-file row
+counts the same spec surfaced are the "where" at the file level.
+
+**One rule, stated once.** `sql.grouped_column_names` and `sql.has_nested_column` are exported and
+read by both the statement and the report. A second copy of the grouping rule would head the samples
+with the wrong list on a CSV whose header names a partition key — putting every value under its
+neighbour's name, with no error at all, on a table that still renders perfectly.

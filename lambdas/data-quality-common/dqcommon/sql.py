@@ -327,6 +327,78 @@ def profiled_columns(
     return ddl.body_columns(columns, partition_keys, fmt)
 
 
+#: Column types the duplicates statement cannot render as text. See ``has_nested_column``.
+_NESTED_TYPES = ("array<", "struct<")
+
+#: How much of one duplicate-sample value the statement keeps, in characters. One MORE than the
+#: report's own cut, so a value that was shortened is still recognisable as shortened after the
+#: report cuts it again — at exactly the report's cut the two are indistinguishable and a value of
+#: the full length would gain an ellipsis it had not earned. ``report.py`` reads this to size the
+#: CSV reader's field limit, so the bound exists once rather than at each end of the wire.
+SAMPLE_VALUE_CHARS = 201
+
+
+def grouped_column_names(
+    columns: list[dict], partition_keys: list[dict], fmt: str | None
+) -> list[str]:
+    """Names the columns the duplicates statement groups by, in the order it groups by them.
+
+    The profiled columns followed by the partition keys, which is the row as the temp table sees
+    it: a partition column is part of the row, so two otherwise-identical rows in different
+    partitions are not duplicates. Exported because the REPORT needs the same list to head its
+    sample columns, and a second copy of the rule would put every sampled value under its
+    neighbour's header the moment either copy changed — without any error, on a report that still
+    reads as plausible.
+
+    Args:
+      columns: The unioned columns.
+      partition_keys: The manifest's detected partition keys.
+      fmt: The source format, passed to ``profiled_columns``.
+
+    Returns:
+      The grouped column names, data columns first.
+
+    Raises:
+      KeyError: If a column or partition key is missing its name.
+    """
+    names = [
+        column["name"] for column in profiled_columns(columns, partition_keys, fmt)
+    ]
+    names.extend(key["name"] for key in partition_keys)
+    return names
+
+
+def has_nested_column(
+    columns: list[dict], partition_keys: list[dict], fmt: str | None
+) -> bool:
+    """Reports whether any profiled column holds a list or an object rather than a scalar.
+
+    The duplicates statement renders each grouped value with ``CAST(... AS varchar)``, which every
+    scalar type supports. Trino documents no such cast for an array or a row, and a cast the engine
+    refuses fails the whole statement — which would lose the duplicate COUNT that works today for
+    the sake of a sample. So a nested source keeps the statement it already had and the report says
+    its samples were left out.
+
+    Only the profiled columns are examined: a partition key's value comes from a folder name and is
+    always a string.
+
+    Args:
+      columns: The unioned columns.
+      partition_keys: The manifest's detected partition keys.
+      fmt: The source format, passed to ``profiled_columns``.
+
+    Returns:
+      True when a profiled column's type is an array or a struct.
+
+    Raises:
+      KeyError: If a column is missing its name or type.
+    """
+    return any(
+        column["type"].startswith(_NESTED_TYPES)
+        for column in profiled_columns(columns, partition_keys, fmt)
+    )
+
+
 def check_column_count(columns: list[dict]) -> None:
     """Refuses a source wider than the column cap.
 
@@ -477,6 +549,8 @@ _COLUMN_ALIAS = "c{index}"
 _CHECKED_TYPE = "string"
 
 _CAST_TYPES = ("bigint", "double", "timestamp", "date")
+
+_SAMPLE_KEY_DIGITS = 19
 
 
 def _sample_expr(column: str, predicate: str, size: int) -> str:
@@ -884,9 +958,35 @@ def build_duplicates_query(
     The result shape is pinned to exactly one row, which is what lets the report verb read the
     result file whole without a bound. Partition columns are included in the grouping because
     they are part of the row: two otherwise-identical rows in different partitions are different
-    rows, not duplicates. The data columns are ``profiled_columns``, the list the temp table's DDL
-    declares, so a data column naming a partition key is grouped under its new name in a CSV and
-    left out in JSON or Parquet, and the grouping never names one column under two spellings.
+    rows, not duplicates. The grouping is ``grouped_column_names``, read rather than rebuilt, so a
+    data column naming a partition key is grouped under its new name in a CSV and left out in JSON
+    or Parquet, and the grouping never names one column under two spellings.
+
+    Over the count it keeps up to ``DQ_DUPLICATE_SAMPLE`` of the rows themselves, because the count
+    alone cannot answer the question a reader actually has — WHICH rows repeat. The layers exist so
+    that no expression is written twice: the grouped columns are projected under positional aliases,
+    the aliases are rendered into one ``array(varchar)``, that array is keyed, and only the
+    outermost layer aggregates. The aliases are also what keeps the statement's own output names
+    safe, since a source column called ``cnt`` or ``duplicate_rows`` is projected as ``c1`` and can
+    collide with nothing.
+
+    The accumulator is an n-ary ``max_by``, holding five entries rather than every group — the same
+    bound ``_sample_expr`` uses, and needed more sharply here, since a group is a whole ROW and the
+    datasets with the most duplicates are exactly the ones that would exhaust the query. Its key is
+    the count left-padded to a fixed width followed by the row's own JSON, so the kept five are the
+    most-repeated rows with ties broken by their text, and a retried query writes the same report.
+    The padding is 19 digits because ``COUNT(*)`` is a ``bigint``, whose largest value has exactly
+    that many, so the pad never truncates and the key orders as "count, then text". A varchar key
+    was chosen over the array itself because a varchar's ordering is not in doubt the way an
+    array's might be.
+
+    Each value is cut twice: ``substr`` bounds what the accumulator holds, and ``report.py`` cuts
+    again to its own limit with an ellipsis, so a shortened sample looks the same as a shortened
+    offending value. ``CAST(... AS varchar)`` renders what the engine holds rather than a
+    reformatted number, so a ``double`` reads ``1.5E0``.
+
+    A source with a nested column keeps today's statement byte for byte and returns no samples:
+    see ``has_nested_column``.
 
     Args:
       database: The target database.
@@ -899,18 +999,44 @@ def build_duplicates_query(
         can act on.
 
     Returns:
-      The full statement.
+      The full statement. Its result carries ``duplicate_rows``, and ``duplicate_samples`` unless
+      the source has a nested column.
 
     Raises:
-      KeyError: If a column or partition key is missing its name.
+      KeyError: If a column or partition key is missing its name or type.
     """
-    grouped = [ddl.quote_dml(c["name"]) for c in profiled_columns(columns, partition_keys, fmt)]
-    grouped.extend(ddl.quote_dml(key["name"]) for key in partition_keys)
-    all_columns = ", ".join(grouped)
+    names = grouped_column_names(columns, partition_keys, fmt)
+    all_columns = ", ".join(ddl.quote_dml(name) for name in names)
     table = f"{ddl.quote_dml(database)}.{ddl.quote_dml(table_name)}"
+    tail = (
+        f" FROM {table}{_where(path_filter)} GROUP BY {all_columns} HAVING COUNT(*) > 1"
+    )
 
+    if has_nested_column(columns, partition_keys, fmt):
+        return (
+            "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
+            f"(SELECT COUNT(*) AS cnt{tail})"
+        )
+
+    aliases = [_COLUMN_ALIAS.format(index=index) for index in range(len(names))]
+    projected = "".join(
+        f", {ddl.quote_dml(name)} AS {alias}"
+        for name, alias in zip(names, aliases, strict=True)
+    )
+    cells = "".join(
+        f", substr(CAST({alias} AS varchar), 1, {SAMPLE_VALUE_CHARS})"
+        for alias in aliases
+    )
+    rendered = (
+        f"SELECT cnt, ARRAY[CAST(cnt AS varchar){cells}] AS sample FROM "
+        f"(SELECT COUNT(*) AS cnt{projected}{tail})"
+    )
+    keyed = (
+        f"SELECT cnt, sample, lpad(CAST(cnt AS varchar), {_SAMPLE_KEY_DIGITS}, '0') "
+        f"|| json_format(CAST(sample AS JSON)) AS sample_key FROM ({rendered})"
+    )
     return (
-        "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows FROM "
-        f"(SELECT COUNT(*) AS cnt FROM {table}{_where(path_filter)} "
-        f"GROUP BY {all_columns} HAVING COUNT(*) > 1)"
+        "SELECT COALESCE(SUM(cnt - 1), 0) AS duplicate_rows, "
+        "json_format(CAST(max_by(sample, sample_key, "
+        f"{config.DQ_DUPLICATE_SAMPLE}) AS JSON)) AS duplicate_samples FROM ({keyed})"
     )

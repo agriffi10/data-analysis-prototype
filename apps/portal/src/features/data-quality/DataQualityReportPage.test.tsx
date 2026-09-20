@@ -3,14 +3,21 @@ import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {Link, MemoryRouter, Route, Routes} from 'react-router';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
-import {DataQualityReportPage} from './DataQualityReportPage';
+import {
+  DataQualityReportPage,
+  ENCODING_EXAMPLES_NOTE,
+  SAMPLES_COUNTING_NOTE,
+  SAMPLES_TRUNCATION_NOTE
+} from './DataQualityReportPage';
 import {CHECK_AT_ROOT_REFUSAL} from './dataQuality.format';
 import {
   NOTE_RAGGED,
   NOT_COMPUTED_DUPLICATES,
+  SAMPLES_OMITTED_TOO_LARGE,
   SKIP_BINARY,
   SKIP_TYPE_PARQUET,
   csvReport,
+  duplicateSamples,
   parquetReport
 } from './reportFixtures';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -275,6 +282,309 @@ describe('DataQualityReportPage', () => {
       expect(within(mar).getByText('area')).toBeInTheDocument();
       expect(within(mar).queryByText('don’t line up with this report’s Columns')).not.toBeInTheDocument();
       expect(within(apr).getByText('don’t line up with this report’s Columns')).toBeInTheDocument();
+    });
+  });
+
+  describe('DataQualityReportPage — how many rows each file holds', () => {
+    it('lists each file’s row count behind a closed disclosure, relative to the checked folder', async () => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {
+              ...csvReport().exact,
+              rowCountsByFile: [
+                {key: 'alice/sales/jan.csv', rows: 1200},
+                {key: 'alice/sales/feb/part-1.csv', rows: 0}
+              ]
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      const summary = await screen.findByText('Rows in each file (2 files)');
+      const disclosure = summary.closest('details') as HTMLDetailsElement;
+      // Closed: a folder of two hundred files would otherwise push every finding below the fold.
+      expect(disclosure.open).toBe(false);
+
+      disclosure.open = true;
+      // Cell by cell, NOT `toHaveTextContent`: that is a substring match, and every absolute key
+      // contains the relative path it would be reduced to — so it passes whether or not the
+      // reduction happened, which is the one thing these two rows exist to check.
+      const rows = within(disclosure).getAllByRole('row').slice(1);
+      expect(
+        within(rows[0])
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['jan.csv', '1,200']);
+      // A nested key keeps the segments that distinguish it from a sibling of the same name.
+      expect(
+        within(rows[1])
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['feb/part-1.csv', '0']);
+    });
+
+    it.each([
+      ['one entry, whose count IS the report’s row count', [{key: 'alice/sales/jan.csv', rows: 1200}]],
+      ['no entries at all', [] as {key: string; rows: number}[]],
+      // ABSENT, not empty: `isReport` does not validate this field, so a document without it must
+      // render nothing rather than throw on `.length`. An empty array passed before the default
+      // existed, so it cannot stand in for this case.
+      ['no rowCountsByFile field at all', undefined as unknown as {key: string; rows: number}[]]
+    ])('shows no disclosure for %s', async (_label, rowCountsByFile) => {
+      mockReport.mockResolvedValue(ok(csvReport({exact: {...csvReport().exact, rowCountsByFile}})));
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(screen.queryByText(/rows in each file/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('DataQualityReportPage — where the invalid text encoding is', () => {
+    it('names the file and byte offset of each example, and says they are not all of them', async () => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            approximate: {
+              ...csvReport().approximate,
+              encoding: {
+                invalidUtf8Sequences: 12,
+                sampleOffsets: [{key: 'alice/sales/jan.csv', offset: 4102}],
+                coverage: 'sampled',
+                coveragePercent: 12.5,
+                note: 'Sampled — 12.5% of bytes examined.'
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('jan.csv, byte 4,102')).toBeInTheDocument();
+      expect(screen.getByText(ENCODING_EXAMPLES_NOTE)).toBeInTheDocument();
+    });
+
+    it('spells the example relative to the folder holding a single checked FILE', async () => {
+      // `sourceFolderPrefix` reduces a file location to its parent, so the label is the
+      // file's own name rather than the whole key or a blank.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            location: 'alice/sales/jan.csv',
+            fileCount: 1,
+            approximate: {
+              ...csvReport().approximate,
+              encoding: {
+                invalidUtf8Sequences: 12,
+                sampleOffsets: [{key: 'alice/sales/jan.csv', offset: 4102}],
+                coverage: 'complete',
+                coveragePercent: 100,
+                note: 'Complete — every byte examined.'
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('jan.csv, byte 4,102')).toBeInTheDocument();
+    });
+
+    it.each([
+      [
+        'the scan found no invalid sequences, whatever the example list holds',
+        0,
+        [{key: 'alice/sales/jan.csv', offset: 4102}]
+      ],
+      ['a measured figure came back with no examples beside it', 12, []],
+      // ABSENT, for the same reason as the disclosure above: an empty array is a different case
+      // and passed before the default existed.
+      ['the figure carries no sampleOffsets field at all', 12, undefined]
+    ])('shows no examples list when %s', async (_label, invalidUtf8Sequences, sampleOffsets) => {
+      // Two fixtures, because the guard has two halves and a single fixture that zeroed BOTH
+      // would pass with either half deleted. The first is the one the JSDoc argues for: a count
+      // of zero beside a stale example list reads as a contradiction, so the count wins.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            approximate: {
+              ...csvReport().approximate,
+              encoding: {
+                invalidUtf8Sequences,
+                sampleOffsets: sampleOffsets as never,
+                coverage: 'complete',
+                coveragePercent: 100,
+                note: 'Complete — every byte examined.'
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('Complete — every byte examined.')).toBeInTheDocument();
+      expect(screen.queryByText(ENCODING_EXAMPLES_NOTE)).not.toBeInTheDocument();
+      expect(screen.queryByText(/, byte /)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['an object of neither shape', {}],
+      // Each container separately, so neither Array.isArray can be deleted behind the other.
+      ['columns that is not an array', {columns: 'nope', rows: [{repeats: 3, values: ['a']}]}],
+      ['rows that is not an array', {columns: ['name'], rows: 'nope'}],
+      // And the ROWS themselves: a null or a string here reaches `repeats` and `values` and
+      // throws, which the two container checks do not see.
+      ['a row that is null', {columns: ['name'], rows: [null]}],
+      ['a row that is a string', {columns: ['name'], rows: ['x']}],
+      // A primitive is the case the two array checks cannot reach: `'omitted' in 'oops'` is a
+      // TypeError, so the shape test in front of them is what stops the throw.
+      ['a string where an object belongs', 'oops'],
+      ['a number where an object belongs', 42]
+    ])('renders no section at all for %s', async (_label, duplicateSamples) => {
+      // `isReport` validates the fields every render path indexed into when it was written, and
+      // this one is not among them — so a malformed document must degrade to nothing rather than
+      // throw mid-render, which is a blank screen where the service has a refusal ready.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {...csvReport().exact, duplicateSamples: duplicateSamples as never}
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(screen.queryByText('Most repeated rows')).not.toBeInTheDocument();
+    });
+
+    it('shows no examples when the scan found no invalid sequences (whole-guard control)', async () => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            approximate: {
+              ...csvReport().approximate,
+              encoding: {
+                invalidUtf8Sequences: 0,
+                sampleOffsets: [],
+                coverage: 'complete',
+                coveragePercent: 100,
+                note: 'Complete — every byte examined.'
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('Complete — every byte examined.')).toBeInTheDocument();
+      expect(screen.queryByText(ENCODING_EXAMPLES_NOTE)).not.toBeInTheDocument();
+      expect(screen.queryByText(/, byte /)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('DataQualityReportPage — which rows repeat', () => {
+    /** A report carrying whatever `duplicateSamples` the case under test needs. */
+    function withSamples(samples: DataQualityReport['exact']['duplicateSamples']) {
+      return csvReport({exact: {...csvReport().exact, duplicateSamples: samples}});
+    }
+
+    it('heads each sampled row with the columns it was grouped by, and says what the counts mean', async () => {
+      mockReport.mockResolvedValue(ok(withSamples(duplicateSamples())));
+
+      renderReport('/data-quality/alice/req-1');
+
+      const table = await screen.findByRole('table', {name: 'Most repeated rows'});
+      const [header, first] = within(table).getAllByRole('row');
+      expect(
+        within(header)
+          .getAllByRole('columnheader')
+          .map((cell) => cell.textContent)
+      ).toEqual(['Times it appears', 'name', 'city']);
+      expect(
+        within(first)
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['3', 'a', 'x']);
+      // Both notes: one so the tile's figure and these counts are not read as the same
+      // number, one so a value ending in an ellipsis is not read as the data.
+      expect(screen.getByText(SAMPLES_COUNTING_NOTE)).toBeInTheDocument();
+      expect(screen.getByText(SAMPLES_TRUNCATION_NOTE)).toBeInTheDocument();
+    });
+
+    it('tells a NULL cell apart from an empty one, as the Data Explorer does', async () => {
+      // Two different findings — a missing field and a field someone wrote nothing into — and
+      // rendering either as a blank cell would collapse them into the same thing.
+      mockReport.mockResolvedValue(ok(withSamples(duplicateSamples())));
+
+      renderReport('/data-quality/alice/req-1');
+
+      const table = await screen.findByRole('table', {name: 'Most repeated rows'});
+      const second = within(table).getAllByRole('row')[2];
+      expect(
+        within(second)
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['2', 'NULL', '(empty)']);
+    });
+
+    it('shows the sentence instead of a table when the samples were left out', async () => {
+      mockReport.mockResolvedValue(ok(withSamples({omitted: SAMPLES_OMITTED_TOO_LARGE})));
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByRole('heading', {name: 'Most repeated rows'})).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(SAMPLES_OMITTED_TOO_LARGE.slice(4, 60)))).toBeInTheDocument();
+      expect(screen.queryByRole('table', {name: 'Most repeated rows'})).not.toBeInTheDocument();
+    });
+
+    it('renders only the well-formed rows when a cell is malformed among good ones', async () => {
+      // Per row, not per table: one bad row does not cost the samples that are fine, which is the
+      // same rule the plane applies when it drops a row whose arity disagrees with its headers.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {
+              ...csvReport().exact,
+              duplicateSamples: {
+                columns: ['name'],
+                rows: [null, {repeats: 3, values: ['a']}, 'x'] as never
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      const table = await screen.findByRole('table', {name: 'Most repeated rows'});
+      const body = within(table).getAllByRole('row').slice(1);
+      expect(body).toHaveLength(1);
+      expect(
+        within(body[0])
+          .getAllByRole('cell')
+          .map((c) => c.textContent)
+      ).toEqual(['3', 'a']);
+    });
+
+    it.each([
+      ['a report written before the samples existed', undefined],
+      ['a report whose statement returned none', {columns: ['name', 'city'], rows: []}]
+    ])('shows no section at all for %s', async (_label, samples) => {
+      mockReport.mockResolvedValue(ok(withSamples(samples as DataQualityReport['exact']['duplicateSamples'])));
+
+      renderReport('/data-quality/alice/req-1');
+
+      // The duplicate figure is still there — only the elaboration is absent.
+      expect(await screen.findByText('12')).toBeInTheDocument();
+      expect(screen.queryByText('Most repeated rows')).not.toBeInTheDocument();
     });
   });
 
@@ -615,6 +925,15 @@ describe('DataQualityReportPage.a11y', () => {
 
   describe('DataQualityReportPage a11y', () => {
     it('has no axe violations rendering a report with findings', async () => {
+      await renderThenAxe();
+    });
+
+    it('has no axe violations with the sampled rows and the per-file counts on screen', async () => {
+      // The two widest additions: a scrollable table of user values, and a disclosure.
+      mockReport.mockResolvedValue({
+        success: true,
+        data: csvReport({exact: {...csvReport().exact, duplicateSamples: duplicateSamples()}})
+      });
       await renderThenAxe();
     });
 

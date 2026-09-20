@@ -1,3 +1,4 @@
+import {useId} from 'react';
 import {useParams, useNavigate} from 'react-router';
 import {PageLayout} from '../../components/PageLayout';
 import {Banner} from '../../components/Banner';
@@ -20,10 +21,14 @@ import {
   sourceFolderPrefix
 } from './dataQuality.format';
 import {isTypedColumn, isUnmeasured, isSkipped} from './dataQuality.types';
+import {relativePath} from '../file-browser/fileBrowser.paths';
+import {EMPTY_DISPLAY, NULL_DISPLAY} from '../data-explorer/cellText';
 import type {
   ColumnFinding,
   CrossFileDisagreement,
   DataQualityReport,
+  DuplicateSampleRow,
+  DuplicateSamples,
   EncodingFigure,
   PartitionNamedColumn,
   RaggedRowsFigure
@@ -69,8 +74,14 @@ function Callout({tone, lead, children}: {tone: 'info' | 'warning'; lead: string
 
 // ── Sections ────────────────────────────────────────────────────────────────
 
-function SectionHeading({children}: {children: React.ReactNode}) {
-  return <h2 className="text-sm font-semibold text-text">{children}</h2>;
+function SectionHeading({children, id}: {children: React.ReactNode; id?: string}) {
+  return (
+    <h2
+      id={id}
+      className="text-sm font-semibold text-text">
+      {children}
+    </h2>
+  );
 }
 
 function Tile({label, value, isProblem}: {label: string; value: string; isProblem?: boolean}) {
@@ -134,6 +145,189 @@ function TopIssues({issues}: {issues: string[]}) {
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+// ── Where the figures are ───────────────────────────────────────────────────
+
+/**
+ * The three sentences beneath the two new sections.
+ *
+ * `SAMPLES_TRUNCATION_NOTE`'s 200 is `report.py::MAX_SAMPLE_VALUE_CHARS` and
+ * `SAMPLES_COUNTING_NOTE` exists because the tile above counts every copy after the first while
+ * these counts include it — two numbers from one figure, which a reader would otherwise reconcile
+ * by assuming one of them is wrong. `lambdas/test_data_quality_report_contract.py` holds the 200
+ * against the plane's constant, because a note stating a figure no report produces is worse than
+ * no note.
+ */
+export const SAMPLES_TRUNCATION_NOTE = 'Values longer than 200 characters are shortened.';
+export const SAMPLES_COUNTING_NOTE = 'Duplicate rows counts every copy after the first.';
+export const ENCODING_EXAMPLES_NOTE = 'These are the first examples found, not all of them.';
+
+/**
+ * How many rows each file holds, on request.
+ *
+ * The report has always stored this and never shown it, so a folder whose row count looks wrong
+ * gave no way to find which file was wrong. A `<details>` rather than a section: it is one line
+ * closed, and a folder of two hundred files would otherwise push every finding below the fold.
+ *
+ * Withheld below two entries, because a single-file report's one count IS the report's row count
+ * and a disclosure repeating it reads as a second, different figure. An empty array takes the same
+ * branch, so a report whose per-file counts never arrived renders nothing rather than an empty table.
+ */
+function RowsPerFileDisclosure({location, entries}: {location: string; entries: {key: string; rows: number}[]}) {
+  const root = sourceFolderPrefix(location);
+  if (entries.length < 2) return null;
+  return (
+    <details className="rounded-lg border border-border bg-surface">
+      <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-text">
+        Rows in each file ({entries.length} files)
+      </summary>
+      {/* No scroll container: two columns, the path already wraps on `break-all`, so there is
+          nothing to scroll — and an `overflow-x-auto` that never scrolls is a pointer-only
+          region waiting to happen the first time a column is added. */}
+      <div className="px-3 pb-3">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs text-text-2">
+              <th
+                scope="col"
+                className="py-1.5 text-left font-semibold">
+                File
+              </th>
+              <th
+                scope="col"
+                className="py-1.5 text-right font-semibold">
+                Rows
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr
+                key={entry.key}
+                className="border-b border-border-2 last:border-b-0">
+                <td className="break-all py-1.5 pr-4 font-mono text-text">{relativePath(entry.key, root)}</td>
+                <td className="py-1.5 text-right tabular-nums text-text-2">{formatCount(entry.rows)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * One duplicate-sample cell.
+ *
+ * NULL and the empty string are told apart, and both are rendered as TEXT rather than as an empty
+ * cell, exactly as the Data Explorer's `CellValue` does — the markers are imported from it rather
+ * than re-spelled, because a second copy would drift and the two surfaces would name the same
+ * absence differently.
+ */
+function SampleCell({value}: {value: string | null}) {
+  if (value === null || value === '') {
+    return <span className="italic text-text-3">{value === null ? NULL_DISPLAY : EMPTY_DISPLAY}</span>;
+  }
+  return <span className="break-all font-mono">{value}</span>;
+}
+
+/**
+ * The most-repeated rows, when the check kept any.
+ *
+ * The count tile answers "how many duplicates"; this answers "which rows", which is the question a
+ * tester actually asked. Its columns are the GROUPING's column list, carried on the figure itself
+ * rather than taken from `exact.columns` — the two differ on a CSV whose header names a partition,
+ * and reading the wrong one would put every value under its neighbour's header.
+ *
+ * The scroll container is focusable and labelled, because a table wider than the page is otherwise
+ * unreachable without a pointer. `columns` can be two hundred entries, and nothing here caps it:
+ * the row cap is `DQ_DUPLICATE_SAMPLE` and the width is the user's own schema.
+ */
+function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefined}) {
+  const headingId = useId();
+  if (!samples) return null;
+
+  // Neither `isReport` nor the type system can promise this field's shape: the document is fetched
+  // JSON, and this render path was added after `isReport` chose the fields it validates. So the
+  // two arms are tested FOR rather than assumed, and anything else renders nothing.
+  if (typeof samples !== 'object') return null;
+  if ('omitted' in samples) {
+    return (
+      <section className="flex flex-col gap-2">
+        <SectionHeading>Most repeated rows</SectionHeading>
+        <Callout
+          tone="info"
+          lead="Not shown.">
+          {asSentence(samples.omitted)}
+        </Callout>
+      </section>
+    );
+  }
+
+  if (!Array.isArray(samples.columns) || !Array.isArray(samples.rows)) return null;
+  // Each ROW is checked too, not just the two containers. A row that is null or a string reaches
+  // `row.repeats` and `row.values[...]` and throws, which is the same blank screen the container
+  // checks exist to avoid — a guard that validates the box and not what is in it.
+  const rows = samples.rows.filter(
+    (row): row is DuplicateSampleRow => !!row && typeof row === 'object' && Array.isArray(row.values)
+  );
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHeading id={headingId}>Most repeated rows</SectionHeading>
+      <p className="text-xs text-text-2">{SAMPLES_COUNTING_NOTE}</p>
+      <div
+        role="region"
+        aria-labelledby={headingId}
+        tabIndex={0}
+        className="overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <table
+          aria-labelledby={headingId}
+          className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-2 text-xs text-text-2">
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-2 text-left font-semibold">
+                Times it appears
+              </th>
+              {samples.columns.map((column) => (
+                <th
+                  key={column}
+                  scope="col"
+                  className="whitespace-nowrap px-3 py-2 text-left font-semibold">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr
+                // The rows are a bag of user values with no identifier of their own, and two
+                // groups can differ only in a column that is null in both renderings.
+                key={index}
+                className="border-b border-border-2 text-text last:border-b-0">
+                <td className="px-3 py-2 text-left font-medium tabular-nums">
+                  {typeof row.repeats === 'number' ? formatCount(row.repeats) : ''}
+                </td>
+                {samples.columns.map((column, cell) => (
+                  <td
+                    key={column}
+                    className="px-3 py-2 align-top">
+                    <SampleCell value={row.values[cell] ?? null} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-text-3">{SAMPLES_TRUNCATION_NOTE}</p>
     </section>
   );
 }
@@ -346,6 +540,47 @@ function CrossFileSection({
 // ── Approximate figures ─────────────────────────────────────────────────────
 
 /**
+ * Where the invalid text encoding actually is.
+ *
+ * The byte scan has always recorded these and the page has never shown them, so a report saying
+ * "4 invalid text encodings" gave a user nothing to open. Each example is the object's path
+ * relative to the checked folder plus the byte offset inside it, which is what makes it findable.
+ *
+ * Only rendered beside a non-zero count: a measured figure of zero with a stale example list
+ * would read as a contradiction, and the scan caps the list at `DQ_OFFSET_SAMPLE` regardless.
+ */
+function EncodingExamples({
+  location,
+  figure
+}: {
+  location: string;
+  figure: Extract<EncodingFigure, {invalidUtf8Sequences: number}>;
+}) {
+  const root = sourceFolderPrefix(location);
+  // Both reads are defaulted rather than trusted. `isReport` validates the fields every render
+  // path indexed into when it was written and neither of these was one of them, so a document
+  // missing one would throw mid-render — a blank screen where the service has a refusal ready.
+  const examples = figure.sampleOffsets ?? [];
+  if (figure.invalidUtf8Sequences === 0 || examples.length === 0) return null;
+  return (
+    <Callout
+      tone="info"
+      lead="Examples:">
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {examples.map((example) => (
+          <li
+            key={`${example.key}:${example.offset}`}
+            className="break-all font-mono text-xs">
+            {relativePath(example.key, root)}, byte {formatCount(example.offset)}
+          </li>
+        ))}
+      </ul>
+      <span className="mt-1 block">{ENCODING_EXAMPLES_NOTE}</span>
+    </Callout>
+  );
+}
+
+/**
  * The ragged-row and encoding figures — the two the report files under `approximate`.
  *
  * EVERY branch here emits a qualifier beside its number. The Lambda's own `note` is
@@ -354,7 +589,16 @@ function CrossFileSection({
  * arrives without one: a bare number with no qualifier is the failure mode this whole
  * section exists to prevent.
  */
-function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encoding: EncodingFigure}) {
+function ApproximateSection({
+  location,
+  ragged,
+  encoding
+}: {
+  /** The checked location, which the encoding examples are spelled relative to. */
+  location: string;
+  ragged: RaggedRowsFigure;
+  encoding: EncodingFigure;
+}) {
   return (
     <section className="flex flex-col gap-2">
       <SectionHeading>Estimated figures</SectionHeading>
@@ -427,6 +671,10 @@ function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encod
               lead="Coverage.">
               {encoding.note || `${encoding.coveragePercent}% of bytes examined.`}
             </Callout>
+            <EncodingExamples
+              location={location}
+              figure={encoding}
+            />
           </>
         )}
       </div>
@@ -561,6 +809,11 @@ export function DataQualityReportPage() {
 
           <SummaryTiles report={report} />
           <TopIssues issues={report.topIssues} />
+          <RowsPerFileDisclosure
+            location={report.location}
+            entries={report.exact.rowCountsByFile ?? []}
+          />
+          <DuplicateSamplesSection samples={report.exact.duplicateSamples} />
           <CrossFileSection
             columnsAgree={report.exact.crossFile.columnsAgree}
             disagreements={report.exact.crossFile.disagreements}
@@ -570,6 +823,7 @@ export function DataQualityReportPage() {
             partitionNamed={report.partitionNamedColumns ?? []}
           />
           <ApproximateSection
+            location={report.location}
             ragged={report.approximate.raggedRows}
             encoding={report.approximate.encoding}
           />

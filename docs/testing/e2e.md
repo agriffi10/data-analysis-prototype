@@ -216,6 +216,11 @@ import json
 w("dq_case_a.csv", ["CustomerID","Region"], [[i,regions[i%4]] for i in range(1,11)])
 w("dq_case_b.csv", ["customerid","REGION"], [[i,regions[i%4]] for i in range(11,21)])
 w("dq_case_clash.csv", ["Total","TOTAL","region"], [[i,i,regions[i%4]] for i in range(1,6)])
+
+# data quality: repeated rows, four of them, spread across two files. Blank cells are EMPTY
+# STRINGS in a CSV, never NULL, which is what makes the samples table's two markers separable.
+w("dq_dupes_a.csv", ["name","city","note"], [["Ann","Leeds",""]]*3 + [["Bo","","x"]]*2 + [["Cy","York","z"]])
+w("dq_dupes_b.csv", ["name","city","note"], [["Ann","Leeds",""]])
 for name, keys, ids in (("dq_case_a.json", ("CustomerID","Region"), range(1,11)),
                         ("dq_case_b.json", ("customerid","REGION"), range(11,21))):
     with open(name, "w", encoding="utf-8") as f:
@@ -231,7 +236,8 @@ cd "$SCRATCH" && python3 -c '
 import polars as pl
 r = ["north","south","east","west"]
 pl.DataFrame({"CustomerID": list(range(1,11)), "Region": [r[i%4] for i in range(1,11)]}).write_parquet("dq_case_a.parquet")
-pl.DataFrame({"customerid": list(range(11,21)), "REGION": [r[i%4] for i in range(11,21)]}).write_parquet("dq_case_b.parquet")'
+pl.DataFrame({"customerid": list(range(11,21)), "REGION": [r[i%4] for i in range(11,21)]}).write_parquet("dq_case_b.parquet")
+pl.DataFrame({"id": [1,1,2], "tags": [["a","b"],["a","b"],["c"]]}).write_parquet("dq_dupes_nested.parquet")'
 ```
 
 **LF line endings are load-bearing.** Python's `csv.writer` defaults to CRLF, which puts a trailing
@@ -255,6 +261,8 @@ samples **one object**, so a stray sibling changes what the table becomes.
 | `dq_reorder/` | `dq_a.csv`, `dq_reorder.csv` | cross-file finding on a CSV's column order |
 | `dq_case_csv/`, `dq_case_json/`, `dq_case_parquet/` | `dq_case_a.*` and `dq_case_b.*` of that format | one column spelled two ways across files |
 | `dq_case_clash/` | `dq_case_clash.csv` | a case clash inside one file |
+| `dq_dupes/` | `dq_dupes_a.csv`, `dq_dupes_b.csv` | repeated rows, across two files |
+| `dq_dupes_nested/` | `dq_dupes_nested.parquet` | repeated rows a list column keeps out of the samples |
 | `archive_fixture/` | copies of `dq_a.csv`, `dq_b.csv` | **the only thing you archive** |
 | `marker_control/` | *(empty)* | the control beside every protected-folder refusal |
 
@@ -662,6 +670,9 @@ as honestly as a succeeding one.
 | Check a folder whose header has `Order ID` | Refused by notification naming the column — a check cannot report on data it cannot read, so this is the answer rather than a gap in it. |
 | Check a folder with a `key=value` partition whose KEY is not `[a-z0-9_]` (e.g. `order-id=1/`) | Refused under its **own** wording, about folder names — not the column one, because the repair is renaming a folder. |
 | Check `yearcase/` | **A report**, with no cross-file finding. Columns lists `year_in_file, id, region` with their own figures, and above them *"Year is listed as year_in_file. The folder has a partition of the same name…"*. `yeartrail/` reports the same with `year_in_file` last. |
+| Check `dq_dupes/` | **4 duplicate rows** in the tile, and below it *"Most repeated rows"*: `Ann` `Leeds` `(empty)` appearing **4** times first, then `Bo` `(empty)` `x` appearing **2**. The counts differ from the tile on purpose — it counts every copy after the first, and the note beneath the heading says so. A blank CSV cell is an empty string, so **no `NULL` appears anywhere** in that table; a cell reading `NULL` means the report is showing an absence the file does not contain. |
+| On the same report, open *"Rows in each file (2 files)"* | Closed until clicked, then `dq_dupes_a.csv` **6** and `dq_dupes_b.csv` **1** — paths relative to the checked folder, not full keys. On a single-file check the disclosure is **absent**, since its one count is the report's row count. |
+| Check `dq_dupes_nested/` | The duplicate **count** still reads **1** — a nested column costs the samples, never the figure — and *"Most repeated rows"* shows the sentence about lists and objects in place of a table. The statement for such a source is the one that shipped before the samples existed, so a failure here is a lost count, not a lost sample: if the count reads *Not computed*, the nested arm is the cause. |
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 | Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 

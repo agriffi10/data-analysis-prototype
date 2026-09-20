@@ -40,6 +40,11 @@ Attributes:
     the engine's own wording names serde classes and byte offsets, which tells a user nothing and
     leaks implementation, and the raw reason stays on the state block and in the execution
     history where an operator can read it.
+  SAMPLES_OMITTED_NESTED: Why a source holding lists or objects shows no repeated rows. Says the
+    count is unaffected, because a reader who has just been told one figure is missing will
+    otherwise wonder whether the one above it is too.
+  SAMPLES_OMITTED_TOO_LARGE: Why a report that would not have opened shows no repeated rows. The
+    same reassurance, for the same reason.
   _LINE_TOO_LONG_MARKERS: Athena's wording when the raw-line table hit its single-line limit.
     Matched on text because Athena reports it as a generic failure with a message rather than a
     distinct state. A miss is mild and one-way — the user gets the generic sentence instead of
@@ -51,7 +56,27 @@ Attributes:
     wants examples of values that are not numbers; a temporal one wants values that are not dates.
   _TEXT: What a column whose dominant type covers too little of its non-null values is called. It
     is not a broken numeric column, it is free text that happens to contain numbers.
-  MAX_SAMPLE_VALUE_CHARS: Longest offending-value example the report will carry.
+  _JSON_ESCAPED_STRING_CHARS: Longest one string of a duplicate-samples cell can be once JSON has
+    escaped it, in CHARACTERS: every one of ``sql.SAMPLE_VALUE_CHARS`` escaping to TWELVE, plus the
+    two quotes and the comma separating it from the next. Twelve rather than six because the cut
+    that bounds the value is Trino's ``substr``, which counts CODE POINTS — so a value may be 201
+    astral code points, and JSON escapes each of those as a surrogate PAIR — twelve characters,
+    two backslash-u sequences. A control character or a BMP character costs six; only the astral
+    case costs twelve, and it is the one that decides the bound. Derived rather than measured, because
+    the cell is the user's own data and its worst case is a file of emoji — not a file anyone would
+    notice was unusual.
+
+    **The twelve rests on an escaping behaviour nobody here has run against Athena, and is safe
+    anyway**: the figure only ever raises a ``max()`` floor on a REFUSAL threshold, so if Trino's
+    ``json_format`` emits the raw UTF-8 character instead of a surrogate pair, this is merely
+    conservative. Six would be the wrong direction to be wrong in — it would refuse a cell the
+    statement was entitled to return, and fail the whole report.
+  _CSV_DEFAULT_FIELD_CHARS: ``csv``'s own per-field limit, captured at import so the floor in
+    ``duplicates_field_size_limit`` is the DEFAULT rather than whatever the limit happens to be when
+    it is called.
+  MAX_SAMPLE_VALUE_CHARS: Longest offending-value or duplicate-sample value the report will carry.
+    One SHORTER than the statement's own cut (``sql.SAMPLE_VALUE_CHARS``), so a value the engine
+    shortened is still recognisable as shortened here.
 """
 
 import csv
@@ -90,6 +115,15 @@ NOT_COMPUTED_DUPLICATES = (
     "was too large to complete here."
 )
 
+SAMPLES_OMITTED_NESTED = (
+    "the repeated rows aren't shown because this data has columns holding lists or objects, "
+    "which can't be rendered as text. The duplicate count above still covers every column."
+)
+SAMPLES_OMITTED_TOO_LARGE = (
+    "the repeated rows aren't shown because the report would have been too large to open. "
+    "The duplicate count above is unaffected."
+)
+
 _LINE_TOO_LONG_MARKERS = ("line too long", "too long in text file", "max line length", "line length")
 
 _CAST_TYPES = ("bigint", "double", "timestamp", "date")
@@ -106,7 +140,51 @@ class MissingProfileError(ValueError):
     """The profile result had no total row; the caller raises the terminal."""
 
 
-def parse_result(body: bytes) -> list[dict]:
+_JSON_ESCAPED_STRING_CHARS = sql.SAMPLE_VALUE_CHARS * 12 + 3
+
+_CSV_DEFAULT_FIELD_CHARS = csv.field_size_limit()
+
+
+def duplicates_field_size_limit(grouped: int) -> int:
+    """Sizes the CSV reader's field limit for one duplicates result.
+
+    ``csv`` refuses a field past a process-global limit — 131,072 characters by default — and
+    assemble-report re-raises everything but a missing object, so ONE oversized cell fails the
+    whole report rather than one figure. The duplicates cell is the only one this check can push
+    past that: it carries whole rows of the user's data rather than single values, and a wide
+    table multiplies it by the column count.
+
+    Computed from what the statement can return, not guessed: ``DQ_DUPLICATE_SAMPLE`` arrays of
+    ``grouped + 1`` strings (the repeat count, then one cell per grouped column), each string at
+    its escaped worst case, plus the brackets around each array and around the whole cell. The
+    per-string allowance includes a trailing comma that the last element of each array does not
+    use, and that slack is what covers the commas BETWEEN the arrays.
+
+    Never below the default — ``_CSV_DEFAULT_FIELD_CHARS``, captured at import rather than read
+    here. For a narrow table the computed figure is smaller than it, and returning it would TIGHTEN
+    the reader on a cell that parses today: a raise that quietly becomes a lowering is how a guard
+    starts failing the thing it was added to protect. Read live, the floor would be whatever the
+    limit happens to be at the call rather than the default, so a permanent raise from anywhere else
+    in the process would be floored against itself and this sentence would stop being true with
+    nothing to say so.
+
+    The unit is CHARACTERS throughout, which is what ``csv`` counts — the escaped-string figure
+    counts characters too, not the bytes they encode to.
+
+    Args:
+      grouped: How many columns the statement grouped by.
+
+    Returns:
+      The field limit, in characters.
+
+    Raises:
+      None.
+    """
+    computed = config.DQ_DUPLICATE_SAMPLE * ((grouped + 1) * _JSON_ESCAPED_STRING_CHARS + 2) + 2
+    return max(_CSV_DEFAULT_FIELD_CHARS, computed)
+
+
+def parse_result(body: bytes, field_size_limit: int | None = None) -> list[dict]:
     """Parses an Athena CSV result file into header-keyed rows.
 
     Athena quotes result fields, so the CSV reader handles embedded commas, quotes and newlines
@@ -126,6 +204,10 @@ def parse_result(body: bytes) -> list[dict]:
 
     Args:
       body: The result file's bytes.
+      field_size_limit: Raises ``csv``'s field limit for this read alone. The limit is
+        process-global and this verb parses three results per invocation on a container that is
+        reused, so it is restored afterwards rather than left raised — a limit that only ever
+        climbs would eventually be doing no work at all, and nothing would say so.
 
     Returns:
       The rows, keyed by header.
@@ -133,7 +215,14 @@ def parse_result(body: bytes) -> list[dict]:
     Raises:
       None.
     """
-    return list(csv.DictReader(io.StringIO(body.decode("utf-8", errors="replace"))))
+    if field_size_limit is None:
+        return list(csv.DictReader(io.StringIO(body.decode("utf-8", errors="replace"))))
+
+    previous = csv.field_size_limit(field_size_limit)
+    try:
+        return list(csv.DictReader(io.StringIO(body.decode("utf-8", errors="replace"))))
+    finally:
+        csv.field_size_limit(previous)
 
 
 def _int(row: dict, key: str) -> int:
@@ -178,6 +267,27 @@ def _json_array(row: dict, key: str) -> list:
     Raises:
       None.
     """
+    return [_truncate(value) for value in _decode_json_array(row, key)]
+
+
+def _decode_json_array(row: dict, key: str) -> list:
+    """Decodes one JSON-rendered result cell, without interpreting what is in it.
+
+    Split from ``_json_array`` because the two callers want different things back: an offending-value
+    sample is a list of scalars to truncate, a duplicate sample is a list of ROWS whose cells are
+    truncated one level down. Truncating a row would render the whole list as one JSON string.
+
+    Args:
+      row: The result row.
+      key: The cell's column name.
+
+    Returns:
+      The decoded list. Empty for a blank cell, unparseable JSON, or a null aggregate — which
+      renders as the JSON null literal and is not a list.
+
+    Raises:
+      None.
+    """
     raw = (row.get(key) or "").strip()
     if not raw:
         return []
@@ -185,9 +295,7 @@ def _json_array(row: dict, key: str) -> list:
         parsed = json.loads(raw)
     except ValueError:
         return []
-    if not isinstance(parsed, list):
-        return []
-    return [_truncate(value) for value in parsed]
+    return parsed if isinstance(parsed, list) else []
 
 
 def _truncate(value):
@@ -556,6 +664,137 @@ def _duplicates(block, rows: list[dict]):
     return _int(rows[0], "duplicate_rows") if rows else 0
 
 
+def source_shape(
+    request: dict, manifest: dict
+) -> tuple[list[dict], list[dict], str | None]:
+    """Reads the three things every column list here is derived from: union, keys and format.
+
+    One derivation, because assemble-report needs the grouped column COUNT before it reads the
+    duplicates result and ``build`` needs the column LIST after it. Derived twice, a format
+    resolved one way in one place and another way in the other would size the reader's field limit
+    for a different statement than the one that ran, and the parse would fail the whole report.
+
+    Args:
+      request: The threaded request, which carries the format as a fallback.
+      manifest: The source manifest.
+
+    Returns:
+      A ``(unioned columns, partition keys, format)`` tuple.
+
+    Raises:
+      KeyError: If a probed column is missing its name or type.
+    """
+    fmt = manifest.get("format") or request.get("format")
+    files = manifest.get("files") or []
+    return sql.union_columns(files), manifest.get("partitionKeys") or [], fmt
+
+
+def _duplicate_samples(rows: list[dict], grouped: list[str], nested: bool, count: int):
+    """Builds the sampled duplicate rows, or the sentence saying why there are none.
+
+    ``columns`` is the GROUPING's column list, never the report's own ``exact.columns``: the two
+    differ on a CSV whose header names a partition key, and heading the samples with the wrong one
+    would put every value under its neighbour's name on a table that still looks right.
+
+    A nested source has no samples to show and says so — but only when it actually has duplicates.
+    With none, the empty table is the honest answer and a sentence explaining an absence nobody
+    would have noticed is noise.
+
+    An unparseable or absent cell yields no rows and leaves the count standing. The count and the
+    samples come from the same statement but they are not the same finding: losing the examples is
+    a degraded report, losing the count would be a wrong one.
+
+    Args:
+      rows: The duplicates query's rows.
+      grouped: The grouped column names, from ``sql.grouped_column_names``.
+      nested: Whether the source has a column the statement could not render.
+      count: The duplicate-row count already read from the same result.
+
+    Returns:
+      ``{"columns": [...], "rows": [...]}``, or ``{"omitted": <sentence>}``.
+
+    Raises:
+      None.
+    """
+    if nested:
+        return (
+            {"omitted": SAMPLES_OMITTED_NESTED}
+            if count > 0
+            else {"columns": grouped, "rows": []}
+        )
+
+    sampled = _decode_json_array(rows[0], "duplicate_samples") if rows else []
+    return {
+        "columns": grouped,
+        "rows": [
+            {
+                "repeats": int(entry[0]),
+                "values": [_sample_cell(cell) for cell in entry[1:]],
+            }
+            for entry in sampled
+            if _is_sampled_row(entry, len(grouped))
+        ],
+    }
+
+
+def _is_sampled_row(entry, grouped: int) -> bool:
+    """Reports whether one decoded entry is a sampled row this report can show.
+
+    The arity check is the load-bearing one, and it is not defensive tidiness. A row is rendered
+    POSITIONALLY against ``columns``, so a row with fewer cells than the grouping has columns leaves
+    the trailing ones empty — and the page draws an absent cell as ``NULL``, which is a claim about
+    the user's data that their file does not make. One with more cells silently loses its tail under
+    the same rule. The two lists come from one statement and agree unless something moved between
+    the query and the report: the grouping is re-derived from the manifest here, and a manifest is an
+    object that can change between two reads.
+
+    Dropping such a row is the right answer rather than padding it. A sample is an illustration, and
+    one that cannot be laid out under its headers illustrates nothing; the COUNT beside it — the
+    figure a user acts on — is unaffected either way.
+
+    ``repeats`` is tested with ``isdecimal`` rather than ``isdigit`` because ``int`` is called on it
+    and ``isdigit`` is true for characters ``int`` refuses, a superscript two among them. Athena's
+    ``CAST(bigint AS varchar)`` emits neither, so this is the narrower test rather than a fix for a
+    reachable case.
+
+    Args:
+      entry: One decoded entry of the samples cell, of any JSON type.
+      grouped: How many columns the statement grouped by.
+
+    Returns:
+      True when the entry is a list of the repeat count followed by exactly one cell per column.
+
+    Raises:
+      None.
+    """
+    return (
+        isinstance(entry, list)
+        and len(entry) == grouped + 1
+        and isinstance(entry[0], str)
+        and entry[0].isdecimal()
+    )
+
+
+def _sample_cell(value):
+    """Renders one cell of a sampled row, keeping an absence an absence.
+
+    NULL travels as JSON null and must stay ``None``: passed through ``_truncate`` it would come
+    back as the four-character string ``"null"``, which the browser cannot tell from a column whose
+    value literally reads "null" — and the two are the difference between a missing field and a
+    file with the word in it.
+
+    Args:
+      value: The decoded cell, ``None`` for NULL.
+
+    Returns:
+      ``None``, or the cell cut to ``MAX_SAMPLE_VALUE_CHARS`` with an ellipsis.
+
+    Raises:
+      None.
+    """
+    return None if value is None else _truncate(value)
+
+
 def _encoding(block: dict, source_bytes: int) -> dict:
     """Builds the encoding figure with its explicit coverage percentage.
 
@@ -838,6 +1077,12 @@ def build(
     other spellings are looked up by that name too, through the same ``ddl.declare_columns``
     pairing, because the entry itself carries the new one.
 
+    ``exact.duplicateSamples`` is written only beside a duplicate COUNT — a figure that was not
+    computed has no statement behind it to have sampled anything, and an empty table there would
+    read as "no duplicates" rather than "not measured". Its columns come from
+    ``sql.grouped_column_names``, which is the statement's own grouping and not this function's
+    ``columns``: on a CSV whose header names a partition key the two lists differ.
+
     The completion timestamp is the only field a replay changes. The report key is a pure function
     of the request id, so a retry or a redelivery overwrites the same object rather than adding a
     second one, which is how this pipeline is replay-safe.
@@ -864,10 +1109,8 @@ def build(
         missing its name.
       ValueError: If a result cell is non-empty and not a number.
     """
-    fmt = manifest.get("format") or request.get("format")
     files = manifest.get("files") or []
-    union = sql.union_columns(files)
-    partition_keys = manifest.get("partitionKeys") or []
+    union, partition_keys, fmt = source_shape(request, manifest)
     columns = sql.profiled_columns(union, partition_keys, fmt)
     sources = [
         pair.source["name"]
@@ -883,10 +1126,11 @@ def build(
     row_count = _int(total, "row_count")
     parquet = fmt == "parquet"
 
+    duplicates = _duplicates(request.get("duplicates"), duplicate_rows)
     exact = {
         "rowCount": row_count,
         "rowCountsByFile": _row_counts_by_file(profile_rows, files),
-        "duplicateRows": _duplicates(request.get("duplicates"), duplicate_rows),
+        "duplicateRows": duplicates,
         "columns": [
             _column(
                 index,
@@ -900,6 +1144,13 @@ def build(
         ],
         "crossFile": cross_file(files, fmt, partition_keys),
     }
+    if isinstance(duplicates, int):
+        exact["duplicateSamples"] = _duplicate_samples(
+            duplicate_rows,
+            sql.grouped_column_names(union, partition_keys, fmt),
+            sql.has_nested_column(union, partition_keys, fmt),
+            duplicates,
+        )
     approximate = {
         "raggedRows": _ragged(request.get("ragged"), ragged_rows),
         "encoding": _encoding(encoding_block, sum(f.get("size") or 0 for f in files)),

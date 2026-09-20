@@ -72,8 +72,16 @@ because the format enforces types); null and blank ratios; row counts per file (
 total; JSON key drift using the **Hive** JSON SerDe, never OpenX — OpenX yields nondeterministic
 nulls and the whole story rests on "null means missing key". **Duplicates run as a separate query**,
 a full shuffle and the most expensive thing Athena does, and they degrade to `not_computed` on
-resource exhaustion rather than failing the check. `DQ_MAX_COLUMNS` (200) guards Athena's
-262,144-byte query-string cap.
+resource exhaustion rather than failing the check. That statement also keeps `DQ_DUPLICATE_SAMPLE`
+(5) of the **rows themselves**, through an n-ary `max_by` keyed on the count then the row's own
+JSON, so the five are the most-repeated ones and a retry writes the same report. A source with an
+`array<…>` or `struct<…>` column keeps the older statement byte for byte and records its samples as
+omitted — Trino documents no cast from either to varchar, and a cast the engine refuses would lose
+the count that works today. `DQ_MAX_COLUMNS` (200) guards Athena's 262,144-byte query-string cap,
+and **each statement carries its own size test at that cap** — the profile query's and the
+duplicates query's, both in `test_sql_dqcommon.py`, each rendering the widest source the column
+rule admits. Re-measure there rather than trusting a figure written here: the samples took every column from ONE
+rendering to four, and the next addition will move it again.
 
 **Approximate**, and labelled as such in both the report and the notification: ragged rows via a
 single-column raw-line temp table (`\001` delimiter — quoted delimiters and embedded newlines
@@ -86,6 +94,13 @@ so a large `.gz` is rejected with guidance.
 `{space}/_data-quality-reports/{requestId}/report.json`. The key is a pure function of `requestId`,
 so a replay overwrites byte-identically, and the claim keeps every other execution from writing it. The folder is hidden in the browser, and the notification
 deep-links to `/data-quality/:space/:requestId`.
+
+The report is the **only** place a sampled row of the user's data appears: the notification, the
+runs index and every log line carry figures, never cells. It is written within
+`DQ_REPORT_MAX_BYTES`, which is the size the browser can read a document through and is held equal
+to `apicommon.s3_config.MAX_DOCUMENT_BYTES` by a fleet-level test — over it, the samples are
+dropped and the report says why, since a report the page refuses to open loses every other finding
+with them.
 
 The `/data-quality` dashboard reads a per-space `index.json` appended under ETag CAS, capped at 200
 entries with every failure swallowed — the durability order is report, then notification, then index

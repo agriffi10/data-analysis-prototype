@@ -1,4 +1,4 @@
-import type {DataQualityReport} from './dataQuality.types';
+import type {DataQualityReport, DuplicateSamples} from './dataQuality.types';
 
 /**
  * Report fixtures whose shapes and WORDING come from
@@ -29,6 +29,34 @@ export const SKIP_RAGGED_NOT_LINE_DELIMITED = 'not a line-delimited text format.
 /** `report.py::NOT_COMPUTED_DUPLICATES`, verbatim. */
 export const NOT_COMPUTED_DUPLICATES =
   'finding duplicates means comparing every column across the whole dataset, and that was too large to complete here.';
+
+/** `report.py::SAMPLES_OMITTED_NESTED`, verbatim. */
+export const SAMPLES_OMITTED_NESTED =
+  "the repeated rows aren't shown because this data has columns holding lists or objects, " +
+  "which can't be rendered as text. The duplicate count above still covers every column.";
+
+/** `report.py::SAMPLES_OMITTED_TOO_LARGE`, verbatim. */
+export const SAMPLES_OMITTED_TOO_LARGE =
+  "the repeated rows aren't shown because the report would have been too large to open. " +
+  'The duplicate count above is unaffected.';
+
+/**
+ * The sampled duplicate rows as `report.py::_duplicate_samples` writes them: the grouping's own
+ * column list, the count first, and a row carrying both absences the page has to tell apart.
+ *
+ * Kept OUT of `csvReport()`'s base shape on purpose — that fixture's columns are `order_id`,
+ * `amount`, `notes` and its duplicate count is 12, so samples over `name`/`city` repeating three
+ * and two times would agree with nothing else in the report it sits in.
+ */
+export function duplicateSamples(): DuplicateSamples {
+  return {
+    columns: ['name', 'city'],
+    rows: [
+      {repeats: 3, values: ['a', 'x']},
+      {repeats: 2, values: [null, '']}
+    ]
+  };
+}
 
 /** A CSV report with real findings — the common case the page is designed around. */
 export function csvReport(over: Partial<DataQualityReport> = {}): DataQualityReport {
@@ -66,7 +94,10 @@ export function csvReport(over: Partial<DataQualityReport> = {}): DataQualityRep
       raggedRows: {count: 37, note: NOTE_RAGGED},
       encoding: {
         invalidUtf8Sequences: 4,
-        sampleOffsets: [1024, 88123],
+        sampleOffsets: [
+          {key: 'alice/sales/jan.csv', offset: 1024},
+          {key: 'alice/sales/feb.csv', offset: 88123}
+        ],
         coverage: 'sampled',
         coveragePercent: 12.5,
         note: 'Sampled — 12.5% of bytes examined.'

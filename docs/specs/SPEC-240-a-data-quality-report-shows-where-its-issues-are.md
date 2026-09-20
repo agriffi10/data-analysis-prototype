@@ -1,8 +1,8 @@
 # Spec: A Data-Quality Report Shows Where Its Issues Are
 
 **ID:** SPEC-240
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-111, SPEC-112, SPEC-113
 
 ## Overview
@@ -42,11 +42,28 @@ Read from the code at `73c66eef`, and the data-quality claims re-read at `053ecb
   renders them as JSON, because Athena writes an array into its result CSV with unquoted elements.
 - **Results travel by pointer.** assemble-report reads each query's result CSV from its
   `resultLocation` (`_result_rows`), not from the state.
-- **The statement has a length budget, and nothing measures it.** `dqcommon.config` holds
-  `DQ_MAX_COLUMNS = 200` and `DQ_MAX_QUERY_BYTES = 262_144`. `_projection`'s docstring records a
-  profile query that measured 324 KB at the column limit before its columns were aliased, and says a
-  test pins the rendered size. No test under `lambdas/` calls `build_profile_query` or
-  `build_duplicates_query` (grep), so that docstring is stale and this spec adds the test it needs.
+- **The statement has a length budget.** `dqcommon.config` holds `DQ_MAX_COLUMNS = 200` and
+  `DQ_MAX_QUERY_BYTES = 262_144`. `_projection`'s docstring records a profile query that measured
+  324 KB at the column limit before its columns were aliased, and says a test pins the rendered
+  size.
+
+  **Corrected at build time (2026-09-20).** This paragraph used to read "No test under `lambdas/`
+  calls `build_profile_query` or `build_duplicates_query` (grep), so that docstring is stale". That
+  was one sentence carrying two claims, and they failed in different ways — which is the part worth
+  keeping:
+  - *The `build_profile_query` half was wrong when it was written.* At `053ecb1d`,
+    `test_report_dqcommon.py:332` already called it, added by `cd9b769a` (#812) — one of the two PRs
+    this section says it re-read after. The grep missed a caller that was there. Today there are
+    eight, across two files.
+  - *The `build_duplicates_query` half was true at `053ecb1d` and has since gone stale.*
+    `test_sql_dqcommon.py` did not exist then; `d11fcd76` (#824) created it carrying
+    `test_the_profile_query_fits_athenas_query_string_limit_at_the_column_cap`.
+
+  So `_projection`'s docstring is accurate today and needs no correction. The *duplicates* statement
+  still has no size test, and this spec adds it — asserting on `len(query.encode())`, since the
+  limit Athena documents is in bytes, and against the spelled-out `_ATHENA_QUERY_STRING_LIMIT` that
+  the neighbouring test already uses rather than `DQ_MAX_QUERY_BYTES`, because, in its own words,
+  "one measured against the setting would pass however far a mistake raised it".
 - **A result cell has a size limit when it is read.** `report.parse_result` reads a result CSV with
   `csv.DictReader`, whose field limit defaults to 131,072 characters, and assemble-report re-raises
   anything but a missing object. A cell over that limit fails the whole report, not one figure.
@@ -220,11 +237,16 @@ When `has_nested_column` is true, the statement is today's, byte for byte, and i
 - [ ] For a source with one `array<string>` column, the statement equals today's for the same inputs,
   asserted as a whole string.
 - [ ] A test renders the statement at `DQ_MAX_COLUMNS` columns, each named with 255 characters, plus
-  two partition keys, and asserts its UTF-8 length is at most `DQ_MAX_QUERY_BYTES`.
+  two partition keys and a worst-case path filter, and asserts its UTF-8 length is at most
+  `_ATHENA_QUERY_STRING_LIMIT` — the spelled-out 262,144 its neighbour already uses, **not**
+  `DQ_MAX_QUERY_BYTES`. *(Corrected at build time: measured against the setting, the guard passes
+  however far a mistake raises it. See* What was checked.*)*
 - [ ] `grouped_column_names` for JSON columns `id, month, Year` with partition keys `year` and `Month`
   returns `['id', 'year', 'Month']`, and the statement for the same inputs groups by
   `"id", "year", "Month"`. For CSV the same inputs return
-  `['id', 'month_in_file', 'year_in_file', 'year', 'Month']`.
+  `['id', 'month_in_file', 'year_in_file', 'year', 'Month']`, and the statement groups by those.
+  Both halves are asserted in ONE test: the failure to catch is the list and the clause each
+  agreeing with a different answer while each passes a test of its own.
 - [ ] The live check in *Implementation Phases* passes. This criterion cannot settle before the
   push, so it is recorded as owed on the PR.
 
@@ -270,8 +292,13 @@ notification or the runs index.
   `duplicateSamples.omitted` with the nested-values sentence, asserted as a whole string. The same
   source with 0 duplicates writes `rows: []`.
 - [ ] A report whose samples push it past `DQ_REPORT_MAX_BYTES` is written with
-  `duplicateSamples.omitted` and every other figure unchanged, asserted by making the fixture's
-  samples large rather than by lowering the constant.
+  `duplicateSamples.omitted` and every other figure unchanged. *(Corrected at build time: the
+  "rather than by lowering the constant" half is not satisfiable. The samples are bounded by the
+  statement at about 204 KB — `DQ_DUPLICATE_SAMPLE` rows of `DQ_MAX_COLUMNS` + 2 values of
+  `SAMPLE_VALUE_CHARS` — so no samples fixture can carry a report across a 3 MiB cap by itself; in
+  production the branch needs a report already within 204 KB of it. The test enlarges the samples*
+  and *lowers the cap, and says so. What the lowered cap cannot hide is a wrong constant, which the
+  contract test pins independently.)*
 - [ ] A test asserts `DQ_REPORT_MAX_BYTES` equals `apicommon.s3_config.MAX_DOCUMENT_BYTES`.
 - [ ] For a report under the cap, the notification text, the runs-index entry and assemble-report's
   observability fields with samples equal those for the same report without them.
@@ -295,9 +322,10 @@ today. The report's `isReport` check does not require the field.
 
 #### Acceptance Criteria:
 
-- [ ] The fixture from FR-004's first criterion renders a table named "Most repeated rows" whose
-  header cells are Times it appears, name, city and whose first row reads 3, a, x, with both notes
-  shown.
+- [ ] The fixture from FR-004's **third** criterion (`name`/`city`, `3, a, x`) renders a table named
+  "Most repeated rows" whose header cells are Times it appears, name, city and whose first row reads
+  3, a, x, with both notes shown. *(Corrected at build time: this said "first criterion", which is
+  the 200-column field-limit case and carries neither of the columns named here.)*
 - [ ] The second row renders `NULL` and `(empty)` in its two cells.
 - [ ] A report with `duplicateSamples: {omitted: 'The samples were left out…'}` shows that sentence
   and no table.
@@ -331,7 +359,10 @@ DQ_REPORT_MAX_BYTES = 6 * 1024 * 1024 // 2   # asserted equal to apicommon.s3_co
 ## File & Folder Structure
 
 ```
-lambdas/data-quality-common/dqcommon/sql.py, report.py, config.py, messages.py   (FR-003, FR-004)
+lambdas/data-quality-common/dqcommon/sql.py, report.py, config.py               (FR-003, FR-004)
+  (NOT messages.py: it registers terminal REASON CODES, and the two omission sentences are report
+   prose, which lives beside NOT_COMPUTED_DUPLICATES in report.py)
+lambdas/test_data_quality_report_contract.py                                   (FR-004, FR-005)
 lambdas/data-quality-common/ tests beside sql.py and report.py
 lambdas/data-quality-assemble-report/dq_assemble_report.py (+ test)            (FR-004)
 lambdas/info/planes/data-quality.md
@@ -353,7 +384,7 @@ Every criterion here is stated against `main` at build time.
 ### Phase 2: The plane
 
 - `grouped_column_names`, `has_nested_column`, the layered duplicates statement, its constant and its
-  size test (FR-003). Correct `_projection`'s docstring, which claims a test that does not exist.
+  size test (FR-003). *(`_projection`'s docstring needed no correction — see* What was checked*.)*
 - `report.py`'s samples, assemble-report's cap and omission, the equality test, and the log sweep
   (FR-004).
 - The plane page.
