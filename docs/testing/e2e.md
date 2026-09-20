@@ -610,18 +610,35 @@ as honestly as a succeeding one.
    success toast, and the file in **Files**.
 7. **Open the saved CSV and count its rows.** It holds the **whole** result — 151 lines for the
    150-row fixture — while the page held 100. Download it through the portal.
-8. Steps 1–7 started **zero** `StartQueryExecution`.
-9. Save again, same name → the **Overwrite** confirm.
-10. Save into a **shared space** → the cross-bucket copy succeeds.
-11. **The format choice, on this surface too.** Re-open **Save results to my files** → **Format** now
+8. **The columns the grid hides stay out of the file** (SPEC-239). On `explorer150`, open
+   **Options → Columns**, hide `qty`, and **Pin** `owner` so it leads. Reopen **Save results to my
+   files**: the button now reads **Convert and save** — there is no object to copy that looks like
+   that — and the dialog says *"The file holds N result columns, in the order shown."* with N the
+   number still shown. Save as `explorer-hidden`, CSV. A **notification** arrives; the file's header
+   is the visible columns with `owner` first and no `qty`, and its row count is the pager's total,
+   not the page's. Then **Show all**, **Unpin all**, reopen: the button reads **Save here** again,
+   the sentence is gone, and the save lands at once with every column in the table's own order.
+   That pair is the check — the second half is what proves the first was the column choice and not
+   the format.
+9. **A grouped exploration showing only its percentage column refuses the save** (SPEC-239). Group
+   by `region` with `COUNT(*)` and **Show percentage**, then hide `region` and `count_all`. **Save
+   results to my files** is refused with *"Show at least one of the result’s columns to save it."*
+   The percentage column is computed in the browser and is in no result, so there is nothing to
+   write — and the refusal is the only thing standing between that and an empty file. **Leave
+   grouping and Show all before going on** — the steps below save again, and this state refuses.
+10. Steps 1–8 started **zero** `StartQueryExecution` — step 9's grouping is the one deliberate
+    exception, since it re-runs the query.
+11. Save again, same name → the **Overwrite** confirm.
+12. Save into a **shared space** → the cross-bucket copy succeeds.
+13. **The format choice, on this surface too.** Re-open **Save results to my files** → **Format** now
     offers **CSV**, **Parquet**, **JSON**, **Excel**, defaulting to **CSV**. Choose **Parquet**: the
     button changes to **Convert and save**, the dialog closes on submit, and the toast names the
     format and the file. Still **zero** `StartQueryExecution` — a conversion reads the execution's
     results object and starts no query.
-12. **The notification lands and its link works.** *"Saved 150 rows as Parquet to
+14. **The notification lands and its link works.** *"Saved 150 rows as Parquet to
     "explorer-export.parquet"."* — 150, the whole result, not the 100 on the page. Following the
     message link lands on the folder with the file already listed.
-13. **Both surfaces, one dialog.** Save the same exploration as **Excel** and confirm the file opens
+15. **Both surfaces, one dialog.** Save the same exploration as **Excel** and confirm the file opens
     with 150 data rows. This surface and §4.3's are the same component — if the two ever disagree
     about a label or the button text, that is the regression this pair exists to catch.
 

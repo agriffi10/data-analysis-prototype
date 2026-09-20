@@ -101,6 +101,10 @@ export function DataExplorerWorkspace() {
   // resolves, which `useRunDdl` treats as best-effort anyway.
   const ddl = useRunDdl({username, appendEntry: async () => undefined, toast});
 
+  // Held here rather than read from the region at submit time, because the dialog outlives the
+  // gesture: the list is what the grid showed WHEN export was chosen, and a column hidden while
+  // the dialog is open must not change the file it is about to write.
+  const [exportColumns, setExportColumns] = useState<number[] | null>(null);
   const saveResults = useSaveResults({
     spaces,
     username,
@@ -112,6 +116,7 @@ export function DataExplorerWorkspace() {
     // The linked saved query's name when the tab has one — the same default the Query
     // workspace uses, and the closest thing an exploration has to a name the user chose.
     linkedSavedName: tabs.activeTab?.savedQuery?.name,
+    columnIndexes: exportColumns,
     toast
   });
 
@@ -283,7 +288,10 @@ export function DataExplorerWorkspace() {
                 ? 'A view is created in one database, and a saved query can read from several. Open a table to create a view from it.'
                 : null
             }
-            onExport={saveResults.openDialog}
+            onExport={(columnIndexes) => {
+              setExportColumns(columnIndexes);
+              saveResults.openDialog();
+            }}
             // Judged HERE, on the results location, because that object is what export
             // copies — a grid full of rows says nothing about whether Athena has finished
             // writing the CSV, and a failed apply leaves the LAST GOOD execution's rows on

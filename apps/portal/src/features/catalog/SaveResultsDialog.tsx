@@ -6,7 +6,7 @@ import {SpaceSelect} from '../../components/SpaceSelect';
 import {useFeature} from '../feature-flags';
 import {normalizeResultsName, RESULTS_FORMATS} from './catalog.format';
 import type {QuerySpace, ResultsFormat} from './catalog.types';
-import type {SaveResultsInitial} from './useSaveResults';
+import {convertsFor, type SaveResultsInitial} from './useSaveResults';
 import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
@@ -23,6 +23,12 @@ type Props = {
    */
   onSave: (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => void;
   onCancel: () => void;
+  /**
+   * The result columns this save would keep, in order, or null for all of them in the result's
+   * own order. It decides the primary button's label through the same predicate the hook routes
+   * on, so what the button says and what the save does cannot disagree.
+   */
+  columnIndexes: number[] | null;
 };
 
 // Derived from the map, not restated: a format added there but forgotten here would be silently
@@ -55,7 +61,7 @@ function spaceHolding(spaces: QuerySpace[], destination: SaveResultsInitial['des
  * space and folder rather than its defaults, and the picker opens at that folder whenever that
  * space is the one selected.
  */
-export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCancel}: Props) {
+export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCancel, columnIndexes}: Props) {
   const [name, setName] = useState(initial.name);
   const [format, setFormat] = useState<ResultsFormat>(initial.format);
   const restored = spaceHolding(spaces, initial.destination);
@@ -78,7 +84,7 @@ export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCa
 
   if (!space) return null;
 
-  const isCopy = format === 'csv';
+  const isCopy = !convertsFor(format, columnIndexes);
 
   return (
     <Modal
@@ -88,7 +94,13 @@ export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCa
       className={DIALOG_PANEL}>
       <h2 className={DIALOG_TITLE}>Save results</h2>
       <p className="mt-1 text-sm text-text-2">
-        {canConvert ? (
+        {columnIndexes !== null ? (
+          <>
+            Saves the result columns this grid is showing, in the order it shows them — a column worked out in your
+            browser is not part of the results and is not saved. That is a file no straight copy can produce, so every
+            format is converted first and arrives as a notification. The file extension is added automatically.
+          </>
+        ) : canConvert ? (
           <>
             Saves the full result set. <b>CSV</b> is saved straight away; the other formats are converted first and
             arrive as a notification. The file extension is added automatically.
@@ -151,6 +163,13 @@ export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCa
         disabled={isBusy}
         onChange={setSpaceId}
       />
+
+      {columnIndexes !== null && (
+        <p className="mt-4 text-sm text-text-2">
+          The file holds {columnIndexes.length} result {columnIndexes.length === 1 ? 'column' : 'columns'}, in the order
+          shown.
+        </p>
+      )}
 
       <p className={`mt-4 mb-1 ${SECTION_CAPTION}`}>Destination folder</p>
       <DestinationPicker

@@ -229,8 +229,14 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     }
   ],
   // Neither an area nor a kill switch: a PRESENTATION flag over one control. Off, the
-  // Save-results dialog offers no format choice and saves the CSV it always did; the enqueue
-  // route stays live and ungated either way, so this takes nobody's access away.
+  // Save-results dialog offers no format choice; the enqueue route stays live and ungated
+  // either way, so this takes nobody's access away.
+  //
+  // What it does NOT gate: whether a save copies or converts. With the flag off
+  // the format is always csv, and a csv save still converts when the grid is hiding or
+  // reordering columns — because a copy cannot produce that file, and the alternative is a user
+  // who hid a column silently getting one that has it. The flag hides OPTIONS; it is not a
+  // second answer to what a save should write.
   //
   // Two rows for one control, because there are two dialogs — the Query workspace's and the
   // Data Explorer's — and they are reached down different paths. The `sharedWorkspaces` list

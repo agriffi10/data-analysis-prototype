@@ -1,7 +1,7 @@
 # Spec: An Export Leaves Out the Columns the Grid Hides
 
 **ID:** SPEC-239
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-20
 **Depends On:** SPEC-185, SPEC-221, SPEC-222, SPEC-223, SPEC-229
 
@@ -85,9 +85,12 @@ Read from the code at `73c66eef`.
   in the region from `useColumnGeometry` over the execution's result columns only, never the Glue
   fallback. The workspace keeps it in state and passes it to `useSaveResults`. "Grid order" is the
   order the grid draws, pinned columns first.
-- **Hiding every result column refuses the save.** A grouped view's percentage column is not in the
+- **Showing no result column refuses the save.** A grouped view's percentage column is not in the
   result, so hiding every real column would send an empty list. *Save results to my files* is
-  refused with "Show at least one of the result's columns to save it." instead.
+  refused with "Show at least one of the result's columns to save it." instead. **The build found
+  a second way in**, and the spec said "only" where it should not have: a stored hide is never
+  pruned, deliberately, so one naming every column of a re-executed result reaches the same
+  state. The refusal is right in both; what was wrong was the claim about reachability.
 - **A list is sent whenever the visible columns, in grid order, differ from the result's full
   column list in its own order.** Hiding a column, or moving one, sends a list. Otherwise no list is
   sent, and a CSV export stays a copy.
@@ -274,7 +277,12 @@ With a list:
 - a CSV save goes through the conversion path with `format: 'csv'` and the list, instead of copying;
 - a Parquet, JSON or Excel save sends the list;
 - `SaveResultsDialog` labels the button *Convert and save* for every format and shows
-  "Only the <n> columns shown are saved, in the order shown." above the button.
+  "The file holds <n> result column(s), in the order shown." above the button. **Reworded twice in
+  the build, each time because a reachable state falsified it.** "Only the <n> columns shown are
+  saved" reads "Only the 1 columns" at one column, which `hideRefusal` admits directly, and on a
+  pure reorder it names an omission that did not happen. Saying "shown" at all then failed its own
+  test: a grouped exploration draws its percentage column, so the grid can show two columns while
+  the file holds one. The count is of RESULT columns, and the sentence now says so.
 
 With `null`, every path is exactly today's. In the *Copy or save what you found* guide, the step
 "CSV is saved straight away — the button reads Save here" is reworded to say that holds when every
@@ -296,8 +304,8 @@ hidden columns and keeps the order shown, and that a CSV save then converts, wit
   enqueues nothing, and the dialog shows *Save here* and no column sentence.
 - [ ] A grouped exploration with every result column hidden and the percentage column visible shows
   *Save results to my files* refused with the sentence above.
-- [ ] With `b` hidden the dialog shows "Only the 2 columns shown are saved, in the order shown."
-  and *Convert and save* while CSV is selected.
+- [ ] With `b` hidden the dialog shows "The file holds 2 result columns, in the order shown." and
+  *Convert and save* while CSV is selected, and a grid down to one column says "1 result column".
 - [ ] The Query workspace's save enqueues no `columnIndexes`, asserted in its existing save test.
 - [ ] The guide carries the reworded step and the new sentences. This is static copy, so the diff
   review checks it.

@@ -524,14 +524,15 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'explore-copy-and-export',
         title: 'Copy or save what you found',
-        subtitle: 'Take a selection to the clipboard, or the whole result to a file.',
+        subtitle: 'Take a selection to the clipboard, or every row to a file.',
         intro:
           'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results to my files</b> saves every row the query returned as a file in your files — as <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b> — and neither one runs another query.',
         steps: [
           'Select some cells and press <b>Ctrl+C</b> (<b>⌘C</b> on a Mac) to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
-          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save the full result. Give the file a name, choose the space and folder, and pick a <b>Format</b>.',
-          '<b>CSV</b> is saved straight away — the button reads <b>Save here</b>. <b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are converted first: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. JSON is written one object per line; Excel holds about a million rows at most, fewer when the results are wide, and stores numbers approximately, so long decimals may be rounded.',
+          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save every row the query returned. Give the file a name, choose the space and folder, and pick a <b>Format</b>.',
+          '<b>The file holds the result columns the grid is showing, in the order it shows them.</b> Hide a column, or move one, and it is saved that way — the dialog says how many columns it is about to write. Showing everything again, in the original order, saves the whole result as before. A column worked out in your browser, such as the <b>percentage</b> a grouping adds, is not part of the results and is never in the file.',
+          '<b>CSV</b> is saved straight away — the button reads <b>Save here</b> — as long as every column of the results is shown in its original order. Hide or move one of those and there is no file to copy, so a CSV is converted too; hiding a column worked out in your browser changes nothing, because it was never going into the file. <b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are always converted: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. JSON is written one object per line; Excel holds about a million rows at most, fewer when the results are wide, and stores numbers approximately, so long decimals may be rounded.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {

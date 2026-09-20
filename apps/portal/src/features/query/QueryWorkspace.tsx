@@ -265,6 +265,9 @@ export function QueryWorkspace() {
     // result that is on screen rather than the batch's last statement.
     executionId: displayExecutionId,
     linkedSavedName: activeLinkedSaved?.name,
+    // This grid hides nothing and reorders nothing, so a save from here is always the whole
+    // result in its own order — which is what null means, and what keeps CSV an instant copy.
+    columnIndexes: null,
     toast
   });
   // What the EDITOR shell may show: never a run the mobile surface submitted

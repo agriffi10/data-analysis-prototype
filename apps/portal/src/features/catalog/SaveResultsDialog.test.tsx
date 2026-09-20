@@ -55,6 +55,7 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
     <SaveResultsDialog
       spaces={[personalSpace]}
       initial={{name: 'query-results-20260622-1430', format: 'csv'}}
+      columnIndexes={null}
       onSave={onSave}
       onCancel={onCancel}
       {...props}
@@ -164,6 +165,16 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
       filename: 'query-results-20260622-1430.csv',
       format: 'csv'
     });
+  });
+
+  it('has no axe violations with the column sentence present, and names the count in it', async () => {
+    // The state the Data Explorer puts this dialog in whenever the grid hides or moves a
+    // column — a state the default fixture never reaches, so axe had never seen it.
+    const {container} = renderDialog({columnIndexes: [2, 0]});
+    await screen.findByRole('button', {name: 'Convert and save'});
+
+    expect(screen.getByText('The file holds 2 result columns, in the order shown.')).toBeInTheDocument();
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
 
   it('has no axe violations with the format select present, and keeps Enter on the name field', async () => {

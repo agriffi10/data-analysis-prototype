@@ -24,6 +24,17 @@ export type OverwritePrompt = {
   destPrefix: string;
   filename: string;
   format: ResultsFormat;
+  /**
+   * The columns the save that raised this question was going to keep.
+   *
+   * A SECOND freeze of an already-frozen value, and the honest version of why: the Columns
+   * drawer really is reachable behind the prompt, but the Data Explorer already froze the list
+   * when export was chosen, so the parameter cannot move underneath this hook today. What this
+   * buys is that the answer stops depending on that — a surface that passed a list computed per
+   * render would otherwise write a different file from the one the user confirmed, and nothing
+   * at the call site would say so.
+   */
+  columnIndexes: number[] | null;
 };
 
 /**
@@ -40,8 +51,27 @@ function pendingOverwrite(args: OverwritePrompt & {overwrite: boolean}): Overwri
     destBucket: args.destBucket,
     destPrefix: args.destPrefix,
     filename: args.filename,
-    format: args.format
+    format: args.format,
+    columnIndexes: args.columnIndexes
   };
+}
+
+/**
+ * Whether this save has to go through the conversion plane rather than copy the object.
+ *
+ * CSV is the object Athena already wrote, so saving it is a server-side copy — *unless* the file
+ * is to keep only some of the result's columns, or the same columns in another order, which a
+ * copy cannot produce. Every other format is built by the plane whatever the columns are.
+ *
+ * ONE predicate, asked by the hook's two submission points and by the dialog's button label, so
+ * what the button says and what the save does cannot disagree.
+ *
+ * @param format - The chosen output format.
+ * @param columnIndexes - The result positions to keep, or null to keep every column in order.
+ * @returns True when the request goes to the plane.
+ */
+export function convertsFor(format: ResultsFormat, columnIndexes: number[] | null): boolean {
+  return format !== 'csv' || columnIndexes !== null;
 }
 
 /**
@@ -70,6 +100,8 @@ export type UseSaveResultsResult = {
   busy: boolean;
   /** What the dialog's fields open with. */
   initial: SaveResultsInitial;
+  /** The columns a save from here would keep — what the dialog labels its button from. */
+  columnIndexes: number[] | null;
   overwritePrompt: OverwritePrompt | null;
   /** Save the currently displayed result into the chosen destination, in the chosen format. */
   save: (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => void;
@@ -105,6 +137,13 @@ type Params = {
   executionId: string | null;
   /** The active tab's linked saved-query name, used for the default file name. */
   linkedSavedName: string | undefined;
+  /**
+   * Result-column positions to keep, in order; null keeps every column and lets CSV copy.
+   *
+   * A PARAMETER because only the surface knows it: the Query workspace's grid hides nothing and
+   * always passes null, and the Data Explorer's is the one that can hide and reorder.
+   */
+  columnIndexes: number[] | null;
   toast: ToastApi;
 };
 
@@ -123,6 +162,7 @@ export function useSaveResults({
   outputLocation,
   executionId,
   linkedSavedName,
+  columnIndexes,
   toast
 }: Params): UseSaveResultsResult {
   const queryClient = useQueryClient();
@@ -213,7 +253,7 @@ export function useSaveResults({
    * later in their inbox.
    */
   const doConvert = (args: OverwritePrompt & {overwrite: boolean}) => {
-    if (!executionId || args.format === 'csv') return;
+    if (!executionId) return;
     // The plane's destination prefix is RELATIVE TO THE SPACE ROOT — it builds the key as
     // `{root}{prefix}{filename}`, so passing the full in-space prefix the picker deals in would
     // write `alice/alice/reports/…`. Nothing refuses that: the containment check only proves the
@@ -262,7 +302,11 @@ export function useSaveResults({
         format,
         destination: {space, prefix: relativePrefix, filename: args.filename},
         onConflict: args.overwrite ? 'overwrite' : 'refuse',
-        submittedAt: new Date().toISOString()
+        submittedAt: new Date().toISOString(),
+        // OMITTED rather than sent as null when there is no choice: the field is optional in
+        // the contract and the plane refuses a top-level field it does not know, so an explicit
+        // null would be a different request from the one the route declares.
+        ...(args.columnIndexes !== null && {columnIndexes: args.columnIndexes})
       });
       setBusy(false);
       if (!result.success) {
@@ -289,10 +333,12 @@ export function useSaveResults({
       toast.push({variant: 'danger', message: 'Couldn’t read the query result location.'});
       return;
     }
-    const pending = {...args, sourceBucket: parsed.bucket, sourceKey: parsed.key};
-    // CSV is the copy this dialog has always done, unchanged; the other three go to the plane.
-    if (args.format === 'csv') doSaveCopy({...pending, overwrite: false});
-    else doConvert({...pending, overwrite: false});
+    const pending = {...args, sourceBucket: parsed.bucket, sourceKey: parsed.key, columnIndexes};
+    // CSV is still the copy this dialog has always done WHEN the file wanted is the object
+    // Athena wrote. A column choice is the one thing a copy cannot produce, so it is the
+    // predicate rather than the format that decides.
+    if (convertsFor(args.format, columnIndexes)) doConvert({...pending, overwrite: false});
+    else doSaveCopy({...pending, overwrite: false});
   };
 
   return {
@@ -305,15 +351,18 @@ export function useSaveResults({
     closeDialog: () => setOpen(false),
     busy,
     initial,
+    columnIndexes,
     overwritePrompt,
     save,
     confirmOverwrite: () => {
-      // Routed on the format the prompt was raised for, not on the dialog's current state —
-      // the dialog is closed while the prompt is up, so its `format` is not readable from here
-      // and re-deriving it would be a second source for one fact.
+      // Routed on what the prompt was raised FOR, not on the current state — the dialog is
+      // closed while the prompt is up and the grid behind it can still change, so re-deriving
+      // either the format or the columns would be a second source for one fact, and for the
+      // columns it would write a different file from the one the user was asked about.
       if (!overwritePrompt) return;
-      if (overwritePrompt.format === 'csv') doSaveCopy({...overwritePrompt, overwrite: true});
-      else doConvert({...overwritePrompt, overwrite: true});
+      const again = {...overwritePrompt, overwrite: true};
+      if (convertsFor(overwritePrompt.format, overwritePrompt.columnIndexes)) doConvert(again);
+      else doSaveCopy(again);
     },
     cancelOverwrite: () => {
       // Back to the dialog with the name editable, reopened where the question was asked.

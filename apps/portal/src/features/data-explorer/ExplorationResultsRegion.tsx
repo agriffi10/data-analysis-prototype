@@ -33,6 +33,7 @@ import {OrderFilterDialog} from './OrderFilterDialog';
 import {PresentationSwitch} from './PresentationSwitch';
 import {ValuePanel} from './ValuePanel';
 import {useCellSelection} from './useCellSelection';
+import {exportColumnIndexes} from './exportColumns';
 import {useColumnGeometry} from './useColumnGeometry';
 import {aggregateAlias, isBareNumeric} from './renderExplorationSql';
 import {
@@ -104,8 +105,13 @@ export type ExplorationResultsRegionProps = {
    * reasons still names the one the user can act on first.
    */
   createViewRefusal?: string | null;
-  /** Raises the save-results dialog. The host owns the copy; this owns the gesture. */
-  onExport: () => void;
+  /**
+   * Raises the save-results dialog, with the result columns the grid is showing.
+   *
+   * The list is this surface's to compute because only it knows what is hidden and in what
+   * order; what to DO with it is the host's, which owns the save.
+   */
+  onExport: (columnIndexes: number[] | null) => void;
   /**
    * Why export is unavailable, or null when it is.
    *
@@ -117,6 +123,17 @@ export type ExplorationResultsRegionProps = {
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
+/**
+ * Why a save is refused when the grid shows no column the result has.
+ *
+ * `useColumnGeometry` refuses to hide the last VISIBLE column, so the grid always draws
+ * something — but that something need not be a column of this result. A grouped exploration's
+ * percentage column is computed in the browser and is in no result; and a stored hide is never
+ * pruned, deliberately, so one that names every column of a re-executed result leaves the grid
+ * drawing nothing but its row numbers. Both reach here, and neither is a state to refuse a save
+ * from silently.
+ */
+export const NO_RESULT_COLUMN_TO_SAVE = 'Show at least one of the result’s columns to save it.';
 /**
  * Why the percentage column takes no filter and no sort.
  *
@@ -321,6 +338,21 @@ export function ExplorationResultsRegion({
 
   const geometry = useColumnGeometry(columns, presentation, onPresentationChange);
   const visibleNames = geometry.visible.map((column) => column.name);
+  // Resolved against the EXECUTION's own columns, never `executionColumns`, which falls back to
+  // the Glue schema before a result lands — a position in that fallback is a position in a
+  // different list, and the plane resolves nothing.
+  const exportColumns = exportColumnIndexes(
+    results.columns.map((column) => column.name),
+    visibleNames
+  );
+  // An empty list is the one case a save cannot be made from. It is distinguished from `null`,
+  // which is "every column, in order" and includes the window before a result has landed: a
+  // refusal there would refuse a save that is about to be perfectly fine. The host's refusal
+  // covers that window anyway; this must not be the thing relying on it.
+  const noResultColumnShown = exportColumns !== null && exportColumns.length === 0;
+  // The HOST's reason comes first: "nothing has finished running" is true of a grid that also
+  // happens to show no result column, and it is the one the user can act on.
+  const saveResultsRefusal = exportRefusal ?? (noResultColumnShown ? NO_RESULT_COLUMN_TO_SAVE : null);
   // Paging clears the selection rather than carrying coordinates onto different rows
   // and so does a change to the column set — a row/column pair means
   // nothing once either axis has moved underneath it.
@@ -617,10 +649,10 @@ export function ExplorationResultsRegion({
           />
           {/* The Query workspace's own control, by name and by rule: present only once
               there is a result to save, so the menu item is where the refusal is read. */}
-          {exportRefusal === null && (
+          {saveResultsRefusal === null && (
             <button
               type="button"
-              onClick={onExport}
+              onClick={() => onExport(exportColumns)}
               className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               <svg
                 viewBox="0 0 24 24"
@@ -666,10 +698,12 @@ export function ExplorationResultsRegion({
 
             Copy issues nothing and never has (see `renderCopy`) — the plain Ctrl/Cmd+C is on
             the grid, and `Copy…` is the same copy with the formats a destination other than a
-            spreadsheet wants. Export writes the EXECUTION's own results object, so a
+            spreadsheet wants. Export is built from the EXECUTION's own results object, so a
             filtered, ordered or grouped exploration exports what is on screen without a
-            second query and without a second bill; its refusal comes from the host, which is
-            what knows whether that object exists yet. */}
+            second query and without a second bill — and since the file holds the columns this
+            grid shows, it can be a subset of that object rather than all of it. Its refusal is
+            the host's, which knows whether the object exists yet, OR this surface's, which is
+            the only thing that knows whether any of the result is on screen. */}
         <ExplorationOptionsMenu
           onOrderAndFilter={() => setSettingsOpen(true)}
           clearAllLabel={queryControls.clearAllLabel}
@@ -681,7 +715,7 @@ export function ExplorationResultsRegion({
           onColours={() => setColoursOpen(true)}
           onTransformers={() => setTransformersOpen(true)}
           onCopy={() => setCopyOpen(true)}
-          onExport={onExport}
+          onExport={() => onExport(exportColumns)}
           valueOpen={presentation.valuePanelOpen}
           onToggleValue={() => onPresentationChange((p) => ({...p, valuePanelOpen: !p.valuePanelOpen}))}
           calcOpen={calcOpen}
@@ -689,7 +723,7 @@ export function ExplorationResultsRegion({
           groupingOpen={groupingOpen}
           onToggleGrouping={() => setGroupingOpen((open) => !open)}
           copyRefusal={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
-          exportRefusal={exportRefusal ?? undefined}
+          exportRefusal={saveResultsRefusal ?? undefined}
           savedQueriesEnabled={queryEnabled}
           onSaveQuery={onSaveQuery}
           saveRefusal={saveRefusal ?? undefined}

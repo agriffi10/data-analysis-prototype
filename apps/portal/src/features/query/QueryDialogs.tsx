@@ -132,6 +132,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
           spaces={saveResults.spaces}
           initial={saveResults.initial}
           isBusy={saveResults.busy}
+          columnIndexes={saveResults.columnIndexes}
           onSave={saveResults.save}
           onCancel={saveResults.closeDialog}
         />
