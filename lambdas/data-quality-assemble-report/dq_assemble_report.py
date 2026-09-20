@@ -292,9 +292,16 @@ def _assemble(event: dict) -> dict:
     The summary threaded onward is deliberately small: the findings stay in the report, and the
     notification is built from these fields alone and must never carry the full document.
 
-    The record carries counts and the key, never a result row. This verb holds the parsed Athena
-    result set in memory, so every figure is derived from user data and none of it is user data —
-    a row count is a measurement, a row is the file.
+    The record carries counts and the key, never a result row — and that line is now the only one
+    where it holds. The REPORT itself carries up to ``DQ_DUPLICATE_SAMPLE`` of the duplicated rows,
+    cell by cell, because a count could not answer which rows repeat. So the old rule that every
+    figure here is a measurement and never the data survives for everything that LEAVES this verb:
+    the summary threaded onward, the notification built from it, the runs-index row and every log
+    line and span field. A row of the user's data goes in the report object, which is written to
+    their own prefix and read back by them, and nowhere else.
+
+    That makes the document's SIZE a correctness question rather than a housekeeping one, which is
+    ``_within_document_cap``'s subject.
 
     Args:
       event: The task input, carrying the space, manifest key, report prefix and query blocks.

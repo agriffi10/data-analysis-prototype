@@ -1,8 +1,8 @@
 # Spec: A Data-Quality Report Shows Where Its Issues Are
 
 **ID:** SPEC-240
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-111, SPEC-112, SPEC-113
 
 ## Overview
