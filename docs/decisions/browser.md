@@ -1033,9 +1033,13 @@ made rather than hedged.
 ## A flag can be neither an area nor a kill switch (SPEC-223)
 
 `resultsConversion` is the seventh key and the third kind: a **presentation** flag over one
-control — the Save-results dialog's format choice. Off, the dialog offers no format and saves the
-CSV it always did; the enqueue route is live and ungated either way, so it hides three options and
-takes nobody's access away. The taxonomy above is therefore five areas, one kill switch and one
+control — the Save-results dialog's format choice. Off, the dialog offers no format; the enqueue
+route is live and ungated either way, so it hides three options and takes nobody's access away.
+**It does not gate whether a save copies or converts, and since SPEC-239 that is a distinction
+with a case behind it:** off, the format is always CSV, and a CSV save still goes to the plane
+when the grid is hiding or reordering columns, because a copy cannot produce that file. The
+alternative — reading the flag as a second answer to what a save should WRITE — hands a user who
+hid a column a file that still has it, which is the bug the spec exists to close. The taxonomy above is therefore five areas, one kill switch and one
 presentation flag, and the sentence naming the first two is not a complete account of the set.
 
 Its two registry rows are the same control on two routes, and the completion notification's link

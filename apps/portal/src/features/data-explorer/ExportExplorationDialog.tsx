@@ -17,10 +17,13 @@ export type ExportExplorationDialogProps = {
  * copy of a path with a collision round-trip in it is how the two come to disagree about
  * what happens when a name is taken.
  *
- * What export copies is the EXECUTION's results object, so a filtered, ordered or grouped
- * exploration exports exactly the rows on screen — every one of them, not just the loaded
- * page — with no second query and no second bill. That division is the whole reason copy
- * and export both exist: copy is the selection-shaped tool, export is the result-shaped one.
+ * What export is built from is the EXECUTION's results object, so a filtered, ordered or
+ * grouped exploration exports exactly the rows on screen — every one of them, not just the
+ * loaded page — with no second query and no second bill. The COLUMNS are the ones the grid is
+ * showing, in its order, which is why a CSV that hides or moves one is converted rather than
+ * copied: there is no object to copy that already looks like that. That division is the whole
+ * reason copy and export both exist: copy is the selection-shaped tool, export is the
+ * result-shaped one.
  */
 export function ExportExplorationDialog({saveResults}: ExportExplorationDialogProps) {
   return (
@@ -32,6 +35,7 @@ export function ExportExplorationDialog({saveResults}: ExportExplorationDialogPr
           spaces={saveResults.spaces}
           initial={saveResults.initial}
           isBusy={saveResults.busy}
+          columnIndexes={saveResults.columnIndexes}
           onSave={saveResults.save}
           onCancel={saveResults.closeDialog}
         />

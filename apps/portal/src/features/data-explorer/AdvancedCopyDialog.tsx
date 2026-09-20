@@ -27,7 +27,7 @@ export const COPY_RECTANGLE_NOTE =
  *
  * The grid holds ONE page, so selecting a whole column selects the loaded rows and no more.
  * A user who has paged through a large result has every reason to expect otherwise, and
- * export is the tool that does cover the whole result set.
+ * export is the tool that covers every ROW of the result — its columns are the grid's.
  */
 export const COPY_LOADED_ROWS_NOTE =
   'Only the rows loaded on this page are copied — selecting a column header selects that page, not the whole result. To take everything, use Save results to my files.';

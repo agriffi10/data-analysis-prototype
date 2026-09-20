@@ -41,7 +41,7 @@ const PERSONAL: QuerySpace = {
 
 const pushed: {variant?: string; message: string}[] = [];
 
-function renderSave() {
+function renderSave(columnIndexes: number[] | null = null) {
   return renderHookWithProviders(() =>
     useSaveResults({
       spaces: [PERSONAL, SHARED],
@@ -49,6 +49,7 @@ function renderSave() {
       outputLocation: 's3://user-space/alice/athenaresults/exec-1.csv',
       executionId: 'exec-1',
       linkedSavedName: undefined,
+      columnIndexes,
       toast: {push: (t) => pushed.push(t), dismiss: () => {}}
     })
   );
@@ -88,6 +89,11 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
       destination: {space: {kind: 'shared', name: 'salesdata'}, prefix: 'reports/', filename: 'q1.parquet'},
       onConflict: 'refuse'
     });
+    // A surface that chooses no columns sends no field, rather than sending null: the contract
+    // declares it optional and the plane refuses a top-level field it does not know, so the two
+    // are different requests. `toMatchObject` above cannot see an EXTRA key, which is why this
+    // is asserted against the body's own keys.
+    expect(vi.mocked(enqueueResultsConversion).mock.calls[0][0]).not.toHaveProperty('columnIndexes');
     await waitFor(() => expect(result.current.open).toBe(false));
     expect(pushed).toEqual([
       {variant: 'success', message: 'Converting to Parquet — you’ll get a notification when q1.parquet is ready.'}
@@ -220,5 +226,87 @@ describe('useSaveResults, the CSV path', () => {
 
     expect(pushed[0]).toHaveProperty('action.label', 'View in Files');
     expect(pushed[1]).toEqual({variant: 'success', message: 'Saved to finance/q1.csv'});
+  });
+});
+
+describe('useSaveResults, the columns a save keeps (SPEC-239 FR-005)', () => {
+  it('sends the chosen columns, and converts a CSV that a copy could not produce', async () => {
+    // The routing predicate, from the hook's side: `csv` with a list is the one combination
+    // that used to copy and now cannot, because the file keeps only some of the columns.
+    vi.mocked(objectExists).mockResolvedValue({success: true, data: false});
+    const {result} = renderSave([2, 0]);
+
+    act(() =>
+      result.current.save({
+        destBucket: 'user-space',
+        destPrefix: 'alice/reports/',
+        filename: 'q1.csv',
+        format: 'csv'
+      })
+    );
+
+    await waitFor(() => expect(enqueueResultsConversion).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(enqueueResultsConversion).mock.calls[0][0]).toMatchObject({
+      format: 'csv',
+      columnIndexes: [2, 0]
+    });
+    expect(copyObject).not.toHaveBeenCalled();
+    expect(pushed).toEqual([
+      {variant: 'success', message: 'Converting to CSV — you’ll get a notification when q1.csv is ready.'}
+    ]);
+  });
+
+  it('an overwrite writes the columns the question was asked about, not the current ones', async () => {
+    // The prompt carries the list for the same reason it carries the format. The Data Explorer
+    // also freezes the list when export is chosen, so the two are belt and braces TODAY — which
+    // is exactly why this is asserted here rather than left to be true by accident: a surface
+    // that recomputed the list per render would otherwise silently write a different file from
+    // the one the user confirmed.
+    vi.mocked(objectExists).mockResolvedValue({success: true, data: true});
+    const {result, rerender} = renderHookWithProviders(
+      ({columns}: {columns: number[] | null}) =>
+        useSaveResults({
+          spaces: [PERSONAL, SHARED],
+          username: 'alice',
+          outputLocation: 's3://user-space/alice/athenaresults/exec-1.csv',
+          executionId: 'exec-1',
+          linkedSavedName: undefined,
+          columnIndexes: columns,
+          toast: {push: (t) => pushed.push(t), dismiss: () => {}}
+        }),
+      {initialProps: {columns: [2, 0] as number[] | null}}
+    );
+
+    act(() => result.current.save({destBucket: 'user-space', destPrefix: 'alice/', filename: 'q1.csv', format: 'csv'}));
+    await waitFor(() => expect(result.current.overwritePrompt).not.toBeNull());
+
+    // The grid moves on while the question is up.
+    rerender({columns: [1]});
+    act(() => result.current.confirmOverwrite());
+
+    await waitFor(() => expect(enqueueResultsConversion).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(enqueueResultsConversion).mock.calls[0][0]).toMatchObject({
+      columnIndexes: [2, 0],
+      onConflict: 'overwrite'
+    });
+  });
+
+  it('still copies a CSV when there is no column choice', async () => {
+    // The positive control beside it. Without this, routing EVERY csv to the plane would pass
+    // the test above — and the instant save the dialog promises would be gone.
+    vi.mocked(copyObject).mockResolvedValue({success: true, data: {destKey: 'alice/reports/q1.csv'}});
+    const {result} = renderSave();
+
+    act(() =>
+      result.current.save({
+        destBucket: 'user-space',
+        destPrefix: 'alice/reports/',
+        filename: 'q1.csv',
+        format: 'csv'
+      })
+    );
+
+    await waitFor(() => expect(copyObject).toHaveBeenCalledTimes(1));
+    expect(enqueueResultsConversion).not.toHaveBeenCalled();
   });
 });
