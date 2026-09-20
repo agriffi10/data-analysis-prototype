@@ -16,7 +16,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `athena` | the bounded query runner and the DDL poll |
 | `auth` | token verification and the principal it yields — **the API's only, now** |
 | `bounded_read` | reading a bounded head of an object without polars' cloud reader |
-| `cas` | the ETag compare-and-swap retry loop |
+| `cas` | the ETag compare-and-swap retry loop, and the two conditional-write codes told apart — a compare-and-set retries on either, a conditional COPY does not |
 | `clients` | lazy, cached boto3 and JWKS client factories |
 | `cognito` | user pool lookups |
 | `columns` | the column-name rule |
@@ -34,7 +34,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `registry` | shared-space registry reads |
 | `results` | where a plane's Athena statements write their output, and the proof an execution's output is the caller's own |
 | `s3_listing` | listing past the 1,000-key pagination boundary |
-| `transfer` | the bulk-copy engine: manifest writer, batch copier, Map Run result reader |
+| `transfer` | the bulk-copy engine: manifest writer, batch copier, Map Run result reader. A line may ask not to overwrite, and a refused write is resolved by comparing the two objects rather than reported as a collision |
 | `type_mapping` | the one polars→Hive type mapping |
 
 ---
