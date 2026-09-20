@@ -277,7 +277,7 @@
     },
     "Rollback": {
       "Type": "Task",
-      "Comment": "Deletes the partial archive copy — listed from the archive prefix, which is this request's alone, so it catches even objects a batch copied before it died and never reported — and then ALWAYS raises, naming how many copied, how many did not, and that nothing was deleted. A rollback that itself fails partially does not change the outcome: the source is intact, the residue is unreachable by the user and is swept by the bucket's 7-year expiry, and the failure says so. Its Catch is the ordinary request-failure path, which is where its raise lands.",
+      "Comment": "Deletes the partial archive copy — listed from the archive prefix, WHICH IS THIS RUN'S ALONE BECAUSE INSPECT-SOURCE CLAIMED THE ID, so it catches even objects a batch copied before it died and never reported. That exclusivity is the load-bearing part and it is not free: this state deletes everything under the prefix, so if two runs could share an id, THIS is the state that deletes the first run's completed archive after the first has already deleted the source — the one unrecoverable failure this plane has. The create-only claim is what makes the prefix one run's; without it the listing before the expansion narrows that and cannot close it. — and then ALWAYS raises, naming how many copied, how many did not, and that nothing was deleted. A rollback that itself fails partially does not change the outcome: the source is intact, the residue is unreachable by the user and is swept by the bucket's 7-year expiry, and the failure says so. Its Catch is the ordinary request-failure path, which is where its raise lands.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${rollback_function_arn}",
@@ -1202,14 +1202,14 @@
     },
     "RestoreIncompleteReturnedSeed": {
       "Type": "Pass",
-      "Comment": "RollbackReturnedSeed's twin, and unreachable for the same reason — the verb it follows always raises on this branch. It is here rather than the Next pointing at RequestFailureSeed because that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already put some of the user's data back. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
+      "Comment": "RollbackReturnedSeed's twin, and unreachable for the same reason — the verb it follows always raises on this branch. It is here rather than the Next pointing at RequestFailureSeed because that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already put some of the user's data back. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke. IT SEEDS THE CLEARED OUTCOME AND NOT restore_incomplete, WHICH IS NOT A DETAIL: the other two partial bodies say the archive was still complete when this restore stopped, and that sentence has to be EARNED by counting the vault — on this path nothing counted, because the verb that counts is the one that did not raise. A body claiming nothing is what a path with no count is entitled to say. An unreachable state gets the safe literal precisely because nobody would notice it carrying the wrong one.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
         "error": {
-          "Error": "restore_incomplete",
+          "Error": "restore_archive_cleared",
           "Cause": null
         }
       },
@@ -1217,7 +1217,7 @@
     },
     "RestoreTimedOutSeed": {
       "Type": "Pass",
-      "Comment": "The wait loop's own terminal, which is NOT the machine's TimeoutSeconds: this one fires while the execution is healthy, so it reaches RecordFailure and NotifyFailure through the ordinary door rather than needing the EventBridge rule. A restore that exceeds its budget is terminal and is re-submitted — safe at any time, because nothing was copied and the archive is untouched, which is the same property that makes the retrieval's tolerated 409 free.",
+      "Comment": "The wait loop's own terminal, which is NOT the machine's TimeoutSeconds: this one fires while the execution is healthy, so it reaches RecordFailure and NotifyFailure through the ordinary door rather than needing the EventBridge rule. A restore that exceeds its budget is terminal and is re-submitted — safe at any time in the sense that THIS run copied nothing and deleted nothing, which is the same property that makes the retrieval's tolerated 409 free. THAT IS A CLAIM ABOUT THIS RUN, NOT ABOUT THE WORLD, and restore_timed_out's body deliberately makes the weaker statement: a sibling restore of the same archive may have put files back and may have swept the vault, so the user is told some files may already be back rather than that nothing changed. The same reason code is also raised by the machine's top-level TimeoutSeconds through the EventBridge door, which CAN fire mid-copy-back — one body serves both, so it is written for the weaker case.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",

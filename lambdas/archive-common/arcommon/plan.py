@@ -21,6 +21,14 @@ two overlapping executions of one request must not clobber each other's dataset 
 reading it. Nothing else on this plane needs that distinction, and stating it here is
 cheaper than re-deriving it at three call sites.
 
+**What makes a request-keyed key safe at all is ``claim_archive_id``.** Every key here, and the
+VAULT prefix the rollback lists and deletes wholesale, is derived from the request id alone — so
+they are one run's only while one run holds that id. The listing before the expansion narrows
+that and cannot close it; the create-only claim is what does, by letting S3 rather than either
+run decide between two that arrive together. Remove the claim and these keys stop being unique
+under concurrency, and the state that notices is the rollback, by deleting somebody else's
+finished archive.
+
 ``messages`` is imported for its side effect as well as tidiness: it registers this domain's
 reason codes, and a terminal error validates its reason at construction. Without the import, a
 process importing only this module raises a validation error where it meant to write a refusal.

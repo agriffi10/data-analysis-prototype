@@ -177,7 +177,10 @@ class Resolver:
             enumerable**: a mode whose every message needs one safety sentence would otherwise
             need every body to remember it, including the ones a future code adds and the
             generic clause a killed verb produces. It is NOT appended by ``body``, so a domain's
-            own tests still read its table rather than its table plus a sentence.
+            own tests still read its table rather than its table plus a sentence. It IS marker-
+            substituted and blanked like the prefix and the bodies — it carries no marker today,
+            and the one thing worse than a gap in a sentence is a literal ``{brace}`` in the one
+            sentence that exists to stop a user destroying their only copy.
 
         Returns:
           None.
@@ -285,11 +288,10 @@ class Resolver:
         Raises:
           None.
         """
+        suffix = self._blank(_fill(self._suffix, tokens))
         if self._access_denied and reason in ACCESS_DENIED_REASONS:
-            return self._blank(_fill(self._access_denied, tokens)) + self._suffix
-        return (
-            self._blank(_fill(self._prefix, tokens)) + self.body(reason, **tokens) + self._suffix
-        )
+            return self._blank(_fill(self._access_denied, tokens)) + suffix
+        return self._blank(_fill(self._prefix, tokens)) + self.body(reason, **tokens) + suffix
 
 
 def register(

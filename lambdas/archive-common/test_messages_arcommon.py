@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import pytest
 from arcommon import messages, receipt
+from cpcommon import messages as _cpmessages
 
 
 def test_every_marker_in_every_body_can_be_filled_by_somebody():
@@ -105,21 +106,64 @@ def test_no_body_promises_a_partial_outcome_except_the_one_that_is():
 # below are an explicit CLOSED allowlist and a negation nobody has added here fails the test.
 # Failing on an unlisted negation is the safe way to be wrong.
 
-_DESTRUCTIVE_VERBS = ("delete", "remove", "discard", "overwrite", "erase", "wipe", "purge")
+_DESTRUCTIVE_VERBS = (
+    "delete",
+    "remove",
+    "discard",
+    "overwrite",
+    "erase",
+    "wipe",
+    "purge",
+    "destroy",
+    "trash",
+    "shred",
+    "prune",
+    "get rid",
+    "clean up",
+    "clear out",
+    "throw away",
+    "throw out",
+    "recycle bin",
+)
 
-#: "Clear ... out" is the one destructive instruction that is not a single word, and it is
-#: matched across intervening words within a sentence ("clear them out", "clear the old ones
-#: out") rather than as a fixed phrase.
-_CLEAR_OUT = re.compile(r"clear\b[^.]*\bout\b")
+#: Verbs whose INFLECTED forms are legitimately descriptive here — "another archive replaced this
+#: one's list of files" says what happened rather than what to do — so only the bare imperative
+#: counts. Matched on a word boundary for that reason, where the list above matches as substrings
+#: because "deleted" and "removing" instruct as plainly as "delete".
+_IMPERATIVE_ONLY = ("replace", "drop", "empty")
 
-#: The negated phrases this table is allowed to use. CLOSED: a body that needs a new one has to
-#: add it here, beside the reasoning, rather than passing because the rule was loose.
+#: "Clear" is the destructive instruction that cannot be matched as a word, because two bodies
+#: legitimately end a sentence with the ADJECTIVE — "it can be requested again once the paths are
+#: clear". The imperative is what takes an object, so it is matched as "clear <something>", and
+#: separately across intervening words for the "clear them out" form ("clear the old ones out").
+#: Flagging the adjective would make the rule unusable and it would be widened back out again,
+#: which is the way a gate dies quietly.
+_CLEAR_OUT = re.compile(
+    r"\bclear\s+(?:your|the|them|it|these|those|any|all|every)\b|\bclear\b[^.]*\bout\b"
+)
+
+#: The negated phrases this table is allowed to use, each anchored to the END OF ITS CLAUSE.
+#: CLOSED: a body that needs a new one has to add it here, beside the reasoning, rather than
+#: passing because the rule was loose.
+#:
+#: **The carve-out check is the load-bearing part.** A bare `str.replace` erases the phrase
+#: wherever it appears, so an exception riding on an allowed negation is waved through — the most
+#: natural future edit to the suffix is "...don't delete or overwrite them UNLESS you are sure
+#: they are duplicates", which strips to nothing and passes while telling the user to delete under
+#: a condition they are in no position to judge. A negation followed by "except", "unless" or
+#: "but" is not exempt: the verbs inside it stand and the sentence is flagged. Naming the object
+#: ("them") in the phrase does the other half — "don't delete or overwrite ANYTHING except the
+#: files that came back" does not match the allowlist at all.
 _ALLOWED_NEGATIONS = (
-    "don't delete or overwrite",
+    "don't delete or overwrite them",
     "nothing was deleted",
     "nothing was overwritten",
     "can't be removed",
 )
+
+#: What must NOT follow an allowed negation. A carve-out turns "we will not destroy anything"
+#: into "we will destroy these", and the negation is then doing the opposite of exempting.
+_CARVE_OUT = re.compile(r"^\s*(?:except|unless|other than|apart from|besides|but\b|save for)")
 
 #: Sentences that state the archive's condition as a fact about NOW. Every one of them is false
 #: the moment a sibling restore sweeps the vault, which it does as soon as it finishes.
@@ -139,15 +183,44 @@ _PRESENT_STATE_CLAIMS = (
 _TIME_SCOPED = "was still complete when this restore stopped"
 
 
-def _destructive(text: str) -> list[str]:
-    """Every destructive instruction in a sentence, after the allowed negations are stripped."""
-    stripped = text.lower()
+def _strip_allowed_negations(text: str) -> str:
+    """Removes the allowed negated phrases, and ONLY where each one ends its own clause.
+
+    Args:
+      text: The lower-cased sentence.
+
+    Returns:
+      The sentence with each allowed negation removed at the positions where it is exempt.
+
+    Raises:
+      None.
+    """
     for negation in _ALLOWED_NEGATIONS:
-        stripped = stripped.replace(negation, " ")
+        start = 0
+        while (found := text.find(negation, start)) != -1:
+            after = found + len(negation)
+            if not _CARVE_OUT.match(text[after:]):
+                text = text[:found] + " " + text[after:]
+            start = found + 1
+    return text
+
+
+def _destructive(text: str) -> list[str]:
+    """Every destructive instruction in a sentence, after the allowed negations are stripped.
+
+    **The verb list is a DENYLIST, and a denylist is never finished.** That is its known shape and
+    it is recorded in the archive Fences rather than left for the next reader to find out: a review
+    walked twelve ordinary instructions past the first seven-word version of it. What keeps it
+    honest is the escape battery below — a corpus of phrasings that must be caught, rather than a
+    claim that all of them are. Widening the list costs one reworded sentence when it is wrong; a
+    miss costs a user their only copy, so it is widened freely and in that direction.
+    """
+    stripped = _strip_allowed_negations(text.lower())
     found = [verb for verb in _DESTRUCTIVE_VERBS if verb in stripped]
+    found += [verb for verb in _IMPERATIVE_ONLY if re.search(rf"\b{verb}\b", stripped)]
     if _CLEAR_OUT.search(stripped):
-        found.append("clear ... out")
-    return found
+        found.append("clear <object>")
+    return sorted(found)
 
 
 def _present_state(text: str) -> list[str]:
@@ -157,10 +230,20 @@ def _present_state(text: str) -> list[str]:
 
 
 def _restore_reachable() -> dict:
-    """Every body the restore resolver can render: the whole table, less the archive-only set."""
+    """Every body the restore resolver can render, which is NOT only this plane's table.
+
+    **The shared base table is in the population too, and leaving it out was a real hole.** A
+    resolver layers the domain's codes over ``cpcommon.messages.BASE_MESSAGES``, so `forbidden`,
+    `malformed_event`, `unexpected_error` and their siblings render to a user on a restore — and
+    that table is fleet-wide, so another plane's wording change would arrive in restore text
+    through a file nobody on this plane reviews. All five are clean today; the point is that they
+    are CHECKED, which is the same argument that made ``ARCHIVE_ONLY`` an exclusion rather than a
+    list.
+    """
+    population = {**_cpmessages.BASE_MESSAGES, **messages._BODIES}
     return {
         reason: body
-        for reason, body in messages._BODIES.items()
+        for reason, body in population.items()
         if reason not in messages.ARCHIVE_ONLY
     }
 
@@ -215,11 +298,13 @@ def test_no_restore_message_tells_the_user_to_destroy_anything():
     files a message names can be the OTHER run's output — and that run sweeps the vault when it
     finishes, so a user who follows "delete the ones that came back" destroys the only copy.
     """
-    offenders = {
-        where: found
-        for where, text in _everything_a_restore_can_show().items()
-        if (found := _destructive(text))
-    }
+    population = _everything_a_restore_can_show()
+    offenders = {where: found for where, text in population.items() if (found := _destructive(text))}
+
+    assert len(population) > 20, (
+        f"only {len(population)} pieces of restore-reachable text — the population has collapsed "
+        "and this assertion would hold over nothing"
+    )
     assert offenders == {}, f"destructive instructions in restore-reachable text: {offenders}"
 
 
@@ -227,11 +312,13 @@ def test_no_restore_message_states_the_archives_condition_as_a_fact():
     """**RULE 2.** A claim about the archive is only true when it is made, and a sibling can
     sweep the vault a second later. The one permitted form is time-scoped, and rule 3 below
     holds it to being earned."""
-    offenders = {
-        where: found
-        for where, text in _everything_a_restore_can_show().items()
-        if (found := _present_state(text))
-    }
+    population = _everything_a_restore_can_show()
+    offenders = {where: found for where, text in population.items() if (found := _present_state(text))}
+
+    assert len(population) > 20, (
+        f"only {len(population)} pieces of restore-reachable text — the population has collapsed "
+        "and this assertion would hold over nothing"
+    )
     assert offenders == {}, f"present-tense claims about the archive: {offenders}"
 
 
@@ -272,6 +359,53 @@ def test_rule_1_flags_each_destructive_sentence_that_has_been_written_here_befor
     catches it.
     """
     assert _destructive(planted), f"rule 1 did not flag {planted!r}"
+
+
+#: **The escape battery: every phrasing that got past an earlier version of this rule.**
+#: A security review ran these against the first seven-word verb list and twelve of them came back
+#: clean. They are kept as a corpus rather than folded into a comment, because the list is a
+#: DENYLIST and the only honest way to know what it covers is to name what it has missed. A new
+#: escape found later is added here first and the list widened second.
+_ESCAPES_FOUND_BY_REVIEW = [
+    "Please destroy the files that came back.",
+    "Get rid of the ones that came back.",
+    "Trash the copies that landed.",
+    "Empty the folder before requesting it again.",
+    "Drop the files that came back.",
+    "Clean up the files that came back.",
+    "Replace them with the archived versions.",
+    "Clear your space and try again.",
+    "Prune the duplicates.",
+    "Send the restored files to the trash.",
+    "Move them to the recycle bin.",
+    "Shred the older copies.",
+    # The two that rode on an ALLOWED negation rather than on a missing verb, which is the more
+    # interesting half: the negation is true and the instruction after it still costs the copy.
+    "Please don't delete or overwrite them unless you are sure they are duplicates.",
+    "Please don't delete or overwrite anything except the files that came back.",
+]
+
+
+@pytest.mark.parametrize("planted", _ESCAPES_FOUND_BY_REVIEW)
+def test_rule_1_flags_every_escape_a_review_has_found(planted):
+    """**The corpus that says what the denylist covers, rather than asserting that it is complete.**
+
+    A word list cannot be proven exhaustive and this one is not. What it can be held to is never
+    losing ground: each of these was once waved through, and a widening that dropped one would
+    redden here rather than in production. The last two are the shape worth understanding — both
+    contain an allowed negation, both are true, and both then tell the user to remove the files
+    that may be the only copy.
+    """
+    assert _destructive(planted), f"rule 1 no longer flags {planted!r}"
+
+
+def test_rule_1_still_exempts_the_negations_the_table_legitimately_uses():
+    """The other side of the same widening. A rule that flagged everything would be abandoned, so
+    the four sentences the table actually writes have to stay clean — and they are the reason the
+    exemption exists at all rather than the verbs simply being banned."""
+    for reason in ("plan_superseded", "protected_marker", "copy_failed", "transfer_results_unreadable"):
+        assert _destructive(messages._BODIES[reason]) == [], reason
+    assert _destructive(messages.RESTORE_SAFETY_SUFFIX) == []
 
 
 @pytest.mark.parametrize(

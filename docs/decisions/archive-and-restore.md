@@ -63,7 +63,13 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   destination against source**, never read as occupied outright — a batch retrying after a transient
   fault meets its own earlier writes, and reading those as collisions would report the files it just
   restored as being in the way. **Every test of the condition runs against a fake**; the deployed
-  behaviour is owed (`docs/testing/owed.md`, *the conditional copy-back*).
+  behaviour is owed (`docs/testing/owed.md`, *the conditional copy-back*). **The comparison rests
+  on an ETag, which under `AES256` is an MD5** — so a co-member of a shared space who knows an
+  archived object's bytes could in principle write a same-length MD5 collision at the destination
+  and have the item counted copied and the vault swept. It needs a chosen-prefix collision, the
+  target's content, and write access to the path — which already allows overwriting the file
+  directly — so what the attack adds is the sweep. Not repaired here; the repair is to prefer
+  `ChecksumSHA256` when the object carries one.
 - **It runs TWICE**, and the second pass is the spec correcting itself: those billed hours are spent
   telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
   the copy-back would have overwritten it, reported success and swept the vault.
@@ -73,9 +79,14 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   **"move or rename"**; the one permitted claim is time-scoped (*"was still complete when this
   restore stopped"*) and must be **earned by counting** the prefix. Both rules are enforced over the
   whole table and the receipt by a test with its own plant corpus, because per-sentence fixes were
-  tried first and each review round found another sentence. **Residual:** rule 2 is a phrase list, so
-  `destination_occupied_after_retrieval`'s "will stay ready for a few days" is not caught — it
-  invites no deletion, which is why it is accepted rather than fixed.
+  tried first and each review round found another sentence. **Both rules are DENYLISTS and neither
+  is finished** — a security review walked twelve ordinary instructions ("destroy", "trash", "get
+  rid of", "send them to the recycle bin") past the first seven-word version — so the corpus of
+  escapes found so far is kept as a test rather than the coverage being asserted, and widening the
+  list is the cheap side of the trade. Two residuals stand: rule 2 does not catch
+  `destination_occupied_after_retrieval`'s "will stay ready for a few days", which invites no
+  deletion; and the rules run over TEMPLATES, so a colliding key rendered into `{sample}` is
+  attacker-chosen text in a safety-critical sentence when the space is shared.
 - **Retrieval is the point of no return.** Its Map tolerates **no** failure (the copy's tolerates
   100%): a fault means nothing copied and the archive untouched. What makes that free is that the
   **verb** tolerates two codes — `RestoreAlreadyInProgress` and `InvalidObjectState` — which is also

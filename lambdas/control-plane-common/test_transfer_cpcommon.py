@@ -1645,3 +1645,30 @@ def test_no_existing_caller_can_reach_the_comparison_because_none_writes_ifAbsen
         p.read_text() for p in restore_builder.glob("*.py") if not p.name.startswith("test_")
     )
     assert '"ifAbsent": True' in written, "the restore's own builder stopped conditioning its lines"
+
+
+def test_two_heads_that_carry_NO_etag_or_length_are_occupied_rather_than_identical(conditional):
+    """**The guard that stops two empty answers comparing equal**, and it is defence in depth in
+    the one function where a silent regression costs the only copy.
+
+    With it removed, two ``head_object`` responses that both omit ``ETag`` and ``ContentLength``
+    compare ``None == None`` on every field and ``{} == {}`` on the metadata, so the item counts
+    as copied, the verdict goes complete, and the vault is swept for an object that was never
+    written. Real S3 always returns both fields — which is exactly why nothing else would catch
+    the guard going away.
+    """
+    conditional.seed("archive-bkt", "vault/a", b"archived")
+    conditional.seed("user-bkt", "alice/a.csv", b"something else")
+    blank = dict.fromkeys(("ContentType", "Metadata"))
+    conditional.head_object = lambda **kw: dict(blank)
+
+    out = copy_mod.copy_batch(
+        [_restore_line("vault/a", 8, dest="alice/a.csv")],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _OCCUPIED}]}
+    assert conditional.writes == []
+    assert conditional.objects[("user-bkt", "alice/a.csv")]["body"] == b"something else"
