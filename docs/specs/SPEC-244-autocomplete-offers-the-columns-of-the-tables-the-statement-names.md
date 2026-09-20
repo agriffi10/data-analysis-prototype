@@ -1,8 +1,8 @@
 # Spec: Autocomplete Offers the Columns of the Tables the Statement Names
 
 **ID:** SPEC-244
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-065, SPEC-077, SPEC-078
 
 ## Overview
@@ -72,10 +72,17 @@ Read from the code at `73c66eef`.
   table name alone, which also ends today's `sales.sales.orders` result.
 - **Quoting applies to Trino statements only, and supersedes SPEC-065's bare insert there.** In a
   statement whose first keyword is `SELECT`, `WITH`, `VALUES`, `INSERT` or `EXPLAIN`, or that begins
-  `CREATE VIEW` or `CREATE OR REPLACE VIEW`, a part is inserted through `sqlIdentifier` unless it
-  matches `^[a-z_][a-z0-9_]*$` and is not a reserved keyword. Every other statement, which includes
-  the Hive DDL, gets the bare name as today, since a double-quoted name is an error there and a
-  backticked one is wrong in a Trino `CREATE TABLE AS`. Quoting a name that did not need it is always
+  `CREATE VIEW` or `CREATE OR REPLACE VIEW`, **or that is a CTAS whose `AS <query>` has been
+  typed**, a part is inserted through `sqlIdentifier` unless it matches `^[a-z_][a-z0-9_]*$` and is
+  not a reserved keyword. Every other statement gets the bare name as today. **That set is an
+  allow-list, not a test for the dialect**: `DELETE`, `UPDATE` and `MERGE` are Trino DML on an
+  Iceberg table and fall outside it, so a name needing quotes arrives bare and Athena refuses the
+  statement — the loud failure, and the side to be wrong on against a double-quoted name in Hive DDL
+  or a backticked one, each of which matches nothing silently. **A CTAS was excluded when this spec
+  was authored and is now included** (Andrew, 2026-09-20): the whole statement is Trino, since AWS
+  documents its body as DML and its head takes Trino's `WITH (…)` property syntax, and the bare
+  insert there failed SILENTLY rather than loudly — `id total` parses as `id` aliased `total` and
+  `2024` as an integer, both written into the new table. Quoting a name that did not need it is always
   valid in Trino, so the keyword list may be a superset. It is taken from Trino's current
   documentation, which may list words Athena's engine version does not reserve.
 - **Inside an already-open quote, the user is quoting.** When the text before the cursor, scanned
@@ -213,7 +220,8 @@ An alias wins over a table name, and a table name over a database name.
   columns of `sales.items`.
 - [ ] Buffer `select x. from sales.orders o`, cursor after `x.`: the suggestions are FR-003's for
   that buffer, exactly the columns of `sales.orders` plus every table.
-- [ ] `from s.a b join s.b c`, cursor after `b.`: the suggestions are `s.a`'s columns.
+- [ ] `select b. from s.a b join s.b c`, cursor after `b.` (offset 9): the suggestions are `s.a`'s
+  columns, since `b` is both that table's alias and the other table's name.
 - [ ] Buffer `select * from sales.`, cursor at the end: the suggestions are exactly `sales`'s tables
   and views, and accepting `orders` leaves `select * from sales.orders`.
 - [ ] The provider's `triggerCharacters` is `['.']`.
@@ -224,11 +232,17 @@ An alias wins over a table name, and a table name over a database name.
 
 `lib/sql.ts` exports `TRINO_RESERVED_KEYWORDS`, the reserved keyword list published at
 trino.io/docs/current/language/reserved.html with the date it was read, and
-`quoteIdentifierIfNeeded(part)`, which returns the part unchanged when it matches
-`^[a-z_][a-z0-9_]*$` and is not in the list, compared case-insensitively, and `sqlIdentifier(part)`
-otherwise. `query.sql.ts` exports `isTrinoStatement(statement)`, true when the first keyword is
-`SELECT`, `WITH`, `VALUES`, `INSERT` or `EXPLAIN`, or the statement begins `CREATE VIEW` or
-`CREATE OR REPLACE VIEW`.
+`ATHENA_RESERVED_KEYWORDS`, its **union** with the words AWS publishes for `SELECT` statements at
+docs.aws.amazon.com/athena/latest/ug/reserved-words.html — `EXECUTE`, `FIRST`, `LAST` and `OF`, which
+Trino's page omits. **The engine is Athena, so the union is what decides**; the Trino list is kept
+beside it only so one vendor page stays diffable. `quoteIdentifierIfNeeded(part)` returns the part
+unchanged when it matches `^[a-z_][a-z0-9_]*$` and is not in the union, compared case-insensitively,
+and `sqlIdentifier(part)` otherwise. `query.sql.ts` exports `isTrinoStatement(statement)`, true when the first keyword is
+`SELECT`, `WITH`, `VALUES`, `INSERT` or `EXPLAIN`, when the statement begins `CREATE VIEW` or
+`CREATE OR REPLACE VIEW`, or when a `CREATE …` reaches an `AS` at bracket depth 0 whose next word
+opens a query (`SELECT`, `WITH`, `VALUES`, `TABLE`) — a CTAS. The next-word test is what keeps
+Hive's `STORED AS PARQUET` out, and the depth test keeps an `AS` inside a column or property list
+out.
 
 In a Trino statement, a column's `insertText` is `quoteIdentifierIfNeeded(name)`, and a table's is
 each part through it, joined by `.`. In any other statement, `insertText` is the bare name, as
@@ -245,13 +259,18 @@ added only when the character after the cursor is not already `"`.
   for `order` is `"order"`, for `2024_total` is `"2024_total"` and for `a"b` is `"a""b"`.
 - [ ] In `SELECT * FROM `, the table `my space.orders` inserts `"my space".orders` with label
   `my space.orders`.
-- [ ] In `DROP TABLE `, the table `sales.order` inserts `sales.order`, bare.
+- [ ] In `DROP TABLE `, the table `sales.order` inserts `sales.order`, bare, and so does
+  `CREATE EXTERNAL TABLE s.t (a int) STORED AS PARQUET`.
+- [ ] In `CREATE TABLE d.copy AS SELECT ` the column `Last Name` inserts `"Last Name"`, and in
+  `CREATE TABLE d.copy ` — the same statement before its body is typed — it inserts bare.
 - [ ] `SELECT "Last Na` with the cursor at the end: choosing `Last Name` leaves `SELECT "Last Name"`.
 - [ ] `SELECT "Las"` with the cursor before the closing quote: choosing `Last Name` leaves
   `SELECT "Last Name"`, with one closing quote.
 - [ ] Inside an open quote no table is suggested.
 - [ ] `TRINO_RESERVED_KEYWORDS` contains `SELECT`, `ORDER`, `GROUP` and `JSON_TABLE`, every entry is
-  uppercase, and it contains none of `CLAUSE_WORDS`.
+  uppercase, and it contains none of `CLAUSE_WORDS`. `ATHENA_RESERVED_KEYWORDS` is a superset of it
+  and adds exactly `EXECUTE`, `FIRST`, `LAST` and `OF`; both sizes are pinned, since a count alone
+  stays green when one word is swapped for another.
 
 ---
 
@@ -260,6 +279,7 @@ added only when the character after the cursor is not already `"`.
 ```ts
 // apps/portal/src/lib/sql.ts
 export const TRINO_RESERVED_KEYWORDS: ReadonlySet<string>;
+export const ATHENA_RESERVED_KEYWORDS: ReadonlySet<string>; // the union the quoter reads
 export function quoteIdentifierIfNeeded(part: string): string;
 
 // apps/portal/src/features/query/query.sql.ts
@@ -267,6 +287,11 @@ export type SqlTableReference = {database: string | null; table: string; alias: 
 export const CLAUSE_WORDS: ReadonlySet<string>;
 export function sqlTableReferences(statement: string): SqlTableReference[];
 export function isTrinoStatement(statement: string): boolean;
+// The two scans FR-004 and FR-005 describe in prose, exported because the quote rules and the
+// tokenizer that knows what an identifier is both live in this file, and a second copy in
+// `sqlCompletions.ts` is the fork the analytics Fences warn about.
+export function openQuoteStart(text: string): number | null;
+export function sqlQualifierBefore(text: string, end: number): string | null;
 
 // apps/portal/src/features/query/sqlCompletions.ts
 export type ScopedTable = {database: string; table: GlueTableSummary; aliases: string[]};

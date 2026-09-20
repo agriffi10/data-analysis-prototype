@@ -69,3 +69,150 @@ export function sqlIdentifier(name: string): string {
 export function sqlDdlIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
 }
+
+/**
+ * The words **Trino** reserves, which must be double-quoted to be used as an identifier.
+ *
+ * Read from trino.io/docs/current/language/reserved.html on 2026-09-20 — 83 words, cross-checked
+ * against the same page's source in the `trinodb/trino` repository, which agreed exactly. Uppercase
+ * throughout, so a caller compares an uppercased candidate.
+ *
+ * **Nothing quotes from this list alone**: the engine is Athena, not Trino, and
+ * {@link ATHENA_RESERVED_KEYWORDS} is what callers consult. This one is kept separate so its
+ * provenance stays checkable against a single vendor page.
+ */
+export const TRINO_RESERVED_KEYWORDS: ReadonlySet<string> = new Set([
+  'ALTER',
+  'AND',
+  'AS',
+  'AUTO',
+  'BETWEEN',
+  'BY',
+  'CASE',
+  'CAST',
+  'CONSTRAINT',
+  'CREATE',
+  'CROSS',
+  'CUBE',
+  'CURRENT_CATALOG',
+  'CURRENT_DATE',
+  'CURRENT_PATH',
+  'CURRENT_ROLE',
+  'CURRENT_SCHEMA',
+  'CURRENT_TIME',
+  'CURRENT_TIMESTAMP',
+  'CURRENT_USER',
+  'DEALLOCATE',
+  'DELETE',
+  'DESCRIBE',
+  'DISTINCT',
+  'DROP',
+  'ELSE',
+  'END',
+  'ESCAPE',
+  'EXCEPT',
+  'EXISTS',
+  'EXTRACT',
+  'FALSE',
+  'FOR',
+  'FROM',
+  'FULL',
+  'GROUP',
+  'GROUPING',
+  'HAVING',
+  'IN',
+  'INNER',
+  'INSERT',
+  'INTERSECT',
+  'INTO',
+  'IS',
+  'JOIN',
+  'JSON_ARRAY',
+  'JSON_EXISTS',
+  'JSON_OBJECT',
+  'JSON_QUERY',
+  'JSON_TABLE',
+  'JSON_VALUE',
+  'LEFT',
+  'LIKE',
+  'LISTAGG',
+  'LOCALTIME',
+  'LOCALTIMESTAMP',
+  'NATURAL',
+  'NORMALIZE',
+  'NOT',
+  'NULL',
+  'ON',
+  'OR',
+  'ORDER',
+  'OUTER',
+  'OVERLAPS',
+  'PREPARE',
+  'RECURSIVE',
+  'RIGHT',
+  'ROLLUP',
+  'SELECT',
+  'SKIP',
+  'TABLE',
+  'THEN',
+  'TRIM',
+  'TRUE',
+  'UESCAPE',
+  'UNION',
+  'UNNEST',
+  'USING',
+  'VALUES',
+  'WHEN',
+  'WHERE',
+  'WITH'
+]);
+
+// The four words Athena reserves in a SELECT that Trino's own page does not list, from
+// docs.aws.amazon.com/athena/latest/ug/reserved-words.html ("Reserved keywords to escape in SQL
+// SELECT statements"), read 2026-09-20. AWS's own example on that page escapes `first`, and `first`
+// and `last` are ordinary column names in the data this portal handles, so the gap was reachable.
+const ATHENA_ONLY_RESERVED_KEYWORDS = ['EXECUTE', 'FIRST', 'LAST', 'OF'];
+
+/**
+ * Every word that must be double-quoted to be an identifier in an Athena `SELECT`.
+ *
+ * The union of {@link TRINO_RESERVED_KEYWORDS} and the four words AWS lists that Trino's page does
+ * not. **The engine is what decides**, and it is Athena: quoting from Trino's list alone left
+ * `first`, `last`, `of` and `execute` inserted bare, which Athena refuses.
+ *
+ * A **superset is safe and a subset is not**, which is the asymmetry to keep in mind when
+ * refreshing either list: quoting a name that needed no quotes is valid, so the three words Trino
+ * reserves and Athena does not (`AUTO`, `CURRENT_ROLE`, `OVERLAPS`) cost nothing, while a missing
+ * word means a name reaches the editor bare and the statement fails to parse. Athena's DDL list is
+ * a different, larger list quoted with backticks — see {@link sqlDdlIdentifier} — and is
+ * deliberately not folded in here.
+ */
+export const ATHENA_RESERVED_KEYWORDS: ReadonlySet<string> = new Set([
+  ...TRINO_RESERVED_KEYWORDS,
+  ...ATHENA_ONLY_RESERVED_KEYWORDS
+]);
+
+// A name the engine reads back as itself: it needs no quotes only when it is already lowercase,
+// starts with a letter or underscore, and holds nothing but letters, digits and underscores. Not the
+// same rule as `CATALOG_IDENTIFIER_RE`, which describes names this app CREATES — this one describes
+// names the engine PARSES, and the two are not interchangeable in either direction.
+const BARE_IDENTIFIER_RE = /^[a-z_][a-z0-9_]*$/;
+
+/**
+ * Quotes one identifier part for a Trino-dialect statement, but only when the part needs it.
+ *
+ * What the query editor's autocomplete inserts. An uppercase name is always quoted, because an
+ * unquoted `ID` folds to `id` and would name a different column; a reserved word is always quoted,
+ * because unquoted it is a keyword.
+ *
+ * This is a double-quote rule and belongs nowhere near Hive DDL — see {@link sqlDdlIdentifier}. A
+ * part quoted here and pasted into a `DROP TABLE` is an error, not a silent mismatch, which is the
+ * one mercy of that pair.
+ *
+ * @param part - One identifier part: a database, table or column name, unquoted.
+ * @returns The part unchanged, or double-quoted through {@link sqlIdentifier}.
+ */
+export function quoteIdentifierIfNeeded(part: string): string {
+  if (BARE_IDENTIFIER_RE.test(part) && !ATHENA_RESERVED_KEYWORDS.has(part.toUpperCase())) return part;
+  return sqlIdentifier(part);
+}

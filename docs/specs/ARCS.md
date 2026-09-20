@@ -227,6 +227,11 @@ was written.)*
 > 063's radio-style active control is gone (the tree is browse-only) and 065's autocomplete became schema-wide over
 > fully-qualified `database.table` names. Read the active-DB references as history; full entry in `docs/decisions/`.
 
+> **And "schema-wide" was narrowed again by SPEC-244:** the column half of that list now follows the statement at the
+> cursor — only the columns of the tables its `FROM`/`JOIN` names, with the whole catalog offered only when none of them
+> resolves — and a Trino statement's insert is quoted where the name needs it. Tables stay schema-wide. Full entry in
+> `docs/decisions/analytics.md`.
+
 ---
 
 ## Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer)

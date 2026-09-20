@@ -217,6 +217,11 @@ The rail is **browse-only**. There is **no active database**: nothing in it choo
 
 **No click-to-insert.** Nothing in the rail writes into the editor: rows open and close, and columns are there to read. Names reach the editor through autocomplete instead, which offers every accessible database's tables and views fully qualified (`database.table`) and their columns by bare name (`features/query/sqlCompletions.ts`).
 
+> **Superseded by SPEC-244:** when the statement at the cursor names tables, only those tables'
+> columns are offered, and in a Trino statement a name is inserted **quoted** where SQL would
+> misread it bare. Full entry: `docs/decisions/analytics.md` → *Suggestions follow the statement,
+> and a Trino insert is quoted where the name needs it*.
+
 ### Table options menu (SPEC-044)
 Every table and view row ends in a **kebab (⋮)** trigger (`features/query/TableActionsMenu.tsx`): `h-[24px]` (24px), `text-3`, named "Options for {table}", and hidden until the row is hovered or holds focus, except where the primary input cannot hover, as on a phone, where it is always shown. The hover reveal applies only where the primary input can hover, and Safari does not focus a tapped button, so on an iPhone nothing would reveal it at rest. It opens the shared `Menu` primitive (`components/Menu.tsx`): a `surface` panel with `border`, `rounded-md` and `shadow-md`; focus moves to the first item that can act, Arrow Up/Down move between items, Escape closes and returns focus to the trigger, and an outside click closes. Opening it never toggles the row. Items are `text-sm` rows with no icon, a disabled one at 45% opacity. Each action takes its database from the node the row sits in (`features/query/useTableActions.tsx`), in this order:
 
