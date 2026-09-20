@@ -59,8 +59,11 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
   names). **Autocomplete is a third identifier site and picks by STATEMENT**: `quoteIdentifierIfNeeded`
   quotes a suggestion's parts in a Trino statement (`SELECT`/`WITH`/`VALUES`/`INSERT`/`EXPLAIN`,
-  `CREATE [OR REPLACE] VIEW`) and inserts the bare name in every other, **a CTAS included** — and a
-  superset of Trino's reserved words is safe there while a subset is not.
+  `CREATE [OR REPLACE] VIEW`, and a CTAS once its `AS <query>` exists) and inserts the bare name in
+  every other, **Iceberg's `DELETE`/`UPDATE`/`MERGE` included** — an allow-list, not a dialect test,
+  whose misses fail LOUD, which is why a CTAS had to join it: there alone the miss was SILENT and
+  written to a table. Its word list is **Athena's** published one, never Trino's, which omits four
+  words Athena reserves; a superset there is safe and a subset is not.
   **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
   a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
   every statement built from the same value is swept.
@@ -1533,19 +1536,42 @@ quoters are the trap the Fences name, and autocomplete is a third site for them.
 — first keyword `SELECT`, `WITH`, `VALUES`, `INSERT` or `EXPLAIN`, or beginning `CREATE VIEW` /
 `CREATE OR REPLACE VIEW` — inserts each part through `quoteIdentifierIfNeeded`, which returns the
 part unchanged only when it is already lowercase, starts with a letter or underscore, holds nothing
-but letters, digits and underscores, and is not one of Trino's reserved words. Everything else,
-the Hive DDL included, keeps SPEC-065's bare insert, because a double-quoted name is an error there.
-**A CTAS is deliberately outside the Trino set**: `CREATE TABLE … AS SELECT` is Hive at its head and
-Trino in its body, and the safe side of that fence is the bare insert, whose failure mode is a user
-quoting by hand rather than a predicate that silently never matches.
+but letters, digits and underscores, and is not reserved. Everything else keeps SPEC-065's bare
+insert.
 
-**The keyword list's asymmetry is why it is safe to carry a vendor list at all.** Quoting a name
-that needed no quotes is valid Trino, so a superset costs nothing and a subset means a name reaches
-the editor bare and the statement fails to parse. The 83 words were read from Trino's current
-documentation and cross-checked against that page's own source in the `trinodb/trino` repository,
-which agreed exactly;
-`EXECUTE` is not among them today, and none of `CLAUSE_WORDS` is, which is what lets the two sets
-be consulted as one rule.
+**That set is an allow-list, not a dialect test, and its complement is NOT "the Hive DDL".**
+`DELETE`, `UPDATE` and `MERGE` are Trino DML on an Iceberg table and sit outside it, so a name
+needing quotes arrives bare there and Athena refuses the statement. That LOUD failure is the side of
+this fence to be wrong on: a double quote in Hive DDL, or a backtick in a Trino body, matches
+nothing at all and says so nowhere. Widening the allow-list to those three is a straightforward
+follow-up, left out of SPEC-244 rather than overlooked.
+
+**A CTAS is INSIDE the set, and finding out why is the lesson here.** It was excluded first, on the
+reasoning that `CREATE TABLE … AS SELECT` has a DDL head and a DML body so one statement needs both
+quotes — and that the bare insert was the safe side because its failure would be loud. **Measuring
+it falsified both halves.** The whole statement is Trino: AWS documents the body as DML, and the
+head's property syntax is Trino's (`WITH (format = …, partitioned_by = ARRAY[…])`), not Hive's
+`STORED AS` / `TBLPROPERTIES`. And the failure was **silent, not loud** — a column named `id total`
+inserted bare parses as `id` aliased `total`, one named `2024` as the integer 2024 in every row, and
+**a CTAS writes both into the new table**. Silent wrong data in a written table is worse than the
+predicate-that-never-matches this fence was built around. The generalisable part: *"the failure would
+be loud"* is a claim about an engine, and this one was argued rather than run. A CTAS is recognised
+once its `AS <query>` has been typed — the next word after `AS` is what tells a CTAS from Hive's
+`STORED AS PARQUET`, and before the body exists the statement is honestly indistinguishable from a
+Hive `CREATE TABLE`.
+
+**Read the ENGINE's keyword list, not the dialect's — this is where the first version was wrong.**
+The asymmetry is what makes carrying a vendor list safe at all: quoting a name that needed no quotes
+is valid, so a superset costs nothing, while a subset means a name reaches the editor bare and the
+statement fails to parse. The first cut quoted from Trino's own page — 83 words, cross-checked
+against that page's source in the `trinodb/trino` repository, which agreed exactly — **and it was a
+subset.** Athena publishes its own `SELECT` list, and it adds `EXECUTE`, `FIRST`, `LAST` and `OF`,
+so `first` and `last`, which are ordinary column names in this data, inserted bare and Athena
+refused the statement; AWS's own example on that page escapes `first`. `ATHENA_RESERVED_KEYWORDS` is
+the union and is what every caller consults. `TRINO_RESERVED_KEYWORDS` is kept beside it only so one
+vendor page stays diffable, and a test pins both sizes and names the four, because a count alone
+stays green when one word is swapped for another. Neither contains any of `CLAUSE_WORDS`, which is
+what lets the two sets be consulted as one rule.
 
 **Inside the user's own open quote, they are already quoting.** The insert becomes the bare name
 with its own quotes doubled, the replace range starts just after the quote, and a closing quote is

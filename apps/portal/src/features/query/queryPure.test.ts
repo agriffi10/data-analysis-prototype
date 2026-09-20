@@ -30,8 +30,8 @@ import {
   QUERY_TABS_MAX,
   QUERY_TABS_STORAGE_PREFIX
 } from './query.constants';
-import {buildSqlCompletions, createSqlCompletionProvider, scopeAt} from './sqlCompletions';
-import {TRINO_RESERVED_KEYWORDS} from '../../lib/sql';
+import {createSqlCompletionProvider, scopeAt} from './sqlCompletions';
+import {ATHENA_RESERVED_KEYWORDS} from '../../lib/sql';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 import {act, renderHook} from '@testing-library/react';
 import {clampEditorHeight, clampFraction, splitBounds, useEditorSplit} from './useEditorSplit';
@@ -239,6 +239,26 @@ describe('query.sql', () => {
       expect(sqlTableReferences('SELECT * FROM (a.x) y')).toEqual([]);
     });
 
+    it('reads an expression-level FROM too, and a three-part name as its first two', () => {
+      // Both are known limits of scanning keywords instead of parsing: the phantom resolves to
+      // nothing, and the truncated name falls back to offering the whole catalog.
+      expect(sqlTableReferences('SELECT EXTRACT(YEAR FROM order_date) FROM sales.orders')).toEqual([
+        {database: null, table: 'order_date', alias: null},
+        {database: 'sales', table: 'orders', alias: null}
+      ]);
+      expect(sqlTableReferences('SELECT * FROM awsdatacatalog.sales.orders')).toEqual([
+        {database: 'awsdatacatalog', table: 'sales', alias: null}
+      ]);
+    });
+
+    it('closes the list on a `)` that drops below the depth it opened at', () => {
+      // Mid-typing with unbalanced brackets is the guard's only reachable difference: the `)` takes
+      // the depth below the list's own, so what follows is no longer a FROM list. The well-formed
+      // half of the same rule is the WITH case above, which DOES return its reference — without it
+      // this assertion would pass against a scanner that found nothing anywhere.
+      expect(sqlTableReferences('FROM)s.t t')).toEqual([]);
+    });
+
     it('does not read a column-alias list’s comma as a reference separator', () => {
       expect(sqlTableReferences('SELECT * FROM s.t AS x (a, b)')).toEqual([{database: 's', table: 't', alias: 'x'}]);
     });
@@ -255,7 +275,7 @@ describe('query.sql', () => {
   });
 
   describe('isTrinoStatement (SPEC-244 FR-005)', () => {
-    it('is true for the DML statements and for CREATE [OR REPLACE] VIEW', () => {
+    it('is true for the DML statements, for CREATE [OR REPLACE] VIEW, and for a CTAS', () => {
       for (const sql of [
         'SELECT 1',
         'with x as (select 1) select * from x',
@@ -263,24 +283,45 @@ describe('query.sql', () => {
         'INSERT INTO s.t VALUES (1)',
         'EXPLAIN SELECT 1',
         '-- note\nCREATE VIEW s.v AS SELECT 1',
-        'create or replace view s.v as select 1'
+        'create or replace view s.v as select 1',
+        // A CTAS is Trino throughout — its body is DML and its head's property syntax is Trino's.
+        'CREATE TABLE s.t AS SELECT 1',
+        "create table s.t with (format = 'PARQUET') as select 1",
+        'CREATE TABLE s.t AS WITH x AS (SELECT 1) SELECT * FROM x'
       ]) {
         expect(isTrinoStatement(sql), sql).toBe(true);
       }
     });
 
-    it('is false for the Hive DDL, including a CTAS, so those keep the bare insert', () => {
+    it('is false for the Hive DDL, so those keep the bare insert', () => {
       for (const sql of [
-        'CREATE TABLE s.t AS SELECT 1',
         'CREATE EXTERNAL TABLE s.t (a int)',
+        // `STORED AS PARQUET` is an AS that opens no query — the next-word check is what sees that.
+        "CREATE EXTERNAL TABLE s.t (a int) STORED AS PARQUET LOCATION 's3://b/p/'",
+        'CREATE TABLE s.t (a int)',
         'DROP TABLE s.t',
         'ALTER TABLE s.t ADD COLUMNS (b int)',
-        'CREATE OR REPLACE TABLE s.t (a int)',
         'SHOW TABLES IN s',
         ''
       ]) {
         expect(isTrinoStatement(sql), sql).toBe(false);
       }
+    });
+
+    it('reads only an AS outside brackets as the one that opens a CTAS body', () => {
+      // The positive control comes first: a property list closes, and the AS AFTER it is the real
+      // one — without that line this test would pass against a scan that found no AS anywhere.
+      expect(isTrinoStatement("CREATE TABLE s.t WITH (sorted_by = ARRAY['a']) AS SELECT 1")).toBe(true);
+      // An AS inside a bracketed list is a cast or a property, never the body's.
+      expect(isTrinoStatement('CREATE TABLE s.t (x varchar) WITH (comment = cast(y AS TABLE))')).toBe(false);
+      expect(isTrinoStatement('CREATE TABLE s.t (a int) WITH (p = (SELECT 1 AS SELECT))')).toBe(false);
+    });
+
+    it('answers false for a CTAS whose AS SELECT has not been typed yet', () => {
+      // Before the body exists it is indistinguishable from a Hive CREATE TABLE, so the bare insert
+      // is the only honest answer; the classification flips once `AS SELECT` lands.
+      expect(isTrinoStatement('CREATE TABLE s.t ')).toBe(false);
+      expect(isTrinoStatement('CREATE TABLE s.t AS ')).toBe(false);
     });
   });
 
@@ -439,44 +480,6 @@ describe('sqlCompletions', () => {
   // A single database's schema, the SPEC-077 completion-provider input shape.
   const alice: DatabaseSchema = {database: 'alice', tables: [orders, ordersView]};
 
-  describe('buildSqlCompletions', () => {
-    it('returns one fully-qualified item per table and view, kinded and labelled', () => {
-      const items = buildSqlCompletions([alice]);
-      const table = items.find((i) => i.label === 'alice.orders');
-      const view = items.find((i) => i.label === 'alice.orders_summary');
-      expect(table).toEqual({
-        label: 'alice.orders',
-        insertText: 'alice.orders',
-        kind: 'table',
-        detail: 'table · alice'
-      });
-      expect(view).toEqual({
-        label: 'alice.orders_summary',
-        insertText: 'alice.orders_summary',
-        kind: 'view',
-        detail: 'view · alice'
-      });
-    });
-
-    it('emits one column item per column with its type and qualified table as detail', () => {
-      const items = buildSqlCompletions([{database: 'alice', tables: [orders]}]);
-      expect(items.filter((i) => i.kind === 'column')).toEqual([
-        {label: 'id', insertText: 'id', kind: 'column', detail: 'bigint · alice.orders'},
-        {label: 'total', insertText: 'total', kind: 'column', detail: 'double · alice.orders'}
-      ]);
-    });
-
-    it('de-duplicates column names across tables and databases (keeps first declaration)', () => {
-      const items = buildSqlCompletions([
-        {database: 'alice', tables: [orders]},
-        {database: 'bob', tables: [ordersView]}
-      ]);
-      const totals = items.filter((i) => i.kind === 'column' && i.label === 'total');
-      expect(totals).toHaveLength(1);
-      expect(totals[0].detail).toBe('double · alice.orders');
-    });
-  });
-
   // Minimal fake Monaco surface the provider factory touches: just the kind enum. No editor
   // runtime involved.
   const fakeMonaco = {
@@ -573,6 +576,40 @@ describe('sqlCompletions', () => {
     }
   ];
 
+  describe('the whole-catalogue suggestions', () => {
+    it('returns one fully-qualified item per table and view, kinded and labelled', () => {
+      const suggestions = editorAt('', 0).suggest([alice]);
+      expect(suggestions.find((s) => s.label === 'alice.orders')).toMatchObject({
+        insertText: 'alice.orders',
+        kind: TABLE,
+        detail: 'table · alice'
+      });
+      expect(suggestions.find((s) => s.label === 'alice.orders_summary')).toMatchObject({
+        insertText: 'alice.orders_summary',
+        kind: VIEW,
+        detail: 'view · alice'
+      });
+    });
+
+    it('emits one column item per column with its type and qualified table as detail', () => {
+      const suggestions = editorAt('', 0).suggest([{database: 'alice', tables: [orders]}]);
+      expect(suggestions.filter((s) => s.kind === COLUMN)).toMatchObject([
+        {label: 'id', insertText: 'id', detail: 'bigint · alice.orders'},
+        {label: 'total', insertText: 'total', detail: 'double · alice.orders'}
+      ]);
+    });
+
+    it('de-duplicates column names across tables and databases (keeps first declaration)', () => {
+      const suggestions = editorAt('', 0).suggest([
+        {database: 'alice', tables: [orders]},
+        {database: 'bob', tables: [ordersView]}
+      ]);
+      const totals = suggestions.filter((s) => s.kind === COLUMN && s.label === 'total');
+      expect(totals).toHaveLength(1);
+      expect(totals[0].detail).toBe('double · alice.orders');
+    });
+  });
+
   describe('scopeAt (SPEC-244 FR-002)', () => {
     it('resolves the statement’s tables case-insensitively and nothing else', () => {
       const buffer = 'SELECT * FROM DENAPOLIA.Order_Referring ORDER BY ';
@@ -594,7 +631,7 @@ describe('sqlCompletions', () => {
       // the match is what refuses it.
       const buffer = 'SELECT * FROM nosuch.table_x, orders, other.order_referring WHERE ';
       // All three ARE read as references — the empty scope is resolution failing, not the scan.
-      expect(sqlTableReferences('SELECT * FROM nosuch.table_x, orders, other.order_referring WHERE')).toEqual([
+      expect(sqlTableReferences(buffer)).toEqual([
         {database: 'nosuch', table: 'table_x', alias: null},
         {database: null, table: 'orders', alias: null},
         {database: 'other', table: 'order_referring', alias: null}
@@ -626,10 +663,13 @@ describe('sqlCompletions', () => {
   });
 
   describe('createSqlCompletionProvider — after a qualifier and a dot (SPEC-244 FR-004)', () => {
-    it('offers one alias’s table columns, and opens on the dot', () => {
+    it('offers one alias’s table columns', () => {
       const buffer = 'select o. from sales.orders o join sales.items i on true';
       const suggestions = editorAt(buffer, 9).suggest(salesSchemas);
       expect(suggestions.map((s) => s.label)).toEqual(['id', 'placed_on']);
+    });
+
+    it('declares the dot as a trigger, without which the popup never opens on it', () => {
       expect(createSqlCompletionProvider(fakeMonaco, {current: salesSchemas}).triggerCharacters).toEqual(['.']);
     });
 
@@ -699,6 +739,7 @@ describe('sqlCompletions', () => {
               column('last_name', 'varchar'),
               column('Last Name', 'varchar'),
               column('order', 'varchar'),
+              column('NPI', 'bigint'),
               column('2024_total', 'double'),
               column('a"b', 'varchar')
             ]
@@ -714,6 +755,8 @@ describe('sqlCompletions', () => {
       expect(insertFor('last_name')).toBe('last_name');
       expect(insertFor('Last Name')).toBe('"Last Name"');
       expect(insertFor('order')).toBe('"order"');
+      // Bare-identifier-shaped and still quoted: unquoted, Athena folds it to `npi`.
+      expect(insertFor('NPI')).toBe('"NPI"');
       expect(insertFor('2024_total')).toBe('"2024_total"');
       expect(insertFor('a"b')).toBe('"a""b"');
     });
@@ -730,15 +773,30 @@ describe('sqlCompletions', () => {
       expect(suggestions.find((s) => s.label === 'Last Name')?.insertText).toBe('Last Name');
     });
 
-    it('completes inside the user’s own open quote, closing it once', () => {
-      const open = editorAt('SELECT "Last Na', 15);
-      const opened = open.suggest(quirky);
-      expect(open.accept(opened.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
+    it('quotes inside a CTAS, whose bare insert changed the column silently', () => {
+      // A bare `Last Name` here becomes column `Last` aliased `Name`, and a bare `2024_total` a
+      // number — and a CTAS WRITES both into the new table, so this was the one silent exclusion.
+      const buffer = 'CREATE TABLE my space.copy AS SELECT  FROM "my space".orders';
+      const {suggest} = editorAt(buffer, buffer.indexOf('SELECT ') + 7);
+      const suggestions = suggest(quirky);
+      const insertFor = (label: string) => suggestions.find((s) => s.label === label)?.insertText;
+      expect(insertFor('Last Name')).toBe('"Last Name"');
+      expect(insertFor('2024_total')).toBe('"2024_total"');
+      expect(insertFor('last_name')).toBe('last_name');
+    });
 
-      // Cursor before a closing quote the editor auto-inserted: no second one is added.
-      const closed = editorAt('SELECT "Las"', 11);
-      const already = closed.suggest(quirky);
-      expect(closed.accept(already.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
+    it('completes inside the user’s own open quote, closing it', () => {
+      const {suggest, accept} = editorAt('SELECT "Last Na', 15);
+      const suggestions = suggest(quirky);
+      expect(accept(suggestions.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
+    });
+
+    it('adds no second closing quote when the editor already inserted one', () => {
+      // The gesture the SQL language's autoClosingPairs actually produces: typing `"` inserts its
+      // pair, so the cursor sits BEFORE a closing quote rather than at the end of an open one.
+      const {suggest, accept} = editorAt('SELECT "Las"', 11);
+      const suggestions = suggest(quirky);
+      expect(accept(suggestions.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
     });
 
     it('offers columns but no table inside an open quote, and doubles an inner quote', () => {
@@ -760,17 +818,16 @@ describe('sqlCompletions', () => {
       expect(labelsOfKind(suggestions, TABLE)).toContain('my space.orders');
     });
 
-    it('keeps the reserved words uppercase, counted, and disjoint from the clause words', () => {
+    it('keeps the reserved words uppercase and disjoint from the clause words', () => {
       // The four presences are the positive control: a `for…of` over an empty set passes
-      // vacuously, and both sizes are pinned so the docstring's count is a checkable fact.
+      // vacuously. The lists' own sizes and provenance are pinned in `lib/sql.test.ts`.
       for (const word of ['SELECT', 'ORDER', 'GROUP', 'JSON_TABLE']) {
-        expect(TRINO_RESERVED_KEYWORDS.has(word), word).toBe(true);
+        expect(ATHENA_RESERVED_KEYWORDS.has(word), word).toBe(true);
       }
-      expect(TRINO_RESERVED_KEYWORDS.size).toBe(83);
       // Disjoint, not contradictory: a FROM list closes on EITHER a reserved word or a clause
       // word, and the two sets never overlap — `ORDER` closes it by the first mechanism and
-      // `LIMIT`, which Trino does not reserve, by the second.
-      for (const word of TRINO_RESERVED_KEYWORDS) {
+      // `LIMIT`, which neither vendor reserves, by the second.
+      for (const word of ATHENA_RESERVED_KEYWORDS) {
         expect(word, word).toBe(word.toUpperCase());
         expect(CLAUSE_WORDS.has(word), word).toBe(false);
       }

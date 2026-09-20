@@ -31,20 +31,9 @@ export type SqlCompletion = {
 // A Glue `VIRTUAL_VIEW` is a view; everything else is a table.
 const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
 
-/**
- * Builds schema completion descriptors across every accessible database.
- * Tables/views are suggested **fully-qualified**
- * (`database.table`) since there is no active-database context; columns keep
- * their short form — bare name, de-duplicated across all databases, with
- * type + owning table as detail. Returns [] when there is no schema.
- */
-export function buildSqlCompletions(schemas: DatabaseSchema[] | undefined): SqlCompletion[] {
-  return schemaSources(schemas).map((source) => toCompletion(source, false, null));
-}
-
 // A descriptor before its insert text is decided, carrying the identifier PARTS the insert is built
-// from — one for a column, two for a fully-qualified table. The parts are what the Trino quoter
-// needs: joining first and splitting later would mangle a name that itself holds a dot.
+// from — one for a column, two for a fully-qualified table. The parts are what the quoter needs:
+// joining first and splitting later would mangle a name that itself holds a dot.
 type CompletionSource = {label: string; parts: string[]; kind: SqlCompletionKind; detail: string};
 
 // Every accessible database's tables/views fully qualified, and every column once, de-duped by name
@@ -201,9 +190,12 @@ function sourcesFor(
 }
 
 // The label is always the bare identifier, so filtering and reading never see a quote. The insert
-// text is the dialect's business: each part through the Trino quoter in a Trino statement, the bare
-// name in the Hive DDL, and — when `closeQuote` is not null, meaning the cursor is inside the user's
-// own open quote — the bare name with its quotes doubled, closed only if they have not closed it.
+// text is the statement's business: each part through the double-quote quoter where the allow-list
+// admits it, the bare name everywhere else, and — when `closeQuote` is not null, meaning the cursor
+// is inside a quote the user opened — the bare name with its quotes doubled, closed only if they
+// have not. That last branch is the one the allow-list does NOT gate: a user who typed `"` in a
+// statement where it is wrong has already written something the engine will refuse, so completing
+// inside their quote cannot make it worse.
 function toCompletion(source: CompletionSource, trino: boolean, closeQuote: boolean | null): SqlCompletion {
   const joined = source.parts.join('.');
   let insertText = joined;
@@ -252,7 +244,9 @@ export function createSqlCompletionProvider(
 
       const statement = statementAt(buffer, cursorOffset);
       // `splitSqlStatements` trims, so the cursor routinely sits past a statement's end — in the
-      // space after `ORDER BY `, which is exactly where suggestions are asked for.
+      // space after `ORDER BY `, which is exactly where suggestions are asked for. The guard is for
+      // the other direction: `resolveRunStatements` falls back to the FIRST statement, so a cursor
+      // before it would ask for a backwards slice.
       const base = statement ? statement.range.start : 0;
       const typed = base <= cursorOffset ? buffer.slice(base, cursorOffset) : '';
 
@@ -267,7 +261,10 @@ export function createSqlCompletionProvider(
       const qualifier = sqlQualifierBefore(typed, (quoting ? replaceStart - 1 : replaceStart) - base);
 
       let sources = sourcesFor(qualifier, resolveScope(statement, schemas), schemas);
-      // A two-part table name cannot sit inside one pair of quotes, so only columns go there.
+      // A two-part table name cannot sit inside one pair of quotes, so only columns go there. Note
+      // the rule is by KIND, not by part count, so the one-part names the database-dot branch
+      // produces are filtered out too: after `from "my space"."` nothing is offered. That is
+      // narrower than it needs to be and never a wrong insert.
       if (quoting) sources = sources.filter((source) => source.kind === 'column');
 
       const trino = statement ? isTrinoStatement(statement.sql) : false;

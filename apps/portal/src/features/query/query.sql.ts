@@ -1,6 +1,6 @@
 // SQL-statement classification + splitting helpers for the query workspace.
 
-import {TRINO_RESERVED_KEYWORDS} from '../../lib/sql';
+import {ATHENA_RESERVED_KEYWORDS} from '../../lib/sql';
 import type {ParsedStatement} from './query.types';
 
 // Strip leading whitespace and SQL comments (-- line and /* block */) so callers
@@ -280,10 +280,16 @@ export type SqlTableReference = {database: string | null; table: string; alias: 
 /**
  * Words Trino does NOT reserve that can follow a table reference or stand where one would.
  *
- * The second half of the "what ends a `FROM` list" rule, beside `TRINO_RESERVED_KEYWORDS`: a
+ * The second half of the "what ends a `FROM` list" rule, beside `ATHENA_RESERVED_KEYWORDS`: a
  * reserved word cannot be an alias because it is a keyword, and these cannot be one because the
  * grammar gives them their own meaning in that position. The two sets are disjoint by construction —
  * every word here was checked against the reserved list.
+ *
+ * The tokenizer reads the ENGINE's list rather than Trino's for consistency with the quoter and
+ * because a word the engine reserves cannot be an unquoted alias. Unlike in the quoter, the choice
+ * has no reachable consequence — the four words only Athena reserves are unquotable as bare
+ * identifiers there anyway — so swapping the lists here changes no behaviour and is deliberately
+ * not pinned by a test.
  */
 export const CLAUSE_WORDS: ReadonlySet<string> = new Set([
   'LIMIT',
@@ -308,9 +314,12 @@ const JOIN_WORDS: ReadonlySet<string> = new Set([
   'OUTER'
 ]);
 
-// Statements Athena runs through Trino, by their first keyword. CREATE VIEW is Trino too and is
-// recognised separately; everything absent here — the Hive DDL — is not.
+// The statements this app quotes identifiers in, by their first keyword. CREATE VIEW and a CTAS are
+// recognised separately. The list is an allow-list rather than a dialect test — see isTrinoStatement.
 const TRINO_LEADING_KEYWORDS: ReadonlySet<string> = new Set(['SELECT', 'WITH', 'VALUES', 'INSERT', 'EXPLAIN']);
+
+// The words that can open the query a CTAS or a view body is defined AS.
+const QUERY_LEADING_KEYWORDS: ReadonlySet<string> = new Set(['SELECT', 'WITH', 'VALUES', 'TABLE']);
 
 type SqlToken = {
   /** `quoted` is a `"…"` identifier with its escapes resolved; `other` is a string literal or a backtick name. */
@@ -357,7 +366,7 @@ function referencePart(token: SqlToken): string | null {
   if (token.kind === 'quoted') return token.text;
   if (token.kind !== 'word') return null;
   const upper = token.text.toUpperCase();
-  if (TRINO_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper)) return null;
+  if (ATHENA_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper)) return null;
   return token.text;
 }
 
@@ -393,13 +402,21 @@ function readReference(statement: string, first: SqlToken): {reference: SqlTable
 }
 
 /**
- * The tables a single statement names in its `FROM` and `JOIN` clauses, with their aliases.
+ * The tables a statement names after a `FROM` or a join keyword, with their aliases.
  *
  * Every reference counts, including those in subqueries and in a `WITH` clause's bodies: scoping by
  * nesting would mean parsing SQL, and a scan of keywords is already enough to tell one table apart
  * from every other the user can reach. An unqualified name — a CTE, or a name written without its
  * database — comes back with a null `database` and resolves to nothing, since the workspace has no
  * active database to qualify it with.
+ *
+ * **Every `FROM` keyword, not only the clause ones.** `EXTRACT(YEAR FROM order_date)` yields a
+ * reference to `order_date`, and `substring(x FROM n)` yields none only because a digit cannot be an
+ * identifier. Telling a clause from an expression needs the parser this deliberately avoids, and the
+ * cost is bounded: an unqualified phantom resolves to nothing, and a qualified one could only widen
+ * the suggestion list, never narrow it or change an insert. A name of three or more parts
+ * (`catalog.schema.table`) reads as its first two and resolves to nothing, so the whole catalog is
+ * offered instead — graceful, and the reason to qualify with the database alone.
  *
  * A `FROM` list stays open at the bracket depth where it began and closes at the first reserved word
  * that is not a join word or `AS`, at a clause word, or at the `)` that closes its depth. So a comma
@@ -459,7 +476,7 @@ export function sqlTableReferences(statement: string): SqlTableReference[] {
       token.kind === 'word' &&
       upper !== 'AS' &&
       !JOIN_WORDS.has(upper) &&
-      (TRINO_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper))
+      (ATHENA_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper))
     ) {
       list = null;
     }
@@ -468,16 +485,46 @@ export function sqlTableReferences(statement: string): SqlTableReference[] {
   return references;
 }
 
+// True when a `CREATE …` statement reaches an `AS` at bracket depth 0 whose next word opens a
+// query — the shape of a CTAS. The next-word check is what keeps Hive's `STORED AS PARQUET` out,
+// and the depth check keeps an `AS` inside a column list or a `WITH (…)` property list out. A CTAS
+// being typed answers false until its `AS SELECT` exists, which is the only honest answer: before
+// that it is indistinguishable from a Hive `CREATE TABLE`.
+function reachesAsQuery(statement: string, from: number): boolean {
+  let depth = 0;
+  let i = from;
+  for (;;) {
+    const token = nextSqlToken(statement, i);
+    if (!token) return false;
+    i = token.end;
+    if (token.kind === 'punct' && token.text === '(') depth += 1;
+    else if (token.kind === 'punct' && token.text === ')') depth -= 1;
+    else if (token.kind === 'word' && depth === 0 && token.text.toUpperCase() === 'AS') {
+      const body = nextSqlToken(statement, token.end);
+      if (body?.kind === 'word' && QUERY_LEADING_KEYWORDS.has(body.text.toUpperCase())) return true;
+    }
+  }
+}
+
 /**
- * True when Athena runs this statement through Trino rather than Hive.
+ * True when a statement is one this app will double-quote an identifier in.
  *
- * Decides which identifier quote a name may carry: a Trino statement takes double quotes, and
- * everything else — the Hive DDL — takes the bare name, because a double-quoted name is an error
- * there and a backticked one is wrong in a Trino `CREATE TABLE AS`. `CREATE TABLE` is deliberately
- * outside the set, which is the safe side of that fence.
+ * A deliberately **conservative allow-list**, not a test for the Trino dialect, and the difference
+ * matters: the complement is not "the Hive DDL". `DELETE`, `UPDATE` and `MERGE` are Trino DML on an
+ * Iceberg table, and they fall outside this set, so a name that needed quoting there arrives bare —
+ * whereupon Athena refuses the statement. That loud failure is the side of the fence to be wrong on,
+ * against a backtick in a Trino statement or a double quote in Hive DDL, each of which matches
+ * nothing and says so nowhere.
+ *
+ * A **CTAS is inside** the set once its `AS <query>` has been typed, because its whole statement is
+ * Trino: AWS documents the body as DML and the head's property syntax is Trino's
+ * (`WITH (format = …, partitioned_by = ARRAY[…])`), not Hive's `STORED AS`/`TBLPROPERTIES`. Leaving
+ * it out was the one exclusion whose failure was SILENT rather than loud — a column named
+ * `id total` inserted bare becomes `id` aliased `total`, and one named `2024` becomes the integer
+ * 2024 in every row, both written into the new table.
  *
  * @param statement - One SQL statement; leading comments and whitespace are skipped.
- * @returns True for SELECT/WITH/VALUES/INSERT/EXPLAIN and for CREATE [OR REPLACE] VIEW.
+ * @returns True for SELECT/WITH/VALUES/INSERT/EXPLAIN, CREATE [OR REPLACE] VIEW, and a CTAS.
  */
 export function isTrinoStatement(statement: string): boolean {
   const first = nextSqlToken(statement, 0);
@@ -492,7 +539,8 @@ export function isTrinoStatement(statement: string): boolean {
     if (replace?.kind !== 'word' || replace.text.toUpperCase() !== 'REPLACE') return false;
     next = nextSqlToken(statement, replace.end);
   }
-  return next?.kind === 'word' && next.text.toUpperCase() === 'VIEW';
+  if (next?.kind === 'word' && next.text.toUpperCase() === 'VIEW') return true;
+  return reachesAsQuery(statement, first.end);
 }
 
 /**

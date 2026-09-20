@@ -1,5 +1,12 @@
 import {describe, expect, it} from 'vitest';
-import {sqlLiteral, sqlIdentifier, sqlDdlIdentifier} from './sql';
+import {
+  ATHENA_RESERVED_KEYWORDS,
+  TRINO_RESERVED_KEYWORDS,
+  quoteIdentifierIfNeeded,
+  sqlDdlIdentifier,
+  sqlIdentifier,
+  sqlLiteral
+} from './sql';
 import {CATALOG_IDENTIFIER_RE} from './catalogIdentifier';
 
 describe('sqlLiteral (SPEC-178 FR-004)', () => {
@@ -72,5 +79,54 @@ describe('sqlIdentifier (SPEC-178 FR-004)', () => {
 
   it('does not touch a single quote — that is the literal escaper’s job', () => {
     expect(sqlIdentifier("O'Brien")).toBe('"O\'Brien"');
+  });
+});
+
+describe('quoteIdentifierIfNeeded (SPEC-244 FR-005)', () => {
+  it('leaves a name the engine reads back as itself alone', () => {
+    for (const name of ['last_name', '_private', 'a1', 'order_referring', 'npi']) {
+      expect(quoteIdentifierIfNeeded(name), name).toBe(name);
+    }
+  });
+
+  it('quotes an UPPERCASE name, because unquoted it folds to a different column', () => {
+    // The half a corpus of spaces and punctuation never reaches: `NPI` is bare-identifier-shaped
+    // and still needs quoting, since Athena folds an unquoted `NPI` to `npi`.
+    expect(quoteIdentifierIfNeeded('NPI')).toBe('"NPI"');
+    expect(quoteIdentifierIfNeeded('Total')).toBe('"Total"');
+    expect(quoteIdentifierIfNeeded('camelCase')).toBe('"camelCase"');
+  });
+
+  it('quotes a shape the engine cannot parse bare', () => {
+    expect(quoteIdentifierIfNeeded('Last Name')).toBe('"Last Name"');
+    expect(quoteIdentifierIfNeeded('2024_total')).toBe('"2024_total"');
+    expect(quoteIdentifierIfNeeded('total_$')).toBe('"total_$"');
+    expect(quoteIdentifierIfNeeded('a-b')).toBe('"a-b"');
+    expect(quoteIdentifierIfNeeded('a"b')).toBe('"a""b"');
+    expect(quoteIdentifierIfNeeded('')).toBe('""');
+  });
+
+  it('quotes a reserved word in ANY case, Athena’s four included', () => {
+    // The engine is Athena, not Trino: `first`, `last`, `of` and `execute` are ordinary column
+    // names, absent from Trino's own page, and inserted bare they make the statement unparseable.
+    for (const word of ['order', 'ORDER', 'Group', 'select', 'first', 'last', 'of', 'execute']) {
+      expect(quoteIdentifierIfNeeded(word), word).toBe(`"${word}"`);
+    }
+  });
+});
+
+describe('the reserved-word lists (SPEC-244 FR-005)', () => {
+  it('reads Trino’s page and Athena’s as two lists, the second a superset of the first', () => {
+    // Both sizes are pinned so each docstring's count is a checkable fact rather than prose that
+    // rots, and the four are named so swapping one for another cannot keep the count green.
+    expect(TRINO_RESERVED_KEYWORDS.size).toBe(83);
+    expect(ATHENA_RESERVED_KEYWORDS.size).toBe(87);
+    for (const word of ['EXECUTE', 'FIRST', 'LAST', 'OF']) {
+      expect(TRINO_RESERVED_KEYWORDS.has(word), word).toBe(false);
+      expect(ATHENA_RESERVED_KEYWORDS.has(word), word).toBe(true);
+    }
+    for (const word of TRINO_RESERVED_KEYWORDS) {
+      expect(ATHENA_RESERVED_KEYWORDS.has(word), word).toBe(true);
+    }
   });
 });
