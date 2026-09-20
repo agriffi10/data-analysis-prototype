@@ -216,6 +216,9 @@ import json
 w("dq_case_a.csv", ["CustomerID","Region"], [[i,regions[i%4]] for i in range(1,11)])
 w("dq_case_b.csv", ["customerid","REGION"], [[i,regions[i%4]] for i in range(11,21)])
 w("dq_case_clash.csv", ["Total","TOTAL","region"], [[i,i,regions[i%4]] for i in range(1,6)])
+
+# data quality: repeated rows, four of them, spread across two files. Blank cells are EMPTY
+# STRINGS in a CSV, never NULL, which is what makes the samples table's two markers separable.
 w("dq_dupes_a.csv", ["name","city","note"], [["Ann","Leeds",""]]*3 + [["Bo","","x"]]*2 + [["Cy","York","z"]])
 w("dq_dupes_b.csv", ["name","city","note"], [["Ann","Leeds",""]])
 for name, keys, ids in (("dq_case_a.json", ("CustomerID","Region"), range(1,11)),
