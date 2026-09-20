@@ -41,6 +41,8 @@ entry you need, not the file.**
 - [One operator table, because four lists is how an operator reaches three of them (SPEC-238)](#one-operator-table-because-four-lists-is-how-an-operator-reaches-three-of-them-spec-238)
 - [A CSV refresh keeps the table's column order and appends what is new (SPEC-235)](#a-csv-refresh-keeps-the-tables-column-order-and-appends-what-is-new-spec-235)
 
+- [Suggestions follow the statement, and a Trino insert is quoted where the name needs it (SPEC-244)](#suggestions-follow-the-statement-and-a-trino-insert-is-quoted-where-the-name-needs-it-spec-244)
+
 ## Fences
 
 An in-app Athena/Glue/Lake Formation workspace. Isolation is the `username` principal tag on the
@@ -55,7 +57,11 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   backslash-escapes (Hive/DDL), `sql._literal_dml` and the browser's `sqlLiteral` double the quote
   (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`), `sqlDdlIdentifier` and
   `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
-  names). **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
+  names). **Autocomplete is a third identifier site and picks by STATEMENT**: `quoteIdentifierIfNeeded`
+  quotes a suggestion's parts in a Trino statement (`SELECT`/`WITH`/`VALUES`/`INSERT`/`EXPLAIN`,
+  `CREATE [OR REPLACE] VIEW`) and inserts the bare name in every other, **a CTAS included** — and a
+  superset of Trino's reserved words is safe there while a subset is not.
+  **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
   a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
@@ -1497,3 +1503,75 @@ as `malformed_event` rather than quietly taking one branch.
   changing it was not part of the ruling.
 - *Report the position change in the diff.* A column's position is not a diff class, the counts
   stay what they were, and the written order is asserted on what `update_table` receives instead.
+
+## Suggestions follow the statement, and a Trino insert is quoted where the name needs it (SPEC-244)
+
+A tester writing `SELECT * FROM denapolia.order_referring ORDER BY last_name` was offered every
+column of every table they could reach. The provider read one thing — the word at the cursor — and
+returned the whole catalog, so the more databases a user could see the less useful it got. The same
+tester asked whether a name needing quotes could arrive quoted.
+
+**The statement decides.** Suggestions are now scoped by the statement `resolveRunStatements` would
+run with no selection, so **Run Statement** and the popup agree about which statement the cursor is
+in, including while it is still being typed in the whitespace after the previous one.
+`sqlTableReferences` reads its `FROM` and `JOIN` references with the tokenizer
+`splitSqlStatements` already had; only a `database.table` reference resolves, matched
+case-insensitively because Athena folds names and Glue stores them lowercased. When nothing
+resolves the whole catalog comes back, which is what a statement whose `FROM` does not exist yet
+deserves.
+
+**A `FROM` list is closed by structure rather than guessed at.** It stays open at the bracket depth
+where it began until a reserved word other than a join word or `AS`, a clause word, or the `)` that
+closes its depth. Two consequences are load-bearing and each is held by a test whose removal was
+planted and seen red: the comma re-arm is scoped to the list's own depth, so `FROM s.t AS x (a, b)`
+does not read `b` as a table; and a `(` where a table would go consumes the reference slot, so a
+parenthesised relation names nothing. The second is a deliberate cost — Trino's grammar does admit
+`FROM (a.b)` — paid because the alternative is parsing SQL.
+
+**Quoting picks by statement, which is the fork that fails silently.** This repo's two identifier
+quoters are the trap the Fences name, and autocomplete is a third site for them. A Trino statement
+— first keyword `SELECT`, `WITH`, `VALUES`, `INSERT` or `EXPLAIN`, or beginning `CREATE VIEW` /
+`CREATE OR REPLACE VIEW` — inserts each part through `quoteIdentifierIfNeeded`, which returns the
+part unchanged only when it is already lowercase, starts with a letter or underscore, holds nothing
+but letters, digits and underscores, and is not one of Trino's reserved words. Everything else,
+the Hive DDL included, keeps SPEC-065's bare insert, because a double-quoted name is an error there.
+**A CTAS is deliberately outside the Trino set**: `CREATE TABLE … AS SELECT` is Hive at its head and
+Trino in its body, and the safe side of that fence is the bare insert, whose failure mode is a user
+quoting by hand rather than a predicate that silently never matches.
+
+**The keyword list's asymmetry is why it is safe to carry a vendor list at all.** Quoting a name
+that needed no quotes is valid Trino, so a superset costs nothing and a subset means a name reaches
+the editor bare and the statement fails to parse. The 83 words were read from Trino's current
+documentation and cross-checked against that page's own source in the `trinodb/trino` repository,
+which agreed exactly;
+`EXECUTE` is not among them today, and none of `CLAUSE_WORDS` is, which is what lets the two sets
+be consulted as one rule.
+
+**Inside the user's own open quote, they are already quoting.** The insert becomes the bare name
+with its own quotes doubled, the replace range starts just after the quote, and a closing quote is
+added only when one does not already follow the cursor — which is the common case, since the SQL
+language's `autoClosingPairs` inserts one the moment the user types `"`. Two traps sit here. The
+existing quote scan ends at the buffer's length for **both** an unterminated quote and one closing
+on the final character, so `SELECT "abc` and `SELECT "abc"` are indistinguishable by their end
+offset; the scan now reports whether it found the closing quote, and without that a completion
+would overwrite a finished identifier. And Monaco **discards** a suggestion whose range starts on
+another line, so a quote left unclosed earlier in a multi-line statement falls through to the plain
+word gesture rather than costing the user every suggestion.
+
+**`.` is a trigger character.** Without it the tester's own gesture — an alias and a dot — showed
+nothing, because Monaco treats `.` as a word separator and opens the popup only on a word. A dot
+after a database name offers that database's tables inserted as the **table part alone**, which is
+also what ends the `sales.sales.orders` a qualified insert produced there. The qualifier read
+requires the dot: a bare word with no dot after it is a word being typed, not a qualifier, and
+reading one from it would insert a bare `orders` into `select sales orders`.
+
+**Rejected.** Scoping by clause or subquery — it needs a parser, where a keyword scan already tells
+one table from every other. Resolving unqualified or `WITH` names — with no active database there is
+nothing to qualify them with. Backtick quoting in Hive DDL — the bare name is correct there and a
+backtick in a Trino body is not. Keyword suggestions — an empty return is not an empty popup, since
+Monaco's built-in word-based provider contributes the buffer's own words. **Do not restate that last
+one from `monaco.d.ts`**, which says the governing option "Defaults to true" directly above a union
+with no `true` member: the comment is stale against its own type, the value the editor registers as
+the default is `offWithInlineSuggestions`, and what makes it contribute here is that suppressing it
+needs an inline-completions provider this app does not register. Read from the installed 0.56.0
+rather than from the vendor's prose.

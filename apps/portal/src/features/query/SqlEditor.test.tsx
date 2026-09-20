@@ -210,7 +210,14 @@ describe('SqlEditor completion-provider wiring', () => {
     const provider = h.registerCompletionItemProvider.mock.calls.at(-1)![1] as {
       provideCompletionItems: (model: unknown, pos: unknown) => {suggestions: Array<{label: string}>};
     };
-    const model = {getWordUntilPosition: () => ({startColumn: 1, endColumn: 1})};
+    // The provider reads the statement at the cursor, so the stub answers an empty buffer with the
+    // cursor at its start. This test is about the WIRING — one live provider, latest schemas.
+    const model = {
+      getValue: () => '',
+      getOffsetAt: () => 0,
+      getPositionAt: () => ({lineNumber: 1, column: 1}),
+      getWordUntilPosition: () => ({word: '', startColumn: 1, endColumn: 1})
+    };
     expect(provider.provideCompletionItems(model, {lineNumber: 1, column: 1}).suggestions.map((s) => s.label)).toEqual([
       'alice.orders',
       'id'
@@ -254,7 +261,14 @@ describe('SqlEditor completion-provider wiring', () => {
     const provider = h.registerCompletionItemProvider.mock.calls[0][1] as {
       provideCompletionItems: (model: unknown, pos: unknown) => {suggestions: Array<{label: string}>};
     };
-    const model = {getWordUntilPosition: () => ({startColumn: 1, endColumn: 1})};
+    // The provider reads the statement at the cursor, so the stub answers an empty buffer with the
+    // cursor at its start. This test is about the WIRING — one live provider, latest schemas.
+    const model = {
+      getValue: () => '',
+      getOffsetAt: () => 0,
+      getPositionAt: () => ({lineNumber: 1, column: 1}),
+      getWordUntilPosition: () => ({word: '', startColumn: 1, endColumn: 1})
+    };
     const pos = {lineNumber: 1, column: 1};
 
     expect(provider.provideCompletionItems(model, pos).suggestions).toEqual([]);

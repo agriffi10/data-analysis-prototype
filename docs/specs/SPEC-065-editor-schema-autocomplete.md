@@ -69,6 +69,13 @@ A Monaco completion provider for the `sql` language contributes table/view/colum
 - [ ] Accepting a suggestion inserts the bare identifier at the cursor (the completion's `insertText` is the
   table/view/column name).
 
+> **Superseded by SPEC-244:** the bare insert holds only outside a Trino statement now. In a
+> `SELECT`/`WITH`/`VALUES`/`INSERT`/`EXPLAIN` or a `CREATE [OR REPLACE] VIEW`, each part goes
+> through `quoteIdentifierIfNeeded`, so a name that is uppercase, holds a space or is a Trino
+> reserved word arrives double-quoted; the Hive DDL keeps this criterion's behaviour. `label` is
+> still always bare. Full entry: `docs/decisions/analytics.md` → *Suggestions follow the
+> statement, and a Trino insert is quoted where the name needs it*.
+
 ### FR-002: Scoped to the active database, updates on switch
 
 #### Acceptance Criteria:
@@ -132,7 +139,7 @@ export type SqlCompletionKind = 'table' | 'view' | 'column';
 
 export type SqlCompletion = {
   label: string;       // identifier shown + filtered on
-  insertText: string;  // = label (bare identifier)
+  insertText: string;  // = label (bare identifier) — SPEC-244: quoted per part in a Trino statement
   kind: SqlCompletionKind;
   detail: string;      // 'table' | 'view' | `${type} · ${tableName}` for columns
 };

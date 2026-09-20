@@ -249,7 +249,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 241 — A Column's Values, Counted, Are a Filter You Tick | Cancelled |
 | 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | Draft |
 | 243 — A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query | Draft |
-| 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Draft |
+| 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Completed |
 
 ## Arcs
 

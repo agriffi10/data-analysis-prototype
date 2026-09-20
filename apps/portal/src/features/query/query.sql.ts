@@ -1,5 +1,6 @@
 // SQL-statement classification + splitting helpers for the query workspace.
 
+import {TRINO_RESERVED_KEYWORDS} from '../../lib/sql';
 import type {ParsedStatement} from './query.types';
 
 // Strip leading whitespace and SQL comments (-- line and /* block */) so callers
@@ -112,12 +113,13 @@ export function deriveViewTargetDatabase(body: string): ViewTarget {
 
 // ── Multi-statement support ──────────────────────────────────────────────
 
-// Advances past a quoted region starting at `i` (buffer[i] is the opening
-// quote) and returns the index just after the closing quote. Doubled quotes
-// escape inside '…' strings and "…" identifiers (SQL standard); backticks
-// (Hive identifiers in Athena DDL) have no escape. An unterminated quote runs
-// to the end of the buffer.
-function skipQuoted(buffer: string, i: number): number {
+// Scans the quoted region starting at `i` (buffer[i] is the opening quote) and reports the index
+// just after it, plus whether a closing quote was actually found. Doubled quotes escape inside '…'
+// strings and "…" identifiers (SQL standard); backticks (Hive identifiers in Athena DDL) have no
+// escape. An unterminated quote runs to the end of the buffer — and `end` alone cannot tell the two
+// apart, since a quote closing on the buffer's last character also ends at `buffer.length`, which is
+// why `terminated` is reported separately.
+function scanQuoted(buffer: string, i: number): {end: number; terminated: boolean} {
   const quote = buffer[i];
   i += 1;
   while (i < buffer.length) {
@@ -129,9 +131,14 @@ function skipQuoted(buffer: string, i: number): number {
       i += 2; // doubled-quote escape stays inside the literal
       continue;
     }
-    return i + 1;
+    return {end: i + 1, terminated: true};
   }
-  return i;
+  return {end: i, terminated: false};
+}
+
+// Advances past a quoted region starting at `i` and returns the index just after it, closed or not.
+function skipQuoted(buffer: string, i: number): number {
+  return scanQuoted(buffer, i).end;
 }
 
 // Advances past a `--` line comment or `/* */` block comment starting at `i`;
@@ -263,4 +270,282 @@ export function statementHint(sql: string): string {
   const collapsed = stripLeadingSqlComments(sql).replace(/\s+/g, ' ').trim();
   if (collapsed.length <= STATEMENT_HINT_MAX) return collapsed;
   return `${collapsed.slice(0, STATEMENT_HINT_MAX - 1).trimEnd()}…`;
+}
+
+// ── Statement-aware completion support ──────────────────────────────────
+
+/** One `FROM`/`JOIN` reference: `database` is null for an unqualified name, which resolves to nothing. */
+export type SqlTableReference = {database: string | null; table: string; alias: string | null};
+
+/**
+ * Words Trino does NOT reserve that can follow a table reference or stand where one would.
+ *
+ * The second half of the "what ends a `FROM` list" rule, beside `TRINO_RESERVED_KEYWORDS`: a
+ * reserved word cannot be an alias because it is a keyword, and these cannot be one because the
+ * grammar gives them their own meaning in that position. The two sets are disjoint by construction —
+ * every word here was checked against the reserved list.
+ */
+export const CLAUSE_WORDS: ReadonlySet<string> = new Set([
+  'LIMIT',
+  'OFFSET',
+  'FETCH',
+  'TABLESAMPLE',
+  'WINDOW',
+  'LATERAL',
+  'MATCH_RECOGNIZE'
+]);
+
+// The words that may precede JOIN in a join clause. They must not close an open FROM list, which is
+// the only reason the set exists — `JOIN` itself is what arms the next reference.
+const JOIN_WORDS: ReadonlySet<string> = new Set([
+  'JOIN',
+  'INNER',
+  'CROSS',
+  'NATURAL',
+  'LEFT',
+  'RIGHT',
+  'FULL',
+  'OUTER'
+]);
+
+// Statements Athena runs through Trino, by their first keyword. CREATE VIEW is Trino too and is
+// recognised separately; everything absent here — the Hive DDL — is not.
+const TRINO_LEADING_KEYWORDS: ReadonlySet<string> = new Set(['SELECT', 'WITH', 'VALUES', 'INSERT', 'EXPLAIN']);
+
+type SqlToken = {
+  /** `quoted` is a `"…"` identifier with its escapes resolved; `other` is a string literal or a backtick name. */
+  kind: 'word' | 'quoted' | 'punct' | 'other';
+  text: string;
+  end: number;
+};
+
+// Reads the next token at or after `from`, skipping whitespace and comments; null at the end.
+function nextSqlToken(buffer: string, from: number): SqlToken | null {
+  let i = from;
+  while (i < buffer.length) {
+    if (/\s/.test(buffer[i])) {
+      i += 1;
+      continue;
+    }
+    const afterComment = skipComment(buffer, i);
+    if (afterComment === i) break;
+    i = afterComment;
+  }
+  if (i >= buffer.length) return null;
+  const ch = buffer[i];
+  if (ch === '"') {
+    const {end, terminated} = scanQuoted(buffer, i);
+    const inner = buffer.slice(i + 1, terminated ? end - 1 : end);
+    return {kind: 'quoted', text: inner.replace(/""/g, '"'), end};
+  }
+  if (ch === "'" || ch === '`') {
+    const {end} = scanQuoted(buffer, i);
+    return {kind: 'other', text: buffer.slice(i, end), end};
+  }
+  if (/[A-Za-z_]/.test(ch)) {
+    let j = i + 1;
+    while (j < buffer.length && /[A-Za-z0-9_]/.test(buffer[j])) j += 1;
+    return {kind: 'word', text: buffer.slice(i, j), end: j};
+  }
+  return {kind: 'punct', text: ch, end: i + 1};
+}
+
+// One identifier part of a table reference, or an alias: a bare word that is neither reserved nor a
+// clause word, or a `"…"` name, which may be either. Null for anything else, which is what stops
+// `FROM` + UNNEST, LATERAL or a keyword being read as a table.
+function referencePart(token: SqlToken): string | null {
+  if (token.kind === 'quoted') return token.text;
+  if (token.kind !== 'word') return null;
+  const upper = token.text.toUpperCase();
+  if (TRINO_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper)) return null;
+  return token.text;
+}
+
+// Reads one reference — one or two parts, then an optional `AS alias` or bare alias — starting at
+// the already-read `first` token. Null when `first` is not a reference at all, which closes the list.
+function readReference(statement: string, first: SqlToken): {reference: SqlTableReference; end: number} | null {
+  const firstPart = referencePart(first);
+  if (firstPart === null) return null;
+
+  let database: string | null = null;
+  let table = firstPart;
+  let end = first.end;
+  const dot = nextSqlToken(statement, end);
+  if (dot && dot.kind === 'punct' && dot.text === '.') {
+    const second = nextSqlToken(statement, dot.end);
+    const secondPart = second ? referencePart(second) : null;
+    if (second === null || secondPart === null) return null;
+    database = firstPart;
+    table = secondPart;
+    end = second.end;
+  }
+
+  const after = nextSqlToken(statement, end);
+  if (after?.kind === 'word' && after.text.toUpperCase() === 'AS') {
+    const aliasToken = nextSqlToken(statement, after.end);
+    const alias = aliasToken ? referencePart(aliasToken) : null;
+    if (aliasToken && alias !== null) return {reference: {database, table, alias}, end: aliasToken.end};
+    return {reference: {database, table, alias: null}, end: after.end};
+  }
+  const alias = after ? referencePart(after) : null;
+  if (after && alias !== null) return {reference: {database, table, alias}, end: after.end};
+  return {reference: {database, table, alias: null}, end};
+}
+
+/**
+ * The tables a single statement names in its `FROM` and `JOIN` clauses, with their aliases.
+ *
+ * Every reference counts, including those in subqueries and in a `WITH` clause's bodies: scoping by
+ * nesting would mean parsing SQL, and a scan of keywords is already enough to tell one table apart
+ * from every other the user can reach. An unqualified name — a CTE, or a name written without its
+ * database — comes back with a null `database` and resolves to nothing, since the workspace has no
+ * active database to qualify it with.
+ *
+ * A `FROM` list stays open at the bracket depth where it began and closes at the first reserved word
+ * that is not a join word or `AS`, at a clause word, or at the `)` that closes its depth. So a comma
+ * inside a subquery's select list does not separate references, and a comma after a join's `ON`
+ * condition does not open one — rare SQL whose cost is a narrower suggestion list, never a wrong one.
+ *
+ * @param statement - One SQL statement, as `splitSqlStatements` returns it.
+ * @returns The references in source order; a table named twice appears twice.
+ */
+export function sqlTableReferences(statement: string): SqlTableReference[] {
+  const references: SqlTableReference[] = [];
+  let depth = 0;
+  // The open FROM/JOIN list: the bracket depth it began at, and whether the next token is read as a
+  // reference. Null when no list is open, which is when identifiers are ignored.
+  let list: {depth: number; expecting: boolean} | null = null;
+  let i = 0;
+
+  for (;;) {
+    const token = nextSqlToken(statement, i);
+    if (!token) break;
+    i = token.end;
+    const upper = token.kind === 'word' ? token.text.toUpperCase() : '';
+
+    if (token.kind === 'punct' && token.text === '(') {
+      // A subquery where a reference was expected fills the slot without being one.
+      if (list) list.expecting = false;
+      depth += 1;
+      continue;
+    }
+    if (token.kind === 'punct' && token.text === ')') {
+      depth -= 1;
+      if (list && depth < list.depth) list = null;
+      continue;
+    }
+    if (upper === 'FROM' || upper === 'JOIN') {
+      list = {depth, expecting: true};
+      continue;
+    }
+    if (!list) continue;
+
+    if (list.expecting) {
+      const read = readReference(statement, token);
+      if (!read) {
+        list = null;
+        continue;
+      }
+      references.push(read.reference);
+      list.expecting = false;
+      i = read.end;
+      continue;
+    }
+    if (token.kind === 'punct' && token.text === ',' && depth === list.depth) {
+      list.expecting = true;
+      continue;
+    }
+    if (
+      token.kind === 'word' &&
+      upper !== 'AS' &&
+      !JOIN_WORDS.has(upper) &&
+      (TRINO_RESERVED_KEYWORDS.has(upper) || CLAUSE_WORDS.has(upper))
+    ) {
+      list = null;
+    }
+  }
+
+  return references;
+}
+
+/**
+ * True when Athena runs this statement through Trino rather than Hive.
+ *
+ * Decides which identifier quote a name may carry: a Trino statement takes double quotes, and
+ * everything else — the Hive DDL — takes the bare name, because a double-quoted name is an error
+ * there and a backticked one is wrong in a Trino `CREATE TABLE AS`. `CREATE TABLE` is deliberately
+ * outside the set, which is the safe side of that fence.
+ *
+ * @param statement - One SQL statement; leading comments and whitespace are skipped.
+ * @returns True for SELECT/WITH/VALUES/INSERT/EXPLAIN and for CREATE [OR REPLACE] VIEW.
+ */
+export function isTrinoStatement(statement: string): boolean {
+  const first = nextSqlToken(statement, 0);
+  if (first?.kind !== 'word') return false;
+  const upper = first.text.toUpperCase();
+  if (TRINO_LEADING_KEYWORDS.has(upper)) return true;
+  if (upper !== 'CREATE') return false;
+
+  let next = nextSqlToken(statement, first.end);
+  if (next?.kind === 'word' && next.text.toUpperCase() === 'OR') {
+    const replace = nextSqlToken(statement, next.end);
+    if (replace?.kind !== 'word' || replace.text.toUpperCase() !== 'REPLACE') return false;
+    next = nextSqlToken(statement, replace.end);
+  }
+  return next?.kind === 'word' && next.text.toUpperCase() === 'VIEW';
+}
+
+/**
+ * The offset just after an unclosed `"` the text ends inside, or null when it ends outside one.
+ *
+ * The "is the user already quoting?" test, scanned with the same quote and comment rules as
+ * `splitSqlStatements` so the two agree about what a quote is. A `'…'` string or a backtick name
+ * left open returns null: the cursor is inside a literal, not inside an identifier.
+ *
+ * @param text - The statement's text from its start up to the cursor.
+ * @returns The offset of the first character inside the open quote, or null.
+ */
+export function openQuoteStart(text: string): number | null {
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const {end, terminated} = scanQuoted(text, i);
+      if (!terminated) return ch === '"' ? i + 1 : null;
+      i = end;
+      continue;
+    }
+    const afterComment = skipComment(text, i);
+    if (afterComment !== i) {
+      i = afterComment;
+      continue;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/**
+ * The identifier written immediately before the `.` at `end`, unquoted, or null.
+ *
+ * The "what did the user qualify this with?" read the completion provider needs, expressed once here
+ * because the tokenizer that knows what an identifier is lives here. A string literal or a backtick
+ * name before the dot is not a qualifier and returns null, as does a dot with nothing before it.
+ *
+ * @param text - The statement's text from its start; offsets are relative to it.
+ * @param end - The offset of the token the qualifier would precede, so `text[end - 1]` is the dot.
+ * @returns The identifier, with any `"` quoting resolved, or null when there is no qualifier there.
+ */
+export function sqlQualifierBefore(text: string, end: number): string | null {
+  if (end <= 0 || text[end - 1] !== '.') return null;
+  const dot = end - 1;
+  let qualifier: string | null = null;
+  let i = 0;
+  for (;;) {
+    const token = nextSqlToken(text, i);
+    if (!token || token.end > dot) break;
+    if (token.end === dot) qualifier = token.kind === 'word' || token.kind === 'quoted' ? token.text : null;
+    i = token.end;
+  }
+  return qualifier;
 }

@@ -1,8 +1,8 @@
 # Spec: Autocomplete Offers the Columns of the Tables the Statement Names
 
 **ID:** SPEC-244
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-20
 **Depends On:** SPEC-065, SPEC-077, SPEC-078
 
 ## Overview
@@ -213,7 +213,8 @@ An alias wins over a table name, and a table name over a database name.
   columns of `sales.items`.
 - [ ] Buffer `select x. from sales.orders o`, cursor after `x.`: the suggestions are FR-003's for
   that buffer, exactly the columns of `sales.orders` plus every table.
-- [ ] `from s.a b join s.b c`, cursor after `b.`: the suggestions are `s.a`'s columns.
+- [ ] `select b. from s.a b join s.b c`, cursor after `b.` (offset 9): the suggestions are `s.a`'s
+  columns, since `b` is both that table's alias and the other table's name.
 - [ ] Buffer `select * from sales.`, cursor at the end: the suggestions are exactly `sales`'s tables
   and views, and accepting `orders` leaves `select * from sales.orders`.
 - [ ] The provider's `triggerCharacters` is `['.']`.
@@ -267,6 +268,11 @@ export type SqlTableReference = {database: string | null; table: string; alias: 
 export const CLAUSE_WORDS: ReadonlySet<string>;
 export function sqlTableReferences(statement: string): SqlTableReference[];
 export function isTrinoStatement(statement: string): boolean;
+// The two scans FR-004 and FR-005 describe in prose, exported because the quote rules and the
+// tokenizer that knows what an identifier is both live in this file, and a second copy in
+// `sqlCompletions.ts` is the fork the analytics Fences warn about.
+export function openQuoteStart(text: string): number | null;
+export function sqlQualifierBefore(text: string, end: number): string | null;
 
 // apps/portal/src/features/query/sqlCompletions.ts
 export type ScopedTable = {database: string; table: GlueTableSummary; aliases: string[]};

@@ -1,12 +1,16 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
+  CLAUSE_WORDS,
   deriveViewTargetDatabase,
   isResultProducingSql,
   isSchemaChangingSql,
+  isTrinoStatement,
+  openQuoteStart,
   resolveRunStatements,
   sameSql,
   schemaChangingDatabase,
   splitSqlStatements,
+  sqlTableReferences,
   statementHint
 } from './query.sql';
 import {initialTabsState, migrateDraftToTabs, readTabsState, writeTabsState} from './queryTabs';
@@ -26,7 +30,8 @@ import {
   QUERY_TABS_MAX,
   QUERY_TABS_STORAGE_PREFIX
 } from './query.constants';
-import {buildSqlCompletions, createSqlCompletionProvider} from './sqlCompletions';
+import {buildSqlCompletions, createSqlCompletionProvider, scopeAt} from './sqlCompletions';
+import {TRINO_RESERVED_KEYWORDS} from '../../lib/sql';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 import {act, renderHook} from '@testing-library/react';
 import {clampEditorHeight, clampFraction, splitBounds, useEditorSplit} from './useEditorSplit';
@@ -185,6 +190,121 @@ describe('query.sql', () => {
   describe('statementHint', () => {
     it('collapses whitespace and strips leading comments', () => {
       expect(statementHint('-- setup\nSELECT *\n  FROM mydb.t')).toBe('SELECT * FROM mydb.t');
+    });
+  });
+
+  describe('sqlTableReferences (SPEC-244 FR-001)', () => {
+    it('reads a single qualified reference and stops at the first clause keyword', () => {
+      expect(sqlTableReferences('SELECT * FROM denapolia.order_referring ORDER BY last_name')).toEqual([
+        {database: 'denapolia', table: 'order_referring', alias: null}
+      ]);
+      // ORDER is reserved, so `last_name` never reads as a second reference.
+      expect(sqlTableReferences('SELECT * FROM s.t WHERE')).toEqual([{database: 's', table: 't', alias: null}]);
+      expect(sqlTableReferences('SELECT * FROM s.t LIMIT 10')).toEqual([{database: 's', table: 't', alias: null}]);
+    });
+
+    it('reads aliases, both bare and AS, and quoted identifier parts', () => {
+      expect(
+        sqlTableReferences('select o.id from sales.orders o join "my space"."Line Items" as li on li.order_id = o.id')
+      ).toEqual([
+        {database: 'sales', table: 'orders', alias: 'o'},
+        {database: 'my space', table: 'Line Items', alias: 'li'}
+      ]);
+      expect(sqlTableReferences('SELECT * FROM a.x, b.y yy WHERE 1=1')).toEqual([
+        {database: 'a', table: 'x', alias: null},
+        {database: 'b', table: 'y', alias: 'yy'}
+      ]);
+    });
+
+    it('skips string literals and comments, so a FROM inside one names nothing', () => {
+      expect(sqlTableReferences("SELECT 'FROM fake.table' AS s -- JOIN c.d\nFROM real.t")).toEqual([
+        {database: 'real', table: 't', alias: null}
+      ]);
+    });
+
+    it('reads a WITH body and an outer join, and returns the unqualified CTE name unresolved', () => {
+      expect(sqlTableReferences('WITH w AS (SELECT * FROM s.t) SELECT * FROM w LEFT OUTER JOIN s.u ON true')).toEqual([
+        {database: 's', table: 't', alias: null},
+        {database: null, table: 'w', alias: null},
+        {database: 's', table: 'u', alias: null}
+      ]);
+    });
+
+    it('treats a subquery as no reference and reads the references inside it', () => {
+      expect(sqlTableReferences('SELECT * FROM (SELECT o.a, o.b FROM s.t o) sub')).toEqual([
+        {database: 's', table: 't', alias: 'o'}
+      ]);
+      // A `(` where a table would go is read as a subquery, so a parenthesised relation names
+      // nothing — the narrower list the rule is chosen for.
+      expect(sqlTableReferences('SELECT * FROM (a.x) y')).toEqual([]);
+    });
+
+    it('does not read a column-alias list’s comma as a reference separator', () => {
+      expect(sqlTableReferences('SELECT * FROM s.t AS x (a, b)')).toEqual([{database: 's', table: 't', alias: 'x'}]);
+    });
+
+    it('refuses a keyword standing where a table would, and a comma after a join condition', () => {
+      expect(sqlTableReferences('SELECT * FROM s.t CROSS JOIN UNNEST(t.arr) AS u(x)')).toEqual([
+        {database: 's', table: 't', alias: null}
+      ]);
+      expect(sqlTableReferences('FROM a.x JOIN b.y ON a.k = b.k, c.z')).toEqual([
+        {database: 'a', table: 'x', alias: null},
+        {database: 'b', table: 'y', alias: null}
+      ]);
+    });
+  });
+
+  describe('isTrinoStatement (SPEC-244 FR-005)', () => {
+    it('is true for the DML statements and for CREATE [OR REPLACE] VIEW', () => {
+      for (const sql of [
+        'SELECT 1',
+        'with x as (select 1) select * from x',
+        'VALUES (1)',
+        'INSERT INTO s.t VALUES (1)',
+        'EXPLAIN SELECT 1',
+        '-- note\nCREATE VIEW s.v AS SELECT 1',
+        'create or replace view s.v as select 1'
+      ]) {
+        expect(isTrinoStatement(sql), sql).toBe(true);
+      }
+    });
+
+    it('is false for the Hive DDL, including a CTAS, so those keep the bare insert', () => {
+      for (const sql of [
+        'CREATE TABLE s.t AS SELECT 1',
+        'CREATE EXTERNAL TABLE s.t (a int)',
+        'DROP TABLE s.t',
+        'ALTER TABLE s.t ADD COLUMNS (b int)',
+        'CREATE OR REPLACE TABLE s.t (a int)',
+        'SHOW TABLES IN s',
+        ''
+      ]) {
+        expect(isTrinoStatement(sql), sql).toBe(false);
+      }
+    });
+  });
+
+  describe('openQuoteStart (SPEC-244 FR-005)', () => {
+    it('reports the offset inside an unclosed double quote', () => {
+      expect(openQuoteStart('SELECT "Last Na')).toBe(8);
+      expect(openQuoteStart('SELECT "a""b')).toBe(8);
+      expect(openQuoteStart('SELECT "x", "y')).toBe(13);
+    });
+
+    it('reports null once the quote closes — including on the last character', () => {
+      // The quote scan ends at the buffer's length for BOTH an unterminated quote and one closing
+      // on the final character, so a length check alone would overwrite a finished identifier here.
+      expect(openQuoteStart('SELECT "Last Name"')).toBeNull();
+      expect(openQuoteStart('SELECT ""')).toBeNull();
+      expect(openQuoteStart('SELECT """')).toBe(8);
+      expect(openQuoteStart('SELECT ')).toBeNull();
+    });
+
+    it('reports null inside a string literal, a backtick name or a comment', () => {
+      expect(openQuoteStart('SELECT \'a " b')).toBeNull();
+      expect(openQuoteStart('SELECT `a " b')).toBeNull();
+      expect(openQuoteStart('SELECT 1 -- a " b')).toBeNull();
+      expect(openQuoteStart('SELECT 1 /* a " b')).toBeNull();
     });
   });
 });
@@ -357,27 +477,310 @@ describe('sqlCompletions', () => {
     });
   });
 
-  // Minimal fake Monaco surface the provider factory touches: the kind enum plus a
-  // model exposing getWordUntilPosition. No editor runtime involved.
+  // Minimal fake Monaco surface the provider factory touches: just the kind enum. No editor
+  // runtime involved.
   const fakeMonaco = {
     languages: {
       CompletionItemKind: {Field: 3, Struct: 5, Interface: 7}
     }
   } as unknown as Parameters<typeof createSqlCompletionProvider>[0];
 
-  const fakeModel = {
-    getWordUntilPosition: () => ({startColumn: 1, endColumn: 3, word: 'or'})
-  } as unknown as Parameters<NonNullable<ReturnType<typeof createSqlCompletionProvider>['provideCompletionItems']>>[0];
-  const position = {lineNumber: 1, column: 3} as unknown as Parameters<
-    NonNullable<ReturnType<typeof createSqlCompletionProvider>['provideCompletionItems']>
-  >[1];
+  type ProvideCompletions = NonNullable<ReturnType<typeof createSqlCompletionProvider>['provideCompletionItems']>;
+  type Suggestion = {
+    label: string;
+    insertText: string;
+    kind: number;
+    detail: string;
+    range: {startLineNumber: number; endLineNumber: number; startColumn: number; endColumn: number};
+  };
+
+  // The editor's model, reduced to what the provider reads: the whole buffer, the cursor as an
+  // offset, the word characters immediately before it (which is what Monaco's
+  // getWordUntilPosition returns — the word truncated at the cursor), and one offset→position
+  // conversion. `accept` applies a suggestion the way the editor would, so a test can assert the
+  // text the user is left with rather than an insertText in isolation.
+  function editorAt(buffer: string, cursorOffset: number) {
+    const positionOf = (offset: number) => {
+      const before = buffer.slice(0, offset);
+      return {lineNumber: before.split('\n').length, column: offset - before.lastIndexOf('\n')};
+    };
+    const offsetOf = ({lineNumber, column}: {lineNumber: number; column: number}) => {
+      const lines = buffer.split('\n');
+      let offset = 0;
+      for (let i = 0; i < lineNumber - 1; i += 1) offset += lines[i].length + 1;
+      return offset + column - 1;
+    };
+    const word = /[A-Za-z0-9_$]*$/.exec(buffer.slice(0, cursorOffset))?.[0] ?? '';
+    const position = positionOf(cursorOffset);
+    const model = {
+      getValue: () => buffer,
+      getOffsetAt: () => cursorOffset,
+      getPositionAt: positionOf,
+      getWordUntilPosition: () => ({
+        word,
+        startColumn: position.column - word.length,
+        endColumn: position.column
+      })
+    } as unknown as Parameters<ProvideCompletions>[0];
+
+    const suggest = (schemas: DatabaseSchema[] | undefined) => {
+      const provider = createSqlCompletionProvider(fakeMonaco, {current: schemas});
+      const result = provider.provideCompletionItems?.(
+        model,
+        position as unknown as Parameters<ProvideCompletions>[1],
+        {} as never,
+        {} as never
+      );
+      return (result as unknown as {suggestions: Suggestion[]}).suggestions;
+    };
+
+    const accept = (suggestion: Suggestion) =>
+      buffer.slice(0, offsetOf({lineNumber: suggestion.range.startLineNumber, column: suggestion.range.startColumn})) +
+      suggestion.insertText +
+      buffer.slice(offsetOf({lineNumber: suggestion.range.endLineNumber, column: suggestion.range.endColumn}));
+
+    return {suggest, accept};
+  }
+
+  const labelsOfKind = (suggestions: Suggestion[], kind: number) =>
+    suggestions.filter((s) => s.kind === kind).map((s) => s.label);
+  const COLUMN = 3;
+  const TABLE = 5;
+  const VIEW = 7;
+
+  const column = (name: string, type: string) => ({name, type});
+  const orderReferring: GlueTableSummary = {
+    name: 'order_referring',
+    tableType: 'EXTERNAL_TABLE',
+    columns: [column('last_name', 'varchar'), column('npi', 'bigint')]
+  };
+  // The tester's own schema shape: the table they queried, and one other they can also reach.
+  const scopeSchemas: DatabaseSchema[] = [
+    {database: 'denapolia', tables: [orderReferring]},
+    {
+      database: 'other',
+      tables: [{name: 'claims', tableType: 'EXTERNAL_TABLE', columns: [column('claim_id', 'varchar')]}]
+    }
+  ];
+  const salesSchemas: DatabaseSchema[] = [
+    {
+      database: 'sales',
+      tables: [
+        {name: 'orders', tableType: 'EXTERNAL_TABLE', columns: [column('id', 'bigint'), column('placed_on', 'date')]},
+        {name: 'items', tableType: 'EXTERNAL_TABLE', columns: [column('id', 'varchar'), column('name', 'varchar')]},
+        {name: 'orders_summary', tableType: 'VIRTUAL_VIEW', columns: [column('total', 'double')]}
+      ]
+    }
+  ];
+
+  describe('scopeAt (SPEC-244 FR-002)', () => {
+    it('resolves the statement’s tables case-insensitively and nothing else', () => {
+      const buffer = 'SELECT * FROM DENAPOLIA.Order_Referring ORDER BY ';
+      const scoped = scopeAt(buffer, buffer.length, scopeSchemas);
+      expect(scoped.map((s) => `${s.database}.${s.table.name}`)).toEqual(['denapolia.order_referring']);
+      expect(scoped[0].aliases).toEqual([]);
+    });
+
+    it('follows the cursor across statements, including into the whitespace after one', () => {
+      const buffer = 'SELECT * FROM denapolia.order_referring;\n\nSELECT * FROM other.claims;\n';
+      const inSecond = buffer.indexOf('other.claims') + 2;
+      expect(scopeAt(buffer, inSecond, scopeSchemas).map((s) => s.table.name)).toEqual(['claims']);
+      const afterFirst = buffer.indexOf(';') + 2;
+      expect(scopeAt(buffer, afterFirst, scopeSchemas).map((s) => s.table.name)).toEqual(['order_referring']);
+    });
+
+    it('resolves neither an unknown database, an unqualified name, nor the wrong database', () => {
+      // `other.order_referring` names a real table under the wrong database: the database half of
+      // the match is what refuses it.
+      const buffer = 'SELECT * FROM nosuch.table_x, orders, other.order_referring WHERE ';
+      // All three ARE read as references — the empty scope is resolution failing, not the scan.
+      expect(sqlTableReferences('SELECT * FROM nosuch.table_x, orders, other.order_referring WHERE')).toEqual([
+        {database: 'nosuch', table: 'table_x', alias: null},
+        {database: null, table: 'orders', alias: null},
+        {database: 'other', table: 'order_referring', alias: null}
+      ]);
+      expect(scopeAt(buffer, buffer.length, scopeSchemas)).toEqual([]);
+    });
+  });
+
+  describe('createSqlCompletionProvider — scoped columns (SPEC-244 FR-003)', () => {
+    it('offers only the resolved table’s columns, and still every table', () => {
+      const buffer = 'SELECT * FROM DENAPOLIA.Order_Referring ORDER BY ';
+      const suggestions = editorAt(buffer, buffer.length).suggest(scopeSchemas);
+      expect(labelsOfKind(suggestions, COLUMN)).toEqual(['last_name', 'npi']);
+      expect(labelsOfKind(suggestions, TABLE)).toContain('other.claims');
+    });
+
+    it('lists every resolved table a de-duplicated column came from, with its type there', () => {
+      const buffer = 'select * from sales.orders o join sales.items i on true where ';
+      const suggestions = editorAt(buffer, buffer.length).suggest(salesSchemas);
+      const ids = suggestions.filter((s) => s.label === 'id');
+      expect(ids).toHaveLength(1);
+      expect(ids[0].detail).toBe('bigint · sales.orders; varchar · sales.items');
+    });
+
+    it('falls back to every column while the statement has no FROM yet', () => {
+      const suggestions = editorAt('SELECT ', 7).suggest(scopeSchemas);
+      expect(labelsOfKind(suggestions, COLUMN)).toEqual(['last_name', 'npi', 'claim_id']);
+    });
+  });
+
+  describe('createSqlCompletionProvider — after a qualifier and a dot (SPEC-244 FR-004)', () => {
+    it('offers one alias’s table columns, and opens on the dot', () => {
+      const buffer = 'select o. from sales.orders o join sales.items i on true';
+      const suggestions = editorAt(buffer, 9).suggest(salesSchemas);
+      expect(suggestions.map((s) => s.label)).toEqual(['id', 'placed_on']);
+      expect(createSqlCompletionProvider(fakeMonaco, {current: salesSchemas}).triggerCharacters).toEqual(['.']);
+    });
+
+    it('offers a resolved table’s columns when the qualifier is its name', () => {
+      const buffer = 'select items.na from sales.items';
+      expect(
+        editorAt(buffer, 13)
+          .suggest(salesSchemas)
+          .map((s) => s.label)
+      ).toEqual(['id', 'name']);
+    });
+
+    it('prefers an alias over a table of the same name', () => {
+      const buffer = 'select b. from s.a b join s.b c';
+      const schemas: DatabaseSchema[] = [
+        {
+          database: 's',
+          tables: [
+            {name: 'a', tableType: 'EXTERNAL_TABLE', columns: [column('from_a', 'varchar')]},
+            {name: 'b', tableType: 'EXTERNAL_TABLE', columns: [column('from_b', 'varchar')]}
+          ]
+        }
+      ];
+      expect(
+        editorAt(buffer, 9)
+          .suggest(schemas)
+          .map((s) => s.label)
+      ).toEqual(['from_a']);
+    });
+
+    it('falls through to the statement’s scope when the qualifier matches nothing', () => {
+      const buffer = 'select x. from sales.orders o';
+      const suggestions = editorAt(buffer, 9).suggest(salesSchemas);
+      expect(labelsOfKind(suggestions, COLUMN)).toEqual(['id', 'placed_on']);
+      expect(labelsOfKind(suggestions, TABLE)).toEqual(['sales.orders', 'sales.items']);
+    });
+
+    it('reads no qualifier from a bare name with no dot after it', () => {
+      // Without the dot, `sales` is a word the user is typing, not a qualifier — the tables stay
+      // fully qualified, since inserting a bare `orders` there would leave `select sales orders`.
+      const buffer = 'select sales ';
+      const suggestions = editorAt(buffer, buffer.length).suggest(salesSchemas);
+      expect(labelsOfKind(suggestions, TABLE)).toEqual(['sales.orders', 'sales.items']);
+    });
+
+    it('offers a database’s tables after its name, and does not repeat the database', () => {
+      const buffer = 'select * from sales.';
+      const {suggest, accept} = editorAt(buffer, buffer.length);
+      const suggestions = suggest(salesSchemas);
+      expect(labelsOfKind(suggestions, TABLE)).toEqual(['orders', 'items']);
+      expect(labelsOfKind(suggestions, VIEW)).toEqual(['orders_summary']);
+      expect(labelsOfKind(suggestions, COLUMN)).toEqual([]);
+      expect(accept(suggestions.find((s) => s.label === 'orders') as Suggestion)).toBe('select * from sales.orders');
+    });
+  });
+
+  describe('createSqlCompletionProvider — quoting (SPEC-244 FR-005)', () => {
+    // Names a refresh, a view alias or a shared space's own name can carry into the editor.
+    const quirky: DatabaseSchema[] = [
+      {
+        database: 'my space',
+        tables: [
+          {
+            name: 'orders',
+            tableType: 'EXTERNAL_TABLE',
+            columns: [
+              column('last_name', 'varchar'),
+              column('Last Name', 'varchar'),
+              column('order', 'varchar'),
+              column('2024_total', 'double'),
+              column('a"b', 'varchar')
+            ]
+          }
+        ]
+      },
+      {database: 'sales', tables: [{name: 'order', tableType: 'EXTERNAL_TABLE', columns: []}]}
+    ];
+
+    it('quotes only the parts a Trino statement needs quoted', () => {
+      const suggestions = editorAt('SELECT ', 7).suggest(quirky);
+      const insertFor = (label: string) => suggestions.find((s) => s.label === label)?.insertText;
+      expect(insertFor('last_name')).toBe('last_name');
+      expect(insertFor('Last Name')).toBe('"Last Name"');
+      expect(insertFor('order')).toBe('"order"');
+      expect(insertFor('2024_total')).toBe('"2024_total"');
+      expect(insertFor('a"b')).toBe('"a""b"');
+    });
+
+    it('quotes a table part by part, leaving the label bare', () => {
+      const suggestions = editorAt('SELECT * FROM ', 14).suggest(quirky);
+      const table = suggestions.find((s) => s.label === 'my space.orders');
+      expect(table?.insertText).toBe('"my space".orders');
+    });
+
+    it('leaves a Hive DDL statement’s insert bare, reserved word and all', () => {
+      const suggestions = editorAt('DROP TABLE ', 11).suggest(quirky);
+      expect(suggestions.find((s) => s.label === 'sales.order')?.insertText).toBe('sales.order');
+      expect(suggestions.find((s) => s.label === 'Last Name')?.insertText).toBe('Last Name');
+    });
+
+    it('completes inside the user’s own open quote, closing it once', () => {
+      const open = editorAt('SELECT "Last Na', 15);
+      const opened = open.suggest(quirky);
+      expect(open.accept(opened.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
+
+      // Cursor before a closing quote the editor auto-inserted: no second one is added.
+      const closed = editorAt('SELECT "Las"', 11);
+      const already = closed.suggest(quirky);
+      expect(closed.accept(already.find((s) => s.label === 'Last Name') as Suggestion)).toBe('SELECT "Last Name"');
+    });
+
+    it('offers columns but no table inside an open quote, and doubles an inner quote', () => {
+      const {suggest, accept} = editorAt('SELECT "a', 9);
+      const suggestions = suggest(quirky);
+      expect(labelsOfKind(suggestions, TABLE)).toEqual([]);
+      expect(labelsOfKind(suggestions, VIEW)).toEqual([]);
+      expect(suggestions.map((s) => s.label)).toContain('a"b');
+      expect(accept(suggestions.find((s) => s.label === 'a"b') as Suggestion)).toBe('SELECT "a""b"');
+    });
+
+    it('takes the plain word gesture when the open quote is on an earlier line', () => {
+      // Monaco discards a range starting on another line, so a stray quote must not cost every
+      // suggestion — it falls back to replacing the word at the cursor.
+      const buffer = 'SELECT "stray,\n  last';
+      const suggestions = editorAt(buffer, buffer.length).suggest(quirky);
+      const one = suggestions.find((s) => s.label === 'last_name') as Suggestion;
+      expect(one.range).toEqual({startLineNumber: 2, endLineNumber: 2, startColumn: 3, endColumn: 7});
+      expect(labelsOfKind(suggestions, TABLE)).toContain('my space.orders');
+    });
+
+    it('keeps the reserved words uppercase, counted, and disjoint from the clause words', () => {
+      // The four presences are the positive control: a `for…of` over an empty set passes
+      // vacuously, and both sizes are pinned so the docstring's count is a checkable fact.
+      for (const word of ['SELECT', 'ORDER', 'GROUP', 'JSON_TABLE']) {
+        expect(TRINO_RESERVED_KEYWORDS.has(word), word).toBe(true);
+      }
+      expect(TRINO_RESERVED_KEYWORDS.size).toBe(83);
+      // Disjoint, not contradictory: a FROM list closes on EITHER a reserved word or a clause
+      // word, and the two sets never overlap — `ORDER` closes it by the first mechanism and
+      // `LIMIT`, which Trino does not reserve, by the second.
+      for (const word of TRINO_RESERVED_KEYWORDS) {
+        expect(word, word).toBe(word.toUpperCase());
+        expect(CLAUSE_WORDS.has(word), word).toBe(false);
+      }
+      expect(CLAUSE_WORDS.size).toBe(7);
+    });
+  });
 
   describe('createSqlCompletionProvider', () => {
     it('maps descriptors onto Monaco items with a word-replacement range', () => {
-      const schemaRef = {current: [alice] as DatabaseSchema[] | undefined};
-      const provider = createSqlCompletionProvider(fakeMonaco, schemaRef);
-      const result = provider.provideCompletionItems(fakeModel, position, {} as never, {} as never);
-      const suggestions = (result as unknown as {suggestions: Array<Record<string, unknown>>}).suggestions;
+      const suggestions = editorAt('or', 2).suggest([alice]);
 
       const table = suggestions.find((s) => s.label === 'alice.orders');
       expect(table).toMatchObject({
