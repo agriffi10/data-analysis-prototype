@@ -80,9 +80,8 @@ omitted — Trino documents no cast from either to varchar, and a cast the engin
 the count that works today. `DQ_MAX_COLUMNS` (200) guards Athena's 262,144-byte query-string cap,
 and **each statement carries its own size test at that cap** — the profile query's and the
 duplicates query's, both in `test_sql_dqcommon.py`, each rendering the widest source the column
-rule admits. Re-measure there rather than trusting a figure written here: the samples added three
-renderings of every column to a statement that used to carry one, and the next addition will move
-it again.
+rule admits. Re-measure there rather than trusting a figure written here: the samples took every column from ONE
+rendering to four, and the next addition will move it again.
 
 **Approximate**, and labelled as such in both the report and the notification: ragged rows via a
 single-column raw-line temp table (`\001` delimiter — quoted delimiters and embedded newlines

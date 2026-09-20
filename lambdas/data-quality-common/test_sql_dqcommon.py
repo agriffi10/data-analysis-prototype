@@ -411,7 +411,12 @@ def test_every_scalar_type_is_rendered_through_one_cast_to_varchar(column_type):
     assert "substr(CAST(c0 AS varchar), 1, 201)" in query
 
 
-def test_a_nested_column_keeps_the_statement_that_already_worked():
+@pytest.mark.parametrize(
+    "nested_type",
+    ["array<string>", "struct<a:string,b:bigint>"],
+    ids=["a list column", "an object column"],
+)
+def test_a_nested_column_keeps_the_statement_that_already_worked(nested_type):
     """Leaves a source holding a list or an object with today's statement, byte for byte.
 
     Trino documents no cast from an array or a row to varchar, and a cast the engine refuses fails
@@ -419,8 +424,13 @@ def test_a_nested_column_keeps_the_statement_that_already_worked():
     expected string is written out rather than taken from a second builder call, so a change that
     moved both arms together would still be visible here.
 
+    Both nested families are exercised, because ``_NESTED_TYPES`` names two prefixes and a test of
+    one cannot see the other go missing: dropping ``struct<`` sends a Parquet source with an object
+    column down the sampling arm, where ``CAST(struct AS varchar)`` fails the whole statement and
+    takes the duplicate count with it.
+
     Args:
-      None.
+      nested_type: The declared type of the column the statement must refuse to render.
 
     Returns:
       None.
@@ -430,7 +440,7 @@ def test_a_nested_column_keeps_the_statement_that_already_worked():
     """
     nested = [
         {"name": "id", "type": "bigint"},
-        {"name": "tags", "type": "array<string>"},
+        {"name": "tags", "type": nested_type},
     ]
 
     query = _duplicates(nested, _SAMPLE_KEYS, "json")
@@ -500,8 +510,9 @@ def test_the_grouped_names_and_the_statement_agree_on_a_partition_named_column(
 def test_the_duplicates_query_fits_athenas_query_string_limit_at_the_column_cap():
     """Holds a duplicates query at the column cap within the query-string limit Athena enforces.
 
-    The sibling of the profile query's size test, and owed for the same reason: the samples add
-    three more renderings of every column to a statement that used to carry two, and Athena refuses
+    The sibling of the profile query's size test, and owed for the same reason: the samples take
+    every column from ONE rendering to four — the quoted name twice, in the projection and the
+    GROUP BY, and the positional alias twice, in the array and nowhere else — and Athena refuses
     an over-length statement only when it runs, after every step before it has been paid for. Every
     part the checked source can lengthen is at its longest — every name as long as the column rule
     admits, the cap's worth of them, two partition keys, and a single-file predicate over an object

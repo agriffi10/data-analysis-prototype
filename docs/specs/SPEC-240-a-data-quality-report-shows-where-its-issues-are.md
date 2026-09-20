@@ -237,7 +237,10 @@ When `has_nested_column` is true, the statement is today's, byte for byte, and i
 - [ ] For a source with one `array<string>` column, the statement equals today's for the same inputs,
   asserted as a whole string.
 - [ ] A test renders the statement at `DQ_MAX_COLUMNS` columns, each named with 255 characters, plus
-  two partition keys, and asserts its UTF-8 length is at most `DQ_MAX_QUERY_BYTES`.
+  two partition keys and a worst-case path filter, and asserts its UTF-8 length is at most
+  `_ATHENA_QUERY_STRING_LIMIT` — the spelled-out 262,144 its neighbour already uses, **not**
+  `DQ_MAX_QUERY_BYTES`. *(Corrected at build time: measured against the setting, the guard passes
+  however far a mistake raises it. See* What was checked.*)*
 - [ ] `grouped_column_names` for JSON columns `id, month, Year` with partition keys `year` and `Month`
   returns `['id', 'year', 'Month']`, and the statement for the same inputs groups by
   `"id", "year", "Month"`. For CSV the same inputs return
@@ -289,8 +292,13 @@ notification or the runs index.
   `duplicateSamples.omitted` with the nested-values sentence, asserted as a whole string. The same
   source with 0 duplicates writes `rows: []`.
 - [ ] A report whose samples push it past `DQ_REPORT_MAX_BYTES` is written with
-  `duplicateSamples.omitted` and every other figure unchanged, asserted by making the fixture's
-  samples large rather than by lowering the constant.
+  `duplicateSamples.omitted` and every other figure unchanged. *(Corrected at build time: the
+  "rather than by lowering the constant" half is not satisfiable. The samples are bounded by the
+  statement at about 204 KB — `DQ_DUPLICATE_SAMPLE` rows of `DQ_MAX_COLUMNS` + 2 values of
+  `SAMPLE_VALUE_CHARS` — so no samples fixture can carry a report across a 3 MiB cap by itself; in
+  production the branch needs a report already within 204 KB of it. The test enlarges the samples*
+  and *lowers the cap, and says so. What the lowered cap cannot hide is a wrong constant, which the
+  contract test pins independently.)*
 - [ ] A test asserts `DQ_REPORT_MAX_BYTES` equals `apicommon.s3_config.MAX_DOCUMENT_BYTES`.
 - [ ] For a report under the cap, the notification text, the runs-index entry and assemble-report's
   observability fields with samples equal those for the same report without them.

@@ -309,12 +309,21 @@ describe('DataQualityReportPage', () => {
       expect(disclosure.open).toBe(false);
 
       disclosure.open = true;
+      // Cell by cell, NOT `toHaveTextContent`: that is a substring match, and every absolute key
+      // contains the relative path it would be reduced to — so it passes whether or not the
+      // reduction happened, which is the one thing these two rows exist to check.
       const rows = within(disclosure).getAllByRole('row').slice(1);
-      expect(rows[0]).toHaveTextContent('jan.csv');
-      expect(rows[0]).toHaveTextContent('1,200');
-      // Relative to the folder, and a nested key keeps the segments that distinguish it.
-      expect(rows[1]).toHaveTextContent('feb/part-1.csv');
-      expect(rows[1]).toHaveTextContent('0');
+      expect(
+        within(rows[0])
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['jan.csv', '1,200']);
+      // A nested key keeps the segments that distinguish it from a sibling of the same name.
+      expect(
+        within(rows[1])
+          .getAllByRole('cell')
+          .map((cell) => cell.textContent)
+      ).toEqual(['feb/part-1.csv', '0']);
     });
 
     it.each([
@@ -382,7 +391,66 @@ describe('DataQualityReportPage', () => {
       expect(await screen.findByText('jan.csv, byte 4,102')).toBeInTheDocument();
     });
 
-    it('shows no examples when the scan found no invalid sequences', async () => {
+    it.each([
+      [
+        'the scan found no invalid sequences, whatever the example list holds',
+        0,
+        [{key: 'alice/sales/jan.csv', offset: 4102}]
+      ],
+      ['a measured figure came back with no examples beside it', 12, []]
+    ])('shows no examples list when %s', async (_label, invalidUtf8Sequences, sampleOffsets) => {
+      // Two fixtures, because the guard has two halves and a single fixture that zeroed BOTH
+      // would pass with either half deleted. The first is the one the JSDoc argues for: a count
+      // of zero beside a stale example list reads as a contradiction, so the count wins.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            approximate: {
+              ...csvReport().approximate,
+              encoding: {
+                invalidUtf8Sequences,
+                sampleOffsets,
+                coverage: 'complete',
+                coveragePercent: 100,
+                note: 'Complete — every byte examined.'
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('Complete — every byte examined.')).toBeInTheDocument();
+      expect(screen.queryByText(ENCODING_EXAMPLES_NOTE)).not.toBeInTheDocument();
+      expect(screen.queryByText(/, byte /)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['an object of neither shape', {}],
+      // A primitive is the case the two array checks cannot reach: `'omitted' in 'oops'` is a
+      // TypeError, so the shape test in front of them is what stops the throw.
+      ['a string where an object belongs', 'oops'],
+      ['a number where an object belongs', 42]
+    ])('renders no section at all for %s', async (_label, duplicateSamples) => {
+      // `isReport` validates the fields every render path indexed into when it was written, and
+      // this one is not among them — so a malformed document must degrade to nothing rather than
+      // throw mid-render, which is a blank screen where the service has a refusal ready.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {...csvReport().exact, duplicateSamples: duplicateSamples as never}
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+      expect(screen.queryByText('Most repeated rows')).not.toBeInTheDocument();
+    });
+
+    it('shows no examples when the scan found no invalid sequences (whole-guard control)', async () => {
       mockReport.mockResolvedValue(
         ok(
           csvReport({

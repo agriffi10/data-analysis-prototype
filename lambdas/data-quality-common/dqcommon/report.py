@@ -56,6 +56,14 @@ Attributes:
     wants examples of values that are not numbers; a temporal one wants values that are not dates.
   _TEXT: What a column whose dominant type covers too little of its non-null values is called. It
     is not a broken numeric column, it is free text that happens to contain numbers.
+  _JSON_ESCAPED_STRING_CHARS: Longest one string of a duplicate-samples cell can be once JSON has
+    escaped it, in CHARACTERS: every one of ``sql.SAMPLE_VALUE_CHARS`` escaping to six, plus the two
+    quotes and the comma separating it from the next. Derived rather than measured, because the cell
+    is the user's own data and its worst case is a file of control characters — not a file anyone
+    would notice was unusual.
+  _CSV_DEFAULT_FIELD_CHARS: ``csv``'s own per-field limit, captured at import so the floor in
+    ``duplicates_field_size_limit`` is the DEFAULT rather than whatever the limit happens to be when
+    it is called.
   MAX_SAMPLE_VALUE_CHARS: Longest offending-value or duplicate-sample value the report will carry.
     One SHORTER than the statement's own cut (``sql.SAMPLE_VALUE_CHARS``), so a value the engine
     shortened is still recognisable as shortened here.
@@ -122,11 +130,9 @@ class MissingProfileError(ValueError):
     """The profile result had no total row; the caller raises the terminal."""
 
 
-#: Per JSON string in a duplicate-samples cell, in the worst case: every one of its
-#: ``sql.SAMPLE_VALUE_CHARS`` characters escaping to six, plus the two quotes and the comma that
-#: separate it from the next. Derived rather than measured, because the cell is user data and the
-#: worst case is a file of control characters, not a file anyone would notice was unusual.
-_JSON_ESCAPED_STRING_BYTES = sql.SAMPLE_VALUE_CHARS * 6 + 3
+_JSON_ESCAPED_STRING_CHARS = sql.SAMPLE_VALUE_CHARS * 6 + 3
+
+_CSV_DEFAULT_FIELD_CHARS = csv.field_size_limit()
 
 
 def duplicates_field_size_limit(grouped: int) -> int:
@@ -144,9 +150,16 @@ def duplicates_field_size_limit(grouped: int) -> int:
     per-string allowance includes a trailing comma that the last element of each array does not
     use, and that slack is what covers the commas BETWEEN the arrays.
 
-    Never below the default. For a narrow table the computed figure is smaller than 131,072, and
-    returning it would TIGHTEN the reader on a cell that parses today — a raise that quietly
-    becomes a lowering is how a guard starts failing the thing it was added to protect.
+    Never below the default — ``_CSV_DEFAULT_FIELD_CHARS``, captured at import rather than read
+    here. For a narrow table the computed figure is smaller than it, and returning it would TIGHTEN
+    the reader on a cell that parses today: a raise that quietly becomes a lowering is how a guard
+    starts failing the thing it was added to protect. Read live, the floor would be whatever the
+    limit happens to be at the call rather than the default, so a permanent raise from anywhere else
+    in the process would be floored against itself and this sentence would stop being true with
+    nothing to say so.
+
+    The unit is CHARACTERS throughout, which is what ``csv`` counts — the escaped-string figure
+    counts characters too, not the bytes they encode to.
 
     Args:
       grouped: How many columns the statement grouped by.
@@ -157,11 +170,8 @@ def duplicates_field_size_limit(grouped: int) -> int:
     Raises:
       None.
     """
-    computed = (
-        config.DQ_DUPLICATE_SAMPLE * ((grouped + 1) * _JSON_ESCAPED_STRING_BYTES + 2)
-        + 2
-    )
-    return max(csv.field_size_limit(), computed)
+    computed = config.DQ_DUPLICATE_SAMPLE * ((grouped + 1) * _JSON_ESCAPED_STRING_CHARS + 2) + 2
+    return max(_CSV_DEFAULT_FIELD_CHARS, computed)
 
 
 def parse_result(body: bytes, field_size_limit: int | None = None) -> list[dict]:
@@ -712,12 +722,47 @@ def _duplicate_samples(rows: list[dict], grouped: list[str], nested: bool, count
                 "values": [_sample_cell(cell) for cell in entry[1:]],
             }
             for entry in sampled
-            if isinstance(entry, list)
-            and entry
-            and isinstance(entry[0], str)
-            and entry[0].isdigit()
+            if _is_sampled_row(entry, len(grouped))
         ],
     }
+
+
+def _is_sampled_row(entry, grouped: int) -> bool:
+    """Reports whether one decoded entry is a sampled row this report can show.
+
+    The arity check is the load-bearing one, and it is not defensive tidiness. A row is rendered
+    POSITIONALLY against ``columns``, so a row with fewer cells than the grouping has columns leaves
+    the trailing ones empty — and the page draws an absent cell as ``NULL``, which is a claim about
+    the user's data that their file does not make. One with more cells silently loses its tail under
+    the same rule. The two lists come from one statement and agree unless something moved between
+    the query and the report: the grouping is re-derived from the manifest here, and a manifest is an
+    object that can change between two reads.
+
+    Dropping such a row is the right answer rather than padding it. A sample is an illustration, and
+    one that cannot be laid out under its headers illustrates nothing; the COUNT beside it — the
+    figure a user acts on — is unaffected either way.
+
+    ``repeats`` is tested with ``isdecimal`` rather than ``isdigit`` because ``int`` is called on it
+    and ``isdigit`` is true for characters ``int`` refuses, a superscript two among them. Athena's
+    ``CAST(bigint AS varchar)`` emits neither, so this is the narrower test rather than a fix for a
+    reachable case.
+
+    Args:
+      entry: One decoded entry of the samples cell, of any JSON type.
+      grouped: How many columns the statement grouped by.
+
+    Returns:
+      True when the entry is a list of the repeat count followed by exactly one cell per column.
+
+    Raises:
+      None.
+    """
+    return (
+        isinstance(entry, list)
+        and len(entry) == grouped + 1
+        and isinstance(entry[0], str)
+        and entry[0].isdecimal()
+    )
 
 
 def _sample_cell(value):

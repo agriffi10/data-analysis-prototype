@@ -150,6 +150,16 @@ function TopIssues({issues}: {issues: string[]}) {
 
 // ── Where the figures are ───────────────────────────────────────────────────
 
+/**
+ * The three sentences beneath the two new sections.
+ *
+ * `SAMPLES_TRUNCATION_NOTE`'s 200 is `report.py::MAX_SAMPLE_VALUE_CHARS` and
+ * `SAMPLES_COUNTING_NOTE` exists because the tile above counts every copy after the first while
+ * these counts include it — two numbers from one figure, which a reader would otherwise reconcile
+ * by assuming one of them is wrong. `lambdas/test_data_quality_report_contract.py` holds the 200
+ * against the plane's constant, because a note stating a figure no report produces is worse than
+ * no note.
+ */
 export const SAMPLES_TRUNCATION_NOTE = 'Values longer than 200 characters are shortened.';
 export const SAMPLES_COUNTING_NOTE = 'Duplicate rows counts every copy after the first.';
 export const ENCODING_EXAMPLES_NOTE = 'These are the first examples found, not all of them.';
@@ -173,7 +183,10 @@ function RowsPerFileDisclosure({location, entries}: {location: string; entries: 
       <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-text">
         Rows in each file ({entries.length} files)
       </summary>
-      <div className="overflow-x-auto px-3 pb-3">
+      {/* No scroll container: two columns, the path already wraps on `break-all`, so there is
+          nothing to scroll — and an `overflow-x-auto` that never scrolls is a pointer-only
+          region waiting to happen the first time a column is added. */}
+      <div className="px-3 pb-3">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-xs text-text-2">
@@ -236,6 +249,10 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
   const headingId = useId();
   if (!samples) return null;
 
+  // Neither `isReport` nor the type system can promise this field's shape: the document is fetched
+  // JSON, and this render path was added after `isReport` chose the fields it validates. So the
+  // two arms are tested FOR rather than assumed, and anything else renders nothing.
+  if (typeof samples !== 'object') return null;
   if ('omitted' in samples) {
     return (
       <section className="flex flex-col gap-2">
@@ -249,7 +266,9 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
     );
   }
 
-  if (samples.rows.length === 0) return null;
+  if (!Array.isArray(samples.columns) || !Array.isArray(samples.rows) || samples.rows.length === 0) {
+    return null;
+  }
 
   return (
     <section className="flex flex-col gap-2">
@@ -259,7 +278,7 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
         role="region"
         aria-labelledby={headingId}
         tabIndex={0}
-        className="overflow-x-auto rounded-lg border border-border bg-surface">
+        className="overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <table
           aria-labelledby={headingId}
           className="w-full text-sm">
@@ -530,13 +549,17 @@ function EncodingExamples({
   figure: Extract<EncodingFigure, {invalidUtf8Sequences: number}>;
 }) {
   const root = sourceFolderPrefix(location);
-  if (figure.invalidUtf8Sequences === 0 || figure.sampleOffsets.length === 0) return null;
+  // Both reads are defaulted rather than trusted. `isReport` validates the fields every render
+  // path indexed into when it was written and neither of these was one of them, so a document
+  // missing one would throw mid-render — a blank screen where the service has a refusal ready.
+  const examples = figure.sampleOffsets ?? [];
+  if (figure.invalidUtf8Sequences === 0 || examples.length === 0) return null;
   return (
     <Callout
       tone="info"
       lead="Examples:">
       <ul className="mt-1 flex flex-col gap-0.5">
-        {figure.sampleOffsets.map((example) => (
+        {examples.map((example) => (
           <li
             key={`${example.key}:${example.offset}`}
             className="break-all font-mono text-xs">
@@ -780,7 +803,7 @@ export function DataQualityReportPage() {
           <TopIssues issues={report.topIssues} />
           <RowsPerFileDisclosure
             location={report.location}
-            entries={report.exact.rowCountsByFile}
+            entries={report.exact.rowCountsByFile ?? []}
           />
           <DuplicateSamplesSection samples={report.exact.duplicateSamples} />
           <CrossFileSection

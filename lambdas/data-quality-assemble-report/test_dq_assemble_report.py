@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import dq_assemble_report as v
 import pytest
 from cpcommon.errors import TerminalError
+from dqcommon import report
 
 BUCKET = "dq-user-bkt"
 PREFIX = "alice/_data-quality-reports/req-1"
@@ -333,6 +334,33 @@ def _samples_cell(rows, count=None):
     return _csv([{"duplicate_rows": total, "duplicate_samples": json.dumps(rows)}])
 
 
+def _wide_profile(columns: int) -> bytes:
+    """A profile result over ``columns`` string columns, for the wide-source fixture.
+
+    ``report.build`` zips the manifest's columns against the profile's positional aliases with
+    ``strict=True``, so a wide manifest needs a profile of the same width or the report raises
+    before the read under test can matter.
+
+    Args:
+      columns: How many columns the source declares.
+
+    Returns:
+      The profile result object's bytes.
+
+    Raises:
+      None.
+    """
+    row = {"source_file": "", "is_total": 1, "row_count": 1000}
+    for index in range(columns):
+        alias = f"c{index}"
+        row[f"{alias}_missing"] = 0
+        for cast in ("bigint", "double", "timestamp", "date"):
+            row[f"{alias}_not_{cast}"] = 0
+        row[f"{alias}_sample_non_numeric"] = ""
+        row[f"{alias}_sample_non_temporal"] = ""
+    return _csv([row])
+
+
 def _report(fake):
     """The report document this run wrote.
 
@@ -352,30 +380,55 @@ def _report(fake):
 def test_the_samples_reach_the_report_through_a_reader_sized_for_them(monkeypatch):
     """Reads a duplicates cell wider than the CSV reader's default and writes what it held.
 
-    The route end to end: assemble-report sizes the limit from the grouping it derives, hands it
-    to the one read that needs it, and the samples land in the document. The cell is built past
-    the default deliberately — at a comfortable width the read would succeed with the limit
-    removed, and this test would be asserting nothing.
+    The route end to end, and the only test that covers it: ``report.parse_result`` is handed the
+    computed limit by THIS verb, and the unit tests that prove the limit itself works call it
+    directly rather than through a handler.
+
+    So the cell has to be one the DEFAULT refuses, and that takes a WIDE source. At the two columns
+    every other fixture here uses, five rows of ``sql.SAMPLE_VALUE_CHARS`` values cannot approach
+    131,072 characters however badly they escape — the limit only binds past about twenty grouped
+    columns, which is the whole reason it is computed from the column count rather than set once.
+    Hence the thirty-column manifest, and the two measurements before the run: without them a
+    comfortable cell would read fine with the limit removed and this test would assert nothing.
     """
-    wide = ["z" * 200, "y" * 200]
-    rows = [["3", *wide], ["2", *wide]]
-    padding = ["q" * 200] * 2
+    names = [f"col{index}" for index in range(30)]
+    manifest = {
+        "format": "csv",
+        "fileCount": 1,
+        "files": [
+            {
+                "key": "alice/sales/a.csv",
+                "size": 300,
+                "columns": [{"name": name, "type": "string"} for name in names],
+            }
+        ],
+    }
+    first = ["z" * 200] * len(names)
+    # Every character one JSON escapes to six, which is what the computed limit is sized against.
+    filler = [chr(1) * 200] * len(names)
+    samples = [["3", *first], *[[str(n), *filler] for n in range(2, 6)]]
+    encoded = json.dumps(samples)
+    assert len(encoded) > csv.field_size_limit()
+    assert report.duplicates_field_size_limit(len(names)) > len(encoded)
+
     fake = _setup(
         monkeypatch,
         objects=_objects(
             {
-                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(
-                    [*rows, *[[str(n), *padding] for n in range(3, 5)]], count=4
-                )
+                f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+                "alice/athenaresults/data-quality/req-1/profile/q1.csv": _wide_profile(len(names)),
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _csv(
+                    [{"duplicate_rows": 4, "duplicate_samples": encoded}]
+                ),
             }
         ),
     )
 
     v.handler(_event(), None)
 
-    samples = _report(fake)["exact"]["duplicateSamples"]
-    assert samples["columns"] == ["id", "amount"]
-    assert samples["rows"][0] == {"repeats": 3, "values": wide}
+    written = _report(fake)["exact"]["duplicateSamples"]
+    assert written["columns"] == names
+    assert written["rows"][0] == {"repeats": 3, "values": first}
 
 
 def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
@@ -385,8 +438,17 @@ def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
 
     The browser reads a report through the document route's size cap, so a report above it is not
     a large report but an unreadable one, and every finding in it is lost with the part that made
-    it big. Made over-cap by enlarging the fixture's SAMPLES rather than by lowering the constant:
-    a test that moves the cap proves the branch can run, not that the samples are what reaches it.
+    it big.
+
+    This lowers the cap AND enlarges the samples, and the first half is unavoidable rather than a
+    shortcut. The samples are bounded by the statement that produces them — at most
+    ``DQ_DUPLICATE_SAMPLE`` rows of ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS``
+    each, about 204 KB — so no samples fixture can carry a report across a 3 MiB cap on its own. In
+    production the branch is reachable only on a report ALREADY within that 204 KB of the cap, which
+    a unit test would have to build a 200-column report with full offending-value samples to
+    reproduce. What the lowered cap cannot hide is a wrong constant, which
+    ``test_data_quality_report_contract.py`` pins against the API's independently — and the samples
+    are still what crosses the cap here, which is what the assertions below check.
     """
     huge = [[str(n), "z" * 200, "y" * 200] for n in range(2, 7)]
     fake = _setup(
@@ -498,6 +560,21 @@ def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had
     }
 
 
+def _summary_fields(events) -> dict:
+    """The fields of the one event this verb emits about the report it assembled.
+
+    Args:
+      events: Captured log-foundry events.
+
+    Returns:
+      That event's ``fields`` dict.
+
+    Raises:
+      StopIteration: When no such event was emitted, which is itself the finding.
+    """
+    return next(e for e in events if e.get("message") == "assembled report")["fields"]
+
+
 def test_no_sampled_value_reaches_the_notification_the_index_or_a_span(
     monkeypatch, captured_events
 ):
@@ -555,6 +632,9 @@ def test_no_sampled_value_reaches_the_notification_the_index_or_a_span(
     ]
     assert with_samples[0] == without[0]
     assert with_samples[1] == without[1]
-    assert [e for e in with_samples[2] if e.get("verb")] == [
-        e for e in without[2] if e.get("verb")
-    ]
+    # `fields`, not the top level: log-foundry nests every caller-supplied field under it, so a
+    # top-level read yields [] on both sides — an equality that holds whatever the verb logs.
+    # Scoped to the one summary event, since a span carries its own duration and ids and two runs
+    # never match on those.
+    assert _summary_fields(with_samples[2]) == _summary_fields(without[2])
+    assert _summary_fields(without[2])["row_count"] == 1000

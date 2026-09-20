@@ -2413,6 +2413,19 @@ A source with an `array<…>` or `struct<…>` column keeps the previous stateme
 records its samples as omitted: Trino documents no cast from either to varchar, and a cast the engine
 refuses fails the whole statement — trading the count that works today for a sample.
 
+**Measured and NOT closed: the samples are not the largest thing a report carries.** The drop
+mechanism is scoped to them because they are what this spec added and the one absence the report can
+explain in a sentence — not because they dominate the document. Over a 200-column source the widest
+`duplicateSamples` block is about **1.2 MB**, while `exact.columns[].sampleOffending` — ten values of
+`MAX_SAMPLE_VALUE_CHARS` per column, equally the user's data and equally multiplied by the schema —
+reaches about **2.4 MB** of ASCII and about **4.8 MB** when those values are non-BMP, which is over
+the cap on its own. Such a report is written over the cap with nothing for the mechanism to shed,
+and the page refuses to open it. That predates this spec and is recorded rather than fixed here,
+because bounding the offending values is a change to a figure users already read. What the cap does
+guarantee is narrower and still worth having: **a report that would have opened does not stop
+opening because samples were added to it.** Re-measure before assuming the numbers above still hold;
+they move with `DQ_OFFENDING_VALUE_SAMPLE`, `MAX_SAMPLE_VALUE_CHARS` and `DQ_MAX_COLUMNS`.
+
 **Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
 recovering it means aggregating paths for every group or scanning a second time. The per-file row
 counts the same spec surfaced are the "where" at the file level.

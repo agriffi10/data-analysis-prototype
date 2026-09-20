@@ -14,8 +14,12 @@ rose above the reader's would produce reports the page refuses with "that report
 read" — a check that ran, cost its scan, wrote its findings, and cannot be opened. A writer whose
 cap fell below the reader's would drop the samples off reports that would have opened fine.
 
-**The omission sentences.** The report page shows, verbatim, the sentence this plane wrote when it
-had no samples to give. ``reportFixtures.ts`` re-declares each one so the page's tests can render
+**The omission sentences, and the two figures beside them.** The report page shows, verbatim, the
+sentence this plane wrote when it had no samples to give — and states two of this plane's NUMBERS in
+its own prose, one on the page ("Values longer than 200 characters are shortened") and one in the
+Help guide ("up to five of the most repeated rows"). Neither is imported; both are typed out.
+Raising `MAX_SAMPLE_VALUE_CHARS` or `DQ_DUPLICATE_SAMPLE` would leave the browser stating a figure
+no report produces, with every suite on both sides green. ``reportFixtures.ts`` re-declares each one so the page's tests can render
 it, and a fixture that drifts does not fail anything on either side: the browser test asserts the
 page shows the fixture's sentence, and the browser shows whatever the report actually carries. The
 two would disagree only in production, on the one report that took the branch.
@@ -29,6 +33,8 @@ anything, since there is no runtime that holds both.
 
 Attributes:
   FIXTURES: The browser module mirroring this plane's report wording.
+  PAGE: The report view, which states the value cut in a note beneath the samples table.
+  HELP: The in-app guide, which states how many rows the report keeps.
   _ESCAPES: The TypeScript string escapes this reader resolves. Deliberately a closed set: an
     escape it does not know is a value it would compare wrongly, so ``_string_literals`` refuses
     one rather than passing the backslash through and failing with a confusing diff.
@@ -58,6 +64,9 @@ FIXTURES = (
     / "data-quality"
     / "reportFixtures.ts"
 )
+
+PAGE = FIXTURES.parent / "DataQualityReportPage.tsx"
+HELP = FIXTURES.parent.parent / "help" / "helpContent.ts"
 
 _ESCAPES = {"'": "'", '"': '"', "\\": "\\", "n": "\n", "t": "\t"}
 
@@ -206,3 +215,60 @@ def test_the_literal_reader_handles_the_source_the_formatter_actually_produces()
     assert _string_literals(
         "\n  \"it isn't\" +\n  'plain' +\n  'a \\'quoted\\' word';\nexport const NEXT = 'no';"
     ) == ["it isn't", "plain", "a 'quoted' word"]
+
+
+@pytest.mark.parametrize(
+    ("path_name", "sentence", "expected"),
+    [
+        ("PAGE", "Values longer than {} characters are shortened.", report.MAX_SAMPLE_VALUE_CHARS),
+        ("HELP", "it lists up to {} of the most repeated ones", "five"),
+    ],
+    ids=["the page's truncation note", "the Help guide's sample count"],
+)
+def test_the_browser_states_this_planes_figures_and_not_its_own(path_name, sentence, expected):
+    """Holds each figure the browser TYPES OUT against the constant that actually decides it.
+
+    Two numbers cross the language boundary as prose rather than as values, which is the shape that
+    drifts without anything going red: the page's note names ``MAX_SAMPLE_VALUE_CHARS`` and the
+    guide names ``DQ_DUPLICATE_SAMPLE``, and raising either constant would leave both sentences
+    describing a report the plane no longer writes.
+
+    The sentence is searched for with the expected figure already substituted in, so the assertion
+    fails when the CONSTANT moves as well as when the prose does — a search for the sentence with a
+    wildcard where the number goes would pass on any number at all.
+
+    Args:
+      path_name: Which browser file states it.
+      sentence: The sentence, with a placeholder where the figure goes.
+      expected: The figure the plane's constant decides, spelled as the browser spells it.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    source = {"PAGE": PAGE, "HELP": HELP}[path_name].read_text(encoding="utf-8")
+
+    assert sentence.format(expected) in source
+
+
+def test_the_help_guides_word_for_the_sample_count_is_the_one_the_config_sets():
+    """Ties the guide's spelled-out "five" to ``DQ_DUPLICATE_SAMPLE`` rather than to a habit.
+
+    The test above pins the guide's sentence to the literal word, which holds the prose still but
+    would keep passing if the constant were raised to six. This is the other half: the word and the
+    number, mapped, so raising the constant fails here and names what to edit.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+
+    assert words[config.DQ_DUPLICATE_SAMPLE] == "five"

@@ -1323,17 +1323,33 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
 
     ``csv`` caps a field at 131,072 characters and assemble-report re-raises everything but a
     missing object, so one oversized cell fails the whole report rather than one figure. The worst
-    case is the column cap's worth of values at the statement's cut, every character one JSON
-    escapes to six — a file of control characters, which is not a file anyone would notice was
-    unusual. The raised limit is asserted to be what made the difference, by reading the same cell
-    at the default first and watching it refuse.
+    case is ``DQ_DUPLICATE_SAMPLE`` rows of the column cap's worth of values at the statement's cut,
+    every character one JSON escapes to six — a file of control characters, which is not a file
+    anyone would notice was unusual. The raised limit is asserted to be what made the difference, by
+    reading the same cell at the default first and watching it refuse.
+
+    **The fixture is the WHOLE worst case, and that is what makes the derivation testable.** At one
+    row it sits a fifth of the way to the computed limit, and the row-count term or the escape
+    factor could each be cut by more than half with the number still large enough — wrong, and every
+    suite green. At ``DQ_DUPLICATE_SAMPLE`` rows the cell is within about five thousand characters
+    of the limit, so every term is load-bearing. The margin is asserted rather than left implicit,
+    since a later change that widened the limit would restore the slack this test exists to remove.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     names = [f"c{index}" for index in range(config.DQ_MAX_COLUMNS)]
     files = [_file("alice/sales/a.csv", names)]
     worst = [chr(1) * sql.SAMPLE_VALUE_CHARS] * config.DQ_MAX_COLUMNS
-    body = _csv(
-        [{"duplicate_rows": "4", "duplicate_samples": json.dumps([["4", *worst]])}]
-    )
+    sampled = [[str(5 - index), *worst] for index in range(config.DQ_DUPLICATE_SAMPLE)]
+    cell = json.dumps(sampled)
+    body = _csv([{"duplicate_rows": "4", "duplicate_samples": cell}])
     limit = report.duplicates_field_size_limit(len(names))
 
     with pytest.raises(csv.Error):
@@ -1351,10 +1367,14 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
         completed_at=COMPLETED,
     )
 
-    rows = document["exact"]["duplicateSamples"]["rows"]
-    assert rows[0]["repeats"] == 4
-    assert len(rows[0]["values"]) == config.DQ_MAX_COLUMNS
-    assert rows[0]["values"][0] == chr(1) * report.MAX_SAMPLE_VALUE_CHARS + "…"
+    written = document["exact"]["duplicateSamples"]["rows"]
+    assert len(written) == config.DQ_DUPLICATE_SAMPLE
+    assert written[0]["repeats"] == 5
+    assert len(written[0]["values"]) == config.DQ_MAX_COLUMNS
+    assert written[0]["values"][0] == chr(1) * report.MAX_SAMPLE_VALUE_CHARS + "\u2026"
+    # The cell really does sit at the limit's shoulder, so no term of the arithmetic has slack to
+    # hide in: halve any of them and the computed limit falls below this cell.
+    assert limit > len(cell) > limit - limit // 100, (len(cell), limit)
 
 
 def test_the_field_limit_only_ever_rises_above_the_readers_default():
@@ -1362,14 +1382,22 @@ def test_the_field_limit_only_ever_rises_above_the_readers_default():
 
     The computed figure is smaller than ``csv``'s default for any table under about twenty columns,
     and returning it would TIGHTEN the reader on cells that parse today — a raise that quietly
-    becomes a lowering is how a guard starts causing the failure it was added to prevent. The
-    default is read from the module rather than spelled out, since it is CPython's number and not
-    this repo's.
+    becomes a lowering is how a guard starts causing the failure it was added to prevent.
+
+    The floor is read from the module's CAPTURED default rather than from ``csv`` live, and the
+    third case is why: with the live limit raised, a floor read at the call would floor against
+    itself and hand back the raised figure for a table whose own worst case is far below it.
     """
-    default = csv.field_size_limit()
+    default = report._CSV_DEFAULT_FIELD_CHARS
 
     assert report.duplicates_field_size_limit(2) == default
     assert report.duplicates_field_size_limit(config.DQ_MAX_COLUMNS) > default
+
+    previous = csv.field_size_limit(default * 10)
+    try:
+        assert report.duplicates_field_size_limit(2) == default
+    finally:
+        csv.field_size_limit(previous)
 
 
 def test_reading_one_result_at_a_raised_limit_leaves_the_next_read_at_the_default():
@@ -1383,3 +1411,47 @@ def test_reading_one_result_at_a_raised_limit_leaves_the_next_read_at_the_defaul
     report.parse_result(_csv([{"a": "1"}]), default * 4)
 
     assert csv.field_size_limit() == default
+
+
+def test_a_sampled_row_that_does_not_fit_its_headers_is_dropped_rather_than_shown():
+    """Refuses to lay a row out under headers it does not fit, in either direction.
+
+    A row is read POSITIONALLY against ``columns``, so a short one leaves its trailing cells empty
+    and the page draws an empty cell as ``NULL`` — a claim about the user's data their file does not
+    make, and exactly the distinction the samples exist to preserve. A long one loses its tail in
+    silence. The two lists come out of one statement, but the grouping is re-derived from the
+    manifest when the report is assembled, and a manifest is an object that can change between two
+    reads.
+
+    The well-formed row in the same cell still lands, so the drop is per row rather than per cell:
+    one bad row does not cost the samples that are fine.
+    """
+    files = [_file("alice/sales/a.csv", ["name", "city"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(100, [{}, {}])],
+        dupes=[_dupes_row(9, [["4", "short"], ["3", "a", "x"], ["2", "a", "b", "extra"]])],
+    )
+
+    assert document["exact"]["duplicateRows"] == 9
+    assert document["exact"]["duplicateSamples"]["rows"] == [{"repeats": 3, "values": ["a", "x"]}]
+
+
+def test_a_repeat_count_int_would_refuse_is_not_treated_as_a_count():
+    """Keeps the count test narrower than ``int``'s own, so the guard cannot raise on its own input.
+
+    ``isdigit`` is true for a superscript two, which ``int`` refuses with a ValueError — and this
+    runs inside ``report.build``, where a raise costs the whole report rather than one row. Athena's
+    ``CAST(bigint AS varchar)`` emits no such character, so this pins the narrower test rather than
+    fixing a reachable case.
+    """
+    files = [_file("alice/sales/a.csv", ["name"])]
+
+    document = _build(
+        manifest=_manifest(files),
+        profile=[_profile_row(100, [{}])],
+        dupes=[_dupes_row(1, [["\u00b2", "a"]])],
+    )
+
+    assert document["exact"]["duplicateSamples"]["rows"] == []

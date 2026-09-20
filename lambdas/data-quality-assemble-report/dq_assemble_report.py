@@ -225,8 +225,19 @@ def _within_document_cap(document: dict) -> bytes:
 
     The browser reads a report through the document route's size cap, so a report above it is not
     a large report — it is an unreadable one, and every other finding in it is lost with the part
-    that made it big. The samples are the only figure here that scales with the user's own data
-    rather than with their schema, so they are the only thing dropped.
+    that made it big. The samples are dropped because they are the figure THIS spec added, and the
+    one whose absence the report can explain in a sentence.
+
+    **They are not the largest thing a report can carry, and this mechanism does not make a report
+    fit.** Measured over a 200-column source: the widest ``duplicateSamples`` block is about 1.2 MB,
+    while ``exact.columns[].sampleOffending`` — ten values of 200 characters per column, also the
+    user's own data, also multiplied by the schema — reaches about 2.4 MB in ASCII and about 4.8 MB
+    when the values are non-BMP, which is over the cap on its own. Such a report is written over the
+    cap with nothing to shed, and the page cannot open it. That is a pre-existing gap this spec
+    neither introduced nor closed; it is recorded in the control-planes register rather than left
+    for the next reader to rediscover by measuring. What this mechanism guarantees is narrower and
+    worth having: a report that WOULD have opened does not stop opening because samples were added
+    to it.
 
     Dropped only when there are samples to drop. A report already over the cap without them was
     over it before this existed, and replacing an absent field — or the sentence a nested source
