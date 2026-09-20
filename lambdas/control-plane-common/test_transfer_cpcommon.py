@@ -1299,14 +1299,35 @@ _TINY_THRESHOLD = 8
 _TINY_PART = 4
 
 
+def _md5(payload: bytes):
+    """MD5 as S3 computes an ETag with it, declared as NOT a security control.
+
+    ``usedforsecurity=False`` is the honest statement and not a way past a scanner: nothing here
+    authenticates, signs or protects anything. It models the algorithm S3 uses to derive an ETag
+    under ``AES256``, so that this fake's tags have the same structure and derivation as the ones
+    the production code compares — which is the whole reason the fake computes them rather than
+    inventing opaque strings.
+
+    Args:
+      payload: The bytes to digest.
+
+    Returns:
+      The hash object.
+
+    Raises:
+      None.
+    """
+    return hashlib.md5(payload, usedforsecurity=False)
+
+
 def _single_etag(body: bytes) -> str:
-    return '"' + hashlib.md5(body).hexdigest() + '"'  # noqa: S324 - S3's own ETag algorithm
+    return '"' + _md5(body).hexdigest() + '"'
 
 
 def _multipart_etag(body: bytes, part_size: int) -> str:
     parts = [body[i : i + part_size] for i in range(0, len(body), part_size)]
-    joined = b"".join(hashlib.md5(part).digest() for part in parts)  # noqa: S324 - as above
-    return '"' + hashlib.md5(joined).hexdigest() + f'-{len(parts)}"'  # noqa: S324 - as above
+    joined = b"".join(_md5(part).digest() for part in parts)
+    return '"' + _md5(joined).hexdigest() + f'-{len(parts)}"'
 
 
 class _ConditionalS3:
@@ -1395,12 +1416,12 @@ class _ConditionalS3:
         self._refuse_if_taken(kwargs, Bucket, Key)
         upload = self._uploads[UploadId]
         body = b"".join(upload["parts"])
-        joined = b"".join(hashlib.md5(part).digest() for part in upload["parts"])  # noqa: S324
+        joined = b"".join(_md5(part).digest() for part in upload["parts"])
         self.objects[(Bucket, Key)] = {
             "body": body,
             "ContentType": upload["ContentType"],
             "Metadata": upload["Metadata"],
-            "ETag": '"' + hashlib.md5(joined).hexdigest() + f'-{len(upload["parts"])}"',  # noqa: S324
+            "ETag": '"' + _md5(joined).hexdigest() + f'-{len(upload["parts"])}"',
         }
         self.writes.append(Key)
 
