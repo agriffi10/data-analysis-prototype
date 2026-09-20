@@ -79,16 +79,16 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
 - **A CSV table's declared column order is a positional contract, so a refresh never moves a column
   the table already holds. This does NOT prevent a misread — it decides which file takes it**, now
   the one that misplaced the column rather than every older one. apply-refresh writes the LIVE
-  table's order — minus what the first file dropped — then appends what is new, in the first file's
-  order; JSON and Parquet keep the first file's, where order only lays out `SELECT *`. Taking the
-  first file's order shifted every older file by one whenever a column was inserted mid-header or a
-  different file sorted first, and **nothing errored**: every CSV column is `string`, the diff folds
-  names and never compares positions, and the read-back compares name SETS, so the refresh reported
-  success. The sort is STABLE over a LIST, never a dict keyed on the fold: two names that fold
-  together must survive as two entries to reach `update_failed` (the collision test reddens on the
-  dict). A removal is the case this cannot help and it does not heal — a removed column returns as
-  a NEW one, at the end — so the `columns_removed` refusal says what it costs a file that still has
-  the column, worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
+  table's order, minus what the first file dropped, then appends what is new; JSON and Parquet keep
+  the first file's, where order only lays out `SELECT *`. Taking the first file's order shifted
+  every older file by one whenever a column was inserted mid-header, or a different file sorted
+  first, and **nothing errored**: every CSV column is `string`, the diff folds names and never
+  compares positions, and the read-back compares name SETS. The sort is STABLE over a LIST, never
+  a dict keyed on the fold — keyed on the fold two colliding names merge and no refusal fires,
+  which reddens `test_columns_differing_only_by_case_are_refused_before_the_update`. A removal is
+  the case this cannot help, and it does not heal: a removed column returns as a NEW one, at the
+  end. So the `columns_removed` refusal says what a removal costs a file that still has the
+  column, worded from `ddl.POSITIONAL_FORMATS` so the sentence and the write branch on one fact.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder — and
   **both planes that build one over a user's folder refuse it**, table-builder on a create and
   data-quality on a check. Excluding the app-managed sub-trees from the plane's LISTING does not
