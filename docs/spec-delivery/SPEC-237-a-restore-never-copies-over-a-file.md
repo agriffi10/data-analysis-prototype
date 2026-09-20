@@ -65,10 +65,19 @@ was believed to prevent and does not, because the Pipe starts a Standard machine
 
 Formatter, both linters, both suites, mypy, `npm run build`, `tofu fmt`/`validate`,
 `validate_docs.py` and its corpus, the app-managed and feature-flag validators, the contract
-regeneration diff and the three PR-queue corpora, all green by exit code. The image was built
-locally, because CI never builds it and the new `RUN` step's first real run would otherwise be
-`main`'s deploy. Mutation-tested: the 412 resolution in both directions, the claim's removal, the
-retention bound four ways, and the stamp's ordering.
+regeneration diff and the three PR-queue corpora, all green by exit code — CI runs none of those,
+so the local run is their only gate.
+
+**The Dockerfile's new assertion is gated by CI, not by that local run.** `lambda-image.yml` builds
+the real image from `lambdas/Dockerfile` on every pull request touching `lambdas/**`, before the
+merge, so a malformed step fails the PR rather than `main`. Worth stating because the opposite was
+believed while this was being built: "CI runs none of the gates" is true of the suites and the
+linters and was wrongly generalised to the image, from reading `ci.yml` without enumerating
+`.github/workflows/`.
+
+Mutation-tested: the 412 resolution in both directions, the claim's removal, the retention bound
+four ways, the absent-field guard, every member of the partial-outcome exemption set, and the
+stamp's ordering.
 
 **Owed:** every test of the conditional write drives a fake. The deployed behaviour is a row in
 [`owed.md`](../testing/owed.md) — no signed-in session can invoke a verb directly. The message
