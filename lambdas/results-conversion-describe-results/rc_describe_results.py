@@ -138,7 +138,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The validated request plus ``columns`` and ``resultsBytes``, and nothing else.
+      The validated request plus ``columns``, ``resultsBytes`` and the chosen columns, and
+      nothing else.
 
     Raises:
       TerminalError: Any of the three refusals this verb registers.
@@ -148,6 +149,13 @@ def handler(event, context) -> dict:
 
 def _describe(event) -> dict:
     """Reads the metadata and the size, refuses what the converter cannot hold, threads the rest.
+
+    **``columnIndexes`` is read with ``get`` and never with ``events.require``**, which refuses
+    a ``None`` value as well as an absent key. It is null whenever the request named no columns,
+    and it is absent altogether from a state the ``Validated`` Pass has not yet been taught to
+    name — which is every state in this release, so ``require`` would refuse every conversion.
+    The key is emitted here for the same reason it is emitted by the verb before: a Pass state
+    cannot be taught to read a key until a deployed image already returns it.
 
     Args:
       event: The validated request object.
@@ -161,6 +169,7 @@ def _describe(event) -> dict:
         over the cap, or a column refusal.
     """
     carried = {key: events.require(event, key) for key in _CARRIED}
+    chosen = event.get("columnIndexes")
     tokens = {"format": carried["format"], "filename": carried["destination"]["key"].rsplit("/", 1)[-1]}
     described = _columns(carried["queryExecutionId"])
     _check_columns(described, tokens)
@@ -183,4 +192,5 @@ def _describe(event) -> dict:
         "traceparent": observability.run_traceparent(),
         "columns": described,
         "resultsBytes": size,
+        "columnIndexes": chosen,
     }

@@ -105,6 +105,7 @@ def test_a_personal_request_is_validated_into_exactly_the_contracted_keys():
         "onConflict": "refuse",
         "queryExecutionId": EXECUTION_ID,
         "resultsKey": f"alice/system_settings/athenaresults/{EXECUTION_ID}.csv",
+        "columnIndexes": None,
         "destination": {
             "bucket": config.USER_SPACE_BUCKET,
             "key": "alice/out/q1.parquet",
@@ -396,3 +397,31 @@ def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(field, 
 
     assert err.reason == "invalid_request"
     assert err.detail == detail
+
+
+# ── The chosen columns, emitted before anything can send them (SPEC-239) ────
+
+
+def test_the_validated_state_always_carries_the_chosen_columns_even_as_null():
+    """A Pass state's JSONPath hard-fails on an ABSENT key, so the key can never be conditional:
+    the machine is taught to read it in a later release, and by then every live image must
+    already be returning it. Null is what "the request named no columns" looks like on the
+    state, and in this release it is the only value the key can take."""
+    _setup()
+    validated = v.handler(_event(), None)
+
+    assert "columnIndexes" in validated
+    assert validated["columnIndexes"] is None
+
+
+def test_the_field_itself_is_not_admitted_yet_and_that_is_what_makes_the_order_safe():
+    """The plane's allowed-field set is held equal to the API's declared fields by a fleet guard,
+    and the API does not declare this one yet. So the verb returns the key while no caller can
+    send it — the only safe order, because `Deploy Infrastructure` and `Deploy Lambdas` run on
+    one push with no ordering, and a Pass state may not read a key a live image does not return.
+    The release that adds the field to the contract adds it here too."""
+    error, _, athena = _refused(_body(columnIndexes=[0, 2]))
+
+    assert error.reason == "malformed_event"
+    assert "columnIndexes" in error.detail
+    assert athena.calls == [], "an unknown field is refused before the execution is described"

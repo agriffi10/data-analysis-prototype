@@ -84,6 +84,7 @@ def test_the_columns_and_the_size_are_read_once_each_and_threaded_with_the_reque
         **_validated(),
         "columns": [{"name": "id", "type": "bigint"}, {"name": "name", "type": "varchar"}],
         "resultsBytes": 1234,
+        "columnIndexes": None,
     }
     assert athena.calls == [{"QueryExecutionId": EXECUTION_ID, "MaxResults": 1}]
     assert s3.calls == [{"Bucket": "user-bkt", "Key": f"alice/athenaresults/{EXECUTION_ID}.csv"}]
@@ -212,3 +213,21 @@ def test_no_column_name_reaches_a_span_on_the_happy_path(captured_events):
     d.handler(_validated(), None)
     assert "secret_column_name" not in json.dumps(captured_events.events)
     assert captured_events.messages("result set described")
+
+
+# ── The chosen columns, emitted before anything can send them (SPEC-239) ────
+
+
+def test_a_state_that_does_not_carry_the_key_at_all_is_read_as_no_choice():
+    """`events.require` refuses a None value as well as an absent key, so this one is read with
+    `get` — and the key really is absent from every state in this release, because the `Validated`
+    Pass does not name it yet. Reading it any other way would refuse every conversion until the
+    machine catches up, which is the deploy window this ordering exists to survive."""
+    _setup()
+    validated = _validated()
+    assert "columnIndexes" not in validated
+
+    described = d.handler(validated, None)
+
+    assert "columnIndexes" in described
+    assert described["columnIndexes"] is None
