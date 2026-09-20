@@ -71,13 +71,17 @@ _BODIES = {
         "one of the result columns has no name. Please name every column in the query and run it "
         "again."
     ),
+    reasons.INVALID_COLUMNS: (
+        "the columns chosen for this file don't match the query's results, so nothing was saved."
+    ),
     reasons.UNSUPPORTED_COLUMN_TYPE: (
         'the column "{column}" has a type that can\'t be written to "{filename}". Please cast '
         "it in the query, for example to text, and run it again."
     ),
     reasons.RESULTS_UNREADABLE: (
-        'one of the values in the results didn\'t match the type the query gave its column, so '
-        '"{filename}" was not written. Please cast that column in the query and run it again.'
+        'part of the results could not be read, so "{filename}" was not written. If a column\'s '
+        "values don't all match the type the query gave it, casting that column and running the "
+        "query again will fix it."
     ),
     reasons.EXCEL_ROW_LIMIT: (
         'the results have {count} rows, which is more than a spreadsheet can hold, so '

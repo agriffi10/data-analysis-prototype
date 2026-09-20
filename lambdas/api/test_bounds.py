@@ -276,7 +276,7 @@ def test_a_verb_bound_says_where_its_number_lives_and_an_api_bound_carries_one()
             f"different questions look alike as integers, and one spent a count as bytes"
         )
         if bound.measured == "items":
-            assert bound.path.endswith(("members", "recipients")), (
+            assert bound.path.endswith(("members", "recipients", "columnIndexes")), (
                 f"{bound.route_id}/{bound.path} is counted in items but is not a list this "
                 f"service counts"
             )
@@ -309,6 +309,31 @@ def test_the_partition_key_bound_mirrors_the_planes_own_definition_budget():
     from tbcommon.config import REFRESH_MAX_DEFINITION_BYTES
 
     assert bounds.MAX_PARTITION_KEYS_BYTES == REFRESH_MAX_DEFINITION_BYTES
+
+
+def test_the_column_choice_cap_is_the_planes_own_result_width():
+    """One number, two homes, held equal — the mirror ``Bound.owner`` forbids importing away.
+
+    A request may name at most as many columns as the result it names them from can have, and
+    the plane already refuses a result wider than its states can carry. Two independent answers
+    to that one question would let the API admit a list describe-results could only refuse, which
+    is a request accepted at the door and dead-lettered afterwards.
+
+    The UNIT is asserted beside the number, because they are the pair this table's whole rule
+    turns on: a list of 1,500 small integers is a count, and read as a byte budget it would admit
+    roughly a hundred and fifty of them.
+    """
+    from rccommon.config import MAX_RESULT_COLUMNS
+
+    assert bounds.MAX_COLUMN_INDEXES_PER_REQUEST == MAX_RESULT_COLUMNS
+    declared = bounds.bound_for("resultsConversion.enqueue", "columnIndexes")
+    assert declared is not None
+    assert declared.max_bytes == MAX_RESULT_COLUMNS
+    assert declared.measured == "items"
+    assert declared.enforced_at == "api", (
+        "a verb bound would be applied after the Pipe had already had to start an execution "
+        "with the list on it, which is the thing the chain is measured against"
+    )
 
 
 def test_the_member_cap_MIRRORS_the_fleets_existing_derivation():
@@ -682,14 +707,15 @@ def test_each_bound_carries_the_constant_its_KIND_of_field_calls_for():
         )
 
     assert sorted(set(unchecked)) == [
+        "columnIndexes",
         "partitionKeys",
         "partitionKeys[].range",
         "partitionKeys[].values",
         "payload.members",
     ], (
         f"the set of paths this rule cannot judge by name has changed: {sorted(set(unchecked))}. "
-        f"All four are CONTAINERS, whose bound is a capacity rather than a kind of value — a "
-        f"fifth entry means a leaf has slipped out of the rule."
+        f"All five are CONTAINERS, whose bound is a capacity rather than a kind of value — a "
+        f"sixth entry means a leaf has slipped out of the rule."
     )
 
 

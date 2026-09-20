@@ -75,9 +75,10 @@ export type QuerySpace = {
 /**
  * The file types a result set can be saved as.
  *
- * `csv` is the results object Athena already wrote, copied server-side; the other three are
- * built by the results-conversion plane and arrive as a notification. The three the plane
- * accepts are a narrower union in the generated contract, which is why the enqueue path
- * narrows rather than casts — a cast would let `csv` reach a route that has no writer for it.
+ * `csv` is usually the results object Athena already wrote, copied server-side; the other three
+ * are built by the results-conversion plane and arrive as a notification. The plane accepts all
+ * four now, so the generated contract's union is this one and the enqueue path narrows nothing.
+ * What decides whether a save copies or converts is no longer the format on its own: a CSV that
+ * keeps only some of the result's columns, or reorders them, is a file the copy cannot produce.
  */
 export type ResultsFormat = 'csv' | 'parquet' | 'json' | 'xlsx';

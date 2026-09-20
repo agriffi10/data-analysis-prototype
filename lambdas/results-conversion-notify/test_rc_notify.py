@@ -66,6 +66,25 @@ def test_one_message_names_the_file_the_format_and_the_rows_and_links_to_the_fol
     assert extras["payload"] == {"requestId": "req-1", "format": "parquet"}
 
 
+def test_every_format_label_reaches_the_sentence_a_user_reads(sent):
+    """The labels are bare literals in a dict, so the vocabulary guards pin the KEYS and nothing
+    pins the values. Measured: changing csv's label to "Comma file" left every test in the plane
+    and the API green, and a user would have read it."""
+    for fmt, expected in (
+        ("parquet", 'Saved 1,234 rows as Parquet to "q1.parquet".'),
+        ("json", 'Saved 1,234 rows as JSON to "q1.json".'),
+        ("xlsx", 'Saved 1,234 rows as Excel to "q1.xlsx".'),
+        ("csv", 'Saved 1,234 rows as CSV to "q1.csv".'),
+    ):
+        sent.clear()
+        converted = _converted()
+        converted["format"] = fmt
+        converted["destination"] = {**converted["destination"], "key": f"alice/out/q1.{fmt}"}
+        n.handler(converted, None)
+
+        assert sent[0][1] == expected
+
+
 def test_a_shared_space_link_names_the_space_first(sent):
     n.handler(
         _converted(

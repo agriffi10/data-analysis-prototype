@@ -1190,29 +1190,40 @@ class ConversionDestination(TypedDict):
 
 
 class ResultsConversionEnqueueRequest(TypedDict):
-    """A request to save a finished query's result set in another format.
+    """A request to save a finished query's result set in another format, or a subset of it.
 
-    Every key is required; the route's validator refuses an unknown one. Every length and
-    content cap lives in the plane's validate-authorize verb, which is the one authority on the
-    request — this shape is deliberately shape-only.
+    Every key but ``columnIndexes`` is required; the route's validator refuses an unknown one.
+    Every length and content cap lives in the plane's validate-authorize verb, which is the one
+    authority on the request — this shape is deliberately shape-only. The exception is
+    ``columnIndexes``, whose LENGTH is bounded here, because a list is the one field whose size
+    the four-link chain cannot be measured without.
 
     Attributes:
       requestId: The caller's per-submit id, which is also the dedup key.
       queryExecutionId: The Athena execution whose result set is converted. A claim: the plane
         proves it is the caller's by the path Athena wrote to.
-      format: The output format. A closed vocabulary that deliberately excludes CSV — the CSV
-        Athena wrote is copied by the synchronous path and never re-serialised here.
+      format: The output format. ``csv`` is here and means something narrower than the other
+        three: the CSV Athena wrote is still copied by the synchronous path whenever the file
+        wanted is that object, and a CSV conversion is asked for only when the file is to carry
+        a subset of the result's columns, or the same columns in another order — neither of
+        which a copy can produce.
       destination: Where the file lands.
       onConflict: What to do about a name already taken at the destination.
       submittedAt: When the browser submitted, ISO-8601.
+      columnIndexes: Which of the result's columns to write, by their position in the
+        execution's own column list, in the order the file is to carry them. Absent keeps every
+        column in the result's own order. Positions rather than names because the plane already
+        refuses a result whose names collide once case-folded, so a position is unambiguous
+        where a name would need that refusal to hold at both ends.
     """
 
     requestId: str
     queryExecutionId: str
-    format: Literal["parquet", "json", "xlsx"]
+    format: Literal["parquet", "json", "xlsx", "csv"]
     destination: ConversionDestination
     onConflict: Literal["refuse", "overwrite"]
     submittedAt: str
+    columnIndexes: NotRequired[list[int]]
 
 
 class ArchiveEnqueueRequest(TypedDict):

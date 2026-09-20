@@ -18,11 +18,21 @@ Attributes:
   RESULTS_TOO_LARGE: The result object is over the converter's cap.
   DUPLICATE_COLUMN: Two result columns share a name once case-folded.
   INVALID_COLUMN_NAME: A result column has an empty name.
+  INVALID_COLUMNS: The columns the request asked to keep are not columns of this result. A
+    request may name the result positions it wants written, and this is every way that list can
+    be wrong: not a list, an entry that is not a whole number, an empty list, a repeat, a
+    negative, or a position past the last column. Distinct from ``INVALID_COLUMN_NAME``, which
+    is about what the RESULT has rather than about what the request asked for.
   UNSUPPORTED_COLUMN_TYPE: A result column has an Athena type this plane has no answer for.
     The vocabulary is closed and does not fall back to text, so an unmodelled type refuses
     rather than becoming the wrong column in a file the user then trusts.
-  RESULTS_UNREADABLE: A value in the result set does not parse as the type Athena declared for
-    its column. The whole conversion refuses and no partial file is written.
+  RESULTS_UNREADABLE: Part of the result set could not be read. Usually a value that does not
+    parse as the type Athena declared for its column — but **not always, and the wording must
+    not say so**: a CSV conversion types nothing at all, reading every column as text, so a type
+    mismatch can never be its cause, and the reader itself refuses some large results holding
+    newlines inside quoted values. The sentence therefore states what happened and offers the
+    cast as a conditional repair rather than as the diagnosis. The whole conversion refuses and
+    no partial file is written.
   EXCEL_ROW_LIMIT: The result set has more rows than a worksheet can hold.
   EXCEL_CELL_LIMIT: The result set has more cells than the converter can hold while it builds a
     workbook. Not a file-format limit: Excel's path cannot stream, and its memory is set per
@@ -51,6 +61,7 @@ NO_RESULT_SET = "no_result_set"
 RESULTS_TOO_LARGE = "results_too_large"
 DUPLICATE_COLUMN = "duplicate_column"
 INVALID_COLUMN_NAME = "invalid_column_name"
+INVALID_COLUMNS = "invalid_columns"
 UNSUPPORTED_COLUMN_TYPE = "unsupported_column_type"
 RESULTS_UNREADABLE = "results_unreadable"
 EXCEL_ROW_LIMIT = "excel_row_limit"
@@ -74,6 +85,7 @@ REASONS = frozenset(
         RESULTS_TOO_LARGE,
         DUPLICATE_COLUMN,
         INVALID_COLUMN_NAME,
+        INVALID_COLUMNS,
         UNSUPPORTED_COLUMN_TYPE,
         RESULTS_UNREADABLE,
         EXCEL_ROW_LIMIT,

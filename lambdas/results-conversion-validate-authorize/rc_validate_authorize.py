@@ -19,9 +19,8 @@ Attributes:
   _ALLOWED_FIELDS: The complete set of top-level request fields. Unknown fields are REJECTED
     rather than ignored: a field the producer thinks it is sending and this verb silently drops
     is a contract break that shows up as behaviour nobody asked for. It is held equal to the
-    API's declared fields by a fleet guard, which is why ``columnIndexes`` is not here: this
-    release teaches the verbs to EMIT the key so that a later one can teach the machine to carry
-    it, and the field is admitted in that later release, beside the contract that declares it.
+    API's declared fields by a fleet guard, so a field arrives here in the release its contract
+    declares it, never before.
   _UUID_RE: The shape of an Athena execution id. A value of any other shape cannot name an
     execution and is refused as a malformed request rather than sent to Athena.
   _PENDING: The two Athena states in which the result set does not exist yet.
@@ -53,6 +52,7 @@ _ALLOWED_FIELDS = frozenset(
         "submittedAt",
         "identity",
         "traceparent",
+        "columnIndexes",
     }
 )
 _UUID_RE = re.compile(
@@ -80,7 +80,8 @@ def _check_contract(req) -> None:
       TerminalError: ``malformed_event`` when the body is not an object, names a field outside
         the contract, or carries no usable request id; ``invalid_request`` for a format or
         conflict answer outside the closed vocabulary, an execution id that is not one, a
-        submission time that is not an instant, or a destination that is not an object.
+        submission time that is not an instant, or a destination that is not an object;
+        ``invalid_columns`` for a chosen-column list that is not one.
     """
     if not isinstance(req, dict):
         raise TerminalError(events.MALFORMED, "request body is not an object")
@@ -102,6 +103,49 @@ def _check_contract(req) -> None:
     _check_submitted_at(req.get("submittedAt"))
     if not isinstance(req.get("destination"), dict):
         raise TerminalError(reasons.INVALID_REQUEST, "destination missing or malformed")
+    _check_column_indexes(req.get("columnIndexes"))
+
+
+def _check_column_indexes(value) -> None:
+    """Confirms an optional chosen-column list is a list of distinct result positions.
+
+    **The order of the checks is the whole of this function.** Each one is the precondition of
+    the next: ``set`` hashes its input, so a list holding a list raises ``TypeError`` out of the
+    duplicate test rather than refusing, and ``min`` raises on an empty one. So the shape is
+    proved element by element before anything is built from the entries, and this runs inside
+    ``_check_contract``, which is before the verb reads Athena at all.
+
+    ``bool`` is excluded explicitly because Python's ``bool`` SUBCLASSES ``int``: ``True`` is a
+    whole number to ``isinstance`` and would be admitted as position 1.
+
+    The upper bound is deliberately absent. How many columns the result has is not known here —
+    describe-results reads the metadata and refuses a position past the last column — and the
+    LENGTH of the list is the API's declared bound, checked before the message was ever built.
+
+    Args:
+      value: The request's ``columnIndexes``, or None when it sent none.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``invalid_columns`` for anything that is not a non-empty list of distinct
+        non-negative whole numbers.
+    """
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise TerminalError(reasons.INVALID_COLUMNS, "columnIndexes is not a list")
+    if any(not isinstance(entry, int) or isinstance(entry, bool) for entry in value):
+        raise TerminalError(
+            reasons.INVALID_COLUMNS, "columnIndexes names a position that is not a whole number"
+        )
+    if not value:
+        raise TerminalError(reasons.INVALID_COLUMNS, "columnIndexes is empty")
+    if len(set(value)) != len(value):
+        raise TerminalError(reasons.INVALID_COLUMNS, "columnIndexes names a position twice")
+    if min(value) < 0:
+        raise TerminalError(reasons.INVALID_COLUMNS, "columnIndexes names a negative position")
 
 
 def _check_submitted_at(value) -> None:
@@ -246,8 +290,7 @@ def _validate_and_authorize(event) -> dict:
       resolved destination and the chosen columns. A downstream state reading a key that is
       absent raises an uncatchable ``States.Runtime``, so the key set is a contract the
       machine's own test pins — and it is why ``columnIndexes`` is emitted as ``None`` rather
-      than omitted. Nothing can send the field yet, so ``None`` is the only value it takes in
-      this release; what matters is that the key is THERE, ahead of the state that will read it.
+      than omitted when the request named no columns.
 
     Raises:
       TerminalError: ``unauthorized`` for an unusable identity block, or any reason this plane

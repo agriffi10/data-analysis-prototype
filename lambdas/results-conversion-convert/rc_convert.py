@@ -12,6 +12,14 @@ last looked — and each comes back as ``{"outcome": "refused", "reason": ...}``
 Choice to route. A raise would reach the failure terminal by a path that cannot carry the counts
 those refusals have to name.
 
+**A request may keep a SUBSET of the result's columns.** ``columnIndexes`` names result
+positions, in the order the file is to carry them, and null keeps every column in its own order.
+The read is still over the WHOLE object — the header check below compares the whole header
+against the whole described column list, because the object is still the whole result — and the
+projection is applied to the frame, so a dropped column is never parsed and can never be the
+reason a file is refused. Typing, and every type refusal it raises, therefore see the kept
+columns alone.
+
 **Parquet and JSON never materialise the frame.** The read is ``scan_csv`` over the downloaded
 file and the write is ``sink_*``, so memory holds a batch at a time and the ceiling is the
 scratch disk rather than RAM. Excel cannot stream — the workbook is built whole, at a peak set by
@@ -38,14 +46,17 @@ Attributes:
     bytes into the next.
   CONTENT_TYPES: The ``Content-Type`` each format is stored under. No user metadata is written:
     the SQL, the execution id and the actor are not stamped onto the object.
+  TEXT: The dtype every column is read as for a CSV conversion, which is what makes that format
+    a re-quoting of Athena's own text rather than a re-rendering of its values.
   EXCEL_EXACT_INTEGER: The largest integer an Excel cell holds exactly; it stores every number
     as a double.
   EXCEL_EXACT_DIGITS: The significant digits a double holds, which is what bounds a decimal.
   SINGLE_PUT_MAX_BYTES: The largest object S3 accepts as one ``PutObject``.
   PART_BYTES: The multipart part size, chosen so the part ceiling is far above anything the
     size cap admits.
-  _CARRIED: The keys this verb threads on unchanged. ``columns`` and ``resultsBytes`` are read
-    and deliberately not returned — nothing downstream reads either.
+  _CARRIED: The keys this verb threads on unchanged. ``columns``, ``resultsBytes`` and
+    ``columnIndexes`` are read and deliberately not returned — nothing downstream reads any of
+    them, and both lists are values the request or the query chose the length of.
 """
 
 import logging
@@ -74,7 +85,10 @@ CONTENT_TYPES = {
     "parquet": "application/vnd.apache.parquet",
     "json": "application/x-ndjson",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
 }
+
+TEXT = pl.String()
 
 EXCEL_EXACT_INTEGER = 2**53
 EXCEL_EXACT_DIGITS = 15
@@ -243,6 +257,111 @@ def _frame(source: pathlib.Path, schema: dict) -> pl.LazyFrame:
     return pl.scan_csv(source, schema_overrides=schema, infer_schema_length=0)
 
 
+def _schemas(columns: list[dict], chosen: list[int] | None, fmt: str) -> tuple[dict, dict]:
+    """Builds the schema the whole object is READ with and the schema the file is WRITTEN from.
+
+    They are two dicts and not one because the object and the file are two different column
+    sets once a request keeps a subset. The read schema covers every described column, in the
+    result's own order, because ``_frame`` compares it against the CSV's whole header and
+    ``scan_csv`` applies types POSITIONALLY when the two disagree — a check that is only worth
+    anything if it sees the whole header. The write schema is the kept columns, in the order the
+    request asked for, and it is what the projection and the writers are given.
+
+    **A dropped column is read as text and never typed.** Its values are never parsed, because
+    the projection pushes down past them; more importantly, a type this plane cannot map is not
+    a reason to refuse a file that column is not in. So ``schema_of`` — the one function that
+    raises ``unsupported_column_type`` — is asked about the KEPT columns alone.
+
+    A CSV conversion skips typing altogether: every column is read as text and written as
+    Athena rendered it, so the file carries the same values as a copy of the object would and
+    only the quoting can differ.
+
+    Args:
+      columns: The described columns, in result order.
+      chosen: The result positions to keep, in order, or None to keep every column.
+      fmt: The output format.
+
+    Returns:
+      The read schema and the write schema.
+
+    Raises:
+      TerminalError: ``unsupported_column_type`` from ``schema_of``, naming a KEPT column.
+      RuntimeError: For a chosen list that is not distinct positions of this result — a fault
+        here rather than a refusal, because validate-authorize and describe-results have both
+        already refused it and reaching this means the states disagree.
+    """
+    positions = chosen if chosen is None else _checked(chosen, len(columns))
+    kept = columns if positions is None else [columns[index] for index in positions]
+    if fmt == "csv":
+        return ({_name(c): TEXT for c in columns}, {_name(c): TEXT for c in kept})
+    write_schema = types.schema_of(kept)
+    read_schema = {_name(c): write_schema.get(_name(c), TEXT) for c in columns}
+    return read_schema, write_schema
+
+
+def _checked(chosen: list[int], width: int) -> list[int]:
+    """Confirms the state's chosen positions really are positions of this result.
+
+    **Every way this can be wrong writes a FILE rather than failing**, which is why it is checked
+    here and not left to the upstream refusals. Python indexes a list from the end for a negative,
+    so ``[-1]`` would silently write the LAST column and report success; a repeat collapses in the
+    schema dict and writes a file one column short of what was asked for; and an empty list writes
+    a Parquet file of no columns at all, which uploads. Each of those is a conversion the user is
+    told succeeded, holding something they did not ask for.
+
+    validate-authorize refuses all of them and describe-results refuses the upper bound, so
+    nothing a caller sends arrives here — this is the guard for the two states disagreeing, and it
+    fails loudly rather than quietly, as the header check does for the same class of divergence.
+
+    **The clauses are ordered, and the order is what keeps this a refusal rather than a crash.**
+    A list holding a list is caught by the element check before ``set`` is asked to hash it, and
+    a value that is not a list at all is caught before either — a dict of valid positions would
+    otherwise iterate its KEYS and satisfy every remaining clause, which is a shape the contract
+    forbids behaving as though it did not.
+
+    Args:
+      chosen: The state's chosen positions.
+      width: How many columns the result has.
+
+    Returns:
+      The positions, unchanged.
+
+    Raises:
+      RuntimeError: When they are not distinct whole numbers inside the result's width.
+    """
+    whole = (
+        [index for index in chosen if isinstance(index, int) and not isinstance(index, bool)]
+        if isinstance(chosen, list)
+        else []
+    )
+    if (
+        not isinstance(chosen, list)
+        or not chosen
+        or len(whole) != len(chosen)
+        or len(set(chosen)) != len(chosen)
+        or not all(0 <= index < width for index in whole)
+    ):
+        raise RuntimeError(
+            f"the state's chosen columns are not distinct positions of a {width}-column result"
+        )
+    return chosen
+
+
+def _name(column: dict) -> str:
+    """The column's name as the schema keys it.
+
+    Args:
+      column: One described column.
+
+    Returns:
+      The name, as ``types.schema_of`` renders it, so the two dicts key alike.
+
+    Raises:
+      None.
+    """
+    return str(column.get("name") or "")
+
+
 def _unreadable(exc: Exception) -> _Refusal:
     """Turns a polars parse failure into a refusal that names the column and the offset.
 
@@ -333,6 +452,44 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
         while chunk := handle.read(1024 * 1024):
             rows += chunk.count(b"\n")
     return rows
+
+
+def _write_csv(frame: pl.LazyFrame, target: pathlib.Path) -> int:
+    """Streams the kept columns' text to one CSV and counts the rows it wrote.
+
+    Nothing is typed and nothing is re-rendered: every column was read as text, so the file
+    carries the characters Athena wrote. Only the QUOTING can differ — Athena quotes every
+    field, polars quotes one only where the format requires it — and the two encodings agree
+    where it matters: an unquoted empty field is NULL and ``""`` is an empty string, on the way
+    in and on the way out.
+
+    **The count is a projected read of the file it just wrote, and each half of that matters.**
+    ``select(pl.len())`` is polars' fast count, which projects nothing and miscounts a quoted
+    newline once the reader splits the file across threads. The number is not quoted here,
+    because it moves with the thread count and a figure anchored to nothing cannot be
+    re-derived: ``test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len``
+    measures it on its own fixture and refuses to run against a fixture that stopped
+    splitting. Counting newline BYTES is what the JSON writer does, and it is right there only
+    because JSON escapes an embedded newline; a CSV carries it raw, so the same count would read
+    one row as several. Reading the written file rather than the input is what the other two
+    streamed writers do, and it means the number in the notification is a fact about the file.
+
+    Args:
+      frame: The projected lazy frame, every column text.
+      target: Where to write.
+
+    Returns:
+      The number of data rows written.
+
+    Raises:
+      _Refusal: ``results_unreadable`` when the object will not parse as a CSV at all.
+    """
+    try:
+        frame.sink_csv(target)
+    except Exception as exc:
+        raise _unreadable(exc) from exc
+    written = pl.scan_csv(target, infer_schema_length=0)
+    return written.select(pl.first().len()).collect().item()
 
 
 def _write_excel(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tuple[int, bool]:
@@ -597,6 +754,17 @@ def _convert(event) -> dict:
     a suite whose fixtures were all personal could not tell the two apart, and why the fake in
     this verb's tests refuses a read aimed anywhere else.
 
+    **``columnIndexes`` is read with ``get`` and never with ``events.require``**, which refuses
+    a ``None`` value as well as an absent key. It is null whenever the request named no columns,
+    and it is absent altogether from a state built by the previous ASL, which named no such key
+    — this verb's new image runs against that ASL for as long as the two deploys take, because
+    they run on one push with no ordering between them. So ``require`` would refuse every
+    conversion in that window.
+
+    **The projection is applied only when there is one.** With no chosen columns the frame is
+    handed to the writer exactly as it was before this was possible, so the file a request
+    without the field produces is byte-for-byte the one it produced before.
+
     Args:
       event: The described request object.
 
@@ -610,12 +778,13 @@ def _convert(event) -> dict:
     """
     carried = {key: events.require(event, key) for key in _CARRIED}
     columns = events.require(event, "columns")
+    chosen = event.get("columnIndexes")
     described_bytes = events.require(event, "resultsBytes")
     destination = carried["destination"]
     scratch = _scratch()
     try:
         try:
-            schema = types.schema_of(columns)
+            read_schema, write_schema = _schemas(columns, chosen, carried["format"])
         except TerminalError as err:
             raise _Refusal(err.reason, err.detail, err.tokens) from err
         source = scratch / "results.csv"
@@ -627,7 +796,10 @@ def _convert(event) -> dict:
             described_bytes,
         )
         target = scratch / destination["key"].rsplit("/", 1)[-1]
-        rows, precision_note = _write(carried["format"], _frame(source, schema), schema, target)
+        frame = _frame(source, read_schema)
+        if chosen is not None:
+            frame = frame.select(list(write_schema))
+        rows, precision_note = _write(carried["format"], frame, write_schema, target)
         written = _upload(destination, target, carried["format"], carried["onConflict"])
     except _Refusal as refusal:
         logger.info("refused %s for %s", refusal.reason, carried["requestId"])
@@ -700,4 +872,6 @@ def _write(fmt: str, frame: pl.LazyFrame, schema: dict, target: pathlib.Path) ->
         return _write_ndjson(frame, schema, target), False
     if fmt == "xlsx":
         return _write_excel(frame, schema, target)
+    if fmt == "csv":
+        return _write_csv(frame, target), False
     raise KeyError(f"no writer for format {fmt!r}")

@@ -44,11 +44,14 @@ mkdir -p "$OUT"
 pass=0 fail=0
 check() { if [ "$1" = 0 ]; then echo "  PASS  $2"; pass=$((pass + 1)); else echo "  FAIL  $2"; fail=$((fail + 1)); fi; }
 
-enqueue() { # enqueue <format> <filename> <onConflict> <tag>
+# The fifth argument is spliced in whole, so it carries its own leading comma or is empty --
+# `columnIndexes` is the one optional field on this request and a JSON object cannot hold a
+# trailing one.
+enqueue() { # enqueue <format> <filename> <onConflict> <tag> [<,"columnIndexes":[...]>]
   curl -sS -X POST "$API/v1/enqueue/results-conversion" \
     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d "$(printf '{"requestId":"live-%s-%s","queryExecutionId":"%s","format":"%s","onConflict":"%s","submittedAt":"%s","destination":{"space":{"kind":"personal","name":"%s"},"prefix":"spec-222/","filename":"%s"}}' \
-      "$4" "$(date +%s)" "$EXECUTION_ID" "$1" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$USERNAME" "$2")"
+    -d "$(printf '{"requestId":"live-%s-%s","queryExecutionId":"%s","format":"%s","onConflict":"%s","submittedAt":"%s"%s,"destination":{"space":{"kind":"personal","name":"%s"},"prefix":"spec-222/","filename":"%s"}}' \
+      "$4" "$(date +%s)" "$EXECUTION_ID" "$1" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$5" "$USERNAME" "$2")"
 }
 
 # ── SPEC-222 §1 · one conversion per format ──────────────────────────────────
@@ -56,11 +59,36 @@ enqueue() { # enqueue <format> <filename> <onConflict> <tag>
 echo "== SPEC-222 §1 · a conversion per format =="
 for fmt in parquet json xlsx; do
   case "$fmt" in parquet) ext=parquet ;; json) ext=json ;; xlsx) ext=xlsx ;; esac
-  body="$(enqueue "$fmt" "live.$ext" refuse "$fmt")"
+  body="$(enqueue "$fmt" "live.$ext" refuse "$fmt" "")"
   printf '%s' "$body" | grep -q '"requestId"'
   check $? "$fmt accepted: $body"
 done
+
+# ── SPEC-239 · the fourth writer, and the columns it keeps ───────────────────
+# A CSV conversion is the one the browser asks for only when the file keeps a SUBSET of the
+# result's columns, so the interesting request is the one carrying a list. The refusal beside it
+# is the VERB's, on the list's shape; the API's length bound is not exercised here, because a
+# 1,501-entry body is a thing this file would have to build rather than read, and the suite
+# already measures it against the state limit.
+echo "== SPEC-239 · a CSV conversion of the chosen columns =="
+body="$(enqueue csv "live-columns.csv" refuse csv-cols ',"columnIndexes":[1,0]')"
+printf '%s' "$body" | grep -q '"requestId"'
+check $? "csv with a column choice accepted: $body"
+
+body="$(enqueue csv "live-whole.csv" refuse csv-whole "")"
+printf '%s' "$body" | grep -q '"requestId"'
+check $? "csv with no column choice accepted: $body"
+
+body="$(enqueue csv "live-bad.csv" refuse csv-bad ',"columnIndexes":[0,0]')"
+printf '%s' "$body" | grep -q '"requestId"'
+check $? "a repeated position is accepted at the door and refused by the verb: $body"
 cat <<'EYES'
+
+  BY EYE, for the three SPEC-239 requests above: "live-columns.csv" arrives holding the result's
+  first two columns in the order 2nd, 1st, and no others; "live-whole.csv" holds every column in
+  the result's own order; and the repeated position comes back as "Couldn't save the query
+  results: the columns chosen for this file don't match the query's results, so nothing was
+  saved." with no file written.
 
   BY EYE, after ~30s, in Notifications — one message per format:
     Saved N rows as <Parquet|JSON|Excel> to "live.<ext>".

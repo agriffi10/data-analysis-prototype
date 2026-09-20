@@ -1702,7 +1702,10 @@ reads it.
 ## A conversion reads the RESULT, never the source, and ownership is a question about a path (SPEC-221)
 
 Saving a query's results as Parquet, JSON or Excel means producing a new file from a result set of
-unbounded size, which needs polars and must never run inside a request. Three ways were put to the
+unbounded size, which needs polars and must never run inside a request. **A CSV joined them once a
+request could ask for a SUBSET of the result's columns** (SPEC-239): the CSV Athena wrote is still
+copied whenever the file wanted is that object, and only a file the copy cannot produce — some of
+the columns, or the same columns in another order — is built here. Three ways were put to the
 user; **he chose a control plane** over building the file in the browser (two dependencies and a
 row ceiling the tab's memory sets) and over re-running the query as an Athena `UNLOAD` (a second
 bill, several files under names Athena chooses, and no Excel at all).

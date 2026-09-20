@@ -306,7 +306,7 @@ browser ──▶ API ──sqs:SendMessage──▶ FIFO request queue ──�
 | File send | a selection into another person's or space's inbox | [`file-send.md`](../lambdas/info/planes/file-send.md) |
 | Archive | the GLACIER vault and its restore — the one unrecoverable surface | [`archive.md`](../lambdas/info/planes/archive.md) |
 | File operations | one machine for copy, move and delete; the per-space lock; the plan | [`file-ops.md`](../lambdas/info/planes/file-ops.md) |
-| Results conversion | a finished execution's result set written into a space as Parquet, JSON or Excel | [`results-conversion.md`](../lambdas/info/planes/results-conversion.md) |
+| Results conversion | a finished execution's result set written into a space as Parquet, JSON, Excel, or CSV when the file keeps a subset of its columns | [`results-conversion.md`](../lambdas/info/planes/results-conversion.md) |
 
 The Terraform side of the shared machine is
 [`infra/info/control-plane-shape.md`](../infra/info/control-plane-shape.md); the Lambda side, with

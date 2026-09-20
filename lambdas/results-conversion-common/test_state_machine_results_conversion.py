@@ -110,24 +110,6 @@ _RUN_KEYS = frozenset({"traceparent"})
 _CONTEXT_KEYS = frozenset({"raw"})
 
 
-#: Keys a verb has learned to return in THIS release and no Pass state names yet. It is removed
-#: by the change that teaches the two states to read `columnIndexes`, and it is built so that it
-#: HAS to be: `_returned` subtracts it from the verb side only, so the moment the ASL names the
-#: key these cross-checks go red until the constant is gone. An exemption subtracted from both
-#: sides would survive that change in silence, which is a cross-check that has stopped crossing.
-#:
-#: It is the same deploy-ordering fact `_RUN_KEYS` records, in the other direction. `Deploy
-#: Infrastructure` applies the ASL and `Deploy Lambdas` repoints the functions on one push with no
-#: ordering between them, so a verb has to return a new key FIRST, in a release where no state
-#: reads it. The other order is an ASL reading `$.columnIndexes` off a state the still-live image
-#: does not produce — the uncatchable `States.Runtime` this file exists to prevent.
-#:
-#: Because the equalities below go quiet about the key, each verb test asserts its presence
-#: directly, in the shape of the `traceparent` assertion beside it. Without those, this release
-#: would ship its only behavioural change with nothing asserting it.
-_PENDING_KEYS = frozenset({"columnIndexes"})
-
-
 def _domain(keys) -> set[str]:
     """The request keys a cross-check owns — everything but the run-scoped ones.
 
@@ -141,21 +123,6 @@ def _domain(keys) -> set[str]:
       None.
     """
     return set(keys) - _RUN_KEYS
-
-
-def _returned(keys) -> set[str]:
-    """The VERB-side keys a cross-check owns, less the ones no Pass state names yet.
-
-    Args:
-      keys: Any iterable of key names a verb returned.
-
-    Returns:
-      The keys with `_RUN_KEYS` and `_PENDING_KEYS` removed.
-
-    Raises:
-      None.
-    """
-    return _domain(keys) - _PENDING_KEYS
 
 
 def _event() -> list:
@@ -183,29 +150,20 @@ def _stubbed():
 
 def test_validated_reads_exactly_the_keys_validate_authorize_returns(_stubbed):
     validated = v.handler(_event(), None)
-    assert _domain(_reads(_machine()["States"]["Validated"]["Parameters"])) == _returned(validated)
+    assert _domain(_reads(_machine()["States"]["Validated"]["Parameters"])) == _domain(validated)
     assert "traceparent" in validated, "the run has no trace for its later verbs to join"
-    assert "columnIndexes" in validated, (
-        "the key is exempt from the equalities above, so this asserts directly that the verb "
-        "returns it — a Pass state cannot be taught to read a key that a deployed image does "
-        "not return. The verb's own suite catches this too; what is exempt is the PAIRING"
-    )
-    assert _returned(validated) == {
-        "requestId", "username", "format", "onConflict", "queryExecutionId", "resultsKey", "destination",
+    assert _domain(validated) == {
+        "requestId", "username", "format", "onConflict", "queryExecutionId", "resultsKey",
+        "destination", "columnIndexes",
     }
     assert set(validated["destination"]) == {"bucket", "key", "prefix", "spaceKind", "spaceName"}
 
 
 def test_described_reads_exactly_the_keys_describe_results_returns(_stubbed):
     described = d.handler(v.handler(_event(), None), None)
-    assert _domain(_reads(_machine()["States"]["Described"]["Parameters"])) == _returned(described)
+    assert _domain(_reads(_machine()["States"]["Described"]["Parameters"])) == _domain(described)
     assert "traceparent" in described, "this verb replaces the state and dropped the run's trace"
-    assert "columnIndexes" in described, (
-        "the key is exempt from the equalities above, so this asserts directly that the verb "
-        "returns it — a Pass state cannot be taught to read a key that a deployed image does "
-        "not return. The verb's own suite catches this too; what is exempt is the PAIRING"
-    )
-    assert _returned(described) == _domain(
+    assert _domain(described) == _domain(
         _reads(_machine()["States"]["Validated"]["Parameters"])
     ) | {"columns", "resultsBytes"}
 
