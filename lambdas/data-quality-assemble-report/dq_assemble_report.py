@@ -230,9 +230,9 @@ def _within_document_cap(document: dict) -> bytes:
 
     **They are not the largest thing a report can carry, and this mechanism does not make a report
     fit.** Measured at the column cap: a whole report whose every column carries a full
-    ``sampleOffending`` is 428,817 bytes of ASCII and 4,828,817 bytes of astral text — 154% of the
-    cap, on its own, with no samples in it at all. Such a report is written over the cap with
-    nothing to shed, and the page cannot open it. That is a pre-existing gap this spec neither
+    ``sampleOffending`` is 428,817 bytes of plain ASCII and 4,828,817 bytes of astral text — 154%
+    of the cap, on its own, with no samples in it at all. This mechanism runs on such a report and
+    sheds whatever samples it has; the document still does not fit, and the page cannot open it. That is a pre-existing gap this spec neither
     introduced nor closed, recorded with its figures and its method in the control-planes register
     rather than left to be rediscovered.
 

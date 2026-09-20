@@ -27,6 +27,7 @@ import type {
   ColumnFinding,
   CrossFileDisagreement,
   DataQualityReport,
+  DuplicateSampleRow,
   DuplicateSamples,
   EncodingFigure,
   PartitionNamedColumn,
@@ -266,9 +267,14 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
     );
   }
 
-  if (!Array.isArray(samples.columns) || !Array.isArray(samples.rows) || samples.rows.length === 0) {
-    return null;
-  }
+  if (!Array.isArray(samples.columns) || !Array.isArray(samples.rows)) return null;
+  // Each ROW is checked too, not just the two containers. A row that is null or a string reaches
+  // `row.repeats` and `row.values[...]` and throws, which is the same blank screen the container
+  // checks exist to avoid — a guard that validates the box and not what is in it.
+  const rows = samples.rows.filter(
+    (row): row is DuplicateSampleRow => !!row && typeof row === 'object' && Array.isArray(row.values)
+  );
+  if (rows.length === 0) return null;
 
   return (
     <section className="flex flex-col gap-2">
@@ -300,13 +306,15 @@ function DuplicateSamplesSection({samples}: {samples: DuplicateSamples | undefin
             </tr>
           </thead>
           <tbody>
-            {samples.rows.map((row, index) => (
+            {rows.map((row, index) => (
               <tr
                 // The rows are a bag of user values with no identifier of their own, and two
                 // groups can differ only in a column that is null in both renderings.
                 key={index}
                 className="border-b border-border-2 text-text last:border-b-0">
-                <td className="px-3 py-2 text-left font-medium tabular-nums">{formatCount(row.repeats)}</td>
+                <td className="px-3 py-2 text-left font-medium tabular-nums">
+                  {typeof row.repeats === 'number' ? formatCount(row.repeats) : ''}
+                </td>
                 {samples.columns.map((column, cell) => (
                   <td
                     key={column}

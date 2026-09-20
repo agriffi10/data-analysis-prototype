@@ -328,7 +328,11 @@ describe('DataQualityReportPage', () => {
 
     it.each([
       ['one entry, whose count IS the report’s row count', [{key: 'alice/sales/jan.csv', rows: 1200}]],
-      ['no entries at all', [] as {key: string; rows: number}[]]
+      ['no entries at all', [] as {key: string; rows: number}[]],
+      // ABSENT, not empty: `isReport` does not validate this field, so a document without it must
+      // render nothing rather than throw on `.length`. An empty array passed before the default
+      // existed, so it cannot stand in for this case.
+      ['no rowCountsByFile field at all', undefined as unknown as {key: string; rows: number}[]]
     ])('shows no disclosure for %s', async (_label, rowCountsByFile) => {
       mockReport.mockResolvedValue(ok(csvReport({exact: {...csvReport().exact, rowCountsByFile}})));
 
@@ -397,7 +401,10 @@ describe('DataQualityReportPage', () => {
         0,
         [{key: 'alice/sales/jan.csv', offset: 4102}]
       ],
-      ['a measured figure came back with no examples beside it', 12, []]
+      ['a measured figure came back with no examples beside it', 12, []],
+      // ABSENT, for the same reason as the disclosure above: an empty array is a different case
+      // and passed before the default existed.
+      ['the figure carries no sampleOffsets field at all', 12, undefined]
     ])('shows no examples list when %s', async (_label, invalidUtf8Sequences, sampleOffsets) => {
       // Two fixtures, because the guard has two halves and a single fixture that zeroed BOTH
       // would pass with either half deleted. The first is the one the JSDoc argues for: a count
@@ -409,7 +416,7 @@ describe('DataQualityReportPage', () => {
               ...csvReport().approximate,
               encoding: {
                 invalidUtf8Sequences,
-                sampleOffsets,
+                sampleOffsets: sampleOffsets as never,
                 coverage: 'complete',
                 coveragePercent: 100,
                 note: 'Complete — every byte examined.'
@@ -428,6 +435,13 @@ describe('DataQualityReportPage', () => {
 
     it.each([
       ['an object of neither shape', {}],
+      // Each container separately, so neither Array.isArray can be deleted behind the other.
+      ['columns that is not an array', {columns: 'nope', rows: [{repeats: 3, values: ['a']}]}],
+      ['rows that is not an array', {columns: ['name'], rows: 'nope'}],
+      // And the ROWS themselves: a null or a string here reaches `repeats` and `values` and
+      // throws, which the two container checks do not see.
+      ['a row that is null', {columns: ['name'], rows: [null]}],
+      ['a row that is a string', {columns: ['name'], rows: ['x']}],
       // A primitive is the case the two array checks cannot reach: `'omitted' in 'oops'` is a
       // TypeError, so the shape test in front of them is what stops the throw.
       ['a string where an object belongs', 'oops'],
@@ -529,6 +543,35 @@ describe('DataQualityReportPage', () => {
       expect(await screen.findByRole('heading', {name: 'Most repeated rows'})).toBeInTheDocument();
       expect(screen.getByText(new RegExp(SAMPLES_OMITTED_TOO_LARGE.slice(4, 60)))).toBeInTheDocument();
       expect(screen.queryByRole('table', {name: 'Most repeated rows'})).not.toBeInTheDocument();
+    });
+
+    it('renders only the well-formed rows when a cell is malformed among good ones', async () => {
+      // Per row, not per table: one bad row does not cost the samples that are fine, which is the
+      // same rule the plane applies when it drops a row whose arity disagrees with its headers.
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {
+              ...csvReport().exact,
+              duplicateSamples: {
+                columns: ['name'],
+                rows: [null, {repeats: 3, values: ['a']}, 'x'] as never
+              }
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      const table = await screen.findByRole('table', {name: 'Most repeated rows'});
+      const body = within(table).getAllByRole('row').slice(1);
+      expect(body).toHaveLength(1);
+      expect(
+        within(body[0])
+          .getAllByRole('cell')
+          .map((c) => c.textContent)
+      ).toEqual(['3', 'a']);
     });
 
     it.each([

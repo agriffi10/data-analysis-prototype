@@ -2418,18 +2418,19 @@ not which figure carries them.** The drop mechanism is scoped to the samples bec
 this spec added and the one absence the report can explain in a sentence — not because they dominate
 the document. Measured at `DQ_MAX_COLUMNS`, serialized as the write serializes:
 
-| | ASCII values | astral values (emoji) |
-|---|---|---|
-| widest `duplicateSamples` block | 206,481 B | 2,428,481 B |
-| whole report with a full `sampleOffending` on every column | 428,817 B | **4,828,817 B** |
+| | plain ASCII | control or BMP (escapes to 6) | astral (escapes to 12) |
+|---|---|---|---|
+| widest `duplicateSamples` block | 206,481 B | 1,216,481 B | 2,428,481 B |
+| whole report with a full `sampleOffending` on every column | 428,817 B | — | **4,828,817 B** |
 
-against a cap of 3,145,728 B. **In ASCII neither figure is close; in astral text either one is
-within reach and `sampleOffending` alone clears the cap at 154% of it.** The multiplier is ~11.8,
+against a cap of 3,145,728 B. **In plain ASCII neither figure is close; in astral text either one
+is within reach and `sampleOffending` alone clears the cap at 154% of it.** Three columns, not two,
+because the spread between them IS the finding — the same block, counted three ways. The multiplier is ~11.8,
 and it is the unit trap this area's fences name: both figures are bounded in CHARACTERS
 (`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and JSON escapes one astral code point as a surrogate
 pair — twelve characters where a control character or a BMP character costs six. A report of astral
-`sampleOffending` is written over the cap with nothing for the mechanism to shed, and the page
-refuses to open it.
+`sampleOffending` is written over the cap and the page refuses to open it — the mechanism runs and
+sheds the samples if there are any, and the document still does not fit.
 
 The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
 rather than six: Trino's `substr` cuts by code point, so a sampled value can be
@@ -2447,7 +2448,8 @@ source, serialize it with `json.dumps(..., sort_keys=True, separators=(",", ":")
 `dq_assemble_report._serialize` does, so the figure is the one the cap compares — and read its
 length. **Make the columns numeric-DOMINANT with a few stragglers**, or `_column` writes no
 `sampleOffending` at all and the report measures 22 KB: a first attempt at these figures did exactly
-that and read 1% of the cap. Then run it twice, once with ASCII values and once with astral ones.
+that and read 1% of the cap. Then run it three times — plain ASCII, a control character, an astral one — because two
+runs cannot show that the spread is the character set rather than the figure.
 
 **Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
 recovering it means aggregating paths for every group or scanning a second time. The per-file row

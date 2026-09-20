@@ -1350,7 +1350,13 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
     names = [f"c{index}" for index in range(config.DQ_MAX_COLUMNS)]
     files = [_file("alice/sales/a.csv", names)]
     worst = [chr(0x1F600) * sql.SAMPLE_VALUE_CHARS] * config.DQ_MAX_COLUMNS
-    sampled = [[str(5 - index), *worst] for index in range(config.DQ_DUPLICATE_SAMPLE)]
+    # Counts descend from DQ_DUPLICATE_SAMPLE, never through zero: `str(5 - index)` yielded "-1"
+    # once the constant passed six, and `_is_sampled_row` then rightly dropped the row — failing
+    # this test on a row count and pointing at the guard rather than at the fixture.
+    sampled = [
+        [str(config.DQ_DUPLICATE_SAMPLE - index), *worst]
+        for index in range(config.DQ_DUPLICATE_SAMPLE)
+    ]
     cell = json.dumps(sampled)
     body = _csv([{"duplicate_rows": "4", "duplicate_samples": cell}])
     limit = report.duplicates_field_size_limit(len(names))
@@ -1372,7 +1378,7 @@ def test_the_widest_samples_cell_the_statement_can_return_still_parses():
 
     written = document["exact"]["duplicateSamples"]["rows"]
     assert len(written) == config.DQ_DUPLICATE_SAMPLE
-    assert written[0]["repeats"] == 5
+    assert written[0]["repeats"] == config.DQ_DUPLICATE_SAMPLE
     assert len(written[0]["values"]) == config.DQ_MAX_COLUMNS
     assert written[0]["values"][0] == chr(0x1F600) * report.MAX_SAMPLE_VALUE_CHARS + "\u2026"
     # The cell really does sit at the limit's shoulder, so no term of the arithmetic has slack to
@@ -1387,11 +1393,13 @@ def test_the_field_limit_only_ever_rises_above_the_readers_default():
     and returning it would TIGHTEN the reader on cells that parse today — a raise that quietly
     becomes a lowering is how a guard starts causing the failure it was added to prevent.
 
-    The floor is read from the module's CAPTURED default rather than from ``csv`` live, and the
-    third case is why: with the live limit raised, a floor read at the call would floor against
-    itself and hand back the raised figure for a table whose own worst case is far below it.
+    The expected value is read LIVE from ``csv`` rather than from the module's captured constant.
+    Reading the constant would make this test a mirror of the thing it checks: a capture that had
+    itself gone wrong — taken after something else raised the limit — would satisfy an assertion
+    written against it, and the guard would agree with the defect. The third case is the one the
+    capture exists for, and it takes its own reference before raising anything.
     """
-    default = report._CSV_DEFAULT_FIELD_CHARS
+    default = csv.field_size_limit()
 
     assert report.duplicates_field_size_limit(2) == default
     assert report.duplicates_field_size_limit(config.DQ_MAX_COLUMNS) > default

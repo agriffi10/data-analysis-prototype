@@ -441,12 +441,17 @@ def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
     it big.
 
     This lowers the cap AND enlarges the samples, and the first half is unavoidable rather than a
-    shortcut. The samples are bounded by the statement that produces them — at most
-    ``DQ_DUPLICATE_SAMPLE`` rows of ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS``
-    each, about 204 KB — so no samples fixture can carry a report across a 3 MiB cap on its own. In
-    production the branch is reachable only on a report ALREADY within that 204 KB of the cap, which
-    a unit test would have to build a 200-column report with full offending-value samples to
-    reproduce. What the lowered cap cannot hide is a wrong constant, which
+    shortcut. The samples are bounded by the statement that produces them — ``DQ_DUPLICATE_SAMPLE``
+    rows of ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS`` each — so measured as the
+    write measures them, SERIALIZED, the block runs 206 KB of plain ASCII to 2.4 MB of astral text
+    against a 3 MiB cap. No samples fixture crosses that on its own. In production the branch needs
+    a report whose OTHER figures already sit within about 700 KB of the cap, which a unit test would
+    have to build a 200-column report with full offending-value samples to reproduce.
+
+    The three figures are the same block counted three ways, and the spread is the point: a
+    character count is not a byte count, and JSON escapes a control character to six and an astral
+    code point to twelve. An earlier draft of this paragraph quoted the raw character count, 204 KB,
+    as if it were the serialized size, and understated the production window by a factor of ten. What the lowered cap cannot hide is a wrong constant, which
     ``test_data_quality_report_contract.py`` pins against the API's independently — and the samples
     are still what crosses the cap here, which is what the assertions below check.
     """
@@ -560,6 +565,27 @@ def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had
     }
 
 
+def _caller_fields(events) -> list[tuple]:
+    """Every event's message and the fields this verb CHOSE to put on it, in order.
+
+    Spans included, which is the point: the test using this says no sampled value reaches a span
+    field, and a comparison that skipped spans could not say that. What is dropped is only what two
+    runs can never match on — the timestamps, the trace, span and log ids, and the duration — none
+    of which a verb supplies. Everything left is a value this code passed in, which is where a leak
+    would appear.
+
+    Args:
+      events: Captured log-foundry events.
+
+    Returns:
+      One ``(message, fields)`` pair per event.
+
+    Raises:
+      None.
+    """
+    return [(e.get("message"), e.get("fields")) for e in events]
+
+
 def _summary_fields(events) -> dict:
     """The fields of the one event this verb emits about the report it assembled.
 
@@ -634,7 +660,7 @@ def test_no_sampled_value_reaches_the_notification_the_index_or_a_span(
     assert with_samples[1] == without[1]
     # `fields`, not the top level: log-foundry nests every caller-supplied field under it, so a
     # top-level read yields [] on both sides — an equality that holds whatever the verb logs.
-    # Scoped to the one summary event, since a span carries its own duration and ids and two runs
-    # never match on those.
-    assert _summary_fields(with_samples[2]) == _summary_fields(without[2])
+    # EVERY event, spans included, since this test's claim is about spans too; only the values no
+    # verb supplies are dropped, which is what lets two runs be compared at all.
+    assert _caller_fields(with_samples[2]) == _caller_fields(without[2])
     assert _summary_fields(without[2])["row_count"] == 1000

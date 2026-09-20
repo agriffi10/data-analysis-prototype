@@ -538,8 +538,8 @@ def test_the_duplicates_query_fits_athenas_query_string_limit_at_the_column_cap(
     """Holds a duplicates query at the column cap within the query-string limit Athena enforces.
 
     The sibling of the profile query's size test, and owed for the same reason: the samples take
-    every column from ONE rendering to four — the quoted name twice, in the projection and the
-    GROUP BY, and the positional alias twice, in the array and nowhere else — and Athena refuses
+    every column from ONE rendering to four — the quoted name in the projection and in the GROUP BY,
+    and the positional alias in that same projection and again in the array — and Athena refuses
     an over-length statement only when it runs, after every step before it has been paid for. Every
     part the checked source can lengthen is at its longest — every name as long as the column rule
     admits, the cap's worth of them, two partition keys, and a single-file predicate over an object

@@ -102,8 +102,9 @@ export type EncodingExample = {key: string; offset: number};
  * followed by the partition keys — and NOT the report's `exact.columns`, which is a different
  * list in a CSV whose header names a partition. Each row's `values` line up with it positionally.
  */
-export type DuplicateSamples =
-  {columns: string[]; rows: {repeats: number; values: (string | null)[]}[]} | {omitted: string};
+export type DuplicateSampleRow = {repeats: number; values: (string | null)[]};
+
+export type DuplicateSamples = {columns: string[]; rows: DuplicateSampleRow[]} | {omitted: string};
 
 export type EncodingFigure =
   | {
