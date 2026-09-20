@@ -26,6 +26,10 @@ from cpcommon import clients
 from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
+#: The execution name the machine stamps onto the state before this verb runs. It is here
+#: because the stamp precedes inspect-source on the archive arm, so a fixture without it is a
+#: shape the machine cannot produce.
+_EXECUTION = "e4a1c0d2-5b6f-4e37-9a80-1c2d3e4f5a6b"
 
 
 class _S3Error(Exception):
@@ -82,6 +86,7 @@ def _event(items=None):
         "requestId": _REQUEST_ID,
         "mode": "archive",
         "actor": {"username": "alice"},
+        "execution": {"name": _EXECUTION, "startedAt": "2026-09-17T09:30:00.000Z"},
         "source": {
             "bucket": "user-bkt",
             "root": "alice/",
@@ -121,6 +126,12 @@ def test_the_plan_key_comes_back_and_the_object_list_does_not():
     assert "objects" not in result
     assert len(json.dumps(result).encode()) < 4096
     assert fake.puts[0]["Bucket"] == "admin-bkt"
+    # The stamp runs ABOVE this verb, and this state is threaded Payload.$=$ with
+    # OutputPath=$.Payload — so the verb's return REPLACES the state, and $.execution survives
+    # only because the verb echoes its input. That is a behavioural property where it used to be
+    # a structural one, and nothing downstream would fail loudly if it stopped holding: the
+    # manifest key would simply refuse as malformed on every archive.
+    assert result["execution"] == {"name": _EXECUTION, "startedAt": "2026-09-17T09:30:00.000Z"}
 
 
 def test_a_refusal_notifies_the_actor_before_the_catch_records_it(_no_real_notifications):

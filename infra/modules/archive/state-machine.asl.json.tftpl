@@ -56,7 +56,7 @@
             { "Variable": "$.mode", "IsPresent": true },
             { "Variable": "$.mode", "StringEquals": "archive" }
           ],
-          "Next": "InspectSource"
+          "Next": "StampExecution"
         },
         {
           "And": [
@@ -67,6 +67,16 @@
         }
       ],
       "Default": "UnknownModeSeed"
+    },
+    "StampExecution": {
+      "Type": "Pass",
+      "Comment": "Stamps the execution's name and start time onto the state, and it is the FIRST state on this arm so that every verb below it has the execution's identity — reading $$ cannot raise, because the context object is never absent, so there is no reason for a verb to be the one that discovers the stamp came too late. (A Pass is not failure-free in general: RequestFailureSeed below records how one breaches the 256 KB state limit, and CleanupIncomplete how an absent key raises States.Runtime. What is safe here is the READ.) It is a PASS rather than the Parameters of the task below it — reading $$ there wraps the payload one level down, and every notify path on this plane reads the request at the TOP level (the recorded trap). The name makes the transfer manifest's key execution-unique where the plan's is deliberately not, so two overlapping executions of one request cannot clobber each other's dataset while a Map is reading it. The start time is the receipt's 'Requested' line and the record's archivedAt: taken from the context object, the two artifacts agree with each other and a re-run agrees with itself, where two now() calls would differ by however long the deletion took. ResultPath merges it in rather than replacing the state.",
+      "Parameters": {
+        "name.$": "$$.Execution.Name",
+        "startedAt.$": "$$.Execution.StartTime"
+      },
+      "ResultPath": "$.execution",
+      "Next": "InspectSource"
     },
     "InspectSource": {
       "Type": "Task",
@@ -98,16 +108,6 @@
           "Next": "RequestFailureSeed"
         }
       ],
-      "Next": "StampExecution"
-    },
-    "StampExecution": {
-      "Type": "Pass",
-      "Comment": "Stamps the execution's name and start time onto the state, in a PASS rather than in the manifest verb's own Parameters — reading $$ there wraps the payload one level down, and every notify path on this plane reads the request at the TOP level (the recorded trap). The name makes the transfer manifest's key execution-unique where the plan's is deliberately not, so two overlapping executions of one request cannot clobber each other's dataset while a Map is reading it. The start time is the receipt's 'Requested' line and the record's archivedAt: taken from the context object, the two artifacts agree with each other and a re-run agrees with itself, where two now() calls would differ by however long the deletion took. ResultPath merges it in rather than replacing the state.",
-      "Parameters": {
-        "name.$": "$$.Execution.Name",
-        "startedAt.$": "$$.Execution.StartTime"
-      },
-      "ResultPath": "$.execution",
       "Next": "BuildTransferManifest"
     },
     "BuildTransferManifest": {
@@ -576,7 +576,7 @@
     },
     "StampRestoreExecution": {
       "Type": "Pass",
-      "Comment": "StampExecution's restore twin, and it is a second state rather than a shared one because that state's Next is the ARCHIVE manifest builder. Same two values and the same reasons: the execution NAME makes the restore manifest's key execution-unique where the plan's is deliberately not, so two overlapping executions of one request cannot clobber each other's dataset while a Map is reading it; and the START TIME is the receipt's 'Restore requested' line, taken from the context object so the receipt agrees with the execution record and a re-run agrees with itself. Read in a PASS rather than in the task's own Parameters, which wraps the payload one level down.",
+      "Comment": "StampExecution's restore twin, and it is a second state rather than a shared one for the plainest possible reason: one ASL state has one Next, and the two arms hand on to different builders — that one to inspect-source, this one to the restore manifest. Nothing above this point on the restore arm reads $.execution, so its POSITION here is not load-bearing the way its twin's is. Same two values and the same reasons: the execution NAME makes the restore manifest's key execution-unique where the plan's is deliberately not, so two overlapping executions of one request cannot clobber each other's dataset while a Map is reading it; and the START TIME is the receipt's 'Restore requested' line, taken from the context object so the receipt agrees with the execution record and a re-run agrees with itself. Read in a PASS rather than in the task's own Parameters, which wraps the payload one level down.",
       "Parameters": {
         "name.$": "$$.Execution.Name",
         "startedAt.$": "$$.Execution.StartTime"
