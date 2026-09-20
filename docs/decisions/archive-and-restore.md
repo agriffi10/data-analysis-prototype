@@ -346,7 +346,11 @@ PREVIOUS, completed archive's objects, out of a bucket with versioning off. Unre
 inspect-source now refuses up front when the archive prefix already holds anything
 (``request_id_reused``), one ``ListObjectsV2`` before a single ``HeadObject`` is spent. It
 **narrows rather than closes**, exactly as table-share's conflict guard does: two concurrent
-executions can both find the prefix empty. What it removes is the ordinary case. The refusal is told
+executions can both find the prefix empty. What it removes is the ordinary case. **— Superseded
+2026-09-20: the concurrent case is closed too.** inspect-source now takes a create-only claim on
+the id immediately after this listing, so S3 decides between two runs that reach it together; this
+listing stays because it is the cheaper and better-worded refusal for the ordinary reuse, and it
+writes nothing at all. The refusal is told
 to nobody: the objects under the prefix are the first run's, and that run's *"Archived"* is the
 message to read ([the decision](control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
 
@@ -656,8 +660,14 @@ matters: seconds of overlap is a double-submit, and hours is the user acting on 
 sent them. **— Superseded 2026-09-15: the residual is not seconds.** The heads run once, before a
 copy-back Map that runs for as long as the archive copy it mirrors, so the window before a late
 object's write is most of that Map; and a second restore of the same archive runs beside this one,
-because the FIFO group orders only the starts. [The group id entry](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
-has both, and the repair.
+because the FIFO group orders only the starts. **— And superseded again 2026-09-20: there is no
+residual at the write.** Every copy-back line carries `ifAbsent`, so S3 refuses the write itself
+whenever anything is at the key, however late it arrived. What these two passes still buy that the
+condition cannot is the WHOLE-request refusal: the condition protects one object at a time and
+reports the rest as landed, where a guard pass names the colliding paths and refuses before the
+user has been told a restore is under way.
+[The group id entry](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
+has the repair.
 
 ## The retrieval Map tolerates NO failure, and the copy tolerates every one
 
@@ -762,7 +772,12 @@ arm reaches `DeleteArchived`, the same way SPEC-169's walk asserts no path from 
 
 `restore_incomplete` therefore has to say **three** things, and the third is the one an author would
 leave out: how many objects came back, that the archive is intact and still restorable under the
-same id, and that **requesting it again will report the files that DID land**. Without that last
+same id, and that **requesting it again will report the files that DID land**. **— Superseded
+2026-09-20: the second of the three may not be said as a fact.** A sibling restore can sweep the
+vault after the message is sent, so the body now says the archive "was still complete when this
+restore stopped" and only when a count of the prefix earned it; where the count does not add up it
+becomes `restore_archive_cleared`, which claims nothing. The third is unchanged except that its
+remediation is "move or rename" rather than "delete". Without that last
 sentence the obvious next action produces a `destination_occupied` refusal that reads like a new bug
 on top of the old one. It is also the one body on this plane that describes a partial outcome, so
 `test_no_body_promises_a_partial_outcome_except_the_one_that_is` gained a named exemption
@@ -978,6 +993,17 @@ names SPEC-168's browser isolation — not the test — as the decision to re-op
 
 ## The group id orders the STARTS, not the runs, and the restore guard is not absolute at the write
 
+> **Repaired 2026-09-20 by SPEC-237; the diagnosis above stands and the consequences it
+> describes no longer do.** Every copy-back line is now a conditional write, so no restore overwrites
+> anything — not a file the user edited, not a file a sibling restore put back — and the
+> unconditional-`CopyObject` sentences below are superseded. One archive id is one run, by a
+> create-only claim inspect-source takes after the listing, so the reused-id arm is closed rather
+> than narrowed. **What remains true is the overlap itself and what it costs in REPORTS:** two
+> restores of one archive still both run, both may send "started" and "restored", and a run whose
+> sibling swept the vault first still reports an incomplete restore or fails as
+> `archive_object_unreadable`. What no longer follows is data loss, because no message tells the
+> user to delete anything and none calls the archive complete without counting the prefix.
+
 Found 2026-09-15, auditing the module README's claim that two archives from one space, and two
 restores of one archive, serialize. Neither does, and the same audit found the guard's own residual
 understated.
@@ -1029,17 +1055,6 @@ mirrors. So the guard holds when the copy-back STARTS rather than at every write
 the [guard-runs-twice entry](#the-destination-guard-runs-twice-because-this-spec-turned-a-guarantee-into-a-promise)
 called seconds is most of that Map for an object copied late in it: a file the user re-creates at a
 path not yet restored is overwritten by a single restore.
-
-> **Repaired 2026-09-20 by SPEC-237; the diagnosis above stands and the consequences below it
-> no longer do.** Every copy-back line is now a conditional write, so no restore overwrites
-> anything — not a file the user edited, not a file a sibling restore put back — and the
-> unconditional-`CopyObject` sentences above are superseded. One archive id is one run, by a
-> create-only claim inspect-source takes after the listing, so the reused-id arm is closed rather
-> than narrowed. **What remains true is the overlap itself and what it costs in REPORTS:** two
-> restores of one archive still both run, both may send "started" and "restored", and a run whose
-> sibling swept the vault first still reports an incomplete restore or fails as
-> `archive_object_unreadable`. What no longer follows is data loss, because no message tells the
-> user to delete anything and none calls the archive complete without counting the prefix.
 
 **Decided 2026-09-15 (Andrew): repair it with conditional writes, not a lock.** `CopyObject` and
 `CompleteMultipartUpload` both take `If-None-Match: *` on the destination and answer `412` when the
