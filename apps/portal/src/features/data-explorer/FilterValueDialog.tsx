@@ -63,7 +63,6 @@ export function FilterValueDialog({
   const [text, setText] = useState(list ? filterValuesText(existing?.values ?? []) : '');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const textRef = useRef<HTMLTextAreaElement>(null);
 
   const submitList = () => {
     const parsed = parseFilterValues(text, valueKind);
@@ -98,9 +97,8 @@ export function FilterValueDialog({
       title={`Filter ${column}`}
       ariaLabel={`Filter ${column}`}
       submitLabel="Apply filter"
-      // The textarea is deliberately NOT the autofocus ref: that ref doubles as the one
-      // field Enter submits from, and Enter in a list of values is a new line. With none
-      // passed, the dialog focuses its first control, which is the field either way.
+      // No ref in list mode: with none passed the dialog focuses its own first control,
+      // which is the field, and selecting a pre-filled list is not what an edit wants.
       autoFocusRef={list ? undefined : inputRef}
       autoFocusSelect={!list}
       onSubmit={list ? submitList : submitValue}
@@ -110,7 +108,6 @@ export function FilterValueDialog({
       </p>
       {list ? (
         <FilterValuesField
-          ref={textRef}
           className="mt-3"
           label={VALUES_FIELD_LABEL}
           value={text}

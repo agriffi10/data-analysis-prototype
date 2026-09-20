@@ -3,7 +3,7 @@ import {Button} from '../../components/Button';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
-import {NUMERIC_VALUE_REFUSAL, VALUES_FIELD_LABEL} from './FilterValueDialog';
+import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
 import {FilterValuesField} from './FilterValuesField';
 import {SELECT_CLASS} from './dataExplorer.constants';
 import {
@@ -81,7 +81,17 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
   // The multi-line field's RAW text, per column, held apart from the staged query: a list
   // is `string[]`, which cannot represent a blank line the user has just opened or a
   // duplicate they are half way through typing. It is parsed once, on Apply.
-  const [listText, setListText] = useState<Record<string, string>>({});
+  // Seeded AT MOUNT from the applied filters, not only when the operator changes: this
+  // dialog unmounts on Cancel, so an empty start meant every reopen showed a blank field
+  // for a list that was still applied — and then refused Apply for a column the user had
+  // not touched, with the list only reappearing if they cycled the operator dropdown.
+  const [listText, setListText] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      query.filters
+        .filter((f) => operatorTakesValues(f.operator))
+        .map((f) => [f.column, filterValuesText(f.values ?? [])])
+    )
+  );
 
   const editQuery = (update: (q: ExplorationQuery) => ExplorationQuery) =>
     setDraft((d) => ({...d, query: update(d.query)}));
@@ -280,7 +290,8 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
               {filter && operatorTakesValues(filter.operator) && (
                 <FilterValuesField
                   className="basis-full"
-                  label={`${VALUES_FIELD_LABEL} for ${column.name}`}
+                  label={`Values for ${column.name}, one per line`}
+                  labelHidden
                   value={listText[column.name] ?? ''}
                   error={errors[column.name] || null}
                   onChange={(next) => {

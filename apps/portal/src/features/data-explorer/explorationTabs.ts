@@ -69,8 +69,14 @@ const AGGREGATE_FUNCTIONS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
 // field ignores, and a value carrying `\n` or `\r` would come back as two lines. Refusing
 // them here is what lets an edit pre-fill the field line for line and get the same list back.
 function isValidFilterValues(value: unknown): boolean {
+  // The length test is not redundant: `[].every` is TRUE, so without it a stored
+  // `values: []` restored happily and then threw out of every render, leaving the
+  // exploration unrenderable until the user found and cleared that filter. The field
+  // itself refuses an empty list, so it is a shape no gesture can produce.
   return (
-    Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry !== '' && !/[\n\r]/.test(entry))
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((entry) => typeof entry === 'string' && entry !== '' && !/[\n\r]/.test(entry))
   );
 }
 

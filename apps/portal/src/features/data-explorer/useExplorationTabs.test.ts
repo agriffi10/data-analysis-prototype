@@ -378,6 +378,9 @@ describe('useExplorationTabs — the operators a stored document may carry (SPEC
       {column: 'a', operator: 'in', values: ['a', 'b\nc']},
       {column: 'a', operator: 'in', values: ['a', 'b\rc']},
       {column: 'a', operator: 'in', values: 'NY'},
+      // `[].every` is true, so an empty list passed the check, restored, and then threw out
+      // of every render — the exploration unrenderable until the user cleared that filter.
+      {column: 'a', operator: 'in', values: []},
       {column: 'a', operator: 'toString', value: 'x'}
     ];
     for (const filter of bad) {

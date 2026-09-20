@@ -44,6 +44,11 @@
   while re-deriving the operator population: a rule switched to *is empty* while carrying a long
   value was refused for the length of a string the evaluator never reads, and vanished with nothing
   on screen to explain it.
+- **In *Order and filter*, a list the user typed survives an operator round trip.** The staged raw
+  text outlives the staged query's `values`, so `is one of` → `equals` → `is one of` brings the
+  typed lines back rather than an empty field. The spec's sentence describes the other surface,
+  where a switch does clear. The parse at Apply is authoritative either way, and restoring what
+  someone typed thirty seconds ago is the kinder of the two readings.
 
 ## What changed from earlier specs?
 
@@ -59,11 +64,16 @@
 
 ## Verification
 
-Local, by exit code: Prettier `format:check`, ESLint, `tsc -b`, `npm run build`, `check:bundle`,
-the portal suite (170 files, 2,834 tests), `pytest lambdas/` (4,894 passed, 91.4% coverage), `mypy`
-(154 files), `validate_docs.py` and its corpus (189 cases), the feature-flag and app-managed-path
-validators and their corpus, the API-contract regeneration diff, and `pre_push_test.py` (47 cases,
-32 mutations). Two fresh-context diff reviews before the push.
+Local, by exit code — a runner can print a passing summary and still exit non-zero: Prettier
+`format:check`, ESLint, `tsc -b`, `npm run build`, `check:bundle`, the portal suite, `pytest
+lambdas/` (over its 85% coverage floor), `mypy`, `validate_docs.py` and its corpus, the feature-flag
+and app-managed-path validators and their corpora, the API-contract regeneration diff, and
+`pre_push_test.py`. Two fresh-context diff reviews, in different frames, before the push.
+
+The two guards added for the *Order and filter* pre-fill and the list-mode focus were each
+**mutation-tested**: removing the mount-time seeding, and pointing the dialog's autofocus ref at
+the single-value input, each reddened exactly one test, and the suite was green either side of
+the pair.
 
 Deferred to a signed-in session after deploy: the live check in
 [`docs/testing/e2e.md` §4.5](../testing/e2e.md), rows 16–20. It runs against the **committed**
