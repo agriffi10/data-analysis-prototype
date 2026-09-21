@@ -3,6 +3,7 @@ import {
   FILTER_OPERATORS,
   NO_VALUES_REFUSAL,
   TOO_MANY_VALUES_REFUSAL,
+  filterChipLabel,
   isFilterOperator,
   isTextType,
   numericLineRefusal,
@@ -137,5 +138,37 @@ describe('sameQuery over a list filter (FR-002)', () => {
 
   it('is false when the values themselves differ', () => {
     expect(sameQuery(listed(['a', 'b']), listed(['a', 'c']))).toBe(false);
+  });
+});
+
+describe('filterChipLabel', () => {
+  it.each<[string, ColumnFilter, string]>([
+    ['a text value, quoted', {column: 'state', operator: '=', value: 'NY', valueKind: 'string'}, 'state equals “NY”'],
+    ['a number compared, bare', {column: 'qty', operator: '>', value: '5', valueKind: 'number'}, 'qty greater than 5'],
+    [
+      'a list, in the renderer’s order',
+      {column: 'brnd_name', operator: 'in', values: ['Zyrtec', 'Abilify']},
+      'brnd_name is one of “Abilify”, “Zyrtec”'
+    ],
+    [
+      'a long list, de-duplicated before it is counted',
+      {column: 'c', operator: 'in', values: ['e', 'd', 'c', 'b', 'a', 'a']},
+      'c is one of “a”, “b”, “c” and 2 more'
+    ],
+    [
+      'a number list, bare',
+      {column: 'qty', operator: 'notIn', values: ['7', '3'], valueKind: 'number'},
+      'qty is not one of 3, 7'
+    ],
+    [
+      'a text operator on a number column, quoted',
+      {column: 'name', operator: 'contains', value: '5', valueKind: 'number'},
+      'name contains “5”'
+    ],
+    ['an operator with no value', {column: 'last_name', operator: 'isEmpty'}, 'last_name is empty'],
+    ['an empty string', {column: 'name', operator: '=', value: ''}, 'name equals (empty)'],
+    ['spaces kept visible', {column: 'name', operator: '=', value: ' x '}, 'name equals “ x ”']
+  ])('words %s', (_case, filter, label) => {
+    expect(filterChipLabel(filter)).toBe(label);
   });
 });

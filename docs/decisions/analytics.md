@@ -43,6 +43,7 @@ entry you need, not the file.**
 
 - [Suggestions follow the statement, and a Trino insert is quoted where the name needs it (SPEC-244)](#suggestions-follow-the-statement-and-a-trino-insert-is-quoted-where-the-name-needs-it-spec-244)
 - [A statement handed to the Data Explorer runs again, and a result it cannot name is not explorable (SPEC-242)](#a-statement-handed-to-the-data-explorer-runs-again-and-a-result-it-cannot-name-is-not-explorable-spec-242)
+- [A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)](#a-column-filter-shows-as-a-chip-and-the-generated-sql-is-edited-in-query-on-a-copy-spec-243)
 
 ## Fences
 
@@ -1646,3 +1647,36 @@ the current execution, never the last-good one a failure falls back to, which ma
 no one. Carrying the statement in the URL — it can be long and quote the user's data, and a URL is
 kept in history and logs. Per-column refusals for unnamed columns — a tab half of whose gestures
 fail.
+
+## A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)
+
+Three testers hit the same wall: a filter set from a column's menu changed the SQL but never
+appeared in the *Filter expression* box, so there was nothing on screen to build on, and the SQL
+itself could not be edited.
+
+**Chips, not text written into the box.** Writing a menu filter into the expression as SQL would
+make the box a mixture of what the user typed and what the app wrote, and the app could then no
+longer tell them apart — the menu could not find or replace its own filter. So each column filter
+is a chip beneath the box, worded by `filterChipLabel` with the menu's operator label, quoted
+exactly when the renderer quotes it (the same `operatorUsesValueKind` test), and a list named in
+the renderer's order. A chip only removes; editing stays in the menu and *Order and filter*, which
+already edit it, and the shared `Chip` stays remove-only for the recipient lists it also serves.
+Removing one is one `apply`, and focus passes to the next chip, the previous one, or the input,
+since the button it was on is gone. Chips follow array order, so an edit moves a chip to the end,
+and so does *Order and filter*'s apply for list filters, which it re-sets whole.
+
+**No two-way editing; the edit happens in Query on a copy.** Reading arbitrary SQL back into
+filters, sorts and groupings means parsing it, and whatever the parser did not cover would be lost
+without a word. **Open in Query** hands the statement the disclosure shows to a new Query tab
+through `lib/routeHandoff.ts`, by SPEC-242's rules for a hand-off, unrun, as re-opening a history
+entry is, and nothing comes back.
+
+**On a phone the statement always shows** (Andrew, 2026-09-21). The Query page below `tablet` has
+no editor and no tab strip, so the receiver also opens the read-only view. It opens a tab too while
+there is room, so the statement waits in the editor at a wider width, but it never raises the
+tab-limit dialog there: that dialog asks the user to close a tab, which a phone cannot do, and at
+the cap it would have shown nothing at all.
+
+**Rejected.** Writing filters into the expression box; a SQL parser to read an edit back; chips
+that edit; running the statement on arrival in Query; on a phone, opening no tab, as *View DDL*
+does — this statement is meant to be edited, and the editor exists only at a wider width.

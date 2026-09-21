@@ -1,8 +1,8 @@
 # Spec: A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query
 
 **ID:** SPEC-243
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-21
 **Depends On:** SPEC-181, SPEC-183, SPEC-238, SPEC-242, and the Copy SQL control #804 added
 
 ## Overview
@@ -20,7 +20,8 @@ editing happens in Query, on a copy.
 
 ### What was checked, and how
 
-Read from the code at `73c66eef`.
+Read from the code at `73c66eef`, and re-checked at `3a99b7e3`, where SPEC-242 had landed the
+hand-off module and the router options on `renderWithProviders` this spec builds on.
 
 - **Column filters and the expression are separate fields.** `ExplorationQuery` in
   `features/data-explorer/dataExplorer.types.ts` has `filters: ColumnFilter[]` and
@@ -71,13 +72,22 @@ Read from the code at `73c66eef`.
 - **On a phone, the hand-off also shows the statement.** Below `tablet` the Query workspace renders
   `QueryMobileView`, which has no editor, so a new tab alone would be invisible. The read therefore
   also calls the mobile surface's existing `viewSql(sql, label)`, which shows SQL read-only without
-  running it. The tab is still opened, so the statement is waiting in the editor at a wider width.
-- **Chips keep the order filters were set in.** `setFilter` puts an edited filter last, so an edited
-  filter's chip moves to the end. That reads as "most recently set last", and it is what array order
-  gives without a second ordering rule.
-- **The remove control's name carries the whole filter.** `Chip`'s contract is that a truncated name
+  running it. A tab is opened too when there is room, so the statement is waiting in the editor at a
+  wider width.
+- **On a phone, a full tab strip never hides the statement** (decided by Andrew during the build,
+  2026-09-21). A phone has no Query tab strip, so it cannot close a tab, and the tab-limit dialog
+  tells the user to do exactly that. So below `tablet` the read-only view is shown whether or not
+  `openTab` found room, and the dialog is never raised. The existing phone paths (*View DDL*,
+  *View data*) open no tab at all; this one opens one while there is room, because the statement is
+  meant to be edited and the editor exists only at a wider width.
+- **Chips follow the array order.** `setFilter` puts an edited filter last, so an edited filter's
+  chip moves to the end. Applying *Order and filter* re-sets every list filter through `setFilter`,
+  so an apply there that changes anything moves the list filters' chips to the end as well. That is
+  what array order gives, and a second ordering rule to prevent it is not worth its cost.
+- **The remove control's name carries the chip's label.** `Chip`'s contract is that a truncated name
   stays reachable through the remove button's accessible name, so the name is `Remove filter: <label>`
-  rather than naming only the column.
+  rather than naming only the column. For a list of more than three values the label itself is
+  shortened to "and <n> more", so the name carries what the chip says, not every value.
 - **Filter the rows on several columns with the existing gestures.** Nothing new is needed there.
   The chips make the combination visible, and the guide says the filters combine.
 
@@ -91,7 +101,10 @@ Read from the code at `73c66eef`.
 - The registry row and the Data Explorer's *Filter and sort* and *Save as query* guides (FR-004).
 - Tests from each side of the hand-off. The Explorer side uses the router state SPEC-242 adds to
   `renderWithProviders`. The Query side needs `renderWorkspace` in `src/test/queryWorkspaceSupport.tsx`
-  to accept `{pathname, state}` as well, and this spec widens it.
+  to pass a route object, `strictMode` and `browserRouter` through to `renderWithProviders`, and
+  this spec widens it. The StrictMode proof renders with both options on and reads
+  `window.history.state`, as SPEC-242's does, because a `<StrictMode>` handed in as the element
+  under test doubles nothing.
 
 ### Out of Scope
 
@@ -174,17 +187,19 @@ exploration tab's label. The statement never goes in the URL.
 
 `QueryWorkspace` reads that state with `readOpenSqlHandoff`, once, guarded by a ref holding the
 `location.key` it last consumed.
-It calls `tabs.openTab({label, sql})`, which makes the new tab active, and below `tablet` it also calls
-the mobile surface's `viewSql(sql, label)`. It then replaces the history entry as described below. It does not run the statement. When `openTab` returns null it raises its tab-limit dialog
-and opens nothing. State whose `openSql` is not an object with a string `sql` and a string `label` is
+It calls `tabs.openTab({label, sql})`, which makes the new tab active. It does not run the
+statement. At or above `tablet`, when `openTab` returns null, it raises its tab-limit dialog and opens
+nothing. Below `tablet` it calls the mobile surface's `viewSql(sql, label)` whatever `openTab`
+returned, and never raises the dialog, because a phone has no tab strip to close a tab from. It then
+replaces the history entry as described below. State whose `openSql` is not an object with a string `sql` and a string `label` is
 ignored, and nothing is replaced. The entry is replaced, keeping its path and search, whenever the
 reader accepts the state, including when the tab limit refuses the tab.
 
 #### Acceptance Criteria:
 
 - [ ] With the disclosure open and `query` on, **Open in Query** is present. With the disclosure open
-  and `query` off, once the copy button is present, **Open in Query** is absent. With `sql` null it is
-  absent once the disclosure shows `NO_GENERATED_SQL`.
+  and `query` off, once the copy button is present, **Open in Query** is absent. With the disclosure
+  open and `sql` null, once it shows `NO_GENERATED_SQL`, **Open in Query** is absent.
 - [ ] From the Explorer side: activating it on a tab labelled `orders` navigates to `/query` with state
   `{openSql: {sql: <the disclosure's sql>, label: 'orders'}}` and no query string.
 - [ ] From the Query side: rendering `QueryWorkspace` under `<StrictMode>` at `/query` with that state
@@ -193,6 +208,8 @@ reader accepts the state, including when the tab limit refuses the tab.
 - [ ] Below `tablet`, the same state opens the tab and shows the read-only SQL view titled `orders`.
 - [ ] At `QUERY_TABS_MAX` the hand-off raises the tab-limit dialog, the tab count is unchanged, and
   the history state no longer carries `openSql`.
+- [ ] Below `tablet` at `QUERY_TABS_MAX`, the hand-off shows the read-only SQL view titled `orders`,
+  the tab count is unchanged, and no tab-limit dialog is raised.
 - [ ] `readOpenSqlHandoff(buildOpenSqlHandoff({sql: 'SELECT 1', label: 'x'}))` returns
   `{sql: 'SELECT 1', label: 'x'}`.
 - [ ] `readOpenSqlHandoff` returns null for `{openSql: {sql: 1}}`, `null` and `{}`, and
@@ -208,8 +225,8 @@ reader accepts the state, including when the tab limit refuses the tab.
 *Save as query* precedent. The *Filter and sort* guide says the filters set from column menus show
 as chips beside the expression box, that they all apply together with the expression, and that a
 chip's **×** removes that filter. The *Save as query* guide (`explore-save-as-query`), which is where
-the Help already describes *Generated SQL*, says **Open in Query** copies the statement into a new Query tab to edit and run there, and
-that changes there do not come back to the exploration.
+the Help already describes *Generated SQL*, says **Open in Query** copies the statement into a new
+Query tab to edit and run there, and that changes there do not come back to the exploration.
 
 #### Acceptance Criteria:
 
@@ -250,16 +267,22 @@ apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx          (FR
 apps/portal/src/features/data-explorer/ExpressionBar.tsx                     (FR-002: inputRef)
 apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx             (FR-003: label, navigation)
 apps/portal/src/features/data-explorer/GeneratedSqlDisclosure.tsx (+ test)   (FR-003)
-apps/portal/src/features/data-explorer/filtering.test.tsx                    (FR-001, FR-002)
-apps/portal/src/features/query/QueryWorkspace.tsx (+ QueryWorkspace.test.tsx) (FR-003)
+apps/portal/src/features/data-explorer/filterChips.test.tsx (new)            (FR-001, FR-002)
+apps/portal/src/features/data-explorer/openInQuery.test.tsx (new)            (FR-003, the Explorer side)
+apps/portal/src/features/query/QueryWorkspace.tsx                            (FR-003)
+apps/portal/src/features/query/openSqlHandoff.test.tsx (new)                 (FR-003, the Query side)
 apps/portal/src/lib/routeHandoff.ts (+ routeHandoff.test.ts)                (FR-003)
 apps/portal/src/test/queryWorkspaceSupport.tsx                               (renderWorkspace router state)
 apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ gatedSurfaces.test.tsx) (FR-004)
 apps/portal/src/features/help/helpContent.ts                                 (FR-004)
 apps/portal/info/component-inventory/data-explorer-feature.md, query-feature.md, foundations.md,
   test-utilities.md (the renderWorkspace row)
+apps/portal/src/components/Chip.tsx (its docstring no longer says "recipient lists" alone)
 apps/portal/info/component-inventory/shared-components.md (the Chip row no longer says "recipient")
 ```
+
+The chip and hand-off tests are new files rather than additions to `filtering.test.tsx` and
+`QueryWorkspace.test.tsx`, which already hold far more scenarios than one unit should.
 
 ## Implementation Phases
 

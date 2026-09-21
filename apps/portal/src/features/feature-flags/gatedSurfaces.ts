@@ -118,6 +118,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // `Create view` on the Query workspace's own toolbar. Registered separately because it
     // is a different accessible name on a different route, and the walk is by name.
     {name: 'Create view…', kind: 'control', path: '/explore'},
+    // Opening the generated statement in a Query tab lands the user on the Query workspace, so it
+    // follows `query` for the reason `Save as query` does: without the flag it leads nowhere.
+    {name: 'Open in Query', kind: 'control', path: '/explore'},
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
     // its guides follow the `query` flag rather than `files`.

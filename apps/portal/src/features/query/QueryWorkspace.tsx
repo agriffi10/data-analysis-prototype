@@ -1,5 +1,5 @@
-import {Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useNavigate} from 'react-router';
+import {Suspense, lazy, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {useLocation, useNavigate} from 'react-router';
 import {useAuth} from '../auth';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -30,7 +30,7 @@ import {
   stripTrailingSemicolons
 } from './query.sql';
 import {unnamedColumnsRefusal} from './exploreResult';
-import {buildExploreSqlHandoff} from '../../lib/routeHandoff';
+import {buildExploreSqlHandoff, readOpenSqlHandoff} from '../../lib/routeHandoff';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
@@ -204,6 +204,34 @@ export function QueryWorkspace() {
   const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
   // A local const so the `kind` discriminant narrows inside the render callbacks.
   const mobileView = mobile.view;
+
+  // A statement handed over from the Data Explorer's Generated SQL opens ONCE per history entry —
+  // `StrictMode` runs this effect twice on mount, and the replace below lands a render later — in
+  // a new tab, unrun: running it is the user's call, as re-opening a history entry is. The entry is
+  // replaced with no state whenever the hand-off was read, the tab limit included, so neither a
+  // reload nor Back opens a second tab. A phone has no tab strip, so it cannot close a tab to make
+  // room: there the read-only view shows the statement whether or not a tab was opened, and the
+  // tab-limit dialog, which asks for exactly that, is never raised.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const consumedOpenSql = useRef<string | null>(null);
+  const acceptOpenSql = useEffectEvent((handoff: {sql: string; label: string}) => {
+    const id = tabs.openTab({label: handoff.label, sql: handoff.sql});
+    if (isMobile) mobile.viewSql(handoff.sql, handoff.label);
+    else if (id === null) setLimitOpen(true);
+    navigate({pathname: location.pathname, search: location.search, hash: location.hash}, {replace: true, state: null});
+  });
+  useEffect(() => {
+    if (consumedOpenSql.current === location.key) return;
+    const handoff = readOpenSqlHandoff(location.state);
+    if (!handoff) return;
+    consumedOpenSql.current = location.key;
+    // The history entry is outside React and delivers the hand-off once; opening its tab, or
+    // refusing one at the cap, is state that event has to set, which the rule's analysis does not
+    // trace through the effect event.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    acceptOpenSql(handoff);
+  }, [location.key, location.state]);
 
   const openHistory = () => {
     setSavedOpen(false);
@@ -529,7 +557,6 @@ export function QueryWorkspace() {
   // control is not mounted for a run the editor does not own.
   const queryEnabled = useFeature('query');
   const explorerEnabled = useFeature('dataExplorer');
-  const navigate = useNavigate();
   const displayedStatement =
     displayedResultTab && activeRun ? activeRun.statements[displayedResultTab.statementIndex] : undefined;
   const explore =

@@ -2,6 +2,7 @@ import {vi} from 'vitest';
 import {screen} from '@testing-library/react';
 import {useLocation} from 'react-router';
 import {renderWithProviders} from './renderWithProviders';
+import type {TestRoute} from './renderWithProviders';
 import {authenticated} from './authFixtures';
 import {useNavRailContent} from '../components/navRailContext';
 import {
@@ -176,7 +177,17 @@ export function LocationProbe() {
   return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
 }
 
-export function renderWorkspace(route?: string, options: {queryClient?: QueryClient} = {}) {
+/**
+ * The workspace as alice sees it, with a location probe beside it.
+ *
+ * `route` takes history state for a hand-off from another feature. A test of that hand-off also
+ * passes `strictMode` and `browserRouter`: StrictMode's doubled effect is the hazard the receiver
+ * guards against, and the entry it replaces is readable only on jsdom's own history.
+ */
+export function renderWorkspace(
+  route?: TestRoute,
+  options: {queryClient?: QueryClient; strictMode?: boolean; browserRouter?: boolean} = {}
+) {
   return renderWithProviders(
     <>
       <QueryWorkspace />

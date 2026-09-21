@@ -3187,6 +3187,9 @@ list operator and its value cap, so 238 goes first.
    > which 243 extends, and it re-runs the statement, evicting only that body's cached executions.
 6. **243, filter chips and Open in Query.** Browser-only. It reads 238's labels and adds its hand-off
    beside 242's.
+
+   > **Shipped 2026-09-21** in one PR. A phone shows the statement whether or not a Query tab fits
+   > and never raises the tab-limit dialog, which Andrew decided during the build.
 7. **244, scoped autocomplete.** Browser-only, with no billing and no security surface.
 
 **Decisions Andrew took while these were written (2026-09-16):** export leaves hidden columns out in

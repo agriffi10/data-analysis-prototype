@@ -12,7 +12,7 @@ import {isQueryStillRunning} from '../catalog/useQueryExecution';
 import {buildCreateViewSql} from '../catalog/createView';
 import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
-import {readExploreSqlHandoff} from '../../lib/routeHandoff';
+import {buildOpenSqlHandoff, readExploreSqlHandoff} from '../../lib/routeHandoff';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
@@ -327,6 +327,13 @@ export function DataExplorerWorkspace() {
             onSaveQuery={() => {
               if (tabs.activeTab && exploration.sql !== null) {
                 setSaving({tabId: tabs.activeTab.id, sql: exploration.sql});
+              }
+            }}
+            // A copy of the statement goes to Query in router state, never the URL, and this tab is
+            // left exactly as it was: nothing comes back from the edit made there.
+            onOpenInQuery={(sql) => {
+              if (tabs.activeTab) {
+                navigate('/query', {state: buildOpenSqlHandoff({sql, label: tabs.activeTab.label})});
               }
             }}
             onCreateView={() => {

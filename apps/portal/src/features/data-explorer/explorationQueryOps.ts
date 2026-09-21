@@ -316,6 +316,34 @@ export function filterOf(query: ExplorationQuery, column: string): ColumnFilter 
   return query.filters.find((f) => f.column === column) ?? null;
 }
 
+/** How many of a list's values a filter's chip names before it says how many more there are. */
+const CHIP_LIST_SHOWN = 3;
+
+/**
+ * One column filter in words, as its chip beside the expression box shows it.
+ *
+ * The operator reads as the menu offers it, so a chip never words a filter differently from the
+ * gesture that set it. A value is quoted exactly when the statement quotes it — the same
+ * `operatorUsesValueKind` test the renderer applies — so a number column's comparison reads bare
+ * and every text value shows its leading and trailing spaces inside the quotes. An empty string
+ * reads `(empty)`, as the grid shows one. A list is named in the renderer's de-duplicated, sorted
+ * order, so the chip agrees with the SQL rather than with the order the values were typed in.
+ *
+ * @param filter - A filter from the applied description.
+ * @returns E.g. `state equals “NY”`, `qty greater than 5`, `c is one of “a”, “b”, “c” and 2 more`.
+ */
+export function filterChipLabel(filter: ColumnFilter): string {
+  const head = `${filter.column} ${FILTER_OPERATOR_LABELS[filter.operator]}`;
+  const bare = filter.valueKind === 'number' && operatorUsesValueKind(filter.operator);
+  const shown = (value: string) => (value === '' ? '(empty)' : bare ? value : `“${value}”`);
+  if (operatorTakesValue(filter.operator)) return `${head} ${shown(filter.value ?? '')}`;
+  if (!operatorTakesValues(filter.operator)) return head;
+  const distinct = [...new Set(filter.values ?? [])].sort();
+  const more = distinct.length - CHIP_LIST_SHOWN;
+  const named = distinct.slice(0, CHIP_LIST_SHOWN).map(shown).join(', ');
+  return `${head} ${named}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
 // Priorities are re-stamped from the sorted order on every edit, so they stay 0-based and
 // CONTIGUOUS. Left alone, clearing the middle of three sorts would leave
 // 0 and 2 — which renders the same ORDER BY but shows the user a "3rd" with no second.

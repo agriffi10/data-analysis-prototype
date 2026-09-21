@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {Button} from '../../components/Button';
 import {CopyButton} from '../../components/CopyButton';
 
 export const NO_GENERATED_SQL = 'There’s no statement to show yet.';
@@ -9,6 +10,11 @@ export type GeneratedSqlDisclosureProps = {
    * to StartQueryExecution**, never a second rendering made for display.
    */
   sql: string | null;
+  /**
+   * Opens a copy of the statement in a new Query tab. Given only while the `query` flag is on,
+   * since the Query workspace is a `query` surface; absent, the button is not rendered at all.
+   */
+  onOpenInQuery?: (sql: string) => void;
 };
 
 /**
@@ -33,8 +39,11 @@ export type GeneratedSqlDisclosureProps = {
  * statement. The button sits in the body, never in the `<summary>`, where a click would also
  * toggle the disclosure and a control would be nested inside another — and it mounts only while
  * the disclosure is open, so its live region is not a second one on the page the rest of the time.
+ *
+ * **Open in Query** mounts under the same rule, beside it. The statement is never read back into
+ * the exploration: editing happens in Query, on a copy, and this tab is left as it was.
  */
-export function GeneratedSqlDisclosure({sql}: GeneratedSqlDisclosureProps) {
+export function GeneratedSqlDisclosure({sql, onOpenInQuery}: GeneratedSqlDisclosureProps) {
   const [open, setOpen] = useState(false);
   return (
     <details
@@ -54,10 +63,19 @@ export function GeneratedSqlDisclosure({sql}: GeneratedSqlDisclosureProps) {
               className="min-w-0 flex-1 resize-none overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-xs text-text"
             />
             {open && (
-              <CopyButton
-                value={sql}
-                label="SQL"
-              />
+              <div className="flex flex-none flex-col items-end gap-1">
+                <CopyButton
+                  value={sql}
+                  label="SQL"
+                />
+                {onOpenInQuery && (
+                  <Button
+                    size="sm"
+                    onClick={() => onOpenInQuery(sql)}>
+                    Open in Query
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         )}
