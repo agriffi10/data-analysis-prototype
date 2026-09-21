@@ -162,6 +162,14 @@ const CODE_RULES: readonly ErrorRule[] = [
     message: `That report couldn’t be read. ${CONTACT_ADMIN}`,
     userFixable: false
   },
+  // Not the generic `PayloadTooLarge`, whose "try again with less" the user cannot follow: they
+  // sent nothing. A check run now writes a report that leaves out what does not fit.
+  {
+    code: 'DataQualityReportTooLarge',
+    message:
+      'This report is too large to open here. Run the check again from Data quality: a new report leaves out what doesn’t fit, and says how much.',
+    userFixable: true
+  },
 
   // ── Settings documents whose live body the write path could not use.
   // The read-modify-write path never treats "unreadable" as the empty document,

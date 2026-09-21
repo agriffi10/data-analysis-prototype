@@ -58,6 +58,13 @@ export type SkippedFigure = {status: 'skipped'; reason: string};
 export type NotComputedFigure = {status: 'not_computed'; reason: string};
 
 /**
+ * How many entries of a list the report left out because it would have been too large to open.
+ * Written beside the list it counts, named after it, and only when something was left out — the
+ * list keeps its first entries, so absent reads as "every entry is listed".
+ */
+export type Unlisted = number;
+
+/**
  * One column's exact findings.
  *
  * `nullBlankRatio` sits on BOTH branches because `report.py::_column` writes it before
@@ -66,9 +73,14 @@ export type NotComputedFigure = {status: 'not_computed'; reason: string};
  *
  * `otherSpellings` is present only on a column merged from headers that differ only by
  * case across files — Athena reads them as one column — and is absent on every report
- * written before that merge existed.
+ * written before that merge existed. `otherSpellingsUnlisted` counts the spellings left out of it.
  */
-export type ColumnFinding = {name: string; nullBlankRatio: number; otherSpellings?: string[]} & (
+export type ColumnFinding = {
+  name: string;
+  nullBlankRatio: number;
+  otherSpellings?: string[];
+  otherSpellingsUnlisted?: Unlisted;
+} & (
   | {typeConsistency: 'skipped'; reason: string}
   | {dominantType: DominantType; nonParsingValues: number; sampleOffending: string[]}
 );
@@ -159,8 +171,12 @@ export type DataQualityReport = {
   partitionNamedColumns?: PartitionNamedColumn[];
   exact: {
     rowCount: number;
-    /** Sorted by key and reconciled against the manifest, so its length === fileCount. */
+    /**
+     * Sorted by key and reconciled against the manifest, so its length plus
+     * `rowCountsByFileUnlisted` === fileCount.
+     */
     rowCountsByFile: {key: string; rows: number}[];
+    rowCountsByFileUnlisted?: Unlisted;
     duplicateRows: number | NotComputedFigure;
     /**
      * Absent on a report written before the samples existed, and on one whose duplicate count was
@@ -168,7 +184,7 @@ export type DataQualityReport = {
      */
     duplicateSamples?: DuplicateSamples;
     columns: ColumnFinding[];
-    crossFile: {columnsAgree: boolean; disagreements: CrossFileDisagreement[]};
+    crossFile: {columnsAgree: boolean; disagreements: CrossFileDisagreement[]; disagreementsUnlisted?: Unlisted};
   };
   approximate: {raggedRows: RaggedRowsFigure; encoding: EncodingFigure};
   /** At most 5, severity-ordered, structural findings first. */

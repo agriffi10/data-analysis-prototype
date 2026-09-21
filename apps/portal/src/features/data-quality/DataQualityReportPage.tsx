@@ -165,6 +165,14 @@ export const SAMPLES_TRUNCATION_NOTE = 'Values longer than 200 characters are sh
 export const SAMPLES_COUNTING_NOTE = 'Duplicate rows counts every copy after the first.';
 export const ENCODING_EXAMPLES_NOTE = 'These are the first examples found, not all of them.';
 
+/** Why a list stops short of what the report found — the one reason the writer ever has. */
+const TOO_LARGE_TO_LIST = 'because the report would have been too large to open';
+
+/** `one` for exactly one, `many` otherwise — the count itself is formatted by the caller. */
+function plural(count: number, one: string, many: string): string {
+  return count === 1 ? one : many;
+}
+
 /**
  * How many rows each file holds, on request.
  *
@@ -172,48 +180,67 @@ export const ENCODING_EXAMPLES_NOTE = 'These are the first examples found, not a
  * gave no way to find which file was wrong. A `<details>` rather than a section: it is one line
  * closed, and a folder of two hundred files would otherwise push every finding below the fold.
  *
- * Withheld below two entries, because a single-file report's one count IS the report's row count
+ * Withheld below two files, because a single-file report's one count IS the report's row count
  * and a disclosure repeating it reads as a second, different figure. An empty array takes the same
  * branch, so a report whose per-file counts never arrived renders nothing rather than an empty table.
+ * The files the report left out count toward the two and the summary's total, and are named in a
+ * line of their own rather than as rows.
  */
-function RowsPerFileDisclosure({location, entries}: {location: string; entries: {key: string; rows: number}[]}) {
+function RowsPerFileDisclosure({
+  location,
+  entries,
+  unlisted
+}: {
+  location: string;
+  entries: {key: string; rows: number}[];
+  unlisted: number;
+}) {
   const root = sourceFolderPrefix(location);
-  if (entries.length < 2) return null;
+  const total = entries.length + unlisted;
+  if (total < 2) return null;
   return (
     <details className="rounded-lg border border-border bg-surface">
       <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-text">
-        Rows in each file ({entries.length} files)
+        Rows in each file ({formatCount(total)} files)
       </summary>
       {/* No scroll container: two columns, the path already wraps on `break-all`, so there is
           nothing to scroll — and an `overflow-x-auto` that never scrolls is a pointer-only
           region waiting to happen the first time a column is added. */}
       <div className="px-3 pb-3">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-xs text-text-2">
-              <th
-                scope="col"
-                className="py-1.5 text-left font-semibold">
-                File
-              </th>
-              <th
-                scope="col"
-                className="py-1.5 text-right font-semibold">
-                Rows
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr
-                key={entry.key}
-                className="border-b border-border-2 last:border-b-0">
-                <td className="break-all py-1.5 pr-4 font-mono text-text">{relativePath(entry.key, root)}</td>
-                <td className="py-1.5 text-right tabular-nums text-text-2">{formatCount(entry.rows)}</td>
+        {entries.length > 0 && (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs text-text-2">
+                <th
+                  scope="col"
+                  className="py-1.5 text-left font-semibold">
+                  File
+                </th>
+                <th
+                  scope="col"
+                  className="py-1.5 text-right font-semibold">
+                  Rows
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr
+                  key={entry.key}
+                  className="border-b border-border-2 last:border-b-0">
+                  <td className="break-all py-1.5 pr-4 font-mono text-text">{relativePath(entry.key, root)}</td>
+                  <td className="py-1.5 text-right tabular-nums text-text-2">{formatCount(entry.rows)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {unlisted > 0 && (
+          <p className="pt-2 text-sm text-text-2">
+            {formatCount(unlisted)} {entries.length > 0 && 'more '}
+            {plural(unlisted, 'file isn’t', 'files aren’t')} listed, {TOO_LARGE_TO_LIST}.
+          </p>
+        )}
       </div>
     </details>
   );
@@ -364,12 +391,25 @@ function ColumnSamples({column}: {column: ColumnFinding}) {
   );
 }
 
-/** A disclosure, not a finding: the other spellings merged into this one column, which Athena reads as one. */
+/**
+ * A disclosure, not a finding: the other spellings merged into this one column, which Athena reads as one.
+ * Any the report left out are counted after the ones it kept, or alone when it kept none.
+ */
 function ColumnSpellings({column}: {column: ColumnFinding}) {
-  if (!column.otherSpellings?.length) return null;
+  const listed = column.otherSpellings ?? [];
+  const unlisted = column.otherSpellingsUnlisted ?? 0;
+  if (listed.length === 0 && unlisted === 0) return null;
+  const ways = plural(unlisted, 'way', 'ways');
   return (
     <p className="mt-0.5 break-words text-xs text-text-3">
-      Also spelled <span className="break-all font-mono">{column.otherSpellings.join(', ')}</span> in other files
+      {listed.length > 0 ? (
+        <>
+          Also spelled <span className="break-all font-mono">{listed.join(', ')}</span> in other files
+          {unlisted > 0 && `, and ${formatCount(unlisted)} more ${ways} not listed, ${TOO_LARGE_TO_LIST}`}
+        </>
+      ) : (
+        `Also spelled ${formatCount(unlisted)} other ${ways} in other files, not listed, ${TOO_LARGE_TO_LIST}`
+      )}
     </p>
   );
 }
@@ -499,40 +539,51 @@ function ColumnsSection({columns, partitionNamed}: {columns: ColumnFinding[]; pa
 
 function CrossFileSection({
   columnsAgree,
-  disagreements
+  disagreements,
+  unlisted
 }: {
   columnsAgree: boolean;
   disagreements: CrossFileDisagreement[];
+  unlisted: number;
 }) {
   if (columnsAgree) return null;
   return (
     <section className="flex flex-col gap-2">
       <SectionHeading>Files that disagree about their columns</SectionHeading>
-      <ul className="flex flex-col gap-2">
-        {disagreements.map((d) => (
-          <li
-            key={d.file}
-            className="rounded-lg border border-border bg-danger-soft p-3 text-sm">
-            <p className="break-all font-mono font-semibold text-text">{d.file}</p>
-            {d.missing.length > 0 && (
-              <p className="mt-1 text-text-2">
-                Missing: <span className="font-medium text-text">{d.missing.join(', ')}</span>
-              </p>
-            )}
-            {d.extra.length > 0 && (
-              <p className="mt-1 text-text-2">
-                Extra: <span className="font-medium text-text">{d.extra.join(', ')}</span>
-              </p>
-            )}
-            {d.shifted && (
-              <p className="mt-1 text-text-2">
-                Positions: <span className="font-medium text-text">don’t line up with this report’s Columns</span>. A
-                CSV is read by position, so this file’s values are counted under the wrong columns.
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
+      {disagreements.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {disagreements.map((d) => (
+            <li
+              key={d.file}
+              className="rounded-lg border border-border bg-danger-soft p-3 text-sm">
+              <p className="break-all font-mono font-semibold text-text">{d.file}</p>
+              {d.missing.length > 0 && (
+                <p className="mt-1 text-text-2">
+                  Missing: <span className="font-medium text-text">{d.missing.join(', ')}</span>
+                </p>
+              )}
+              {d.extra.length > 0 && (
+                <p className="mt-1 text-text-2">
+                  Extra: <span className="font-medium text-text">{d.extra.join(', ')}</span>
+                </p>
+              )}
+              {d.shifted && (
+                <p className="mt-1 text-text-2">
+                  Positions: <span className="font-medium text-text">don’t line up with this report’s Columns</span>. A
+                  CSV is read by position, so this file’s values are counted under the wrong columns.
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {unlisted > 0 && (
+        <p className="text-sm text-text-2">
+          {formatCount(unlisted)} {disagreements.length > 0 && 'more '}
+          {plural(unlisted, 'file disagrees about its', 'files disagree about their')} columns but{' '}
+          {plural(unlisted, 'isn’t', 'aren’t')} listed, {TOO_LARGE_TO_LIST}.
+        </p>
+      )}
     </section>
   );
 }
@@ -812,11 +863,13 @@ export function DataQualityReportPage() {
           <RowsPerFileDisclosure
             location={report.location}
             entries={report.exact.rowCountsByFile ?? []}
+            unlisted={report.exact.rowCountsByFileUnlisted ?? 0}
           />
           <DuplicateSamplesSection samples={report.exact.duplicateSamples} />
           <CrossFileSection
             columnsAgree={report.exact.crossFile.columnsAgree}
             disagreements={report.exact.crossFile.disagreements}
+            unlisted={report.exact.crossFile.disagreementsUnlisted ?? 0}
           />
           <ColumnsSection
             columns={report.exact.columns}

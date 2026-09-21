@@ -208,6 +208,14 @@ describe('dataQualityReport.service', () => {
       expect(garbage.success === false && garbage.error.code).toBe('DataQualityReportUnreadable');
     });
 
+    it('reports a report too large for the document route as its own failure, not as a request to send less', async () => {
+      send.mockResolvedValue(awsError('PayloadTooLarge'));
+
+      const result = await getQualityReport('user-space', 'alice', 'req-1');
+
+      expect(result.success === false && result.error.code).toBe('DataQualityReportTooLarge');
+    });
+
     it('surfaces a denied read as a typed failure carrying the AWS name', async () => {
       send.mockResolvedValue(awsError('AccessDenied'));
       const result = await getQualityReport('shared-bucket', 'team-data', 'req-1');

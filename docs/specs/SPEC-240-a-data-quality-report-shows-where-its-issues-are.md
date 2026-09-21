@@ -270,8 +270,10 @@ assemble-report serializes the report exactly as it writes it. If that is more t
 `dqcommon.config.DQ_REPORT_MAX_BYTES` bytes, it writes the report with `duplicateSamples` replaced by
 `{omitted: "<sentence>"}`, which says the samples were left out because the report would be too
 large to open. If that document is still over the cap, it is the document written, and the
-over-cap size predates this spec. Only when the serialized report with samples is over the cap does
-assemble-report log its size, as `report_bytes`. No sample value reaches a log line, a span field, the
+over-cap size predates this spec (**superseded: the per-file lists are then shortened from their
+ends, longest first, each counting what it left out, until it fits**). Only when the serialized
+report with samples is over the cap does assemble-report log its size, as `report_bytes`
+(**superseded: whenever the report is over the cap, samples or not**). No sample value reaches a log line, a span field, the
 notification or the runs index.
 
 #### Acceptance Criteria:

@@ -570,44 +570,233 @@ def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had
     }
 
 
+def _split_manifest(count: int, columns, key) -> dict:
+    """A folder whose files alternate between two schemas, so every other file disagrees.
+
+    Args:
+      count: How many files.
+      columns: Each file's column names, from its index.
+      key: Each file's key, from its index.
+
+    Returns:
+      The manifest.
+
+    Raises:
+      None.
+    """
+    return {
+        "format": "csv",
+        "fileCount": count,
+        "files": [
+            {
+                "key": key(index),
+                "size": 300,
+                "columns": [{"name": name, "type": "string"} for name in columns(index)],
+            }
+            for index in range(count)
+        ],
+    }
+
+
+def test_a_report_the_files_that_disagree_push_past_the_cap_lists_the_ones_that_fit(
+    monkeypatch,
+):
+    """Lists the disagreeing files that fit, counts the rest, and leaves the shorter list whole.
+
+    The cap is set a kilobyte under the report the same run writes uncapped, so the files that
+    disagree are what crosses it. The row counts are a list the cap may shorten too, but a shorter
+    one, and a list is shortened only once every longer one has come down to its length — so they
+    arrive whole, and only the long list pays.
+
+    The last assertion is what makes "the ones that fit" true rather than "some of them": one more
+    file restored, with its count taken back, is over the cap.
+    """
+    first = [f"first_{index}".ljust(40, "x") for index in range(3)]
+    second = [f"second_{index}".ljust(40, "x") for index in range(3)]
+    manifest = _split_manifest(
+        40,
+        lambda index: second if index % 2 else first,
+        lambda index: f"alice/sales/part-{index:05d}.csv",
+    )
+    objects = _objects(
+        {
+            f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+            "alice/athenaresults/data-quality/req-1/profile/q1.csv": _wide_profile(6),
+        }
+    )
+    whole = _report(_run(monkeypatch, objects))
+    cap = len(v._serialize(whole)) - 1000
+    monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", cap)
+
+    fake = _run(monkeypatch, objects)
+
+    body = [p for p in fake.puts if p["Key"].endswith("report.json")][-1]["Body"]
+    document = json.loads(body)
+    cross = document["exact"]["crossFile"]
+    every = whole["exact"]["crossFile"]["disagreements"]
+    kept = cross["disagreements"]
+    assert 0 < len(kept) < len(every)
+    assert kept == every[: len(kept)]
+    assert cross["disagreementsUnlisted"] == len(every) - len(kept)
+    assert cross["columnsAgree"] is False
+    assert document["exact"]["rowCountsByFile"] == whole["exact"]["rowCountsByFile"]
+    assert "rowCountsByFileUnlisted" not in document["exact"]
+    assert len(body) <= cap
+    cross["disagreements"] = every[: len(kept) + 1]
+    cross["disagreementsUnlisted"] -= 1
+    if not cross["disagreementsUnlisted"]:
+        del cross["disagreementsUnlisted"]
+    assert len(v._serialize(document)) > cap
+
+
+def _run(monkeypatch, objects, event=None):
+    """Runs the handler once over a fresh stubbed S3 holding ``objects``.
+
+    Args:
+      monkeypatch: The test's monkeypatch.
+      objects: The stubbed objects, by key.
+      event: The task input, defaulting to ``_event()``.
+
+    Returns:
+      The stubbed S3, holding what the run wrote.
+
+    Raises:
+      None.
+    """
+    fake = _setup(monkeypatch, objects=dict(objects))
+    v.handler(event or _event(), None)
+    return fake
+
+
+def test_every_drop_is_priced_exactly_and_taken_from_the_longest_list(monkeypatch):
+    """Holds the trim's arithmetic to the serializer, and its choice to the longest list, at every cap.
+
+    The trim prices each entry it drops rather than serializing the report again, so its figure is
+    only as good as that pricing: a byte low writes a report the page refuses, and a byte high drops
+    an entry that fit. The sweep compares the size it computed with the length of the report it left,
+    at every cap from the whole report down to nothing, which passes each edge on the way — a count
+    reaching two digits, a list emptying, a spelling shorter than the count that replaces it.
+
+    Longest first means a list loses an entry only while it is at least as long as every other, so
+    whatever a list keeps, one more of its entries would have made it the longest. A fixed order
+    breaks that at the first cap where the list it starts with runs short.
+
+    The spellings are one list spent from its end, so across the columns, in order, they read as
+    whole columns, then at most one partly kept, then empty ones. That is read from the report, not
+    from the grouping the trim was handed, and the last column has the fewest spellings: were each
+    column its own list, the longest would be spent first and a later column left whole behind it.
+    """
+    document = {
+        "exact": {
+            "rowCountsByFile": [{"key": f"alice/sales/{n}.csv", "rows": n} for n in range(12)],
+            "crossFile": {
+                "columnsAgree": False,
+                "disagreements": [
+                    {"file": f"alice/sales/{n}.csv", "missing": ["m" * n], "extra": [], "shifted": False}
+                    for n in range(12)
+                ],
+            },
+            "columns": [
+                {"name": "id", "otherSpellings": ["ID", "Id"]},
+                {"name": "amount", "otherSpellings": ["A" * 40, *[f"Amount{n}" for n in range(11)]]},
+                {"name": "note"},
+                {"name": "region", "otherSpellings": ["REGION"]},
+            ],
+        }
+    }
+    whole = len(v._serialize(document))
+    for cap in range(whole, 0, -1):
+        monkeypatch.setattr(v.config, "DQ_REPORT_MAX_BYTES", cap)
+        trimmed = json.loads(json.dumps(document))
+        lists = v._per_file_lists(trimmed)
+
+        size = v._shed_longest_first(lists, whole)
+
+        assert size == len(v._serialize(trimmed)), cap
+        totals = [sum(tail.listed for tail in tails) for tails in lists]
+        for index, tails in enumerate(lists):
+            if all(tail.kept == len(tail.lengths) for tail in tails):
+                continue
+            largest = max(length for tail in tails for length in tail.lengths)
+            assert all(totals[index] + largest + 1 >= total for total in totals), cap
+        spent = [
+            0 if len(column["otherSpellings"]) == len(whole_column["otherSpellings"])
+            else 2 if not column["otherSpellings"] else 1
+            for column, whole_column in zip(
+                trimmed["exact"]["columns"], document["exact"]["columns"], strict=True
+            )
+            if whole_column.get("otherSpellings")
+        ]
+        assert spent == sorted(spent) and spent.count(1) <= 1, cap
+
+
+_S3_MAX_KEY_BYTES = 1024
+
+
 def test_the_largest_report_the_statements_can_return_is_written_where_the_page_can_read_it(
     monkeypatch,
 ):
-    """Writes a report at every per-column bound at once under the cap, its offending values intact.
+    """Writes a report at every bound at once under the cap, its offending values intact.
 
-    Every one of ``DQ_MAX_COLUMNS`` columns is numeric with ``DQ_OFFENDING_VALUE_SAMPLE``
-    stragglers and named as long as the column-name rule allows, and every sampled duplicate row is
-    full. Each value is ``sql.SAMPLE_VALUE_CHARS`` astral code points, the character JSON escapes
-    furthest — twelve, as a surrogate pair — so, give or take the few kilobytes one file's key can
-    add, no report of one file is larger. The per-file lists grow with the file count and the key
-    length instead, and are not bounded this way; the control-planes register records them as
-    open. The widths and counts are read from the constants, so raising any of them runs this
-    against the new worst case, and the cap is the real one.
+    Every per-column figure is at its bound: ``DQ_MAX_COLUMNS`` columns, each numeric with
+    ``DQ_OFFENDING_VALUE_SAMPLE`` stragglers of ``sql.SAMPLE_VALUE_CHARS`` astral code points — the
+    character JSON escapes furthest, twelve, as a surrogate pair — each named as long as the
+    column-name rule allows, with every sampled duplicate row full. So is every per-file list:
+    ``DQ_MAX_OBJECTS`` files keyed to S3's 1,024-byte limit in astral characters, half carrying every
+    column and half only the first, and each spelling its columns in a case no other file uses. So
+    are the two figures nothing shortens: every top issue names the 199 columns a file can lack, the
+    most one line can, and the encoding examples are ``DQ_OFFSET_SAMPLE`` of those keys. Uncapped,
+    that report runs to tens of megabytes. The widths and counts are read from the constants, so
+    raising any of them runs this against the new worst case, and the cap is the real one.
 
-    The samples are dropped, which is what the drop is for. The offending values are not, because
-    nothing drops them: they have to fit on their own, and that is what sizes
-    ``DQ_OFFENDING_VALUE_SAMPLE``. The assertions before the last are what give it meaning — a
-    report whose samples never needed dropping, or whose columns carried nothing, fits trivially.
+    The samples are dropped and every list is shortened, which is what they are for, and each list
+    still counts every entry it had. The offending values are not touched, because nothing drops
+    them: they have to fit on their own, and that is what sizes ``DQ_OFFENDING_VALUE_SAMPLE``. The
+    assertions that each list was shortened, and that the fixed figures are at their bounds, are
+    what give the last one meaning — a report whose lists never needed shortening fits trivially.
     """
     width = v.config.DQ_MAX_COLUMNS
+    files = v.config.DQ_MAX_OBJECTS
     names = [f"{index:03d}".ljust(MAX_COLUMN_NAME_LENGTH, "x") for index in range(width)]
-    manifest = {
-        "format": "csv",
-        "fileCount": 1,
-        "files": [
-            {
-                "key": "alice/sales/a.csv",
-                "size": 300,
-                "columns": [{"name": name, "type": "string"} for name in names],
-            }
-        ],
-    }
+    schemas = (names, names[:1])
+
+    def spelled(index):
+        """One file's header: its schema, every name spelled in a case no other file uses.
+
+        Args:
+          index: The file's position in the folder.
+
+        Returns:
+          The file's column names.
+
+        Raises:
+          None.
+        """
+        bits = [index >> bit & 1 for bit in range(files.bit_length())]
+        return [
+            name[:3] + "".join("X" if bit else "x" for bit in bits) + name[3 + len(bits) :]
+            for name in schemas[index % 2]
+        ]
+
+    stem = "alice/sales/"
+    tail = "0000.csv"
+    fill = "\U0001f600" * ((_S3_MAX_KEY_BYTES - len(stem) - len(tail)) // 4)
+    manifest = _split_manifest(files, spelled, lambda index: f"{stem}{fill}{index:04d}.csv")
     value = "\U0001f600" * v.sql.SAMPLE_VALUE_CHARS
     offending = [value] * v.config.DQ_OFFENDING_VALUE_SAMPLE
     rows = [[str(n), *[value] * width] for n in range(2, 2 + v.config.DQ_DUPLICATE_SAMPLE)]
-    fake = _setup(
+    event = _event()
+    event["encoding"] = {
+        **event["encoding"],
+        "invalidUtf8Sequences": 10**12,
+        "sampleOffsets": [
+            {"key": entry["key"], "offset": 10**15}
+            for entry in manifest["files"][: v.config.DQ_OFFSET_SAMPLE]
+        ],
+    }
+    fake = _run(
         monkeypatch,
-        objects=_objects(
+        _objects(
             {
                 f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
                 "alice/athenaresults/data-quality/req-1/profile/q1.csv": _wide_profile(
@@ -616,19 +805,31 @@ def test_the_largest_report_the_statements_can_return_is_written_where_the_page_
                 "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(rows),
             }
         ),
+        event,
     )
-
-    v.handler(_event(), None)
 
     body = [p for p in fake.puts if p["Key"].endswith("report.json")][-1]["Body"]
     document = json.loads(body)
-    assert document["exact"]["duplicateSamples"] == {
-        "omitted": v.report.SAMPLES_OMITTED_TOO_LARGE
-    }
+    exact = document["exact"]
+    assert len(manifest["files"][0]["key"].encode()) == _S3_MAX_KEY_BYTES
+    assert exact["duplicateSamples"] == {"omitted": v.report.SAMPLES_OMITTED_TOO_LARGE}
     shown = value[: v.report.MAX_SAMPLE_VALUE_CHARS] + "…"
-    assert [column["sampleOffending"] for column in document["exact"]["columns"]] == [
+    assert [column["sampleOffending"] for column in exact["columns"]] == [
         [shown] * v.config.DQ_OFFENDING_VALUE_SAMPLE
     ] * width
+    assert len(document["topIssues"]) == v.config.DQ_TOP_ISSUES
+    assert [issue.count("`") for issue in document["topIssues"]] == [2 * (width - 1)] * len(
+        document["topIssues"]
+    )
+    assert len(document["approximate"]["encoding"]["sampleOffsets"]) == v.config.DQ_OFFSET_SAMPLE
+    cross = exact["crossFile"]
+    assert len(cross["disagreements"]) + cross["disagreementsUnlisted"] == files // 2
+    assert len(exact["rowCountsByFile"]) + exact["rowCountsByFileUnlisted"] == files
+    assert [
+        len(column["otherSpellings"]) + column.get("otherSpellingsUnlisted", 0)
+        for column in exact["columns"]
+    ] == [files - 1] + [files // 2 - 1] * (width - 1)
+    assert exact["columns"][-1]["otherSpellingsUnlisted"] > 0
     assert len(body) <= v.config.DQ_REPORT_MAX_BYTES
 
 
