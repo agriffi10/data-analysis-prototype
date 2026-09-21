@@ -418,16 +418,19 @@ GOLDEN_CELL_LIMIT = (
 )
 
 
-def test_the_unreadable_refusal_states_what_happened_and_offers_the_cast_as_a_CONDITIONAL():
+def test_the_unreadable_refusal_offers_each_known_causes_repair_as_a_CONDITIONAL():
     """This sentence used to assert its own cause — "one of the values didn't match the type the
     query gave its column" — and a CSV conversion falsifies that outright: it types nothing, so a
-    type mismatch can never be why it failed, and the reader also refuses some large results
-    holding newlines inside quoted values. Asserted whole, because the body is a bare literal and
-    nothing else in the plane pins what a user reads."""
+    type mismatch can never be why it failed. The reader also refuses some results holding
+    newlines inside quoted values, and polars words that under several messages, one of which
+    reads exactly as a type failure, so the converter cannot tell the two apart and the sentence
+    names both repairs. Asserted whole, because the body is a bare literal and nothing else in
+    the plane pins what a user reads."""
     assert messages.failure_message(reasons.RESULTS_UNREADABLE, {"format": "csv", "filename": "q1.csv"}) == (
         'Couldn\'t save the query results as CSV: part of the results could not be read, so '
         '"q1.csv" was not written. If a column\'s values don\'t all match the type the query gave '
-        "it, casting that column and running the query again will fix it."
+        "it, casting that column will fix it; if some values run over more than one line, "
+        "replacing those line breaks in the query will. Then run the query again."
     )
 
 

@@ -78,16 +78,26 @@ username; `MessageDeduplicationId` is the `requestId`.
   wrote** — it can use neither the Parquet footer nor the JSON writer's newline count, because a
   CSV carries an embedded newline raw where JSON escapes it. A test of it needs a file large enough
   to be split; a three-line fixture is one chunk and passes against the broken count.
-- **polars' STREAMING sink refuses a large CSV holding quoted newlines outright**, and this is a
-  limit the plane has always had rather than one the CSV writer brought. Measured on 1.12.0: a
-  generated result whose every tenth value is a 200-character multi-line document sinks fine at
-  50,000 rows and raises `ComputeError: field is not properly escaped` at 60,000 — about 2 MB —
-  from `sink_csv` and `sink_parquet` alike, on a file Python's own `csv` module and polars'
-  non-streaming `collect` each read correctly. So Parquet and JSON have refused such a result
-  since they shipped, as `results_unreadable`, whose sentence asks the user to cast a column and
-  is wrong about the cause. Nothing here fixes it; a fix means reading without the streaming
-  engine, which changes what bounds the size cap from the disk to memory and is a re-derivation
-  rather than a patch.
+- **polars' STREAMING reader mis-splits a large CSV holding quoted newlines, and it notices only
+  where a split lands in a column it parses.** This is a limit the plane has always had rather
+  than one the CSV writer brought. Measured on 1.12.0: a generated result whose every tenth value
+  is a 200-character multi-line document sinks fine at 50,000 rows and raises a `ComputeError` at
+  60,000 — about 2 MB — from `sink_csv` and `sink_parquet` alike, on a file Python's own `csv`
+  module and polars' non-streaming `collect` each read correctly. **A column-subset save of that
+  file wrote a WRONG file**, because projection pushdown left the multi-line column unparsed and
+  its fragments landed in the kept column as extra rows — 60,001 rows for 60,000, one of them
+  `}"`; a shape whose every value is multi-line gave 118,291 rows for 60,000. So every streamed sink passes
+  `projection_pushdown=False` (`rc_convert.SINK_OPTIONS`), which parses a dropped column as text
+  and turns the wrong file into a refusal. What the user gets is `results_unreadable`, as Parquet
+  and JSON have given since they shipped. **polars' message cannot tell this from a type
+  mismatch**: the same limit arrives as "field … is not properly escaped", as "found more fields
+  than defined in 'Schema'", and, where the mis-split lands in a typed column, as "could not
+  parse … as dtype i64". So the refusal's sentence names both repairs rather than asserting one
+  cause. No setting of the 1.12 reader avoids the limit — not `low_memory`, not the streaming
+  chunk size, not one thread. Excel is unaffected, because its read is not streamed. polars
+  1.44.2 streams the same file correctly, projected or not. Reading without the streaming engine
+  would also work, but it moves what bounds the size cap from the disk to memory, which is a
+  re-derivation rather than a patch.
 - **`scan_csv` with `schema_overrides` renames columns to the override keys and applies types
   positionally when the header does not match**, silently. The verb checks the CSV's header
   against the metadata before the typed read for that reason alone.
