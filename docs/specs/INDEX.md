@@ -247,7 +247,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 239 — An Export Leaves Out the Columns the Grid Hides | Completed |
 | 240 — A Data-Quality Report Shows Where Its Issues Are | Completed |
 | 241 — A Column's Values, Counted, Are a Filter You Tick | Cancelled |
-| 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | Draft |
+| 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | In Progress |
 | 243 — A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query | Draft |
 | 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Completed |
 

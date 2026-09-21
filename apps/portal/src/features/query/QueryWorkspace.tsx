@@ -318,12 +318,17 @@ export function QueryWorkspace() {
   // Run Statement — the selection, else the statement under the
   // cursor, else the sole statement. When the editor handle isn't available
   // (still lazy-loading), the cursor defaults to the buffer end (last statement).
+  //
+  // A selection holding several statements runs with the tab-per-statement scope: the scopes
+  // differ only in how results are shown, and showing only the last of several statements the
+  // user picked out hides every result but one.
   const handleRunStatement = () => {
     const buffer = activeTab.sql;
     const statements = splitSqlStatements(buffer);
     const selection = editorRef.current?.getSelectionRange() ?? null;
     const cursor = editorRef.current?.getCursorOffset() ?? buffer.length;
-    submitBatch(resolveRunStatements(buffer, statements, selection, cursor), 'statement');
+    const resolved = resolveRunStatements(buffer, statements, selection, cursor);
+    submitBatch(resolved, resolved.length > 1 ? 'script-tabs' : 'statement');
   };
 
   // Run Script — every statement in the buffer, sequentially.

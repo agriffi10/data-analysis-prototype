@@ -1,7 +1,7 @@
 # Spec: A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each
 
 **ID:** SPEC-242
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-16
 **Depends On:** SPEC-078, SPEC-178, SPEC-179, SPEC-183, SPEC-238
 
