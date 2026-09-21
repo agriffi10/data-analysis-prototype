@@ -7,8 +7,8 @@ regardless of object size: Parquet fetches only the file footer, CSV only the he
 at most a bounded sample.
 
 Nothing here uses polars' own cloud reader — it does not work in Lambda, which is what broke
-every real CSV build. CSV and JSON reach polars as an in-memory boto3-fetched head, Parquet
-through a boto3 ranged file object polars seeks to the footer of.
+every real CSV build. CSV and JSON reach polars as an in-memory boto3-fetched head, Parquet as its
+footer alone, fetched with two ranged GETs and framed as a file.
 
 Type rules: Parquet keeps native types; JSON infers, typing a string column date or timestamp
 only when Athena reads every sampled value back as the same date or instant; CSV is not
@@ -59,21 +59,25 @@ _MAX_UTC_OFFSET = datetime.timedelta(hours=18)
 
 
 def _parquet_source(bucket, key):
-    """Opens a ranged file object over a Parquet object, whose schema is a footer at the end.
+    """Fetches a Parquet object's footer, where its schema lives, framed as a file of its own.
 
-    The seam the tests point at a local file — polars reads either the same way.
+    The seam the tests point at a local file — polars reads either the same way. The read happens
+    here rather than inside polars, so a throttled GET reaches the caller as a ``TransientError``
+    and a trailer that locates no footer as a ``ParquetTrailerError``.
 
     Args:
       bucket: The object's bucket.
       key: The object key.
 
     Returns:
-      A seekable reader polars can pass to its Parquet schema reader.
+      An in-memory buffer polars can pass to its Parquet schema reader.
 
     Raises:
-      None.
+      ParquetTrailerError: When the object's trailer locates no footer the probe may read.
+      TransientError: On a retryable S3 fault.
+      ClientError: Any other S3 fault propagates.
     """
-    return bounded_read.S3RangeReader(bucket, key)
+    return bounded_read.read_parquet_footer(bucket, key)
 
 
 def _check_access(bucket, key):
@@ -204,14 +208,13 @@ def _infer_columns(source, fmt):
     sharing its parent's name returns both to the one query an operator would run, with the
     durations double counted. It is named for the operation it performs.
 
-    Parquet goes through the schema reader rather than a lazy scan: over a file object the
-    lazy scan reads the whole object in one call, while the schema reader seeks to the footer.
-    CSV reads the header only, with no type inference. JSON streams a bounded sample and
-    materialises nothing beyond it.
+    Parquet goes through the schema reader over a buffer holding the footer alone, so however
+    polars reads that buffer it cannot reach the data. CSV reads the header only, with no type
+    inference. JSON streams a bounded sample and materialises nothing beyond it.
 
     Args:
-      source: An in-memory buffer of head bytes for CSV and JSON, or a seekable file object
-        for Parquet. Tests pass local files; polars reads all of them.
+      source: An in-memory buffer of head bytes for CSV and JSON, or of the framed footer for
+        Parquet. Tests pass local files; polars reads all of them.
       fmt: ``parquet``, ``csv`` or ``json``.
 
     Returns:

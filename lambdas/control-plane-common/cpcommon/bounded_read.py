@@ -4,16 +4,17 @@ Every control plane that infers a schema wants the first few bytes of an object,
 whole object. Pointing polars at an ``s3://`` URI and letting object_store fetch byte ranges
 does not work in Lambda — it gives up on ranged access and tries to download the entire
 object. So a bounded head is fetched with boto3 and handed to polars as an in-memory buffer.
-Parquet keeps its schema in a footer that a head read cannot reach, so it gets
-``S3RangeReader`` instead. Nothing in this codebase uses object_store any more. Full
-reasoning and measurements: ``lambdas/info/shared-layer.md``.
+Parquet keeps its schema in a footer that a head read cannot reach, so ``read_parquet_footer``
+fetches the footer alone and hands polars that, framed as a file. Nothing in this codebase uses
+object_store any more. Full reasoning and measurements: ``lambdas/info/shared-layer.md``.
 
 Attributes:
   DEFAULT_PROBE_LINES: Enough lines for a JSON sample plus a header. This bounds cost, not
     correctness — the loop stops at a chunk boundary, so the head overshoots by up to a
     chunk, and no realistic object distinguishes a 1-line bound from this one.
   DEFAULT_PROBE_MAX_BYTES: Hard ceiling so one pathologically long line cannot grow the
-    buffer without limit. This is the bound that constrains memory.
+    buffer without limit. This is the bound that constrains memory, and a Parquet footer is held
+    to it too.
   DEFAULT_GZIP_MAX_COMPRESSED_BYTES: Compressed bytes pulled from S3 before a gzip stream
     is abandoned.
   DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES: Decompressed bytes held in memory — the bound that
@@ -26,7 +27,7 @@ Attributes:
 import io
 import zlib
 
-from . import clients, errors
+from . import clients, errors, parquet_trailer
 
 DEFAULT_PROBE_LINES = 1001
 
@@ -41,169 +42,133 @@ DEFAULT_GZIP_MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024
 _GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 
-class S3RangeReader(io.RawIOBase):
-    """A seekable, read-only file object backed by boto3 ranged GETs.
+def _ranged_get(bucket: str, key: str, span: str):
+    """Issues one ranged GetObject, mapping a retryable fault to TransientError.
 
-    Exists for Parquet, whose schema is a footer at the end of the object: a head read
-    cannot reach it, and object_store cannot fetch it here. Handed to
-    ``polars.read_parquet_schema``, polars seeks to the tail and reads only the footer
-    region — a handful of small GETs, independent of how large the object is.
+    Args:
+      bucket: The object's bucket.
+      key: The object key.
+      span: The ``Range`` header's value.
 
-    Use ``read_parquet_schema``, never ``scan_parquet``: given a Python file object,
-    ``scan_parquet`` issues one read for the entire object, which would pull a 250 GB source
-    into a 1 GB Lambda — the exact failure this module exists to avoid.
+    Returns:
+      The GetObject response.
 
-    Each read is one ranged GET. There is no read-ahead cache, because the footer read is a
-    few calls and a cache would only add memory the probe does not need.
+    Raises:
+      TransientError: On a retryable S3 fault.
+      ClientError: Any other S3 fault propagates.
     """
+    try:
+        return clients.s3().get_object(Bucket=bucket, Key=key, Range=span)
+    except Exception as err:
+        errors.raise_if_transient(err, f"get {bucket}/{key}")
+        raise
 
-    def __init__(self, bucket: str, key: str, size: int | None = None):
-        """Positions a reader at byte zero of an object.
 
-        Args:
-          bucket: The object's bucket.
-          key: The object key.
-          size: Known content length, if the caller already has it; otherwise fetched
-            lazily on first use.
+def _read_exactly(response, want: int) -> bytes:
+    """Reads a ranged response's body, refusing one that is not the span that was asked for.
 
-        Returns:
-          None.
+    The declared length is checked BEFORE the body is read, and the read is capped at the span
+    even so. Both matter because S3 answers a range it cannot parse by ignoring it and sending the
+    whole object with a 200, and a reader that trusted the body would pull a large source whole
+    into a function sized for a footer.
 
-        Raises:
-          None.
-        """
-        self._bucket = bucket
-        self._key = key
-        self._size = size
-        self._pos = 0
+    Args:
+      response: A GetObject response.
+      want: The bytes the range asked for.
 
-    @property
-    def size(self) -> int:
-        """Returns the object's length, fetching it once via HeadObject if not supplied.
+    Returns:
+      Exactly ``want`` bytes.
 
-        Needed to resolve SEEK_END and to clamp ranges.
+    Raises:
+      ParquetTrailerError: When the response declares, or yields, a different length.
+    """
+    body = response["Body"]
+    try:
+        declared = response.get("ContentLength")
+        if declared != want:
+            raise parquet_trailer.ParquetTrailerError(
+                f"S3 answered a {want}-byte range with {declared} bytes"
+            )
+        data: bytes = body.read(want)
+    finally:
+        body.close()
+    if len(data) != want:
+        raise parquet_trailer.ParquetTrailerError(
+            f"S3 sent {len(data)} bytes of a {want}-byte range"
+        )
+    return data
 
-        Args:
-          None.
 
-        Returns:
-          The content length in bytes.
+def _object_size(response) -> int:
+    """Reads an object's full length from a ranged response.
 
-        Raises:
-          TransientError: On a retryable S3 fault.
-          ClientError: Any other S3 fault propagates.
-        """
-        if self._size is None:
-            try:
-                self._size = clients.s3().head_object(Bucket=self._bucket, Key=self._key)[
-                    "ContentLength"
-                ]
-            except Exception as err:
-                errors.raise_if_transient(err, f"head {self._bucket}/{self._key}")
-                raise
-        return self._size
+    A ranged answer names the full length after the slash in ``ContentRange``. A response without
+    one is S3 sending the whole object, whose length is then the body's own.
 
-    def readable(self) -> bool:
-        """Reports that this stream supports reading.
+    Args:
+      response: A GetObject response to a ranged request.
 
-        Args:
-          None.
+    Returns:
+      The object's length in bytes.
 
-        Returns:
-          True, always.
+    Raises:
+      ValueError: When a ``ContentRange`` does not end in a numeric total, which both verbs
+        refuse as an unreadable file.
+    """
+    content_range = response.get("ContentRange")
+    if content_range:
+        return int(content_range.rpartition("/")[2])
+    return int(response.get("ContentLength") or 0)
 
-        Raises:
-          None.
-        """
-        return True
 
-    def seekable(self) -> bool:
-        """Reports that this stream supports seeking.
+def read_parquet_footer(bucket: str, key: str) -> io.BytesIO:
+    """Returns a buffer holding only an object's Parquet footer, framed as a file polars can read.
 
-        Args:
-          None.
+    Two ranged GETs and no HEAD: the suffix range ``bytes=-8`` returns the trailer and, in its
+    ``ContentRange``, the object's size; ``parquet_trailer.footer_span`` locates the footer; the
+    second GET fetches exactly that. The buffer is ``PAR1``, the footer, the trailer — a file of
+    one footer and no data, which ``polars.read_parquet_schema`` reads as the full file's schema on
+    every polars this fleet has pinned. Handing polars a file object over S3 instead no longer
+    bounds anything, because a newer polars reads such an object whole.
 
-        Returns:
-          True, always.
+    An empty object has no suffix to return, and S3 refuses the range as ``InvalidRange``; that is
+    refused here as the too-short object it is.
 
-        Raises:
-          None.
-        """
-        return True
+    Args:
+      bucket: The object's bucket.
+      key: The object key.
 
-    def tell(self) -> int:
-        """Returns the current read position.
+    Returns:
+      The framed footer, positioned at byte zero.
 
-        Args:
-          None.
-
-        Returns:
-          The zero-based byte offset.
-
-        Raises:
-          None.
-        """
-        return self._pos
-
-    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
-        """Moves the read position, clamping at byte zero.
-
-        Args:
-          offset: Byte offset relative to ``whence``.
-          whence: One of ``io.SEEK_SET``, ``io.SEEK_CUR`` or ``io.SEEK_END``.
-
-        Returns:
-          The new position.
-
-        Raises:
-          ValueError: On an unrecognised ``whence``.
-          TransientError: On a retryable S3 fault while resolving the size for SEEK_END.
-        """
-        if whence == io.SEEK_SET:
-            base = 0
-        elif whence == io.SEEK_CUR:
-            base = self._pos
-        elif whence == io.SEEK_END:
-            base = self.size
-        else:
-            raise ValueError(f"invalid whence {whence!r}")
-        self._pos = max(0, base + offset)
-        return self._pos
-
-    def readinto(self, buffer) -> int:
-        """Fills a buffer from one ranged GET and advances the position.
-
-        The range is inclusive at both ends and clamped to the object, so a read past EOF
-        returns the tail rather than an InvalidRange error.
-
-        Args:
-          buffer: A writable bytes-like object to fill.
-
-        Returns:
-          The number of bytes written, zero at EOF or for a zero-length buffer.
-
-        Raises:
-          TransientError: On a retryable S3 fault.
-          ClientError: Any other S3 fault propagates.
-        """
-        want = len(buffer)
-        if want == 0 or self._pos >= self.size:
-            return 0
-        end = min(self._pos + want, self.size) - 1
-        try:
-            body = clients.s3().get_object(
-                Bucket=self._bucket, Key=self._key, Range=f"bytes={self._pos}-{end}"
-            )["Body"]
-        except Exception as err:
-            errors.raise_if_transient(err, f"get {self._bucket}/{self._key}")
-            raise
-        try:
-            data = body.read()
-        finally:
-            body.close()
-        buffer[: len(data)] = data
-        self._pos += len(data)
-        return len(data)
+    Raises:
+      ParquetTrailerError: For an object too short to be Parquet, a trailer that does not locate a
+        footer the object holds, a footer longer than ``DEFAULT_PROBE_MAX_BYTES``, or a response
+        that is not the range asked for.
+      TransientError: On a retryable S3 fault.
+      ClientError: Any other S3 fault propagates.
+    """
+    trailer_span = f"bytes=-{parquet_trailer.TRAILER_BYTES}"
+    try:
+        tail = _ranged_get(bucket, key, trailer_span)
+    except Exception as err:
+        if errors.error_code(err) == "InvalidRange":
+            raise parquet_trailer.ParquetTrailerError(
+                "an object of 0 bytes is too short to be a Parquet file"
+            ) from err
+        raise
+    size = _object_size(tail)
+    trailer = _read_exactly(tail, min(size, parquet_trailer.TRAILER_BYTES))
+    offset, length = parquet_trailer.footer_span(size, trailer)
+    if length > DEFAULT_PROBE_MAX_BYTES:
+        raise parquet_trailer.ParquetTrailerError(
+            f"the object declares a {length}-byte footer, over the {DEFAULT_PROBE_MAX_BYTES}-byte "
+            "probe bound"
+        )
+    footer = _read_exactly(
+        _ranged_get(bucket, key, f"bytes={offset}-{offset + length - 1}"), length
+    )
+    return io.BytesIO(parquet_trailer.MAGIC + footer + trailer)
 
 
 def read_head(

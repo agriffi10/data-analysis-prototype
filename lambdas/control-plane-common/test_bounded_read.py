@@ -5,14 +5,20 @@ polars and the fact that a big object is not drained to get them. The fake body 
 what was actually read, so "bounded" is asserted by observation rather than assumed.
 """
 
+import datetime
+import decimal
 import io
 import os
+import struct
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cpcommon import bounded_read, clients
 from cpcommon.errors import TransientError
+from cpcommon.parquet_trailer import ParquetTrailerError
 
 
 class _FakeClientError(Exception):
@@ -127,182 +133,203 @@ def test_deterministic_get_error_propagates_unchanged():
     raise AssertionError("expected the original ClientError to propagate")
 
 
-class _RangeS3:
-    """Serves byte ranges out of an in-memory blob, recording each request."""
+class _CountingBody:
+    """A response body that counts what is actually READ from it, not what it holds."""
 
-    def __init__(self, blob):
+    def __init__(self, data):
+        self._data = data
+        self.bytes_read = 0
+        self.closed = False
+
+    def read(self, amt=None):
+        piece = self._data[self.bytes_read:] if amt is None else self._data[self.bytes_read: self.bytes_read + amt]
+        self.bytes_read += len(piece)
+        return piece
+
+    def close(self):
+        self.closed = True
+
+
+class RangedS3:
+    """Serves one object's byte ranges the way S3 does, recording every range and every byte read.
+
+    The three answers that matter are S3's own, not a convenient approximation: a suffix range
+    longer than the object returns the whole object; an empty object refuses any range as
+    ``InvalidRange``; and a range S3 cannot parse — an inverted one — is IGNORED, the whole object
+    coming back with no ``ContentRange``. ``ignore_ranges_from`` makes every request from that
+    one-based position on answer as if its range had been ignored, and ``body_skew`` makes every
+    body that many bytes longer (or, negative, shorter) than the length its response declares.
+    ``served`` is bytes read out of bodies, so a reader that refuses a response unread is charged
+    nothing for it.
+
+    The verb suites import this rather than keep copies, because a fake that answers ranges
+    differently in three files is three claims about S3.
+    """
+
+    def __init__(self, blob, ignore_ranges_from=None, body_skew=0):
         self.blob = blob
         self.ranges = []
+        self.bodies = []
         self.head_calls = 0
+        self.ignore_ranges_from = ignore_ranges_from
+        self.body_skew = body_skew
+
+    @property
+    def served(self):
+        return sum(body.bytes_read for body in self.bodies)
 
     def head_object(self, **kwargs):
         self.head_calls += 1
         return {"ContentLength": len(self.blob)}
 
+    def _answer(self, start, end, ranged):
+        data = self.blob[start: end + 1]
+        data = data[: len(data) + self.body_skew] if self.body_skew < 0 else data + bytes(self.body_skew)
+        body = _CountingBody(data)
+        self.bodies.append(body)
+        response = {"Body": body, "ContentLength": end - start + 1}
+        if ranged:
+            response["ContentRange"] = f"bytes {start}-{end}/{len(self.blob)}"
+        return response
+
     def get_object(self, Bucket=None, Key=None, Range=None):  # boto3 casing
         self.ranges.append(Range)
-        start, end = Range.split("=")[1].split("-")
-        return {"Body": io.BytesIO(self.blob[int(start): int(end) + 1])}
+        size = len(self.blob)
+        ignored = self.ignore_ranges_from is not None and len(self.ranges) >= self.ignore_ranges_from
+        first, last = Range.split("=", 1)[1].split("-")
+        if ignored or (first and last and int(first) > int(last)):
+            return self._answer(0, size - 1, ranged=False)
+        if size == 0:
+            raise _FakeClientError("InvalidRange")
+        if not first:
+            return self._answer(max(0, size - int(last)), size - 1, ranged=True)
+        return self._answer(int(first), min(int(last), size - 1), ranged=True)
 
 
-def _ranged(blob):
-    fake = _RangeS3(blob)
+def _served_by(blob, **kwargs):
+    fake = RangedS3(blob, **kwargs)
     clients._s3 = fake
     return fake
 
 
-def test_range_reader_reads_a_slice_from_the_middle():
-    fake = _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(3)
-    assert reader.read(4) == b"3456"
-    assert fake.ranges == ["bytes=3-6"]
+def _declared_footer(blob):
+    return struct.unpack("<I", blob[-8:-4])[0]
 
 
-def test_range_reader_seeks_from_the_end():
-    """SEEK_END is how a Parquet reader finds the footer, so it must resolve against size."""
-    _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(-4, io.SEEK_END)
-    assert reader.tell() == 6
-    assert reader.read(4) == b"6789"
+def _parquet_of_every_shape():
+    """A Parquet file over 2 MB, in many row groups, holding the dtypes a probe must carry whole."""
+    import polars as pl
+
+    rows = 400_000
+    frame = pl.DataFrame({
+        "id": pl.Series(range(rows), dtype=pl.Int64),
+        "label": pl.Series([f"row-{i}" for i in range(rows)]),
+        "at": pl.Series([datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC) + datetime.timedelta(seconds=i) for i in range(rows)]),
+        "amount": pl.Series([decimal.Decimal(i % 10_000) / 100 for i in range(rows)], dtype=pl.Decimal(10, 2)),
+        "tags": pl.Series([[i, i + 1] for i in range(rows)], dtype=pl.List(pl.Int64)),
+        "where": pl.Series([{"x": i, "y": f"y{i}"} for i in range(rows)]),
+    })
+    blob = io.BytesIO()
+    frame.write_parquet(blob, row_group_size=20_000)
+    return blob.getvalue()
 
 
-def test_range_reader_seeks_relative_to_the_current_position():
-    _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(2)
-    reader.seek(3, io.SEEK_CUR)
-    assert reader.read(2) == b"56"
+def test_a_parquet_probe_reads_the_footer_alone_and_polars_gets_the_whole_schema():
+    """The property the probe exists for, on whichever polars is installed: the schema is the
+    file's, and what was read is the trailer and the footer, however large the object is."""
+    import polars as pl
+
+    blob = _parquet_of_every_shape()
+    assert len(blob) >= 2_000_000, "the fixture must dwarf its own footer"
+    fake = _served_by(blob)
+
+    schema = pl.read_parquet_schema(bounded_read.read_parquet_footer("bkt", "k"))
+
+    assert schema == pl.read_parquet_schema(io.BytesIO(blob))
+    assert fake.served <= _declared_footer(blob) + 8, f"read {fake.served} of {len(blob)} bytes"
+    assert fake.head_calls == 0 and len(fake.ranges) == 2
 
 
-def test_range_reader_clamps_a_read_past_the_end():
-    """An unclamped range would be an S3 InvalidRange error, not a short read."""
-    fake = _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(8)
-    assert reader.read(100) == b"89"
-    assert fake.ranges == ["bytes=8-9"]
-
-
-def test_range_reader_at_eof_returns_empty_without_a_request():
-    fake = _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(0, io.SEEK_END)
-    assert reader.read(10) == b""
-    assert fake.ranges == [], "a read at EOF must not issue a GET"
-
-
-def test_range_reader_fetches_the_size_once():
-    """head_object is the only unranged call; repeating it per read would triple the
-    request count on a footer probe."""
-    fake = _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    reader.seek(-2, io.SEEK_END)
-    reader.read(1)
-    reader.seek(-4, io.SEEK_END)
-    reader.read(1)
-    assert fake.head_calls == 1
-
-
-def test_range_reader_is_seekable_and_readable():
-    """polars checks these before it will seek rather than slurp."""
-    _ranged(b"abc")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    assert reader.seekable() and reader.readable()
-
-
-def test_range_reader_maps_a_throttled_get_to_TransientError():
-    class _Throttled(_RangeS3):
+def test_a_throttled_ranged_get_is_transient():
+    class _Throttled(RangedS3):
         def get_object(self, **kwargs):
             raise _FakeClientError("SlowDown")
 
-    clients._s3 = _Throttled(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    try:
-        reader.read(4)
-    except TransientError:
-        return
-    raise AssertionError("expected TransientError from a throttled ranged GET")
+    clients._s3 = _Throttled(b"PAR1" * 8)
+    with pytest.raises(TransientError):
+        bounded_read.read_parquet_footer("bkt", "k")
 
 
-def test_range_reader_maps_a_throttled_head_to_TransientError():
-    class _Throttled(_RangeS3):
-        def head_object(self, **kwargs):
-            raise _FakeClientError("SlowDown")
+def test_a_footer_over_the_probe_bound_is_refused_before_it_is_fetched():
+    declared = bounded_read.DEFAULT_PROBE_MAX_BYTES + 1
+    blob = b"PAR1" + bytes(declared) + struct.pack("<I", declared) + b"PAR1"
+    fake = _served_by(blob)
 
-    clients._s3 = _Throttled(b"0123456789")
-    try:
-        bounded_read.S3RangeReader("bkt", "k").seek(0, io.SEEK_END)
-    except TransientError:
-        return
-    raise AssertionError("expected TransientError from a throttled size probe")
+    with pytest.raises(ParquetTrailerError, match=r"over the .*probe bound"):
+        bounded_read.read_parquet_footer("bkt", "k")
+
+    assert (len(fake.ranges), fake.served) == (1, 8), "only the trailer may be fetched"
 
 
-def test_range_reader_serves_a_parquet_smaller_than_the_footer_read_ahead():
-    """A small Parquet must work too — the common case for a first upload.
+@pytest.mark.parametrize("blob", [b"", b"PAR1!"], ids=["empty", "five-bytes"])
+def test_an_object_too_short_to_be_parquet_is_refused_as_too_short(blob):
+    fake = _served_by(blob)
 
-    polars looks for the footer ~64 KiB back from the end, which on a small object is
-    before byte 0. polars clamps that itself (measured: a 903-byte file is fetched as a
-    single ``bytes=0-902``), so this does NOT exercise our own seek clamp — see
-    test_range_reader_clamps_a_seek_before_the_start for that. What it does prove is that
-    a whole-object-sized range round-trips and yields the right schema.
-    """
+    with pytest.raises(ParquetTrailerError, match="too short"):
+        bounded_read.read_parquet_footer("bkt", "k")
+
+    assert fake.served <= len(blob)
+
+
+def test_a_zero_length_footer_is_refused_without_a_second_request():
+    """Its range would be inverted, and S3 answers an inverted range with the whole object."""
+    fake = _served_by(b"PAR1" + bytes(64) + struct.pack("<I", 0) + b"PAR1")
+
+    with pytest.raises(ParquetTrailerError, match="zero bytes"):
+        bounded_read.read_parquet_footer("bkt", "k")
+
+    assert len(fake.ranges) == 1
+
+
+@pytest.mark.parametrize(("ignored_from", "trailer_read"), [(1, 0), (2, 8)], ids=["trailer", "footer"])
+def test_a_response_that_ignored_its_range_is_refused_unread(ignored_from, trailer_read):
+    """The one guard whose failure is silent: trust the body of a whole-object answer and a large
+    source is pulled whole into a function sized for a footer, with every schema still right."""
+    blob = _parquet_of_every_shape()
+    fake = _served_by(blob, ignore_ranges_from=ignored_from)
+
+    with pytest.raises(ParquetTrailerError, match="answered a"):
+        bounded_read.read_parquet_footer("bkt", "k")
+
+    assert fake.served == trailer_read, f"read {fake.served} bytes of a whole-object answer"
+
+
+def test_a_footer_exactly_at_the_probe_bound_is_read():
+    """The other side of the bound: a footer that fills it is the largest the probe serves, and
+    what is read is still the footer and the trailer alone."""
+    declared = bounded_read.DEFAULT_PROBE_MAX_BYTES
+    fake = _served_by(b"PAR1" + bytes(declared) + struct.pack("<I", declared) + b"PAR1")
+
+    framed = bounded_read.read_parquet_footer("bkt", "k")
+
+    assert len(framed.getvalue()) == declared + 12
+    assert fake.served == declared + 8
+
+
+@pytest.mark.parametrize(("skew", "outcome"), [(-1, "refused"), (1_000_000, "read")], ids=["short", "long"])
+def test_a_body_that_is_not_its_declared_length_is_never_read_past_it(skew, outcome):
+    """A body short of what its response declared is refused rather than framed as a footer, and
+    one longer is read only as far as the declared span — the read is capped, not trusted."""
     import polars as pl
 
-    blob = io.BytesIO()
-    pl.DataFrame({"id": pl.Series(range(50), dtype=pl.Int64), "note": pl.Series(["a"] * 50)}).write_parquet(blob)
-    data = blob.getvalue()
-    assert len(data) < 64 * 1024, "fixture must be smaller than the footer read-ahead"
-    fake = _ranged(data)
+    blob = _parquet_of_every_shape()
+    fake = _served_by(blob, body_skew=skew)
 
-    schema = pl.read_parquet_schema(bounded_read.S3RangeReader("bkt", "k"))
+    if outcome == "refused":
+        with pytest.raises(ParquetTrailerError, match="S3 sent"):
+            bounded_read.read_parquet_footer("bkt", "k")
+    else:
+        schema = pl.read_parquet_schema(bounded_read.read_parquet_footer("bkt", "k"))
+        assert schema == pl.read_parquet_schema(io.BytesIO(blob))
 
-    assert [*schema] == ["id", "note"]
-    assert all(int(r.split("=")[1].split("-")[0]) >= 0 for r in fake.ranges), "negative range offset"
-
-
-def test_range_reader_clamps_a_seek_before_the_start():
-    """Seeking further back than the object is long lands at 0, not at a negative offset.
-
-    Defensive: polars clamps this itself today, so no polars-driven test reaches it. An
-    unclamped position would render as "bytes=-44000-..." — a malformed range S3 rejects —
-    so the contract is asserted directly rather than left to a caller's good behaviour.
-    """
-    fake = _ranged(b"0123456789")
-    reader = bounded_read.S3RangeReader("bkt", "k")
-    assert reader.seek(-100_000, io.SEEK_END) == 0
-    assert reader.read(3) == b"012"
-    assert fake.ranges == ["bytes=0-2"]
-
-
-def test_range_reader_serves_a_real_parquet_footer_to_polars():
-    """End to end, the property that matters: polars gets the right schema and the reader
-    hands it only a small tail of the object.
-
-    The object has to be comfortably larger than polars' footer read-ahead (~64 KiB) for
-    this to assert anything — below that size the "footer read" IS the whole file, which
-    is fine but proves nothing. An earlier version used a 58 KB fixture and failed for
-    exactly that reason.
-    """
-    import polars as pl
-
-    blob = io.BytesIO()
-    pl.DataFrame({
-        "id": pl.Series(range(400_000), dtype=pl.Int64),
-        "amount": pl.Series([1.5] * 400_000, dtype=pl.Float64),
-        "note": pl.Series(["abcdefghij"] * 400_000),
-    }).write_parquet(blob, row_group_size=20_000)
-    data = blob.getvalue()
-    assert len(data) > 300_000, "fixture must dwarf the footer read-ahead"
-    fake = _ranged(data)
-
-    schema = pl.read_parquet_schema(bounded_read.S3RangeReader("bkt", "k"))
-
-    assert [*schema] == ["id", "amount", "note"]
-    served = sum(int(r.split("-")[1]) - int(r.split("=")[1].split("-")[0]) + 1 for r in fake.ranges)
-    # Bounded by metadata size, not object size: a fixed ~64 KiB tail however big the file.
-    assert served <= 256 * 1024, f"footer read grew to {served} bytes"
-    assert served < len(data) / 4, f"read {served} of {len(data)} — not a footer read"
-    starts = [int(r.split("=")[1].split("-")[0]) for r in fake.ranges]
-    assert min(starts) > len(data) / 2, "the footer read must sit in the object's tail"
+    assert fake.served <= _declared_footer(blob) + 8

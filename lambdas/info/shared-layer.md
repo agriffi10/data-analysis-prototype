@@ -15,7 +15,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `actor` | the trusted actor a message carries — and it may not verify one |
 | `athena` | the bounded query runner and the DDL poll |
 | `auth` | token verification and the principal it yields — **the API's only, now** |
-| `bounded_read` | reading a bounded head of an object without polars' cloud reader |
+| `bounded_read` | reading a bounded head of an object, or a Parquet file's footer alone, without polars' cloud reader |
 | `cas` | the ETag compare-and-swap retry loop, and the two conditional-write codes told apart — a compare-and-set retries on either, a conditional COPY does not |
 | `clients` | lazy, cached boto3 and JWKS client factories |
 | `cognito` | user pool lookups |
@@ -30,6 +30,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `messages` | the failure-message resolver a domain layer extends, and the reasons nobody is told |
 | `notify` | the FIFO notifications send, its dedup id, and `is_silent` — the test a plane's `emit_failure` reads before telling anyone |
 | `observability` | structured logging — the one door to `log-foundry` |
+| `parquet_trailer` | where a Parquet file's footer sits, from its size and last eight bytes — the one set of trailer checks both footer readers share |
 | `paths` | key containment: is this key inside the root I authorized? |
 | `registry` | shared-space registry reads |
 | `results` | where a plane's Athena statements write their output, and the proof an execution's output is the caller's own |
@@ -348,14 +349,33 @@ whichever comes first, and the rest of the body is abandoned.
 
 That covers formats whose schema lives at the **start** of the file: a CSV header is line 1,
 and JSON type inference samples the first N lines. **Parquet keeps its schema in a footer at
-the end**, which a head read cannot reach — so it gets `S3RangeReader`, a file-like object
-serving `read`/`seek` from boto3 ranged GETs. Handed to `polars.read_parquet_schema`, that
-fetches only the footer region: measured at **64 KiB and 4 GETs** for both a 0.3 MB and a
-25 MB file, i.e. bounded by metadata size, not object size.
+the end**, which a head read cannot reach — so `read_parquet_footer` fetches the footer itself,
+in two ranged GETs and no HEAD. The suffix range `bytes=-8` returns the trailer (the footer's
+length and `PAR1`) and, in its `ContentRange`, the object's size; `parquet_trailer.footer_span`
+locates the footer; the second GET fetches exactly that. What polars is handed is an in-memory
+buffer of `PAR1`, the footer and the trailer — a file of one footer and no data — and
+`polars.read_parquet_schema` reads the full file's schema out of it. What is read is the
+footer's length plus 8 bytes, bounded by metadata size and not by object size.
 
-It must be `read_parquet_schema`. Over a Python file object, `scan_parquet` slurps the
-**whole** object in a single `read()` (measured on polars 1.12.0), so a lazy reader buys
-nothing there.
+**The read is ours rather than polars' on purpose.** It used to be a file-like object over
+ranged GETs, handed to polars to seek; that bounded the read only for as long as polars chose to
+seek. polars 1.44 implements `read_parquet_schema` as `scan_parquet(source).collect_schema()`,
+and over a Python file object that reads the whole object in one call — a large source pulled
+whole into a 1,024 MB function — while the same probe with the footer alone in the buffer cannot
+reach the data however polars reads it. Doing the reads here also means a throttle arrives as
+this module's `TransientError` rather than wrapped inside a polars error the verb could not tell
+from a corrupt file.
+
+**Three refusals are the reader's own, and two of them protect the function rather than the
+answer.** A footer over `DEFAULT_PROBE_MAX_BYTES` (32 MiB) is refused before it is fetched. A
+footer declared as zero bytes is refused in `footer_span`, because its range would be inverted
+and S3 answers a range it cannot parse by ignoring it and sending the whole object. And every
+response's declared length is checked against the span asked for before its body is read, the
+read capped at that span as well, so a whole-object answer is refused unread. Each is a
+`ParquetTrailerError`, which both verbs already turn into their unreadable-file refusal. The
+trailer checks sit in `parquet_trailer` rather than here because the results-conversion plane's
+footer decoder reads the same trailer from a local file, and one set of checks cannot drift from
+another.
 
 **Nothing in this codebase uses object_store any more**, which is the point: the one reader
 that does not work here is no longer on any path, and no call site depends on credentials

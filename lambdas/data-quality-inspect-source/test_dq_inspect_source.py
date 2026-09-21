@@ -7,13 +7,17 @@ the verb module, so no bucket is touched.
 import io
 import json
 import os
+import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
 
 import dq_inspect_source as v
+import polars as pl
 import pytest
+import test_bounded_read as ranged_s3
+from cpcommon import bounded_read
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError, TransientError
 from dqcommon import messages
@@ -289,6 +293,81 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
 # These drive REAL polars against real files (local paths for the s3:// path, a real
 # gzip stream for the compressed path). Mocking the probe would assert nothing about the
 # thing SPEC-111's DDL depends on.
+
+
+class _ProbedS3(_FakeS3):
+    """``_FakeS3``, with source objects the real probe reads, each ranged as S3 ranges it."""
+
+    def __init__(self, sources):
+        super().__init__()
+        self.sources = {key: ranged_s3.RangedS3(blob) for key, blob in sources.items()}
+
+    def head_object(self, Bucket, Key):
+        if Key in self.sources:
+            return self.sources[Key].head_object()
+        return super().head_object(Bucket, Key)
+
+    def get_object(self, Bucket, Key, Range=None):
+        if Key in self.sources:
+            return self.sources[Key].get_object(Bucket=Bucket, Key=Key, Range=Range)
+        return super().get_object(Bucket, Key)
+
+
+def _setup_probed(sources):
+    """Point the verb at ``sources`` with the per-file probe left REAL, unlike ``_setup``."""
+    fake = _ProbedS3(sources)
+    v.clients.s3 = lambda: fake
+    v.s3_listing.list_data_objects = lambda bucket, prefix: iter(
+        [(key, len(blob)) for key, blob in sources.items()]
+    )
+    return fake
+
+
+def test_a_parquet_folder_is_probed_through_each_files_footer_alone():
+    blob = io.BytesIO()
+    pl.DataFrame({
+        "id": pl.Series(range(50_000), dtype=pl.Int64),
+        "note": pl.Series(["x"] * 50_000),
+    }).write_parquet(blob, row_group_size=5_000)
+    data = blob.getvalue()
+    fake = _setup_probed({"alice/sales/part-0.parquet": data})
+
+    v.handler(_event(), None)
+
+    assert _manifest_of(fake)["files"][0]["columns"] == [
+        {"name": "id", "type": "bigint"},
+        {"name": "note", "type": "string"},
+    ]
+    source = fake.sources["alice/sales/part-0.parquet"]
+    assert source.served == struct.unpack("<I", data[-8:-4])[0] + 8, "only the trailer and the footer"
+
+
+def _not_parquet():
+    return b"PAR1" + bytes(64) + b"PAR2"
+
+
+def _footer_over_the_bound():
+    """Built when the test runs, not at collection, so 32 MiB is not held for the whole suite."""
+    declared = bounded_read.DEFAULT_PROBE_MAX_BYTES + 1
+    return b"PAR1" + bytes(declared) + struct.pack("<I", declared) + b"PAR1"
+
+
+@pytest.mark.parametrize(
+    ("build", "reason"),
+    [(_not_parquet, "does not end in PAR1"), (_footer_over_the_bound, "probe bound")],
+    ids=["not-parquet", "footer-over-the-bound"],
+)
+def test_a_parquet_file_whose_footer_the_probe_will_not_read_is_an_unreadable_header(build, reason):
+    """Refused as the unreadable file it is, in the new reader's own words — a refusal from
+    anywhere else would carry polars' text instead, which is how this tells the two apart."""
+    fake = _setup_probed({"alice/sales/part-0.parquet": build()})
+
+    with pytest.raises(TerminalError) as err:
+        v.handler(_event(), None)
+
+    assert err.value.reason == messages.UNREADABLE_HEADER
+    assert reason in err.value.detail
+    assert len(fake.sources["alice/sales/part-0.parquet"].ranges) == 1, "no footer may be fetched"
 
 
 # ── FR-005: the gzip probe's byte bound ──────────────────────────────────────
