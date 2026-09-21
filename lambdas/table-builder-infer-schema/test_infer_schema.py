@@ -14,8 +14,10 @@ conftest.py.
 """
 
 import datetime as dt
+import io
 import json
 import os
+import struct
 import sys
 import tempfile
 
@@ -26,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import infer_schema as i
 import polars as pl
 import pytest
-from cpcommon import clients
+import test_bounded_read as ranged_s3
+from cpcommon import bounded_read, clients
 from cpcommon.errors import TerminalError
 
 _REAL_CHECK = i._check_access
@@ -126,6 +129,58 @@ def test_parquet_preserves_native_types():
     }
     # column order preserved
     assert [c["name"] for c in out["columns"]] == ["order_id", "amount", "d", "ts", "note"]
+
+
+def _use_ranged_s3(blob):
+    """Serve ``blob`` through the real Parquet reader, S3 answering ranges as S3 does."""
+    i._parquet_source = _REAL_PARQUET_SOURCE
+    i._check_access = _REAL_CHECK
+    fake = ranged_s3.RangedS3(blob)
+    clients._s3 = fake
+    return fake
+
+
+def test_a_parquet_sample_is_typed_from_its_footer_alone():
+    blob = io.BytesIO()
+    pl.DataFrame({
+        "order_id": pl.Series(range(50_000), dtype=pl.Int64),
+        "amount": pl.Series([1.5] * 50_000, dtype=pl.Float64),
+    }).write_parquet(blob, row_group_size=5_000)
+    data = blob.getvalue()
+    fake = _use_ranged_s3(data)
+
+    out = i.handler(_event("parquet"), None)
+
+    assert _types(out) == {"order_id": "bigint", "amount": "double"}
+    assert fake.served == struct.unpack("<I", data[-8:-4])[0] + 8, "only the trailer and the footer"
+
+
+def _not_parquet():
+    return b"PAR1" + bytes(64) + b"PAR2"
+
+
+def _footer_over_the_bound():
+    """Built when the test runs, not at collection, so 32 MiB is not held for the whole suite."""
+    declared = bounded_read.DEFAULT_PROBE_MAX_BYTES + 1
+    return b"PAR1" + bytes(declared) + struct.pack("<I", declared) + b"PAR1"
+
+
+@pytest.mark.parametrize(
+    ("build", "reason"),
+    [(_not_parquet, "does not end in PAR1"), (_footer_over_the_bound, "probe bound")],
+    ids=["not-parquet", "footer-over-the-bound"],
+)
+def test_a_parquet_sample_whose_footer_the_probe_will_not_read_refuses_the_build(build, reason):
+    """Refused as the unreadable file it is, and in the new reader's own words: a refusal from
+    anywhere else would carry polars' text instead, which is how this tells the two apart."""
+    fake = _use_ranged_s3(build())
+
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("parquet"), None)
+
+    assert err.value.reason == "schema_inference_failed"
+    assert reason in err.value.detail
+    assert len(fake.ranges) == 1, "no footer may be fetched once the trailer refuses"
 
 
 def test_csv_is_all_string_from_header_no_inference():

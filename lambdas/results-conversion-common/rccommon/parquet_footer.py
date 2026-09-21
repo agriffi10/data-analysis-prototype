@@ -14,7 +14,9 @@ keeps the guard total.
 
 polars 1.12 exposes no metadata reader — ``read_parquet_schema`` returns types and nothing else —
 so the format's own trailer is parsed. The layout is fixed and tiny: the file ends with the
-Thrift-compact ``FileMetaData`` struct, a four-byte little-endian length, and ``PAR1``.
+Thrift-compact ``FileMetaData`` struct, a four-byte little-endian length, and ``PAR1``. Where that
+struct sits is ``cpcommon.parquet_trailer``'s to say, because the schema probe reads the same
+trailer from S3 and one set of checks cannot drift from another.
 
 **The struct reader is generic and field-numbered rather than named**, so it carries no schema
 of its own to drift from the format. The two walks below are the whole of what this module
@@ -24,7 +26,6 @@ that struct's field 4 is the codec enum.
 
 Attributes:
   CODECS: The Parquet ``CompressionCodec`` enum, by its wire value.
-  _MAGIC: The four bytes that open and close every Parquet file.
   _NUM_ROWS: ``FileMetaData``'s row-count field number.
   _ROW_GROUPS: ``FileMetaData``'s row-group list field number.
   _COLUMNS: ``RowGroup``'s column-chunk list field number.
@@ -39,6 +40,8 @@ Attributes:
 
 import struct
 
+from cpcommon import parquet_trailer
+
 __all__ = ["CODECS", "codecs_of", "row_count"]
 
 CODECS = {
@@ -52,7 +55,6 @@ CODECS = {
     7: "lz4_raw",
 }
 
-_MAGIC = b"PAR1"
 _NUM_ROWS = 3
 _ROW_GROUPS = 4
 _COLUMNS = 1
@@ -257,7 +259,8 @@ def _metadata(path) -> dict:
     optimisation: this module exists so the converter never materialises what it wrote, and a
     decoder that pulled a multi-gigabyte Parquet file into memory to find a 4 KB struct would
     size the function's memory against the output — the exact property the streaming writers
-    were chosen to avoid.
+    were chosen to avoid. The trailer's checks are ``parquet_trailer.footer_span``'s, and this
+    makes none of its own.
 
     Args:
       path: The written file.
@@ -271,19 +274,13 @@ def _metadata(path) -> dict:
     with open(path, "rb") as handle:
         handle.seek(0, 2)
         length = handle.tell()
-        if length < 12:
-            raise ParquetFooterError(f"{path} is too short to be a Parquet file")
-        handle.seek(0)
-        if handle.read(4) != _MAGIC:
-            raise ParquetFooterError(f"{path} is not a Parquet file")
-        handle.seek(-8, 2)
-        trailer = handle.read(8)
-        if trailer[4:] != _MAGIC:
-            raise ParquetFooterError(f"{path} is not a Parquet file")
-        size = struct.unpack("<I", trailer[:4])[0]
-        if size > length - 12:
-            raise ParquetFooterError(f"{path} declares a {size}-byte footer it does not hold")
-        handle.seek(-(8 + size), 2)
+        handle.seek(max(0, length - parquet_trailer.TRAILER_BYTES))
+        trailer = handle.read(parquet_trailer.TRAILER_BYTES)
+        try:
+            offset, size = parquet_trailer.footer_span(length, trailer)
+        except parquet_trailer.ParquetTrailerError as err:
+            raise ParquetFooterError(f"{path}: {err}") from err
+        handle.seek(offset)
         return _Reader(handle.read(size)).struct()
 
 

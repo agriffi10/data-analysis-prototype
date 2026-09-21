@@ -278,21 +278,24 @@ def _resolve_format(objects: list[tuple[str, int]], location: str) -> str:
 
 
 def _parquet_source(bucket: str, key: str):
-    """Opens a ranged file object over a Parquet object, whose schema is a footer at the end.
+    """Fetches a Parquet object's footer, where its schema lives, framed as a file of its own.
 
-    The seam the tests point at a local file — polars reads either the same way.
+    The read happens here rather than inside polars, so a throttled GET reaches the caller as a
+    ``TransientError`` and a trailer that locates no footer as a ``ParquetTrailerError``.
 
     Args:
       bucket: The source bucket.
       key: The object key.
 
     Returns:
-      A seekable reader.
+      An in-memory buffer polars can pass to its Parquet schema reader.
 
     Raises:
-      None.
+      ParquetTrailerError: When the object's trailer locates no footer the probe may read.
+      TransientError: On a retryable S3 fault.
+      ClientError: Any other S3 fault propagates.
     """
-    return bounded_read.S3RangeReader(bucket, key)
+    return bounded_read.read_parquet_footer(bucket, key)
 
 
 def _check_access(bucket: str, key: str) -> None:
@@ -301,13 +304,10 @@ def _check_access(bucket: str, key: str) -> None:
     Catches the common S3 faults — object missing, access denied, throttling — before the scan,
     keeping them distinct from the probe's own errors, which are terminal.
 
-    It does not close the gap, and the limit is worth stating plainly: this is a check-then-act,
-    and the polars scan afterwards is what actually pulls the data. If S3 throttles that read,
-    polars raises its own error, which the probe cannot tell apart from a corrupt file and so
-    terminalizes as an unreadable header — a permanent-sounding verdict on a transient fault.
-    Narrowing it would mean pattern-matching AWS text out of a polars exception, which is fragile
-    in a different way. Table-builder's inference carries the same shape; if this is ever fixed,
-    fix it in both.
+    It is a check-then-act, and the reads afterwards are what actually pull the bytes. Every one
+    of them is boto3's own — the bounded head, the gzip stream and the Parquet footer — and maps a
+    throttle to ``TransientError`` itself, so a throttle after this check is retried rather than
+    reported as an unreadable header. polars only ever reads a buffer already in memory.
 
     Args:
       bucket: The source bucket.
@@ -439,15 +439,15 @@ def _hive(dtype, name: str, key: str = "") -> str:
 def _columns_from(source, fmt: str, key: str = "") -> list[dict]:
     """Reads the ordered columns from one probe source.
 
-    Parquet goes through the schema reader rather than a lazy scan, which over a file object would
-    read the whole object in one call. CSV reads the header only with no type inference, so every
-    column is a string, matching the SerDe the temp table uses — and polars parses the header
-    properly, so a quoted name containing a delimiter survives where a hand-rolled split would not.
-    JSON streams a bounded sample.
+    Parquet goes through the schema reader over a buffer holding the footer alone, so however
+    polars reads that buffer it cannot reach the data. CSV reads the header only with no type
+    inference, so every column is a string, matching the SerDe the temp table uses — and polars
+    parses the header properly, so a quoted name containing a delimiter survives where a
+    hand-rolled split would not. JSON streams a bounded sample.
 
     Args:
       source: An in-memory buffer of head bytes for text formats, plain or already decompressed,
-        or a seekable ranged file object for Parquet.
+        or of the framed footer for Parquet.
       fmt: The canonical format.
       key: The object key, for the user-facing token in any refusal.
 

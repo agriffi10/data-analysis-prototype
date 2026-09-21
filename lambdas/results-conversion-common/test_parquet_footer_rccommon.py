@@ -8,6 +8,7 @@ the converter's suite goes on to pin.
 import builtins
 import io
 import os
+import struct
 import sys
 
 import polars as pl
@@ -147,3 +148,12 @@ def test_an_unrecognised_codec_reads_as_a_change_rather_than_an_empty_set(tmp_pa
     assert parquet_footer.CODECS[6] == "zstd"
     monkeypatch.setattr(parquet_footer, "CODECS", {})
     assert parquet_footer.codecs_of(_written(tmp_path, 4)) == {"codec-6"}
+
+
+def test_a_file_whose_trailer_locates_no_footer_is_refused_in_the_shared_checks_words(tmp_path):
+    """The decoder makes no trailer check of its own: a file that does not end in PAR1 is refused
+    in ``parquet_trailer``'s words, not by the Thrift decode happening to fail on what it read."""
+    lying = tmp_path / "lying.parquet"
+    lying.write_bytes(b"PAR1" + bytes(64) + struct.pack("<I", 16) + b"PAR2")
+    with pytest.raises(parquet_footer.ParquetFooterError, match="does not end in PAR1"):
+        parquet_footer.row_count(lying)

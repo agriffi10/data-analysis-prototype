@@ -31,7 +31,9 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
 - **The whole Lambda suite on each version.** 1.12.0: `1 failed, 5102 passed` — the one failure is
   `test_local_install_guard.py`, which needs `node_modules` and is not about polars. 1.44.2:
   `3 failed, 5100 passed`. The two new failures are the probe regression and one test that pins
-  1.12 on purpose, both below.
+  1.12 on purpose, both below. Those two runs predate #856. At 57498b76, which carries it,
+  1.44.2 gives `26 failed, 5093 passed, 6 skipped` with `node_modules` absent: #856's keyword
+  refuses every streamed save, as the bullet on `projection_pushdown` below describes.
 - **The Parquet probe stops being bounded.** `cpcommon.bounded_read.S3RangeReader` exists so that
   `pl.read_parquet_schema` fetches only an object's footer. On 1.12 a counting file object saw
   `reads=[8192, 16384, 32768, 8192]`; on 1.44.2 `read_parquet_schema` is
@@ -171,14 +173,25 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
 
 `cpcommon.parquet_trailer.footer_span(object_size, trailer)` takes an object's size and its last 8
 bytes and returns the footer's offset and length, raising `ParquetTrailerError` (a `ValueError`)
-for an object under 12 bytes, a trailer not ending in `PAR1`, or a declared footer longer than
-`object_size - 12`. `cpcommon.bounded_read.read_parquet_footer(bucket, key)` reads the object's
-size and last 8 bytes with ranged GETs, calls `footer_span`, refuses a footer longer than
-`DEFAULT_PROBE_MAX_BYTES` with `ParquetTrailerError`, fetches the footer, and returns an
-`io.BytesIO` of `PAR1`, the footer, its 4-byte little-endian length and `PAR1`. A retryable S3
-fault goes through `errors.raise_if_transient`, as the other reads in that module do.
-`rccommon.parquet_footer._metadata` delegates its three trailer checks to `footer_span` and
-re-raises its error as `ParquetFooterError`, so its callers are unchanged.
+for an object under 12 bytes, a trailer not ending in `PAR1`, a declared footer of zero bytes, or
+a declared footer longer than `object_size - 12`. The size is checked first, so a trailer shorter
+than 8 bytes is never indexed. The zero-length refusal is not decoration: the footer's range would
+then be `bytes=N-(N-1)`, which is syntactically invalid, and S3 answers an invalid `Range` by
+ignoring it and returning the whole object. polars refuses a zero-length footer on both versions,
+so the check costs nothing.
+
+`cpcommon.bounded_read.read_parquet_footer(bucket, key)` makes two GETs and no HEAD. The first is
+the suffix range `bytes=-8`, whose `ContentRange` (`bytes a-b/SIZE`) carries the object's size;
+an object under 8 bytes comes back whole, and an empty one raises S3's `InvalidRange`, which the
+reader refuses as a too-short object. It calls `footer_span`, refuses a footer longer than
+`DEFAULT_PROBE_MAX_BYTES` with `ParquetTrailerError` before any second request, then fetches
+exactly the footer's range. **It never reads more than the span it asked for:** each response's
+declared length is checked against the span before the body is read, a mismatch refuses, and
+each body read is capped at that span. It returns an `io.BytesIO` of `PAR1`, the footer, its
+4-byte little-endian length and `PAR1`. A retryable S3 fault goes through
+`errors.raise_if_transient`, as the other reads in that module do.
+`rccommon.parquet_footer._metadata` delegates its trailer checks to `footer_span` and re-raises
+its error as `ParquetFooterError`, so its callers are unchanged.
 
 `infer_schema._parquet_source` and `dq_inspect_source._parquet_source` return
 `read_parquet_footer(bucket, key)` where they return an `S3RangeReader` today, and both are
@@ -187,22 +200,31 @@ already called inside the `try` that turns a failure into each verb's named refu
 
 #### Acceptance Criteria:
 
+- [ ] The tests' fake S3 answers ranges as S3 does: a suffix range on an object shorter than it
+      returns the whole object, an empty object raises `InvalidRange`, and a syntactically invalid
+      range is ignored and returns the whole object. It records the bytes it SERVES, not the
+      ranges requested.
 - [ ] A test builds a Parquet file of at least 2 MB with at least five dtypes, including a
-      decimal, a list and a struct, and many row groups. It serves the file through a fake S3 that
-      records every `Range` requested, and asserts two things: that
-      `pl.read_parquet_schema(read_parquet_footer(...))` equals polars' schema of the whole file,
-      and that the ranges fetched total no more than the footer's length plus 8.
+      decimal, a list and a struct, and many row groups. Served through that fake, it asserts two
+      things: that `pl.read_parquet_schema(read_parquet_footer(...))` equals polars' schema of the
+      whole file, and that the bytes served total no more than the footer's length plus 8.
 - [ ] That test passes under polars 1.12.0 and under 1.44.2, and the PR body quotes both runs'
       exit codes.
 - [ ] `footer_span` is tested on an 11-byte object, on a trailer ending in something other than
-      `PAR1`, and on a declared length one byte past `object_size - 12`. Each raises
-      `ParquetTrailerError`, and each test asserts that the message says which of the three
-      failures it was.
-- [ ] Driven through each verb's handler, an object whose trailer is not `PAR1` refuses as
-      `schema_inference_failed` in table-builder's infer-schema and as `unreadable_header` in
-      data-quality's inspect-source. These are the codes each already raises for an object it
-      cannot read. A footer over `DEFAULT_PROBE_MAX_BYTES` refuses the same way. Neither case
-      reaches a fault.
+      `PAR1`, on a declared length of zero, and on a declared length one byte past
+      `object_size - 12`. Each raises `ParquetTrailerError`, and each test asserts that the message
+      says which of the four failures it was.
+- [ ] `read_parquet_footer` over an empty object and over a 5-byte object each raises
+      `ParquetTrailerError` naming the object as too short, and neither is served more than the
+      object holds.
+- [ ] Driven through each verb's handler with the verb's real `_parquet_source` over the fake, an
+      object whose trailer is not `PAR1` refuses as `schema_inference_failed` in table-builder's
+      infer-schema and as `unreadable_header` in data-quality's inspect-source. These are the codes
+      each already raises for an object it cannot read. A footer over `DEFAULT_PROBE_MAX_BYTES`
+      refuses the same way, and the fake records no footer GET for it. Each refusal's detail
+      carries the new reader's reason — `footer_span`'s for the trailer, `read_parquet_footer`'s
+      own for the cap — which is what shows the new reader produced it. Neither case reaches a
+      fault.
 - [ ] A throttled ranged GET raises `TransientError`.
 - [ ] `rccommon.parquet_footer`'s existing tests pass unchanged, and `_metadata` makes none of
       the trailer checks itself, the leading `PAR1` included.
@@ -259,8 +281,10 @@ offset into the detail.
 
 #### Acceptance Criteria:
 
-- [ ] For Parquet, JSON and CSV, take a result of 60,000 rows whose every tenth value is a
-      200-character multi-line document. It converts both in full and with `columnIndexes=[0]`, and
+- [ ] For Parquet, JSON and CSV, take a result of 200,000 rows whose every tenth value is a
+      200-character multi-line document — the live check's size, about 7 MB, well past where 1.12
+      fails at 60,000, so the file is split across the reader's chunks on either version. It
+      converts both in full and with `columnIndexes=[0]`, and
       the written file's rows equal Python's `csv` module's reading of the input, row for row.
 - [ ] The same test fails when run under polars 1.12.0, and the PR body quotes that run.
 - [ ] `messages.failure_message(results_unreadable, …)` returns the sentence above, and the plane
@@ -279,19 +303,30 @@ evidence `MEASURED_ON` already describes. `scripts/measure_conversion_expansion.
 the arm64 image. The results join the existing evidence, and each constant moves only to its
 safer side:
 - each `MEASURED_EXCEL_SHAPES` row keeps the HIGHEST peak per cell over every run, 1.12's
-  included, and the LOWEST rate over the native runs;
-- `EXCEL_PEAK_BYTES_PER_CELL`, `EXCEL_PEAK_BYTES_PER_ROW` and `EXCEL_PEAK_BYTES_PER_LONG_BYTE`
-  are each the larger of `main`'s value and the value their docstring's rule gives over the
-  joined corpus, rounded as that docstring says;
-- `EXCEL_BASELINE_MB` is the larger of `main`'s 250 and the largest new local fixed cost plus
-  84 MiB, rounded up to the next ten;
-- `EXCEL_COVERED_BYTES_PER_CELL` is the SMALLER of `main`'s value and the CSV width of the shape
-  that binds the per-cell term over the joined corpus, because a narrower covered width charges
-  more;
-- `OUTPUT_EXPANSION`'s CSV, Parquet and JSON figures are each the larger of `main`'s figure and
-  the worst the image run measures. Excel's carries over unmeasured;
-- `EXCEL_MAX_CELLS` and `RESULTS_MAX_BYTES` are recomputed by the budget test from the above, so
-  they can fall and cannot rise.
+  included, and the LOWEST rate over the native runs.
+
+The constants are then derived in this order, because each term is net of the one before it, and
+each is the larger of `main`'s value and what its step gives (for the covered width, the smaller):
+1. `EXCEL_PEAK_BYTES_PER_ROW`: per run, the one-wide one-character shape's peak less the
+   fifteen-wide one's, over `1 - 1/15`; the largest over the new runs, rounded up to the next ten.
+2. `EXCEL_PEAK_BYTES_PER_CELL`: over the joined corpus's shapes no wider in CSV than `main`'s
+   covered width of 23 bytes a cell, the largest peak less its row share
+   (`EXCEL_PEAK_BYTES_PER_ROW / columns`), rounded up to the next ten.
+3. `EXCEL_COVERED_BYTES_PER_CELL`: the SMALLER of 23 and the CSV width of the shape that set step
+   2, because a narrower covered width charges more. Step 2 selected from shapes at or under 23,
+   so this can only narrow the set it chose from, and it does not re-open step 2.
+4. `EXCEL_PEAK_BYTES_PER_LONG_BYTE`: over the shapes wider than the covered width, the largest
+   `(peak - per-cell - row share) / (csv width - covered width)`, rounded up to a whole byte.
+5. `EXCEL_BASELINE_MB`: the larger of `main`'s 250 and the largest new local fixed cost (the
+   script's `intercept_mib`) plus 84 MiB, rounded up to the next ten.
+6. `OUTPUT_EXPANSION`'s CSV, Parquet and JSON figures: each the larger of `main`'s figure and the
+   worst the image run measures. Excel's carries over unmeasured.
+7. `EXCEL_MAX_CELLS` and `RESULTS_MAX_BYTES` are recomputed by the budget test from the above, so
+   they can fall and cannot rise.
+
+**If these rules leave the budget test red, or floor any format's byte cap or the cell cap to
+zero, the build stops and escalates** rather than choosing between constants: a cap that falls
+that far is a product change, not a re-measurement.
 
 `MEASURED_ON` gains a sentence naming polars 1.44.2, xlsxwriter's version, the runs, and the
 `main` commit the measured branch was based on. It says which figures carry over unmeasured and
@@ -303,13 +338,15 @@ why.
       not lower, or for `EXCEL_COVERED_BYTES_PER_CELL` not higher. The budget test in
       `test_plane_results_conversion.py` passes. No `RESULTS_MAX_BYTES` entry, and not
       `EXCEL_MAX_CELLS`, is higher than on `main`.
-- [ ] Every `MEASURED_EXCEL_SHAPES` row is at least the highest peak any of the four new runs
-      measured for its shape. Its rate is at most the lowest the three native runs measured. The
-      PR body carries the four runs' output.
+- [ ] Every `MEASURED_EXCEL_SHAPES` row's peak is at least `main`'s for that row and at least the
+      highest any of the four new runs measured for its shape. Its rate is at most `main`'s and at
+      most the lowest the three native runs measured. The PR body carries the four runs' output.
 - [ ] `MEASURED_ON` names polars 1.44.2, the xlsxwriter version, the four Excel runs and the
       expansion run, and the `main` commit the branch was based on. It names
       `EXCEL_BASELINE_MB`'s 84 MiB production gap, `_LOCAL_TO_PRODUCTION` and the Excel expansion
-      figure as carried over from 1.12, each with its reason.
+      figure as carried over from 1.12, each with its reason. It also says that the Parquet and
+      JSON figures are not re-measured on the shapes their own line names, as it already says of
+      1.12, so they carry over too, raised only where the script's shapes exceed them.
 - [ ] If any Excel constant changed, every §4.3 row in `docs/testing/e2e.md` that quotes a figure
       derived from them is regenerated before the push, by the rule the at-cap row states. That
       is the at-cap row, with its input at the recomputed cap and its model figure from the
@@ -336,7 +373,15 @@ in production, with a positive control run before the deploy.
         passage;
       - SPEC-239's two "after close" markers, in its spec and its delivery doc;
       - `lambdas/info/shared-layer.md`'s polars size figure, and the same figure in
-        `lambdas/control-plane-common/requirements.txt`.
+        `lambdas/control-plane-common/requirements.txt`;
+      - the claims that name no version: `rccommon/reasons.py`'s `RESULTS_UNREADABLE` entry ("the
+        reader itself refuses some large results holding newlines inside quoted values"),
+        `rc_convert._unreadable`'s paragraph on why the message is not read for a cause, the
+        count docstrings in `rc_convert.py` that call the fast count wrong, and the docstring of
+        the plane suite's `results_unreadable` golden test.
+- [ ] A second grep, for the behaviour rather than the version —
+      `git grep -n -i -E "mis-split|newlines? inside quoted|fast count|pl\.len"` over the same
+      trees — is run, and the PR body lists each remaining match with one line on why it stays.
 - [ ] Positive control, in production **before** the Phase 2 deploy. Save the query below as
       Parquet, in full, from the Query workspace: it is refused as `results_unreadable`. Then run
       `CREATE VIEW` over it, open the view in Data Explorer, hide `doc`, and save as Parquet: that
