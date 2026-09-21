@@ -1167,12 +1167,74 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(1));
       expect(mockRunQuery.mock.calls[0][0].sql).toBe('SELECT 1');
       await screen.findByText('Succeeded');
+      // One statement selected is one result, shown alone, as it always was.
+      expect(await screen.findByText('us-east')).toBeInTheDocument();
+      expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
 
       const cursor = ta.value.indexOf('SELECT 2') + 3;
       ta.setSelectionRange(cursor, cursor);
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
       await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
       expect(mockRunQuery.mock.calls[1][0].sql).toBe('SELECT 2');
+      await waitFor(() => expect(screen.getAllByText('Succeeded')).toHaveLength(1));
+      expect(await screen.findByText('us-east')).toBeInTheDocument();
+      expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
+    });
+
+    // Rows that differ per execution, so "the grid shows statement 2" is a claim about which
+    // execution was read rather than about there being a grid at all.
+    function rowsByExecution() {
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({columns: [{name: 'n', type: 'string'}], rows: [[`rows of ${queryExecutionId}`]]})
+      );
+    }
+
+    it('gives each statement of a multi-statement selection its own result tab, showing the latest', async () => {
+      queueRuns('q-1', 'q-2');
+      rowsByExecution();
+      seedScript('SELECT 1;\nSELECT 2;\nSELECT 3;');
+      const {user} = renderWorkspace();
+      const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
+
+      ta.setSelectionRange(0, 'SELECT 1;\nSELECT 2'.length);
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      expect(mockRunQuery.mock.calls.map(([call]) => call.sql)).toEqual(['SELECT 1', 'SELECT 2']);
+      const resultTabs = within(strip).getAllByRole('tab');
+      expect(resultTabs.map((tab) => tab.textContent)).toEqual(['1 · SELECT 1', '2 · SELECT 2']);
+      expect(resultTabs[1]).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByText('rows of q-2')).toBeInTheDocument();
+
+      await user.click(resultTabs[0]);
+      expect(await screen.findByText('rows of q-1')).toBeInTheDocument();
+      expect(screen.queryByText('rows of q-2')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const nameInput = within(dialog).getByLabelText('File name');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'out');
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+      expect(mockCopyObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/athenaresults/q-1.csv', destKey: 'alice/out.csv'})
+      );
+    });
+
+    it('stops a multi-statement selection at a failed first statement, as every scope does', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-1'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
+      seedScript('SELECT 1;\nSELECT 2;');
+      const {user} = renderWorkspace();
+      const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
+
+      ta.setSelectionRange(0, ta.value.length);
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(await screen.findByText(/Statement 1 of 2 failed\./)).toBeInTheDocument();
+      expect(screen.getByText(/Statement 2 did not run/)).toBeInTheDocument();
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
     });
   });
 

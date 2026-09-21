@@ -1,5 +1,5 @@
 import {useMemo} from 'react';
-import {useSearchParams} from 'react-router';
+import {useLocation, useSearchParams} from 'react-router';
 import {useConnections} from '../connections/useConnections';
 import {useSpaceLinkPending} from '../connections/useSpaceLinkPending';
 import {resolveExploreParams} from './exploreSources';
@@ -40,6 +40,7 @@ export function useExploreDeepLink(
   sharedEnabled: boolean
 ): UseExploreDeepLinkResult {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const {listReadsSettled, rereadList} = useConnections(username || null);
 
   const space = searchParams.get('space');
@@ -67,7 +68,8 @@ export function useExploreDeepLink(
     resolution,
     // `replace`, so Back leaves the Data Explorer rather than re-opening the tab the link
     // already opened — and so a reload restores the session's tabs instead of
-    // adding a duplicate of the linked one on top of them.
+    // adding a duplicate of the linked one on top of them. The entry's state is carried over:
+    // it may hold a hand-off from another feature, which is opened after the link, not dropped.
     clear: () =>
       setSearchParams(
         (current) => {
@@ -75,7 +77,7 @@ export function useExploreDeepLink(
           for (const key of ['space', 'db', 'table']) next.delete(key);
           return next;
         },
-        {replace: true}
+        {replace: true, state: location.state}
       )
   };
 }

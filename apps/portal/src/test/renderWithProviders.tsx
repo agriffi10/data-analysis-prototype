@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {StrictMode, useState} from 'react';
 import {onTestFinished} from 'vitest';
 import {render, renderHook} from '@testing-library/react';
 import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
@@ -63,9 +63,17 @@ function clearAfterTest(client: QueryClient): void {
  */
 export const USER_EVENT_OPTIONS = {delay: null} as const;
 
+/**
+ * An initial router location: a path, or a path with the history state a navigation carried.
+ *
+ * The object form is for a page that reads `location.state` — a hand-off from another feature —
+ * which a string cannot express.
+ */
+export type TestRoute = string | {pathname: string; search?: string; state?: unknown};
+
 export type ProviderOptions = {
   /** Initial router location (default `/`). */
-  route?: string;
+  route?: TestRoute;
   /** Inject a fixed auth context. Pass `null` to omit the AuthContext provider
    *  (the component doesn't call `useAuth`). Defaults to an authenticated user. */
   auth?: AuthContextValue | null;
@@ -152,6 +160,19 @@ export function TestProviders({
   return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;
 }
 
+/** Options only `renderWithProviders` takes: they shape the render, not the provider stack. */
+export type RenderWithProvidersOptions = ProviderOptions & {
+  /**
+   * Render under `StrictMode`, as `AppRoot` does, so effects run twice on mount.
+   *
+   * React double-runs a subtree's effects only when the element it PLACES is `StrictMode` or sits
+   * inside one — measured: a `StrictMode` handed in as `ui`, beneath the provider wrapper, runs
+   * every effect once. So this renders `StrictMode` above the providers as the tree's root rather
+   * than through `wrapper`, and a `rerender` must then be given that whole tree.
+   */
+  strictMode?: boolean;
+};
+
 export type RenderWithProvidersResult = ReturnType<typeof render> & {
   user: UserEvent;
   queryClient: QueryClient;
@@ -172,32 +193,37 @@ export function renderWithProviders(
     queryClient,
     seedFeatureFlags = true,
     browserRouter = false,
+    strictMode = false,
     ...options
-  }: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {}
+  }: RenderWithProvidersOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
   clearAfterTest(client);
   // A BrowserRouter reads jsdom's own history, so the route is put there rather than passed —
-  // and put back afterwards, since that history outlives the test.
+  // and put back afterwards, since that history outlives the test. State is written in the
+  // router's own entry shape (`usr` is what `location.state` reads), with an index so the router
+  // does not rewrite the entry on mount.
   if (browserRouter) {
     const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    window.history.replaceState(null, '', route ?? '/');
+    const target = typeof route === 'object' ? route : {pathname: route ?? '/'};
+    const entry = target.state === undefined ? null : {usr: target.state, key: 'initial', idx: 0};
+    window.history.replaceState(entry, '', `${target.pathname}${target.search ?? ''}`);
     onTestFinished(() => window.history.replaceState(null, '', before));
   }
-  const result = render(ui, {
-    wrapper: ({children}) => (
-      <TestProviders
-        route={route}
-        auth={auth}
-        queryClient={client}
-        seedFeatureFlags={seedFeatureFlags}
-        browserRouter={browserRouter}>
-        {children}
-      </TestProviders>
-    ),
-    ...options
-  });
+  const providers = (children: ReactNode) => (
+    <TestProviders
+      route={route}
+      auth={auth}
+      queryClient={client}
+      seedFeatureFlags={seedFeatureFlags}
+      browserRouter={browserRouter}>
+      {children}
+    </TestProviders>
+  );
+  const result = strictMode
+    ? render(<StrictMode>{providers(ui)}</StrictMode>, options)
+    : render(ui, {wrapper: ({children}) => providers(children), ...options});
   return {...result, user: userEvent.setup(USER_EVENT_OPTIONS), queryClient: client};
 }
 

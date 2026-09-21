@@ -1,7 +1,7 @@
 import {useEffect} from 'react';
 import {useQueryClient, type QueryClient} from '@tanstack/react-query';
 import {onCatalogChange} from '../catalog/useSchema';
-import {explorerKeys} from './explorerKeys';
+import {explorerKeys, readsFromSqlBody} from './explorerKeys';
 
 /**
  * Drops the cached exploration executions that could be reading a catalog that just changed.
@@ -18,7 +18,7 @@ import {explorerKeys} from './explorerKeys';
  * and those are the two cases where re-reading everything is what the user asked for: an
  * arbitrary DDL statement they typed, and the rail's own refresh button.
  *
- * Saved-query sources are evicted on every change, whichever database moved: the body is
+ * Statement sources are evicted on every change, whichever database moved: the body is
  * arbitrary SQL over any number of databases and this app has no parser.
  *
  * @param client - The query client.
@@ -33,6 +33,32 @@ export function evictExplorations(client: QueryClient, database: string, table?:
   // entry AND refetches every query with an observer, by contract.
   client.resetQueries({queryKey: table ? explorerKeys.table(database, table) : explorerKeys.database(database)});
   client.resetQueries({queryKey: explorerKeys.sqlSources()});
+}
+
+/**
+ * Drops every cached execution over one statement source, whatever it was filtered, sorted or
+ * grouped by — so the statement, and each description over it, runs again the next time it is
+ * shown.
+ *
+ * A statement handed over from a Query result calls this once its tab exists: executions are
+ * cached by rendered SQL for the session, and without it exploring the same statement after an
+ * `INSERT` would show the earlier rows, as would every filter re-applied over them. Only this
+ * body's executions go; another statement's tab must not re-run.
+ *
+ * `removeQueries`, not the catalog eviction's `resetQueries`, which refetches every OBSERVED match
+ * at once. Nothing is observed here today — the page holds its execution back while the hand-off
+ * is pending — so removal keeps this eviction from ever starting an execution itself, whatever
+ * that gate later becomes. The new tab's own read finds no entry and fetches.
+ *
+ * @param client - The query client.
+ * @param body - The statement source's body.
+ * @returns Nothing.
+ */
+export function evictSqlSource(client: QueryClient, body: string): void {
+  client.removeQueries({
+    queryKey: explorerKeys.sqlSources(),
+    predicate: (query) => readsFromSqlBody(query.queryKey, body)
+  });
 }
 
 /**

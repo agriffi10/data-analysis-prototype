@@ -1,4 +1,4 @@
-import {useMemo, useRef, useState} from 'react';
+import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
@@ -99,7 +99,7 @@ export type ExplorationResultsRegionProps = {
    *  sibling: one writes a `.sql` file, the other writes a view. */
   onCreateView: () => void;
   /**
-   * A reason the HOST knows and this region does not — today, that the source is a saved query
+   * A reason the HOST knows and this region does not — today, that the source is a statement
    * rather than a table, so there is no single database to create the view in. Combined with
    * this region's own reasons rather than replacing them, so a control that is refused for two
    * reasons still names the one the user can act on first.
@@ -120,6 +120,14 @@ export type ExplorationResultsRegionProps = {
    * Athena put them.
    */
   exportRefusal: string | null;
+  /**
+   * Reports the columns of an execution that ran with NO grouping — a `sql` source's own
+   * columns, which the host remembers on the tab because nothing else knows them.
+   *
+   * Reported only for the CURRENT execution once it has succeeded: never for the last good
+   * one a failure falls back to, whose description may have been grouped.
+   */
+  onSourceColumns?: (tabId: string, columns: QueryColumn[]) => void;
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
@@ -209,7 +217,8 @@ export function ExplorationResultsRegion({
   onCreateView,
   createViewRefusal,
   onExport,
-  exportRefusal
+  exportRefusal,
+  onSourceColumns
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
@@ -298,6 +307,17 @@ export function ExplorationResultsRegion({
   ) {
     setLastGood({tabId, executionId: shownExecutionId});
   }
+
+  const reportSourceColumns = useEffectEvent((forTab: string, sourceColumns: QueryColumn[]) =>
+    onSourceColumns?.(forTab, sourceColumns)
+  );
+  const ungrouped = query.grouping === null;
+  // `!failed` is what keeps the last-good fallback out: after a failed ungroup it shows the GROUPED
+  // execution while the description already says ungrouped.
+  const settledColumns = !failed && state === 'SUCCEEDED' && ungrouped && !results.isPending ? results.columns : null;
+  useEffect(() => {
+    if (settledColumns && settledColumns.length > 0) reportSourceColumns(tabId, settledColumns);
+  }, [tabId, settledColumns]);
 
   // a `table` source knows its columns from Glue before anything runs, a
   // `sql` source only from the execution. The execution's own metadata WINS once it lands

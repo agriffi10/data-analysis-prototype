@@ -1,4 +1,5 @@
 import {useEffect, useState} from 'react';
+import {Button} from '../../components/Button';
 import {formatBytes} from '../../lib/format';
 import {formatCount, formatDurationMs} from '../../lib/format';
 import type {QueryStatus} from '../catalog/catalog.types';
@@ -35,6 +36,14 @@ type QueryStatusBarProps = {
    */
   canSaveResults?: boolean;
   onSaveResults: () => void;
+  /**
+   * Opens the displayed result's statement in the Data Explorer, or null where it is not offered.
+   *
+   * Offered on the same terms as Save — the displayed result, whatever the batch's verdict — and
+   * only for a statement the Explorer can wrap. `disabledReason` says why a result it could wrap
+   * still cannot be explored.
+   */
+  explore?: {onExplore: () => void; disabledReason: string | null} | null;
   /**
    * The batch ended on a failure. It owns the verdict even where `status` disagrees: a
    * statement whose status could not be read has no terminal state to show, and one that
@@ -82,6 +91,7 @@ export function QueryStatusBar({
   countingRows = false,
   canSaveResults = false,
   onSaveResults,
+  explore = null,
   batchFailed = false,
   stillRunning = false
 }: QueryStatusBarProps) {
@@ -201,29 +211,52 @@ export function QueryStatusBar({
         </span>
       )}
 
+      {hasVerdict && (canSaveResults || explore) && <div className="flex-1" />}
+
+      {hasVerdict && explore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={explore.onExplore}
+          disabledReason={explore.disabledReason ?? undefined}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-4 w-4"
+            aria-hidden="true">
+            <circle
+              cx="11"
+              cy="11"
+              r="6"
+            />
+            <path d="m20 20-4.5-4.5" />
+          </svg>
+          Explore in Data Explorer
+        </Button>
+      )}
+
       {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
           already produced are complete, and re-running to reach Save bills them twice. */}
       {hasVerdict && canSaveResults && (
-        <>
-          <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onSaveResults}
-            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-              aria-hidden="true">
-              <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-              <path d="M9 4v5h6" />
-              <path d="M8 21v-7h8v7" />
-            </svg>
-            Save results to my files
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={onSaveResults}
+          className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-4 w-4"
+            aria-hidden="true">
+            <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+            <path d="M9 4v5h6" />
+            <path d="M8 21v-7h8v7" />
+          </svg>
+          Save results to my files
+        </button>
       )}
     </div>
   );

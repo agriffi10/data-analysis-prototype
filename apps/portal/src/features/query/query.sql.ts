@@ -260,6 +260,15 @@ export function isResultProducingSql(sql: string): boolean {
   return /^(select|with|show|desc|describe|values|explain)\b/i.test(stripLeadingSqlComments(sql));
 }
 
+/**
+ * True for a statement the Data Explorer can open as a source — SELECT, WITH or VALUES, the
+ * statements Trino accepts as a subquery. SHOW, DESCRIBE and EXPLAIN produce a result grid but
+ * cannot be wrapped in `(…) AS t`. Leading comments/whitespace are skipped.
+ */
+export function isExplorableSql(sql: string): boolean {
+  return /^(select|with|values)\b/i.test(stripLeadingSqlComments(sql));
+}
+
 const STATEMENT_HINT_MAX = 30;
 
 /**

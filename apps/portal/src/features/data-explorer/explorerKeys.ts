@@ -1,3 +1,5 @@
+import type {QueryKey} from '@tanstack/react-query';
+import {rendersFromSqlBody} from './renderExplorationSql';
 import type {ExplorationSource} from './dataExplorer.types';
 
 /**
@@ -28,7 +30,7 @@ export const explorerKeys = {
   table: (database: string, table: string) => [...explorerKeys.all, 'execution', 'table', database, table] as const,
   /** Every execution reading any table in this database, for a change that names no table. */
   database: (database: string) => [...explorerKeys.all, 'execution', 'table', database] as const,
-  /** Every execution over a saved query, whose SQL may read any database at all. */
+  /** Every execution over a statement source, whose SQL may read any database at all. */
   sqlSources: () => [...explorerKeys.all, 'execution', 'sql'] as const
 };
 
@@ -36,10 +38,10 @@ export const explorerKeys = {
  * The `[kind, database, table]` triple an exploration's source contributes to its execution key.
  *
  * A **table** source names its database, so an execution reading it can be found and dropped
- * when that database's catalog changes. A **saved query** source cannot: its body is arbitrary
+ * when that database's catalog changes. A **statement** source cannot: its body is arbitrary
  * SQL that may read any database, in any number, and this app has no parser. It is filed under
  * one scope so the eviction can take all of them together — over-eviction, deliberately, and
- * the cost of the alternative is a saved query that keeps showing rows from a table that no
+ * the cost of the alternative is a statement that keeps showing rows from a table that no
  * longer holds them.
  *
  * Both the database and the table, because a caller that knows which table changed can then
@@ -51,4 +53,19 @@ export const explorerKeys = {
  */
 export function explorationSourceScope(source: ExplorationSource): readonly [string, string, string] {
   return source.kind === 'table' ? ['table', source.database, source.table] : ['sql', source.label, ''];
+}
+
+/**
+ * True for a cached execution of any description over a `sql` source with this body.
+ *
+ * A predicate for `explorerKeys.sqlSources()`: the key ends in the rendered statement, and that
+ * statement's outer `FROM` says which body it read, whatever label the tab carried.
+ *
+ * @param queryKey - A key under `explorerKeys.sqlSources()`.
+ * @param body - The `sql` source's body.
+ * @returns Whether the execution read from that body.
+ */
+export function readsFromSqlBody(queryKey: QueryKey, body: string): boolean {
+  const sql = queryKey[queryKey.length - 1];
+  return typeof sql === 'string' && rendersFromSqlBody(sql, body);
 }

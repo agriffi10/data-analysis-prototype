@@ -228,14 +228,36 @@ function renderFrom(source: ExplorationSource): string {
     return `${sqlIdentifier(source.database)}.${sqlIdentifier(source.table)}`;
   }
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
-  // composed verbatim, exactly as the expression is — the save path owns refusing a
-  // multi-statement or non-SELECT file before it ever becomes a source.
+  // composed verbatim, exactly as the expression is — the sender owns refusing anything but one
+  // SELECT, WITH or VALUES statement before it ever becomes a source.
   //
-  // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
+  // The NEWLINES are not formatting. A statement ending in a `--` line comment swallows
   // whatever follows it on the same line, so `(${body}) AS t` would put the closing paren
   // and the alias inside the comment and hand Athena an unbalanced statement — reported as
   // a syntax error with nothing on screen to explain it.
   return `(\n${source.body}\n) AS ${SQL_SOURCE_ALIAS}`;
+}
+
+/**
+ * True when `sql` was rendered over a `sql` source with exactly this body.
+ *
+ * Judged at the OUTER `FROM` — the first line starting with it, since the projection above it is
+ * `*` or a one-line list of quoted names — so a statement that merely CONTAINS this body's
+ * subquery, such as the Explorer's own generated SQL opened in Query and explored again, is not
+ * mistaken for it. What follows the subquery is the end of the statement or the next clause's
+ * line; anything else is a longer body that begins the same way.
+ *
+ * @param sql - A statement `renderExplorationSql` produced.
+ * @param body - A `sql` source's body.
+ * @returns Whether the statement reads from that body's subquery.
+ */
+export function rendersFromSqlBody(sql: string, body: string): boolean {
+  const outer = sql.indexOf('\nFROM ');
+  if (outer === -1) return false;
+  const from = `\nFROM ${renderFrom({kind: 'sql', body, label: ''})}`;
+  if (!sql.startsWith(from, outer)) return false;
+  const rest = sql.slice(outer + from.length);
+  return rest === '' || rest.startsWith('\n');
 }
 
 function renderProjection(grouping: Grouping | null): string {

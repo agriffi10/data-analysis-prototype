@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
   CLAUSE_WORDS,
   deriveViewTargetDatabase,
+  isExplorableSql,
   isResultProducingSql,
   isSchemaChangingSql,
   isTrinoStatement,
@@ -184,6 +185,21 @@ describe('query.sql', () => {
       expect(isResultProducingSql('SHOW TABLES IN mydb')).toBe(true);
       expect(isResultProducingSql('DESCRIBE mydb.t')).toBe(true);
       expect(isResultProducingSql('-- comment first\nSELECT 1')).toBe(true);
+    });
+  });
+
+  describe('isExplorableSql', () => {
+    it.each([
+      ['select 1', true],
+      ['-- note\nWITH x AS (SELECT 1) SELECT * FROM x', true],
+      ['/* a */ VALUES (1)', true],
+      ['SHOW TABLES IN db', false],
+      ['DESCRIBE db.t', false],
+      ['EXPLAIN SELECT 1', false],
+      ['CREATE TABLE db.t AS SELECT 1', false],
+      ['', false]
+    ])('reads %j as %s', (sql, explorable) => {
+      expect(isExplorableSql(sql)).toBe(explorable);
     });
   });
 

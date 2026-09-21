@@ -541,3 +541,78 @@ describe('useExplorationTabs — a stored formatting block (SPEC-184 FR-007 AC2)
     }
   });
 });
+
+describe('useExplorationTabs — a statement tab’s remembered columns', () => {
+  const LABEL = 'SELECT name, qty…';
+  const SQL: ExplorationSource = {kind: 'sql', body: 'SELECT name, qty FROM db.orders', label: LABEL};
+  const COLUMNS = [
+    {name: 'name', type: 'string'},
+    {name: 'qty', type: 'int'}
+  ];
+
+  function seedSqlTab(sqlSourceColumns: unknown) {
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 's',
+            label: LABEL,
+            exploration: {
+              id: 'e',
+              source: SQL,
+              query: {filters: [], expression: null, ordering: [], grouping: null},
+              presentation: {}
+            },
+            scannedByExecution: {},
+            history: {past: [], future: []},
+            sqlSourceColumns
+          }
+        ],
+        activeTabId: 's'
+      })
+    );
+  }
+
+  it('restores the tab with its body, label and columns', () => {
+    seedSqlTab(COLUMNS);
+    const {result} = setup();
+    expect(result.current.activeTab?.exploration.source).toEqual(SQL);
+    expect(result.current.activeTab?.label).toBe(LABEL);
+    expect(result.current.activeTab?.sqlSourceColumns).toEqual(COLUMNS);
+  });
+
+  it.each([
+    ['a column with a non-string name', [{name: 1, type: 'int'}]],
+    ['a column with no type', [{name: 'qty'}]],
+    ['not an array', 'name,qty'],
+    ['an empty list', []]
+  ])('restores the tab WITHOUT the columns when the stored list is %s', (_case, stored) => {
+    seedSqlTab(stored);
+    const {result} = setup();
+    expect(result.current.tabs).toHaveLength(1);
+    expect(result.current.activeTab?.exploration.source).toEqual(SQL);
+    expect(result.current.activeTab?.sqlSourceColumns).toBeUndefined();
+  });
+
+  it('records columns on a statement tab only, and an equal list changes nothing', () => {
+    const {result} = setup();
+    let sqlId = '';
+    let tableId = '';
+    act(() => {
+      sqlId = result.current.openTab(SQL) as string;
+      tableId = result.current.openTab(TABLE) as string;
+    });
+    act(() => {
+      result.current.setTabSourceColumns(sqlId, COLUMNS);
+      result.current.setTabSourceColumns(tableId, COLUMNS);
+    });
+    const recorded = result.current.tabs;
+    expect(recorded.find((tab) => tab.id === sqlId)?.sqlSourceColumns).toEqual(COLUMNS);
+    expect(recorded.find((tab) => tab.id === tableId)?.sqlSourceColumns).toBeUndefined();
+
+    act(() => result.current.setTabSourceColumns(sqlId, [...COLUMNS]));
+    expect(result.current.tabs).toBe(recorded);
+  });
+});

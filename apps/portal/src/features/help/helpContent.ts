@@ -246,6 +246,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the dropdown next to <b>Run Statement</b> to reach the two whole-script options.',
           'Choose <b>Run Query Tab</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
           'Or choose <b>Run Multiple Queries</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
+          'To run only some of them, select those statements and click <b>Run Statement</b>. Each one that returns rows gets its own result tab.',
           'Statements run one at a time, in order. The status bar shows which one is running (for example “Statement 2 of 4”), and each gets its own history entry.',
           'If a statement fails, or is still running after <b>30 minutes</b>, the script stops there — the message names the statement, and the ones after it don’t run.'
         ],
@@ -474,6 +475,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open the <b>Data Explorer</b> tab. Pick a <b>Space</b> — your own files, or a shared space you belong to — then choose a table or view from the list.',
           'Already in the <b>Query</b> tab? Open the <b>⋮</b> menu on a table in the schema rail and choose <b>Explore data</b> to open it here.',
+          'Got a query result you want to filter, group or colour? Choose <b>Explore in Data Explorer</b> beside <b>Save results to my files</b> to open that statement here. It runs the statement again, and every column needs its own name — give an expression or a repeated column one with <b>AS</b>.',
           'Use <b>+</b> on the tab strip to explore another table alongside this one, and <b>✕</b> to close one.',
           'Switch between <b>Grid</b>, <b>Record</b> and <b>Text</b> with the <b>Presentation</b> control — <b>Record</b> shows one row at a time, which is the easier read on a phone.',
           'An apply still running after <b>30 minutes</b> keeps going in Athena, and keeps scanning, but the Explorer stops waiting for it and says so. When it finishes, its results are saved in your files under <b>system_settings</b> › <b>athenaresults</b>, in a file named after the query ID the message shows.'

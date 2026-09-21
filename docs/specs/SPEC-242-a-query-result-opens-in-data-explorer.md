@@ -1,8 +1,8 @@
 # Spec: A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each
 
 **ID:** SPEC-242
-**Status:** Draft
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-21
 **Depends On:** SPEC-078, SPEC-178, SPEC-179, SPEC-183, SPEC-238
 
 ## Overview
@@ -82,15 +82,21 @@ Read from the code at `73c66eef`.
   cannot either. Refusing the hand-off, with a reason saying to add `AS`, costs the user one edit.
   Offering the tab and refusing per column would leave some gestures working and others not.
 - **A `sql` tab remembers its source's columns.** A table tab's Grouping panel lists the Glue schema,
-  and a `sql` source has none. So the tab records the column list of its first ungrouped execution as
-  `sqlSourceColumns`, persisted with the tab, and `useSourceColumns` returns it for a `sql` source.
+  and a `sql` source has none. So the tab records the column list of its latest ungrouped execution
+  as `sqlSourceColumns`, persisted with the tab, and `useSourceColumns` returns it for a `sql` source.
+  Every ungrouped run of one body reports the same list, so recording each one costs nothing and
+  keeps the list right if the tables under the statement change shape. *(Revised during the build:
+  the draft recorded only the first.)*
 - **The hand-off's shape lives in `lib/`.** Neither feature can import the other, so
   this spec creates `lib/routeHandoff.ts` with this hand-off's type, builder and reader, and SPEC-243
   adds its own beside them. One module owns each shape, and its tests pin the round trip.
 - **This spec widens `renderWithProviders`.** Testing the Explorer side of a hand-off needs router
   state, so its `route` accepts `{pathname, state}` here, where it is first needed. The Query
   workspace's own helper, `renderWorkspace` in `src/test/queryWorkspaceSupport.tsx`, is widened by
-  SPEC-243, whose Query-side test needs it.
+  SPEC-243, whose Query-side test needs it. *(Added during the build:)* it also gains `strictMode`,
+  because a `<StrictMode>` passed in as the element under test runs every effect ONCE — React
+  double-runs effects only under the StrictMode it places — so the StrictMode criterion below could
+  not fail. Measured, and caught by mutating the `location.key` guard, which stayed green.
 - **The button follows *Save results*.** It is gated on the displayed result, not the batch
   verdict, in every run scope the editor owns.
 - **The text comes from the run, not the editor.** The buffer may have changed since the run. The
@@ -207,6 +213,12 @@ source `{kind: 'sql', body, label}` through `openTab`. Only when that returns an
 cached executions *The decisions* names. It then replaces the history entry with the same path and
 search and no state. When `openTab` returns null it raises `ExplorationLimitDialog`, opens nothing,
 and still replaces the entry. State the reader does not accept is ignored, and nothing is replaced.
+*(Added during the build, from the plan review:)* while an accepted hand-off is still in the history
+state, the tab restored from the session runs nothing, by the page's rule for an unsettled link — it
+is about to be switched away from, and running it would bill a statement nobody sees. And a hand-off
+arriving on an entry that also carries a deep link waits for the link: the link's tab opens first,
+its parameter-clearing replace keeps the history state, and the hand-off is read on the entry that
+replace produces — replacing in the same flush put the link's parameters back (diff review).
 
 #### Acceptance Criteria:
 
@@ -236,8 +248,8 @@ and still replaces the entry. State the reader does not accept is ignored, and n
 
 A `sql`-source tab, with no Glue schema, draws its headers from its execution's column metadata,
 whose types arrive in Glue's spelling (`string`, `int`). `filterValueKind`, `isTextType` and
-`operatorsFor` pick operators and value kinds from those. The first time an execution of the tab's
-source with no grouping succeeds, the tab stores its columns as `sqlSourceColumns`, and
+`operatorsFor` pick operators and value kinds from those. Whenever an execution of the tab's source
+with no grouping succeeds, the tab stores its columns as `sqlSourceColumns`, and
 `useSourceColumns` returns them for a `sql` source, so the Grouping panel can list columns while a
 grouping is applied. `explorationTabs.ts` persists and validates the field. Sorting, filtering,
 grouping, Colors, Calc, copy, *Save results to my files* and *Save as query* work as they do on a
@@ -286,7 +298,7 @@ which runs the statement again, and that each column needs its own name.
 export type ExploreSqlHandoff = {exploreSql: {body: string; label: string}};
 
 // apps/portal/src/features/data-explorer/dataExplorer.types.ts — ExplorationTab gains
-/** A `sql` source's columns, from its first ungrouped execution. Absent for a table source. */
+/** A `sql` source's columns, from its latest ungrouped execution. Absent for a table source. */
 sqlSourceColumns?: QueryColumn[];
 ```
 

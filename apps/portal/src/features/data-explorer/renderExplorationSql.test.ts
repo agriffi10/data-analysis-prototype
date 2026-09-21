@@ -4,7 +4,8 @@ import {
   exceedsAthenaQueryLimit,
   ExplorationRenderError,
   groupingOrderingViolation,
-  renderExplorationSql
+  renderExplorationSql,
+  rendersFromSqlBody
 } from './renderExplorationSql';
 import {EXPLORER_FILTER_VALUES_MAX} from './dataExplorer.constants';
 import {FILTER_OPERATORS, operatorTakesValue, operatorTakesValues, operatorUsesValueKind} from './explorationQueryOps';
@@ -46,6 +47,30 @@ describe('renderExplorationSql — the source arms (FR-002)', () => {
   it('carries no trailing semicolon', () => {
     // The string goes to StartQueryExecution, not to an editor, and Athena rejects a batch.
     expect(renderExplorationSql(TABLE, q())).not.toMatch(/;\s*$/);
+  });
+});
+
+describe('rendersFromSqlBody — which statement an execution read', () => {
+  const body = 'SELECT name FROM db.orders';
+  const over = (source: string, query: ExplorationQuery = q()) =>
+    renderExplorationSql({kind: 'sql', body: source, label: 'x'}, query);
+
+  it('recognises every description over the body, filtered, sorted or grouped', () => {
+    expect(rendersFromSqlBody(over(body), body)).toBe(true);
+    expect(rendersFromSqlBody(over(body, q({expression: 'name IS NOT NULL'})), body)).toBe(true);
+    expect(
+      rendersFromSqlBody(
+        over(body, q({grouping: {columns: ['name'], aggregates: [], duplicatesOnly: false, showPercentage: false}})),
+        body
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    ['a longer body that begins with it', `${body} WHERE name <> ''`],
+    ['a body that holds its whole subquery', over(body, q({expression: "name <> ''"}))]
+  ])('refuses %s', (_case, other) => {
+    expect(rendersFromSqlBody(over(other), body)).toBe(false);
   });
 });
 
