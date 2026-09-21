@@ -14,15 +14,27 @@ changes key order and whitespace: nothing visible breaks, and byte-identity does
 **The byte cap is what holds the line between this route and presigning.** Without it the document
 route is a second upload path that bypasses the presigned ``PUT`` entirely and works perfectly up
 to Lambda's 6 MB response ceiling.
+
+**The cap is on what is stored, and the response is not the same size.** A read goes out escaped
+twice, so a document under the cap can still exceed the ceiling — two megabytes of Cyrillic goes
+out at seven. Both routes measure the response a read would send, and a write is measured as the
+read it would make possible, so nothing is written that this route would then fail to return.
+
+Attributes:
+  ETAG_STAND_IN: What a write measures in place of the ETag it does not have yet, since the read
+    carries one beside the body. The longest form S3 issues — 32 hex characters and a multipart
+    part count up to 10,000 — so the measurement cannot undercount the read.
 """
 
 from typing import Any
 
-from apicommon import protected, s3_config
+from apicommon import envelope, protected, s3_config
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
 
 from . import _objects
+
+ETAG_STAND_IN = "0" * 32 + "-10000"
 
 
 def read_content(context: RequestContext) -> dict[str, Any]:
@@ -36,7 +48,8 @@ def read_content(context: RequestContext) -> dict[str, Any]:
 
     Raises:
       ApiError: ``AccessDenied`` on an unauthorized space or an escaping key; ``NotFound`` when
-        absent; ``PayloadTooLarge`` above the cap; ``InvalidRequest`` when the stored bytes are
+        absent; ``PayloadTooLarge`` above the cap, or when the response would exceed Lambda's
+        ceiling once escaped; ``InvalidRequest`` when the stored bytes are
         not valid UTF-8 — refused rather than substituted, because a silent ``errors='replace'``
         writes corruption back on the next read-modify-write.
       IdentityUnavailableError: If the caller's role cannot be assumed.
@@ -65,7 +78,10 @@ def read_content(context: RequestContext) -> dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise ApiError("InvalidRequest", "stored bytes are not valid UTF-8") from exc
 
-    return {"body": body, "etag": str(stored.get("ETag", "")).strip('"')}
+    return envelope.servable(
+        {"body": body, "etag": str(stored.get("ETag", "")).strip('"')},
+        "document exceeds the response ceiling once escaped",
+    )
 
 
 def write_content(context: RequestContext) -> dict[str, Any]:
@@ -81,9 +97,9 @@ def write_content(context: RequestContext) -> dict[str, Any]:
       ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a write-locked
         location, the query results folder, the data-quality reports folder, or a marker key with
         ``overwrite`` true — creating a marker is permitted, which is how ``ensurePrefixMarker``
-        holds a prefix open; ``PayloadTooLarge`` above the cap,
-        refused BEFORE any S3 call; ``Conflict`` when the key is occupied and ``overwrite`` is
-        false.
+        holds a prefix open; ``PayloadTooLarge`` above the cap, or when reading the document back
+        would exceed Lambda's response ceiling once escaped, refused BEFORE any S3 call;
+        ``Conflict`` when the key is occupied and ``overwrite`` is false.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}
@@ -97,13 +113,18 @@ def write_content(context: RequestContext) -> dict[str, Any]:
     else:
         protected.assert_writable(space, key)
 
-    payload = str(body.get("body", "")).encode("utf-8")
+    text = str(body.get("body", ""))
+    payload = text.encode("utf-8")
     if len(payload) > s3_config.MAX_DOCUMENT_BYTES:
         raise ApiError(
             "PayloadTooLarge",
             "document exceeds the writable cap",
             {"limit": s3_config.MAX_DOCUMENT_BYTES},
         )
+    envelope.servable(
+        {"body": text, "etag": ETAG_STAND_IN},
+        "document could not be read back under the response ceiling once escaped",
+    )
 
     client = _objects.client(context)
     if not overwrite:

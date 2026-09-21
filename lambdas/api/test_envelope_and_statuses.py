@@ -6,8 +6,9 @@ contract rather than about the one route that exists today.
 
 import json
 
+import pytest
 import router
-from apicommon import contract
+from apicommon import contract, envelope
 from conftest import bearer
 
 _FAULT_ROUTE = contract.Route(
@@ -91,3 +92,39 @@ def test_a_preflight_is_answered_before_authentication_and_discloses_nothing() -
     assert absent["statusCode"] == 200
     assert existing == absent, "a preflight that varies by path is an inventory of the routes"
     assert json.loads(existing["body"]) == {}
+
+
+@pytest.mark.parametrize(
+    ("character", "wire_bytes"),
+    [
+        ("a", 1),
+        ('"', 4),
+        ("\\", 4),
+        ("\n", 3),
+        ("\x01", 7),
+        ("\u0416", 7),
+        ("\u4e2d", 7),
+        ("\U0001f600", 14),
+    ],
+)
+def test_a_response_is_measured_after_the_runtimes_second_escape(character, wire_bytes) -> None:
+    """What one more character costs on the wire, counted by hand from both serializations.
+
+    The first pass writes ``\\u0416`` for a Cyrillic letter, six bytes; the runtime escapes its
+    backslash again, seven. A measurement of the stored or once-serialized size gives two or six
+    and admits a response the runtime then cannot send.
+
+    Args:
+      character: One character of a document body.
+      wire_bytes: What it adds to the response the runtime sends.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the measurement disagrees with the hand count.
+    """
+    once = envelope.served_bytes({"body": character})
+    twice = envelope.served_bytes({"body": character * 2})
+
+    assert twice - once == wire_bytes

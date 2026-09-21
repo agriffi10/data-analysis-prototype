@@ -30,7 +30,7 @@ Attributes:
 
 from typing import Any
 
-from apicommon import identity, s3_config
+from apicommon import envelope, identity, s3_config
 from apicommon.config import user_space_bucket
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
@@ -54,7 +54,8 @@ def feature_flags(context: RequestContext) -> dict[str, Any]:
 
     Raises:
       ApiError: ``NotFound`` when the document has never been published; ``PayloadTooLarge`` above
-        the document cap; ``InvalidRequest`` when the stored bytes are not valid UTF-8.
+        the document cap, or when the response would exceed Lambda's ceiling once escaped;
+        ``InvalidRequest`` when the stored bytes are not valid UTF-8.
       IdentityUnavailableError: If the caller's role cannot be assumed.
       Exception: Any other S3 failure — a denial, a throttle, an outage.
     """
@@ -78,4 +79,7 @@ def feature_flags(context: RequestContext) -> dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise ApiError("InvalidRequest", "stored bytes are not valid UTF-8") from exc
 
-    return {"body": body, "etag": str(stored.get("ETag", "")).strip('"')}
+    return envelope.servable(
+        {"body": body, "etag": str(stored.get("ETag", "")).strip('"')},
+        "flag document exceeds the response ceiling once escaped",
+    )
