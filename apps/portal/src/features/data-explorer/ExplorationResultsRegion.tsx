@@ -99,7 +99,7 @@ export type ExplorationResultsRegionProps = {
    *  sibling: one writes a `.sql` file, the other writes a view. */
   onCreateView: () => void;
   /**
-   * A reason the HOST knows and this region does not — today, that the source is a saved query
+   * A reason the HOST knows and this region does not — today, that the source is a statement
    * rather than a table, so there is no single database to create the view in. Combined with
    * this region's own reasons rather than replacing them, so a control that is refused for two
    * reasons still names the one the user can act on first.

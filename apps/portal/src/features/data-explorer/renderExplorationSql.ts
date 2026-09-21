@@ -228,10 +228,10 @@ function renderFrom(source: ExplorationSource): string {
     return `${sqlIdentifier(source.database)}.${sqlIdentifier(source.table)}`;
   }
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
-  // composed verbatim, exactly as the expression is — the save path owns refusing a
-  // multi-statement or non-SELECT file before it ever becomes a source.
+  // composed verbatim, exactly as the expression is — the sender owns refusing anything but one
+  // SELECT, WITH or VALUES statement before it ever becomes a source.
   //
-  // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
+  // The NEWLINES are not formatting. A statement ending in a `--` line comment swallows
   // whatever follows it on the same line, so `(${body}) AS t` would put the closing paren
   // and the alias inside the comment and hand Athena an unbalanced statement — reported as
   // a syntax error with nothing on screen to explain it.

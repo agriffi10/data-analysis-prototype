@@ -18,7 +18,7 @@ import {explorerKeys, readsFromSqlBody} from './explorerKeys';
  * and those are the two cases where re-reading everything is what the user asked for: an
  * arbitrary DDL statement they typed, and the rail's own refresh button.
  *
- * Saved-query sources are evicted on every change, whichever database moved: the body is
+ * Statement sources are evicted on every change, whichever database moved: the body is
  * arbitrary SQL over any number of databases and this app has no parser.
  *
  * @param client - The query client.
@@ -45,9 +45,10 @@ export function evictExplorations(client: QueryClient, database: string, table?:
  * `INSERT` would show the earlier rows, as would every filter re-applied over them. Only this
  * body's executions go; another statement's tab must not re-run.
  *
- * `removeQueries`, not the catalog eviction's `resetQueries`: a reset refetches every OBSERVED
- * match at once, so a tab over the same body still mounted behind the new one would be billed
- * again for a result nobody is looking at. The new tab's own read finds no entry and fetches.
+ * `removeQueries`, not the catalog eviction's `resetQueries`, which refetches every OBSERVED match
+ * at once. Nothing is observed here today — the page holds its execution back while the hand-off
+ * is pending — so removal keeps this eviction from ever starting an execution itself, whatever
+ * that gate later becomes. The new tab's own read finds no entry and fetches.
  *
  * @param client - The query client.
  * @param body - The statement source's body.

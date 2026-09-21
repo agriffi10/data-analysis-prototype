@@ -246,7 +246,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the dropdown next to <b>Run Statement</b> to reach the two whole-script options.',
           'Choose <b>Run Query Tab</b> (<kbd>Ctrl/Cmd + Shift + Enter</kbd>) to run every statement in order and show the last result set.',
           'Or choose <b>Run Multiple Queries</b> (<kbd>Ctrl/Cmd + Alt + Enter</kbd>) to keep every statement’s result in its own tab above the results table.',
-          'To run only some of them, select those statements and click <b>Run Statement</b>. Each one you selected gets its own result tab.',
+          'To run only some of them, select those statements and click <b>Run Statement</b>. Each one that returns rows gets its own result tab.',
           'Statements run one at a time, in order. The status bar shows which one is running (for example “Statement 2 of 4”), and each gets its own history entry.',
           'If a statement fails, or is still running after <b>30 minutes</b>, the script stops there — the message names the statement, and the ones after it don’t run.'
         ],

@@ -525,7 +525,8 @@ export function QueryWorkspace() {
   // its columns have arrived, since the columns are what decide whether it can be explored at all
   // — for a statement the Explorer can wrap. A Data Explorer capability on a Query surface, so
   // both flags gate it. The statement is the one the RUN holds, never the buffer, which may have
-  // changed since.
+  // changed since. A run the mobile surface submitted needs no clause here: the bar carrying the
+  // control is not mounted for a run the editor does not own.
   const queryEnabled = useFeature('query');
   const explorerEnabled = useFeature('dataExplorer');
   const navigate = useNavigate();
@@ -534,7 +535,6 @@ export function QueryWorkspace() {
   const explore =
     queryEnabled &&
     explorerEnabled &&
-    editorOwnsRun &&
     displayedStatement !== undefined &&
     isExplorableSql(displayedStatement.sql) &&
     results.columns.length > 0

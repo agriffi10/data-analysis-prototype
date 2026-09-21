@@ -1621,7 +1621,9 @@ body and no other. Which body an execution read is judged at the **outer** `FROM
 starting with it: a substring test matched a longer body beginning the same way, and a body holding
 this one's whole subquery — the Explorer's own generated SQL, explored again — would have been
 billed for a re-run nobody asked for. `removeQueries`, not the catalog eviction's `resetQueries`,
-which refetches every observed match at once. At the tab limit nothing is evicted.
+which refetches every observed match: nothing is observed at that moment, because the page holds
+its execution back while the hand-off is pending, and removal keeps the eviction from starting an
+execution itself if that gate ever moves. At the tab limit nothing is evicted.
 
 **A result whose columns cannot be named is refused whole.** Athena names an unaliased expression
 `_col0`, which the outer query cannot refer to, and a join selecting `a.id` and `b.id` returns two
