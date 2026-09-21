@@ -19,6 +19,7 @@ entry you need, not the file.**
 - [The field rule — what may be logged (SPEC-130)](#the-field-rule--what-may-be-logged-spec-130)
 - [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
 - [The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)](#the-log-foundry-pin-and-what-a-library-upgrade-owes-the-code-written-around-it-spec-224)
+- [The polars 1.44 pin, and what the move owed the code written around 1.12 (SPEC-245)](#the-polars-144-pin-and-what-the-move-owed-the-code-written-around-112-spec-245)
 - [Where a child span may go, and the four places it may not (SPEC-226)](#where-a-child-span-may-go-and-the-four-places-it-may-not-spec-226)
 - [The failure path joins the trace, including where ASL cannot reach the value (SPEC-227, SPEC-228)](#the-failure-path-joins-the-trace-including-where-asl-cannot-reach-the-value-spec-227-spec-228)
 - [A run is ONE trace on the success path, and the extractor is a security boundary (SPEC-225)](#a-run-is-one-trace-on-the-success-path-and-the-extractor-is-a-security-boundary-spec-225)
@@ -260,6 +261,11 @@ inside the execution the Pipe starts.
   already read. A plane refusing protected destinations mirrors its role's **any-depth** Deny
   rather than the browser's root-anchored picker: an IAM wildcard matches `/`, so a validator
   anchored at the root accepts a key IAM then refuses at the write.
+- **polars reads only bytes this code fetched, and a polars panic is not an `Exception`.** Over a
+  Python file object on S3, 1.44 reads the whole object, so the Parquet probe hands it the footer
+  alone (`bounded_read.read_parquet_footer`); and a Rust panic surfaces as pyo3's `PanicException`,
+  a `BaseException` that walks past `except Exception`, so both schema probes catch it beside
+  `Exception`. The converter's sinks do not: what they read is Athena's own CSV, not a user's file.
 - **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
@@ -463,6 +469,48 @@ The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the r
 **Three standing rules this settled.** No module outside `cpcommon/observability.py` and the two named test harnesses reaches an underscore-prefixed `log_foundry` name — held by a guard that resolves **import aliases**, because `import log_foundry as lf; lf._lifecycle` is the spelling this repo actually uses and renders with neither the package name nor a recognisable prefix in it. No `@traced`/`@step` function may be a **generator**: the library refuses one at decoration, which for this fleet is a cold start that never completes. And the "no way to turn stack capture off" claim three register entries lean on is **asserted by a test against the installed version**, so a release that adds an opt-out reddens rather than silently outliving the decision — the claim itself is unchanged and still true.
 
 **A version-anchored claim rots differently from a wrong one, and the two need different repairs.** Of five claims corrected here, **two** were true of the previous pin and false of this one, **one was never true** (the one-door absolute above), and **two are still true and were merely dated to a superseded version** — including the stack-capture claim, which is unchanged and now asserted by a test. Only the first kind is a falsification; and the two dispositions that predate this pin are now stated **version-free**, since naming their release would leave a superseded version in the one block a sweep exists to clear. Full reasoning and the measurements: `spec-delivery/SPEC-224`.
+
+## The polars 1.44 pin, and what the move owed the code written around 1.12 (SPEC-245)
+
+The fleet runs **`polars==1.44.2`**, pinned exactly in the two requirements files that declare it
+and read fleet-wide because the image installs every requirements file into one site-packages. The
+move was made for one defect — 1.12's streaming CSV reader mis-split a large result holding
+multi-line values, refusing a whole save and writing a column-subset save WRONG — and what this
+entry records is the four things the move owed beyond the pin, because each was invisible to a
+suite that stayed green on the new version.
+
+**polars is handed only bytes this code fetched itself.** The Parquet schema probe used to hand
+polars a Python file object over S3 ranged GETs and trust it to seek to the footer. 1.44 implements
+`read_parquet_schema` as `scan_parquet(...).collect_schema()`, which reads such an object whole, so
+the probe that was bounded on 1.12 would have pulled a large source into a 1,024 MB function with
+every schema still right. `cpcommon.bounded_read.read_parquet_footer` now fetches the trailer and
+then exactly the footer, and hands polars an in-memory file of the footer alone — bounded however
+polars reads it. The trailer checks live once, in `cpcommon.parquet_trailer`, shared with the
+converter's footer decoder; a zero-length footer is refused there because its range would be
+inverted and S3 answers an inverted range with the whole object; and every response's declared
+length is checked before its body is read. This shipped first, on 1.12, so the version move changed
+nothing about how a probe reads.
+
+**A polars panic is not an `Exception`.** 1.44 panics on some damaged Parquet footers where 1.12
+raised `ComputeError`, and a pyo3 `PanicException` derives from `BaseException`, so it escaped both
+schema probes' `except Exception` as a fault with no named refusal. Both now catch it beside
+`Exception`; a fuzzed footer is the fixture, and it discriminates only on 1.44.
+
+**A stopgap for a library defect is retired with the defect, and the keyword it used was already
+gone.** The projection-pushdown switch that turned 1.12's wrong column-subset file into a refusal
+was a keyword 1.44's sinks reject with a `TypeError`, which the writers would have turned into a
+refusal of every streamed save. It was retired rather than translated, and the guard that remains
+converts the mis-splitting shape in every streamed format, whole and projected, row for row — red on
+1.12.
+
+**Measured caps are re-measured on the new library, and the new runs JOIN the evidence.** 1.44's
+fixed memory cost is larger, so the Excel baseline rose and the cell cap fell from 4,100,000 to
+3,900,000; no cap rose, because every corpus row keeps its highest peak over both versions' runs
+and every constant the larger of its old value and what the joined corpus derives (for the covered
+width, the smaller). A run slowed by
+a concurrent job keeps its memory and loses its rates: CPU contention lowers a rate but cannot
+inflate a cgroup peak. The per-run figures are in `rccommon.config.MEASURED_ON` and #865; the
+reasoning and the live checks: `spec-delivery/SPEC-245`.
 
 ## Where a child span may go, and the four places it may not (SPEC-226)
 

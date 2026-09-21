@@ -2972,6 +2972,12 @@ it lives in describe-results, and it applies to every format.
 > time at its full memory. Full entry: `docs/decisions/control-planes.md` → *Excel is bounded by
 > cells, because the converter's memory is spent per cell*.
 
+> **Lowered by SPEC-245 (2026-09-21):** the cell limit is **3,900,000**. The move to polars 1.44.2
+> re-measured the Excel model in the new image, and 1.44's larger fixed memory cost raised the
+> baseline, so the cap the budget derives fell; no cap rose. Full entry:
+> `docs/decisions/control-planes.md` → *The polars 1.44 pin, and what the move owed the code
+> written around 1.12*.
+
 **Considered and rejected (2026-09-05, user decision): a lazy frame over the SOURCE files, with the
 exploration's filters re-applied in polars.** It reads as more robust and is less so here, for four
 reasons that come from this repo. It cannot serve half the surface: the Query workspace runs
