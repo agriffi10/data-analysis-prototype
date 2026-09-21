@@ -10,6 +10,50 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-21, afternoon (SPEC-245: the footer probe, and polars 1.44.2 on every streamed save)
+
+**What was under test.** Two deploys, read in order. First **`1c09d2e1`** (#863), the footer-only
+Parquet probe on polars 1.12.0 — `/healthz` reported that sha and `Deploy Lambdas` had succeeded —
+for FR-001's live check and, on the same 1.12 fleet, FR-005's positive control. Then
+**`a1931c9a`** (#865), the move to polars 1.44.2, once its `Deploy Lambdas` had succeeded and
+`/healthz` reported it, for FR-005's remaining checks. `REPORT` lines were read from
+`/aws/lambda/dat-prod-results-conversion-convert` with `aws logs filter-log-events`; times are UTC.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
+in the extension's group. It came up signed out, and one click on the portal's **Sign in** signed it
+in on the Hosted UI cookie; no credential form was shown. Viewport 1568 × 760.
+
+**Instruments, each a way this run differed from a user's.**
+- `document.visibilityState` and `hidden` overridden to visible, with `visibilitychange` and `focus`
+  dispatched, after each full load.
+- **Monaco took input, and the difference from the session below is focus.** After a page load the
+  first click leaves focus outside the editor, so a `Cmd+A` selects the page and typing goes
+  nowhere. Clicking into the editor again, or clearing through the workspace's own **Clear**
+  dialog, left `document.activeElement` on Monaco's `native-edit-context` element, and
+  `computer.type` then entered each query whole. Each query was read back before it ran — from the
+  rendered line for a short one, and by `Home`/`End` screenshots for a long one, because Monaco
+  renders only the scrolled-into-view part of a long line.
+
+| Row | Result |
+|---|---|
+| **FR-001 — a table build over a Parquet folder**, on `1c09d2e1` | **PASS.** `agriffith/conv0910_parquet/` (one 1.9 KB file) built as `spec245_probe_parquet`: *"Table "spec245_probe_parquet" is ready to query in "agriffith"."* |
+| **FR-001 — a data-quality check over the same folder** | **PASS.** *"Data quality check on "agriffith/conv0910_parquet/" finished — open the report for details."* |
+| **FR-005 positive control — the 200,000-row multi-line query saved as Parquet in full**, on 1.12 | **Refused, as the control requires.** *"Couldn't save the query results as Parquet: part of the results could not be read, so "spec245-pc-full.parquet" was not written. …replacing those line breaks in the query will…"* `REPORT` 17:07:12Z: 4,349 ms, 151 MB, cold. No file was written. |
+| **The same, as view `agriffith.spec245_pc_view` in Data Explorer with `doc` hidden**, on 1.12 | **Refused** the same way, for `spec245-pc-view-idonly.parquet`. `REPORT` 17:08:44Z: 507 ms, 152 MB. |
+| **The query saved as Parquet in full**, on `a1931c9a` | **PASS.** *"Saved 200,000 rows as Parquet to "spec245-live-full.parquet"."* `REPORT` 17:42:10Z: 11,309 ms, 190 MB. |
+| **The query saved as JSON in full** | **PASS.** *"Saved 200,000 rows as JSON to "spec245-live-full.json"."* `REPORT` 17:42:12Z: 3,928 ms, 192 MB, on a second, cold instance. |
+| **The view saved as Parquet with `doc` hidden** | **PASS.** *"Saved 200,000 rows as Parquet to "spec245-live-view-idonly.parquet"."* — 200,000 and not 200,002, which is what 1.12 wrote for this shape before the stopgap. `REPORT` 17:42:47Z: 1,686 ms, 192 MB. |
+| **Every scalar type through Parquet and a table build** — the typed query saved into `spec245_typed/`, then **Create table** over it | **PASS.** *"Saved 1,000 rows as Parquet to "spec245-typed.parquet"."* (`REPORT` 17:44:57Z: 1,660 ms), then *"Table "spec245_typed" is ready to query in "agriffith"."* `SELECT * FROM agriffith.spec245_typed EXCEPT <the query>` returned **0 rows**, 18 KB scanned, and `<the query> EXCEPT SELECT * FROM agriffith.spec245_typed` returned **0 rows**, 18 KB scanned. The second is the positive control for the first: an empty or wrong table returns rows there. |
+| **A data-quality check over `spec245_typed/`** | **PASS.** *"Data quality check on "agriffith/spec245_typed/" finished — open the report for details."* |
+| **The largest Excel conversion the cell cap admits** (`e2e.md` §4.3, regenerated for 3,900,000 cells) | **PASS on both bounds.** *"Saved 975,000 rows as Excel to "spec245-at-cap.xlsx"."* `REPORT` 17:51:50Z: **Duration 58,685 ms** against 120 s, and **Max Memory Used 2,115 MB** against the model's 2,517. On polars 1.12 the 1,025,000-row input of the old cap read 2,410. |
+
+**Left behind.** Tables `spec245_probe_parquet` and `spec245_typed`, view `spec245_pc_view`, the
+folder `spec245_typed/` with `spec245-typed.parquet`, and in `agriffith/` the files
+`spec245-live-full.parquet`, `spec245-live-full.json`, `spec245-live-view-idonly.parquet` and
+`spec245-at-cap.xlsx`. The two data-quality reports stay under the space's report folder.
+
+---
+
 ## Live-check session — 2026-09-21 (SPEC-243's chips and Open in Query, `e2e.md` §4.5 rows L to P)
 
 **What was under test.** `main` at **`a40c26f7`** (#861). `Deploy SPA image` for that sha had

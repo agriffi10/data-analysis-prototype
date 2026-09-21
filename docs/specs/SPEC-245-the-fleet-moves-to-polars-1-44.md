@@ -1,7 +1,7 @@
 # Spec: The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing
 
 **ID:** SPEC-245
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-21
 **Depends On:** None
 
