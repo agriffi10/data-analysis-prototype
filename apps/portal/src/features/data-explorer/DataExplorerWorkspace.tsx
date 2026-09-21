@@ -186,7 +186,9 @@ export function DataExplorerWorkspace() {
   });
   useEffect(() => {
     // An unsettled or refused link opens nothing, by the rule the page applies to Glue and Athena.
-    if (resolution.status === 'loading' || resolution.status === 'denied') return;
+    // A link about to open goes first: its `clear()` keeps this state, and replacing the entry here
+    // in the same flush would put back the parameters it just dropped.
+    if (resolution.status !== 'none') return;
     if (consumedHandoff.current === location.key) return;
     const handoff = readExploreSqlHandoff(location.state);
     if (!handoff) return;

@@ -215,7 +215,10 @@ search and no state. When `openTab` returns null it raises `ExplorationLimitDial
 and still replaces the entry. State the reader does not accept is ignored, and nothing is replaced.
 *(Added during the build, from the plan review:)* while an accepted hand-off is still in the history
 state, the tab restored from the session runs nothing, by the page's rule for an unsettled link — it
-is about to be switched away from, and running it would bill a statement nobody sees.
+is about to be switched away from, and running it would bill a statement nobody sees. And a hand-off
+arriving on an entry that also carries a deep link waits for the link: the link's tab opens first,
+its parameter-clearing replace keeps the history state, and the hand-off is read on the entry that
+replace produces — replacing in the same flush put the link's parameters back (diff review).
 
 #### Acceptance Criteria:
 

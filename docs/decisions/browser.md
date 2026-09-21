@@ -1505,6 +1505,13 @@ or Back neither opens a second tab nor raises the limit dialog again. A mount wi
 replaces nothing. While an accepted hand-off is still in the entry, the page runs nothing for the
 tab restored from the session, by the rule it already applies to an unsettled link.
 
+**A link on the same entry goes first.** The deep link and the hand-off each replace the entry, and
+both effects run in one flush, so the hand-off's replace — built from the render's `location` —
+put back the parameters the link's had just dropped, and a reload opened the linked table again.
+The hand-off now waits while a link is loading, refused or about to open, and the link's `clear()`
+carries the entry's state across its own replace, so the hand-off is read on the entry that replace
+produces. No sender combines the two today; the next one might.
+
 **The StrictMode test was vacuous until the harness changed.** The first version passed with the
 `location.key` guard deleted. A `<StrictMode>` handed to `render` beneath a provider wrapper runs
 every effect once: React double-invokes effects only for a subtree whose placed root is, or sits

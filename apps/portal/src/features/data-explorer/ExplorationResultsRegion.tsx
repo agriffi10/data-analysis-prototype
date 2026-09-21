@@ -312,8 +312,9 @@ export function ExplorationResultsRegion({
     onSourceColumns?.(forTab, sourceColumns)
   );
   const ungrouped = query.grouping === null;
-  const currentSucceeded = !failed && state === 'SUCCEEDED' && shownExecutionId === queryExecutionId;
-  const settledColumns = currentSucceeded && ungrouped && !results.isPending ? results.columns : null;
+  // `!failed` is what keeps the last-good fallback out: after a failed ungroup it shows the GROUPED
+  // execution while the description already says ungrouped.
+  const settledColumns = !failed && state === 'SUCCEEDED' && ungrouped && !results.isPending ? results.columns : null;
   useEffect(() => {
     if (settledColumns && settledColumns.length > 0) reportSourceColumns(tabId, settledColumns);
   }, [tabId, settledColumns]);

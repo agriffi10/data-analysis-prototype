@@ -34,6 +34,8 @@
 - **`sqlSourceColumns` is recorded from every ungrouped execution, not only the first.** Every run
   of one body reports the same list, so a repeat is a no-op, and the list stays right if the tables
   under the statement change shape. The spec was updated.
+- **A deep link on the same entry opens first**, and its `clear()` now keeps the history state so
+  the hand-off survives it (found by the diff review; unreachable from today's only sender).
 - **The restored tab runs nothing while a hand-off is pending.** Not in the draft; found by the plan
   review, since after a reload the restored tab's statement would otherwise be billed on the way
   past. The spec was updated.
@@ -53,11 +55,12 @@
 - The *Create view…* refusal is reworded to cover SQL opened from a query or a saved file.
 - `useSourceColumns` takes the tab's remembered columns as a second argument.
 - `QueryStatusBar` takes an `explore` prop; `QueryResultsRegion` passes it through.
+- `useExploreDeepLink`'s `clear()` keeps the history entry's state across its replace.
 
 ## Verification
 
-Formatter, lint, `tsc -b`, the portal suite (175 files) and `npm run build` green by exit code, plus
-the branch validators `ci.yml` runs. Mutation batteries: six plants over the hand-off, five over the
-Query-side gate, and both flags against the registry walk — each reddens. The live check (select two
+Formatter, lint, `tsc -b`, the portal suite and `npm run build` green by exit code, plus the branch
+validators `ci.yml` runs and the Python gates. Mutation batteries over the hand-off, the Query-side
+gate, the column memory and both flags against the registry walk — each plant reddens its test. The live check (select two
 SELECTs, Run Statement, explore the second, hide and filter a column, reload) is folded into
 `docs/testing/e2e.md` and runs after deploy.

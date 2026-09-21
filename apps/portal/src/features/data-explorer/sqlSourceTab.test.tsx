@@ -191,6 +191,56 @@ describe('a tab whose source is a statement', () => {
     expect(storedTabs().tabs[0].sqlSourceColumns).toEqual(COLUMNS);
   });
 
+  it('keeps its columns when an ungrouped run fails and the grid falls back to the grouped rows', async () => {
+    const grouped = newExploration({kind: 'sql', body: BODY, label: 'orders'}, 's1');
+    grouped.query.grouping = {
+      columns: ['name'],
+      aggregates: [{fn: 'COUNT', column: '*'}],
+      duplicatesOnly: false,
+      showPercentage: false
+    };
+    sessionStorage.setItem(
+      `${EXPLORATION_TABS_STORAGE_PREFIX}alice`,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 's1',
+            label: 'orders',
+            exploration: grouped,
+            scannedByExecution: {},
+            history: {past: [], future: []},
+            sqlSourceColumns: COLUMNS
+          }
+        ],
+        activeTabId: 's1'
+      })
+    );
+    // Only the ungrouped statement fails, so the fallback is the grouped result.
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) => {
+      const ungrouped = !(sqlByExecution.get(queryExecutionId) ?? '').includes('GROUP BY');
+      return ok({
+        queryExecutionId,
+        state: ungrouped ? 'FAILED' : 'SUCCEEDED',
+        stateChangeReason: ungrouped ? 'SYNTAX_ERROR: line 1' : undefined,
+        dataScannedBytes: 2048,
+        engineExecutionTimeMillis: 120
+      });
+    }) as never);
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'count_all'});
+
+    await chooseExplorationOption(user, 'Grouping');
+    await user.click(
+      within(screen.getByRole('complementary', {name: 'Grouping'})).getByRole('button', {name: 'Stop grouping'})
+    );
+    await waitFor(() => expect(lastSql()).toBe(`SELECT *\n${FROM}`));
+    expect(await screen.findByText(/syntax error/i)).toBeInTheDocument();
+    // The grouped rows are still on screen beneath the failure; their columns are not the source's.
+    expect(screen.getByRole('columnheader', {name: 'count_all'})).toBeInTheDocument();
+    expect(storedTabs().tabs[0].sqlSourceColumns).toEqual(COLUMNS);
+  });
+
   it('saves its own execution’s output, and refuses Create view with the reason', async () => {
     const {user} = render();
     await screen.findByRole('columnheader', {name: 'qty'});

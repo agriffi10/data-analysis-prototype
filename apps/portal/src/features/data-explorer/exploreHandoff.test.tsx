@@ -184,6 +184,26 @@ describe('a statement handed over from a Query result', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
 
+  it('opens a linked table AND a handed-over statement once each, and leaves neither in the URL or state', async () => {
+    render({...HANDOFF_ROUTE, search: '?space=personal&db=alice&table=orders'} as TestRoute);
+
+    expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
+    expect(await screen.findByRole('tab', {name: LABEL})).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    expect(window.location.search).toBe('');
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+    expect(sqlsRun()).toEqual([UNFILTERED]);
+  });
+
+  it('opens nothing behind a refused link, and runs nothing', async () => {
+    render({...HANDOFF_ROUTE, search: '?space=someone_elses&db=someone_elses&table=orders'} as TestRoute);
+
+    expect(await screen.findByRole('heading', {name: 'You don’t have access to that space'})).toBeInTheDocument();
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? '').not.toContain(BODY);
+  });
+
   it('at the tab limit, raises the limit dialog, opens and evicts nothing, and still clears history', async () => {
     const tables = Array.from({length: EXPLORATION_TABS_MAX}, (_, index) =>
       tab(`t${index}`, {...ORDERS, table: `table_${index}`})

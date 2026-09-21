@@ -194,6 +194,24 @@ describe('Explore in Data Explorer', () => {
     expect(await screen.findByRole('button', {name: EXPLORE})).toBeInTheDocument();
   });
 
+  it('hands over the statement behind the displayed tab when an earlier statement made no tab', async () => {
+    // The INSERT earns no result tab, so a tab's position and its statement's position differ.
+    queueRuns('q-1', 'q-2', 'q-3');
+    columns('y');
+    seedSingle('INSERT INTO db.t VALUES (1);\nSELECT a AS x FROM db.t;\nSELECT b AS y FROM db.u;');
+    const {user} = render();
+    await screen.findByLabelText('SQL editor');
+
+    await runScriptTabs(user);
+    const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+    expect(within(strip).getAllByRole('tab')[1]).toHaveAttribute('aria-selected', 'true');
+    await user.click(await screen.findByRole('button', {name: EXPLORE}));
+
+    expect(probed().state).toEqual(
+      buildExploreSqlHandoff({body: 'SELECT b AS y FROM db.u', label: statementHint('SELECT b AS y FROM db.u')})
+    );
+  });
+
   it('is offered beside Save when a later statement failed, and not for a lone failure or while running', async () => {
     queueRuns('q-1', 'q-2');
     columns('a');
