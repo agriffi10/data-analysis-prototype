@@ -94,6 +94,22 @@ so that a `DROP` could not be refused for a non-empty database instead.
 | The archive folder | The link landed on it. A banner reads *"The archive folder is read-only…"*. **Upload** and **New folder** are unavailable with that reason, and **Archive** is absent. With the receipt selected, **Move** and **Delete** are unavailable with the same reason. `live0921_archive/` was gone from the space root. |
 | Restore, **approved** | A nonsense id gave an inline *"That doesn’t look like an archive id. Ids look like 3f8a1c2e-…"*, with `aria-invalid` set and **Restore** still enabled. The real id was sent at 22:45:26Z; the toast said *"Restore started…"*. At 22:45:40Z the receipt read `Restore requested: 2026-09-21 22:45:26 UTC` and `Restored to: -`. The started notice had no link: *"Restoring 2 files from long-term storage…"*. **§4.11 D is owed** when it finishes. **B1a (a reused archive id) was not attempted.** The runbook orders it before B2, because a finished restore empties the archive prefix the check relies on. |
 
+The receipt before the restore, whole (last modified 22:43:39Z), read through `GET /v1/objects/content`, for
+§4.11 D's byte-identical comparison:
+
+```
+Requested:         2026-09-21 22:43:22 UTC
+Request ID:        57d14bb9-be06-4790-81ab-d5a95d484926
+Original path:     s3://dat-prod-shared-space/livecheck_186/
+Archived path:     s3://dat-prod-archive/shared/livecheck_186/archive/57d14bb9-be06-4790-81ab-d5a95d484926/
+Total size:        38 B (38 bytes)
+Files archived:    2
+Restore requested: No
+Restored to:       -
+```
+
+At 22:45:40Z only `Restore requested` had changed, to `2026-09-21 22:45:26 UTC`.
+
 **Table share** (SPEC-161). **PASS.** `agriffith` shared `explorer150` to `agriffith_three` as
 `live0921_share150`. `agriffith_three` got *"agriffith shared table "live0921_share150" with you in
 "agriffith_three"."*, and the table sits at `agriffith_three/shared_tables/live0921_share150`.

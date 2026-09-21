@@ -186,8 +186,9 @@ Two operational notes for whoever runs it. `Deploy App` and `Deploy Infrastructu
 merge of #551** — the first has no path filter, the second does, neither waits — so enqueues fail
 visibly and self-heal in that window; the live checks must not start until every workflow that merge
 triggered is green for its sha, because an IAM simulation run before the apply lands reads exactly the
-inverse of the truth on both roles. And the checks that need a **second account** — a shared space
-where the submitter is a non-owner member — and the malformed-body DLQ path stay owed regardless.
+inverse of the truth on both roles. The check that needed a **second account**, a shared space
+where the submitter is a non-owner member, ran on 2026-09-21 (`docs/testing/sessions.md`, 2026-09-21
+night). The malformed-body DLQ path stays owed.
 
 ## Help & guides
 
