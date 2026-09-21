@@ -31,6 +31,22 @@ describe('errorMessages', () => {
       expect(message).not.toContain('undefined');
     });
 
+    it('answers a document too large to READ without asking the reader to send less', () => {
+      // The person opening their history sent nothing, so "make it smaller" is advice nobody can
+      // follow. The documents the app writes for itself are an administrator's to fix.
+      const {message} = toUserMessage({code: 'DocumentTooLarge', message: 'Failed to load history'});
+
+      expect(message).toBe('This is too large to open. Contact the Administrator.');
+    });
+
+    it('sends a saved query too large to read to Files, where a download does not pass the bound', () => {
+      const {message} = toUserMessage({code: 'SavedQueryTooLarge', message: '“q” is too large to open.'});
+
+      expect(message).toBe(
+        'This saved query is too large to open here. Download it from its space’s saved_queries folder in Files to read it.'
+      );
+    });
+
     it('passes a recognized app code through with its authored message', () => {
       const {message} = toUserMessage({code: 'Collision', message: '"reports/q4.csv" already exists.'});
       expect(message).toBe('"reports/q4.csv" already exists.');

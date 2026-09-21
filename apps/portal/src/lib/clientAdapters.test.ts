@@ -152,6 +152,35 @@ describe('s3Json', () => {
       });
     });
 
+    it('re-codes a document too large to read, so its sentence is not a request to send less', async () => {
+      send.mockResolvedValue({success: false, error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}});
+
+      const result = await readJsonDocument({
+        bucket: 'b',
+        key: 'alice/user_settings/k.json',
+        parse: () => ok('parsed'),
+        onMissing: () => ok('empty'),
+        fallbackMessage: 'Failed to load history'
+      });
+
+      // The limit is dropped with the code: it is the bound on a document the reader cannot shrink.
+      expect(result).toEqual({success: false, error: {message: 'Failed to load history', code: 'DocumentTooLarge'}});
+    });
+
+    it('lets onTooLarge say what a document too large to read means here', async () => {
+      send.mockResolvedValue({success: false, error: {message: '', code: 'PayloadTooLarge'}});
+
+      const result = await readJsonDocument<string>({
+        bucket: 'b',
+        key: 'alice/saved_queries/q.sql',
+        parse: () => ok('parsed'),
+        onTooLarge: () => ({success: false, error: {message: 'Too large.', code: 'ThisOneTooLarge'}}),
+        fallbackMessage: 'Failed to load'
+      });
+
+      expect(result).toEqual({success: false, error: {message: 'Too large.', code: 'ThisOneTooLarge'}});
+    });
+
     it('does not throw when parse throws — the contract is result-in, result-out', async () => {
       send.mockResolvedValue(body('{}'));
 

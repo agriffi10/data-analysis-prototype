@@ -148,6 +148,24 @@ const CODE_RULES: readonly ErrorRule[] = [
   // twenty-five queries needs to know which one vanished, not that "that item" did.
   {code: 'SavedQueryNotFound', userFixable: true, passthrough: true},
 
+  // Trigger: the API refused to READ a stored document as too large — over the document cap, or
+  // too large to send back once escaped. The document reader re-codes the API's `PayloadTooLarge`
+  // as this, because that code's sentence asks for less in a request, and a person opening their
+  // history sent nothing they could shrink. Not user-fixable: the documents read without a
+  // sentence of their own are ones the app writes for itself, and nothing a user can do from the
+  // app makes one smaller.
+  {code: 'DocumentTooLarge', message: `This is too large to open. ${CONTACT_ADMIN}`, userFixable: false},
+
+  // Trigger: a saved query's `.sql` file is too large to read. A save is refused at the same
+  // bounds, so the file arrived through Files, and Files is also the way out: the folder is an
+  // ordinary visible one there, and a download goes straight to S3 without passing the bound.
+  {
+    code: 'SavedQueryTooLarge',
+    message:
+      'This saved query is too large to open here. Download it from its space’s saved_queries folder in Files to read it.',
+    userFixable: true
+  },
+
   // ── Data-quality report reads. Deliberately NOT folded into
   // the generic `NotFound` above: that one says "refresh and try again", which is
   // wrong advice here — a report the user followed a link to is either still being
@@ -162,8 +180,8 @@ const CODE_RULES: readonly ErrorRule[] = [
     message: `That report couldn’t be read. ${CONTACT_ADMIN}`,
     userFixable: false
   },
-  // Not the generic `PayloadTooLarge`, whose "try again with less" the user cannot follow: they
-  // sent nothing. A check run now writes a report that leaves out what does not fit.
+  // Not `DocumentTooLarge`, which sends the user to an administrator: a check run now writes a
+  // report that leaves out what does not fit, so a new run gives them one that opens.
   {
     code: 'DataQualityReportTooLarge',
     message:
@@ -363,7 +381,11 @@ const CODE_RULES: readonly ErrorRule[] = [
   // `TooLarge` above, which is our upload path naming the file and the limit. This one used to
   // carry neither and said "try again with less selected" — false for the case that is now the
   // common one, a single field over its own bound, where nothing is selected at all. The API
-  // sends the bound it enforced, so the sentence names it when it is there.
+  // sends the bound it enforced, so the sentence names it when it is there. Both sentences are for
+  // a WRITE: a read refused the same way is re-coded by the document reader as `DocumentTooLarge`,
+  // since the person opening a document sent nothing they could make smaller. The one read left on
+  // this code is the feature-flag document's, whose failure falls back to defaults and renders
+  // nothing.
   {
     code: 'PayloadTooLarge',
     message: 'That request was too large. Try again with less in it.',

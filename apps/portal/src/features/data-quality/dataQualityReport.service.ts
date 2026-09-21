@@ -60,9 +60,10 @@ function parseReport(body: string | undefined): ServiceResult<DataQualityReport>
  * legitimate empty state here — the user followed a link to a specific report, so the
  * honest answer is that this report can't be shown, not that it is empty and clean.
  *
- * A report larger than the document route will carry gets its own code too. The generic
- * `PayloadTooLarge` tells the user to send less, and they sent nothing: the report was written
- * too large, which only a report from before the writer shortened its lists can be.
+ * A report larger than the document route will carry gets its own code too, not the reader's
+ * generic one, which sends the user to an administrator: the report was written too large, which
+ * only a report from before the writer shortened its lists can be, so a new run writes one that
+ * fits. It writes it beside this one, under its own request id; this link keeps failing.
  *
  * The caller passes the bucket it resolved from the space; this service never guesses one.
  */
@@ -71,7 +72,7 @@ export async function getQualityReport(
   space: string,
   requestId: string
 ): Promise<ServiceResult<DataQualityReport>> {
-  const read = await readJsonDocument<DataQualityReport>({
+  return readJsonDocument<DataQualityReport>({
     bucket,
     key: reportKey(space, requestId),
     parse: parseReport,
@@ -79,11 +80,10 @@ export async function getQualityReport(
       success: false,
       error: {message: 'That report could not be found.', code: 'DataQualityReportNotFound'}
     }),
+    onTooLarge: () => ({
+      success: false,
+      error: {message: 'That report is too large to open.', code: 'DataQualityReportTooLarge'}
+    }),
     fallbackMessage: 'Failed to load the data quality report'
   });
-  if (read.success || read.error.code !== 'PayloadTooLarge') return read;
-  return {
-    success: false,
-    error: {message: 'That report is too large to open.', code: 'DataQualityReportTooLarge'}
-  };
 }
