@@ -43,5 +43,5 @@
   the plan, the PR grouping, and two diff reviews in the security frame and the regression frame.
   The PR body lists the gates and the plants, each seen red and then reverted.
 - **Live check: ran 2026-09-21, passed.** The steps are the SPEC-232 row in `docs/testing/e2e.md`
-  §4.3. The two-user version is still owed, in `docs/testing/owed.md` under *Needs a second (or
-  third) account*.
+  §4.3. The two-user version ran later the same night and passed in both directions, with
+  `agriffith` and `agriffith_three` as the prefix cousins (`docs/testing/sessions.md`, 2026-09-21 night).

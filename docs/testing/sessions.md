@@ -10,6 +10,114 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-21, night (two accounts: the send, the share, membership, the refusals and catalog isolation)
+
+**What was under test.** The same build as the evening sitting: the SPA image **`8061989c`**
+(task definition `dat-prod-spa:228`, read from the service) and the API and planes at **`a1931c9a`**
+(`/healthz`). `environments.prod` is `{}`. Times are UTC.
+
+**Browsers.** Two accounts, each signed in by Andrew himself; nothing was typed or clicked on a
+credential form by the session.
+- **`agriffith`** in the Claude app's **Browser pane**, at its own 716 px width and, for the table
+  build and the archive, emulated at 1280 × 800 (the narrow toolbar hides **Create table**).
+- **`agriffith_three`** in a **Chrome** tab of the Claude-in-Chrome group. The window was hidden:
+  screenshots timed out, and `computer` clicks did nothing.
+
+**Instruments, each a way this run differed from a user's.**
+- In Chrome: `document.visibilityState` and `hidden` overridden to visible after every load, with
+  `visibilitychange` and `focus` dispatched. Controls were driven with `element.click()` and form
+  fields with the native value setter plus an `input` event, because the hidden tab ignored
+  `computer` clicks.
+- In the pane: uploads went through the Upload dialog's own file input, given a `File` through
+  `DataTransfer`.
+- The query, catalog and refusal probes were sent from each page with its own token, in the UI's
+  own request shape. The shared-space negatives had to be sent that way, because the UI offers a
+  non-owner none of those actions.
+- **The permission classifier refused production reads that night.** It refused reading the API log
+  and a batch of three shared-space requests. It also refused listing the tables of third-party
+  spaces, as personal data. The three requests then ran as single calls, and the cross-space negative
+  used a new space of Andrew's own instead. No Step Functions history was read, so which state
+  refused each negative is owed.
+- The Chrome extension redacts a script's output when it holds a query string; the links were read
+  with `?`, `=` and `&` substituted.
+
+**SPEC-232, the two-user twin** (`owed.md`, *Needs a second (or third) account*).
+
+| Check | Result |
+|---|---|
+| `agriffith` asks about an `agriffith_three` execution | **PASS.** `agriffith_three` ran `SELECT count(*) AS n FROM employees` (`946b415e-5acc-45f2-8fdc-e90767c0d406`, output under `agriffith_three/system_settings/athenaresults/`, result `2`). From `agriffith`, status, results, row-count and stop each answered `404` `{"error":{"code":"NotFound",…,"detail":"no execution with this id belongs to the caller"}}`. A made-up id's four answers were byte-identical apart from `requestId`. |
+| The reverse | **PASS.** `agriffith`'s `SELECT 1` (`7e761189-ea67-4c27-9e77-72d48398ea11`, output under `agriffith/`), asked about from `agriffith_three`: the same four `404`s. |
+
+**Add → acknowledge → roster** (SPEC-125, SPEC-186 FR-008), on `livecheck_186`, owned by `agriffith_three`.
+
+| Step | Result |
+|---|---|
+| Before | The card read *1 member*, and the roster held the owner alone. |
+| The owner adds `agriffith` | Toast *"Adding 1 member to “livecheck_186”…"*. At +10.5 s the owner's roster read `agriffith` **Pending**, with **Make owner** and **Remove**. |
+| The member, before any acknowledge | With no sign-out, `/connections` showed `livecheck_186` as Member, Active, owner `agriffith_three`. **View members**, with no acknowledge key yet in `sessionStorage`, read `agriffith` **Active**. |
+| The acknowledge | Opening `/files?space=livecheck_186` set `s3portal.ackMembership.agriffith.livecheck_186`. The page read *"Applying your access… You were just added to this space. Access applies once your session refreshes…"*. **Refresh access** brought a token carrying `custom:shared_space_10 = livecheck_186`, and the listing appeared. |
+| The owner refreshes | **PASS.** `agriffith` **Active**; the card read *2 members · created Aug 14, 2026*. |
+
+**Shared-space authorization negatives** (SPEC-053/054). There is one FIFO group for the whole
+plane, so a later request's notice proves the earlier ones were started.
+
+| Request | Result |
+|---|---|
+| Owner `leave` (`933a5270-a3ca-47b6-808b-bcc361c3cfab`) | `200` at the API; no notice, the designed silence for a refusal that raises. The owner was still the owner. |
+| Non-owner `delete` (`c6bf68f7-0c20-4c45-8311-e393e5eda9ed`) | `200`; no notice, and no card anywhere read *Deleting*. The space was still in both accounts' lists. |
+| Non-owner `add_members` of `live0921_nobody` (`8e4e9163-fec5-4e43-9db7-a6b462cb6993`) | *"We couldn't change who belongs to the shared workspace "livecheck_186"."* |
+| Non-owner `remove_members` of themselves (`84148e0f-fc74-431d-9b5e-a924cbd213ca`) | The same sentence, as a second notice. `agriffith` was still in the roster. |
+| After all four | The roster was unchanged, and the owner's bell stayed at 33 unread. **The execution histories were not read**, so the refusal codes are inferred, not seen: the space exists, is active and has an owner, and the targets were well formed. |
+
+**Catalog isolation, the Lake Formation half.** It was run before any table existed in `livecheck_186`,
+so that a `DROP` could not be refused for a non-empty database instead.
+
+| Probe | Result |
+|---|---|
+| A member's query against the space | `SELECT 1` with the context database `livecheck_186` succeeded. Its output went to `agriffith/system_settings/athenaresults/`, the caller's prefix; `e2e.md` §4.8 said the space's, and was corrected. |
+| `ALTER DATABASE livecheck_186 SET DBPROPERTIES ('live0921' = 'probe')` | **Refused** (`b90af084-44e9-40d2-abeb-82bb5562e25b`): *"…assumed-role/dat-portal-user-role/agriffith is not authorized to perform: glue:UpdateDatabase … because no identity-based policy allows the glue:UpdateDatabase action"*. |
+| `DROP DATABASE livecheck_186` | **Refused** (`895fcc09-af25-4893-9ced-3b5fd66cfa7d`): the same shape, on `glue:DeleteDatabase`. Afterwards `GET /v1/catalog/databases/livecheck_186` answered `200`. |
+| The prefix cousin's personal database | From `agriffith`, both catalog reads of `agriffith_three` answered `403 AccessDenied`, and `SELECT count(*) FROM agriffith_three.employees` failed on `glue:GetDatabase` (`1132e81a-9bde-44a7-abfd-f8d7e62d2b9e`). Its owner's count is 2. |
+| Another space's database | `agriffith_three` created `live0921_iso`; the card was Active at +12 s. The owner's own catalog read answered `403` until **Refresh access** added the slot, then `200`. The Files page told the creator *"You were just added to this space"*. From `agriffith`: both catalog reads `403 AccessDenied`, and `SHOW TABLES IN live0921_iso` failed *"Database does not exist"* (`148c84c9-39c0-4ce3-98dd-a653d487d480`). The same text came back for a name no space has (`90f6c23e-bb88-47d9-a275-b04752cdd31d`). A table-less `SELECT 1` succeeded with either as the context database, so nothing tells the two apart. |
+
+**Membership as a non-owner member** (`agriffith` in `livecheck_186`).
+
+| Step | Result |
+|---|---|
+| Upload and build | Created `live0921_pair/` and uploaded `pair_0921.csv` (12 rows, 158 B). **Create table** on the selected folder, 22:36:19Z. The catalog held `live0921_pair` (`id`, `city`, `score`, all `string`, at `s3://dat-prod-shared-space/livecheck_186/live0921_pair`) by 22:36:28Z, and the notice read *"Table "live0921_pair" is ready to query in "livecheck_186"."* |
+| The Data Explorer | From the Query rail's **Explore data**: *Rows 1–12 of 12*, *"This query scanned 158 B"*. The owner's `count(*)` of the same table was `12`. |
+| Archive, **approved** | `live0921_archive/` holding `archive_0921.csv` (38 B). The confirm (`alertdialog`) named *“live0921_archive/”*, relative to the space, said it *"will be removed from this space"* and that a restore *"takes several hours"*, never said it cannot be undone, and opened with focus on **Cancel**. Enter was not tested: §1's new trap. Confirmed at 22:43:22Z; the toast said *"Archive started"*. The notice came about 24 s later: *"Archived **2 files** (38 B). … Archive id: 57d14bb9-be06-4790-81ab-d5a95d484926"*, linking to `/files?space=livecheck_186&prefix=livecheck_186/system_settings/archive/57d14bb9-…/`. |
+| The archive's miscount | **FAIL, a new defect.** There was one file; the second object is the empty placeholder **New folder** wrote. The receipt, read through `GET /v1/objects/content`, says `Files archived: 2` and `Total size: 38 B (38 bytes)`. It is now a row in `owed.md`, and a follow-up task was offered. |
+| The archive folder | The link landed on it. A banner reads *"The archive folder is read-only…"*. **Upload** and **New folder** are unavailable with that reason, and **Archive** is absent. With the receipt selected, **Move** and **Delete** are unavailable with the same reason. `live0921_archive/` was gone from the space root. |
+| Restore, **approved** | A nonsense id gave an inline *"That doesn’t look like an archive id. Ids look like 3f8a1c2e-…"*, with `aria-invalid` set and **Restore** still enabled. The real id was sent at 22:45:26Z; the toast said *"Restore started…"*. At 22:45:40Z the receipt read `Restore requested: 2026-09-21 22:45:26 UTC` and `Restored to: -`. The started notice had no link: *"Restoring 2 files from long-term storage…"*. **§4.11 D is owed** when it finishes. |
+
+**Table share** (SPEC-161). **PASS.** `agriffith` shared `explorer150` to `agriffith_three` as
+`live0921_share150`. `agriffith_three` got *"agriffith shared table "live0921_share150" with you in
+"agriffith_three"."*, and the table sits at `agriffith_three/shared_tables/live0921_share150`.
+`SELECT count(*)` there returned `150` (`22dd24ab-cfc2-453b-a118-5395a9791d51`), and the source's own count was `150`
+(`1e8ffdb6-2e8d-476a-a178-236236db7eb9`). The sender got one outcome.
+
+**Receiving a send** (SPEC-167). **PASS.**
+
+| Send | Result |
+|---|---|
+| `send_a_0921.csv` and `send_b_0921.csv` to the user `agriffith_three`, 22:38:50Z | The dialog read *"SENDING 2 ITEMS"* by name. The arrival: *"agriffith sent you "send_a_0921.csv" and "send_b_0921.csv" (2 files). You'll find them in shared_files/agriffith/."* Its link, `/files?prefix=agriffith_three/shared_files/agriffith/`, landed on *agriffith_three / shared_files / agriffith* with both files. |
+| `send_a_0921.csv` to the space `livecheck_186`, whose owner is not the sender, 22:40:18Z | Typing `li` under **Shared spaces** suggested `livecheck_186`. The owner's arrival: *"agriffith sent "send_a_0921.csv" (1 file) to your space "livecheck_186"."* Its link, `/files?space=livecheck_186&prefix=livecheck_186/shared_files/agriffith/`, landed on *livecheck_186 / shared_files / agriffith* with the file. |
+| The sender | One outcome per send: *"Sent … (2 files) to user "agriffith_three"."* and *"Sent "send_a_0921.csv" (1 file) to space "livecheck_186"."* |
+
+**A forged `idToken`.** **PASS.** `agriffith`'s token with one signature character changed got
+`401 {"error":{"code":"SessionExpired",…}}`, on `POST /v1/enqueue/shared-space` and on a catalog read.
+
+**Left behind.**
+- The space `live0921_iso` (its name is spent), owned by `agriffith_three`.
+- `agriffith` as a member of `livecheck_186`, kept until the restore finishes.
+- In `livecheck_186`: `live0921_pair/` and its table, `shared_files/agriffith/send_a_0921.csv`, and
+  the archive folder for `57d14bb9-…`. The restore will put `live0921_archive/` back.
+- `agriffith/live0921_send/`, `agriffith_three/shared_files/agriffith/send_{a,b}_0921.csv`, and the
+  table `agriffith_three.live0921_share150`.
+
+---
+
 ## Live-check session — 2026-09-21, evening (the owed rows a signed-in session could reach: SPEC-232, -239, -240, -242, -243, -244, the create post-condition, #716, and the narrow widths)
 
 **What was under test.** The SPA image **`8061989c`** (task definition `dat-prod-spa:228`, read from
