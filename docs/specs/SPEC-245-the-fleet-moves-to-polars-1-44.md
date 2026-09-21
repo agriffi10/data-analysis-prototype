@@ -93,7 +93,14 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
   a file is at least 12 bytes, ends in `PAR1` and declares a footer it holds. A second copy of
   those checks in `bounded_read` would drift from the first, and the first already has the check
   the new reader would otherwise miss (a declared length longer than the object). So the checks
-  move to `cpcommon.parquet_trailer.footer_span`, and both readers call it.
+  move to `cpcommon.parquet_trailer.footer_span`, and both readers call it. `_metadata`'s fourth
+  check, the LEADING `PAR1`, is dropped rather than moved: a file that ends in `PAR1` and declares
+  a footer it holds is decoded next, and a file that is not Parquet fails there. Keeping it would
+  cost the S3 reader a third GET for a check the decode already makes.
+- **A footer over 32 MiB is a new refusal.** `S3RangeReader` let polars read a footer of any
+  length into a 1,024 MB function. `read_parquet_footer` refuses one over
+  `DEFAULT_PROBE_MAX_BYTES`, the bound every other probe in `bounded_read` already has, and
+  each verb's existing unreadable-source code carries the refusal.
 - **`SINK_OPTIONS` is retired, not translated.** Re-expressing it as
   `optimizations=pl.QueryOptFlags(projection_pushdown=False)` would keep parsing dropped columns
   to guard against a mis-split 1.44.2 does not make. The guard that remains is a test that converts
@@ -117,14 +124,15 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
 - **The 1.44.2 measurements join the evidence; they do not replace it, so no cap can rise.**
   `MEASURED_EXCEL_SHAPES` already keeps each shape's HIGHEST peak over every run and its LOWEST
   rate over the native runs, and `OUTPUT_EXPANSION` the worst figure observed. The new runs join
-  those populations by the same rules, so a constant can only stay or become more conservative,
-  and a cap can only stay or fall. Letting 1.44's figures REPLACE 1.12's would lower constants on
+  those populations by the same rules, so each measured constant can only move to its safer side,
+  and each cap derived from them can only stay or fall. FR-004 names the safe side per constant. Letting 1.44's figures REPLACE 1.12's would lower constants on
   the strength of runs nobody has validated in production, and the Parquet cap alone would move
   from 1,472 to 1,728 MiB, past what the scratch disk holds at the measured 0.252 expansion. What
-  cannot be re-measured before the push stays as it is and says so: the production gap inside
-  `EXCEL_BASELINE_MB`, `_LOCAL_TO_PRODUCTION`, and the Parquet, JSON and Excel expansion figures,
-  which came from a corpus the script does not reproduce. The live at-cap conversion is what
-  validates the model on 1.44.
+  cannot be re-measured before the push stays as it is and says so. That covers three things:
+  the production gap inside `EXCEL_BASELINE_MB`, which is taken as 84 MiB, the top of the 65 to
+  84 MiB SPEC-230 recorded at the 490,000 × 4 production shape; `_LOCAL_TO_PRODUCTION`; and the
+  Excel expansion figure, which no script measures. The live at-cap conversion is what validates
+  the model on 1.44.
 
 ## Scope
 
@@ -196,13 +204,17 @@ already called inside the `try` that turns a failure into each verb's named refu
       cannot read. A footer over `DEFAULT_PROBE_MAX_BYTES` refuses the same way. Neither case
       reaches a fault.
 - [ ] A throttled ranged GET raises `TransientError`.
-- [ ] `rccommon.parquet_footer`'s existing tests pass unchanged, and `_metadata` no longer
-      compares against `_MAGIC` or the 12-byte minimum itself.
+- [ ] `rccommon.parquet_footer`'s existing tests pass unchanged, and `_metadata` makes none of
+      the trailer checks itself, the leading `PAR1` included.
 - [ ] `git grep S3RangeReader` returns nothing under `lambdas/`. The passage in
       `lambdas/info/shared-layer.md` describes `read_parquet_footer`, and so do the docstrings
       that describe `S3RangeReader`'s behaviour or its throttle handling: `infer_schema.py`'s
-      module docstring, both `_parquet_source` docstrings, and both `_columns_from` /
-      `_infer_columns` docstrings.
+      module docstring, both `_parquet_source` docstrings, both `_columns_from` /
+      `_infer_columns` docstrings, and `dq_inspect_source._check_access`'s sentence about what
+      polars raises when S3 throttles the read. `shared-layer.md`'s module table gains a
+      `parquet_trailer` row.
+- [ ] `rccommon.parquet_footer` no longer defines `_MAGIC`, and its Attributes block no longer
+      lists it.
 - [ ] Live, after this phase deploys and while 1.12 is still pinned: a table-builder run and a
       data-quality check, each over a Parquet folder, succeed. That shows the ranged GETs work
       against real S3 before the version move is added on top.
@@ -264,12 +276,22 @@ offset into the detail.
 `scripts/measure_excel_peak.py` runs three times natively on arm64 and once on amd64, against
 images built from this spec's branch by the script's own instructions. That is the shape of the
 evidence `MEASURED_ON` already describes. `scripts/measure_conversion_expansion.py` runs once in
-the arm64 image. The results join the existing evidence by its existing rules:
+the arm64 image. The results join the existing evidence, and each constant moves only to its
+safer side:
 - each `MEASURED_EXCEL_SHAPES` row keeps the HIGHEST peak per cell over every run, 1.12's
-  included;
-- each row keeps the LOWEST rate over the native runs;
-- each Excel constant and each `OUTPUT_EXPANSION` figure rises if a new run exceeds it, and
-  otherwise stays.
+  included, and the LOWEST rate over the native runs;
+- `EXCEL_PEAK_BYTES_PER_CELL`, `EXCEL_PEAK_BYTES_PER_ROW` and `EXCEL_PEAK_BYTES_PER_LONG_BYTE`
+  are each the larger of `main`'s value and the value their docstring's rule gives over the
+  joined corpus, rounded as that docstring says;
+- `EXCEL_BASELINE_MB` is the larger of `main`'s 250 and the largest new local fixed cost plus
+  84 MiB, rounded up to the next ten;
+- `EXCEL_COVERED_BYTES_PER_CELL` is the SMALLER of `main`'s value and the CSV width of the shape
+  that binds the per-cell term over the joined corpus, because a narrower covered width charges
+  more;
+- `OUTPUT_EXPANSION`'s CSV, Parquet and JSON figures are each the larger of `main`'s figure and
+  the worst the image run measures. Excel's carries over unmeasured;
+- `EXCEL_MAX_CELLS` and `RESULTS_MAX_BYTES` are recomputed by the budget test from the above, so
+  they can fall and cannot rise.
 
 `MEASURED_ON` gains a sentence naming polars 1.44.2, xlsxwriter's version, the runs, and the
 `main` commit the measured branch was based on. It says which figures carry over unmeasured and
@@ -277,20 +299,22 @@ why.
 
 #### Acceptance Criteria:
 
-- [ ] No Excel constant and no `OUTPUT_EXPANSION` figure is lower than it is on `main`. The
-      budget test in `test_plane_results_conversion.py` passes against the recomputed caps, and
-      no `RESULTS_MAX_BYTES` entry and not `EXCEL_MAX_CELLS` is higher than on `main`.
+- [ ] Each measured constant is on its safe side of `main`'s value, as the list above sets out:
+      not lower, or for `EXCEL_COVERED_BYTES_PER_CELL` not higher. The budget test in
+      `test_plane_results_conversion.py` passes. No `RESULTS_MAX_BYTES` entry, and not
+      `EXCEL_MAX_CELLS`, is higher than on `main`.
 - [ ] Every `MEASURED_EXCEL_SHAPES` row is at least the highest peak any of the four new runs
       measured for its shape. Its rate is at most the lowest the three native runs measured. The
       PR body carries the four runs' output.
 - [ ] `MEASURED_ON` names polars 1.44.2, the xlsxwriter version, the four Excel runs and the
       expansion run, and the `main` commit the branch was based on. It names
-      `EXCEL_BASELINE_MB`'s production gap, `_LOCAL_TO_PRODUCTION`, and the Parquet, JSON and
-      Excel expansion figures as carried over from 1.12, each with its reason.
-- [ ] If any Excel constant changed, the §4.3 at-cap row in `docs/testing/e2e.md` is regenerated
-      by the rule that row states, before the push: its input at the recomputed cap, and its
-      model figure from the recomputed constants. If none changed, the row stands and the PR body
-      says so.
+      `EXCEL_BASELINE_MB`'s 84 MiB production gap, `_LOCAL_TO_PRODUCTION` and the Excel expansion
+      figure as carried over from 1.12, each with its reason.
+- [ ] If any Excel constant changed, every §4.3 row in `docs/testing/e2e.md` that quotes a figure
+      derived from them is regenerated before the push, by the rule the at-cap row states. That
+      is the at-cap row, with its input at the recomputed cap and its model figure from the
+      recomputed constants, and the cell-limit row, which quotes the cell cap. If none changed,
+      the rows stand and the PR body says so.
 
 ### FR-005: Every 1.12-only claim is re-stated or retired, and the move is checked live
 
@@ -313,25 +337,31 @@ in production, with a positive control run before the deploy.
       - SPEC-239's two "after close" markers, in its spec and its delivery doc;
       - `lambdas/info/shared-layer.md`'s polars size figure, and the same figure in
         `lambdas/control-plane-common/requirements.txt`.
-- [ ] Positive control, in production **before** the Phase 2 deploy: the query below is saved as
-      Parquet, in full, from the Query workspace, and is refused as `results_unreadable`.
+- [ ] Positive control, in production **before** the Phase 2 deploy. Save the query below as
+      Parquet, in full, from the Query workspace: it is refused as `results_unreadable`. Then run
+      `CREATE VIEW` over it, open the view in Data Explorer, hide `doc`, and save as Parquet: that
+      is refused as `results_unreadable` too. (Athena caps `sequence` at 50,000 entries, which is
+      why the rows come from a cross join.)
 
       `SELECT CAST(x AS varchar) AS id, IF(x % 10 = 0, '{' || chr(10) || '  "k": 1,' || chr(10) ||
       '  "v": "' || rpad('', 200, 'z') || '"' || chr(10) || '}', '{}') AS doc
-      FROM UNNEST(sequence(0, 199999)) AS t(x)`
+      FROM (SELECT i * 500 + j AS x FROM UNNEST(sequence(0, 399)) AS a(i)
+      CROSS JOIN UNNEST(sequence(0, 499)) AS b(j))`
 
-      If it is not refused, the shape does not mis-split in production, and a different shape
-      must be found that is refused before the next check counts.
+      If either save is not refused, the shape does not mis-split in production, and a shape
+      that is refused must be found before the checks below count.
 - [ ] After the deploy, the same query saves as Parquet in full and as JSON in full, each
-      reporting 200,000 rows. It also saves as Parquet from Data Explorer with `doc` hidden,
-      reporting 200,000 rows.
-- [ ] After the deploy, a result with every type the converter writes is saved as Parquet into a
-      folder of its own. Table-builder builds a table over that folder. Both
+      reporting 200,000 rows. The view saves as Parquet from Data Explorer with `doc` hidden,
+      also reporting 200,000 rows.
+- [ ] After the deploy, a result holding every scalar type the converter maps is saved as Parquet
+      into a folder of its own. Table-builder builds a table over that folder. Both
       `SELECT * FROM <table> EXCEPT <the query>` and `<the query> EXCEPT SELECT * FROM <table>`
       return no rows. The query is:
 
-      `SELECT x AS b, CAST(x AS double) / 3 AS d, CAST(x AS decimal(12,2)) / 7 AS dec,
-      x % 2 = 0 AS flag, date_add('day', x, DATE '2024-01-01') AS dt,
+      `SELECT CAST(x % 100 AS tinyint) AS ti, CAST(x AS smallint) AS si, CAST(x AS integer) AS i,
+      x AS b, CAST(x AS real) / 3 AS r, CAST(x AS double) / 3 AS d,
+      CAST(x AS decimal(12,2)) / 7 AS dec, x % 2 = 0 AS flag,
+      date_add('day', x, DATE '2024-01-01') AS dt,
       TIMESTAMP '2024-01-02 03:04:05.123' + x * INTERVAL '1' SECOND AS ts,
       IF(x % 5 = 0, NULL, 'v' || CAST(x AS varchar)) AS s FROM UNNEST(sequence(1, 1000)) AS t(x)`
 
@@ -379,8 +409,9 @@ No wire type, state-machine field or TypeScript type changes.
 
 ### Phase 1: The footer-only probe, on 1.12 (FR-001)
 
-Its own PR. It lands and deploys before the pin moves, because it works on both versions and
-changes nothing except how the probe reads. FR-001's live check runs after its deploy.
+Its own PR. It lands and deploys before the pin moves, because it works on both versions. It
+changes how the probe reads, and it adds one refusal, for a footer over 32 MiB. FR-001's live
+check runs after its deploy.
 
 ### Phase 2: The pin, the converter and the tests (FR-002, FR-003)
 
