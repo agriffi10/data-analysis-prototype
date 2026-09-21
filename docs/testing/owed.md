@@ -66,7 +66,7 @@ two-user version of the check is in *Needs a second (or third) account*.
 | An unknown UUID and an operator-staged execution outside every prefix get identical 404s on status, results, row-count and stop | owed |
 | A query run from the workspace still polls, pages and stops, and View DDL still opens | owed |
 
-### SPEC-243's live check — RUN 2026-09-21: rows L to O settled, row P and one step of O owed
+### SPEC-243's live check — RUN 2026-09-21: rows L to N settled, O partly, P owed
 
 SPEC-243 merged as #861 (`a40c26f7`) and deployed on 2026-09-21, and the check ran the same day.
 The browser, the account and the instruments are in the 2026-09-21 entry of
@@ -79,10 +79,12 @@ The browser, the account and the instruments are in the 2026-09-21 entry of
 | N — **Open in Query**, then reload | **settled**: `/query`, no query string, history state `null`, a new active tab `explorer150` whose stored SQL equals the disclosure's text, and no execution. After the reload the strip still held the same two tabs, `Query 1` and `explorer150`, and no dialog was raised. |
 | O — run it in Query, then back to the Data Explorer | **partly settled**: the Query run was its own, one execution returning 36 rows. The exploration came back with the same two chips and two history entries, and one step of the bar's **Back** arrow landed on `owner` alone. |
 | O's edit of the statement, and "the same rows" | **owed**: Monaco took no input in the hidden window, whether typed, `insertText` or a synthetic `input` event. So Query ran the exploration's own statement, and matching rows on return cannot tell an exploration left alone from one that picked up Query's results. |
-| P — Open in Query below `tablet` | **owed**: the window was resized to 500px and Andrew saw it at that width, but the page kept reporting `hidden`, `outerWidth` 0 and a 1512px layout. That held through reloads, with the window in front and with it beside the Claude app. The portal refuses to be framed, so the same-origin iframe harness could not load it. |
+| P — Open in Query below `tablet` | **owed**: the window was resized to 500px and Andrew saw it at that width, but the page kept reporting `hidden`, `outerWidth` 0 (314 once) and a 1512px layout. That held through reloads, with the window in front and with it beside the Claude app. The portal refuses to be framed, so the same-origin iframe harness could not load it. |
 
 **What discharges the two owed rows:** a Chrome window that reports `visible` to the page, below
-900px for row P. Alternatively, run P in the Claude app's Browser pane, whose `resize_window`
+900px for row P. For row O, edit the statement so Query returns something other than the
+exploration's 36 rows (drop the `owner` predicate, say), run it, and check that the exploration
+still shows its own 36. Alternatively, run P in the Claude app's Browser pane, whose `resize_window`
 emulates the width, once someone signs in there. `openSqlHandoff.test.tsx` pins part of the phone
 path: the view's title and statement, a tab opened while there is room, and at the cap no dialog and
 no tab added. It does not pin the view's **Run** button, and it is not the live check.
