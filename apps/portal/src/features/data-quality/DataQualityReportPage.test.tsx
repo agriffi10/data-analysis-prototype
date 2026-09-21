@@ -194,6 +194,21 @@ describe('DataQualityReportPage', () => {
       expect(row).not.toHaveTextContent('amount');
       expect(screen.getAllByText(/also spelled/i)).toHaveLength(1);
     });
+
+    it('counts the spellings the report left out, after the ones it kept or alone', async () => {
+      const report = csvReport();
+      report.exact.columns[0] = {...report.exact.columns[0], otherSpellings: ['ORDER_ID'], otherSpellingsUnlisted: 3};
+      report.exact.columns[1] = {...report.exact.columns[1], otherSpellings: [], otherSpellingsUnlisted: 1};
+      mockReport.mockResolvedValue(ok(report));
+
+      renderReport('/data-quality/alice/req-1');
+
+      const notes = await screen.findAllByText(/also spelled/i);
+      expect(notes.map((note) => note.textContent)).toEqual([
+        'Also spelled ORDER_ID in other files, and 3 more ways not listed, because the report would have been too large to open',
+        'Also spelled 1 other way in other files, not listed, because the report would have been too large to open'
+      ]);
+    });
   });
 
   describe('DataQualityReportPage — qualifying what it shows', () => {
@@ -283,6 +298,45 @@ describe('DataQualityReportPage', () => {
       expect(within(mar).queryByText('don’t line up with this report’s Columns')).not.toBeInTheDocument();
       expect(within(apr).getByText('don’t line up with this report’s Columns')).toBeInTheDocument();
     });
+
+    it.each([
+      [
+        'after the files it kept',
+        [{file: 'alice/sales/mar.csv', missing: ['region'], extra: []}],
+        497,
+        '497 more files disagree about their columns but aren’t listed, because the report would have been too large to open.'
+      ],
+      [
+        'alone, when it kept none',
+        [],
+        497,
+        '497 files disagree about their columns but aren’t listed, because the report would have been too large to open.'
+      ],
+      [
+        'in the singular',
+        [{file: 'alice/sales/mar.csv', missing: ['region'], extra: []}],
+        1,
+        '1 more file disagrees about its columns but isn’t listed, because the report would have been too large to open.'
+      ]
+    ])('counts the disagreeing files the report left out, %s', async (_label, disagreements, unlisted, sentence) => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {
+              ...csvReport().exact,
+              crossFile: {columnsAgree: false, disagreements, disagreementsUnlisted: unlisted}
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      const heading = await screen.findByRole('heading', {name: 'Files that disagree about their columns'});
+      const section = heading.closest('section') as HTMLElement;
+      expect(within(section).getByText(sentence)).toBeInTheDocument();
+      expect(within(section).queryAllByRole('listitem')).toHaveLength(disagreements.length);
+    });
   });
 
   describe('DataQualityReportPage — how many rows each file holds', () => {
@@ -324,6 +378,32 @@ describe('DataQualityReportPage', () => {
           .getAllByRole('cell')
           .map((cell) => cell.textContent)
       ).toEqual(['feb/part-1.csv', '0']);
+    });
+
+    it('counts the files the report left out of the per-file counts in the total and in a line of its own', async () => {
+      mockReport.mockResolvedValue(
+        ok(
+          csvReport({
+            exact: {
+              ...csvReport().exact,
+              rowCountsByFile: [{key: 'alice/sales/jan.csv', rows: 1200}],
+              rowCountsByFileUnlisted: 999
+            }
+          })
+        )
+      );
+
+      renderReport('/data-quality/alice/req-1');
+
+      const summary = await screen.findByText('Rows in each file (1,000 files)');
+      const disclosure = summary.closest('details') as HTMLDetailsElement;
+      disclosure.open = true;
+      expect(within(disclosure).getAllByRole('row')).toHaveLength(2);
+      expect(
+        within(disclosure).getByText(
+          '999 more files aren’t listed, because the report would have been too large to open.'
+        )
+      ).toBeInTheDocument();
     });
 
     it.each([
@@ -793,6 +873,20 @@ describe('DataQualityReportPage', () => {
       const banner = await screen.findByText('Report not available');
       expect(banner.closest('div')).toHaveTextContent(/may still be running, or it may have been deleted/i);
       expect(document.body).not.toHaveTextContent(/NoSuchKey|404/);
+    });
+
+    it('says a report too large to open can be checked again, not sent again with less', async () => {
+      mockReport.mockResolvedValue({
+        success: false,
+        error: {message: 'That report is too large to open.', code: 'DataQualityReportTooLarge'}
+      });
+      renderReport('/data-quality/alice/req-1');
+
+      const banner = await screen.findByText('Report not available');
+      expect(banner.closest('div')).toHaveTextContent(
+        'This report is too large to open here. Run the check again from Data quality: a new report leaves out what doesn’t fit, and says how much.'
+      );
+      expect(document.body).not.toHaveTextContent(/try again with less/i);
     });
 
     it('announces loading as a status line rather than a bare spinner', async () => {

@@ -67,18 +67,18 @@ Attributes:
     memory on exactly the datasets that have the most duplicates. Five is what a reader can scan
     beside the count without the section becoming a second results grid; the Data Explorer's
     grouping is where all of them are found.
-  DQ_REPORT_MAX_BYTES: The largest report document this plane writes with its samples attached.
-    Held to the size the browser can READ a report through: the document routes' cap on a stored
-    body, half a Lambda response's 6 MiB. The number is re-declared here rather than imported,
-    because the API is a different plane and this layer does not depend on it; a fleet-level test
-    holds the two equal, which is what keeps the duplication honest. **Under it the routes still
-    measure the report as it leaves**, escaped twice, and refuse one past the response ceiling —
-    which this plane does not measure. A report is written at ``ensure_ascii``, so only its quotes
-    and backslashes cost more on the way out, four bytes each where they stored one, and a
-    ``\\uXXXX`` escape goes out at nine: only a report about a third quotes and backslashes can
-    pass the ceiling under this cap, and one that did would be refused with its samples still in
-    it. A report already over the cap before this sample existed stays over it: dropping the
-    samples is the only reduction this plane makes, never a truncation of a figure.
+  DQ_REPORT_MAX_BYTES: The largest report document this plane writes. Held to the size the
+    browser can READ a report through: the document routes' cap on a stored body, half a Lambda
+    response's 6 MiB. The number is re-declared here rather than imported, because the API is a
+    different plane and this layer does not depend on it; a fleet-level test holds the two equal,
+    which is what keeps the duplication honest. **Under it the routes still measure the report as
+    it leaves**, escaped twice, and refuse one past the response ceiling — which this plane does
+    not measure. A report is written at ``ensure_ascii``, so only its quotes and backslashes cost
+    more on the way out, four bytes each where they stored one, and a ``\\uXXXX`` escape goes out
+    at nine: only a report about a third quotes and backslashes can pass the ceiling under this
+    cap, and one that did would be refused with its samples still in it. Over the cap,
+    assemble-report drops the samples and then shortens the per-file lists, each counting what it
+    left out, and never truncates a figure.
   DQ_QUERY_POLL_SECONDS: The Step Function's wait between query polls. Declared here so the
     constant and the state machine cannot drift; the template carries the same number with a
     pointer back to this line.

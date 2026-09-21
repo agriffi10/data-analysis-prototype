@@ -1,4 +1,4 @@
-"""The two facts about a data-quality report that are written in one language and read in another.
+"""The facts about a data-quality report that are written in one language and read in another.
 
 **The size cap.** A report is written by one plane and read by another: assemble-report puts the
 object, and the API's document route serves it.
@@ -24,6 +24,12 @@ it, and a fixture that drifts does not fail anything on either side: the browser
 page shows the fixture's sentence, and the browser shows whatever the report actually carries. The
 two would disagree only in production, on the one report that took the branch.
 
+**The names of the left-out counts.** A report that would not have opened is written with its
+per-file lists shortened, each counting what it left out under the list's own name with
+``dq_assemble_report.UNLISTED_SUFFIX`` appended, and the page reads those names from its report
+type. A name that drifted on either side would not fail anything: the page would read an absent
+count as nothing left out, and say every file is listed on exactly the report where most are not.
+
 This file is the join, and it lives at the fleet level because this is the only place the two
 planes may be imported into one process. The cap asserts equality rather than a bound in either
 direction: it is not a safety margin under the reader's limit, it IS the reader's limit, and a
@@ -34,6 +40,7 @@ anything, since there is no runtime that holds both.
 Attributes:
   FIXTURES: The browser module mirroring this plane's report wording.
   PAGE: The report view, which states the value cut in a note beneath the samples table.
+  TYPES: The report's browser type, which declares every field the page reads.
   HELP: The in-app guide, which states how many rows the report keeps.
   _SPELLED: Small counts as the Help guide spells them. A value outside it is not a bug in the
     guide — it is a constant this test cannot check, and it says so rather than raising.
@@ -44,6 +51,7 @@ Attributes:
 
 import os
 import pathlib
+import re
 import sys
 
 import pytest
@@ -53,7 +61,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # layer at all — it ships inside the API function's package. Both inserts are load-bearing.
 sys.path.insert(0, os.path.join(_HERE, "api"))
 sys.path.insert(0, os.path.join(_HERE, "data-quality-common"))
+sys.path.insert(0, os.path.join(_HERE, "data-quality-assemble-report"))
 
+import dq_assemble_report
 from apicommon import s3_config
 from dqcommon import config, report
 
@@ -68,6 +78,7 @@ FIXTURES = (
 )
 
 PAGE = FIXTURES.parent / "DataQualityReportPage.tsx"
+TYPES = FIXTURES.parent / "dataQuality.types.ts"
 HELP = FIXTURES.parent.parent / "help" / "helpContent.ts"
 
 _ESCAPES = {"'": "'", '"': '"', "\\": "\\", "n": "\n", "t": "\t"}
@@ -282,3 +293,30 @@ def test_the_help_guides_word_for_the_sample_count_is_the_one_the_config_sets():
     )
 
     assert f"it lists up to {spelled} of the most repeated ones" in HELP.read_text(encoding="utf-8")
+
+
+def test_the_browser_reads_each_left_out_count_under_the_name_this_plane_writes_it():
+    """Holds every count the cap can write to a field the report's browser type declares.
+
+    The names are taken from the lists the cap actually shortens, not typed out here, so a list
+    added to the cap owes the page its count, and a change to the suffix fails until the type
+    follows it. The type is what the page reads through, and the compiler holds the page to it.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    document = {"exact": {"columns": [{"name": "id"}], "rowCountsByFile": [], "crossFile": {}}}
+    names = sorted(
+        {
+            f"{tail.field}{dq_assemble_report.UNLISTED_SUFFIX}"
+            for tails in dq_assemble_report._per_file_lists(document)
+            for tail in tails
+        }
+    )
+    source = TYPES.read_text(encoding="utf-8")
+
+    assert names == ["disagreementsUnlisted", "otherSpellingsUnlisted", "rowCountsByFileUnlisted"]
+    assert [name for name in names if not re.search(rf"\b{name}\?: Unlisted\b", source)] == []

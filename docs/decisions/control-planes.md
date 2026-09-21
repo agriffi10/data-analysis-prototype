@@ -112,9 +112,10 @@ inside the execution the Pipe starts.
   cap is the only cap, because the reader's is a refusal**: above
   `apicommon.s3_config.MAX_DOCUMENT_BYTES` the page cannot open the report at all, so every other
   finding is lost with the part that made it big — assemble-report measures what it is about to
-  write and DROPS the samples, never truncates a figure. The re-declared `DQ_REPORT_MAX_BYTES` is
-  held EQUAL to that number, not under it, by a fleet-level test, since the two planes may not
-  import each other. A third cap sits between them and is a different question: `csv`'s
+  write, DROPS the samples, then shortens the per-file lists from their ends, longest first, each
+  counting what it left out, and never truncates a figure or an entry. The re-declared
+  `DQ_REPORT_MAX_BYTES` is held EQUAL to that number, not under it, by a fleet-level test, since
+  the two planes may not import each other. A third cap sits between them and is a different question: `csv`'s
   131,072-character field limit, which one samples cell can exceed — raised from what the statement
   can return, **never below the reader's default**, and restored after the one read.
 - **Every cap is COMPUTED against the budget that sized it** — memory, makespan, or a service
@@ -2395,8 +2396,9 @@ report through `objects.readContent`, which refuses a document over
 `apicommon.s3_config.MAX_DOCUMENT_BYTES`. Above that a report is not a large report, it is an
 unreadable one — and every other finding in it is lost with the part that made it big. So
 assemble-report serializes, measures what it is about to write, and drops the samples if that is what
-keeps the document openable, saying so in the report. Dropping is the only reduction it makes:
-truncating a figure would hand back a number that is wrong rather than a report that is thinner.
+keeps the document openable, saying so in the report, and then shortens the per-file lists (below).
+Dropping and shortening are the only reductions it makes: truncating a figure would hand back a
+number that is wrong rather than a report that is thinner.
 `DQ_REPORT_MAX_BYTES` is re-declared in `dqcommon.config` rather than imported — the API ships inside
 its own function's package, and a layer reaching into it would couple every data-quality verb to the
 API's configuration — and `lambdas/test_data_quality_report_contract.py` holds the two **equal**, in
@@ -2408,11 +2410,12 @@ escapes past Lambda's ceiling (the storage register's document-cap entry), which
 not measure. A report is written at `ensure_ascii`, so only its quotes and backslashes cost more on
 the way out — four bytes each, nine for a `\uXXXX` escape — and only a report about a third quotes
 and backslashes can pass the ceiling under the cap. One that did would be refused with its samples
-still in it, where dropping them might have let it open. That residual is accepted because the
+and its per-file lists still in it, where shedding them might have let it open. That residual is accepted because the
 density does not come from the report's own shape: the object and column caps bound how many
 strings it holds, each costing two quotes, and a `\uXXXX` escape is one backslash in six bytes. A
-report at the cap gets to a third only when its column names, file keys or values are themselves
-made of characters JSON escapes short — quotes, backslashes, newlines, tabs.
+report at the cap gets to a third only when its file keys or values are themselves made of characters
+JSON escapes short — quotes, backslashes, newlines, tabs; column names cannot be, since the name rule
+refuses them.
 
 **The reader between them has a cap of its own, and it is not the document's.** `csv` refuses a field
 past a process-global limit of 131,072 characters, and assemble-report re-raises everything but a
@@ -2464,16 +2467,16 @@ order — so the page shows exactly what it did, and only a hand-downloaded `rep
 Measured with five, the drop now rescues the astral band, and a BMP report — Cyrillic, Greek, CJK,
 accented Latin, most human writing — keeps its samples where at ten it lost them.
 `test_the_largest_report_the_statements_can_return_is_written_where_the_page_can_read_it` builds the
-one-file astral worst case from the constants and holds the written document under the cap with
-every offending value intact, so raising any of `DQ_OFFENDING_VALUE_SAMPLE`,
+astral worst case at every bound, per column and per file, from the constants and holds the written
+document under the cap with every offending value intact, so raising any of `DQ_OFFENDING_VALUE_SAMPLE`,
 `MAX_SAMPLE_VALUE_CHARS`, `DQ_MAX_COLUMNS` or `DQ_DUPLICATE_SAMPLE` is measured against the cap
 rather than argued about. **Rejected:** keeping ten and dropping them second, which needs a new report field and a page
 change and loses the examples on exactly the reports that most need them; and cutting each value at
 200 escaped bytes instead of 200 characters — a static bound, but one that shortens every non-ASCII
 example on every report, a Cyrillic one to about 33 characters and an emoji one to about 16.
 
-**NOT closed: the per-file lists.** Both are bounded in count and not in bytes, both grow with
-the file count and the key length rather than the column count, and nothing drops either. The
+**The per-file lists are shortened, longest first.** They are bounded in count and not in bytes, and
+they grow with the file count and the key length rather than the column count. The
 cross-file disagreements name, for each disagreeing file, every column it lacks and every one it
 adds — up to `DQ_MAX_COLUMNS` names across up to `DQ_MAX_OBJECTS` files. Column names are ASCII,
 since create-temp-tables refuses any name outside `cpcommon.columns`' rule, so the character-set
@@ -2491,9 +2494,47 @@ The row counts carry every file's key, and a key is not held to ASCII, so 1,000 
 and 720,001 B (23%) at 700 ASCII ones — and that
 last, added to the one-file astral worst case above (2,432,486 B), crosses the cap after the samples
 are dropped. The cross-file list is over the cap in plain ASCII with no samples and no offending
-values, so that report is written unreadable today. How a reader should see a list that long —
-trimmed only when the report is over, or a fixed number of files with a count of the rest — is a
-product decision, left to a change of its own rather than folded into the one above.
+values. A third list is bounded the same way: each column's `otherSpellings`, the case variants merged
+from other files, which a folder whose every file spells every column its own way fills to one name
+per file.
+
+So once the samples are gone, those three lose their last entry one at a time, always from whichever
+is longest in serialized bytes, until the report fits — and only then: a report that opens is written
+exactly as before. Each writes how many it left out beside itself as `<field>Unlisted`
+(`dq_assemble_report.UNLISTED_SUFFIX`) and the page says how many more there are. Nothing is cut
+inside an entry, since a file listed with some of its missing columns would be a wrong figure. Each
+drop is priced rather than the report re-serialized, and
+`test_every_drop_is_priced_exactly_and_taken_from_the_longest_list` holds the price to the
+serializer at every cap. The fixture of
+`test_the_largest_report_the_statements_can_return_is_written_where_the_page_can_read_it` is every
+bound at once — 1,000 files keyed to S3's 1,024 bytes in astral characters, half carrying all 200
+columns of 255-character names and half only the first, every file spelling every column its own
+way, top issues each naming 199 columns, ten encoding examples, astral offending values and samples.
+Run through `report.build` and serialized before and after `_within_document_cap`, it measures
+61,390,523 B uncapped and 3,143,984 B written, the three lists ending at 108,851 B, 119,029 B and
+122,433 B. A report written over the cap before this shipped is refused by the document route; the
+page says it is too large to open and to run the check again, not the generic "try again with less",
+which asks a user who sent nothing to send less.
+
+**What the shortening does not reach.** It measures the stored bytes, so a report the route refuses
+for its escaped response (above) is written with its lists whole, and for that report the page's
+advice to run the check again is wrong: a re-run writes the same report. And a drop is priced
+with the count it writes, so a column whose only spelling is shorter than
+`,"otherSpellingsUnlisted":1` makes the report larger when it is emptied — on a report where the
+spellings are the longest list, a few such columns can show a count where listing the spelling would
+have fit. Skipping a drop that grows the report is not the fix: a column of short spellings grows on
+its first drop, so the spellings could never shrink.
+
+**Rejected: a fixed order** — cross-file, then row counts, then spellings — the shape first proposed.
+It empties each list before touching the next, so it drops every row count to make room for spellings
+that were the reason the report was large; on the same fixture it wrote 352,052 B of spellings and no
+file that disagrees or row count. **Rejected: each column's spellings as a list of its own**, which
+lets two hundred short lists between them take the room the one cross-file list needs — measured,
+351,854 B of spellings and again no files. The spellings compete as one list, the last column's going
+first. **Rejected: a fixed number of files always**, which bounds a count and not bytes — 50
+disagreeing files at the name ceiling are 2,584,001 B (82%) — and changes reports that open today;
+and **grouping identical disagreements**, the better page for a split export, but unbounded for an
+unusual source, so the shortening is owed either way.
 
 The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
 rather than six: Trino's `substr` cuts by code point, so a sampled value can be

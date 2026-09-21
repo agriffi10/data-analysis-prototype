@@ -26,12 +26,16 @@ Attributes:
   OVER_CAP_EVENT: The one event this verb emits about its own output's size, named here so the
     test that holds it to the over-cap path alone matches on the module's string rather than on a
     literal of its own.
+  UNLISTED_SUFFIX: What a shortened list's count is named after: the list's own field name with
+    this appended, written beside the list in the same object. One rule rather than three names,
+    so the page reads every list's count the same way.
   _RESULT_SUFFIX: Athena names a result object after its execution id. The key is constructed
     rather than listed — one read instead of a list plus a read, and deterministic under replay.
 """
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from cpcommon import clients, errors, events, observability
@@ -47,6 +51,8 @@ observability.init(service="data-quality")
 REPORT_BASENAME = "report.json"
 
 OVER_CAP_EVENT = "report over the document cap"
+
+UNLISTED_SUFFIX = "Unlisted"
 
 _RESULT_SUFFIX = ".csv"
 
@@ -175,14 +181,15 @@ def _find_result(bucket: str, prefix: str) -> str:
     return keys[0] if keys else ""
 
 
-def _serialize(document: dict) -> bytes:
+def _serialize(document: object) -> bytes:
     """Renders the report exactly as it is written.
 
     The one serializer, because the size check and the write must not be able to disagree: a cap
-    measured on a different rendering than the one that lands is a cap on nothing.
+    measured on a different rendering than the one that lands is a cap on nothing. The same holds
+    for one entry of a list the cap shortens, which is measured here too.
 
     Args:
-      document: The assembled report.
+      document: The assembled report, or one value inside it.
 
     Returns:
       The bytes that would be written.
@@ -220,37 +227,201 @@ def _write(bucket: str, key: str, body: bytes) -> None:
         raise
 
 
+@dataclass
+class _Tail:
+    """One list in the report that the cap may shorten from its end, and how much of it is kept.
+
+    The byte figures are the list's serialized items, measured once, so a shortening can be priced
+    without serializing the whole report again for every entry it drops.
+
+    Attributes:
+      parent: The object in the report that holds the list, and where its count is written.
+      field: The list's field name in ``parent``.
+      lengths: Each item's serialized length, in the list's order.
+      kept: How many items, from the front, are still in.
+      listed: The serialized length of the kept items and the commas between them.
+    """
+
+    parent: dict
+    field: str
+    lengths: list[int]
+    kept: int
+    listed: int
+
+    @classmethod
+    def of(cls, parent: dict, name: str) -> "_Tail":
+        """Measures one list in the report.
+
+        Args:
+          parent: The object holding the list.
+          name: The list's field name.
+
+        Returns:
+          The list, every item still in.
+
+        Raises:
+          None.
+        """
+        lengths = [len(_serialize(item)) for item in parent.get(name) or []]
+        return cls(parent, name, lengths, len(lengths), sum(lengths) + max(len(lengths) - 1, 0))
+
+    def drop_last(self) -> int:
+        """Drops the last kept item, and says what that does to the report's size.
+
+        Exact, not estimated: the item and the comma before it leave, and the count beside the list
+        is written, or grows, by the width of its number. The count is a new key in an object that
+        already has keys, so it costs a comma, its quoted name, a colon and its digits.
+
+        Args:
+          None.
+
+        Returns:
+          The change in the serialized report's length, in bytes. Negative, except where the count's
+          own key costs more than a short item frees.
+
+        Raises:
+          None.
+        """
+        freed = self.lengths[self.kept - 1] + (1 if self.kept > 1 else 0)
+        unlisted = len(self.lengths) - self.kept
+        self.kept -= 1
+        self.listed -= freed
+        return self._count_bytes(unlisted + 1) - self._count_bytes(unlisted) - freed
+
+    def _count_bytes(self, unlisted: int) -> int:
+        """Prices the count this list writes beside itself, as ``,"<field>Unlisted":<n>``.
+
+        Args:
+          unlisted: How many items are left out; nothing is written for none.
+
+        Returns:
+          Its length in the serialized report.
+
+        Raises:
+          None.
+        """
+        if not unlisted:
+            return 0
+        return len(_serialize({f"{self.field}{UNLISTED_SUFFIX}": unlisted})) - 1
+
+    def write(self) -> None:
+        """Writes the shortened list and its count into the report, when anything was dropped.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        unlisted = len(self.lengths) - self.kept
+        if unlisted:
+            self.parent[self.field] = self.parent[self.field][: self.kept]
+            self.parent[f"{self.field}{UNLISTED_SUFFIX}"] = unlisted
+
+
+def _shed_longest_first(lists: list[list[_Tail]], size: int) -> int:
+    """Shortens the report's per-file lists until it fits, always from whichever is longest.
+
+    Longest in serialized bytes, and one entry at a time, so a long list cannot push a short one
+    out: a short list is only touched once every longer one has come down to its length. A fixed
+    order could not promise that. It empties the first list before it touches the second, which
+    would drop every row count to make room for a column's spellings when the spellings were what
+    made the report large.
+
+    Each list is shortened from its end and counts what it left out, so what is kept is the front
+    of the list as it was built. A column's spellings compete as ONE list across every column, the
+    last column's going first: two hundred columns competing one by one would, between them, take
+    the room the files that disagree about their columns need.
+
+    A tie goes to the list named first, so the order is part of the output and a replay writes the
+    same report.
+
+    Args:
+      lists: The lists, least worth keeping first; each is a run of one or more ``_Tail`` spent
+        from its end.
+      size: The report's serialized length before anything is dropped.
+
+    Returns:
+      The report's serialized length afterwards, which is at most the cap unless every list ran
+      out first.
+
+    Raises:
+      None.
+    """
+    totals = [sum(tail.listed for tail in tails) for tails in lists]
+    ends = [len(tails) for tails in lists]
+    while size > config.DQ_REPORT_MAX_BYTES and any(totals):
+        longest = max(range(len(lists)), key=lambda index: (totals[index], -index))
+        tails = lists[longest]
+        while not tails[ends[longest] - 1].kept:
+            ends[longest] -= 1
+        tail = tails[ends[longest] - 1]
+        before = tail.listed
+        size += tail.drop_last()
+        totals[longest] -= before - tail.listed
+    for tails in lists:
+        for tail in tails:
+            tail.write()
+    return size
+
+
+def _per_file_lists(document: dict) -> list[list[_Tail]]:
+    """Measures the lists the cap may shorten, least worth keeping first.
+
+    The spellings each column was merged from are a disclosure — Athena already reads them as one
+    column — and they come first. The row counts are next: the only place a file with no rows
+    shows. The files that disagree about their columns are last, because they are a finding, and
+    a tie is lost by whichever is named first.
+
+    Args:
+      document: The assembled report.
+
+    Returns:
+      The lists, each a run of one or more ``_Tail``.
+
+    Raises:
+      KeyError: If the report has no exact section, columns or cross-file block.
+    """
+    exact = document["exact"]
+    return [
+        [_Tail.of(column, "otherSpellings") for column in exact["columns"]],
+        [_Tail.of(exact, "rowCountsByFile")],
+        [_Tail.of(exact["crossFile"], "disagreements")],
+    ]
+
+
 def _within_document_cap(document: dict) -> bytes:
-    """Serializes the report, dropping the duplicate samples if that is what keeps it openable.
+    """Serializes the report, shedding what it must to stay openable, and saying what it shed.
 
     The browser reads a report through the document route's size cap, so a report above it is not
     a large report — it is an unreadable one, and every other finding in it is lost with the part
-    that made it big. The samples are dropped because they are the figure THIS spec added, and the
-    one whose absence the report can explain in a sentence.
+    that made it big.
 
-    The offending values are the other figure that repeats on every column, and they fit without
-    this: ``DQ_OFFENDING_VALUE_SAMPLE`` is sized so a one-file report at the column cap, every value
-    at its longest astral escape, is under the cap with no samples in it, and the suite builds that
-    report to hold it. The samples are what push that report over, so shedding them is what lets
-    it open.
+    The duplicate samples go first and whole: they are an illustration of a count that stays, and
+    the report can explain their absence in a sentence. Then the per-file lists, which the object
+    and column caps bound in count but nothing bounds in bytes — the files that disagree about their
+    columns, which name every column each one lacks and adds; the row counts, which carry every
+    file's key; and the spellings each column was merged from. Those are shortened from the end,
+    longest first, each counting what it left out under its field name with ``UNLISTED_SUFFIX``,
+    and the page says how many more there are. Nothing is cut inside an entry: a file listed with
+    some of its missing columns would be a wrong figure, where a file not listed is a shorter list.
 
-    **This does not make every report fit.** The per-file lists are bounded in count by the object
-    and column caps and not in bytes: the row counts carry every file's key, and the cross-file
-    disagreements name, for each disagreeing file, every column it lacks and every one it adds. A
-    source of many files split between schemas carries a report past the cap in plain ASCII with no
-    samples at all, and long keys eat the headroom the offending values leave. Such a report is
-    written over the cap and the page cannot open it; the figures and the method to reproduce them
-    are in the control-planes register.
+    Once all of that is gone, what is left fits — the offending values are sized for it, and the
+    suite builds the largest report every bound allows to hold it — so the cap is met rather than
+    attempted.
 
-    Dropped only when there are samples to drop. A report already over the cap without them was
-    over it before this existed, and replacing an absent field — or the sentence a nested source
-    already wrote there — would swap a true explanation for a false one and still not fit.
+    The duplicate samples are dropped only when there are samples to drop. A report without them
+    replaces nothing there: an absent field, or the sentence a nested source already wrote in its
+    place, is a true explanation, and a false one would not free a byte.
 
     The size is logged only on the path that had to act. Logged on every run it would be a number
     nobody reads, and the one run where it mattered would look like all the others.
 
     Args:
-      document: The assembled report, modified in place when the samples are dropped.
+      document: The assembled report, modified in place when anything is shed.
 
     Returns:
       The bytes to write.
@@ -259,14 +430,15 @@ def _within_document_cap(document: dict) -> bytes:
       None.
     """
     body = _serialize(document)
-    samples = document["exact"].get("duplicateSamples")
-    if len(body) <= config.DQ_REPORT_MAX_BYTES or not (samples or {}).get("rows"):
+    if len(body) <= config.DQ_REPORT_MAX_BYTES:
         return body
 
     observability.info(OVER_CAP_EVENT, report_bytes=len(body))
-    document["exact"]["duplicateSamples"] = {
-        "omitted": report.SAMPLES_OMITTED_TOO_LARGE
-    }
+    exact = document["exact"]
+    if (exact.get("duplicateSamples") or {}).get("rows"):
+        exact["duplicateSamples"] = {"omitted": report.SAMPLES_OMITTED_TOO_LARGE}
+        body = _serialize(document)
+    _shed_longest_first(_per_file_lists(document), len(body))
     return _serialize(document)
 
 
