@@ -497,6 +497,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Open <b>Options</b> and choose <b>Columns</b> to hide, show, pin or reorder columns. <b>Show all</b> and <b>Unpin all</b> put every column back the way it arrived.',
           "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it — two columns compared with each other, an <b>OR</b> between conditions, or a list that should keep the <b>NULL</b> rows too, such as <code>state IN ('NY', 'NJ') OR state IS NULL</code>. Leave out the word <b>WHERE</b>.",
+          'Every column filter, whether you set it from a column’s menu or in <b>Order and filter</b>, shows as a chip under the <b>Filter expression</b> box. The chips and the expression all apply together, and a chip’s <b>×</b> removes just that filter.',
           'Use the <b>back</b> and <b>forward</b> arrows on the bar to step through the filters you have already tried, or choose <b>Remove all filters</b> from <b>Options</b> to start over.',
           'In a table built from CSV files a blank cell is empty text, shown as <b>(empty)</b>, and it is not the same as <b>NULL</b>. <b>Is empty</b> finds both; <b>is null</b> finds only the NULLs, so it is the one that comes back with nothing on a table like that.'
         ],
@@ -550,6 +551,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Everything you click here builds a real SQL statement, and you can see it and keep it. Open <b>Generated SQL</b> at any time to read exactly what is about to run — a good way to learn the SQL for something you have just built by hand.',
         steps: [
           'Open <b>Generated SQL</b> above the rows to see the statement your filters, sorting and grouping produced.',
+          'Choose <b>Open in Query</b> there to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration.',
           'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file.',
           'To use it again, open the <b>Query</b> tab and load it from <b>Saved queries</b>.',
           'Or pick <b>Create view…</b> from <b>Options</b> to keep it as a <b>view</b> in the catalogue instead. A view behaves like a table — it turns up in the <b>Data explorer</b> and the <b>Query</b> tab for anyone who can see that space, and it re-runs your query each time it is read.'

@@ -681,6 +681,16 @@ as honestly as a succeeding one.
 | J | **Options → Grouping** on that tab, group by a column, then reopen Grouping | The panel still lists every one of the statement's columns, not the grouped result's. |
 | K | Back in Query, run `SELECT count(*) FROM …` | **Explore in Data Explorer** is there but disabled, saying to name every column with `AS`. `SHOW TABLES` offers no button at all. |
 
+**Column filter chips, and Open in Query.** Count executions throughout.
+
+| # | Do | Expect |
+|---|---|---|
+| L | On an `explorer150` tab, filter one text column from its **⋯** menu with **equals**, and a second column with **is one of** and four values | Two chips under the **Filter expression** box, in the order they were set: `<column> equals “<value>”` and `<column> is one of “…”, “…”, “…” and 1 more`. **1** execution per filter. |
+| M | Click the first chip's **×** | That chip goes, the grid updates, **1** execution, and focus sits on the remaining chip's **×**. The bar's **Back** arrow brings both chips back. |
+| N | Open **Generated SQL**, choose **Open in Query** | `/query` opens a new tab labelled with the exploration tab's name, holding the statement, **not run**. The URL carries no query string. Reload opens no second tab. |
+| O | Edit the statement, run it, then go back to the **Data Explorer** | The Query run is its own. The exploration is as it was: the same chips, the same rows, and the bar's **Back** arrow steps through the same history. |
+| P | At a phone width, do N again | The read-only SQL view shows the statement under the tab's name, with **Run**. Nothing runs until **Run** is tapped. |
+
 ### 4.6 Data quality
 
 | Do | Expect |

@@ -37,3 +37,33 @@ export function readExploreSqlHandoff(state: unknown): {body: string; label: str
   if (typeof body !== 'string' || body.trim() === '' || typeof label !== 'string') return null;
   return {body, label};
 }
+
+/** Router state asking the Query workspace to open a statement in a new tab, unrun. */
+export type OpenSqlHandoff = {openSql: {sql: string; label: string}};
+
+/**
+ * Builds the router state that opens a statement in a new Query tab.
+ *
+ * @param handoff - The statement exactly as it should appear in the editor, and the tab's label.
+ * @returns The state to navigate to `/query` with.
+ */
+export function buildOpenSqlHandoff(handoff: {sql: string; label: string}): OpenSqlHandoff {
+  return {openSql: {sql: handoff.sql, label: handoff.label}};
+}
+
+/**
+ * Reads a Query hand-off out of router state, refusing anything it did not build.
+ *
+ * Checked field by field and by own property, for the reasons `readExploreSqlHandoff` gives.
+ *
+ * @param state - `location.state`, or anything at all.
+ * @returns The statement and label, or null when the state is not this hand-off.
+ */
+export function readOpenSqlHandoff(state: unknown): {sql: string; label: string} | null {
+  if (typeof state !== 'object' || state === null || !Object.hasOwn(state, 'openSql')) return null;
+  const handoff = (state as {openSql: unknown}).openSql;
+  if (typeof handoff !== 'object' || handoff === null) return null;
+  const {sql, label} = handoff as Record<string, unknown>;
+  if (typeof sql !== 'string' || typeof label !== 'string') return null;
+  return {sql, label};
+}

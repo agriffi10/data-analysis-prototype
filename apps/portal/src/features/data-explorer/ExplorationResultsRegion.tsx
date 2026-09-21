@@ -1,5 +1,6 @@
 import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
+import {Chip, ChipList} from '../../components/Chip';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {useToast} from '../../components/toastContext';
@@ -39,6 +40,7 @@ import {aggregateAlias, isBareNumeric} from './renderExplorationSql';
 import {
   clearFilter,
   clearSort,
+  filterChipLabel,
   filterOf,
   filterValueKind,
   operatorTakesValue,
@@ -52,6 +54,7 @@ import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn, QueryState} from '../catalog/catalog.types';
 import type {
   CalcPanelState,
+  ColumnFilter,
   CopyOptions,
   ExplorationPresentation,
   FilterOperator,
@@ -95,6 +98,11 @@ export type ExplorationResultsRegionProps = {
   queryControls: UseExplorationQueryResult;
   /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
+  /**
+   * Opens a copy of the generated statement in a new Query tab. The host owns the navigation and
+   * the tab's label; this region offers the control only while the `query` flag is on.
+   */
+  onOpenInQuery?: (sql: string) => void;
   /** Turn the exploration in front of the user into a catalog view — `Save as query`'s
    *  sibling: one writes a `.sql` file, the other writes a view. */
   onCreateView: () => void;
@@ -131,6 +139,11 @@ export type ExplorationResultsRegionProps = {
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
+
+/** A column filter's chip remove control, named for the whole label so a truncated chip is still read out. */
+function chipRemoveLabel(filter: ColumnFilter): string {
+  return `Remove filter: ${filterChipLabel(filter)}`;
+}
 /**
  * Why a save is refused when the grid shows no column the result has.
  *
@@ -214,6 +227,7 @@ export function ExplorationResultsRegion({
   onPresentationChange,
   queryControls,
   onSaveQuery,
+  onOpenInQuery,
   onCreateView,
   createViewRefusal,
   onExport,
@@ -244,8 +258,8 @@ export function ExplorationResultsRegion({
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
-  // One flag, two consumers now: the saved-query store and the catalog view. Both are Query
-  // capabilities wearing Data Explorer controls.
+  // One flag, three consumers now: the saved-query store, the catalog view and Open in Query.
+  // All three are Query capabilities wearing Data Explorer controls.
   const queryEnabled = useFeature('query');
   const toast = useToast();
   const {copy} = useCopyToClipboard();
@@ -444,6 +458,32 @@ export function ExplorationResultsRegion({
       }),
     clearFilter: (column) => apply({filters: clearFilter(query, column).filters})
   };
+
+  // Removing a chip unmounts the button focus was on, which would leave it on the page body; the
+  // next chip's remove button takes it, else the previous one's, else the expression input.
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const expressionInputRef = useRef<HTMLInputElement>(null);
+  const refocusAfterRemoval = useRef<{removeLabel: string | null} | null>(null);
+  const removeFilter = (column: string) => {
+    const at = query.filters.findIndex((filter) => filter.column === column);
+    const neighbour = query.filters[at + 1] ?? query.filters[at - 1];
+    refocusAfterRemoval.current = {removeLabel: neighbour ? chipRemoveLabel(neighbour) : null};
+    actions.clearFilter(column);
+  };
+  // Keyed on the filters, so it runs after the commit that dropped the removed chip.
+  useEffect(() => {
+    const pending = refocusAfterRemoval.current;
+    if (pending === null) return;
+    refocusAfterRemoval.current = null;
+    if (pending.removeLabel === null) {
+      expressionInputRef.current?.focus();
+      return;
+    }
+    const buttons = chipsRef.current?.querySelectorAll('button') ?? [];
+    Array.from(buttons)
+      .find((button) => button.getAttribute('aria-label') === pending.removeLabel)
+      ?.focus();
+  }, [query.filters]);
 
   // The filter already on that column, so re-filtering it is an edit rather than a retype.
   // The dialog decides for itself which half of it to pre-fill from, since a single-value
@@ -771,11 +811,34 @@ export function ExplorationResultsRegion({
       <ExpressionBar
         expression={query.expression}
         onApply={(expression) => apply({expression})}
+        inputRef={expressionInputRef}
       />
+
+      {/* The column filters the menus set, which the expression box never shows. They apply
+          together with it, and each chip removes its own filter as one apply. */}
+      {query.filters.length > 0 && (
+        <div
+          ref={chipsRef}
+          className="flex-none">
+          <ChipList ariaLabel="Column filters">
+            {query.filters.map((filter) => (
+              <Chip
+                key={filter.column}
+                name={filterChipLabel(filter)}
+                removeLabel={chipRemoveLabel(filter)}
+                onRemove={() => removeFilter(filter.column)}
+              />
+            ))}
+          </ChipList>
+        </div>
+      )}
 
       {/* Available whether or not grouping is active: the Explorer writes SQL
           the user did not, grouped or otherwise, and every statement it writes is a bill. */}
-      <GeneratedSqlDisclosure sql={sql} />
+      <GeneratedSqlDisclosure
+        sql={sql}
+        onOpenInQuery={queryEnabled ? onOpenInQuery : undefined}
+      />
 
       {/* One banner at a time, and the exploration's own failure outranks the results
           read: a statement that failed is WHY its rows could not be fetched, and saying

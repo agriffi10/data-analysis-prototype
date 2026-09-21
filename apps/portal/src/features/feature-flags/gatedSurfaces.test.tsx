@@ -530,6 +530,20 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
     find: async () => screen.queryByRole('menuitem', {name: 'Save as query'})
   },
+  'Open in Query': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      // The control mounts only over a statement that exists, so the recipe waits for one before
+      // opening the disclosure — otherwise it is absent for a reason that is not the flag.
+      await screen.findByLabelText('Generated SQL');
+      await userEvent.setup({delay: null}).click(screen.getByText('Generated SQL'));
+    },
+    // The copy button beside it, which is ungated and mounts under the same rule.
+    anchor: async () => screen.findByRole('button', {name: 'Copy SQL'}),
+    find: async () => screen.queryByRole('button', {name: 'Open in Query'})
+  },
   // SPEC-185. Export's own destination selector, reached through the real toolbar button —
   // which is itself refused until an execution has SUCCEEDED, so the recipe exercises that
   // gate on the way past.
@@ -1098,6 +1112,9 @@ describe('the registry itself', () => {
         // capability wherever the control lives, so an exemption here would hand back, through
         // a different door, the one thing turning this flag off is meant to remove.
         'Create view…',
+        // The generated statement opened in a Query tab: a Query surface wearing a Data Explorer
+        // control, on the same terms as the two above it.
+        'Open in Query',
         'Query help section',
         'Tables help section'
       ],

@@ -7,6 +7,8 @@ export type ExpressionBarProps = {
   expression: string | null;
   /** Applies the fragment — the gesture that mints an execution. */
   onApply: (expression: string | null) => void;
+  /** The input itself, for a surface beside the bar that has to hand focus back to it. */
+  inputRef?: React.Ref<HTMLInputElement>;
 };
 
 /**
@@ -30,7 +32,7 @@ export type ExpressionBarProps = {
  * front, so the hint beneath says it is not needed, and that any condition works — `LIKE` and
  * `IN` included.
  */
-export function ExpressionBar({expression, onApply}: ExpressionBarProps) {
+export function ExpressionBar({expression, onApply, inputRef}: ExpressionBarProps) {
   const hintId = useId();
   const applied = expression ?? '';
   const [text, setText] = useState(applied);
@@ -51,6 +53,7 @@ export function ExpressionBar({expression, onApply}: ExpressionBarProps) {
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <Input
+            ref={inputRef}
             className="font-mono text-sm"
             label="Filter expression"
             placeholder="status = 'open' AND qty > 100"

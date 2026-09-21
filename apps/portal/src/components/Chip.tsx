@@ -46,7 +46,8 @@ type ChipProps = {
 
 /**
  * One removable chip — the single implementation behind the recipient lists in
- * `UsernameChipsField`, `TableShareDialog` and `SendFilesDialog`.
+ * `UsernameChipsField`, `TableShareDialog` and `SendFilesDialog`, and the Data Explorer's column
+ * filters beside its expression box.
  *
  * The three were byte-identical `<li>`s that had begun to drift: the remove target was `h-6 w-6`
  * in one and `h-5 w-5` in the other two — 21px and 17.5px, both under WCAG 2.2 SC 2.5.8's 24px
