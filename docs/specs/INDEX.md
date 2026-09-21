@@ -250,6 +250,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 242 — A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each | Completed |
 | 243 — A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query | Draft |
 | 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Completed |
+| 245 — The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing | Draft |
 
 ## Arcs
 
