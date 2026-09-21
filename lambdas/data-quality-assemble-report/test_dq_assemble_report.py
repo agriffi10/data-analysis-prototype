@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import dq_assemble_report as v
 import pytest
+from cpcommon.columns import MAX_COLUMN_NAME_LENGTH
 from cpcommon.errors import TerminalError
 from dqcommon import report
 
@@ -334,7 +335,7 @@ def _samples_cell(rows, count=None):
     return _csv([{"duplicate_rows": total, "duplicate_samples": json.dumps(rows)}])
 
 
-def _wide_profile(columns: int) -> bytes:
+def _wide_profile(columns: int, offending: list[str] | None = None) -> bytes:
     """A profile result over ``columns`` string columns, for the wide-source fixture.
 
     ``report.build`` zips the manifest's columns against the profile's positional aliases with
@@ -343,6 +344,8 @@ def _wide_profile(columns: int) -> bytes:
 
     Args:
       columns: How many columns the source declares.
+      offending: The non-numeric values every column samples, making each a numeric column with a
+        few stragglers — the only shape whose report carries them. None for clean columns.
 
     Returns:
       The profile result object's bytes.
@@ -355,8 +358,9 @@ def _wide_profile(columns: int) -> bytes:
         alias = f"c{index}"
         row[f"{alias}_missing"] = 0
         for cast in ("bigint", "double", "timestamp", "date"):
-            row[f"{alias}_not_{cast}"] = 0
-        row[f"{alias}_sample_non_numeric"] = ""
+            numeric = cast in ("bigint", "double")
+            row[f"{alias}_not_{cast}"] = 0 if offending is None else 5 if numeric else 1000
+        row[f"{alias}_sample_non_numeric"] = "" if offending is None else json.dumps(offending)
         row[f"{alias}_sample_non_temporal"] = ""
     return _csv([row])
 
@@ -440,13 +444,14 @@ def test_a_report_the_samples_push_past_the_cap_is_written_without_them(
     a large report but an unreadable one, and every finding in it is lost with the part that made
     it big.
 
-    This lowers the cap AND enlarges the samples, and the first half is unavoidable rather than a
-    shortcut. The samples are bounded by the statement that produces them — ``DQ_DUPLICATE_SAMPLE``
-    rows of ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS`` each — so measured as the
-    write measures them, SERIALIZED, the block runs 206 KB of plain ASCII to 2.4 MB of astral text
-    against a 3 MiB cap. No samples fixture crosses that on its own. In production the branch needs
-    a report whose OTHER figures already sit within about 700 KB of the cap, which a unit test would
-    have to build a 200-column report with full offending-value samples to reproduce.
+    This lowers the cap AND enlarges the samples, on a two-column report, so the drop's own
+    behaviour — the sentence, the one logged size — is checked apart from what makes a report heavy.
+    The samples are bounded by the statement that produces them — ``DQ_DUPLICATE_SAMPLE`` rows of
+    ``DQ_MAX_COLUMNS`` + 2 values of ``sql.SAMPLE_VALUE_CHARS`` each — so measured as the write
+    measures them, SERIALIZED, the block runs 206 KB of plain ASCII to 2.4 MB of astral text
+    against a 3 MiB cap. No samples fixture crosses that on its own: in production the branch needs
+    a report whose OTHER figures already sit within about 700 KB of the cap, and the test of the
+    largest report the statements can return builds one at the real cap.
 
     The three figures are the same block counted three ways, and the spread is the point: a
     character count is not a byte count, and JSON escapes a control character to six and an astral
@@ -563,6 +568,68 @@ def test_a_report_already_over_the_cap_without_samples_keeps_the_sentence_it_had
     assert _report(fake)["exact"]["duplicateSamples"] == {
         "omitted": v.report.SAMPLES_OMITTED_NESTED
     }
+
+
+def test_the_largest_report_the_statements_can_return_is_written_where_the_page_can_read_it(
+    monkeypatch,
+):
+    """Writes a report at every per-column bound at once under the cap, its offending values intact.
+
+    Every one of ``DQ_MAX_COLUMNS`` columns is numeric with ``DQ_OFFENDING_VALUE_SAMPLE``
+    stragglers and named as long as the column-name rule allows, and every sampled duplicate row is
+    full. Each value is ``sql.SAMPLE_VALUE_CHARS`` astral code points, the character JSON escapes
+    furthest — twelve, as a surrogate pair — so, give or take the few kilobytes one file's key can
+    add, no report of one file is larger. The per-file lists grow with the file count and the key
+    length instead, and are not bounded this way; the control-planes register records them as
+    open. The widths and counts are read from the constants, so raising any of them runs this
+    against the new worst case, and the cap is the real one.
+
+    The samples are dropped, which is what the drop is for. The offending values are not, because
+    nothing drops them: they have to fit on their own, and that is what sizes
+    ``DQ_OFFENDING_VALUE_SAMPLE``. The assertions before the last are what give it meaning — a
+    report whose samples never needed dropping, or whose columns carried nothing, fits trivially.
+    """
+    width = v.config.DQ_MAX_COLUMNS
+    names = [f"{index:03d}".ljust(MAX_COLUMN_NAME_LENGTH, "x") for index in range(width)]
+    manifest = {
+        "format": "csv",
+        "fileCount": 1,
+        "files": [
+            {
+                "key": "alice/sales/a.csv",
+                "size": 300,
+                "columns": [{"name": name, "type": "string"} for name in names],
+            }
+        ],
+    }
+    value = "\U0001f600" * v.sql.SAMPLE_VALUE_CHARS
+    offending = [value] * v.config.DQ_OFFENDING_VALUE_SAMPLE
+    rows = [[str(n), *[value] * width] for n in range(2, 2 + v.config.DQ_DUPLICATE_SAMPLE)]
+    fake = _setup(
+        monkeypatch,
+        objects=_objects(
+            {
+                f"{PREFIX}/manifest.json": json.dumps(manifest).encode(),
+                "alice/athenaresults/data-quality/req-1/profile/q1.csv": _wide_profile(
+                    width, offending
+                ),
+                "alice/athenaresults/data-quality/req-1/duplicates/q3.csv": _samples_cell(rows),
+            }
+        ),
+    )
+
+    v.handler(_event(), None)
+
+    body = [p for p in fake.puts if p["Key"].endswith("report.json")][-1]["Body"]
+    document = json.loads(body)
+    assert document["exact"]["duplicateSamples"] == {
+        "omitted": v.report.SAMPLES_OMITTED_TOO_LARGE
+    }
+    shown = value[: v.report.MAX_SAMPLE_VALUE_CHARS] + "…"
+    assert [column["sampleOffending"] for column in document["exact"]["columns"]] == [
+        [shown] * v.config.DQ_OFFENDING_VALUE_SAMPLE
+    ] * width
+    assert len(body) <= v.config.DQ_REPORT_MAX_BYTES
 
 
 def _caller_fields(events) -> list[tuple]:

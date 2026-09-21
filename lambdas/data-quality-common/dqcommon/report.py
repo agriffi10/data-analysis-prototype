@@ -251,9 +251,10 @@ def _json_array(row: dict, key: str) -> list:
     wrong examples.
 
     Each value is bounded too, not just the count. The sample cap limits how many examples a
-    column contributes; nothing caps how long one is, and an Athena string has no length limit.
-    Ten multi-megabyte values across a wide table would bloat the report object itself, and an
-    example that long tells the reader nothing a truncated one does not.
+    column contributes and the statement's cut how long each is; this cut, one character shorter,
+    is what marks a shortened value with an ellipsis, and it holds the report's bound even if a
+    value arrives longer than the statement should have returned — an Athena string has no length
+    limit of its own, and an example that long tells the reader nothing a truncated one does not.
 
     Args:
       row: The result row.

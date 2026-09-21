@@ -2408,7 +2408,12 @@ reader's limit, and a one-sided assertion would let the writer drift in the dire
 past a process-global limit of 131,072 characters, and assemble-report re-raises everything but a
 missing object — so one oversized cell fails the whole report rather than one figure. The duplicates
 cell is the only one this check can push past it, because it carries whole rows rather than single
-values and a wide table multiplies it by the column count. `report.duplicates_field_size_limit`
+values and a wide table multiplies it by the column count. **That holds only because the profile's
+offending values are cut in the statement too**, at the same `SAMPLE_VALUE_CHARS`, on the `max_by`
+key as well as the value — a cut the profile statement did not make until after this entry was
+first written, so one column's sampled stray values, totalling more than the limit between them,
+made a cell past it and failed the report over a figure that is only an illustration.
+`report.duplicates_field_size_limit`
 computes the figure from what the statement can return and **never returns less than the reader
 already had**: at twenty grouped columns the computed figure is below the default, and returning it
 would tighten the reader on cells that parse today — a raise that quietly becomes a lowering is how a
@@ -2426,49 +2431,86 @@ A source with an `array<…>` or `struct<…>` column keeps the previous stateme
 records its samples as omitted: Trino documents no cast from either to varchar, and a cast the engine
 refuses fails the whole statement — trading the count that works today for a sample.
 
-**Measured and NOT closed: what decides a report's size is the CHARACTER SET of the user's values,
-not which figure carries them.** The drop mechanism is scoped to the samples because they are what
-this spec added and the one absence the report can explain in a sentence — not because they dominate
-the document. Measured at `DQ_MAX_COLUMNS`, serialized as the write serializes:
+**Measured: what decides a report's size is the CHARACTER SET of the user's values, multiplied by
+the column count.** Every figure that carries a value is bounded in CHARACTERS
+(`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and the writer serializes at `ensure_ascii`, so JSON
+escapes a control or BMP character to six and an astral code point to twelve, as a surrogate pair —
+the unit trap this area's fences name. At `DQ_MAX_COLUMNS` 200, `MAX_SAMPLE_VALUE_CHARS` 200 and
+`DQ_DUPLICATE_SAMPLE` 5, every column carrying a full `sampleOffending`, serialized as the write
+serializes:
 
-| whole report, full `sampleOffending` on every column | alone | with samples | verdict |
+| whole report | ten offending values a column | five | five, with samples |
 |---|---|---|---|
-| printable ASCII (1 char) | 428,803 B — 14% | 631,927 B — 20% | under either way |
-| **control or BMP (escapes to 6)** | **2,428,803 B — 77%** | **3,631,927 B — 116%** | **over only WITH samples** |
-| astral (escapes to 12) | 4,828,803 B — 154% | 7,231,927 B — 230% | over either way |
+| printable ASCII (1 char) | 441,486 B — 14% | 232,486 B — 7% | 441,610 B — 14% |
+| control or BMP (escapes to 6) | 2,441,486 B — 78% | 1,232,486 B — 39% | 2,441,610 B — 78% |
+| astral (escapes to 12) | **4,841,486 B — 154%** | 2,432,486 B — 77% | 4,841,610 B — 154%, **dropped: opens** |
 
-against a cap of 3,145,728 B. **The middle row is the only band in which this mechanism does
-anything at all, and it is the ordinary one** — "BMP" is Cyrillic, Greek, CJK and accented Latin,
-which is to say most human writing. Above it the report is unreadable whatever is dropped; below it
-nothing was ever at risk. A two-row table of the best and worst cases would have omitted the only
-case that demonstrates the guarantee, which an earlier draft of this entry did. The multiplier is ~11.8,
-and it is the unit trap this area's fences name: both figures are bounded in CHARACTERS
-(`MAX_SAMPLE_VALUE_CHARS`) and spent in BYTES, and JSON escapes one astral code point as a surrogate
-pair — twelve characters where a control character or a BMP character costs six. A report of astral
-`sampleOffending` is written over the cap and the page refuses to open it — the mechanism runs and
-sheds the samples if there are any, and the document still does not fit. The multiplier between the
-bands is ~11.3 on the whole report and ~11.8 on the samples block alone.
+against a cap of 3,145,728 B. At ten an astral report was over the cap with nothing in it to drop,
+so it was written, the API refused to serve it as `PayloadTooLarge`, and the page showed "That
+request was too large" — advice to try again with less, which the user cannot follow — in place of
+a check that had run and found things. **`DQ_OFFENDING_VALUE_SAMPLE` is five**, which is what the page
+already showed — it rendered the first five of ten, and `max_by(x, x, n)` returns them in rank
+order — so the page shows exactly what it did, and only a hand-downloaded `report.json` is thinner.
+Measured with five, the drop now rescues the astral band, and a BMP report — Cyrillic, Greek, CJK,
+accented Latin, most human writing — keeps its samples where at ten it lost them.
+`test_the_largest_report_the_statements_can_return_is_written_where_the_page_can_read_it` builds the
+one-file astral worst case from the constants and holds the written document under the cap with
+every offending value intact, so raising any of `DQ_OFFENDING_VALUE_SAMPLE`,
+`MAX_SAMPLE_VALUE_CHARS`, `DQ_MAX_COLUMNS` or `DQ_DUPLICATE_SAMPLE` is measured against the cap
+rather than argued about. **Rejected:** keeping ten and dropping them second, which needs a new report field and a page
+change and loses the examples on exactly the reports that most need them; and cutting each value at
+200 escaped bytes instead of 200 characters — a static bound, but one that shortens every non-ASCII
+example on every report, a Cyrillic one to about 33 characters and an emoji one to about 16.
+
+**NOT closed: the per-file lists.** Both are bounded in count and not in bytes, both grow with
+the file count and the key length rather than the column count, and nothing drops either. The
+cross-file disagreements name, for each disagreeing file, every column it lacks and every one it
+adds — up to `DQ_MAX_COLUMNS` names across up to `DQ_MAX_OBJECTS` files. Column names are ASCII,
+since create-temp-tables refuses any name outside `cpcommon.columns`' rule, so the character-set
+multiplier does not reach this list; its length does. Over 1,000 files split evenly between two
+disjoint 100-column schemas, `report.cross_file` alone serializes to:
+
+| column names | `crossFile` alone |
+|---|---|
+| 24 characters | 2,740,040 B — 87% |
+| 44 characters | 4,740,040 B — 151% |
+| 255, the name rule's ceiling | 25,840,040 B — 821% |
+
+The row counts carry every file's key, and a key is not held to ASCII, so 1,000 keys serialize to
+120,001 B (4%) at 100 ASCII characters, 545,001 B (17%) at 100 characters of which 85 are Cyrillic,
+and 720,001 B (23%) at 700 ASCII ones — and that
+last, added to the one-file astral worst case above (2,432,486 B), crosses the cap after the samples
+are dropped. The cross-file list is over the cap in plain ASCII with no samples and no offending
+values, so that report is written unreadable today. How a reader should see a list that long —
+trimmed only when the report is over, or a fixed number of files with a count of the rest — is a
+product decision, left to a change of its own rather than folded into the one above.
 
 The same factor is why `duplicates_field_size_limit` allows twelve characters per source character
 rather than six: Trino's `substr` cuts by code point, so a sampled value can be
 `SAMPLE_VALUE_CHARS` astral ones. Sized at six — which it was, until the figures above were
 measured — a genuinely emoji-heavy wide table would fail the whole report on a cell the statement
-was entitled to return. That predates this spec and is recorded rather than fixed here,
-because bounding the offending values is a change to a figure users already read. What the cap does
-guarantee is narrower and still worth having: **a report that would have opened does not stop
-opening because samples were added to it.**
+was entitled to return.
 
 **The method, so the next reader re-measures instead of trusting** (the figures move with
 `DQ_OFFENDING_VALUE_SAMPLE`, `MAX_SAMPLE_VALUE_CHARS`, `DQ_MAX_COLUMNS` and `DQ_DUPLICATE_SAMPLE`,
-and were taken 2026-09-20): build a report through `report.build` over a `DQ_MAX_COLUMNS`-wide
-source, serialize it with `json.dumps(..., sort_keys=True, separators=(",", ":"))` — what
-`dq_assemble_report._serialize` does, so the figure is the one the cap compares — and read its
-length. **Make the columns numeric-DOMINANT with a few stragglers**, or `_column` writes no
-`sampleOffending` at all and the report measures 22 KB: a first attempt at these figures did exactly
-that and read 1% of the cap. Then run it three times — a printable ASCII letter, a control character, an astral one —
-and each of those twice, with and without the samples attached. Two classes cannot show that the
-spread is the character set rather than the figure, and one pass per class cannot show which band
-the drop actually rescues.
+and the cross-file ones with `DQ_MAX_OBJECTS`, at the values stated above): build a report through
+`report.build` over a `DQ_MAX_COLUMNS`-wide source, serialize it with
+`json.dumps(..., sort_keys=True, separators=(",", ":"))` — what `dq_assemble_report._serialize`
+does, so the figure is the one the cap compares — and read its length. **Make the columns
+numeric-DOMINANT with a few stragglers**, or `_column` writes no `sampleOffending` at all and the
+report measures about 23 KB: a first attempt at these figures did exactly that and read 1% of the
+cap. Then run it three times — a printable ASCII letter, a control character, an astral one — and
+each of those twice, with and without the samples attached. Two classes cannot show that the spread
+is the character set rather than the figure, and one pass per class cannot show which band the drop
+actually rescues. For the cross-file list, call `report.cross_file` over `DQ_MAX_OBJECTS` files
+keyed `alice/sales/2026/part-NNNNN.csv` (31 characters), whose headers alternate between two
+disjoint 100-column schemas of names padded to the stated length; the name and key lengths move the
+figures, and a reproduction that leaves them out will not match. For the row counts, call
+`report._row_counts_by_file([], files)` over `DQ_MAX_OBJECTS` keys made of `alice/`, then repeated
+characters, then a nine-character `NNNNN.csv`, to the stated length — how the key is made up moves
+the non-ASCII figure by tens of kilobytes. The per-column table uses short `colN` names; names at
+the rule's 255-character ceiling add about 100 KB — each heads its column and again the samples'
+table — taking the astral five to 2,533,561 B (81%), and about 50 KB once the samples are dropped.
 
 **Rejected: naming the file each sampled row came from.** Grouping by every column erases it, and
 recovering it means aggregating paths for every group or scanning a second time. The per-file row

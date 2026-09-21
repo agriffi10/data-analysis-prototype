@@ -330,11 +330,12 @@ def profiled_columns(
 #: Column types the duplicates statement cannot render as text. See ``has_nested_column``.
 _NESTED_TYPES = ("array<", "struct<")
 
-#: How much of one duplicate-sample value the statement keeps, in characters. One MORE than the
-#: report's own cut, so a value that was shortened is still recognisable as shortened after the
-#: report cuts it again — at exactly the report's cut the two are indistinguishable and a value of
-#: the full length would gain an ellipsis it had not earned. ``report.py`` reads this to size the
-#: CSV reader's field limit, so the bound exists once rather than at each end of the wire.
+#: How much of one sampled value — an offending value or a duplicate-sample cell — the statements
+#: keep, in characters. One MORE than the report's own cut, so a value that was shortened is still
+#: recognisable as shortened after the report cuts it again — at exactly the report's cut the two
+#: are indistinguishable and a value of the full length would gain an ellipsis it had not earned.
+#: ``report.py`` reads this to size the CSV reader's field limit, so the bound exists once rather
+#: than at each end of the wire.
 SAMPLE_VALUE_CHARS = 201
 
 
@@ -565,6 +566,12 @@ def _sample_expr(column: str, predicate: str, size: int) -> str:
     silently change the report between attempts. The aggregate ignores rows whose key is null, so
     the conditional doubles as the filter.
 
+    Each value is cut to ``SAMPLE_VALUE_CHARS`` here, as the duplicates statement cuts its cells,
+    because the count bounds how many values the cell holds and nothing else bounds how long they
+    are. Uncut, a few long stray values in one column make a result cell past the CSV reader's field
+    limit, and that fails the whole report over a figure that is only an illustration. The report
+    cuts again one character shorter, so what it shows is unchanged.
+
     The result is rendered as JSON, and that is a correctness fix rather than a formatting
     preference: Athena writes an array into its CSV result file with unquoted elements, so an
     offending value containing a comma is unrecoverable when the report parses the cell back and
@@ -584,7 +591,7 @@ def _sample_expr(column: str, predicate: str, size: int) -> str:
     Raises:
       None.
     """
-    keyed = f"CASE WHEN {predicate} THEN {column} END"
+    keyed = f"CASE WHEN {predicate} THEN substr({column}, 1, {SAMPLE_VALUE_CHARS}) END"
     return f"json_format(CAST(max_by({keyed}, {keyed}, {size}) AS JSON))"
 
 

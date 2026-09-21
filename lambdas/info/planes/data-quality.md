@@ -100,7 +100,10 @@ runs index and every log line carry figures, never cells. It is written within
 `DQ_REPORT_MAX_BYTES`, which is the size the browser can read a document through and is held equal
 to `apicommon.s3_config.MAX_DOCUMENT_BYTES` by a fleet-level test — over it, the samples are
 dropped and the report says why, since a report the page refuses to open loses every other finding
-with them.
+with them. `DQ_OFFENDING_VALUE_SAMPLE` is sized so the offending values fit on their own at the
+column cap; the per-file lists — the row counts' keys and the cross-file disagreements — are not
+bounded that way, and a report they carry past the cap is still written over it — the figures are
+in the control-planes register.
 
 The `/data-quality` dashboard reads a per-space `index.json` appended under ETag CAS, capped at 200
 entries with every failure swallowed — the durability order is report, then notification, then index
