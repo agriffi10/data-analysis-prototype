@@ -3182,6 +3182,9 @@ list operator and its value cap, so 238 goes first.
 5. **242, a query result opens in Data Explorer.** It brings the `sql` source arm into use for the
    first time, since no earlier surface opens one. Its phases put the arm's end-to-end tests before
    the button that reaches it.
+
+   > **Shipped 2026-09-21** in one PR. The hand-off rides router state through `lib/routeHandoff.ts`,
+   > which 243 extends, and it re-runs the statement, evicting only that body's cached executions.
 6. **243, filter chips and Open in Query.** Browser-only. It reads 238's labels and adds its hand-off
    beside 242's.
 7. **244, scoped autocomplete.** Browser-only, with no billing and no security surface.

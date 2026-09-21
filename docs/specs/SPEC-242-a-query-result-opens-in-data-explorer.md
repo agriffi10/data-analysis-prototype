@@ -1,8 +1,8 @@
 # Spec: A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each
 
 **ID:** SPEC-242
-**Status:** In Progress
-**Last Updated:** 2026-09-16
+**Status:** Completed
+**Last Updated:** 2026-09-21
 **Depends On:** SPEC-078, SPEC-178, SPEC-179, SPEC-183, SPEC-238
 
 ## Overview
@@ -93,7 +93,10 @@ Read from the code at `73c66eef`.
 - **This spec widens `renderWithProviders`.** Testing the Explorer side of a hand-off needs router
   state, so its `route` accepts `{pathname, state}` here, where it is first needed. The Query
   workspace's own helper, `renderWorkspace` in `src/test/queryWorkspaceSupport.tsx`, is widened by
-  SPEC-243, whose Query-side test needs it.
+  SPEC-243, whose Query-side test needs it. *(Added during the build:)* it also gains `strictMode`,
+  because a `<StrictMode>` passed in as the element under test runs every effect ONCE — React
+  double-runs effects only under the StrictMode it places — so the StrictMode criterion below could
+  not fail. Measured, and caught by mutating the `location.key` guard, which stayed green.
 - **The button follows *Save results*.** It is gated on the displayed result, not the batch
   verdict, in every run scope the editor owns.
 - **The text comes from the run, not the editor.** The buffer may have changed since the run. The
@@ -210,6 +213,9 @@ source `{kind: 'sql', body, label}` through `openTab`. Only when that returns an
 cached executions *The decisions* names. It then replaces the history entry with the same path and
 search and no state. When `openTab` returns null it raises `ExplorationLimitDialog`, opens nothing,
 and still replaces the entry. State the reader does not accept is ignored, and nothing is replaced.
+*(Added during the build, from the plan review:)* while an accepted hand-off is still in the history
+state, the tab restored from the session runs nothing, by the page's rule for an unsettled link — it
+is about to be switched away from, and running it would bill a statement nobody sees.
 
 #### Acceptance Criteria:
 

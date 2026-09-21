@@ -59,6 +59,7 @@ entry you need, not the file.**
 - [A failed status poll ends the Query tab's run, and the poll is disabled rather than left to answer (SPEC-233)](#a-failed-status-poll-ends-the-query-tabs-run-and-the-poll-is-disabled-rather-than-left-to-answer-spec-233)
 - [A long query settles at the ceiling, judged on a read after it, and says where its results go (SPEC-234)](#a-long-query-settles-at-the-ceiling-judged-on-a-read-after-it-and-says-where-its-results-go-spec-234)
 - [A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)](#a-space-the-cached-list-lacks-is-refused-only-on-a-read-after-the-link-2026-09-15)
+- [Sibling features hand off through router state, read once per history entry (SPEC-242)](#sibling-features-hand-off-through-router-state-read-once-per-history-entry-spec-242)
 
 ## Fences
 
@@ -78,6 +79,15 @@ is a smell.
   that leftover is how the next import arrives.
 - **`components/` may not import from `features/`** — enforced by lint. A leaf feature that becomes a
   shared layer gets **extracted before its second consumer**, not after.
+- **Sibling features cross by router state, never by import.** `features/query/` and
+  `features/data-explorer/` may not import each other, so a gesture on one that opens the other
+  navigates with a hand-off whose builder and reader live in `lib/routeHandoff.ts` — one module per
+  shape, and never the URL, which history and logs keep. The receiver reads it once per history entry
+  (`location.key`: `StrictMode` runs the effect twice) and replaces the entry with no state whatever
+  happened, so a reload or Back acts on nothing. **A `<StrictMode>` handed to a test as the element
+  under test doubles nothing** — React double-runs effects only under the StrictMode it places — so
+  `renderWithProviders({strictMode})` renders it as the root; a guard proven under the nested one is
+  unproven.
 - **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
   through one registry, and a busy modal swallows it. `cx()` returns `undefined`, never `''` — `??`
   does not fall back on the empty string, and that cost nine dialogs their width.
@@ -1471,3 +1481,43 @@ never read, so nothing is refused or waited on. **The Data Quality runs page is 
 follows no link and refuses nothing; a list without a just-joined space leaves that space's runs out
 until the next read, the same staleness the Files sidebar and the Query rail have, and making it wait
 would spend a read on every visit.
+
+## Sibling features hand off through router state, read once per history entry (SPEC-242)
+
+`features/query/` and `features/data-explorer/` are fenced apart by lint, tests and `import type`
+included, and *Explore in Data Explorer* is the first gesture that has to cross from one to the
+other (SPEC-243's *Open in Query* is the second, the other way). The crossing is a navigation
+carrying **router state**, and the shape of that state lives in `lib/routeHandoff.ts`: a builder the
+sender calls, a reader the receiver calls, and one module owning every hand-off so the two sides
+cannot drift. The reader refuses anything it did not build, by an own property (`Object.hasOwn`),
+since history state can be anything a previous entry left there.
+
+**Never the URL.** A statement can be long and can quote the user's own data, and a URL is kept in
+history, in logs and in whatever the user pastes it into. The deep link to a table
+(`/explore?space=&db=&table=`) is a different case: it names catalog objects, and it is meant to be
+shared.
+
+**Read once, keyed by the history entry.** `AppRoot` renders under `StrictMode`, so the receiving
+effect runs twice on mount; a ref holding the `location.key` it last consumed is what opens one tab
+rather than two. The entry is then replaced with the same path and search and **no state** — also
+when the tab limit refused the tab, as the deep link drops its parameters either way — so a reload
+or Back neither opens a second tab nor raises the limit dialog again. A mount with no hand-off state
+replaces nothing. While an accepted hand-off is still in the entry, the page runs nothing for the
+tab restored from the session, by the rule it already applies to an unsettled link.
+
+**The StrictMode test was vacuous until the harness changed.** The first version passed with the
+`location.key` guard deleted. A `<StrictMode>` handed to `render` beneath a provider wrapper runs
+every effect once: React double-invokes effects only for a subtree whose placed root is, or sits
+inside, a `StrictMode` — measured with a counting effect, one run nested and two at the root.
+`renderWithProviders` gained `strictMode`, which renders `StrictMode` above the providers as the
+root, and the guard's deletion now reddens.
+
+**One lint suppression, and why.** The hand-off effect calls an effect event that opens a tab or
+raises the limit dialog — the same state the deep link's effect sets. React Compiler's
+`set-state-in-effect` flags one and not the other, and which it flagged turned on incidental features
+of the event body, not on the state it sets. The line carries `eslint-disable-next-line` with that
+reason rather than a reshaping written to slip past the analysis.
+
+**Rejected.** A shared module both features import — the lint fence exists so that neither feature
+grows a dependency on the other, and a shared hand-off *shape* in `lib/` gives the crossing without
+it. `sessionStorage` — it outlives the navigation, so a stale hand-off would open on the next visit.

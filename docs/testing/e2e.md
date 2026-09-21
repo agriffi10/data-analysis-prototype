@@ -671,6 +671,16 @@ as honestly as a succeeding one.
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
 | **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |
 
+**A query result opened here.** Count executions throughout.
+
+| # | Do | Expect |
+|---|---|---|
+| G | In **Query**, write two `SELECT`s over `explorer150` that name every column, select both, **Run Statement** | Two executions and a result-tab strip with two tabs, the second selected. |
+| H | On the second tab, **Explore in Data Explorer** | `/explore` opens one tab labelled with the statement's start, with that result's columns. **1** execution, even if the same statement was explored earlier in the session. The URL carries no query string. |
+| I | Hide a column, filter another, then reload | The tab is still there, filtered, and there is only one. Reload opens nothing new and raises no dialog. |
+| J | **Options → Grouping** on that tab, group by a column, then reopen Grouping | The panel still lists every one of the statement's columns, not the grouped result's. |
+| K | Back in Query, run `SELECT count(*) FROM …` | **Explore in Data Explorer** is there but disabled, saying to name every column with `AS`. `SHOW TABLES` offers no button at all. |
+
 ### 4.6 Data quality
 
 | Do | Expect |
