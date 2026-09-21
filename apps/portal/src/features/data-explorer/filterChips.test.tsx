@@ -31,8 +31,10 @@ const STORAGE_KEY = `${EXPLORATION_TABS_STORAGE_PREFIX}alice`;
 
 const STATE_NY: ColumnFilter = {column: 'state', operator: '=', value: 'NY', valueKind: 'string'};
 const QTY_OVER_5: ColumnFilter = {column: 'qty', operator: '>', value: '5', valueKind: 'number'};
+const CITY_SET: ColumnFilter = {column: 'city', operator: 'isNotNull'};
 const REMOVE_STATE = 'Remove filter: state equals “NY”';
 const REMOVE_QTY = 'Remove filter: qty greater than 5';
+const REMOVE_CITY = 'Remove filter: city is not null';
 
 function seedTab(query: {filters: ColumnFilter[]; expression?: string}) {
   const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
@@ -116,11 +118,15 @@ describe('the column filter chips', () => {
     expect(screen.getByRole('button', {name: REMOVE_QTY})).toHaveFocus();
   });
 
-  it('focuses the previous chip when the last one goes, and the expression input when none are left', async () => {
-    seedTab({filters: [STATE_NY, QTY_OVER_5]});
+  it('hands focus to the next chip, else the previous one, else the expression input', async () => {
+    seedTab({filters: [STATE_NY, QTY_OVER_5, CITY_SET]});
     const {user} = await renderSettled();
 
+    // The middle chip has a chip on each side, so this is the one removal that tells "next first"
+    // from "previous first".
     await user.click(screen.getByRole('button', {name: REMOVE_QTY}));
+    expect(await screen.findByRole('button', {name: REMOVE_CITY})).toHaveFocus();
+    await user.click(screen.getByRole('button', {name: REMOVE_CITY}));
     expect(await screen.findByRole('button', {name: REMOVE_STATE})).toHaveFocus();
     await user.click(screen.getByRole('button', {name: REMOVE_STATE}));
 
