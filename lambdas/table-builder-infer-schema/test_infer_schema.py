@@ -183,6 +183,19 @@ def test_a_parquet_sample_whose_footer_the_probe_will_not_read_refuses_the_build
     assert len(fake.ranges) == 1, "no footer may be fetched once the trailer refuses"
 
 
+def test_a_parquet_footer_polars_panics_on_refuses_the_build_rather_than_faulting():
+    """A panic is not an ``Exception``, so a bare ``except Exception`` lets it escape as a fault
+    the actor is never told about by name; it must end as the same refusal as any other file the
+    probe cannot read."""
+    _use_ranged_s3(ranged_s3.PANICKING_PARQUET.read_bytes())
+
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("parquet"), None)
+
+    assert err.value.reason == "schema_inference_failed"
+    assert "thrift" in err.value.detail.lower(), "the refusal must come from polars' own read"
+
+
 def test_csv_is_all_string_from_header_no_inference():
     _use_s3_fixture(b"order_id,amount,ts\n1,2.50,2026-01-01\n2,3.75,2026-01-02\n")
     out = i.handler(_event("csv"), None)
@@ -229,6 +242,18 @@ def test_json_types_are_inferred_from_rows_beyond_a_wide_first_record():
     _use_s3_fixture(wide + b"".join(b'{"a": %d, "pad": "y"}\n' % n for n in range(500)))
     out = i.handler(_event("json"), None)
     assert _types(out) == {"a": "bigint", "pad": "string"}
+
+
+def test_a_json_integer_too_large_for_bigint_is_refused_by_the_column_it_is_in():
+    """polars infers such a column as a 128-bit integer, which no Athena type holds, so the build
+    is refused by name rather than declaring a ``bigint`` column that cannot hold its values."""
+    _use_s3_fixture(_ndjson({"id": 1, "big": 9223372036854775808}))
+
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("json"), None)
+
+    assert err.value.reason == "unmappable_type"
+    assert "column 'big'" in err.value.detail
 
 
 def test_json_strings_in_every_shape_athena_reads_are_typed_date_and_timestamp():

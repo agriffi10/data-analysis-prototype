@@ -9,6 +9,7 @@ import datetime
 import decimal
 import io
 import os
+import pathlib
 import struct
 import sys
 
@@ -204,6 +205,12 @@ class RangedS3:
         if not first:
             return self._answer(max(0, size - int(last)), size - 1, ranged=True)
         return self._answer(int(first), min(int(last), size - 1), ranged=True)
+
+
+#: A Parquet file whose footer polars 1.44 PANICS on — a pyo3 ``PanicException``, which is a
+#: ``BaseException`` and escapes ``except Exception`` — found by fuzzing footers. Kept as bytes
+#: because it is one random mutation of a polars-written file and nothing smaller reproduces it.
+PANICKING_PARQUET = pathlib.Path(__file__).with_name("test_panicking_footer.parquet")
 
 
 def _served_by(blob, **kwargs):

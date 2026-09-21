@@ -48,16 +48,18 @@ Attributes:
   EXCEL_BASELINE_MB: The Excel path's fixed cost, in MiB as every ``_MB`` here is: the peak a
     conversion of no cells would reach. It is built from parts: the largest local fixed cost of
     any shape, plus the gap in that same run between the 490,000-row production conversion and
-    its input rebuilt locally to the byte. That comes to 249.2, rounded up to the next ten. It is
-    therefore not a production measurement, and the gap it carries is not a fixed offset.
+    its input rebuilt locally to the byte. That came to 249.2 on polars 1.12. polars 1.44.2's
+    own fixed cost is larger — 258.9 at most over the runs ``MEASURED_ON`` names — and with the
+    84-MiB gap carried over it comes to 342.9, rounded up to the next ten. It is therefore not a
+    production measurement, and the gap it carries is not a fixed offset.
   EXCEL_PEAK_BYTES_PER_CELL: MEASURED peak bytes per cell for the Excel path, net of the per-row
     term. Excel's peak is set by CELLS, not bytes: polars hands xlsxwriter a Python copy of
     every cell and xlsxwriter stores every cell again before it writes, so a NULL — one byte of
     CSV — costs about 250 bytes of memory. The shape that binds this is unique 20-character text
-    at 15 columns, 498 bytes a cell less its 27-byte row share; rounded up to the next ten.
+    at 15 columns, 501 bytes a cell less its 27-byte row share; rounded up to the next ten.
   EXCEL_PEAK_BYTES_PER_ROW: MEASURED peak bytes per row beyond the cells, from one column of
-    one-character text against fifteen in the same run — 362 to 392 across the runs. Rounded up
-    to the next ten.
+    one-character text against fifteen in the same run — 362 to 392 across the polars 1.12 runs
+    and 372 to 402 across the 1.44.2 ones. Rounded up to the next ten.
   EXCEL_COVERED_BYTES_PER_CELL: The CSV width, in bytes per cell, of the shape that binds the
     per-cell figure, and so the widest cell that figure already pays for.
   EXCEL_PEAK_BYTES_PER_LONG_BYTE: MEASURED peak bytes per CSV byte beyond the covered width — the
@@ -145,17 +147,17 @@ OUTPUT_EXPANSION = {"parquet": 0.252, "json": 1.481, "xlsx": 0.603, "csv": 1.0}
 
 EXCEL_MAX_ROWS = 1_048_575
 
-EXCEL_BASELINE_MB = 250
+EXCEL_BASELINE_MB = 350
 
 EXCEL_PEAK_BYTES_PER_CELL = 480
 
-EXCEL_PEAK_BYTES_PER_ROW = 400
+EXCEL_PEAK_BYTES_PER_ROW = 410
 
 EXCEL_COVERED_BYTES_PER_CELL = 23
 
 EXCEL_PEAK_BYTES_PER_LONG_BYTE = 7
 
-EXCEL_MAX_CELLS = 4_100_000
+EXCEL_MAX_CELLS = 3_900_000
 
 RESULTS_MAX_BYTES = {
     "parquet": 1472 * 1024**2,
@@ -183,7 +185,23 @@ MEASURED_ON = (
     "down to 216; nothing rests on it, because the timeout check breaks even at about 8 MB/s. "
     "The same run re-measured Parquet at 0.045 and JSON at 1.403 on those shapes, inside the "
     "figures above rather than against them, which is corroboration of those two and not a "
-    "re-derivation: the shapes are this script's and not the ones their own line names"
+    "re-derivation: the shapes are this script's and not the ones their own line names. Then, "
+    "on polars 1.44.2 and xlsxwriter 3.2.9, images built from a tree based on 57498b76 ran "
+    "scripts/measure_excel_peak.py three times natively on arm64 and once on amd64, and "
+    "scripts/measure_conversion_expansion.py once on arm64. A further native run shared the "
+    "machine with a fuzzing battery, so its memory is kept and its rates, which the load slowed, "
+    "are not. Each corpus row keeps its highest peak over every run of both versions and its "
+    "lowest clean native rate, and each constant is the larger of its 1.12 value and what the "
+    "joined corpus derives, so no cap rose. polars 1.44.2's fixed cost is larger, up to 258.9 MiB "
+    "locally, which raised the baseline to 350; the further run's per-row figure of 402.1 raised "
+    "that term to 410; the cell cap fell to 3,900,000, and every other term held. The expansion "
+    "run measured CSV at 1.000, "
+    "Parquet at 0.040 and JSON at 1.403, none above the figures in force. Carried over from 1.12 "
+    "unmeasured: the baseline's 84 MiB production gap, the top of the 65 to 84 MiB measured at "
+    "the 490,000 x 4 production shape, and the local-to-production time ratio, because only a "
+    "production conversion measures either; Excel's expansion, which no script measures; and "
+    "Parquet's and JSON's figures on the shapes their own line names, which this script's "
+    "shapes are not"
 )
 
 

@@ -65,47 +65,49 @@ username; `MessageDeduplicationId` is the `requestId`.
   headroom.** The guard charges each measured shape the baseline plus its local per-cell cost at
   the largest input the caps admit. The model peaks at the fewest columns that reach the cell
   cap, which is `docs/testing/e2e.md` §4.3's at-cap row and the one input read in production at
-  scale. There the guard's figure came in 125 MiB under the `REPORT` line and the model's 108
-  over it. The model held only because that shape sets none of its terms. The shape that sets the
-  per-cell term has about 25 MiB of slack over its own guard figure, though its admitted inputs
-  model far below the budget. So a re-derivation, or any change to a cap, is validated by
-  converting the new model-peak input live and reading its `REPORT` line against the model's
-  figure. Regenerate that row's input for the new cap, keeping it under the byte cap.
-- **polars' fast count (`select(pl.len())` on a CSV scan) miscounts a quoted newline once the file
-  is split across threads**, in either direction — 65,104 rows for 100,000 at the converter's two
-  threads. The Excel path counts through one projected column with the real reader instead, and
-  asks the built frame's height again. **The CSV writer counts the same way, over the file it just
-  wrote** — it can use neither the Parquet footer nor the JSON writer's newline count, because a
-  CSV carries an embedded newline raw where JSON escapes it. A test of it needs a file large enough
-  to be split; a three-line fixture is one chunk and passes against the broken count.
-- **polars' STREAMING reader mis-splits a large CSV holding quoted newlines, and it notices only
-  where a split lands in a column it parses.** This is a limit the plane has always had rather
-  than one the CSV writer brought. Measured on 1.12.0: a generated result whose every tenth value
-  is a 200-character multi-line document sinks fine at 50,000 rows and raises a `ComputeError` at
-  60,000 — about 2 MB — from `sink_csv` and `sink_parquet` alike, on a file Python's own `csv`
-  module and polars' non-streaming `collect` each read correctly. **A column-subset save of that
-  file wrote a WRONG file**, because projection pushdown left the multi-line column unparsed and
-  its fragments landed in the kept column as extra rows — 60,001 rows for 60,000, one of them
-  `}"`; a shape whose every value is multi-line gave 118,291 rows for 60,000. So every streamed sink passes
-  `projection_pushdown=False` (`rc_convert.SINK_OPTIONS`), which parses a dropped column as text
-  and turns the wrong file into a refusal. What the user gets is `results_unreadable`, as Parquet
-  and JSON have given since they shipped. **polars' message cannot tell this from a type
-  mismatch**: the same limit arrives as "field … is not properly escaped", as "found more fields
-  than defined in 'Schema'", and, where the mis-split lands in a typed column, as "could not
-  parse … as dtype i64". So the refusal's sentence names both repairs rather than asserting one
-  cause. No setting of the 1.12 reader avoids the limit — not `low_memory`, not the streaming
-  chunk size, not one thread. Excel is unaffected, because its read is not streamed. polars
-  1.44.2 streams the same file correctly, projected or not. Reading without the streaming engine
-  would also work, but it moves what bounds the size cap from the disk to memory, which is a
-  re-derivation rather than a patch.
-- **`scan_csv` with `schema_overrides` renames columns to the override keys and applies types
-  positionally when the header does not match**, silently. The verb checks the CSV's header
-  against the metadata before the typed read for that reason alone.
+  scale. There, on polars 1.12, the guard's figure came in 125 MiB under the `REPORT` line and the
+  model's 108 over it. The model held only because that shape sets none of its terms. The shape
+  that sets the per-cell term has about 17 MiB of slack over its own guard figure on polars
+  1.44.2's constants, though its admitted inputs model far below the budget. So a re-derivation,
+  or any change to a cap, is validated by converting the new model-peak input live and reading its
+  `REPORT` line against the model's figure. Regenerate that row's input for the new cap, keeping
+  it under the byte cap.
+- **The converter counts rows through one projected column, never with polars' fast count
+  (`select(pl.len())` on a CSV scan).** Under polars 1.12 the fast count miscounted a quoted
+  newline once the file was split across threads, in either direction — 65,104 rows for 100,000 at
+  the converter's two threads. polars 1.44.2 counts that shape exactly, and the count through a
+  column was right on both, so the code stays as it is. The Excel path also asks the built
+  frame's height again. **The CSV writer counts the same way, over the file it just wrote** — it
+  can use neither the Parquet footer nor the JSON writer's newline count, because a CSV carries an
+  embedded newline raw where JSON escapes it. A test of it needs a file large enough to be split;
+  a three-line fixture is one chunk and could not tell a broken count from a right one.
+- **polars 1.12's STREAMING reader mis-split a large CSV holding quoted newlines, and noticed only
+  where a split landed in a column it parsed — history since the fleet moved to 1.44.2, which
+  streams the same files correctly, whole or projected.** Measured on 1.12.0: a generated result
+  whose every tenth value is a 200-character multi-line document sank fine at 50,000 rows and
+  raised a `ComputeError` at 60,000 — about 2 MB — from `sink_csv` and `sink_parquet` alike. **A
+  column-subset save of that file wrote a WRONG file**, because projection pushdown left the
+  multi-line column unparsed and its fragments landed in the kept column as extra rows — 60,001
+  rows for 60,000, and 200,002 for 200,000. The stopgap turned projection pushdown off so the
+  wrong file became a `results_unreadable` refusal, and the refusal's sentence told the user to
+  replace their line breaks; the move to 1.44.2 retired both. The guard that remains is
+  `test_a_result_holding_multi_line_values_converts_row_for_row`, which converts the shape at
+  200,000 rows in all three streamed formats, whole and projected, and compares every row with
+  Python's own `csv` reading — red on 1.12. **If a later polars regresses here, turning pushdown
+  off is `optimizations=pl.QueryOptFlags(projection_pushdown=False)`, not the old keyword**: 1.44's
+  sinks reject `projection_pushdown=` with a `TypeError`, which the writers turn into a refusal of
+  EVERY streamed save.
+- **`scan_csv` given `schema_overrides` whose keys do not match the header misreads the file
+  silently.** Under polars 1.12 it renamed the columns to the override keys and applied the types
+  positionally; 1.44.2 ignores the unmatched keys instead and reads those columns as text, still
+  without an error. Either way a divergence between what Athena reported and what it wrote gives
+  a file with the wrong names or the wrong types and no complaint, so the verb checks the CSV's
+  header against the metadata before the typed read.
 - **A result column whose NAME holds a double quote fails every conversion, and leaving it out
-  does not help.** polars 1.12 does not un-escape a doubled quote in a CSV *header*, only in the
-  data: for a column Athena wrote as `"a""b"`, `collect_schema().names()` answers `a""b` where
-  Python's own `csv` module answers `a"b`. So the header check above sees a disagreement and
-  raises — an unexpected-fault notification rather than a named refusal, for a legal
+  does not help.** polars — 1.12 and 1.44.2 alike — does not un-escape a doubled quote in a CSV
+  *header*, only in the data: for a column Athena wrote as `"a""b"`, `collect_schema().names()`
+  answers `a""b` where Python's own `csv` module answers `a"b`. So the header check above sees a
+  disagreement and raises — an unexpected-fault notification rather than a named refusal, for a legal
   `SELECT 1 AS "a""b"`. Choosing columns cannot rescue it: the check is deliberately over the
   WHOLE header, because the object is still the whole result. Not a new fault and not a wrong
   file, but the one shape where an ordinary query reaches a fault the user cannot read.

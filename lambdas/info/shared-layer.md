@@ -60,8 +60,8 @@ fleet's JWKS verifier.
 
 **The rule survives its original reason, on cold-start cost.** The root is imported by every
 control-plane verb, so a submodule imported there is paid for fifteen times over —
-`type_mapping` alone would pull polars, ~100 MB, onto functions that never read a Parquet
-footer.
+`type_mapping` alone would pull polars — about 180 MB installed at 1.44.2 on Linux x86_64, where
+1.12 was about 100 MB — onto functions that never read a Parquet footer.
 
 Pinned by `test_layer_import_safety.py`, which holds the property with **two** mechanisms
 because neither covers the other: an AST scan of each singleton's whole file against a

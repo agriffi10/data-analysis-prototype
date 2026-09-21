@@ -53,6 +53,7 @@ from cpcommon import bounded_read, clients, errors, events, observability, s3_li
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
 from dqcommon import config, messages, notify, run_claim, sql
+from polars.exceptions import PanicException
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -490,7 +491,10 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
 
     A transient error passes through rather than being caught by the general guard: the head read
     runs inside the same try, so a throttled read would otherwise be reported as an unreadable
-    header — a permanent verdict on a fault the state machine would happily have retried.
+    header — a permanent verdict on a fault the state machine would happily have retried. A polars
+    panic is caught beside ``Exception`` because it is not one: polars 1.44 panics on some damaged
+    Parquet footers, and a ``BaseException`` would otherwise escape as a fault with no named
+    refusal.
 
     Args:
       bucket: The source bucket.
@@ -513,7 +517,7 @@ def _probe_columns(bucket: str, key: str, fmt: str) -> list[dict]:
         return _columns_from(io.BytesIO(_read_plain_head(bucket, key)), fmt, key=key)
     except (TerminalError, TransientError):
         raise
-    except Exception as exc:
+    except (Exception, PanicException) as exc:
         raise TerminalError(
             messages.UNREADABLE_HEADER,
             f"could not read the schema of {key}: {exc}",

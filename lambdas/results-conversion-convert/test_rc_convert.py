@@ -4,7 +4,7 @@ Driven through `handler`, because the decorator stack is part of the verb — a 
 inner function would let the span and the failure notifier be removed with the suite green.
 """
 
-import inspect
+import csv
 import io
 import json
 import os
@@ -363,6 +363,20 @@ def test_a_value_that_does_not_parse_refuses_without_quoting_the_cell(s3):
     assert s3.written == [], "no partial file is written"
 
 
+def test_an_unparsed_values_detail_names_its_column_and_no_position(tmp_path):
+    """polars' message carries the column and a byte offset, and the offset its streaming reader
+    reports is relative to a chunk rather than to the file — so the detail an operator reads
+    names the column and quotes no position that would send them to the wrong place."""
+    source = tmp_path / "result.csv"
+    source.write_bytes(b'"n"\n"not-a-number"\n')
+
+    with pytest.raises(c._Refusal) as refusal:
+        c._write_parquet(c._frame(source, {"n": pl.Int64()}), tmp_path / "out.parquet")
+
+    assert refusal.value.reason == "results_unreadable"
+    assert refusal.value.detail == "a value in column 'n' did not parse"
+
+
 def test_an_occupied_destination_is_refused_only_when_the_request_asked_to_be(s3):
     s3.occupied = True
     refused = c.handler(_event("parquet", on_conflict="refuse"), None)
@@ -459,15 +473,13 @@ def _multi_line_payload(rows: int, width: int = 200) -> bytes:
     """A result whose every tenth value is a multi-line JSON document, as Athena quotes it.
 
     Large enough that polars splits the file across threads, which is where a count that tracks
-    quotes chunk by chunk goes wrong: polars' fast count read this shape as 3,256 rows of 5,000.
+    quotes chunk by chunk went wrong: under polars 1.12 the fast count read this shape as 3,256
+    rows of 5,000.
 
-    **`width` is not decoration.** At 200 characters and about 60,000 rows this shape stops being
-    readable by polars' STREAMING sink at all — measured on 1.12.0, `sink_csv` and `sink_parquet`
-    both raise `ComputeError: field is not properly escaped` on a file that Python's own `csv`
-    module and polars' non-streaming `collect` each read correctly, and the same file at 50,000
-    rows sinks fine. That is a limit this plane already had, not one the CSV writer introduced;
-    the plane page records it. A test that needs the file both SPLIT and WRITABLE therefore takes
-    the narrower document, where the fast count is still wrong by tens of thousands of rows.
+    **`width` is not decoration.** At 200 characters and 60,000 rows or more, polars 1.12's
+    STREAMING reader mis-split this shape — `sink_csv` and `sink_parquet` raised on a whole save
+    and a column-subset save wrote fragments as extra rows — on a file Python's own `csv` module
+    reads correctly. polars 1.44.2 streams it correctly, and the plane page records the history.
     """
     lines = ['"id","doc"']
     for i in range(rows):
@@ -577,7 +589,7 @@ def test_the_streamed_writers_never_materialise_the_frame(s3, monkeypatch):
     to admit it: its row count is a projected read of the file it wrote, which cannot leave a
     LazyFrame without a `collect`. Refusing every `collect` outright would have forbidden an
     honest count; admitting "a 1x1 result" would have admitted the WRONG count just as readily,
-    since polars' broken fast count collects a 1x1 frame too. So the guard records widths instead
+    since polars' fast count collects a 1x1 frame too. So the guard records widths instead
     and holds Parquet and JSON to collecting NOTHING, which is strictly what they did before.
     """
 
@@ -594,9 +606,9 @@ def test_the_streamed_writers_never_materialise_the_frame(s3, monkeypatch):
     assert c.handler(_event("csv"), None)["outcome"] == "converted"
     assert widths == [1], (
         "a CSV conversion collects exactly one thing, one column wide: the row count. The WIDTH "
-        "is all this can see — `pl.len()` and `pl.first().len()` both collect a 1x1 frame — so "
-        "which of the two it is, is asserted by counting a split file with quoted newlines in "
-        "`test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len`"
+        "is all this can see — `pl.len()` and `pl.first().len()` both collect a 1x1 frame, and on "
+        "polars 1.44.2 both count right — so what is held is the count itself, to the row, by "
+        "`test_a_csv_conversions_row_count_is_right_on_a_file_the_reader_splits`"
     )
 
 
@@ -978,15 +990,11 @@ def test_a_csv_conversion_types_nothing_so_a_type_this_plane_cannot_map_is_no_ob
     assert s3.written[0] == b"b\n2.5\n", "the header is the one kept column and the value is its text"
 
 
-def test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len(s3):
-    """The count `pl.len()` gets wrong, on the shape that makes it wrong: a file large enough for
-    polars to split across threads, holding values with newlines inside their quotes.
-
-    The number is the point, and it is asserted rather than quoted: how far the fast count is
-    wrong moves with the machine's thread count, so a figure written here would not reproduce.
-    Measured on two machines it was tens of thousands of rows short, in the same direction. The
-    second assertion is the positive control — without it a fixture that stopped splitting would
-    make this pass against the broken count as readily as against the right one.
+def test_a_csv_conversions_row_count_is_right_on_a_file_the_reader_splits(s3):
+    """The shape that once broke polars' fast count: a file large enough for polars to split
+    across threads, holding values with newlines inside their quotes. Under polars 1.12
+    `select(pl.len())` read it tens of thousands of rows short; the writer counts through a
+    column instead, and this holds that count to the row on the same shape.
     """
     columns = [{"name": "id", "type": "varchar"}, {"name": "doc", "type": "varchar"}]
     s3.payload = _multi_line_payload(100_000, width=20)
@@ -995,12 +1003,6 @@ def test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len(s3):
     result = c.handler(_event("csv", columns=columns), None)
 
     assert result["rows"] == 100_000
-    assert pl.scan_csv(io.BytesIO(s3.payload), infer_schema_length=0).select(
-        pl.len()
-    ).collect().item() != 100_000, (
-        "the fixture no longer splits the way it must, so this test would pass against the "
-        "broken count as well as the right one"
-    )
 
 
 def test_an_occupied_destination_refuses_a_csv_conversion_as_it_refuses_a_parquet_one(s3):
@@ -1077,39 +1079,30 @@ def test_a_dropped_columns_VALUES_are_never_typed_either(s3, tmp_path):
     assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).columns == ["a", "c"]
 
 
+def _written_rows(fmt, data):
+    """The rows a converted file holds, as text, whatever the format wrote them as."""
+    if fmt == "csv":
+        return [list(row) for row in csv.reader(io.StringIO(data.decode()))][1:]
+    if fmt == "json":
+        return [list(json.loads(line).values()) for line in data.decode().splitlines()]
+    return [list(row) for row in pl.read_parquet(io.BytesIO(data)).rows()]
+
+
+@pytest.mark.parametrize("chosen", [None, [0]], ids=["whole", "id-only"])
 @pytest.mark.parametrize("fmt", ["parquet", "json", "csv"])
-def test_a_column_subset_the_streaming_reader_mis_splits_is_refused_never_written_wrong(s3, fmt):
-    """Leaving out a column of multi-line values must not let its fragments into the file.
-
-    polars' streaming reader mis-splits this shape, and notices only when a split lands in a
-    column it parses. With projection pushdown on, the dropped `doc` column is never parsed, so
-    the sink writes the fragments into `id` as extra rows and raises nothing. Measured on
-    1.12.0: 60,001 rows for 60,000, one of them `}"`. Dropping ``SINK_OPTIONS`` from any one
-    writer reddens that writer's case here, as a conversion.
-
-    A polars that splits this shape correctly would convert it and fail here, on purpose: the
-    refusal would then be turning away a file the reader can write. One that has also dropped
-    the keyword fails the signature test below instead, because the ``TypeError`` reaches this
-    test as the very refusal it expects.
+def test_a_result_holding_multi_line_values_converts_row_for_row(s3, fmt, chosen):
+    """The shape polars 1.12's streaming reader mis-split, at 200,000 rows and about 7 MB — well
+    past the 60,000 where 1.12 refused a whole save or wrote a column-subset one with extra rows.
+    Every row is compared with Python's own `csv` module's reading of the input, so a fragment of
+    a document landing in a kept column is a red test rather than a count that happens to agree.
     """
     columns = [{"name": "id", "type": "varchar"}, {"name": "doc", "type": "varchar"}]
-    s3.payload = _multi_line_payload(60_000)
+    s3.payload = _multi_line_payload(200_000)
     s3.size = len(s3.payload)
+    expected = [row if chosen is None else [row[i] for i in chosen]
+                for row in list(csv.reader(io.StringIO(s3.payload.decode())))[1:]]
 
-    result = c.handler(_event(fmt, columns=columns, chosen=[0]), None)
+    result = c.handler(_event(fmt, columns=columns, chosen=chosen), None)
 
-    assert (result["outcome"], result["reason"], s3.written) == ("refused", "results_unreadable", []), (
-        "a conversion here is either the wrong file SINK_OPTIONS exists to prevent, or a polars "
-        "whose streaming reader now splits this shape, which is when SINK_OPTIONS is re-derived"
-    )
-
-
-def test_every_streamed_sink_takes_the_options_it_is_given():
-    """``SINK_OPTIONS`` must be keywords each sink accepts, because nothing else would say so.
-
-    The writers turn any exception from a sink into ``results_unreadable``, so a keyword a later
-    polars removed would refuse every streamed save as an unreadable result. polars 1.44 folds
-    these keywords into ``optimizations``, which is where a version move meets this.
-    """
-    for sink in (pl.LazyFrame.sink_parquet, pl.LazyFrame.sink_ndjson, pl.LazyFrame.sink_csv):
-        assert set(c.SINK_OPTIONS) <= set(inspect.signature(sink).parameters), sink.__name__
+    assert (result["outcome"], result["rows"]) == ("converted", 200_000)
+    assert _written_rows(fmt, s3.written[0]) == expected

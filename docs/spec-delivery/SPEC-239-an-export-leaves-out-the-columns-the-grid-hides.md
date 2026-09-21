@@ -71,5 +71,6 @@ un-escapes a doubled quote in the data but not in the header. Neither is fixed h
 > **Corrected after close:** the first was worse than recorded here. A save that kept a SUBSET of
 > the columns did not refuse such a result: projection pushdown left the multi-line column
 > unparsed, and its fragments were written into the kept columns as extra rows with no error.
-> The streamed writers now parse every column, so that save refuses too; the plane page's Traps
-> carry the measurement.
+> A stopgap made the streamed writers parse every column, so that save refused too. SPEC-245
+> then moved the fleet to polars 1.44.2, whose streaming reader splits such a result correctly,
+> so it converts, whole or in part; the plane page's Traps carry the measurement.

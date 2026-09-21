@@ -17,9 +17,8 @@ positions, in the order the file is to carry them, and null keeps every column i
 The read is still over the WHOLE object — the header check below compares the whole header
 against the whole described column list, because the object is still the whole result — and the
 projection is applied to the frame. A dropped column is read as text and never typed, so no
-VALUE in it can be the reason a file is refused. The streamed writers still parse it, on
-purpose: see ``SINK_OPTIONS``. Typing, and every type refusal it raises, therefore see the kept columns
-alone.
+VALUE in it can be the reason a file is refused. Typing, and every type refusal it raises,
+therefore see the kept columns alone.
 
 **Parquet and JSON never materialise the frame.** The read is ``scan_csv`` over the downloaded
 file and the write is ``sink_*``, so memory holds a batch at a time and the ceiling is the
@@ -49,14 +48,6 @@ Attributes:
     the SQL, the execution id and the actor are not stamped onto the object.
   TEXT: The dtype every column is read as for a CSV conversion, which is what makes that format
     a re-quoting of Athena's own text rather than a re-rendering of its values.
-  SINK_OPTIONS: What every streamed write passes to its sink. **Projection pushdown is off, and
-    that is what stops a column-subset save writing a wrong file.** polars 1.12's streaming
-    reader mis-splits a large result holding newlines inside quoted values, and it notices only
-    when a split lands in a column it parses. With the dropped column pushed past, nothing parses
-    it, and the fragments of its values are written into the kept columns as extra rows with no
-    error. Parsing every column as text costs a pass over bytes already on disk and turns that
-    wrong file into a ``results_unreadable`` refusal. Excel needs none of this: its read is not
-    streamed, and polars' in-memory reader splits such a file correctly.
   EXCEL_EXACT_INTEGER: The largest integer an Excel cell holds exactly; it stores every number
     as a double.
   EXCEL_EXACT_DIGITS: The significant digits a double holds, which is what bounds a decimal.
@@ -98,8 +89,6 @@ CONTENT_TYPES = {
 }
 
 TEXT = pl.String()
-
-SINK_OPTIONS = {"projection_pushdown": False}
 
 EXCEL_EXACT_INTEGER = 2**53
 EXCEL_EXACT_DIGITS = 15
@@ -238,13 +227,14 @@ def _frame(source: pathlib.Path, schema: dict) -> pl.LazyFrame:
     unquoted empty field is NULL, ``""`` is an empty string — which is exactly Athena's encoding.
 
     **The header is checked against the metadata first, and that is not belt-and-braces.**
-    Measured on polars 1.12: given ``schema_overrides`` whose keys do not match the header,
-    ``scan_csv`` RENAMES the columns to the override keys and applies the types POSITIONALLY,
-    silently and without an error; given a header in a different order it keeps the file's
-    order and matches types by name. So a divergence between what Athena reported and what
-    Athena wrote produces a file with the wrong names or the wrong types and no complaint from
-    anything. Both facts come from the same execution, so a disagreement is a fault rather than
-    a user error — but it must not be a quiet one.
+    Given ``schema_overrides`` whose keys do not match the header, ``scan_csv`` misreads the
+    file without an error — polars 1.12 renamed the columns to the override keys and applied
+    the types positionally, and 1.44.2 ignores the unmatched keys and reads those columns as
+    text; given a header in a different order it keeps the file's order and matches types by
+    name. So a divergence between what Athena reported and what Athena wrote produces a file
+    with the wrong names or the wrong types and no complaint from anything. Both facts come
+    from the same execution, so a disagreement is a fault rather than a user error — but it
+    must not be a quiet one.
 
     ``collect_schema`` reads the header alone and materialises nothing, which is what lets the
     streaming guard forbid ``collect`` outright while this still works.
@@ -281,9 +271,7 @@ def _schemas(columns: list[dict], chosen: list[int] | None, fmt: str) -> tuple[d
     **A dropped column is read as text and never typed.** Any value parses as text, so nothing in
     a dropped column can refuse the file by what it holds, and a type this plane cannot map is
     not a reason to refuse a file that column is not in. So ``schema_of`` — the one function
-    that raises ``unsupported_column_type`` — is asked about the KEPT columns alone. The column
-    is still parsed, because the streamed writers turn projection pushdown off
-    (``SINK_OPTIONS``); only a result the reader cannot split correctly refuses through it.
+    that raises ``unsupported_column_type`` — is asked about the KEPT columns alone.
 
     A CSV conversion skips typing altogether: every column is read as text and written as
     Athena rendered it, so the file carries the same values as a copy of the object would and
@@ -376,25 +364,21 @@ def _name(column: dict) -> str:
 
 
 def _unreadable(exc: Exception) -> _Refusal:
-    """Turns a polars parse failure into a refusal that names the column and the offset.
+    """Turns a polars parse failure into a refusal that names the column.
 
-    **polars' message is never forwarded.** It quotes the offending CELL as well as the column
-    and the byte offset, and a cell is data this plane does not put in front of anyone. The
-    column and the offset are lifted out into the operator DETAIL; anything that will not yield
-    them refuses without them rather than falling back to the raw text.
+    **polars' message is never forwarded.** It quotes the offending CELL as well as the column,
+    and a cell is data this plane does not put in front of anyone. The column is lifted out into
+    the operator DETAIL; a message that will not yield one refuses without it rather than falling
+    back to the raw text.
 
-    They stay in the detail and reach no wording token, so the sentence the user reads carries
+    It stays in the detail and reaches no wording token, so the sentence the user reads carries
     no column name at all here — which is the one place this plane's "a column name is user
     data returned to the user who wrote it" rule does not apply, because the message that would
     carry it is the same message polars built around the cell value.
 
-    polars reports no row number, so neither does the refusal.
-
-    **The message is not read for a cause either, because it does not carry one.** The
-    streaming reader's failure on a large result holding newlines inside quoted values reaches
-    here as "not properly escaped", as "more fields than defined", and — where the mis-split
-    lands in a typed column — as the same "could not parse … as dtype" a real type mismatch
-    raises. So one code covers both, and its sentence names both repairs.
+    **No position is quoted, because polars gives none that locates the value.** It reports no
+    row number, and the byte offset its streaming reader reports is relative to the chunk it was
+    parsing rather than to the file, so an operator reading one would look in the wrong place.
 
     Args:
       exc: Whatever polars raised.
@@ -405,12 +389,9 @@ def _unreadable(exc: Exception) -> _Refusal:
     Raises:
       None.
     """
-    text = str(exc)
-    column = re.search(r"at column '([^']*)'", text)
-    offset = re.search(r"offset in the file is (\d+) bytes", text)
-    where = f" at byte {offset.group(1)}" if offset else ""
+    column = re.search(r"at column '([^']*)'", str(exc))
     named = f" in column {column.group(1)!r}" if column else ""
-    return _Refusal(reasons.RESULTS_UNREADABLE, f"a value{named} did not parse{where}")
+    return _Refusal(reasons.RESULTS_UNREADABLE, f"a value{named} did not parse")
 
 
 def _write_parquet(frame: pl.LazyFrame, target: pathlib.Path) -> int:
@@ -427,11 +408,10 @@ def _write_parquet(frame: pl.LazyFrame, target: pathlib.Path) -> int:
       The number of data rows written.
 
     Raises:
-      _Refusal: ``results_unreadable`` when a value does not parse as its declared type, or
-        the streaming reader cannot split the result.
+      _Refusal: ``results_unreadable`` when a value does not parse as its declared type.
     """
     try:
-        frame.sink_parquet(target, **SINK_OPTIONS)
+        frame.sink_parquet(target)
     except Exception as exc:
         raise _unreadable(exc) from exc
     return parquet_footer.row_count(target)
@@ -456,8 +436,7 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
       embedded newline, so a raw one is only ever the end of an object.
 
     Raises:
-      _Refusal: ``results_unreadable`` when a value does not parse as its declared type, or
-        the streaming reader cannot split the result.
+      _Refusal: ``results_unreadable`` when a value does not parse as its declared type.
     """
     stamps = [
         pl.col(name).dt.to_string("%Y-%m-%dT%H:%M:%S%.6f")
@@ -465,7 +444,7 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
         if isinstance(dtype, pl.Datetime)
     ]
     try:
-        (frame.with_columns(stamps) if stamps else frame).sink_ndjson(target, **SINK_OPTIONS)
+        (frame.with_columns(stamps) if stamps else frame).sink_ndjson(target)
     except Exception as exc:
         raise _unreadable(exc) from exc
     rows = 0
@@ -485,12 +464,13 @@ def _write_csv(frame: pl.LazyFrame, target: pathlib.Path) -> int:
     in and on the way out.
 
     **The count is a projected read of the file it just wrote, and each half of that matters.**
-    ``select(pl.len())`` is polars' fast count, which projects nothing and miscounts a quoted
-    newline once the reader splits the file across threads. The number is not quoted here,
-    because it moves with the thread count and a figure anchored to nothing cannot be
-    re-derived: ``test_a_csv_conversions_rows_are_counted_through_a_column_not_by_pl_len``
-    measures it on its own fixture and refuses to run against a fixture that stopped
-    splitting. Counting newline BYTES is what the JSON writer does, and it is right there only
+    It reads through a column rather than with ``select(pl.len())``, polars' fast count, which
+    projects nothing: under polars 1.12 that count miscounted a quoted newline once the reader
+    split the file across threads, and a count through a column has been right on every version
+    measured, so there is nothing to gain by changing it back. On 1.44.2 both counts are right,
+    and ``test_a_csv_conversions_row_count_is_right_on_a_file_the_reader_splits`` holds this one to
+    the row on a file large enough to split, with newlines inside its quotes. Counting newline
+    BYTES is what the JSON writer does, and it is right there only
     because JSON escapes an embedded newline; a CSV carries it raw, so the same count would read
     one row as several. Reading the written file rather than the input is what the other two
     streamed writers do, and it means the number in the notification is a fact about the file.
@@ -503,11 +483,10 @@ def _write_csv(frame: pl.LazyFrame, target: pathlib.Path) -> int:
       The number of data rows written.
 
     Raises:
-      _Refusal: ``results_unreadable`` when the object will not parse as a CSV at all, which
-        includes a result the streaming reader cannot split.
+      _Refusal: ``results_unreadable`` when the object will not parse as a CSV at all.
     """
     try:
-        frame.sink_csv(target, **SINK_OPTIONS)
+        frame.sink_csv(target)
     except Exception as exc:
         raise _unreadable(exc) from exc
     written = pl.scan_csv(target, infer_schema_length=0)
@@ -523,10 +502,12 @@ def _write_excel(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tup
     function out of memory for ten minutes. The count reads ONE column through the real CSV
     reader, which costs tens of milliseconds, so the frame that would not fit is never built.
 
-    **Not ``pl.len()``, which is polars' fast count and projects nothing.** It miscounts a quoted
-    newline once the reader splits the file across threads — measured at 65,104 rows for 100,000
-    on two threads, which is what this function has — so it admits a result over Excel's ceiling,
-    whose rows xlsxwriter then silently drops, and the user is told an empty workbook was saved.
+    **Through a column, not ``pl.len()``, polars' fast count, which projects nothing.** Under
+    polars 1.12 that count miscounted a quoted newline once the reader split the file across
+    threads — 65,104 rows for 100,000 on two threads, which is what this function has — so it
+    admitted a result over Excel's ceiling, whose rows xlsxwriter then silently dropped, and the
+    user was told an empty workbook was saved. A count through a column has been right on every
+    version measured.
 
     **And the frame's height is asked again once it is built**, because a count that disagreed
     with the frame is exactly that failure, and refusing then still costs less than a workbook

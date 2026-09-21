@@ -80,9 +80,8 @@ _BODIES = {
     ),
     reasons.RESULTS_UNREADABLE: (
         'part of the results could not be read, so "{filename}" was not written. If a column\'s '
-        "values don't all match the type the query gave it, casting that column will fix it; if "
-        "some values run over more than one line, replacing those line breaks in the query will. "
-        "Then run the query again."
+        "values don't all match the type the query gave it, casting that column and running the "
+        "query again will fix it."
     ),
     reasons.EXCEL_ROW_LIMIT: (
         'the results have {count} rows, which is more than a spreadsheet can hold, so '

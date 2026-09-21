@@ -413,24 +413,22 @@ GOLDEN_ROW_LIMIT = (
 #: sweep that looks for one.
 GOLDEN_CELL_LIMIT = (
     "Couldn't save the query results as Excel: the results have 1,048,575 rows and 15 columns "
-    "(15,728,625 cells), which is more than the 4,100,000 cells an Excel file can be made from "
+    "(15,728,625 cells), which is more than the 3,900,000 cells an Excel file can be made from "
     'here, so "big.xlsx" was not written. Please save them as Parquet instead, or narrow the query.'
 )
 
 
-def test_the_unreadable_refusal_offers_each_known_causes_repair_as_a_CONDITIONAL():
+def test_the_unreadable_refusal_states_what_happened_and_offers_the_cast_as_a_CONDITIONAL():
     """This sentence used to assert its own cause — "one of the values didn't match the type the
     query gave its column" — and a CSV conversion falsifies that outright: it types nothing, so a
-    type mismatch can never be why it failed. The reader also refuses some results holding
-    newlines inside quoted values, and polars words that under several messages, one of which
-    reads exactly as a type failure, so the converter cannot tell the two apart and the sentence
-    names both repairs. Asserted whole, because the body is a bare literal and nothing else in
-    the plane pins what a user reads."""
+    type mismatch can never be why it failed. It once named a second repair, replacing line
+    breaks, for results polars 1.12's streaming reader could not split; no reader this plane runs
+    refuses those now, so the sentence no longer sends anyone after that cause. Asserted whole,
+    because the body is a bare literal and nothing else in the plane pins what a user reads."""
     assert messages.failure_message(reasons.RESULTS_UNREADABLE, {"format": "csv", "filename": "q1.csv"}) == (
         'Couldn\'t save the query results as CSV: part of the results could not be read, so '
         '"q1.csv" was not written. If a column\'s values don\'t all match the type the query gave '
-        "it, casting that column will fix it; if some values run over more than one line, "
-        "replacing those line breaks in the query will. Then run the query again."
+        "it, casting that column and running the query again will fix it."
     )
 
 
@@ -652,34 +650,35 @@ _TIMEOUT_RESERVE_SECONDS = 60
 #: says which runs and against what. Each row is one generated Athena-shaped result: its column
 #: count, its CSV bytes per cell, the peak bytes per cell (the cgroup slope between two sizes, the
 #: HIGHEST over every run on either architecture, since the slope moves by several percent from
-#: run to run), and cells per second (the LOWEST over the native runs). Most maxima come from the
-#: two exploratory runs, which charged a large CSV's page cache twice; `scripts/measure_excel_peak.py`
+#: run to run), and cells per second (the LOWEST over the native runs). The runs are both polars
+#: versions', 1.12's and 1.44.2's, joined by those two rules. Most maxima come from 1.12's two
+#: exploratory runs, which charged a large CSV's page cache twice; `scripts/measure_excel_peak.py`
 #: reads each shape at or below its row here. This is the corpus the model is held to and the guard
 #: scales, and it is the evidence the constants in `config` cite.
 MEASURED_EXCEL_SHAPES = (
-    ("NULL text", 15, 1.0, 252.4, 480_000),
-    ("empty text", 15, 3.0, 258.5, 475_000),
+    ("NULL text", 15, 1.0, 256.4, 480_000),
+    ("empty text", 15, 3.0, 266.5, 475_000),
     ("one-character text, the query that timed out in production", 15, 4.0, 293.0, 425_000),
-    ("small integer", 15, 4.0, 255.2, 484_000),
+    ("small integer", 15, 4.0, 257.5, 484_000),
     ("unique integer", 15, 9.75, 319.0, 483_000),
     ("double", 15, 6.0, 311.2, 479_000),
     ("boolean", 15, 7.0, 263.3, 364_000),
-    ("date", 15, 13.0, 311.9, 412_000),
-    ("timestamp", 15, 26.0, 363.0, 379_000),
+    ("date", 15, 13.0, 311.9, 402_761),
+    ("timestamp", 15, 26.0, 363.0, 370_780),
     ("decimal(10,2)", 15, 9.0, 413.3, 431_000),
     ("unique decimal(38,10)", 15, 41.0, 487.8, 383_000),
-    ("unique 20-character text", 15, 23.0, 497.8, 302_000),
+    ("unique 20-character text", 15, 23.0, 501.3, 302_000),
     ("unique 37-character text", 15, 40.0, 610.0, 276_000),
-    ("NULL integer", 15, 1.0, 238.5, 491_000),
-    ("NULL double", 15, 1.0, 244.8, 525_000),
-    ("one-character text, sixty wide", 60, 4.0, 273.1, 505_000),
-    ("three bigints and a label, the 490,000-row production run", 4, 8.22, 410.8, 396_000),
-    ("unique 13-character text, the live check at the caps", 4, 16.0, 520.4, 257_000),
+    ("NULL integer", 15, 1.0, 242.3, 491_000),
+    ("NULL double", 15, 1.0, 246.1, 525_000),
+    ("one-character text, sixty wide", 60, 4.0, 282.5, 486_343),
+    ("three bigints and a label, the 490,000-row production run", 4, 8.22, 421.3, 396_000),
+    ("unique 13-character text, the live check at the caps", 4, 16.0, 522.8, 257_000),
     ("unique 16-character text", 4, 19.0, 539.3, 184_000),
-    ("timestamp, four wide", 4, 26.0, 433.0, 346_000),
-    ("decimal(10,2), four wide", 4, 9.0, 490.8, 353_000),
-    ("unique 200-character text", 4, 203.0, 1552.6, 152_000),
-    ("one-character text, one wide", 1, 4.0, 642.5, 296_000),
+    ("timestamp, four wide", 4, 26.0, 433.0, 340_686),
+    ("decimal(10,2), four wide", 4, 9.0, 491.7, 353_000),
+    ("unique 200-character text", 4, 203.0, 1552.6, 150_680),
+    ("one-character text, one wide", 1, 4.0, 660.0, 296_000),
 )
 
 

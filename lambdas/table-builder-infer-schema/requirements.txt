@@ -5,4 +5,4 @@
 # It is no longer isolated to that function: the image installs every requirements file into
 # one site-packages, so polars is importable fleet-wide and this declaration says who is
 # MEANT to read Parquet footers rather than who can.
-polars==1.12.0
+polars==1.44.2
