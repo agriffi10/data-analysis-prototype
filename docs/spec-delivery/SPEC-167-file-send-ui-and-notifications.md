@@ -112,3 +112,7 @@ Every one of these was live, and none was visible to the suite as written:
 `docs/testing/e2e.md` §4.9 and §4.15 — the Safari pass. It is the only thing that exercises
 the browser half against the real plane, and the notification link is the half that cannot be
 checked offline: the producer mints it in Python and a route rule in TypeScript honours it.
+
+**The receiving half ran on 2026-09-21 and passed**, with two accounts. The user recipient's link
+landed on `shared_files/agriffith/` with the files, and the space owner's link carried `?space=`
+and landed in the space. Evidence: `docs/testing/sessions.md`, 2026-09-21 night.

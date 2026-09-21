@@ -153,6 +153,7 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | **A hidden Chrome window pauses polling** | One `GetQueryExecution`, then "Running…" forever. `hasFocus()` true, `visibilityState` `hidden`. | Instrument 1. Without it you will file a hung-query bug that does not exist. |
 | **A backgrounded tab reports a STALE viewport after `resize_window`** | "Successfully resized to 700x900" while `innerWidth` stays 1512, `outerWidth` reads **0**, and every media query still matches desktop. | The window really did resize — `app_list_windows` shows its true bounds, and checking that before concluding the call failed is the cheap move. **Foregrounding the WINDOW is not enough — the TAB has to be the active one, and recording only the window cost a session.** Observed 2026-09-09: minimized, stale; un-minimized by hand, **still** `innerWidth: 1512`; `Control_Chrome`'s `switch_to_tab` on the tab id, and the viewport reads true. Reach for `switch_to_tab` — it is the call that was shown to matter. (Whether un-minimizing is also needed was not tested; it may do both.) **Assert on `matchMedia`, and treat any reading taken while the tab is backgrounded as unusable** — the earlier "the call changes nothing" reading was this artifact (2026-09-01) — **unless a reload followed the resize and `matchMedia` pins the exact width — and then only for synchronous geometry of CSS-driven layout.** A hidden tab still gets no frames, so paint, polling (the row above), `ResizeObserver`, `requestAnimationFrame` and `matchMedia` change listeners stay unusable after a reload, and `switch_to_tab` stays the first choice. Observed 2026-09-11 with no `Control_Chrome` in the session: the tab still hidden, `resize_window` then a reload read true at nine widths, `(min-width: W px)` true and `(min-width: W+1 px)` false at each; without the reload the same tab took two resizes and then stuck at 930 through four more. Print `innerWidth` on every reading — that is the only thing that caught it. Sub-900px checks ARE reachable. Chrome's minimum window width is still 606px, so **400px needs DevTools device toolbar (⌘⇧M)**, or the Claude app's Browser pane — the next row. |
 | **The Claude app's Browser pane EMULATES a width, and has its own sign-in** | Its `resize_window` sets `innerWidth` to exactly the width asked for — 375 and 400 included — because it emulates the viewport rather than resizing a window, so the stale-viewport row above does not apply to it. But it keeps its own cookies and lands on an empty Cognito form. Its page reported `hidden` (2026-09-21), and it follows the app's light or dark theme. | Ask Andrew to sign the pane in himself. Apply instrument 1 after every load. Assert `innerWidth` and `(min-width: W+1px)` false before trusting a width. Read the DOM rather than screenshots, which lagged a step behind. Clear the width with the `desktop` preset when done, and say in the record which theme was measured. |
+| **The Browser pane's Enter never activates a focused button** | On the archive confirm, with focus on **Cancel**, the pane's key `Enter` arrived as a trusted `keydown` and the dialog stayed open. The control: `Enter` on a focused **New folder** did not open its dialog either. `Return` and `space` arrive with an empty `key`. `Escape` works, because the app handles it on `keydown` (2026-09-21). | A check that relies on Enter's default action cannot be observed from the pane: §4.11's "Enter cancels", and §4.17's newline and submit rows. Run it in a visible Chrome tab instead, and record it as not run rather than failed. |
 | **`role="alertdialog"` ≠ `role="dialog"`** | `querySelector('[role="dialog"]')` returns null on the refresh and delete confirms. | Query both. `Drawer` also carries `role="dialog"`, so select modals **by title**. |
 | **Page scroll desyncs click coordinates** | A click lands on a grid cell instead of a nav tab. | Derive coordinates from `getBoundingClientRect()` immediately before clicking, or use `find` → ref. |
 | **Prefilled inputs are not selected on focus** | Typing appends: `explorer-shared-destexplorer-shared-filtered`. | `cmd+a` first, or set the value and dispatch `input`. |
@@ -738,13 +739,13 @@ it is CLI-only — see `owed.md`.
 | Do | Expect |
 |---|---|
 | Create a space | Creator-only. It appears in the rail with its own Glue database. |
-| Add a member | The member sees it after signing in; their status flips **Pending → Active** on first sign-in. |
+| Add a member | The member sees it on their Connections page without signing out, and their own roster row reads Active. Opening the space's Files page acknowledges it, and after a Refresh the owner's roster flips from Pending to Active. The Files page asks for **Refresh access** until the member's token carries the space. |
 | Add a member who does not exist | Silently ignored — the others are still added, and the execution still SUCCEEDS. |
 | Add the same member twice | Idempotent. The owner can never be added as a member. |
 | **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
 | Create a space whose name is already taken | Refused by name. The registry record **is** the name lock. |
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
-| Query the space's database | Results route to the space's own `system_settings/athenaresults/`, not yours. |
+| Query the space's database | It runs, and its results go to **your own** `system_settings/athenaresults/`, not the space's. That is by design: the API writes every query under the caller's own prefix, because that prefix is how every query route proves an execution is the caller's (`cpcommon/results.py`). |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
 | **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Connections page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
 | **[approval gate]** Re-create a space with the just-deleted name | **Refused** by name. The record is never released, so the name is spent forever — the opposite of what this row asserted before, and the reason the create dialog now warns before the name is chosen. |
@@ -756,7 +757,7 @@ it is CLI-only — see `owed.md`.
 
 ### 4.9 Send files
 
-**One-sided only from one account.** The receiving half is in `owed.md`.
+**One-sided only from one account.** The receiving half needs a second account, and `owed.md` records its run.
 
 | Do | Expect |
 |---|---|
@@ -795,7 +796,8 @@ Tick the folder → **Archive** in the selection toolbar. **Before confirming, r
 - It does **not** say "This can't be undone" — that would be its one false sentence, and its
   absence is deliberate.
 - **Focus is on Cancel, and Enter cancels.** The only dialog in the app where that is wanted, and
-  the only place it can be observed. Test it, then reopen.
+  the only place it can be observed. Test it, then reopen. Use a visible Chrome tab: the Browser
+  pane's Enter activates no button at all (§1's traps).
 
 Confirm. Expect:
 
@@ -1250,7 +1252,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
 | Type a message, press Enter inside it | A newline. It does **not** submit. |
-| Focus the category select and press Enter | It submits. |
+| Focus the category select and press Enter | It submits. Not from the Browser pane, whose Enter has no default action (§1's traps). |
 | Send | The dialog closes and a toast reads the thank-you. Reopen it — the message is empty, not the last one. |
 | Reopen, and watch the network panel | Exactly **one** `POST /v1/feedback`, answering 200 with `{submittedAt}`. The request body carries `category`, `message` and `route` — and **no username of any kind**. |
 | Navigate to another page with the dialog open, then send | The `route` in the body is the page you **opened** it on, not the one you ended on. |
