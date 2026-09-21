@@ -60,7 +60,9 @@ writing the LAST column and reporting success, and the pager button's `onExport`
 no list while 136 tests stayed green.
 
 Deferred to a signed-in session: the end-to-end save itself. `docs/testing/e2e.md` carries the
-steps and `docs/testing/owed.md` the row, and the plane's own fixture script gained a section.
+steps and `docs/testing/owed.md` the row, and the plane's own fixture script gained a section. The
+browser steps ran on 2026-09-21 and passed (`docs/testing/sessions.md`, 2026-09-21 evening). The
+fixture script's section has not run, and is its own row in `owed.md`.
 
 Two pre-existing defects were measured while building this and are recorded under **Traps** in
 `lambdas/info/planes/results-conversion.md`: polars' streaming sink refuses a large CSV holding

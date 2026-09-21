@@ -63,4 +63,5 @@ Formatter, lint, `tsc -b`, the portal suite and `npm run build` green by exit co
 validators `ci.yml` runs and the Python gates. Mutation batteries over the hand-off, the Query-side
 gate, the column memory and both flags against the registry walk — each plant reddens its test. The live check (select two
 SELECTs, Run Statement, explore the second, hide and filter a column, reload) is folded into
-`docs/testing/e2e.md` and runs after deploy.
+`docs/testing/e2e.md` as §4.5 rows G to K. It ran on 2026-09-21 and every row passed, including
+re-exploring a statement explored earlier (`docs/testing/sessions.md`, 2026-09-21 evening).

@@ -72,4 +72,5 @@ five a column rather than ten, and measures 247,093 at that shape; the compariso
 
 **Deferred to a live run after deploy:** FR-003's last criterion. `docs/testing/e2e.md` §4.6 carries
 it as three rows with their fixtures — the `dq_dupes/` counts and ordering, the per-file disclosure,
-and the nested-column source whose count must survive losing its samples.
+and the nested-column source whose count must survive losing its samples. **Ran 2026-09-21, all
+three passed** (`docs/testing/sessions.md`, 2026-09-21 evening).

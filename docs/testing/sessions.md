@@ -10,6 +10,168 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-21, evening (the owed rows a signed-in session could reach: SPEC-232, -239, -240, -242, -243, -244, the create post-condition, #716, and the narrow widths)
+
+**What was under test.** The SPA image **`8061989c`** (task definition `dat-prod-spa:228`, read from
+the service) and the API and planes at **`a1931c9a`** (`/healthz`). Every commit these rows check
+is an ancestor of both. `environments.prod` in `config/feature-flags.json` is `{}`. Times are UTC.
+
+**Browsers.** Two, both signed in as **agriffith** by Andrew himself. The Hosted UI cookie had
+expired, and each tab reached the credential form. Nothing was typed or clicked on either form by
+the session.
+- **Chrome**, a tab in the Claude-in-Chrome group: visible, 1512 px wide, for everything except
+  the narrow widths. Monaco took input once it had focus: a second click into the editor left
+  `document.activeElement` on its `native-edit-context`, and `Cmd+A` plus typing then entered each
+  statement. Each statement was read back before it ran.
+- **The Claude app's Browser pane**, for 375, 400, 500 and 640 px. Its `resize_window` emulates the
+  viewport, so `innerWidth` read exactly the width asked for, and `(min-width: W+1px)` was false at
+  each. The pane followed the app's dark theme.
+
+**Instruments, each a way this run differed from a user's.**
+- `window.fetch` wrapped in the page's main world to count `POST /v1/queries` (the execution
+  count) and the other API calls. It was re-installed after each full load.
+- In the pane only: `document.visibilityState` and `hidden` overridden to visible, with
+  `visibilitychange` and `focus` dispatched. The pane reported `hidden`, and its poll sat on
+  "Running…" until the override.
+- Several requests were sent from the page with its own token, in the UI's own wire shape, where the
+  UI could not reach the fixture. The interval create adds the two fields only a hand-built request
+  can send. The new fixture folders sat past the root listing's first
+  page, so the data-quality checks and the table-build creates were sent that way. So was every
+  refusal probe. Each row says which.
+- One operator call from the laptop CLI: `aws athena start-query-execution` of `SELECT 1` in
+  `dat-prod-portal-wg`, output `s3://dat-prod-athena-admin/fallback-results/spec232-probe/`
+  (`5dd1fa55-f3bf-4461-bd3e-a7faac8ecc16`, `SUCCEEDED`). Step Functions histories and the API log
+  were read with the read-only CLI. The permission classifier refused one in-page batch that
+  included a `stop` of that execution. Sent again as single calls, the same probes ran.
+
+**SPEC-232** (`e2e.md` §4.3's row; the `owed.md` section is now settled).
+
+| Check | Result |
+|---|---|
+| An unknown UUID, then the operator's execution: status, results and row-count | **PASS.** All six answered `404` `{"error":{"code":"NotFound","requestId":…,"detail":"no execution with this id belongs to the caller"}}`, identical apart from `requestId`. |
+| `POST …/stop` for each | **PASS.** `404 NotFound`, the same detail, for both. |
+| The API log | **PASS.** `logs/service=api/…/day=21/data.jsonl` holds a `request refused` record for each of the eight probes. The four for the unknown UUID carry `execution_ownership: unknown` and the four for the operator's execution carry `foreign`, on `athena.status`, `athena.results`, `athena.rowCount` and `athena.stop`. |
+| A query of my own still polls, pages and stops; View DDL | **PASS.** `SELECT * FROM agriffith.explorer150`: one start, one status poll, *Rows 1–100 of 150*. **Next** made one results call and no start, and read *Rows 101–150 of 150*. A running `count(DISTINCT …sha256…)` cross join was stopped about 4 s in: `POST …/stop` 200, and the bar read *Cancelled*. (`e2e.md`'s `count(*)` cross join finished in 1.6 s, too fast to stop.) **View DDL** opened `DDL: explorer150`. |
+
+**SPEC-244** (`e2e.md` §4.3's four rows). The suggestion list was read from the widget's rows, paged with `PageDown`.
+
+| Row | Result |
+|---|---|
+| Autocomplete follows the statement | **PASS.** `SELECT * FROM agriffith.explorer150 t ORDER BY ` plus `⌃Space` offered 47 items: 43 tables and views, and exactly four columns, `id`, `owner`, `qty` and `region`, each detailed `string · agriffith.explorer150`. With the `FROM` clause deleted it offered 216, with columns from at least 22 tables across `agriffith`, `amits_data_emporium` and `dwb_testing_all`. |
+| The dot opens the popup | **PASS.** With the widget closed, typing `.` after `t` opened it on four items, the same four columns. `SELECT * FROM agriffith.` then **Return** gave `SELECT * FROM agriffith.arcb_live_table`, with the database once. |
+| The CTAS quoting, against the real engine | **PASS.** Using view `agriffith.spec244_v` (`SELECT 1 AS "Last Name", 2 AS "order"`), in `CREATE TABLE agriffith.spec244_ctas WITH (format = 'PARQUET') AS SELECT `, accepting `last name` inserted `"last name"`. With `FROM agriffith.spec244_v` added, the CTAS **succeeded**, and the catalog shows one column named `last name`. Glue lowercases a column name, so `Last Name` is stored as `last name`. Table and view dropped after. |
+| A quoted insert, and the editor's closing quote | **PASS.** Typing `"La` left `"La"`, since the editor closed the quote. Accepting `last name` gave `"last name"`, with one closing quote. `ord` with no quote accepted as `"order"`, and the statement ran and returned its one row. In `DROP VIEW agriffith.spec244_v `, the same `ord` accepted **bare** as `order`. That is the discriminating half: the accepted table and view names in the two `DROP`s would be bare under either rule. |
+
+**SPEC-242** (`e2e.md` §4.5 rows G to K).
+
+| Row | Result |
+|---|---|
+| G | **PASS.** Two `SELECT id, region, owner, qty FROM agriffith.explorer150 WHERE region = …` statements, both selected, then **Run Statement**: two starts, and a result strip `1 · SELECT id, region, owner, qty…` and `2 · …`, the second selected. |
+| H | **PASS.** **Explore in Data Explorer** on the second: `/explore` with no query string, one tab `SELECT id, region, owner, qty…`, those four columns, 38 rows, one start. Later the same statement was run on its own and explored again: another tab, 38 rows, **one** start, no dialog. |
+| I | **PASS.** Hid `qty` and applied `id IN ('2', '6', '10')`, giving 3 rows. After a full reload there was one tab, still filtered and still without `qty`, and no dialog. The reload re-ran the stored statement to fetch its rows. |
+| J | **PASS.** Grouped by `owner`, giving `owner` and `count_all`. Reopened, the panel's columns were still `id`, `region`, `owner` and `qty`, the statement's, with `owner` listed as the chosen grouping. |
+| K | **PASS.** After `SELECT count(*) FROM agriffith.explorer150`, **Explore in Data Explorer** was `aria-disabled` with the title *"Give every column its own name with AS to explore this result."* `SHOW TABLES IN agriffith` offered no button at all. |
+
+**SPEC-243 row O's edit** (rows L to O ran earlier the same day; see the SPEC-243 entry below). This is a new `explorer150` tab, filtered by the two chips again (36 rows).
+Open in Query put the statement in a new `explorer150` tab with no execution. The statement was
+edited to `SELECT * FROM "agriffith"."explorer150" WHERE "region" IN ('east', 'north', 'south',
+'west')` and run, one start returning **150** rows. Back in the Data Explorer, with no start, the
+tab held both chips and **36** rows, all Jones. **Back** stepped to the `owner` chip alone (36),
+then to no filter (150), then read *"This is the earliest set of filters in this tab."* Neither step
+started an execution. **PASS.**
+
+**SPEC-243 row P**, in the pane at 375 px. Filtered `explorer150` to `owner = 'Jones'` (36 rows, and
+the tab opened in Record view). **Open in Query** showed the read-only view, with `explorer150` over
+`SELECT * FROM "agriffith"."explorer150" WHERE (owner = 'Jones')`, a **Run** button, no editor, and
+no start. **Run** started one execution, which returned 36 rows. **PASS.**
+
+**SPEC-239** (`e2e.md` §4.5 steps 8 and 9, on `explorer150` unfiltered).
+- With `qty` hidden and `owner` pinned, the dialog said *"The file holds 3 result columns, in the
+  order shown."* and offered **Convert and save**. The toast read *"Converting to CSV — you’ll get a
+  notification when explorer-hidden-0921.csv is ready."* The notification read *Saved 150 rows as CSV
+  to "explorer-hidden-0921.csv".* The file's header is `owner,id,region`, with 150 data rows. **PASS.**
+- After **Show all** and **Unpin all**, the dialog offered **Save here**, made a straight
+  `POST /v1/objects/copy`, and wrote `explorer-all-0921.csv` with header `"id","region","owner","qty"`
+  and 150 data rows. **PASS.**
+- Grouped by `region` with **Show percentage**, then `region` and `count_all` hidden. **Save results
+  to my files** was `aria-disabled`: *"Show at least one of the result’s columns to save it."*
+  Clicking it opened nothing and made no call. **PASS.** Two things on the way: the percentage
+  checkbox set through the extension's `form_input` did not register, so the first apply had no
+  percentage column, and a `.click()` did register. And until the percentage column showed, the
+  Columns drawer refused to hide `count_all`: *"The grid needs at least one visible column."*
+
+**SPEC-240** (`e2e.md` §4.6's three `dq_dupes` rows). The fixtures were uploaded through the portal
+from §2's generator into `dq_dupes_0921/` and `dq_dupes_nested_0921/`. Each check was sent to
+`POST /v1/enqueue/data-quality` with the dialog's body.
+
+| Row | Result |
+|---|---|
+| `dq_dupes_0921/` | **PASS.** 7 rows, 2 files, **4 duplicate rows**. *Most repeated rows*: `Ann` `Leeds` `(empty)` ×4 first, then `Bo` `(empty)` `x` ×2, and no `NULL` in the table. |
+| *Rows in each file (2 files)* | **PASS.** Closed until clicked, then `dq_dupes_a.csv` **6** and `dq_dupes_b.csv` **1**. A single-file check of `dq_dupes_a.csv` has no such disclosure: 6 rows, 3 duplicates. |
+| `dq_dupes_nested_0921/` | **PASS.** The count reads **1**, and *Most repeated rows* shows the sentence about lists and objects in place of a table. |
+
+**The create post-condition** (`owed.md` §1). Fixtures were uploaded through the portal. Each create
+was sent to `POST /v1/enqueue/table-build` in the modal's wire shape.
+
+| Row | Result |
+|---|---|
+| `digits` on an integer key | **PASS.** `live0921_digits` (`num`, range `1,2`, `digits: 2`, over `num=01/` and `num=02/`): *Table "live0921_digits" is ready to query in "agriffith".* `GROUP BY num` gave `1, 10` and `2, 10`. |
+| A date key's `interval` and `intervalUnit` | **PASS.** `live0921_interval` (`day`, `2025-01-01,2025-01-05`, `yyyy-MM-dd`, `interval: 2`, `intervalUnit: DAYS`, over `day=2025-01-01/` and `day=2025-01-03/`): ready to query, and `GROUP BY day` gave `2025-01-01, 10` and `2025-01-03, 10`. |
+| Two same-name creates | **PASS, inside the window.** `live0921_race` over `live0921race_a/` and `live0921race_b/`, both sent within 218 ms, gave one *ready to query* and one *"Couldn't create table "live0921_race": a table with that name already exists in "agriffith"."* Execution `38512ddd-5357-5527-b743-4ef6ce9c7142` passed `CheckTableAbsent` and failed in `ExecuteDdl`: *"table_exists: table 'live0921_race' in database 'agriffith' was built by another request: its LOCATION is not this one's. Nothing was created."* The table holds `race_a`'s ids 1–10. |
+
+**#716's re-run.**
+- **file-ops**, through the API. The vehicle was a copy of `live0921race_a/part1.csv` into
+  `agriffith/_data-quality-reports/`, not the ledger's delete of a shared space's root, because a
+  copy is harmless if the refusal had regressed. The notification read *"Couldn't copy that: that
+  folder is managed for you, so things cannot be put into it."*, with payload
+  `{"requestId":"22e202e7-5c4c-4a24-80a4-18268034913e"}`, the request's own id. **PASS.**
+- **results-conversion at the terminal.** The execution was `SELECT 1 AS a`, with `onConflict: refuse`
+  onto the existing `explorer-all-0921.csv`. The notification read *"Couldn't save the query results
+  as CSV: a file called "explorer-all-0921.csv" is already in that folder, so nothing was saved. …"*,
+  with payload `{"requestId":"242b7806-9012-4460-8b46-02837535b345","format":"csv"}`. Execution
+  `f8aace98-4ce0-5bae-ae79-adb3d2e860f9` ran `ValidateAuthorize`, `DescribeResults`, `Convert` and
+  then `NotifyFailure`, so it was refused past the validator. **PASS.** **A first attempt was
+  malformed:** it sent `prefix: "agriffith/"`, but the prefix is relative to the space root, so that
+  request wrote a new one-row file at `agriffith/agriffith/explorer-all-0921.csv` and reported
+  success. The root file was untouched (last modified 20:57:37, 151 lines). This was the probe's
+  error, not a defect.
+
+**The narrow widths, in the pane.**
+- **SPEC-223's Save-results modal, opened from the Explorer.** At 375, 500 and 640 px the name,
+  **Format** and **Save to** fields were full width and stacked: 312 px wide at 375, and 413 px at
+  500 and 640. **Convert and save** was 31.5 px tall at each width, and **Save here**, measured at
+  375, was too. There was no page scroll at any width. **PASS.**
+- **§4.15's list at 400 px.**
+
+  | Item | Result |
+  |---|---|
+  | Record view on a new tab | **PASS.** `aria-pressed` true on Record. |
+  | Toolbar wraps | **PASS.** Six controls; **Options** wraps to a second line, the rightmost ends at 333 px, and there is no page scroll. |
+  | Order and filter on its own | **PASS, for one sort and one filter.** Each column offers Show and Pin, a sort (none, ascending or descending), and a filter with eighteen operators. `owner` **equals** `Jones` with `id` **Descending** made one start and 36 rows (97, 93, 9, 89, 85: a string sort), with the SQL `WHERE "owner" = 'Jones' ORDER BY "id" DESC`. |
+  | Sticky pinned column | **PASS.** Pinned `id` held at 64 px while the grid scrolled 392 px, and its cell background is opaque. |
+  | Right-edge column menu | **PASS.** `qty`'s menu spans 198–382 px of 400, inside the grid's scroller. Its lower items sit below the fold, and the page scrolls to them. |
+  | Value panel | **PASS.** A fixed `aside` across 0–400 px at the viewport's foot: a sheet. |
+  | Calc and Grouping | **PASS.** Stacked below the grid, which ends at 1027: Grouping 1034–1344, then Calc 1351–1694. |
+  | Header drag onto Grouping | **PASS.** A real pointer drag of the `region` header onto the panel added `region` to the grouping columns. |
+  | Colors | **PASS.** A rule's controls wrap over five lines inside the dialog. A number-range shading on `qty` (default range 0–100) gave eight shades, with text contrast 6.11–6.15:1 over each, in the dark theme. Banding by `region` alternates the row background and draws a 2 px top border where the band changes. |
+  | Suggestion listbox | **PASS.** **Send to…**'s username list, after typing `a`, showed 8 options inside the dialog's box. Cancelled, and nothing was sent. |
+  | Anchor in a truncating cell | **PASS.** A Link transformer on `owner`, then its resize separator narrowed with **ArrowLeft** to the 72 px floor. (A first attempt used a pane drag and a synthetic `Home` keydown, which the separator does not handle, and changed nothing.) At 72 px, `Nakamura`'s link truncated, with 84 px of content in a 72 px cell, and stayed on one line. Every row stayed 35 px tall and every `owner` cell 72 px wide, and the next column started at the cell's edge in each row. |
+  | Header menu *"unreachable by design"* below `tablet` | **Contradicted in Grid view, and left as a question.** Record view, the default here, has no header. In Grid view `Column options: <column>` is present at 400 px, and `id`'s menu opens with all 21 items. Nothing in the header gates it by width. Whether the docs or the build is right is an open row in `owed.md`'s *Needs 400px*. |
+  | *"Every dialog is 392px"* | **Wrong for 400 px, and `e2e.md` is corrected.** Order and filter, Colors, Transformers and Send to… each measured **372 px**, centred, with nothing overflowing. The overlay's 14 px padding (`p-4`) on each side of a full-width panel leaves 400 − 28. |
+- **The Files toolbar at 375 px.** With 22 selected, the page's maximum, the toolbar is glyph-only,
+  **Delete** ends at 350 px, and *22 selected* reads whole over two lines with nothing clipped.
+  **PASS as far as it goes.** A three-digit selection cannot be made: a page holds 25 items, and
+  the selection clears on a page change. `e2e.md` §4.15 now asks for a full page instead.
+
+**Left behind.** Tables `live0921_digits`, `live0921_race` and `live0921_interval`, and folders
+`dq_dupes_0921/`, `dq_dupes_nested_0921/`, `live0921digits/`, `live0921interval/`,
+`live0921race_a/` and `live0921race_b/`. In `agriffith/`: `explorer-hidden-0921.csv` and
+`explorer-all-0921.csv`; in `agriffith/agriffith/`, the malformed probe's `explorer-all-0921.csv`.
+Also the CTAS's orphaned data under `system_settings/athenaresults/tables/e0971a71-…`, three
+data-quality reports, and in the pane's `explorer150` tabs a Link transformer and a colour rule.
+
+---
+
 ## Live-check session — 2026-09-21, afternoon (SPEC-245: the footer probe, and polars 1.44.2 on every streamed save)
 
 **What was under test.** Two deploys, read in order. First **`1c09d2e1`** (#863), the footer-only

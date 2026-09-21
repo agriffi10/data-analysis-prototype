@@ -97,10 +97,10 @@
   names the cursor-before-a-closing-quote gesture rather than the end-of-an-open-quote one. Beware
   `monaco.d.ts` on `wordBasedSuggestions`: it says "Defaults to true" above a union with no `true`
   member, and the registered default is `offWithInlineSuggestions`.
-- **Live check: owed until run.** The steps are the four SPEC-244 rows in `docs/testing/e2e.md`
-  §4.3. Nothing in them needs a second account or the operator, so it is an ordinary signed-in pass
-  rather than an `owed.md` row.
-- **One premise is settled from documentation rather than a run, and is named as such.** That a CTAS
+- **Live check: ran 2026-09-21, all four rows passed** (`docs/testing/sessions.md`, 2026-09-21
+  evening). The steps are the four SPEC-244 rows in `docs/testing/e2e.md` §4.3.
+- **One premise was settled from documentation, and has since been run.** The CTAS row passed
+  against real Athena: the accepted column arrived as `"last name"` and the CTAS succeeded. That a CTAS
   takes Trino quoting *throughout* — head included — comes from AWS documenting its body as DML and
   its head taking Trino's `WITH (…)` property syntax. Both review frames found a defect of exactly
   this class in this change (a reserved-word list taken from the wrong vendor, and a "the failure

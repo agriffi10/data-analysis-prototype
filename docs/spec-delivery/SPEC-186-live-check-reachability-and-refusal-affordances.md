@@ -140,7 +140,8 @@ five previously-unrunnable assertions rather than running them:
   > text is `max-w-lg`), and FR-003's containment in **Add members** and **Share table under both
   > share kinds** at 0px/−61px/−135px overhang. Both are **rendering** assertions, so Chrome
   > corroborates and does not discharge them: **Safari is still owed**, as is **400px** (not
-  > reachable by window resize on macOS — Chrome's minimum is 606px) and the **ninth dialog**
+  > reachable by window resize on macOS — Chrome's minimum is 606px; reachable since through the
+  > Claude app's Browser pane, `docs/testing/e2e.md` §1, but not yet run for these nine dialogs) and the **ninth dialog**
   > (`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable).
   > FR-005 **is** discharged. Evidence: `docs/testing/sessions.md`.
 
