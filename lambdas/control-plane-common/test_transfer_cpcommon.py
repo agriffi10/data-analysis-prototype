@@ -753,6 +753,30 @@ def test_a_throttled_item_raises_so_the_batch_retries():
         copy_mod.copy_batch([_item()], _FAILED, echo_fields=_ECHO)
 
 
+def test_a_throttled_multipart_create_raises_so_the_batch_retries(caplog):
+    """The create is the one multipart call with no upload behind it yet, so a throttle there must
+    still retry the batch — failing the item rolls a whole archive back — and must not reach the
+    abort, which would run against an upload id that was never assigned. A deterministic fault
+    still fails only its own item."""
+    fake = _setup()
+    fake.create_multipart_upload = lambda **kw: (_ for _ in ()).throw(_S3Error("SlowDown"))
+
+    with pytest.raises(TransientError, match=r"-> user-bkt/bob/shared_tables/orders/big\.parquet: transient SlowDown"):
+        copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
+
+    assert fake.multipart == [] and fake.aborted == []
+    assert "abort_multipart_upload failed" not in caplog.text
+
+    fake = _setup()
+    fake.create_multipart_upload = lambda **kw: (_ for _ in ()).throw(_S3Error("AccessDenied"))
+
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
+
+    assert out == {"copied": 0, "failures": [{"recipient": "bob", "kind": "user", "reason": _FAILED}]}
+    assert "big.parquet: AccessDenied" in caplog.text
+    assert "abort_multipart_upload failed" not in caplog.text
+
+
 def test_a_malformed_line_fails_its_own_item_only():
     fake = _setup()
     out = copy_mod.copy_batch([{"recipient": "bob"}, _item("carol")], _FAILED, echo_fields=_ECHO)
