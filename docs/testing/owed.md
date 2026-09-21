@@ -66,6 +66,29 @@ two-user version of the check is in *Needs a second (or third) account*.
 | An unknown UUID and an operator-staged execution outside every prefix get identical 404s on status, results, row-count and stop | owed |
 | A query run from the workspace still polls, pages and stops, and View DDL still opens | owed |
 
+### SPEC-243's live check — RUN 2026-09-21: rows L to O settled, row P and one step of O owed
+
+SPEC-243 merged as #861 (`a40c26f7`) and deployed on 2026-09-21. The check ran the same day in
+Andrew's Chrome, in a new tab in the extension's group. That tab signed in through the Hosted UI on
+his warm cookie, with no password. Three instrument changes, all in the tab. The tab was hidden, so
+`visibilityState` was overridden to keep the polls running. Clicks by coordinate or reference did
+not land, so buttons were activated with `.click()` and the dialog fields set through the native
+value setter. Executions were counted by wrapping `fetch` around `POST /v1/queries`.
+
+| Row | Status |
+|---|---|
+| L — `owner` **equals** `Jones`, then `region` **is one of** four values | **settled**: chips `owner equals “Jones”` and `region is one of “east”, “north”, “south” and 1 more`, in that order, with one execution each |
+| M — remove the first chip, then the bar's **Back** arrow | **settled**: one execution without the `owner` predicate, all owners back in the grid, focus on the remaining chip's remove button. **Back** restored both chips with no new execution. |
+| N — **Open in Query**, then reload | **settled**: `/query`, no query string, history state `null`, a new active tab `explorer150` whose stored SQL equals the disclosure's text, and no execution. Reload kept two tabs and raised no dialog. |
+| O — run it in Query, then back to the Data Explorer | **settled except the edit**: the Query run was its own, one execution returning 36 rows. The exploration came back with the same chips, the same rows and two history entries, and **Back** stepped to `owner` alone. |
+| O's edit of the statement before running it | **owed**: Monaco took no input in the hidden window, whether typed, `insertText` or a synthetic `input` event |
+| P — Open in Query below `tablet` | **owed**: the window was resized to 500px and Andrew saw it at that width, but the page kept reporting `hidden`, `outerWidth` 0 and a 1512px layout. That held through reloads, with the window in front and with it beside the Claude app. The portal refuses to be framed, so the same-origin iframe harness could not load it. |
+
+**What discharges the two owed rows:** a Chrome window that reports `visible` to the page, below
+900px for row P. Alternatively, run P in the Claude app's Browser pane, whose `resize_window`
+emulates the width, once someone signs in there. The phone path, the view at the tab cap included,
+is pinned by `openSqlHandoff.test.tsx`. A test is not the live check.
+
 ### The create post-condition
 
 `execute-ddl` reads the table back after its `CREATE … IF NOT EXISTS` and refuses `table_exists`
