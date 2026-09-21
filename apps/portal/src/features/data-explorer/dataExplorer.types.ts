@@ -1,3 +1,4 @@
+import type {QueryColumn} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 // The exploration model. An exploration is a SOURCE plus a QUERY
@@ -10,11 +11,10 @@ import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 /**
  * Where an exploration's rows come from.
  *
- * A discriminated union from the outset, with only the `table` arm reachable until
- * A saved `.sql` file cannot be reverse-engineered into a table plus filters
- * without a SQL parser, so a loaded file is a SOURCE rather than a view state — and
- * filters, ordering and grouping must compose over either arm without knowing which.
- * Retrofitting the union later would have touched every call site in between.
+ * A catalog table, or a statement handed over from a Query result. A statement cannot be
+ * reverse-engineered into a table plus filters without a SQL parser, so it is a SOURCE rather
+ * than a view state — and filters, ordering and grouping compose over either arm without
+ * knowing which.
  */
 export type ExplorationSource =
   | {
@@ -25,9 +25,9 @@ export type ExplorationSource =
     }
   | {
       kind: 'sql';
-      /** The file's SQL, rendered as a subquery. */
+      /** One SELECT, WITH or VALUES statement with no trailing semicolon, rendered as a subquery. */
       body: string;
-      /** What the tab is called — the file's name, not part of the SQL. */
+      /** What the tab is called — a short hint of the statement, not part of the SQL. */
       label: string;
     };
 
@@ -336,6 +336,15 @@ export type ExplorationTab = {
   scannedByExecution: Record<string, number>;
   /** Back/forward over this tab's previous query descriptions. */
   history: QueryHistoryCursor;
+  /**
+   * A `sql` source's columns, from its latest ungrouped execution. Absent for a table source.
+   *
+   * A table's columns are in Glue before anything runs; a statement's exist only in what its
+   * execution reports, and once a grouping is applied that is the grouping columns and the
+   * aggregate aliases. Remembering the ungrouped list is what lets the Grouping panel offer the
+   * source's columns while a grouping is in force, and survive a reload.
+   */
+  sqlSourceColumns?: QueryColumn[];
 };
 
 export type ExplorationTabsState = {

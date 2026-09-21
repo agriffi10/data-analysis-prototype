@@ -28,6 +28,10 @@ import type {ExploreTarget} from './exploreSources';
 
 const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
+/** Why *Create view…* is refused on a tab whose source is a statement rather than a table. */
+export const SQL_SOURCE_VIEW_REFUSAL =
+  'A view is created in one database, and SQL opened from a query or a saved file can read from several. Open a table to create a view from it.';
+
 /**
  * The Data Explorer's shell: the source picker, the tab strip, and one
  * exploration's rows.
@@ -87,7 +91,10 @@ export function DataExplorerWorkspace() {
   );
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
   // Glue nothing at all, and this hook reads a database.
-  const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
+  const schemaColumns = useSourceColumns(
+    linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null),
+    tabs.activeTab?.sqlSourceColumns
+  );
 
   // Export. The Query workspace's own save path, mounted here — it copies
   // the EXECUTION's results object, so what leaves is every row the statement returned
@@ -280,13 +287,10 @@ export function DataExplorerWorkspace() {
                 setCreatingView({sql: exploration.sql, database: source.database});
               }
             }}
-            // A saved-query source reads whatever its body names, so there is no single database
-            // to create the view IN. No such source ships today; without this the control would
-            // be offered and silently do nothing the moment one does.
+            // A statement source reads whatever its body names, so there is no single database to
+            // create the view IN. Without this the control would be offered and do nothing.
             createViewRefusal={
-              tabs.activeTab && tabs.activeTab.exploration.source.kind !== 'table'
-                ? 'A view is created in one database, and a saved query can read from several. Open a table to create a view from it.'
-                : null
+              tabs.activeTab && tabs.activeTab.exploration.source.kind !== 'table' ? SQL_SOURCE_VIEW_REFUSAL : null
             }
             onExport={(columnIndexes) => {
               setExportColumns(columnIndexes);
@@ -297,6 +301,7 @@ export function DataExplorerWorkspace() {
             // writing the CSV, and a failed apply leaves the LAST GOOD execution's rows on
             // screen while this field has already moved on.
             exportRefusal={exploration.outputLocation ? null : NOTHING_TO_EXPORT}
+            onSourceColumns={tabs.setTabSourceColumns}
           />
           <CostIndicator
             bytesScanned={lastApply?.bytesScanned ?? null}

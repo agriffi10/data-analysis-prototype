@@ -82,8 +82,11 @@ Read from the code at `73c66eef`.
   cannot either. Refusing the hand-off, with a reason saying to add `AS`, costs the user one edit.
   Offering the tab and refusing per column would leave some gestures working and others not.
 - **A `sql` tab remembers its source's columns.** A table tab's Grouping panel lists the Glue schema,
-  and a `sql` source has none. So the tab records the column list of its first ungrouped execution as
-  `sqlSourceColumns`, persisted with the tab, and `useSourceColumns` returns it for a `sql` source.
+  and a `sql` source has none. So the tab records the column list of its latest ungrouped execution
+  as `sqlSourceColumns`, persisted with the tab, and `useSourceColumns` returns it for a `sql` source.
+  Every ungrouped run of one body reports the same list, so recording each one costs nothing and
+  keeps the list right if the tables under the statement change shape. *(Revised during the build:
+  the draft recorded only the first.)*
 - **The hand-off's shape lives in `lib/`.** Neither feature can import the other, so
   this spec creates `lib/routeHandoff.ts` with this hand-off's type, builder and reader, and SPEC-243
   adds its own beside them. One module owns each shape, and its tests pin the round trip.
@@ -236,8 +239,8 @@ and still replaces the entry. State the reader does not accept is ignored, and n
 
 A `sql`-source tab, with no Glue schema, draws its headers from its execution's column metadata,
 whose types arrive in Glue's spelling (`string`, `int`). `filterValueKind`, `isTextType` and
-`operatorsFor` pick operators and value kinds from those. The first time an execution of the tab's
-source with no grouping succeeds, the tab stores its columns as `sqlSourceColumns`, and
+`operatorsFor` pick operators and value kinds from those. Whenever an execution of the tab's source
+with no grouping succeeds, the tab stores its columns as `sqlSourceColumns`, and
 `useSourceColumns` returns them for a `sql` source, so the Grouping panel can list columns while a
 grouping is applied. `explorationTabs.ts` persists and validates the field. Sorting, filtering,
 grouping, Colors, Calc, copy, *Save results to my files* and *Save as query* work as they do on a
@@ -286,7 +289,7 @@ which runs the statement again, and that each column needs its own name.
 export type ExploreSqlHandoff = {exploreSql: {body: string; label: string}};
 
 // apps/portal/src/features/data-explorer/dataExplorer.types.ts — ExplorationTab gains
-/** A `sql` source's columns, from its first ungrouped execution. Absent for a table source. */
+/** A `sql` source's columns, from its latest ungrouped execution. Absent for a table source. */
 sqlSourceColumns?: QueryColumn[];
 ```
 

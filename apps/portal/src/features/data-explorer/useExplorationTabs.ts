@@ -8,6 +8,7 @@ import {
   writeExplorationTabsState
 } from './explorationTabs';
 import type {Exploration, ExplorationSource, ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import type {QueryColumn} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 export type OpenExplorationOpts = {
@@ -45,9 +46,24 @@ export type UseExplorationTabsResult = {
    * would make its next re-save replace a file it has nothing to do with.
    */
   setTabSavedQuery: (tabId: string, link: SavedQueryLink) => void;
+  /**
+   * Remembers a `sql` tab's source columns, from an execution with no grouping.
+   *
+   * By id, for `updateTab`'s reason. A table tab is left alone — its columns are Glue's — and an
+   * equal list changes nothing, so the effect that reports every such execution cannot loop.
+   */
+  setTabSourceColumns: (tabId: string, columns: QueryColumn[]) => void;
   /** Bytes scanned by the active tab across its lifetime; 0 with no tabs. */
   activeTabBytesScanned: number;
 };
+
+function sameColumns(stored: QueryColumn[] | undefined, columns: QueryColumn[]): boolean {
+  return (
+    stored !== undefined &&
+    stored.length === columns.length &&
+    stored.every((column, index) => column.name === columns[index].name && column.type === columns[index].type)
+  );
+}
 
 /**
  * Owns the Data Explorer's tabs and their sessionStorage persistence.
@@ -158,6 +174,14 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
   const setTabSavedQuery = (tabId: string, link: SavedQueryLink) =>
     setState((s) => ({...s, tabs: s.tabs.map((t) => (t.id === tabId ? {...t, savedQuery: link} : t))}));
 
+  const setTabSourceColumns = (tabId: string, columns: QueryColumn[]) =>
+    setState((s) => {
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.exploration.source.kind !== 'sql' || sameColumns(tab.sqlSourceColumns, columns)) return s;
+      const recorded = columns.map(({name, type}) => ({name, type}));
+      return {...s, tabs: s.tabs.map((t) => (t.id === tabId ? {...t, sqlSourceColumns: recorded} : t))};
+    });
+
   return {
     tabs: state.tabs,
     activeTabId: state.activeTabId,
@@ -169,6 +193,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     updateTab,
     recordScan,
     setTabSavedQuery,
+    setTabSourceColumns,
     activeTabBytesScanned: activeTab ? tabBytesScanned(activeTab) : 0
   };
 }

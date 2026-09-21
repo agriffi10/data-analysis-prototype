@@ -12,11 +12,13 @@ import {isFilterOperator} from './explorationQueryOps';
 import type {
   ExplorationPresentation,
   ExplorationQuery,
+  ExplorationSource,
   ExplorationTab,
   ExplorationTabsState,
   FormattingState,
   QueryHistoryCursor
 } from './dataExplorer.types';
+import type {QueryColumn} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 // Per-user, current-session persistence of the Data Explorer's tabs. All access goes
@@ -144,6 +146,29 @@ function normalizeSavedQueryLink(value: unknown): SavedQueryLink | undefined {
     key: link.key as string,
     name: link.name as string
   };
+}
+
+/**
+ * Reads a `sql` tab's stored source columns, dropping anything it cannot trust.
+ *
+ * Restores the tab WITHOUT the field rather than discarding the session, on the saved-query
+ * link's precedent: the list only feeds the Grouping panel and the headers drawn before an
+ * execution lands, and the next ungrouped execution records it again. An empty list is dropped
+ * too — no execution reports one, and `[].every` would otherwise admit it.
+ *
+ * @param value - The stored `sqlSourceColumns`, or anything at all.
+ * @param source - The tab's source; a table source never carries the field.
+ * @returns The columns, or undefined wherever the document was silent or wrong.
+ */
+function normalizeSqlSourceColumns(value: unknown, source: ExplorationSource): QueryColumn[] | undefined {
+  if (source.kind !== 'sql' || !Array.isArray(value) || value.length === 0) return undefined;
+  const valid = value.every((column: unknown) => {
+    if (typeof column !== 'object' || column === null) return false;
+    const {name, type} = column as Record<string, unknown>;
+    return typeof name === 'string' && typeof type === 'string';
+  });
+  if (!valid) return undefined;
+  return (value as QueryColumn[]).map(({name, type}) => ({name, type}));
 }
 
 function isValidLedger(value: unknown): boolean {
@@ -401,6 +426,7 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
         // ordinary case for the first session after a deploy — not a fault.
         history: normalizeHistory(tab.history),
         savedQuery: normalizeSavedQueryLink(tab.savedQuery),
+        sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
         exploration: {
           ...tab.exploration,
           query: normalizeQuery(tab.exploration.query),

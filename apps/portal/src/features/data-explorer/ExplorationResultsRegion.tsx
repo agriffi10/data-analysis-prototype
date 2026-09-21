@@ -1,4 +1,4 @@
-import {useMemo, useRef, useState} from 'react';
+import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
@@ -120,6 +120,14 @@ export type ExplorationResultsRegionProps = {
    * Athena put them.
    */
   exportRefusal: string | null;
+  /**
+   * Reports the columns of an execution that ran with NO grouping — a `sql` source's own
+   * columns, which the host remembers on the tab because nothing else knows them.
+   *
+   * Reported only for the CURRENT execution once it has succeeded: never for the last good
+   * one a failure falls back to, whose description may have been grouped.
+   */
+  onSourceColumns?: (tabId: string, columns: QueryColumn[]) => void;
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
@@ -209,7 +217,8 @@ export function ExplorationResultsRegion({
   onCreateView,
   createViewRefusal,
   onExport,
-  exportRefusal
+  exportRefusal,
+  onSourceColumns
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
@@ -298,6 +307,16 @@ export function ExplorationResultsRegion({
   ) {
     setLastGood({tabId, executionId: shownExecutionId});
   }
+
+  const reportSourceColumns = useEffectEvent((forTab: string, sourceColumns: QueryColumn[]) =>
+    onSourceColumns?.(forTab, sourceColumns)
+  );
+  const ungrouped = query.grouping === null;
+  const currentSucceeded = !failed && state === 'SUCCEEDED' && shownExecutionId === queryExecutionId;
+  const settledColumns = currentSucceeded && ungrouped && !results.isPending ? results.columns : null;
+  useEffect(() => {
+    if (settledColumns && settledColumns.length > 0) reportSourceColumns(tabId, settledColumns);
+  }, [tabId, settledColumns]);
 
   // a `table` source knows its columns from Glue before anything runs, a
   // `sql` source only from the execution. The execution's own metadata WINS once it lands
