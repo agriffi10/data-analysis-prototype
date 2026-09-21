@@ -2403,6 +2403,16 @@ API's configuration — and `lambdas/test_data_quality_report_contract.py` holds
 both directions, at the fleet level, which is the only place the two planes may be imported into one
 process. Equality, not a bound: the cap is not a safety margin under the reader's limit, it IS the
 reader's limit, and a one-sided assertion would let the writer drift in the direction it permits.
+The reader's limit is on the **stored** body; under it the route also refuses a response that
+escapes past Lambda's ceiling (the storage register's document-cap entry), which the writer does
+not measure. A report is written at `ensure_ascii`, so only its quotes and backslashes cost more on
+the way out — four bytes each, nine for a `\uXXXX` escape — and only a report about a third quotes
+and backslashes can pass the ceiling under the cap. One that did would be refused with its samples
+still in it, where dropping them might have let it open. That residual is accepted because the
+density does not come from the report's own shape: the object and column caps bound how many
+strings it holds, each costing two quotes, and a `\uXXXX` escape is one backslash in six bytes. A
+report at the cap gets to a third only when its column names, file keys or values are themselves
+made of characters JSON escapes short — quotes, backslashes, newlines, tabs.
 
 **The reader between them has a cap of its own, and it is not the document's.** `csv` refuses a field
 past a process-global limit of 131,072 characters, and assemble-report re-raises everything but a

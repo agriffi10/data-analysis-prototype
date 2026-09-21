@@ -266,7 +266,11 @@ class TestTheCapsAreSizedAgainstABudget:
     """SPEC-161's rule: a cap's test computes its bound and names what sized it."""
 
     def test_the_document_cap_fits_inside_lambdas_synchronous_response_ceiling(self) -> None:
-        """The budget is 6 MB of response payload, and the cap must leave envelope room."""
+        """The budget is 6 MB of response payload, and the cap is a line on the stored body under it.
+
+        Whether a document's response fits is a separate question the routes answer by measuring
+        it, because escaping can take a document under this line past the ceiling.
+        """
         lambda_ceiling = 6 * 1024 * 1024
         assert lambda_ceiling > s3_config.MAX_DOCUMENT_BYTES
         assert lambda_ceiling // 2 <= s3_config.MAX_DOCUMENT_BYTES, (

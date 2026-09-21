@@ -19,6 +19,10 @@ Attributes:
   NO_STORE: Sent on every response. These are authorized reads, so a cache between the browser and
     the API is a cross-user disclosure — and the failure is silent, because the first user sees
     exactly the right answer.
+  LAMBDA_RESPONSE_BYTES: Lambda's 6 MiB synchronous response payload ceiling, which binds before
+    API Gateway's 10 MB. It is measured on the proxy response the runtime serializes, not on the
+    payload a route returns, and a response over it is an invocation fault the caller sees as a
+    bare gateway 5xx — never as an envelope.
 """
 
 import json
@@ -29,6 +33,7 @@ from .contract import ERROR_STATUS
 
 JSON_CONTENT_TYPE = "application/json; charset=utf-8"
 NO_STORE = "no-store"
+LAMBDA_RESPONSE_BYTES = 6 * 1024 * 1024
 
 
 class ApiError(Exception):
@@ -102,6 +107,60 @@ def success(body: dict[str, Any]) -> dict[str, Any]:
       None.
     """
     return {"statusCode": 200, "headers": _headers(), "body": json.dumps(body)}
+
+
+def served_bytes(body: dict[str, Any]) -> int:
+    """How many bytes ``success(body)`` puts on the wire, measured the way the runtime sends it.
+
+    **The payload is serialized twice, and the second pass is not free.** ``success`` renders it
+    at ``ensure_ascii=True``, so the envelope's ``body`` is pure ASCII; the runtime's
+    ``awslambdaric`` then encodes the whole proxy response again, escaping every quote and
+    backslash the first pass wrote. Per stored UTF-8 byte of a string, that is one
+    for plain ASCII, three for a newline or tab, four for a quote or backslash and seven for any
+    other control character. Non-ASCII text goes out at seven bytes a BMP character and fourteen an
+    astral one, so two-byte scripts such as Cyrillic or Greek grow 3.5x, three-byte CJK 2.33x and
+    four-byte emoji 3.5x. A stored-size cap cannot know which of those a document is, so a route
+    that must fit measures.
+
+    The runtime's own ``ensure_ascii`` follows its bootstrap's ``AWS_EXECUTION_ENV``, and neither
+    setting moves this number, because nothing non-ASCII survives the first pass for it to act on.
+
+    Args:
+      body: The payload a route is about to return.
+
+    Returns:
+      The byte length of the serialized proxy response.
+
+    Raises:
+      None.
+    """
+    return len(json.dumps(success(body), ensure_ascii=False).encode("utf-8"))
+
+
+def servable(body: dict[str, Any], detail: str) -> dict[str, Any]:
+    """Returns a payload whose response fits under Lambda's ceiling, and refuses one that does not.
+
+    A route whose payload grows with what a user stored calls this rather than trusting a cap on
+    the stored size, so the caller receives the ``PayloadTooLarge`` the route promises instead of
+    a fault the runtime raises after the route has already succeeded.
+
+    The refusal carries no ``limit``: the bound it enforced is on the response, and no stored size
+    corresponds to it, so any number sent would name a size the document is not over.
+
+    Args:
+      body: The payload a route is about to return.
+      detail: Operator text naming what was too large.
+
+    Returns:
+      The payload, unchanged.
+
+    Raises:
+      ApiError: ``PayloadTooLarge`` when the serialized response would exceed
+        ``LAMBDA_RESPONSE_BYTES``.
+    """
+    if served_bytes(body) > LAMBDA_RESPONSE_BYTES:
+        raise ApiError("PayloadTooLarge", detail)
+    return body
 
 
 def failure(

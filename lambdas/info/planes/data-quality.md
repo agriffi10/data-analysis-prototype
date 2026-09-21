@@ -97,7 +97,8 @@ deep-links to `/data-quality/:space/:requestId`.
 
 The report is the **only** place a sampled row of the user's data appears: the notification, the
 runs index and every log line carry figures, never cells. It is written within
-`DQ_REPORT_MAX_BYTES`, which is the size the browser can read a document through and is held equal
+`DQ_REPORT_MAX_BYTES`, which is the **stored** size the browser can read a document through (the read
+also refuses one whose escaped response passes Lambda's ceiling) and is held equal
 to `apicommon.s3_config.MAX_DOCUMENT_BYTES` by a fleet-level test — over it, the samples are
 dropped and the report says why, since a report the page refuses to open loses every other finding
 with them. `DQ_OFFENDING_VALUE_SAMPLE` is sized so the offending values fit on their own at the

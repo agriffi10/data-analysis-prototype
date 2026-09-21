@@ -60,6 +60,8 @@ unrecoverable — revisit before real user data lands.
   **newer** schema is refused untouched — the parse is three-way, version checked before shape.
 - **Bytes go to S3 presigned; small text goes through the API**, and the document route's **byte cap
   is what holds the line** — without it it is a second upload path that works perfectly to 6 MB. The
+  cap is on the **stored** body and the response escapes it twice — Cyrillic goes out at 3.5 times
+  its size — so the routes **measure the response**, and a write as the read it enables. The
   routes never parse and never re-serialise. Bytes go over **`XMLHttpRequest`**, which is a
   requirement: `fetch` fires no upload-progress event, so it uploads correctly and leaves the bar at
   0% — assert an **intermediate** value. **The SERVER decides whether an upload is one `PUT` or
@@ -1073,11 +1075,30 @@ URL. Compute never touches a file's bytes.
 **The document route's byte cap is what holds that line.** Without it the content route is a second
 upload path that bypasses presigning entirely and works perfectly up to Lambda's 6 MB synchronous
 response ceiling — which is to say, for every document the app actually authors, and for a good
-number of files too. `MAX_DOCUMENT_BYTES` is computed against that ceiling divided by the worst-case
-JSON escape expansion, because `json.dumps` at its default `ensure_ascii=True` renders a non-ASCII
-BMP character as a six-byte `\uXXXX` escape where UTF-8 stored three: a 4.5 MB CJK document that
-fits the cap by its stored size doubles on the way out and fails as a **fault** rather than as a
-refusal.
+number of files too. `MAX_DOCUMENT_BYTES` is half that ceiling, and it is a line on the **stored**
+body, checked before the bytes are read — **not the fit**. The response escapes the body twice:
+`envelope.success` renders it at `ensure_ascii=True`, and the runtime serializes the whole proxy
+response again, escaping every quote and backslash the first pass wrote. Per stored byte that is one
+for ASCII, three for a newline or tab, four for a quote or backslash and seven for any other control
+character; two-byte text such as Cyrillic or Greek goes out at 3.5 times its stored size, CJK at
+2.33 and an emoji at 3.5. So a document under the cap can still pass the ceiling — two megabytes of
+Cyrillic goes out at seven — and would fail as a **fault** rather than as the refusal the route
+promises. Both read routes (`objects.readContent`, `featureFlags.get`) therefore measure the
+response they would send, through `envelope.servable`, and refuse one over the ceiling as
+`PayloadTooLarge` with no `limit`, since no stored size corresponds to it; `objects.writeContent`
+measures a body as the read it would make possible, so nothing is written that the route could only
+fail to return. The per-character costs are pinned by
+`test_a_response_is_measured_after_the_runtimes_second_escape`, counted by hand, and were checked
+against `awslambdaric`'s marshaller in the pinned base image. Its `ensure_ascii` depends on the
+runtime bootstrap's `AWS_EXECUTION_ENV`, and neither setting moves the number, since nothing
+non-ASCII survives the first pass.
+
+**The cap used to be the ceiling divided by two as the worst-case escape**, reasoned from the
+three-byte case alone: a CJK character stored as three bytes becomes a six-byte `\uXXXX`. That
+missed two-byte text (3.5x), control characters (7x) and the runtime's second pass. **Rejected:** a
+divisor of seven, the true worst case. It would cut the cap to a seventh of the ceiling and refuse
+ASCII documents — JSON settings files, the data-quality report — that fit with room to spare, and it
+would still be a model of the wire rather than a measurement of it.
 
 **The document routes never parse.** Parsing server-side is the wrong implementation that looks
 identical: it works for every healthy document and turns an unparseable one into a 500 — which puts

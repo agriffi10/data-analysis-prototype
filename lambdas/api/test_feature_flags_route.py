@@ -110,6 +110,30 @@ def test_the_bytes_leave_UNPARSED(stub_directory) -> None:
     assert json.loads(response["body"])["body"] == malformed.decode("utf-8")
 
 
+def test_a_document_that_escapes_past_the_response_ceiling_is_refused(stub_directory) -> None:
+    """Two megabytes of two-byte text is under the stored cap and goes out at seven.
+
+    Args:
+      stub_directory: The stubbed user plane.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the route returns the document, or refuses it for another reason.
+    """
+    stub_directory(StubS3(payload=("Ж" * 1_000_000).encode("utf-8")))
+
+    response = _get()
+
+    assert response["statusCode"] == 413
+    error = json.loads(response["body"])["error"]
+    assert (error["code"], error["detail"]) == (
+        "PayloadTooLarge",
+        "flag document exceeds the response ceiling once escaped",
+    )
+
+
 def test_a_document_that_was_never_published_is_a_404(stub_directory) -> None:
     """A missing document is a DEPLOY defect, not the ordinary starting state.
 

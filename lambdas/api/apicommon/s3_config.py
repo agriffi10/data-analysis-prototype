@@ -1,9 +1,9 @@
 """The caps this surface enforces, and where each number comes from.
 
 Seven of these are **carried across** and must not be re-derived: three are shipped behaviour the
-spec names in as many words, and four are published service limits. **Two are derived** —
-``MAX_DOCUMENT_BYTES`` and ``MULTIPART_PART_BYTES`` — and each one's test names the budget it was
-derived against, because a hard-coded cap hides a wrong model.
+spec names in as many words, and four are published service limits. **Two are computed from a
+budget** — ``MAX_DOCUMENT_BYTES`` and ``MULTIPART_PART_BYTES`` — and each one's test names the
+budget it was computed against, because a hard-coded cap hides a wrong model.
 
 **The multipart block below is one quantity wearing two names, deliberately.** The largest object
 that can be trusted to finish inside one presigned window on the slowest supported uplink is
@@ -11,16 +11,17 @@ that can be trusted to finish inside one presigned window on the slowest support
 rather than a second tunable that could drift away from it.
 
 Attributes:
-  MAX_DOCUMENT_BYTES: The largest body the document routes will carry. Sized against Lambda's 6 MB
-    synchronous response payload — which binds before API Gateway's 10 MB request side — divided by
-    the worst-case JSON escape expansion. **The divisor is not a comfort margin.**
-    ``envelope.success`` calls ``json.dumps`` at its default ``ensure_ascii=True``, which renders a
-    non-ASCII BMP character as a six-byte ``\\uXXXX`` escape where UTF-8 stored three: a document
-    that fits the cap by its stored size can double on the way out. A 4.5 MB CJK document under a
-    three-quarters margin produces a response over the ceiling and fails as a fault rather than as
-    a refusal. **Without any cap the document route is a second upload path that bypasses
-    presigning entirely and works perfectly up to 6 MB**, which is the whole reason small text goes
-    through the API and bytes do not.
+  MAX_DOCUMENT_BYTES: The largest STORED body the document routes will carry: half of
+    ``envelope.LAMBDA_RESPONSE_BYTES``. **It is a line, not the fit.** It is checked before the
+    bytes are read, and it keeps the route a small-text path — **without any cap the document route
+    is a second upload path that bypasses presigning entirely and works perfectly up to 6 MB**,
+    which is the whole reason small text goes through the API and bytes do not. Whether a document
+    under it fits is a separate question the routes answer by measuring the response
+    (``envelope.servable``), because the expansion depends on the text: a serialized response costs
+    up to seven bytes per stored byte, and two megabytes of Cyrillic goes out at seven. Half the
+    ceiling lets a document whose escapes are sparse — ASCII JSON, a data-quality report — grow on
+    the way out and still be served; a cap sized to the worst case would be a seventh of the
+    ceiling, and would refuse ASCII documents the measurement serves.
   S3_SINGLE_PUT_MAX_BYTES: The S3 ``PutObject`` ceiling, which clamps the configured upload cap. A
     published service limit carried across rather than derived — what makes it worth naming is that
     it is exactly the ceiling multipart already had, so the single-``PUT`` design moves it nowhere.
@@ -58,13 +59,12 @@ Attributes:
 
 from typing import Final
 
+from .envelope import LAMBDA_RESPONSE_BYTES
+
 _MIB: Final[int] = 1024 * 1024
 _GIB: Final[int] = 1024 * _MIB
 
-_LAMBDA_SYNC_RESPONSE_BYTES: Final[int] = 6 * _MIB
-_JSON_ESCAPE_WORST_CASE: Final[int] = 2
-
-MAX_DOCUMENT_BYTES: Final[int] = _LAMBDA_SYNC_RESPONSE_BYTES // _JSON_ESCAPE_WORST_CASE
+MAX_DOCUMENT_BYTES: Final[int] = LAMBDA_RESPONSE_BYTES // 2
 
 S3_SINGLE_PUT_MAX_BYTES: Final[int] = 5 * _GIB
 

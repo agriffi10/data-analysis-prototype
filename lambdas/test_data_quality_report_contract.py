@@ -159,8 +159,9 @@ def test_the_report_cap_is_derived_from_lambdas_response_ceiling_and_not_a_round
     """Pins the derivation behind the number, so a coincidence cannot stand in for agreement.
 
     Equality alone would still hold if both sides were edited to the same wrong figure. The cap is
-    a Lambda synchronous response's 6 MiB halved for JSON escaping, and that is what is asserted —
-    the budget, named, rather than the value it currently produces.
+    half a Lambda synchronous response's 6 MiB — the document routes' line on a stored body, below
+    which they measure the escaped response instead — and that is what is asserted: the budget,
+    named, rather than the value it currently produces.
 
     Args:
       None.

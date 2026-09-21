@@ -705,6 +705,113 @@ class TestDocumentsAreBytes:
         assert error["params"] == {"name": "q1.json"}
 
 
+LAMBDA_RESPONSE_CEILING = 6 * 1024 * 1024
+TWO_BYTE_TEXT = "Ж" * 1_000_000
+TWO_BYTE_TEXT_THAT_FITS = "Ж" * 890_000
+
+
+def _least_wire_bytes(text):
+    """A floor on the response that serves ``text``: the body alone, escaped twice.
+
+    Built without the route's own measurement, so a test using it is not checking that function
+    against itself. Headers and the ETag are left out, which only makes the figure smaller.
+
+    Args:
+      text: The document.
+
+    Returns:
+      The byte length of the runtime's serialization of a response carrying only the text.
+
+    Raises:
+      None.
+    """
+    return len(json.dumps({"body": json.dumps({"body": text})}, ensure_ascii=False).encode())
+
+
+class TestADocumentIsMeasuredAsItWouldLeave:
+    """The stored-size cap cannot see escaping, and two-byte text escapes to 3.5 times its size."""
+
+    def test_two_byte_text_under_the_stored_cap_is_refused_and_not_left_to_fault(self, s3) -> None:
+        """Two megabytes of Cyrillic passes the stored cap and would go out at seven.
+
+        By detail and by the absent ``limit``, because the stored-cap refusal answers the same
+        code and its ``limit`` would name a size this document is not over.
+        """
+        from apicommon import s3_config
+
+        stored = TWO_BYTE_TEXT.encode("utf-8")
+        assert len(stored) <= s3_config.MAX_DOCUMENT_BYTES
+        assert _least_wire_bytes(TWO_BYTE_TEXT) > LAMBDA_RESPONSE_CEILING
+        s3(RecordingS3(body=stored))
+
+        answer = router.route(
+            "GET",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/saved_queries/ru.sql"},
+        )
+
+        assert answer["statusCode"] == 413
+        error = json.loads(answer["body"])["error"]
+        assert (error["code"], error["detail"]) == (
+            "PayloadTooLarge",
+            "document exceeds the response ceiling once escaped",
+        )
+        assert "params" not in error
+
+    def test_two_byte_text_whose_response_fits_is_served_whole(self, s3) -> None:
+        """The control: the refusal is on the measured size, not on the script."""
+        s3(RecordingS3(body=TWO_BYTE_TEXT_THAT_FITS.encode("utf-8")))
+
+        answer = router.route(
+            "GET",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/saved_queries/ru.sql"},
+        )
+
+        assert answer["statusCode"] == 200
+        assert json.loads(answer["body"])["body"] == TWO_BYTE_TEXT_THAT_FITS
+        sent = len(json.dumps(answer, ensure_ascii=False).encode("utf-8"))
+        assert LAMBDA_RESPONSE_CEILING - 100_000 < sent <= LAMBDA_RESPONSE_CEILING
+
+    def test_a_write_the_route_could_not_read_back_is_refused_before_any_s3_call(self, s3) -> None:
+        """Measured as the read it would make possible: stored, it could only ever fault."""
+        from apicommon import s3_config
+
+        assert len(TWO_BYTE_TEXT.encode("utf-8")) <= s3_config.MAX_DOCUMENT_BYTES
+        fake = s3(RecordingS3())
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            _body(
+                {
+                    "space": {"kind": "personal", "name": "alice"},
+                    "key": "alice/saved_queries/ru.sql",
+                    "body": TWO_BYTE_TEXT,
+                    "contentType": "text/plain; charset=utf-8",
+                    "overwrite": True,
+                }
+            ),
+            None,
+        )
+
+        assert answer["statusCode"] == 413
+        error = json.loads(answer["body"])["error"]
+        assert (error["code"], error["detail"]) == (
+            "PayloadTooLarge",
+            "document could not be read back under the response ceiling once escaped",
+        )
+        assert (fake.calls, fake.assumes) == ([], 0)
+
+
 class TestMutations:
     """FR-001 AC4 and AC6 — one move, and a dict copy source."""
 
