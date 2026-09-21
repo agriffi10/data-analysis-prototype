@@ -377,6 +377,12 @@ def _unreadable(exc: Exception) -> _Refusal:
 
     polars reports no row number, so neither does the refusal.
 
+    **The message is not read for a cause either, because it does not carry one.** The
+    streaming reader's failure on a large result holding newlines inside quoted values reaches
+    here as "not properly escaped", as "more fields than defined", and — where the mis-split
+    lands in a typed column — as the same "could not parse … as dtype" a real type mismatch
+    raises. So one code covers both, and its sentence names both repairs.
+
     Args:
       exc: Whatever polars raised.
 

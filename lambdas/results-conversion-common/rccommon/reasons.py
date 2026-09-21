@@ -30,9 +30,10 @@ Attributes:
     parse as the type Athena declared for its column — but **not always, and the wording must
     not say so**: a CSV conversion types nothing at all, reading every column as text, so a type
     mismatch can never be its cause, and the reader itself refuses some large results holding
-    newlines inside quoted values. The sentence therefore states what happened and offers the
-    cast as a conditional repair rather than as the diagnosis. The whole conversion refuses and
-    no partial file is written.
+    newlines inside quoted values. The converter cannot tell those two apart, because polars
+    words the second under several messages and one of them reads as a type failure. The
+    sentence therefore states what happened and offers each cause's repair as a conditional
+    rather than as the diagnosis. The whole conversion refuses and no partial file is written.
   EXCEL_ROW_LIMIT: The result set has more rows than a worksheet can hold.
   EXCEL_CELL_LIMIT: The result set has more cells than the converter can hold while it builds a
     workbook. Not a file-format limit: Excel's path cannot stream, and its memory is set per
