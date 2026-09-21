@@ -250,7 +250,10 @@ def copy_one(
     """Copies one object server-side, choosing single or multipart by its size.
 
     A failed multipart upload is aborted so it never leaves a half-open upload accruing
-    storage. The abort itself is best-effort, since an expired upload lifecycles away.
+    storage. The abort itself is best-effort, since an expired upload lifecycles away. The
+    create is guarded on its own because a create that failed opened nothing to abort, and it is
+    classified like every other call here: a throttle on it must retry the batch, since failing
+    the item instead rolls a whole archive back over a fault that would have passed.
 
     **THE STORAGE CLASS IS SET IN TWO DIFFERENT PLACES, and only one of them is obvious.** On the
     single-copy path it is an argument to ``CopyObject``. On the multipart path it belongs to
@@ -316,8 +319,13 @@ def copy_one(
         return
 
     extra.update(_source_headers(s3, src_bucket, src_key))
-    upload = s3.create_multipart_upload(Bucket=dest_bucket, Key=dest_key, **extra)
-    upload_id = upload["UploadId"]
+    try:
+        upload_id = s3.create_multipart_upload(Bucket=dest_bucket, Key=dest_key, **extra)[
+            "UploadId"
+        ]
+    except Exception as exc:
+        errors.raise_if_transient(exc, detail)
+        raise
     try:
         parts = []
         offset = 0
