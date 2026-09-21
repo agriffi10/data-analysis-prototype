@@ -87,7 +87,13 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
   buffer works on 1.12 and 1.44, so it can ship and deploy while 1.12 is still pinned, and the
   version move then changes nothing about how a probe reads. `S3RangeReader` is deleted with its
   last caller. No polars 1.44 API reads only a footer from a Python file object, so waiting for
-  one is not an option.
+  one is not an option. The new reader is `bounded_read.read_parquet_footer`, not
+  `parquet_footer`, because `rccommon.parquet_footer` is already a module of that name.
+- **The trailer is checked in one place.** `rccommon.parquet_footer._metadata` already checks that
+  a file is at least 12 bytes, ends in `PAR1` and declares a footer it holds. A second copy of
+  those checks in `bounded_read` would drift from the first, and the first already has the check
+  the new reader would otherwise miss (a declared length longer than the object). So the checks
+  move to `cpcommon.parquet_trailer.footer_span`, and both readers call it.
 - **`SINK_OPTIONS` is retired, not translated.** Re-expressing it as
   `optimizations=pl.QueryOptFlags(projection_pushdown=False)` would keep parsing dropped columns
   to guard against a mis-split 1.44.2 does not make. The guard that remains is a test that converts
@@ -108,20 +114,29 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
   `pl.len()`; on 1.44 both are right, and changing correct code to follow a library fix buys
   nothing. What changes is the tests and the words that say `pl.len()` is wrong, which become a
   statement about 1.12.
-- **The Excel caps are re-derived, not assumed to carry over.** `MEASURED_ON` says they are only as
-  true as the library that produced them. The re-derivation follows the rules already in
-  `rccommon.config` and the plane page's Traps, including the live check of the model-peak input.
+- **The 1.44.2 measurements join the evidence; they do not replace it, so no cap can rise.**
+  `MEASURED_EXCEL_SHAPES` already keeps each shape's HIGHEST peak over every run and its LOWEST
+  rate over the native runs, and `OUTPUT_EXPANSION` the worst figure observed. The new runs join
+  those populations by the same rules, so a constant can only stay or become more conservative,
+  and a cap can only stay or fall. Letting 1.44's figures REPLACE 1.12's would lower constants on
+  the strength of runs nobody has validated in production, and the Parquet cap alone would move
+  from 1,472 to 1,728 MiB, past what the scratch disk holds at the measured 0.252 expansion. What
+  cannot be re-measured before the push stays as it is and says so: the production gap inside
+  `EXCEL_BASELINE_MB`, `_LOCAL_TO_PRODUCTION`, and the Parquet, JSON and Excel expansion figures,
+  which came from a corpus the script does not reproduce. The live at-cap conversion is what
+  validates the model on 1.44.
 
 ## Scope
 
 ### In Scope
 
-- A Parquet schema probe that fetches only the footer, replacing `S3RangeReader` (FR-001).
+- A Parquet schema probe that fetches only the footer, replacing `S3RangeReader`, with the
+  trailer checks shared with `rccommon.parquet_footer` (FR-001).
 - Both polars pins moved to 1.44.2, with the image building and every suite green (FR-002).
 - Results holding multi-line values converting correctly in every streamed format, whole or in
   part; `SINK_OPTIONS` and its tests retired; the refusal sentence and detail corrected (FR-003).
-- The Excel memory model, its corpus, the caps derived from it and the output expansion
-  re-measured in the image built from this spec's branch (FR-004).
+- The Excel memory model's corpus and the output expansion re-measured in the images built from
+  this spec's branch, joining the existing evidence so that no cap rises (FR-004).
 - Every statement that a polars behaviour holds, where it held only on 1.12, re-stated or retired,
   and the live checks that close the move (FR-005).
 
@@ -146,59 +161,76 @@ spec and are not evidence a reader can re-run; the acceptance criteria below are
 
 #### Description:
 
-`cpcommon.bounded_read` gains `parquet_footer(bucket, key)`, which fetches an object's last 8
-bytes, checks the `PAR1` trailer, fetches the footer those bytes name, and returns an in-memory
-buffer framing that footer as a file (`PAR1`, footer, length, `PAR1`). `infer_schema.py` and
-`dq_inspect_source.py` hand that buffer to `pl.read_parquet_schema` where they now hand an
-`S3RangeReader`, and `S3RangeReader` is deleted. The footer is bounded by
-`DEFAULT_PROBE_MAX_BYTES`; a longer one, an object shorter than 12 bytes, or a trailer that is not
-`PAR1` raises an ordinary exception, so each plane's existing handling of an unreadable Parquet
-applies unchanged. A retryable S3 fault goes through `errors.raise_if_transient` as the other
-reads here do.
+`cpcommon.parquet_trailer.footer_span(object_size, trailer)` takes an object's size and its last 8
+bytes and returns the footer's offset and length, raising `ParquetTrailerError` (a `ValueError`)
+for an object under 12 bytes, a trailer not ending in `PAR1`, or a declared footer longer than
+`object_size - 12`. `cpcommon.bounded_read.read_parquet_footer(bucket, key)` reads the object's
+size and last 8 bytes with ranged GETs, calls `footer_span`, refuses a footer longer than
+`DEFAULT_PROBE_MAX_BYTES` with `ParquetTrailerError`, fetches the footer, and returns an
+`io.BytesIO` of `PAR1`, the footer, its 4-byte little-endian length and `PAR1`. A retryable S3
+fault goes through `errors.raise_if_transient`, as the other reads in that module do.
+`rccommon.parquet_footer._metadata` delegates its three trailer checks to `footer_span` and
+re-raises its error as `ParquetFooterError`, so its callers are unchanged.
+
+`infer_schema._parquet_source` and `dq_inspect_source._parquet_source` return
+`read_parquet_footer(bucket, key)` where they return an `S3RangeReader` today, and both are
+already called inside the `try` that turns a failure into each verb's named refusal. The
+`S3RangeReader` class and its tests are deleted, and every passage describing it is rewritten.
 
 #### Acceptance Criteria:
 
-- [ ] A test builds a multi-megabyte Parquet file with at least five dtypes, including a decimal,
-      a list and a struct, serves it through a fake S3 that records every `Range` it is asked for,
-      and asserts that `pl.read_parquet_schema(parquet_footer(...))` equals polars' schema of the
-      whole file **and** that the bytes fetched are no more than the footer's length plus 8.
-- [ ] That test passes under polars 1.12.0 and under 1.44.2; the build records both runs' exit
-      codes.
-- [ ] A footer longer than `DEFAULT_PROBE_MAX_BYTES`, an object of 11 bytes, and an object whose
-      last four bytes are not `PAR1` each raise from `parquet_footer`; and driven through each
-      verb's handler, one of them refuses as `schema_inference_failed` in table-builder's
-      infer-schema and as `unreadable_header` in data-quality's inspect-source — the codes each
-      already raises for an object it cannot read — rather than as a fault.
-- [ ] `parquet_footer` is called inside the `try` each verb already wraps its probe in, so a fetch
-      failure meets the same handling a parse failure does.
+- [ ] A test builds a Parquet file of at least 2 MB with at least five dtypes, including a
+      decimal, a list and a struct, and many row groups. It serves the file through a fake S3 that
+      records every `Range` requested, and asserts two things: that
+      `pl.read_parquet_schema(read_parquet_footer(...))` equals polars' schema of the whole file,
+      and that the ranges fetched total no more than the footer's length plus 8.
+- [ ] That test passes under polars 1.12.0 and under 1.44.2, and the PR body quotes both runs'
+      exit codes.
+- [ ] `footer_span` is tested on an 11-byte object, on a trailer ending in something other than
+      `PAR1`, and on a declared length one byte past `object_size - 12`. Each raises
+      `ParquetTrailerError`, and each test asserts that the message says which of the three
+      failures it was.
+- [ ] Driven through each verb's handler, an object whose trailer is not `PAR1` refuses as
+      `schema_inference_failed` in table-builder's infer-schema and as `unreadable_header` in
+      data-quality's inspect-source. These are the codes each already raises for an object it
+      cannot read. A footer over `DEFAULT_PROBE_MAX_BYTES` refuses the same way. Neither case
+      reaches a fault.
 - [ ] A throttled ranged GET raises `TransientError`.
-- [ ] `S3RangeReader` has no definition and no caller; `git grep S3RangeReader` returns only
-      history in `docs/`.
+- [ ] `rccommon.parquet_footer`'s existing tests pass unchanged, and `_metadata` no longer
+      compares against `_MAGIC` or the 12-byte minimum itself.
+- [ ] `git grep S3RangeReader` returns nothing under `lambdas/`. The passage in
+      `lambdas/info/shared-layer.md` describes `read_parquet_footer`, and so do the docstrings
+      that describe `S3RangeReader`'s behaviour or its throttle handling: `infer_schema.py`'s
+      module docstring, both `_parquet_source` docstrings, and both `_columns_from` /
+      `_infer_columns` docstrings.
+- [ ] Live, after this phase deploys and while 1.12 is still pinned: a table-builder run and a
+      data-quality check, each over a Parquet folder, succeed. That shows the ranged GETs work
+      against real S3 before the version move is added on top.
 
 ### FR-002: The fleet runs polars 1.44.2
 
 #### Description:
 
-Both pins — `lambdas/table-builder-infer-schema/requirements.txt` and
-`lambdas/data-quality-polars/requirements.txt` — read `polars==1.44.2`. The image builds, its
-requirement-constraint check passes, and `scripts/lambda-image-matrix.sh` passes. The Lambda suite
-is green on 1.44.2, and the tests that asserted a 1.12 behaviour are changed to assert what is
-now true or deleted where the behaviour they guarded no longer exists.
+Both pins read `polars==1.44.2`: `lambdas/table-builder-infer-schema/requirements.txt` and
+`lambdas/data-quality-polars/requirements.txt`. The image builds, its requirement-constraint check
+passes, and `.github/scripts/lambda-image-matrix.sh <image-ref>` passes against it. The Lambda
+suite is green on 1.44.2. Each test that asserted a 1.12 behaviour is changed to assert what is
+now true, or is deleted where the behaviour it guarded no longer exists.
 
 #### Acceptance Criteria:
 
-- [ ] Both requirements files pin `polars==1.44.2`, and no file under `lambdas/` or `scripts/`
-      names 1.12.0 as the installed version.
+- [ ] Both requirements files pin `polars==1.44.2`.
 - [ ] The image built from `lambdas/Dockerfile` for `linux/amd64` prints `1.44.2` for
-      `python -c "import polars; print(polars.__version__)"`, and its build log shows the
-      constraint check's success line.
-- [ ] `python3 -m pytest lambdas/` exits 0 with polars 1.44.2 installed, and the runner's
-      collected test names are diffed against `main`'s: every name that disappears is listed in
-      the PR body with the 1.12 behaviour it guarded.
+      `python -c "import polars; print(polars.__version__)"`. Its build log shows the constraint
+      check's success line. `.github/scripts/lambda-image-matrix.sh` exits 0 against it.
+- [ ] `python3 -m pytest lambdas/` exits 0 with polars 1.44.2 installed, in a checkout where
+      `npm ci` has run (`test_local_install_guard.py` needs `node_modules` whatever polars is).
+- [ ] The test names the runner collects are diffed against `main`'s. The PR body lists every name
+      that disappears, with the 1.12 behaviour it guarded.
 - [ ] A JSON source whose integer exceeds int64's maximum refuses as `unmappable_type` in
-      table-builder's infer-schema and as `unreadable_header` in data-quality's inspect-source, the
-      codes each already raises for a dtype `map_dtype` refuses; each is asserted by its reason
-      and its detail naming the column.
+      table-builder's infer-schema and as `unreadable_header` in data-quality's inspect-source.
+      These are the codes each already raises for a dtype `map_dtype` refuses. Each is asserted by
+      its reason and by a detail that names the column.
 
 ### FR-003: A result holding multi-line values converts, whole or in part
 
@@ -206,78 +238,122 @@ now true or deleted where the behaviour they guarded no longer exists.
 
 With 1.44.2 installed, `SINK_OPTIONS` is removed from `rc_convert.py` together with
 `test_every_streamed_sink_takes_the_options_it_is_given`, and the three sinks are called with no
-options. `test_a_column_subset_the_streaming_reader_mis_splits_is_refused_never_written_wrong`
-becomes a test that the same shapes CONVERT with every row right. `results_unreadable`'s sentence
-returns to SPEC-239's. `_unreadable` stops putting a byte offset into the detail.
+options. `test_a_column_subset_the_streaming_reader_mis_splits_is_refused_never_written_wrong` is
+replaced by a test that the same shapes CONVERT, with every row right. `results_unreadable`'s
+sentence returns to SPEC-239's, which #856 replaced: *"part of the results could not be read, so
+"{filename}" was not written. If a column's values don't all match the type the query gave it,
+casting that column and running the query again will fix it."* `_unreadable` stops putting a byte
+offset into the detail.
 
 #### Acceptance Criteria:
 
-- [ ] For Parquet, JSON and CSV, a result of 60,000 rows whose every tenth value is a 200-character
-      multi-line document converts in full and with `columnIndexes=[0]`, and the written file's
-      rows equal Python's `csv` module's reading of the input, row for row.
-- [ ] The same test, run under polars 1.12.0, fails; the build records that run.
-- [ ] `messages.failure_message(results_unreadable, …)` returns SPEC-239's sentence exactly, and the
-      plane suite's golden asserts it whole.
-- [ ] A value that does not parse as its column's type refuses with a detail naming the column and
-      carrying no "at byte" clause.
-- [ ] `SINK_OPTIONS` has no definition and no reference in `lambdas/`.
+- [ ] For Parquet, JSON and CSV, take a result of 60,000 rows whose every tenth value is a
+      200-character multi-line document. It converts both in full and with `columnIndexes=[0]`, and
+      the written file's rows equal Python's `csv` module's reading of the input, row for row.
+- [ ] The same test fails when run under polars 1.12.0, and the PR body quotes that run.
+- [ ] `messages.failure_message(results_unreadable, …)` returns the sentence above, and the plane
+      suite's golden asserts it whole.
+- [ ] A value that does not parse as its column's type refuses with a detail that names the column
+      and carries no "at byte" clause. The test asserts both.
+- [ ] `SINK_OPTIONS` has no definition and no reference under `lambdas/`.
 
-### FR-004: The Excel caps and the output expansion are re-derived on the new image
+### FR-004: The Excel and expansion evidence is re-measured on the new image, and no cap rises
 
 #### Description:
 
-`scripts/measure_excel_peak.py` is run in the image built from this spec's branch, for amd64,
-following its own instructions, and `scripts/measure_conversion_expansion.py` in the same image.
-The Excel constants in `rccommon.config`, the `MEASURED_EXCEL_SHAPES` corpus and
-`OUTPUT_EXPANSION` are set from those runs by the rules their docstrings already state, and
-`MEASURED_ON` names polars 1.44.2 and the commit the image was built from. The caps derived from
-them are recomputed by the budget test.
+`scripts/measure_excel_peak.py` runs three times natively on arm64 and once on amd64, against
+images built from this spec's branch by the script's own instructions. That is the shape of the
+evidence `MEASURED_ON` already describes. `scripts/measure_conversion_expansion.py` runs once in
+the arm64 image. The results join the existing evidence by its existing rules:
+- each `MEASURED_EXCEL_SHAPES` row keeps the HIGHEST peak per cell over every run, 1.12's
+  included;
+- each row keeps the LOWEST rate over the native runs;
+- each Excel constant and each `OUTPUT_EXPANSION` figure rises if a new run exceeds it, and
+  otherwise stays.
+
+`MEASURED_ON` gains a sentence naming polars 1.44.2, xlsxwriter's version, the runs, and the
+`main` commit the measured branch was based on. It says which figures carry over unmeasured and
+why.
 
 #### Acceptance Criteria:
 
-- [ ] `MEASURED_ON` names polars 1.44.2, the xlsxwriter version and the commit the measured image
-      was built from, and no longer names 1.12.0.
-- [ ] Each Excel constant is at or above the maximum the new runs measured for the term it bounds,
-      and the corpus is the new runs' output; the budget test in
-      `test_plane_results_conversion.py` passes against the recomputed caps.
-- [ ] Each `OUTPUT_EXPANSION` figure is at or above the worst the image run measured for its
-      format.
-- [ ] If the recomputed `EXCEL_MAX_CELLS` or any `RESULTS_MAX_BYTES` differs from today's, the
-      §4.3 at-cap row in `docs/testing/e2e.md` is regenerated for the new cap, by the rule that row
-      states, before the push.
+- [ ] No Excel constant and no `OUTPUT_EXPANSION` figure is lower than it is on `main`. The
+      budget test in `test_plane_results_conversion.py` passes against the recomputed caps, and
+      no `RESULTS_MAX_BYTES` entry and not `EXCEL_MAX_CELLS` is higher than on `main`.
+- [ ] Every `MEASURED_EXCEL_SHAPES` row is at least the highest peak any of the four new runs
+      measured for its shape. Its rate is at most the lowest the three native runs measured. The
+      PR body carries the four runs' output.
+- [ ] `MEASURED_ON` names polars 1.44.2, the xlsxwriter version, the four Excel runs and the
+      expansion run, and the `main` commit the branch was based on. It names
+      `EXCEL_BASELINE_MB`'s production gap, `_LOCAL_TO_PRODUCTION`, and the Parquet, JSON and
+      Excel expansion figures as carried over from 1.12, each with its reason.
+- [ ] If any Excel constant changed, the §4.3 at-cap row in `docs/testing/e2e.md` is regenerated
+      by the rule that row states, before the push: its input at the recomputed cap, and its
+      model figure from the recomputed constants. If none changed, the row stands and the PR body
+      says so.
 
 ### FR-005: Every 1.12-only claim is re-stated or retired, and the move is checked live
 
 #### Description:
 
-Every place that states a polars behaviour as current, where the behaviour held on 1.12 and not
-on 1.44.2, is corrected in the same PR as the pin: the plane pages' Traps, docstrings, test
-docstrings, `lambdas/info/shared-layer.md`, and the `docs/decisions/` entries that state them. The
-set is the survey's list above plus whatever `git grep -n -i "1\.12"` finds. After deploy, the move
-is checked in production.
+Every place that states a polars behaviour as current, where that behaviour held on 1.12 and does
+not hold on 1.44.2, is corrected in the same PR as the pin. After the deploy, the move is checked
+in production, with a positive control run before the deploy.
 
 #### Acceptance Criteria:
 
-- [ ] `git grep -n -i "1\.12"` over `lambdas/`, `scripts/` and `docs/decisions/` returns only
-      lines that say what 1.12 did as history, each reviewed by the diff's reviewers.
-- [ ] The results-conversion Traps entries for the fast count, the streaming mis-split and
-      `schema_overrides` state what 1.44.2 does; the `shared-layer.md` passage on `S3RangeReader`
-      describes `parquet_footer`; the polars size figure is corrected.
-- [ ] Live, after deploy: a Data Explorer save of a result holding multi-line values, over
-      2 MB, with one column hidden, converts to Parquet with the right row count; the same result
-      saves as JSON; a table built by table-builder over that Parquet file answers
-      `SELECT count(*)` with the same row count; a data-quality check over the same folder
-      succeeds, so both callers of `parquet_footer` have run in production; and the regenerated §4.3
-      at-cap Excel row converts with its `REPORT` line at or under the model's figure. Any of
-      these that cannot run from a signed-in session becomes a row in `docs/testing/owed.md`.
+- [ ] `git grep -n -E "polars 1\.12|1\.12\.0"` over `lambdas/`, `scripts/`, `docs/decisions/` and
+      `lambdas/info/` is run, and the PR body lists every remaining match with one line on why it
+      stays.
+- [ ] Each of these states what 1.44.2 does, or marks the 1.12 behaviour as history:
+      - the results-conversion Traps entries for the fast count, the streaming mis-split and
+        `schema_overrides`;
+      - `docs/decisions/control-planes.md` at its `schema_overrides` passage and its fast-count
+        passage;
+      - SPEC-239's two "after close" markers, in its spec and its delivery doc;
+      - `lambdas/info/shared-layer.md`'s polars size figure, and the same figure in
+        `lambdas/control-plane-common/requirements.txt`.
+- [ ] Positive control, in production **before** the Phase 2 deploy: the query below is saved as
+      Parquet, in full, from the Query workspace, and is refused as `results_unreadable`.
+
+      `SELECT CAST(x AS varchar) AS id, IF(x % 10 = 0, '{' || chr(10) || '  "k": 1,' || chr(10) ||
+      '  "v": "' || rpad('', 200, 'z') || '"' || chr(10) || '}', '{}') AS doc
+      FROM UNNEST(sequence(0, 199999)) AS t(x)`
+
+      If it is not refused, the shape does not mis-split in production, and a different shape
+      must be found that is refused before the next check counts.
+- [ ] After the deploy, the same query saves as Parquet in full and as JSON in full, each
+      reporting 200,000 rows. It also saves as Parquet from Data Explorer with `doc` hidden,
+      reporting 200,000 rows.
+- [ ] After the deploy, a result with every type the converter writes is saved as Parquet into a
+      folder of its own. Table-builder builds a table over that folder. Both
+      `SELECT * FROM <table> EXCEPT <the query>` and `<the query> EXCEPT SELECT * FROM <table>`
+      return no rows. The query is:
+
+      `SELECT x AS b, CAST(x AS double) / 3 AS d, CAST(x AS decimal(12,2)) / 7 AS dec,
+      x % 2 = 0 AS flag, date_add('day', x, DATE '2024-01-01') AS dt,
+      TIMESTAMP '2024-01-02 03:04:05.123' + x * INTERVAL '1' SECOND AS ts,
+      IF(x % 5 = 0, NULL, 'v' || CAST(x AS varchar)) AS s FROM UNNEST(sequence(1, 1000)) AS t(x)`
+
+      A data-quality check over the same folder also succeeds.
+- [ ] After the deploy, the §4.3 at-cap Excel row converts. Its `REPORT` line is at or under the
+      model's figure, as that row states.
+- [ ] Any of these that cannot run from a signed-in session becomes a row in
+      `docs/testing/owed.md`.
 
 ---
 
 ## Data Model
 
 ```python
+# lambdas/control-plane-common/cpcommon/parquet_trailer.py
+class ParquetTrailerError(ValueError): ...
+
+def footer_span(object_size: int, trailer: bytes) -> tuple[int, int]:
+    """The footer's (offset, length), from an object's size and its last 8 bytes."""
+
 # lambdas/control-plane-common/cpcommon/bounded_read.py
-def parquet_footer(bucket: str, key: str) -> io.BytesIO:
+def read_parquet_footer(bucket: str, key: str) -> io.BytesIO:
     """A buffer holding only the object's Parquet footer, framed as a file polars can read."""
 ```
 
@@ -285,34 +361,38 @@ No wire type, state-machine field or TypeScript type changes.
 
 ## File & Folder Structure
 
-- `lambdas/control-plane-common/cpcommon/bounded_read.py` and `test_bounded_read.py` — FR-001
+- `lambdas/control-plane-common/cpcommon/parquet_trailer.py` (new), `bounded_read.py`, and their
+  tests — FR-001
+- `lambdas/results-conversion-common/rccommon/parquet_footer.py` — FR-001 (delegates its checks)
 - `lambdas/table-builder-infer-schema/infer_schema.py`,
-  `lambdas/data-quality-inspect-source/dq_inspect_source.py` — FR-001 callers
+  `lambdas/data-quality-inspect-source/dq_inspect_source.py`, `lambdas/info/shared-layer.md` —
+  FR-001
 - `lambdas/table-builder-infer-schema/requirements.txt`,
   `lambdas/data-quality-polars/requirements.txt` — FR-002
 - `lambdas/results-conversion-convert/rc_convert.py` and its test,
   `lambdas/results-conversion-common/rccommon/{messages,reasons,config}.py` and the plane suite —
   FR-003, FR-004
-- `lambdas/info/planes/results-conversion.md`, `lambdas/info/shared-layer.md`,
-  `docs/decisions/control-planes.md`, `docs/testing/e2e.md` — FR-004, FR-005
+- `lambdas/info/planes/results-conversion.md`, `docs/decisions/control-planes.md`,
+  `docs/testing/e2e.md`, SPEC-239's spec and delivery doc — FR-004, FR-005
 
 ## Implementation Phases
 
 ### Phase 1: The footer-only probe, on 1.12 (FR-001)
 
-Lands and deploys on its own before the pin moves, since it works on both versions and changes
-how nothing but the probe reads.
+Its own PR. It lands and deploys before the pin moves, because it works on both versions and
+changes nothing except how the probe reads. FR-001's live check runs after its deploy.
 
 ### Phase 2: The pin, the converter and the tests (FR-002, FR-003)
 
-The pin moves and everything that fails on 1.44.2 is resolved in the same branch.
+FR-005's positive control runs in production first, while 1.12 and #856 are live. Then the pin
+moves, and everything that fails on 1.44.2 is resolved on the same branch.
 
 ### Phase 3: Re-measure in the image (FR-004)
 
-On the Phase 2 branch, before it is pushed: the image is built and both measurement scripts run
-in it, and the constants and corpus are set from the output.
+On the Phase 2 branch, before it is pushed: the images are built, both measurement scripts run,
+and the evidence and constants are updated by FR-004's rules.
 
 ### Phase 4: The records and the live checks (FR-005)
 
-The claims are corrected on the same branch, which lands as one PR with Phases 2 and 3; the live
+The claims are corrected on the same branch, which lands as one PR with Phases 2 and 3. The live
 checks run after its deploy.
