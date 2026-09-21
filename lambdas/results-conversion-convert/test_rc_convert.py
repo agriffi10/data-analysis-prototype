@@ -4,6 +4,7 @@ Driven through `handler`, because the decorator stack is part of the verb — a 
 inner function would let the span and the failure notifier be removed with the suite green.
 """
 
+import inspect
 import io
 import json
 import os
@@ -876,7 +877,7 @@ def test_an_excel_conversion_writes_only_the_chosen_columns_in_the_chosen_order(
     assert shared[:2] == ["c", "a"], "the header row is the chosen columns, in order"
 
 
-def test_a_column_left_out_cannot_be_the_reason_the_file_is_refused(s3, tmp_path):
+def test_a_column_left_out_cannot_refuse_the_file_by_its_type(s3, tmp_path):
     """A `decimal` with no precision is a type this plane refuses outright — `athena_type_of`
     will not invent a scale. Refusing a whole export over a column the file does not contain
     would make hiding a column unable to rescue an export that a column's type broke."""
@@ -1057,10 +1058,10 @@ def test_convert_survives_a_state_that_does_not_carry_the_key_at_all(s3, tmp_pat
     assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).width == len(_columns())
 
 
-def test_a_dropped_columns_VALUES_are_never_parsed_either(s3, tmp_path):
+def test_a_dropped_columns_VALUES_are_never_typed_either(s3, tmp_path):
     """The type half of this is covered above; this is the value half, which is the one a user
     meets. A `bigint` column holding text refuses the whole conversion — and leaving that column
-    out converts, because the projection pushes down past it and the value is never read."""
+    out converts, because a dropped column is read as text, which any value parses as."""
     pairs = (("a", "varchar", '"1"'), ("b", "bigint", '"not-a-number"'), ("c", "varchar", '"3"'))
     s3.payload = _csv(pairs, decimal=False)
     s3.size = len(s3.payload)
@@ -1074,3 +1075,41 @@ def test_a_dropped_columns_VALUES_are_never_parsed_either(s3, tmp_path):
 
     assert kept["outcome"] == "converted"
     assert pl.read_parquet(_uploaded(s3, tmp_path, ".parquet")).columns == ["a", "c"]
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "json", "csv"])
+def test_a_column_subset_the_streaming_reader_mis_splits_is_refused_never_written_wrong(s3, fmt):
+    """Leaving out a column of multi-line values must not let its fragments into the file.
+
+    polars' streaming reader mis-splits this shape, and notices only when a split lands in a
+    column it parses. With projection pushdown on, the dropped `doc` column is never parsed, so
+    the sink writes the fragments into `id` as extra rows and raises nothing. Measured on
+    1.12.0: 60,001 rows for 60,000, one of them `}"`. Dropping ``SINK_OPTIONS`` from any one
+    writer reddens that writer's case here, as a conversion.
+
+    A polars that splits this shape correctly would convert it and fail here, on purpose: the
+    refusal would then be turning away a file the reader can write. One that has also dropped
+    the keyword fails the signature test below instead, because the ``TypeError`` reaches this
+    test as the very refusal it expects.
+    """
+    columns = [{"name": "id", "type": "varchar"}, {"name": "doc", "type": "varchar"}]
+    s3.payload = _multi_line_payload(60_000)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event(fmt, columns=columns, chosen=[0]), None)
+
+    assert (result["outcome"], result["reason"], s3.written) == ("refused", "results_unreadable", []), (
+        "a conversion here is either the wrong file SINK_OPTIONS exists to prevent, or a polars "
+        "whose streaming reader now splits this shape, which is when SINK_OPTIONS is re-derived"
+    )
+
+
+def test_every_streamed_sink_takes_the_options_it_is_given():
+    """``SINK_OPTIONS`` must be keywords each sink accepts, because nothing else would say so.
+
+    The writers turn any exception from a sink into ``results_unreadable``, so a keyword a later
+    polars removed would refuse every streamed save as an unreadable result. polars 1.44 folds
+    these keywords into ``optimizations``, which is where a version move meets this.
+    """
+    for sink in (pl.LazyFrame.sink_parquet, pl.LazyFrame.sink_ndjson, pl.LazyFrame.sink_csv):
+        assert set(c.SINK_OPTIONS) <= set(inspect.signature(sink).parameters), sink.__name__

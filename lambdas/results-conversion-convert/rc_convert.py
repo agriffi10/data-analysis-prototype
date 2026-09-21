@@ -16,9 +16,10 @@ those refusals have to name.
 positions, in the order the file is to carry them, and null keeps every column in its own order.
 The read is still over the WHOLE object — the header check below compares the whole header
 against the whole described column list, because the object is still the whole result — and the
-projection is applied to the frame, so a dropped column is never parsed and can never be the
-reason a file is refused. Typing, and every type refusal it raises, therefore see the kept
-columns alone.
+projection is applied to the frame. A dropped column is read as text and never typed, so no
+VALUE in it can be the reason a file is refused. The streamed writers still parse it, on
+purpose: see ``SINK_OPTIONS``. Typing, and every type refusal it raises, therefore see the kept columns
+alone.
 
 **Parquet and JSON never materialise the frame.** The read is ``scan_csv`` over the downloaded
 file and the write is ``sink_*``, so memory holds a batch at a time and the ceiling is the
@@ -48,6 +49,14 @@ Attributes:
     the SQL, the execution id and the actor are not stamped onto the object.
   TEXT: The dtype every column is read as for a CSV conversion, which is what makes that format
     a re-quoting of Athena's own text rather than a re-rendering of its values.
+  SINK_OPTIONS: What every streamed write passes to its sink. **Projection pushdown is off, and
+    that is what stops a column-subset save writing a wrong file.** polars 1.12's streaming
+    reader mis-splits a large result holding newlines inside quoted values, and it notices only
+    when a split lands in a column it parses. With the dropped column pushed past, nothing parses
+    it, and the fragments of its values are written into the kept columns as extra rows with no
+    error. Parsing every column as text costs a pass over bytes already on disk and turns that
+    wrong file into a ``results_unreadable`` refusal. Excel needs none of this: its read is not
+    streamed, and polars' in-memory reader splits such a file correctly.
   EXCEL_EXACT_INTEGER: The largest integer an Excel cell holds exactly; it stores every number
     as a double.
   EXCEL_EXACT_DIGITS: The significant digits a double holds, which is what bounds a decimal.
@@ -89,6 +98,8 @@ CONTENT_TYPES = {
 }
 
 TEXT = pl.String()
+
+SINK_OPTIONS = {"projection_pushdown": False}
 
 EXCEL_EXACT_INTEGER = 2**53
 EXCEL_EXACT_DIGITS = 15
@@ -267,10 +278,12 @@ def _schemas(columns: list[dict], chosen: list[int] | None, fmt: str) -> tuple[d
     anything if it sees the whole header. The write schema is the kept columns, in the order the
     request asked for, and it is what the projection and the writers are given.
 
-    **A dropped column is read as text and never typed.** Its values are never parsed, because
-    the projection pushes down past them; more importantly, a type this plane cannot map is not
-    a reason to refuse a file that column is not in. So ``schema_of`` — the one function that
-    raises ``unsupported_column_type`` — is asked about the KEPT columns alone.
+    **A dropped column is read as text and never typed.** Any value parses as text, so nothing in
+    a dropped column can refuse the file by what it holds, and a type this plane cannot map is
+    not a reason to refuse a file that column is not in. So ``schema_of`` — the one function
+    that raises ``unsupported_column_type`` — is asked about the KEPT columns alone. The column
+    is still parsed, because the streamed writers turn projection pushdown off
+    (``SINK_OPTIONS``); only a result the reader cannot split correctly refuses through it.
 
     A CSV conversion skips typing altogether: every column is read as text and written as
     Athena rendered it, so the file carries the same values as a copy of the object would and
@@ -414,10 +427,11 @@ def _write_parquet(frame: pl.LazyFrame, target: pathlib.Path) -> int:
       The number of data rows written.
 
     Raises:
-      _Refusal: ``results_unreadable`` when a value does not parse as its declared type.
+      _Refusal: ``results_unreadable`` when a value does not parse as its declared type, or
+        the streaming reader cannot split the result.
     """
     try:
-        frame.sink_parquet(target)
+        frame.sink_parquet(target, **SINK_OPTIONS)
     except Exception as exc:
         raise _unreadable(exc) from exc
     return parquet_footer.row_count(target)
@@ -442,7 +456,8 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
       embedded newline, so a raw one is only ever the end of an object.
 
     Raises:
-      _Refusal: ``results_unreadable`` when a value does not parse as its declared type.
+      _Refusal: ``results_unreadable`` when a value does not parse as its declared type, or
+        the streaming reader cannot split the result.
     """
     stamps = [
         pl.col(name).dt.to_string("%Y-%m-%dT%H:%M:%S%.6f")
@@ -450,7 +465,7 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
         if isinstance(dtype, pl.Datetime)
     ]
     try:
-        (frame.with_columns(stamps) if stamps else frame).sink_ndjson(target)
+        (frame.with_columns(stamps) if stamps else frame).sink_ndjson(target, **SINK_OPTIONS)
     except Exception as exc:
         raise _unreadable(exc) from exc
     rows = 0
@@ -488,10 +503,11 @@ def _write_csv(frame: pl.LazyFrame, target: pathlib.Path) -> int:
       The number of data rows written.
 
     Raises:
-      _Refusal: ``results_unreadable`` when the object will not parse as a CSV at all.
+      _Refusal: ``results_unreadable`` when the object will not parse as a CSV at all, which
+        includes a result the streaming reader cannot split.
     """
     try:
-        frame.sink_csv(target)
+        frame.sink_csv(target, **SINK_OPTIONS)
     except Exception as exc:
         raise _unreadable(exc) from exc
     written = pl.scan_csv(target, infer_schema_length=0)

@@ -101,6 +101,11 @@ Read from the code at `73c66eef`.
   and what `_frame`'s docstring says polars reads by default.
 - **Typing and every type refusal consider kept columns only.** A column left out of the file
   cannot be a reason the file is refused.
+  > **Narrowed after close:** a left-out column still cannot refuse the file by its type or by
+  > any value it holds, since it is read as text. It can refuse it by its STRUCTURE: the streamed
+  > writers now parse it, so that a result polars' streaming reader mis-splits is refused rather
+  > than written wrong. The measurement is under Traps in
+  > `lambdas/info/planes/results-conversion.md`.
 - **The CSV format's disk entries are measured, not argued.** `OUTPUT_EXPANSION["csv"]` and
   `RESULTS_MAX_BYTES["csv"]` are derived from the same model and the same generated CSVs as
   Parquet's and JSON's, and `MEASURED_ON` records the run. Arguing that projected CSV is never

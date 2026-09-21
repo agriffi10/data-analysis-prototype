@@ -67,3 +67,9 @@ Two pre-existing defects were measured while building this and are recorded unde
 quoted newlines, so Parquet and JSON saves of such results have been failing since they shipped;
 and a result column whose name holds a double quote fails every conversion, because polars
 un-escapes a doubled quote in the data but not in the header. Neither is fixed here.
+
+> **Corrected after close:** the first was worse than recorded here. A save that kept a SUBSET of
+> the columns did not refuse such a result: projection pushdown left the multi-line column
+> unparsed, and its fragments were written into the kept columns as extra rows with no error.
+> The streamed writers now parse every column, so that save refuses too; the plane page's Traps
+> carry the measurement.
