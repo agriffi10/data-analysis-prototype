@@ -303,6 +303,19 @@ describe('readSavedQuery (FR-004)', () => {
     expect(result.error.message).not.toContain('NotFound');
     expect(result.error.code).toBe('SavedQueryNotFound');
   });
+
+  it('answers a query too large to read with its own code, not the one that asks for less', async () => {
+    mockSend.mockResolvedValue({
+      success: false,
+      error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}
+    });
+
+    const result = await readSavedQuery({bucket: 'user-space', key: 'alice/saved_queries/Q1 revenue.sql'});
+
+    // The code alone decides the sentence: the rule is authored, not passthrough, so the service's
+    // own message is never rendered.
+    expect(result.success === false && result.error.code).toBe('SavedQueryTooLarge');
+  });
 });
 
 describe('writeSavedQuery (FR-004)', () => {

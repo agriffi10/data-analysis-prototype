@@ -237,6 +237,10 @@ export async function readSavedQuery(params: {bucket: string; key: string}): Pro
       success: false,
       error: {message: `“${savedQueryName(key)}” no longer exists.`, code: 'SavedQueryNotFound'}
     }),
+    onTooLarge: () => ({
+      success: false,
+      error: {message: `“${savedQueryName(key)}” is too large to open.`, code: 'SavedQueryTooLarge'}
+    }),
     fallbackMessage: `Failed to open “${savedQueryName(key)}”`
   });
 }

@@ -181,6 +181,11 @@ function basicUtcTimestamp(now: Date): string {
  * caller's empty document is freshly allocated (`emptyStore()`, `emptyHistory()`, `[]`)
  * — a value would hand every call the same mutable object.
  *
+ * TOO LARGE IS A READ'S REFUSAL, NOT A REQUEST'S. The API answers a document over its cap with
+ * the same `PayloadTooLarge` it gives a write, whose sentence asks the user to send less — advice
+ * nobody opening a document can follow. It is re-coded here as `DocumentTooLarge` unless
+ * `onTooLarge` says what it means for this document.
+ *
  * Never throws — `ServiceResult` in, `ServiceResult` out, like every service in this repo.
  * A `parse` that throws anyway is caught and wrapped in `fallbackMessage`, but no caller
  * should rely on that: interpreting the body is the parser's whole job.
@@ -205,9 +210,14 @@ export async function readJsonDocument<T>(opts: {
   parse: (body: string | undefined) => ServiceResult<T>;
   /** What a 404/NoSuchKey means here. Omit to treat a miss as an ordinary failure. */
   onMissing?: () => ServiceResult<T>;
+  /**
+   * What a document too large to read means here. Omit it only for a document the app writes for
+   * itself: the default, `DocumentTooLarge`, sends the user to an administrator.
+   */
+  onTooLarge?: () => ServiceResult<T>;
   fallbackMessage: string;
 }): Promise<ServiceResult<T>> {
-  const {bucket, key, parse, onMissing, fallbackMessage} = opts;
+  const {bucket, key, parse, onMissing, onTooLarge, fallbackMessage} = opts;
 
   const read = await apiRequest('objects.readContent', {
     query: {...spaceQuery(bucket, key), key}
@@ -231,6 +241,9 @@ export async function readJsonDocument<T>(opts: {
     }
   }
   if (onMissing && read.error.code === 'NotFound') return onMissing();
+  if (read.error.code === 'PayloadTooLarge') {
+    return onTooLarge ? onTooLarge() : {success: false, error: {message: fallbackMessage, code: 'DocumentTooLarge'}};
+  }
   return fromApiFailure(read.error, fallbackMessage);
 }
 
