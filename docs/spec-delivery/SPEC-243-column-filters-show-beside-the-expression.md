@@ -53,6 +53,7 @@ Formatter, lint, `tsc -b`, `npm run build`, the bundle check and the portal suit
 green by exit code. So were the branch validators `ci.yml` runs, mypy and the Lambda suite. Planted
 mutations reddened their tests: the `location.key` guard, the phone's no-dialog branch, the
 previous-chip focus, and the `query` gate against the registry walk. The live check, `e2e.md` §4.5
-rows L to P, ran on 2026-09-21 after the deploy. Rows L to O passed. Row P, and row O's edit of the
-statement, are owed: a hidden Chrome window took no editor input and never reported a phone width.
+rows L to P, ran on 2026-09-21 after the deploy. Rows L to N passed, and row O apart from its edit
+of the statement. Row P and that edit are owed: a hidden Chrome window took no editor input and never
+reported a phone width.
 `docs/testing/owed.md` has what ran and what discharges the rest.

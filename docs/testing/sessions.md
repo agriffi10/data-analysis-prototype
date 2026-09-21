@@ -10,6 +10,39 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-21 (SPEC-243's chips and Open in Query, `e2e.md` §4.5 rows L to P)
+
+**What was under test.** `main` at **`a40c26f7`** (#861). `Deploy SPA image` for that sha had
+succeeded before the run. The table was `agriffith.explorer150`, with columns `id`, `region`, `owner`
+and `qty`.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab
+in the extension's group. It came up signed out. One click on the portal's **Sign in**, dispatched
+from the page, signed it in on the Hosted UI cookie from Andrew's own sign-in minutes earlier. No
+credential form was shown, and nothing was typed into one. The page reported `innerWidth` 1512
+throughout, and `visibilityState` `hidden`.
+
+**Instruments, each a way this run differed from a user's.**
+- `document.visibilityState` and `hidden` overridden to visible, with `visibilitychange` and `focus`
+  dispatched, so TanStack's polls kept running in the hidden tab. Re-applied after each reload.
+- Clicks by coordinate or element reference did not land in the hidden tab. Buttons, menu items and
+  the Generated SQL `<summary>` were activated with `.click()`, and the filter dialog's fields were
+  set through the native value setter followed by an `input` event.
+- `window.fetch` wrapped to record the SQL of every `POST /v1/queries`, which is the execution
+  count. Re-installed after each reload.
+
+**Readings.** They are the table in `owed.md`'s SPEC-243 section. Every statement recorded matched
+the chips on screen, for example `WHERE ("owner" = 'Jones' AND "region" IN ('east', 'north',
+'south', 'west'))` for row L's two chips.
+
+**What could not run.** Monaco took no input: `computer.type`, `execCommand('insertText')` and a
+synthetic `input` event each left the persisted buffer unchanged. For row P the window was resized
+to 500 × 900, and Andrew saw it at that width in front and beside the Claude app. The page never
+left `hidden`, `outerWidth` read 0 or 314, and `innerWidth` stayed 1512 through three reloads. A
+same-origin `<iframe src="/explore">` harness was refused, since the portal will not be framed.
+
+---
+
 ## Live-check session — 2026-09-16, later afternoon (#809: an ordinary partitioned create still reports created)
 
 **What was under test.** `origin/main` at **`8f1ac932`** (#830), which carries #809 (`b90f508d`):
