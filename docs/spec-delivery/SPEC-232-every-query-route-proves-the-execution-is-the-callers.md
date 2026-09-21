@@ -24,8 +24,8 @@
 
 - **Completed with its live check still owed** (Andrew, 2026-09-16). The code merged as #730 and
   deployed on 2026-09-13. The live check was put off that day, when the session had no signed-in
-  tab, and has not run since. It stays in `docs/testing/owed.md`, and the *Accepted exposure* row
-  there still retires only when it runs.
+  tab. It ran on 2026-09-21 and every row passed (`docs/testing/sessions.md`, 2026-09-21 evening),
+  which retired the *Accepted exposure* row in `docs/testing/owed.md`.
 
 ## What changed from earlier specs?
 
@@ -42,5 +42,6 @@
 - **Merged on green CI as #730**, after its local gates and five fresh-context reviews: the spec,
   the plan, the PR grouping, and two diff reviews in the security frame and the regression frame.
   The PR body lists the gates and the plants, each seen red and then reverted.
-- **Live check: owed.** The steps are the SPEC-232 row in `docs/testing/e2e.md` §4.3. The two-user
-  version is in `docs/testing/owed.md` under *Needs a second (or third) account*.
+- **Live check: ran 2026-09-21, passed.** The steps are the SPEC-232 row in `docs/testing/e2e.md`
+  §4.3. The two-user version is still owed, in `docs/testing/owed.md` under *Needs a second (or
+  third) account*.

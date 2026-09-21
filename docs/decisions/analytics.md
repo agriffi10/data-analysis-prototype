@@ -685,7 +685,8 @@ Apply because that is where the conflict is *built* — sort a column, then grou
 in the same commit.** "While a grouping is in force the grid shows only the grouping columns and the
 aggregates" stopped being true the moment the percentage column was appended: it is a real
 `GridColumn`, so it gets a header menu, a row in the settings dialog (the ONLY sort/filter path below
-`tablet`) and the toolbar's *Filter by this value* — and it exists in no statement, so sorting it is
+`tablet` — in Grid view at 400 px the header menu opened on 2026-09-21; whether that is intended
+is open in `docs/testing/owed.md`, *Needs 400px*) and the toolbar's *Filter by this value* — and it exists in no statement, so sorting it is
 a description the renderer REFUSES and filtering it is a `COLUMN_NOT_FOUND`. `ColumnQueryActions`
 therefore carries **`queryRefusalOf`**, asked by every per-column surface before it offers a filter
 or a sort; the header menu opens and states the reason rather than offering controls that each fail,
