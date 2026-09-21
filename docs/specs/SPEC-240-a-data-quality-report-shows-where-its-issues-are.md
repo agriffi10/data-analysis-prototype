@@ -36,7 +36,7 @@ Read from the code at `73c66eef`, and the data-quality claims re-read at `053ecb
   <path filter> GROUP BY <every column, partition keys last> HAVING COUNT(*) > 1)`, and
   `report.py` `_duplicates` reads one integer.
 - **The report already stores the user's values.** Each typed column carries `sampleOffending`, up
-  to `DQ_OFFENDING_VALUE_SAMPLE` (10) offending values, of which the page shows five, each cut at
+  to `DQ_OFFENDING_VALUE_SAMPLE` (10 — **superseded: five since, the five the page shows**) offending values, of which the page shows five, each cut at
   `MAX_SAMPLE_VALUE_CHARS` (200) with an ellipsis by `report.py`. `_sample_expr` in `sql.py` builds them with Trino's n-ary `max_by`, which keeps only
   n entries in its accumulator, keyed on the value so a retried query yields the same sample. It
   renders them as JSON, because Athena writes an array into its result CSV with unquoted elements.

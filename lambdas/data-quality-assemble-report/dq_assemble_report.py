@@ -228,23 +228,19 @@ def _within_document_cap(document: dict) -> bytes:
     that made it big. The samples are dropped because they are the figure THIS spec added, and the
     one whose absence the report can explain in a sentence.
 
-    **They are not the largest thing a report can carry, and this mechanism does not make a report
-    fit.** Measured at the column cap: a whole report whose every column carries a full
-    ``sampleOffending`` runs 428,803 bytes of PRINTABLE ASCII, 2,428,803 of ordinary non-ASCII text
-    and 4,828,803 of astral text, against a 3,145,728-byte cap — over it on its own in the last
-    case, with no samples in it at all. This mechanism runs on such a report and sheds whatever
-    samples it has; the document still does not fit, and the page cannot open it.
+    The offending values are the other figure that repeats on every column, and they fit without
+    this: ``DQ_OFFENDING_VALUE_SAMPLE`` is sized so a one-file report at the column cap, every value
+    at its longest astral escape, is under the cap with no samples in it, and the suite builds that
+    report to hold it. The samples are what push that report over, so shedding them is what lets
+    it open.
 
-    The band this mechanism exists for is the MIDDLE one, and it is the ordinary one: at 77% of the
-    cap alone and 116% with samples attached, a report of Cyrillic, CJK or accented Latin is exactly
-    the report that opens without them and not with. Above and below it the drop changes nothing. That is a pre-existing gap this spec neither
-    introduced nor closed, recorded with its figures and its method in the control-planes register
-    rather than left to be rediscovered.
-
-    What decides that is the CHARACTER SET rather than which figure carries the values: both are
-    bounded in characters and spent in bytes, and JSON escapes an astral code point as a surrogate
-    pair. What this mechanism guarantees is correspondingly narrow, and still worth having: a report
-    that WOULD have opened does not stop opening because samples were added to it.
+    **This does not make every report fit.** The per-file lists are bounded in count by the object
+    and column caps and not in bytes: the row counts carry every file's key, and the cross-file
+    disagreements name, for each disagreeing file, every column it lacks and every one it adds. A
+    source of many files split between schemas carries a report past the cap in plain ASCII with no
+    samples at all, and long keys eat the headroom the offending values leave. Such a report is
+    written over the cap and the page cannot open it; the figures and the method to reproduce them
+    are in the control-planes register.
 
     Dropped only when there are samples to drop. A report already over the cap without them was
     over it before this existed, and replacing an absent field — or the sentence a nested source

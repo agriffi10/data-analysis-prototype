@@ -55,7 +55,12 @@ Attributes:
     no issue.
   DQ_OFFENDING_VALUE_SAMPLE: How many non-parsing values the profile query keeps per column. The
     aggregate collecting them must be bounded — a naive collect-then-truncate accumulates every
-    row, which on a large source with a badly-typed column is the whole column in memory.
+    row, which on a large source with a badly-typed column is the whole column in memory. Five
+    because the report page shows five, and because the report has to open: this figure repeats
+    on every column, and at ``DQ_MAX_COLUMNS`` with every value at its longest astral escape, ten
+    alone put the report past ``DQ_REPORT_MAX_BYTES``, where the page cannot read it and nothing
+    was left to drop. The assemble-report suite builds that worst case from these constants, so
+    raising any of them is checked against the cap rather than argued about.
   DQ_DUPLICATE_SAMPLE: How many of the most-repeated rows the duplicates query keeps. Bounded for
     the same reason as the offending-value sample, and more sharply: a duplicate group is a whole
     ROW, so keeping every group to sort them afterwards would hold every column of every group in
@@ -230,7 +235,7 @@ DQ_MAX_QUERY_BYTES = 262_144
 
 DQ_TYPE_DOMINANCE_THRESHOLD = 0.90
 
-DQ_OFFENDING_VALUE_SAMPLE = 10
+DQ_OFFENDING_VALUE_SAMPLE = 5
 
 DQ_DUPLICATE_SAMPLE = 5
 

@@ -981,8 +981,9 @@ def test_a_profile_result_with_only_per_file_rows_is_also_a_failed_check():
 
 
 def test_an_enormous_offending_value_is_truncated():
-    """DQ_OFFENDING_VALUE_SAMPLE bounds how MANY examples a column contributes; nothing
-    bounds how long one is, and an Athena varchar has no length limit."""
+    """DQ_OFFENDING_VALUE_SAMPLE bounds how MANY examples a column contributes and the
+    statement's cut how long each is; the report still bounds a value longer than the statement
+    should have returned, since an Athena varchar has no length limit of its own."""
     huge = "x" * 5000
     total = _profile_row(1000, [{"not_bigint": 5, "sample_non_numeric": json.dumps([huge])}])
 

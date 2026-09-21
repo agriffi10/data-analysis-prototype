@@ -67,6 +67,8 @@ watched each redden.
 Measured rather than asserted: the sampled duplicates statement renders **116,376 bytes** at
 `DQ_MAX_COLUMNS` columns of 255 characters plus two partition keys, against Athena's 262,144 limit —
 the profile query is 234,662 at the same shape, so the sampled statement is the smaller of the two.
+**— Superseded in part: the profile query now cuts its offending values in the statement and keeps
+five a column rather than ten, and measures 247,093 at that shape; the comparison still holds.**
 
 **Deferred to a live run after deploy:** FR-003's last criterion. `docs/testing/e2e.md` §4.6 carries
 it as three rows with their fixtures — the `dq_dupes/` counts and ordering, the per-file disclosure,

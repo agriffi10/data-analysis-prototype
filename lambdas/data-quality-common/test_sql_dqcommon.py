@@ -260,6 +260,40 @@ def test_the_profile_query_fits_athenas_query_string_limit_at_the_column_cap():
     assert len(query.encode()) <= _ATHENA_QUERY_STRING_LIMIT, len(query.encode())
 
 
+def test_every_offending_value_the_profile_samples_is_cut_as_the_duplicates_cells_are():
+    """Pins both samples of one column whole, with the cut on the value AND on the key.
+
+    The count bounds how many values a sample cell holds and nothing else bounds how long they are,
+    so a few long stray values in one column make a result cell past the CSV reader's field limit,
+    and assemble-report fails the whole report on it. The key is cut as well as the value because
+    the accumulator holds its keys: a cut on the value alone still carries every full-length key
+    through the aggregation. Spelled out rather than probed for ``substr``, which would pass on a
+    cut applied to one argument of the two, and every ``max_by`` is counted so none escapes the pin.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    query = sql.build_profile_query(
+        DATABASE, TABLE, [{"name": "amount", "type": "string"}], [], "csv"
+    )
+
+    cut = f"substr(c0, 1, {sql.SAMPLE_VALUE_CHARS})"
+    size = config.DQ_OFFENDING_VALUE_SAMPLE
+    assert query.count("max_by(") == 2
+    for predicate, alias in (
+        ("TRY_CAST(c0 AS BIGINT) IS NULL AND TRY_CAST(c0 AS DOUBLE) IS NULL", "c0_sample_non_numeric"),
+        ("TRY_CAST(c0 AS TIMESTAMP) IS NULL AND TRY_CAST(c0 AS DATE) IS NULL", "c0_sample_non_temporal"),
+    ):
+        keyed = f"CASE WHEN {predicate} THEN {cut} END"
+        assert f"json_format(CAST(max_by({keyed}, {keyed}, {size}) AS JSON)) AS {alias}" in query
+
+
 # ── The duplicates statement's samples ──────────────────────────────────────
 
 _SAMPLE_COLUMNS = [
