@@ -12,8 +12,9 @@ would be a footer read in truth and a ``collect`` to that guard, and the guard w
 narrowed to a name sweep that a helper function walks straight past. Reading the footer here
 keeps the guard total.
 
-polars 1.12 exposes no metadata reader — ``read_parquet_schema`` returns types and nothing else —
-so the format's own trailer is parsed. The layout is fixed and tiny: the file ends with the
+polars has no reader for either fact — ``read_parquet_schema`` returns types, and 1.44's
+``read_parquet_metadata`` returns only the file's custom key-value pairs — so the format's own
+trailer is parsed. The layout is fixed and tiny: the file ends with the
 Thrift-compact ``FileMetaData`` struct, a four-byte little-endian length, and ``PAR1``. Where that
 struct sits is ``cpcommon.parquet_trailer``'s to say, because the schema probe reads the same
 trailer from S3 and one set of checks cannot drift from another.

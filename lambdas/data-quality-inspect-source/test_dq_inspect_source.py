@@ -295,8 +295,17 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
 # thing SPEC-111's DDL depends on.
 
 
+class _StreamedBody(io.BytesIO):
+    """A whole-object body, streamed in chunks as botocore's is to the bounded head read."""
+
+    def iter_chunks(self, size):
+        while chunk := self.read(size):
+            yield chunk
+
+
 class _ProbedS3(_FakeS3):
-    """``_FakeS3``, with source objects the real probe reads, each ranged as S3 ranges it."""
+    """``_FakeS3``, with source objects the real probe reads: ranged as S3 ranges them for the
+    Parquet footer, and streamed whole for the bounded head of a text format."""
 
     def __init__(self, sources):
         super().__init__()
@@ -308,9 +317,11 @@ class _ProbedS3(_FakeS3):
         return super().head_object(Bucket, Key)
 
     def get_object(self, Bucket, Key, Range=None):
-        if Key in self.sources:
-            return self.sources[Key].get_object(Bucket=Bucket, Key=Key, Range=Range)
-        return super().get_object(Bucket, Key)
+        if Key not in self.sources:
+            return super().get_object(Bucket, Key)
+        if Range is None:
+            return {"Body": _StreamedBody(self.sources[Key].blob)}
+        return self.sources[Key].get_object(Bucket=Bucket, Key=Key, Range=Range)
 
 
 def _setup_probed(sources):
@@ -441,3 +452,28 @@ def test_ACCEPTED_the_span_error_stack_may_carry_file_contents(monkeypatch, capt
         "error.stack no longer carries the cause's text — log-foundry began stripping stacks. "
         "Revisit the 2026-07-23 decision to accept them (decisions/) rather than deleting this."
     )
+
+
+def test_a_parquet_footer_polars_panics_on_is_an_unreadable_header_rather_than_a_fault():
+    """A panic is not an ``Exception``, so a bare ``except Exception`` lets it escape as a fault
+    the actor is never told about by name; it must end as the same refusal as any other file the
+    probe cannot read."""
+    _setup_probed({"alice/sales/part-0.parquet": ranged_s3.PANICKING_PARQUET.read_bytes()})
+
+    with pytest.raises(TerminalError) as err:
+        v.handler(_event(), None)
+
+    assert err.value.reason == messages.UNREADABLE_HEADER
+    assert "thrift" in err.value.detail.lower(), "the refusal must come from polars' own read"
+
+
+def test_a_json_integer_too_large_for_bigint_is_an_unreadable_header_naming_its_column():
+    """polars infers such a column as a 128-bit integer, which no Athena type holds, so the file
+    is refused by name rather than declared as a ``bigint`` column that cannot hold its values."""
+    _setup_probed({"alice/sales/part-0.json": b'{"id": 1, "big": 9223372036854775808}\n'})
+
+    with pytest.raises(TerminalError) as err:
+        v.handler(_event(), None)
+
+    assert err.value.reason == messages.UNREADABLE_HEADER
+    assert "column 'big'" in err.value.detail

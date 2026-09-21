@@ -10,10 +10,10 @@ PyJWT[crypto]>=2.8,<3
 
 # polars is DELIBERATELY NOT HERE, even though cpcommon/type_mapping.py imports it.
 #
-# The original reason was size: this was attached to every control-plane verb, and polars is
-# ~100 MB unzipped against Lambda's 250 MB per-function ceiling. That reason is GONE — the
-# image installs every requirements file into one site-packages, so polars ships to all 86
-# functions whether or not this line exists.
+# The original reason was size: this was attached to every control-plane verb, and polars was
+# ~100 MB unzipped against Lambda's 250 MB per-function ceiling; 1.44.2 installs at about 180 MB
+# on Linux x86_64. That reason is GONE — the image installs every requirements file into one
+# site-packages, so polars ships to all 86 functions whether or not this line exists.
 #
 # What the omission still does is say WHO is meant to read Parquet footers:
 # table-builder-infer-schema and data-quality-inspect-source declare it, and a verb that

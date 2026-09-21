@@ -17,4 +17,4 @@
 #
 # Exact pin, matching the table-builder polars layer (lambdas/table-builder-infer-schema/
 # requirements.txt) so both layers move together in one reviewed change.
-polars==1.12.0
+polars==1.44.2

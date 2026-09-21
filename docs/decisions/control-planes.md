@@ -1783,11 +1783,12 @@ state that cannot carry them, and it applies to every format. The dead code was 
 than kept as a fence that stops nobody.
 
 **Two things polars does silently, both found by measuring rather than reading.** `scan_csv` with
-`schema_overrides` whose keys do not match the header RENAMES the columns to the override keys
-and applies the types POSITIONALLY, with no error; given a reordered header it keeps the file's
+`schema_overrides` whose keys do not match the header misreads the file with no error: polars 1.12
+RENAMED the columns to the override keys and applied the types POSITIONALLY, and 1.44.2 ignores
+the unmatched keys and reads those columns as text; given a reordered header it keeps the file's
 order and matches types by name. Either way a divergence between what Athena reported and what
-Athena wrote yields a file with the wrong labels and no complaint, so the header is checked
-against the metadata before the typed read. And `sink_ndjson` writes a timestamp as
+Athena wrote yields a file with the wrong labels or the wrong types and no complaint, so the header
+is checked against the metadata before the typed read. And `sink_ndjson` writes a timestamp as
 `2020-01-02 03:04:05.123` — a space separator with trailing zeros stripped, neither ISO-8601 nor
 to microseconds — so datetime columns are cast explicitly before the sink.
 
@@ -1896,9 +1897,11 @@ is Athena's runtime statistics, which the API reference says may not be returned
 under Lake Formation row filters, and the only fallback for a missing count is the byte cap this
 replaced. The converter counts through ONE column with the real CSV reader, and both Excel
 refusals are decided from that before the frame exists, the row ceiling first — and asked again of
-the frame's height once it is built. **Not `pl.len()`**: polars' fast count projects nothing and
-tracks quotes chunk by chunk, so across threads it miscounts a quoted newline, and a review showed
-it admitting a result over Excel's ceiling whose rows xlsxwriter then dropped, reported as saved.
+the frame's height once it is built. **Not `pl.len()`**: polars' fast count projects nothing, and
+under polars 1.12 it tracked quotes chunk by chunk, so across threads it miscounted a quoted
+newline, and a review showed it admitting a result over Excel's ceiling whose rows xlsxwriter then
+dropped, reported as saved. 1.44.2 counts that shape exactly; the count through a column was right
+on both and stays.
 Each refusal names its code where it is raised, because the plane's vocabulary sweep reads a
 literal first argument.
 

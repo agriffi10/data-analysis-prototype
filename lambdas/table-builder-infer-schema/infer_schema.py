@@ -41,6 +41,7 @@ from cpcommon import ddl as ddl_mod
 from cpcommon.ddl import build_create_table_ddl
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.type_mapping import UnmappableTypeError, map_dtype
+from polars.exceptions import PanicException
 from tbcommon import notify
 
 logger = logging.getLogger()
@@ -309,7 +310,9 @@ def _infer(event: dict) -> dict:
 
     A transient error is re-raised rather than swallowed: the head read runs inside the same
     try, so a throttled GetObject would otherwise be reported as an unreadable file — a
-    permanent verdict on a fault the SFN would happily have retried.
+    permanent verdict on a fault the SFN would happily have retried. A polars panic is caught
+    beside ``Exception`` because it is not one: polars 1.44 panics on some damaged Parquet
+    footers, and a ``BaseException`` would otherwise escape as a fault with no named refusal.
 
     Column names and types are schema, and schema is what a schema bug is about; column values
     are file contents and appear nowhere. The all-string flag records the CSV rule explicitly,
@@ -375,7 +378,7 @@ def _infer(event: dict) -> dict:
         raise
     except TransientError:
         raise
-    except Exception as exc:
+    except (Exception, PanicException) as exc:
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 
     partition_keys = event.get("partitionKeys") or []
