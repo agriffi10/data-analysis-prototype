@@ -103,6 +103,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // `query` off the whole workspace is gone and the item is unreachable — this row asserts
     // that rather than assuming it, on the same belt-and-braces reasoning as the two above.
     {name: 'Explore data on the Query schema rail', kind: 'control', path: '/query'},
+    // The same mirror, on a query result: it opens a Data Explorer tab from the Query workspace,
+    // so it is registered under both flags, on the rail item's precedent.
+    {name: 'Explore in Data Explorer on a query result', kind: 'control', path: '/query'},
     // The EXACT MIRROR of "Explore data" above: a saved-queries capability living
     // on a Data Explorer surface, so it follows the flag that owns the store rather than the
     // one that owns the screen. With `query` off there is no editor to open a `.sql` file in
@@ -190,6 +193,8 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // surface under the other one — one row per (surface, flag), because the two answer
     // different questions and either gate can be deleted alone.
     {name: 'Explore data', kind: 'control', path: '/query'},
+    // The Query results' button, under ITS OWN flag, for the same reason as the rail item above.
+    {name: 'Explore in Data Explorer', kind: 'control', path: '/query'},
     // The section AND each of its guides, on the `files` precedent: the section
     // row alone would be enough to hide them today, and it would go on passing if a later
     // spec moved one of these guides into the Query section — where it would then be

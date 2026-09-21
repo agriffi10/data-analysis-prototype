@@ -1,3 +1,5 @@
+import type {QueryKey} from '@tanstack/react-query';
+import {rendersFromSqlBody} from './renderExplorationSql';
 import type {ExplorationSource} from './dataExplorer.types';
 
 /**
@@ -51,4 +53,19 @@ export const explorerKeys = {
  */
 export function explorationSourceScope(source: ExplorationSource): readonly [string, string, string] {
   return source.kind === 'table' ? ['table', source.database, source.table] : ['sql', source.label, ''];
+}
+
+/**
+ * True for a cached execution of any description over a `sql` source with this body.
+ *
+ * A predicate for `explorerKeys.sqlSources()`: the key ends in the rendered statement, and that
+ * statement's outer `FROM` says which body it read, whatever label the tab carried.
+ *
+ * @param queryKey - A key under `explorerKeys.sqlSources()`.
+ * @param body - The `sql` source's body.
+ * @returns Whether the execution read from that body.
+ */
+export function readsFromSqlBody(queryKey: QueryKey, body: string): boolean {
+  const sql = queryKey[queryKey.length - 1];
+  return typeof sql === 'string' && rendersFromSqlBody(sql, body);
 }

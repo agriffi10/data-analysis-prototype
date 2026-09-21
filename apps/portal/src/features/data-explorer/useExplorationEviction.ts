@@ -1,7 +1,7 @@
 import {useEffect} from 'react';
 import {useQueryClient, type QueryClient} from '@tanstack/react-query';
 import {onCatalogChange} from '../catalog/useSchema';
-import {explorerKeys} from './explorerKeys';
+import {explorerKeys, readsFromSqlBody} from './explorerKeys';
 
 /**
  * Drops the cached exploration executions that could be reading a catalog that just changed.
@@ -33,6 +33,31 @@ export function evictExplorations(client: QueryClient, database: string, table?:
   // entry AND refetches every query with an observer, by contract.
   client.resetQueries({queryKey: table ? explorerKeys.table(database, table) : explorerKeys.database(database)});
   client.resetQueries({queryKey: explorerKeys.sqlSources()});
+}
+
+/**
+ * Drops every cached execution over one statement source, whatever it was filtered, sorted or
+ * grouped by — so the statement, and each description over it, runs again the next time it is
+ * shown.
+ *
+ * A statement handed over from a Query result calls this once its tab exists: executions are
+ * cached by rendered SQL for the session, and without it exploring the same statement after an
+ * `INSERT` would show the earlier rows, as would every filter re-applied over them. Only this
+ * body's executions go; another statement's tab must not re-run.
+ *
+ * `removeQueries`, not the catalog eviction's `resetQueries`: a reset refetches every OBSERVED
+ * match at once, so a tab over the same body still mounted behind the new one would be billed
+ * again for a result nobody is looking at. The new tab's own read finds no entry and fetches.
+ *
+ * @param client - The query client.
+ * @param body - The statement source's body.
+ * @returns Nothing.
+ */
+export function evictSqlSource(client: QueryClient, body: string): void {
+  client.removeQueries({
+    queryKey: explorerKeys.sqlSources(),
+    predicate: (query) => readsFromSqlBody(query.queryKey, body)
+  });
 }
 
 /**

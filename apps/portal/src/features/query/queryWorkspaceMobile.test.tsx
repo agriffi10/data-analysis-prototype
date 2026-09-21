@@ -380,6 +380,8 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
     expect(screen.queryByText('The run finished without returning rows.')).not.toBeInTheDocument();
     expect(screen.queryByText('us-east')).not.toBeInTheDocument();
+    // Nor may it offer to explore a statement the editor never ran.
+    expect(screen.queryByRole('button', {name: 'Explore in Data Explorer'})).not.toBeInTheDocument();
   });
 });
 

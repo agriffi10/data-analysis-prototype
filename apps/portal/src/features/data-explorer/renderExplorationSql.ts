@@ -238,6 +238,28 @@ function renderFrom(source: ExplorationSource): string {
   return `(\n${source.body}\n) AS ${SQL_SOURCE_ALIAS}`;
 }
 
+/**
+ * True when `sql` was rendered over a `sql` source with exactly this body.
+ *
+ * Judged at the OUTER `FROM` — the first line starting with it, since the projection above it is
+ * `*` or a one-line list of quoted names — so a statement that merely CONTAINS this body's
+ * subquery, such as the Explorer's own generated SQL opened in Query and explored again, is not
+ * mistaken for it. What follows the subquery is the end of the statement or the next clause's
+ * line; anything else is a longer body that begins the same way.
+ *
+ * @param sql - A statement `renderExplorationSql` produced.
+ * @param body - A `sql` source's body.
+ * @returns Whether the statement reads from that body's subquery.
+ */
+export function rendersFromSqlBody(sql: string, body: string): boolean {
+  const outer = sql.indexOf('\nFROM ');
+  if (outer === -1) return false;
+  const from = `\nFROM ${renderFrom({kind: 'sql', body, label: ''})}`;
+  if (!sql.startsWith(from, outer)) return false;
+  const rest = sql.slice(outer + from.length);
+  return rest === '' || rest.startsWith('\n');
+}
+
 function renderProjection(grouping: Grouping | null): string {
   // `SELECT *` always, when not grouping. Narrowing to the visible columns would
   // cut bytes scanned on Parquet — and would make un-hiding a column a billed, several-

@@ -1,4 +1,6 @@
 import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
+import {useLocation, useNavigate} from 'react-router';
+import {useQueryClient} from '@tanstack/react-query';
 import {LoadingState} from '../../components/LoadingState';
 import {useToast} from '../../components/toastContext';
 import {useAuth} from '../auth';
@@ -10,6 +12,7 @@ import {isQueryStillRunning} from '../catalog/useQueryExecution';
 import {buildCreateViewSql} from '../catalog/createView';
 import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
+import {readExploreSqlHandoff} from '../../lib/routeHandoff';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
@@ -22,9 +25,11 @@ import {useExploration} from './useExploration';
 import {useExplorationQuery} from './useExplorationQuery';
 import {useExplorationTabs} from './useExplorationTabs';
 import {useExploreDeepLink} from './useExploreDeepLink';
+import {evictSqlSource} from './useExplorationEviction';
 import {useSourceColumns} from './useSourceColumns';
 import {emptyExplorationPresentation} from './exploration';
 import type {ExploreTarget} from './exploreSources';
+import type {ExplorationSource} from './dataExplorer.types';
 
 const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
@@ -76,6 +81,14 @@ export function DataExplorerWorkspace() {
   const {resolution, clear} = useExploreDeepLink(spaces, username, sharedEnabled);
   const denied = resolution.status === 'denied';
 
+  // A statement handed over from a Query result rides in router state until the effect below
+  // opens it. Until then the tab restored from the session stays unrun: it is about to be
+  // switched away from, and running it would bill a statement nobody sees.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const handoffPending = readExploreSqlHandoff(location.state) !== null;
+
   // NOT `denied ? null : …`, which was measured wrong: `denied` is false during the
   // `loading` window, so a restored tab started a real `StartQueryExecution` for a page that
   // then rendered nothing but a refusal. An unsettled link runs nothing at all — the same
@@ -86,7 +99,7 @@ export function DataExplorerWorkspace() {
   // and "runs nothing" is expressed here, by passing nothing to run.
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(
-    linkUnsettled || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null),
+    linkUnsettled || handoffPending || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null),
     tabs.activeTab?.id
   );
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
@@ -127,12 +140,17 @@ export function DataExplorerWorkspace() {
     toast
   });
 
-  const openSource = (target: ExploreTarget) => {
-    const id = tabs.openTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
-    // `openTab` is the authority on the cap and says so by returning null — every caller
-    // raises the same dialog rather than pre-checking a count that may already be stale.
+  // Every way a tab opens — the picker, a link, a hand-off — goes through here. `openTab` is the
+  // authority on the cap and says so by returning null, and every caller raises the same dialog
+  // rather than pre-checking a count that may already be stale.
+  const openExplorationTab = (source: ExplorationSource): string | null => {
+    const id = tabs.openTab(source);
     if (id === null) setLimitReached(true);
     else setPicking(false);
+    return id;
+  };
+  const openSource = (target: ExploreTarget) => {
+    openExplorationTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
   };
 
   // A resolved link opens ONCE. The parameters are then dropped (replacing the history
@@ -151,6 +169,34 @@ export function DataExplorerWorkspace() {
     openedLink.current = key;
     openResolvedLink(target);
   }, [resolution]);
+
+  // A hand-off opens ONCE, keyed by the history entry it arrived on: `StrictMode` runs this effect
+  // twice on mount, and the replace below lands a render later. The entry is replaced with no
+  // state whether or not a tab opened, as a deep link drops its parameters either way, so neither
+  // a reload nor Back raises the tab-limit dialog again.
+  //
+  // A hand-off always RE-RUNS the statement: once its tab exists, every cached execution over
+  // that body is dropped — see `evictSqlSource` for why, and why only that body's.
+  const consumedHandoff = useRef<string | null>(null);
+  const acceptHandoff = useEffectEvent((handoff: {body: string; label: string}) => {
+    if (openExplorationTab({kind: 'sql', body: handoff.body, label: handoff.label}) !== null) {
+      evictSqlSource(queryClient, handoff.body);
+    }
+    navigate({pathname: location.pathname, search: location.search, hash: location.hash}, {replace: true, state: null});
+  });
+  useEffect(() => {
+    // An unsettled or refused link opens nothing, by the rule the page applies to Glue and Athena.
+    if (resolution.status === 'loading' || resolution.status === 'denied') return;
+    if (consumedHandoff.current === location.key) return;
+    const handoff = readExploreSqlHandoff(location.state);
+    if (!handoff) return;
+    consumedHandoff.current = location.key;
+    // The history entry is outside React and delivers the hand-off once; opening its tab, or
+    // refusing one at the cap, is state that event has to set — as the deep link's effect above
+    // does, which the rule's analysis happens not to trace.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    acceptHandoff(handoff);
+  }, [location.key, location.state, resolution.status]);
 
   // What THIS apply cost, decided at the one moment the answer is knowable: an execution
   // the tab's ledger already holds is one it has already run and already been billed for,

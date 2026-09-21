@@ -56,7 +56,9 @@ function lastSql(): string {
 }
 
 function storedTabs(): ExplorationTabsState {
-  return JSON.parse(sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? 'null') as ExplorationTabsState;
+  return JSON.parse(
+    sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? 'null'
+  ) as ExplorationTabsState;
 }
 
 function render() {
@@ -98,7 +100,13 @@ beforeEach(() => {
     const sql = sqlByExecution.get(queryExecutionId) ?? '';
     const grouped = /GROUP BY "(\w+)"/.exec(sql);
     return grouped
-      ? ok({columns: [{name: grouped[1], type: 'string'}, {name: 'count_all', type: 'bigint'}], rows: [['x', '2']]})
+      ? ok({
+          columns: [
+            {name: grouped[1], type: 'string'},
+            {name: 'count_all', type: 'bigint'}
+          ],
+          rows: [['x', '2']]
+        })
       : ok({columns: COLUMNS, rows: ROWS});
   }) as never);
   vi.mocked(listFiles).mockResolvedValue(ok({files: [], folders: [], nextToken: undefined}) as never);
@@ -164,9 +172,7 @@ describe('a tab whose source is a statement', () => {
     let panel = screen.getByRole('complementary', {name: 'Grouping'});
     await user.selectOptions(within(panel).getByRole('combobox', {name: 'Column to group by'}), 'name');
     await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
-    await waitFor(() =>
-      expect(lastSql()).toBe(`SELECT "name", COUNT(*) AS "count_all"\n${FROM}\nGROUP BY "name"`)
-    );
+    await waitFor(() => expect(lastSql()).toBe(`SELECT "name", COUNT(*) AS "count_all"\n${FROM}\nGROUP BY "name"`));
     await screen.findByRole('columnheader', {name: 'count_all'});
 
     // Reopened over the GROUPED result, whose columns are `name` and `count_all` — the panel

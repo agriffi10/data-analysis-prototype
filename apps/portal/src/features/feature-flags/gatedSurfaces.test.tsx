@@ -486,6 +486,11 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('menuitem', 'Explore data')
   },
+  // One recipe for both rows, as with the rail item: the flag the walk turns off is the only
+  // difference. Save is the anchor because it shares the control's gate on the result and follows
+  // neither flag, so the off-half judges an absence only once the result has landed.
+  'Explore in Data Explorer': exploreResultRecipe(),
+  'Explore in Data Explorer on a query result': exploreResultRecipe(),
   'Shared spaces in the Data Explorer source picker': {
     render: () => {
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
@@ -927,6 +932,27 @@ async function filesPageReady() {
   return screen.findByRole('button', {name: 'New folder'});
 }
 
+function exploreResultRecipe(): Recipe {
+  return {
+    render: async () => {
+      sessionStorage.setItem(
+        's3portal.query.tabs.alice',
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1 AS region;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+      renderQueryWorkspace();
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await userEvent.setup({delay: null}).click(await screen.findByRole('button', {name: 'Run statement'}));
+    },
+    anchor: async () => screen.findByRole('button', {name: 'Save results to my files'}),
+    find: async () => screen.queryByRole('button', {name: 'Explore in Data Explorer'})
+  };
+}
+
 function tableActionsStub() {
   return {
     onViewSourceFiles: vi.fn(),
@@ -1059,6 +1085,7 @@ describe('the registry itself', () => {
         // SPEC-179: the mirror image of "Create table" — a Data Explorer capability on a
         // Query surface, registered under both flags.
         'Explore data on the Query schema rail',
+        'Explore in Data Explorer on a query result',
         // SPEC-173: added to the contract, like the two shared-workspace rows below —
         // a saved query is a FILE now, so the folder holding them is a Query surface
         // living on the file browser's screen.
@@ -1114,6 +1141,7 @@ describe('the registry itself', () => {
         'Data Explorer',
         '/explore',
         'Explore data',
+        'Explore in Data Explorer',
         // SPEC-185's guides: the section and every guide in it, on the `files` precedent.
         'Data Explorer help section',
         'Start exploring guide',

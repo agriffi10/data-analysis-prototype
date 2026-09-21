@@ -1,4 +1,5 @@
 import {Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {useNavigate} from 'react-router';
 import {useAuth} from '../auth';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -20,7 +21,16 @@ import {useRefreshLink} from './useRefreshLink';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
 import {useAllSchemas} from '../catalog/useSchema';
-import {deriveViewTargetDatabase, resolveRunStatements, splitSqlStatements, stripTrailingSemicolons} from './query.sql';
+import {
+  deriveViewTargetDatabase,
+  isExplorableSql,
+  resolveRunStatements,
+  splitSqlStatements,
+  statementHint,
+  stripTrailingSemicolons
+} from './query.sql';
+import {unnamedColumnsRefusal} from './exploreResult';
+import {buildExploreSqlHandoff} from '../../lib/routeHandoff';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
@@ -511,6 +521,35 @@ export function QueryWorkspace() {
   // failed at a later statement leaves an earlier one's result complete and already paid for.
   const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
 
+  // Explore in Data Explorer: on Save's terms — the displayed result, whatever the verdict, once
+  // its columns have arrived, since the columns are what decide whether it can be explored at all
+  // — for a statement the Explorer can wrap. A Data Explorer capability on a Query surface, so
+  // both flags gate it. The statement is the one the RUN holds, never the buffer, which may have
+  // changed since.
+  const queryEnabled = useFeature('query');
+  const explorerEnabled = useFeature('dataExplorer');
+  const navigate = useNavigate();
+  const displayedStatement =
+    displayedResultTab && activeRun ? activeRun.statements[displayedResultTab.statementIndex] : undefined;
+  const explore =
+    queryEnabled &&
+    explorerEnabled &&
+    editorOwnsRun &&
+    displayedStatement !== undefined &&
+    isExplorableSql(displayedStatement.sql) &&
+    results.columns.length > 0
+      ? {
+          disabledReason: unnamedColumnsRefusal(results.columns),
+          onExplore: () =>
+            navigate('/explore', {
+              state: buildExploreSqlHandoff({
+                body: stripTrailingSemicolons(displayedStatement.sql),
+                label: statementHint(displayedStatement.sql)
+              })
+            })
+        }
+      : null;
+
   return (
     // Cap the workspace to the viewport (minus the h-14 header) so the results
     // pane scrolls internally instead of growing the page (feedback 2026-06-30).
@@ -679,6 +718,7 @@ export function QueryWorkspace() {
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
                     canSaveResults={canSaveResults}
                     onSaveResults={saveResults.openDialog}
+                    explore={explore}
                   />
                 </div>
               </div>
