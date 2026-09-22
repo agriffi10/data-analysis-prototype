@@ -24,6 +24,29 @@ function channels(hex: string): [number, number, number] {
 }
 
 /**
+ * `fg` painted at `alpha` over `bg`, as the browser composites it.
+ *
+ * Alpha is spent in sRGB, before the luminance curve, which is why this cannot be folded into
+ * the ratio: a translucent colour is a DIFFERENT colour, and measuring its token at full
+ * strength overstates every ratio it appears in. What decides the result is whatever happens to
+ * be behind it, so a pairing that uses one has to name that too — a translucent bar reads
+ * safely over the page and not over a saturated band scrolling under it.
+ *
+ * @param fg - The colour being painted.
+ * @param bg - What it is painted over, opaque.
+ * @param alpha - The foreground's opacity, 0 to 1.
+ * @returns The opaque colour the two produce.
+ * @throws Error when either colour is not an opaque hex, or `alpha` is outside 0–1.
+ */
+export function composite(fg: Hex, bg: Hex, alpha: number): Hex {
+  if (!(alpha >= 0 && alpha <= 1)) throw new Error(`alpha outside 0–1: ${JSON.stringify(alpha)}`);
+  const front = channels(fg);
+  const back = channels(bg);
+  const mix = (i: number) => Math.round(alpha * front[i] + (1 - alpha) * back[i]);
+  return `#${[0, 1, 2].map((i) => mix(i).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
  * WCAG 2.2 relative luminance of an opaque colour, 0 (black) to 1 (white).
  *
  * @param hex - The colour to measure.

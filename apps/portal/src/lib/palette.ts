@@ -92,12 +92,37 @@ export const PALETTE: Record<EffectiveTheme, Record<ColorToken, Hex>> = {
  * surface declared outside the theme, and its four colours are measured here rather than
  * exempted.
  *
+ * An `over` pairing is one whose BACKGROUND is translucent, so it names the `base` behind it
+ * as well: the colour the user sees is the blend, not the token, and the token always measures
+ * the kinder of the two. Where more than one thing can end up back there, each candidate is its
+ * own pairing — a sticky bar is declared over the accent fill AND over the fixed brand strip,
+ * because which of them is worse is a fact about the theme and changes between the two.
+ *
+ * TWO THINGS IT DOES NOT DO, stated so nobody trusts it further than it goes. It does not model
+ * a backdrop FILTER: `backdrop-blur` only averages neighbouring pixels of the same backdrop, but
+ * `backdrop-saturate` changes the base before the blend, and the number here is computed from
+ * the unfiltered colour — a pairing that leans on a filter for its margin is one to widen rather
+ * than to measure more precisely. And it does not tie `fg` to the element: `utility` pins the
+ * BACKGROUND to a class the sweep can find, but the foreground is the author's claim about what
+ * sits on it, and recolouring that text in the markup reddens nothing here.
+ *
  * The union is discriminated rather than `ColorToken | string`, which would absorb the
  * literal type entirely and let `tsc --strict` accept `{fg: 'txet', bg: 'surfce'}`.
  */
 export type ContrastPair =
   | {kind: 'token'; fg: ColorToken | '#ffffff'; bg: ColorToken; min: 4.5 | 3}
-  | {kind: 'raw'; fg: Hex; bg: Hex; min: 4.5 | 3; why: string};
+  | {kind: 'raw'; fg: Hex; bg: Hex; min: 4.5 | 3; why: string}
+  | {
+      kind: 'over';
+      fg: ColorToken | '#ffffff';
+      bg: ColorToken | Hex;
+      alpha: number;
+      base: ColorToken | Hex;
+      /** The utility this describes, variants stripped — what `colourLiterals.test.ts` matches. */
+      utility: string;
+      min: 4.5 | 3;
+      why: string;
+    };
 
 /**
  * The landing page's call-to-action strip, which does not follow the theme.
@@ -139,6 +164,15 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   // fill while anything is selected. The text's 4.5 covers the outline's 3.
   {kind: 'token', fg: 'danger', bg: 'accent-soft', min: 4.5},
 
+  // A banner's Dismiss and a toast's close sit ON the variant's soft fill and are deliberately
+  // quieter than its message. Quieter is a different TOKEN here, never a tint of the same one:
+  // dimming the variant colour to 70% put four of them between 2.80 and 3.68, and nothing
+  // measuring tokens at full strength could see it. `text` is the hover state of the same
+  // controls, which is the direction a hover should move contrast.
+  ...(['success-soft', 'warning-soft', 'danger-soft', 'accent-soft'] as const).flatMap((bg) =>
+    (['text-2', 'text'] as const).map((fg): ContrastPair => ({kind: 'token', fg, bg, min: 4.5}))
+  ),
+
   // The editor's function colour, on the editor's background.
   {kind: 'token', fg: 'syntax-fn', bg: 'surface', min: 4.5},
 
@@ -159,6 +193,41 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   ...([...TEXT_SURFACES, 'accent-soft', 'success-soft', 'warning-soft', 'danger-soft'] as const).map(
     (bg): ContrastPair => ({kind: 'token', fg: 'accent', bg, min: 3})
   ),
+
+  // The fills the app paints at less than full strength. Each backdrop that can end up behind one
+  // is a pairing of its own rather than a single worst case chosen up front: a translucent colour
+  // is only as good as what it fails to hide, and which backdrop hides least is not the same in
+  // the two themes.
+  ...(['surface', 'bg'] as const).map((base): ContrastPair => ({
+    kind: 'over',
+    fg: 'on-danger',
+    bg: 'danger',
+    alpha: 0.9,
+    base,
+    utility: 'bg-danger/90',
+    min: 4.5,
+    why: `the danger button's label under the pointer, on a fill that lets the ${base} through`
+  })),
+  ...([FIXED_LANDING_CTA.bg, 'accent'] as const).map((base): ContrastPair => ({
+    kind: 'over',
+    fg: 'text-2',
+    bg: 'surface',
+    alpha: 0.95,
+    base,
+    utility: 'bg-surface/95',
+    min: 4.5,
+    why: `the landing page's sticky navigation links, over ${base === 'accent' ? 'an accent fill' : 'the fixed brand strip'} scrolling beneath`
+  })),
+  {
+    kind: 'over',
+    fg: FIXED_LANDING_CTA.text,
+    bg: FIXED_LANDING_CTA.text,
+    alpha: 0.1,
+    base: FIXED_LANDING_CTA.bg,
+    utility: 'bg-(--landing-cta-text)/10',
+    min: 4.5,
+    why: "the brand strip's secondary button: a white wash over the indigo, carrying a white label"
+  },
 
   {
     kind: 'raw',

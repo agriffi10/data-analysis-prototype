@@ -55,7 +55,8 @@ export function HelpSidebar({sections, activeId, onSelect}: HelpSidebarProps) {
                 <span className="min-w-0 flex-1 truncate">
                   {isDesktop ? section.label : (SHORT_SECTION_LABELS[section.id] ?? section.label)}
                 </span>
-                <span className={cx('ml-auto flex-none text-xs font-medium', active ? 'text-accent' : 'text-text-3')}>
+                <span
+                  className={cx('ml-auto flex-none text-xs font-medium', active ? 'text-accent-text' : 'text-text-3')}>
                   {section.guides.length}
                 </span>
               </button>

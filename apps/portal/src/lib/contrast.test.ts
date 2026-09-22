@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest';
-import {contrastRatio, relativeLuminance, type Hex} from './contrast';
-import {CONTRAST_PAIRS, DECORATIVE_TOKENS, FIXED_LANDING_CTA, PALETTE, type ContrastPair} from './palette';
+import {composite, contrastRatio, relativeLuminance, type Hex} from './contrast';
+import {
+  CONTRAST_PAIRS,
+  DECORATIVE_TOKENS,
+  FIXED_LANDING_CTA,
+  PALETTE,
+  type ColorToken,
+  type ContrastPair
+} from './palette';
 import type {EffectiveTheme} from './theme.types';
 import {darkBlock, declaredTokens, declaredVars, readCss, rootBlock, themeBlock} from '../test/cssTokens';
 
@@ -11,13 +18,21 @@ import {darkBlock, declaredTokens, declaredVars, readCss, rootBlock, themeBlock}
 const THEMES: EffectiveTheme[] = ['light', 'dark'];
 
 function label(pair: ContrastPair): string {
-  return pair.kind === 'token' ? `${pair.fg} on ${pair.bg}` : `${pair.fg} on ${pair.bg} (${pair.why})`;
+  if (pair.kind === 'token') return `${pair.fg} on ${pair.bg}`;
+  if (pair.kind === 'over') {
+    return `${pair.fg} on ${pair.bg}/${Math.round(pair.alpha * 100)} over ${pair.base} (${pair.why})`;
+  }
+  return `${pair.fg} on ${pair.bg} (${pair.why})`;
 }
 
 function colours(pair: ContrastPair, theme: EffectiveTheme): [Hex, Hex] {
   if (pair.kind === 'raw') return [pair.fg, pair.bg];
   const palette = PALETTE[theme];
-  return [pair.fg === '#ffffff' ? pair.fg : palette[pair.fg], palette[pair.bg]];
+  const resolve = (colour: ColorToken | Hex): Hex =>
+    colour.startsWith('#') ? (colour as Hex) : palette[colour as ColorToken];
+  const fg = resolve(pair.fg);
+  if (pair.kind === 'over') return [fg, composite(resolve(pair.bg), resolve(pair.base), pair.alpha)];
+  return [fg, palette[pair.bg]];
 }
 
 /**
@@ -48,6 +63,20 @@ describe('the ratio itself', () => {
     expect(relativeLuminance('#fff')).toBeCloseTo(1, 5);
   });
 
+  it('composites alpha in sRGB, and refuses an alpha that is not one', () => {
+    expect(composite('#ffffff', '#000000', 0.5)).toBe('#808080');
+    expect(composite('#ffffff', '#4f46e5', 0.95)).toBe('#f6f6fe');
+    // The endpoints, which are where an inverted blend would still look plausible: at 1 the
+    // foreground survives untouched, at 0 only the background is left.
+    expect(composite('#4f46e5', '#ffffff', 1)).toBe('#4f46e5');
+    expect(composite('#4f46e5', '#ffffff', 0)).toBe('#ffffff');
+
+    for (const bad of [-0.1, 1.1, Number.NaN]) {
+      expect(() => composite('#ffffff', '#000000', bad), String(bad)).toThrow('alpha outside');
+    }
+    expect(() => composite('#12345', '#000000', 0.5)).toThrow(JSON.stringify('#12345'));
+  });
+
   it('refuses a malformed hex instead of computing a plausible number on it', () => {
     // The failure this exists to prevent: `parseInt` gives NaN for 'zzz', the NaN propagates,
     // and the comparison against a floor comes back false — so a typo'd pairing clears every
@@ -69,6 +98,29 @@ describe('every pairing the design uses, in both themes', () => {
     // uses, so a change that stops it reporting reddens here.
     const doomed: ContrastPair = {kind: 'raw', fg: '#777777', bg: '#808080', min: 4.5, why: 'deliberate'};
     expect(failures([doomed], 'light')).toEqual(['light: #777777 on #808080 (deliberate) — 1.13 < 4.5']);
+  });
+
+  it('sees through a translucent fill that the token measurement calls safe', () => {
+    // The positive control for the `over` kind. Both pairings below name the SAME foreground on
+    // the SAME background token; only the second says the background is painted at half
+    // strength over the landing strip. If `over` ever resolved to its token, the second would
+    // pass with the first and the whole kind would be decoration.
+    const asToken: ContrastPair = {kind: 'token', fg: 'text-2', bg: 'surface', min: 4.5};
+    const asPainted: ContrastPair = {
+      kind: 'over',
+      fg: 'text-2',
+      bg: 'surface',
+      alpha: 0.5,
+      base: FIXED_LANDING_CTA.bg,
+      utility: 'bg-surface/50',
+      min: 4.5,
+      why: 'deliberate'
+    };
+
+    expect(failures([asToken], 'light')).toEqual([]);
+    expect(failures([asPainted], 'light')).toEqual([
+      'light: text-2 on surface/50 over #4f46e5 (deliberate) — 2.58 < 4.5'
+    ]);
   });
 
   it('measures every token, or names it as decorative with a reason', () => {

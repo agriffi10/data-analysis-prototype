@@ -60,7 +60,7 @@ export function Banner({
           <button
             type="button"
             onClick={retry}
-            className="font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            className="font-semibold underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
             {retryLabel}
           </button>
         )}
@@ -69,7 +69,7 @@ export function Banner({
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-auto shrink-0 text-xs font-medium opacity-70 hover:underline hover:opacity-100">
+          className="ml-auto shrink-0 text-xs font-medium text-text-2 hover:text-text hover:underline">
           Dismiss
         </button>
       )}

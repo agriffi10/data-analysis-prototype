@@ -289,16 +289,17 @@ function QueryShowcase() {
             <span className="italic text-text-3">-- Top regions by revenue</span>
           </div>
           <div>
-            <span className="font-semibold text-accent">SELECT</span> region, <span className="text-accent">SUM</span>
-            (amount) <span className="font-semibold text-accent">AS</span> revenue
+            <span className="font-semibold text-accent-text">SELECT</span> region,{' '}
+            <span className="text-accent-text">SUM</span>
+            (amount) <span className="font-semibold text-accent-text">AS</span> revenue
           </div>
           <div>
-            <span className="font-semibold text-accent">FROM</span> sales_2026
+            <span className="font-semibold text-accent-text">FROM</span> sales_2026
           </div>
           <div>
-            <span className="font-semibold text-accent">GROUP BY</span> region{' '}
-            <span className="font-semibold text-accent">ORDER BY</span> revenue{' '}
-            <span className="font-semibold text-accent">DESC</span>;
+            <span className="font-semibold text-accent-text">GROUP BY</span> region{' '}
+            <span className="font-semibold text-accent-text">ORDER BY</span> revenue{' '}
+            <span className="font-semibold text-accent-text">DESC</span>;
           </div>
         </pre>
       </div>
@@ -418,7 +419,7 @@ export default function LandingPage() {
       {/* Sticky nav */}
       <nav
         aria-label="Primary"
-        className="sticky top-0 z-20 h-16 border-b border-border bg-surface/80 backdrop-blur-sm backdrop-saturate-150">
+        className="sticky top-0 z-20 h-16 border-b border-border bg-surface/95">
         <div className="mx-auto flex h-full max-w-[1080px] items-center gap-3 px-4 tablet:gap-4 tablet:px-6">
           <LandingNavMenu links={NAV_LINKS} />
           {/* The square alone below tablet, as the app header does: the wordmark beside two
@@ -615,7 +616,7 @@ export default function LandingPage() {
                     <button
                       type="button"
                       onClick={() => void signIn()}
-                      className="h-[46px] w-full rounded-md border border-(--landing-cta-text)/40 bg-(--landing-cta-text)/10 px-6 text-md font-semibold text-(--landing-cta-text) hover:bg-(--landing-cta-text)/20 tablet:w-auto">
+                      className="h-[46px] w-full rounded-md border border-(--landing-cta-text)/40 bg-(--landing-cta-text)/10 px-6 text-md font-semibold text-(--landing-cta-text) hover:border-(--landing-cta-text) tablet:w-auto">
                       Sign in
                     </button>
                   </>
