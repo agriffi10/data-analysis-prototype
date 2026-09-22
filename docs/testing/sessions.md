@@ -10,6 +10,91 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-22 (the restore's completion, and the rows the 2026-09-21 sitting never reached)
+
+**What was under test.** The SPA image **`aecc93fd`** (task definition `dat-prod-spa:230`, read from
+the service) and the API and planes at **`d4b4fa14`** (`/healthz`) — the first sitting on the build
+that carries the archive count fix. **The restore checked below is not on that build**: its
+execution ran and notified at 01:51Z, and `d4b4fa14` merged at 02:20Z, so every count it printed
+came from the old code rather than from the new code's fallback. Times are UTC.
+
+**Browsers.** `agriffith` only, signed in by Andrew himself in both; nothing was typed or clicked on
+a credential form by the session.
+- A **Chrome** tab of the Claude-in-Chrome group, window hidden, at 1512 px.
+- The Claude app's **Browser pane**, at its own 388 px width and, for SPEC-190's row, emulated at
+  **400 × 820** (`matchMedia` confirmed: `min-width: 400px` true, `401px` false).
+
+**Instruments, each a way this run differed from a user's.**
+- `document.visibilityState` and `hidden` overridden to visible after every load in both browsers.
+- **A focus return was dispatched, not performed**: `visibilitychange` on `window` plus a `focus`
+  event. TanStack Query's focus manager subscribes to `visibilitychange` **on `window`**, so a
+  `document.dispatchEvent` of a non-bubbling event reaches nothing — the first attempt did exactly
+  that and read as a stale listing. What is proven is the app's own refetch path, not that a real
+  tab return fires the event.
+- Most requests were sent in-page with `fetch` and the tab's own `idToken`, because the classifier
+  refused a `window.fetch` patch. Where a count of requests was needed, **Resource Timing** was the
+  recorder (`performance.getEntriesByType('resource')`), not the extension's network reader.
+- Enter was sent with the extension's `computer` key action into the hidden window, **with a
+  positive control first**: Enter on a focused **New folder** opened its dialog.
+- Log reads used `aws s3api get-object` against `s3://dat-prod-athena-admin/logs/`. Two compound
+  reads were refused by the classifier as *Production Reads*; single calls of the same shape ran.
+
+### §4.11 D — the restore of `57d14bb9-be06-4790-81ab-d5a95d484926` — **every row settled**
+
+Requested 2026-09-21 22:45:26Z, finished 2026-09-22 01:51:08Z: **3 h 5 min**.
+
+| Assertion | What it returned |
+|---|---|
+| The terminal notification | *"Restored 2 files (38 B) to your space, back where they came from. The archive has been cleaned up."* The **2 is the known miscount**, printed by the pre-fix code this execution ran on. |
+| Its link | `/files?space=livecheck_186&prefix=livecheck_186/` — the space root, not a folder. Following it listed `live0921_archive` back at the root. |
+| Every file back at its original path | `livecheck_186/live0921_archive/archive_0921.csv`, 38 B, written 01:51:02Z. |
+| The empty folder the archive carried | `livecheck_186/live0921_archive/` **exists** (`GET /v1/objects/exists`), against a made-up key answering `exists: false` as the control. |
+| The receipt survives | `system_settings/archive/57d14bb9-…/receipt.txt`, 428 B, rewritten 01:51:08Z. |
+| The ARCHIVE lines byte-identical | All six compared literally against the copy quoted in this file before the restore: identical. `Restore requested` still reads `2026-09-21 22:45:26 UTC`; `Restored to` now reads `s3://dat-prod-shared-space/livecheck_186/`. |
+| The vault prefix is swept | `archive swept` in `logs/service=archive/`, `objects: 3, residue: 0, expected: 3`. |
+| The loop actually looped | **37 `retrieval polled` events**, five minutes apart, 22:50:39Z → 01:50:57Z (14 on day 21, 23 on day 22). |
+| A child span survived the pipe | `span.start` with `function: "copy-batch"`, `parent_span_id` `0c0aa2241d15949e`, which **is** the `span_id` of the `copy-objects` record in the same `trace_id` `17c61780…`. Not null. |
+
+`agriffith` then **left `livecheck_186`**, which the row said to do once this finished. The leave
+was accepted and the space left the connections cache; **the leaver gets no notification of their
+own leave**, which is worth knowing before anyone waits for one.
+
+### The rows the 2026-09-21 sitting never reached
+
+| Row | What ran, and what it returned |
+|---|---|
+| **A destination conflict is reported PER ITEM** (SPEC-188 FR-005), the **folder** variant | **PASS.** One `copy` of two folder items into `live0922_ops/dest/` with `onConflict: "refuse"`, where `dest/folder_a/a1.csv` was in the way. **One** notification: *"Copied 1 of 2 items to "dest". 1 needs your attention: "folder_a" - something is already in the way there. …"*. Its payload's `conflicts` names `itemKey` `…/src/folder_a/`, `kind: "folder"` and a `sample` of the colliding derived key. `folder_b` arrived; the occupied object's body and `LastModified` (17:40:49Z) were unchanged. |
+| The same row's **`overwrite`** half | **PASS on behaviour.** One `copy` with `onConflict: "overwrite"` into `dest2/`, `submittedAt` 17:42:00.227Z, against `old.csv` written 17:41:58Z and `new.csv` written 17:42:04Z. The **older** destination object was replaced (`SOURCE_OLD`); the **newer** one came back a `conflict` and was left untouched, body and `LastModified` both. **A wording defect, not a behaviour one:** the conflict sentence is keyed on the outcome alone (`focommon/messages.py`, `_OUTCOME_ADDITIONS`), so this request — sent *with* overwrite on — was told *"Sending it again with overwrite turned on replaces what is there"*. Both messages were byte-identical. Raised as a task. |
+| **SPEC-191 §20's single-folder repeat** | **PASS.** A `delete` of the single item `live0922_ops/single/`: *"Deleted 1 item."*, payload carrying the request id, and the link landing in **`live0922_ops/`** — the parent, not the removed folder. |
+| SPEC-191's **§22 re-run** | **Already closed** on 2026-09-21 by the defect row's own re-run; the row's prescription is stale and is struck in `owed.md`. |
+| **A real folder move** (SPEC-190) — the listing after a focus return | **PASS**, by the dispatched focus return described under Instruments. The move of `src2/` into `dest2/` settled at 17:48:06Z; the listing still showed `src2` until the event, then dropped it and showed `moved_here`, with one `GET /v1/objects` in Resource Timing across the event. |
+| The same row — **400 px** | **PASS**, in the Browser pane at 400 × 820. `folder_b` moved into `moved_here/`: accepted at once, the in-progress card **fixed at 642–736 px** and the mobile action bar **fixed at 767–820 px**, so the card is clear of the bar with 31 px to spare. The card settled on the notification to *"Finished — see your notifications for what happened."*, and the listing was correct after the focus return. The toast (744–803 px) does overlap the action bar while it shows; it is transient and not treated as a finding. |
+| **SPEC-239's API-level half** | **PASS.** Against execution `c9ae7f2a-…` (`explorer150`: `id, region, owner, qty`). `columnIndexes: [1,0]` wrote `live0922_conv/live0922-columns.csv` reading `region,id` / `south,1` / `east,2` — the 2nd and 1st columns in that order and no others — and notified *"Saved 150 rows as CSV…"*. `[0,0]` was **refused by the verb**: *"Couldn't save the query results: the columns chosen for this file don't match the query's results, so nothing was saved."*, **no file written**. The refusal came from **`validate-authorize`** with reason `invalid_columns` (`logs/service=results-conversion/`), which is the path the ledger already excuses from carrying a `format`: its payload carries `requestId` alone, while the success payload carries `format: "csv"`. |
+| **§4.5 row 14** — no early results read | **PASS.** Opening `explorer150` in the Data Explorer: `POST /v1/queries`, **two** status polls, then **one** `…/results`, 192 ms after the second poll. Zero results reads during the queued/running window. |
+| **§4.5 row 15** — paging | **PASS.** Forward: one `…/results` carrying a **percent-encoded** `nextToken` (108 chars), *Rows 101–150 of 150*. Back: **zero** requests. Forward again: the only request was an unrelated `objects.content` read; a further back-and-forward pair made **zero**. |
+| **§4.11 "Enter cancels"** | **PASS**, in the hidden Chrome tab after the positive control. With `old.csv` ticked, the archive dialog read *"Archive "old.csv"? This will be removed from this space and stored in long-term storage. You can restore an archive later using its id, but a restore takes several hours to complete."* — naming the item relative to the space, and **not** saying it cannot be undone. Focus was on **Cancel**. Enter closed the dialog, started no archive, left the file in place and kept the selection. |
+| **A multipart upload's abort during SIGN-OUT** (SPEC-216 FR-004) | **RUN, and the abort did NOT land.** A 448 MB file (four 112 MiB parts; the threshold is `MULTIPART_PART_BYTES`, 112,500,000 B) was uploaded in the pane and the session signed out mid-transfer. `logs/service=api/` shows `objects.upload` at 18:03:16Z and `objects.uploadPart` calls through 18:03:28Z, and **no `objects.uploadAbort` at all**. `list-multipart-uploads` on `dat-prod-user-space` was empty before and afterwards held `agriffith/live0922_ops/live0922_big.bin`, initiated 18:03:18Z. Not a correctness bug — FR-004 declines to guarantee the abort and the bucket's seven-day rule is the backstop — but the cost is now measured rather than assumed. |
+| **A shared space whose NAME is not catalog-safe** | **HALF RUN.** The name must contain a **space** and not a backtick or a double quote: a space name becomes an STS **session tag value** on every call that account makes (`apicommon/identity.py`, `session_tags`), and STS's tag-value grammar admits `\p{Z}` but neither of the others — so a backtick would have broken every credential call `agriffith` makes until the membership was removed. `live0922 odd` was created through `POST /v1/enqueue/shared-space` and **Glue did not refuse it**: *"Your shared workspace "live0922 odd" is ready."*, active in the connections cache. The DDL half is below. |
+| **§4.11 B1a** (a reused archive id) | **NOT RUN.** It needs an archive whose prefix is not yet empty, and the only one to hand had just been restored. Andrew declined a fresh archive for it, so it stays owed. |
+
+**Two things the create path showed, neither a defect:**
+- **The membership limit is real and it bites the owner.** The first create of `live0922 odd`
+  failed with *"membership limit reached"* — `agriffith` held eleven connections. Leaving
+  `livecheck_186` freed the slot and the same create then succeeded.
+- **A new space is unreachable to its own creator until the token refreshes.** Immediately after
+  the create, `PUT /v1/objects/content` into it answered `403 AccessDenied`, *"no membership for
+  that space"*, and `GET /v1/catalog/databases/live0922%20odd` answered `403`. That is the stale
+  membership tag `owed.md` already records, seen from the owner's side.
+
+**Left behind.**
+- `agriffith/live0922_ops/` (`dest/`, `dest2/`, `moved_here/`, `src/`) and `agriffith/live0922_conv/`.
+- The shared space **`live0922 odd`**, owned by `agriffith`; its name is spent.
+- `agriffith` is **no longer a member of `livecheck_186`**.
+- An **incomplete multipart upload**, `agriffith/live0922_ops/live0922_big.bin`, which no browser
+  session can abort now and which the bucket's seven-day rule will clear.
+
+---
+
 ## Live-check session — 2026-09-21, night (two accounts: the send, the share, membership, the refusals and catalog isolation)
 
 **What was under test.** The same build as the evening sitting: the SPA image **`8061989c`**
