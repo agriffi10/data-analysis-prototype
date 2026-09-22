@@ -41,10 +41,10 @@ export type OrderFilterDialogProps = {
   /**
    * Why a column takes no filter and no sort, or null when it does.
    *
-   * The same reader the header menu asks. It matters most HERE: below `tablet`
-   * the header menu is unreachable, so this dialog is the only way to sort or filter — and
-   * a calculated column offered a sort here would be refused by the renderer, not by
-   * Athena, taking the whole exploration to an error banner.
+   * The same reader the header menu asks. It matters most HERE: Record view, the default
+   * below `tablet`, and Text view have no column header, so this dialog is the only way to
+   * sort or filter from them — and a calculated column offered a sort here would be refused
+   * by the renderer, not by Athena, taking the whole exploration to an error banner.
    */
   queryRefusalOf: (column: string) => string | null;
   /** The applied description — the starting point for the staged one. */

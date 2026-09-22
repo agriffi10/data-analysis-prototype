@@ -296,7 +296,7 @@ describe('grouping’s extras', () => {
     await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
     await user.click(byValue);
 
-    // And the settings dialog, which below `tablet` is the ONLY way to sort or filter.
+    // And the settings dialog, the only way to sort or filter from Record or Text view.
     await chooseExplorationOption(user, 'Order and filter');
     expect(await screen.findByRole('combobox', {name: `Sort ${percent}`})).toBeDisabled();
     expect(screen.getByRole('combobox', {name: `Filter ${percent}`})).toBeDisabled();
