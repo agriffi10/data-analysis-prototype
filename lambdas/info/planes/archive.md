@@ -205,6 +205,7 @@ deliver while every bound computed from it reads as satisfied. Eight workers; th
 |---|---|
 | `authz` | source authorization for the plane |
 | `config` | domain configuration |
+| `counts` | the numbers a person reads — files, with a folder placeholder counted only when it fell short — beside the object counts the gate compares |
 | `delete` | batched deletion, refusing over the **whole** list (unlike `focommon.delete`, which is per item) |
 | `guard` | the destination guard — nothing a restore would write over may already exist |
 | `manifest` | `_manifest.json`, the integrity record written before anything is deleted |

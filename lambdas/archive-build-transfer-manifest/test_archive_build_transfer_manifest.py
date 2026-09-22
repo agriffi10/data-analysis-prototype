@@ -98,12 +98,17 @@ def _no_real_notifications(monkeypatch):
 def test_every_line_carries_the_storage_class_from_the_one_definition():
     """FR-002 AC1. The choice the whole arc is shaped by — a GLACIER object cannot be copied at
     all until a billed, hours-long retrieval has finished — so a second home for it is how one
-    verb archives to a class the restore path was not built for."""
+    verb archives to a class the restore path was not built for.
+
+    The plan's empty folder is carried at that class like any object, flagged as a placeholder
+    on its line and left out of the block's file count."""
     fake = _install()
 
-    m.handler(_event(), None)
+    out = m.handler(_event(), None)
 
     assert {line["storageClass"] for line in _lines(fake)} == {ARCHIVE_STORAGE_CLASS}
+    assert [line["folder"] for line in _lines(fake)] == [False, True]
+    assert out["transfer"]["fileCount"] == 1
 
 
 def test_a_plan_short_of_its_recorded_count_is_refused_before_a_line_is_written():

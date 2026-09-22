@@ -15,13 +15,18 @@ every batch before reporting, and returns counts rather than keys.
 exists in two places, which is recoverable by hand; the alternative — removing the archive after a
 partial source deletion — is not recoverable at all.
 
+**The total that failure names is counted in files from the keys this verb deletes**, with a
+folder placeholder counted only when it is one of the things that could not be removed. It is
+derived here rather than read off the state, so the sentence depends on nothing an older verb
+might have written without it.
+
 The service name is the control plane, not the function, so one archive's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import delete, notify, plan
+from arcommon import counts, delete, notify, plan
 from cpcommon import observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
@@ -98,10 +103,16 @@ def _delete_source(event) -> dict:
     )
 
     if removed["failed"]:
+        folders_short = removed["failedFolders"]
+        _, total = counts.shown(
+            counts.count_files(keys),
+            files_short=removed["failed"] - folders_short,
+            folders_short=folders_short,
+        )
         raise TerminalError(
             "source_delete_incomplete",
             f"{removed['failed']} of {len(keys)} source object(s) could not be deleted; the "
             "archive copy was kept",
-            tokens={"failed": str(removed["failed"]), "total": str(len(keys))},
+            tokens={"failed": str(removed["failed"]), "total": str(total)},
         )
     return {**event, "deletedCount": removed["deleted"]}

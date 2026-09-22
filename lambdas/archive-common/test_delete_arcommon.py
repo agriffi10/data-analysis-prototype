@@ -75,3 +75,27 @@ def test_a_prefix_marker_is_refused_for_the_whole_list():
 
 
 # ── The batching, and the array every response carries ───────────────────────
+
+
+class _S3Error(Exception):
+    def __init__(self, code):
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": 403}}
+        super().__init__(code)
+
+
+def test_a_failure_counts_its_folder_placeholders_from_the_keys_that_failed():
+    """The count delete-source's sentence needs to leave placeholders out of its total. Two ways
+    to fail, and each is counted from a different place: a whole batch refused counts its own
+    keys, and a key refused inside a batch counts from the key S3 names in ``Errors``. The first
+    batch is full, so the second one exists at all."""
+    first = [f"alice/f{i}.csv" for i in range(delete.MAX_KEYS_PER_BATCH - 1)] + ["alice/empty/"]
+    second = ["alice/other/", "alice/last.csv"]
+    _install(errors_on={"alice/other/"}, raise_on=0, error=_S3Error("AccessDenied"))
+
+    removed = delete.delete_keys("user-bkt", first + second, "alice/")
+
+    assert removed == {
+        "deleted": 1,
+        "failed": delete.MAX_KEYS_PER_BATCH + 1,
+        "failedFolders": 2,
+    }

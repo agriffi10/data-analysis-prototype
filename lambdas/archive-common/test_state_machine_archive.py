@@ -13,6 +13,8 @@ import pathlib
 import re
 import sys
 
+import pytest
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-validate-authorize"))
@@ -326,3 +328,139 @@ def test_that_rule_actually_catches_a_stamp_lifted_out_of_its_arm():
         "SeedRestoreDone",
         "SeedRestoreIncomplete",
     }
+
+
+# ── The transfer block the notifies thread ───────────────────────────────────
+
+_TRANSFER_READ = re.compile(r'\$\.transfer(\.|")')
+_BUILDERS = {"BuildTransferManifest", "BuildRestoreManifest"}
+
+
+def _reads_the_transfer(states: dict) -> set:
+    """Every state that reads ``$.transfer`` anywhere in its definition but its Comment.
+
+    Anchored so ``$.transferOutcome`` is not a read of it, and taken over the whole state rather
+    than its ``Parameters`` alone, because the Maps read the block from their ``ItemReader`` and
+    the Choices from their rules.
+    """
+    return {
+        name
+        for name, state in states.items()
+        if _TRANSFER_READ.search(json.dumps({k: v for k, v in state.items() if k != "Comment"}))
+    }
+
+
+def _keeps_the_state(state: dict) -> bool:
+    """Whether a state's output still carries every key its input did.
+
+    A Task whose result replaces the object — no ``ResultPath``, or ``$`` — keeps it only when it
+    hands the whole state to a verb and selects the verb's return with ``OutputPath:
+    $.Payload``, because every verb here returns ``{**event, …}``; without that selection the
+    state becomes the Lambda response envelope. Anywhere else an ``OutputPath`` narrower than
+    ``$`` drops keys. A ``ResultPath`` of null or a sub-path merges; ``$`` replaces. With no
+    ``ResultPath`` a Pass that sets ``Parameters`` or ``Result`` replaces the object, a Map
+    replaces it with its own output, and a Choice or a Wait passes it through.
+    """
+    kind = state.get("Type")
+    output = state.get("OutputPath", "$")
+    replaces = state.get("ResultPath", "$") == "$"
+    if kind == "Task" and replaces:
+        return (
+            output == "$.Payload" and (state.get("Parameters") or {}).get("Payload.$") == "$"
+        )
+    if output != "$":
+        return False
+    if "ResultPath" in state:
+        return not replaces
+    if kind == "Pass":
+        return "Parameters" not in state and "Result" not in state
+    return kind in ("Choice", "Wait")
+
+
+def _read_without_the_transfer(states: dict) -> set:
+    """Readers of ``$.transfer`` some path reaches while the block is absent from the state.
+
+    The walk carries whether the block is present. A builder puts it there on its way out; a
+    state that replaces the object, or a Catch with no ``ResultPath``, takes it away. A reader
+    reached without it is an absent ``Parameters`` path, which is an uncatchable
+    ``States.Runtime`` — on ``NotifyArchived`` after the source has already been deleted.
+    """
+    readers = _reads_the_transfer(states)
+    flagged, seen, frontier = set(), set(), [(ASL["StartAt"], False)]
+    while frontier:
+        name, present = frontier.pop()
+        if not name or name not in states or (name, present) in seen:
+            continue
+        seen.add((name, present))
+        if name in readers and not present:
+            flagged.add(name)
+        state = states[name]
+        onward = True if name in _BUILDERS else present and _keeps_the_state(state)
+        frontier.append((state.get("Next"), onward))
+        frontier.append((state.get("Default"), onward))
+        frontier.extend((c.get("Next"), onward) for c in state.get("Choices", []) or [])
+        frontier.extend(
+            (c.get("Next"), present and c.get("ResultPath", "$") != "$")
+            for c in state.get("Catch", []) or []
+        )
+    return flagged
+
+
+def test_no_state_reads_the_transfer_block_on_a_path_that_never_built_it():
+    """The three notifies thread the WHOLE ``$.transfer`` block, not its ``fileCount``, so the
+    file count cannot become a Parameters path the machine reads before a verb writes it. That
+    makes the block itself load-bearing on every route into them, and this is the rule for it."""
+    readers = _reads_the_transfer(STATES)
+
+    assert {"NotifyArchived", "NotifyRestoreStarted", "NotifyRestored"} <= readers
+    assert _read_without_the_transfer(STATES) == set()
+
+
+def test_that_rule_catches_a_route_past_the_builder():
+    """**The positive control**, for the stamp rule's reason: an emptiness check passes as
+    happily when the walk has stopped finding readers. Routing each arm past its builder has to
+    flag every reader downstream of it."""
+    mutant = {name: dict(state) for name, state in STATES.items()}
+    mutant["InspectSource"] = {**mutant["InspectSource"], "Next": "HasTransferItems"}
+    mutant["StampRestoreExecution"] = {
+        **mutant["StampRestoreExecution"],
+        "Next": "HasRestoreItems",
+    }
+
+    flagged = _read_without_the_transfer(mutant)
+
+    assert {"NotifyArchived", "NotifyRestoreStarted", "NotifyRestored"} <= flagged
+    assert {"HasTransferItems", "HasRestoreItems"} <= flagged
+
+
+def _with_a_reshaping_pass(states: dict) -> dict:
+    """A Pass that names its own keys, spliced in after delete-source."""
+    states["Reshape"] = {
+        "Type": "Pass",
+        "Parameters": {"requestId.$": "$.requestId"},
+        "Next": "WriteReceipt",
+    }
+    states["DeleteSource"] = {**states["DeleteSource"], "Next": "Reshape"}
+    return states
+
+
+def _without_selecting_the_verbs_return(states: dict) -> dict:
+    """write-receipt with its ``OutputPath`` gone, so the state becomes the invoke's envelope."""
+    states["WriteReceipt"] = {
+        key: value for key, value in states["WriteReceipt"].items() if key != "OutputPath"
+    }
+    return states
+
+
+@pytest.mark.parametrize(
+    "reshape",
+    [_with_a_reshaping_pass, _without_selecting_the_verbs_return],
+    ids=["a-pass-naming-its-own-keys", "a-task-that-stops-selecting-its-payload"],
+)
+def test_that_rule_catches_a_state_that_reshapes_the_object_after_the_builder(reshape):
+    """The regressions a sink-only walk misses: the builder ran, and then something between it
+    and the notify rebuilt the state without the block — a Pass naming its own keys, or a Task
+    that no longer selects its verb's return and so hands on Lambda's response envelope."""
+    mutant = reshape({name: dict(state) for name, state in STATES.items()})
+
+    assert "NotifyArchived" in _read_without_the_transfer(mutant)

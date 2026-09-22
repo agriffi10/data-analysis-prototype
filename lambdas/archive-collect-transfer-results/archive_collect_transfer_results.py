@@ -18,10 +18,18 @@ was built from. The last two are wiring faults rather than copy faults, and they
 branch rather than raising, because the outcome that matters is identical: the archive copy is
 partial, so it is removed and the source is left exactly where it was.
 
-**What it deliberately does NOT do is attribute.** File-send's collector turns item failures back
-into per-recipient outcomes; an archive has one destination, so there is nobody to attribute to
-and the counts are the whole answer. That is also why the copy verb's empty ``recipient`` fields
-are correct rather than a gap.
+**What it deliberately does NOT do is attribute to a recipient.** File-send's collector turns item
+failures back into per-recipient outcomes; an archive has one destination, so there is nobody to
+attribute to and the counts are the whole answer to the gate.
+
+**It does tell a folder placeholder that fell short from a file that did, and only for what a
+person reads.** Every failure record carries its manifest line's folder flag (``arcommon.counts``
+names the field for the builders, the copy verb and this verb alike), and the verdict gains a
+``shown`` block — the copied and total a sentence names, in files, with a placeholder counted only
+when it is one of the things that fell short. The verdict itself, and every object count the
+gate and the vault checks compare, is untouched. A record with no flag — written by a copy verb
+from before it, or read back off a line an older builder wrote — makes the whole ``shown`` block
+the object counts, which is the wording from before the flag existed.
 
 **It counts one KIND of failure apart from the rest, and that count changes no verdict.** An item
 the copy declined to overwrite is short exactly as a failed copy is short, so ``complete`` is
@@ -37,7 +45,7 @@ fan-out stay one queryable set. The per-verb identity rides as the ``verb`` fiel
 
 import logging
 
-from arcommon import notify
+from arcommon import counts, notify
 from cpcommon import observability
 from cpcommon.errors import TerminalError
 from cpcommon.transfer import results as results_mod
@@ -106,7 +114,7 @@ def handler(event, context) -> dict:
 
     Returns:
       The request with a ``transferOutcome`` block — how many objects copied, how many did not,
-      and the boolean the commit gate branches on.
+      the boolean the commit gate branches on, and the ``shown`` counts a person reads.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be read at all, or
@@ -140,13 +148,15 @@ def _collect_transfer_results(event) -> dict:
         key,
         batch_failure_reason=COPY_FAILED,
         unreadable_reason=RESULTS_UNREADABLE,
-        echo_fields=(),
+        echo_fields=(counts.FOLDER_FIELD,),
     )
-    failed = len(outcome["failures"])
-    occupied = sum(1 for item in outcome["failures"] if item.get("reason") == DESTINATION_OCCUPIED)
+    failures = outcome["failures"]
+    failed = len(failures)
+    occupied = sum(1 for item in failures if item.get("reason") == DESTINATION_OCCUPIED)
     unaccounted = expected - outcome["items"]
     copied = outcome["items"] - failed
     complete = failed == 0 and unaccounted == 0
+    shown_copied, shown_total = _shown(event, failures, unaccounted, (copied, expected))
 
     logger.info(
         "transfer verdict: %d copied, %d failed (%d occupied), %d unaccounted of %d planned",
@@ -173,5 +183,40 @@ def _collect_transfer_results(event) -> dict:
             "expected": expected,
             "occupied": occupied,
             "complete": complete,
+            "shown": {"copied": shown_copied, "total": shown_total, "occupied": occupied},
         },
     }
+
+
+def _shown(event, failures: list, unaccounted: int, objects: tuple) -> tuple:
+    """Works out the copied and total a sentence about this transfer names, in files.
+
+    The folder flag is read as a strict boolean: ``True`` is a placeholder and ``False`` a file.
+    **Anything else on any record returns the object counts instead**, because a record with no
+    flag comes from a copy verb or a manifest older than the flag, and guessing its kind would
+    make the sentence wrong in a new way — a file that copied named as one that did not. Items
+    the export never covered have no kind either, and those alone are attributed to the files
+    first by ``counts.shown``.
+
+    Args:
+      event: The request, whose ``transfer`` block counts the files.
+      failures: The failure records, each echoing its line's folder flag.
+      unaccounted: How many items the export never covered; below zero on an over-covering
+        export, which counts no shortfall.
+      objects: ``(copied, expected)`` in objects, the pair returned when a flag is missing.
+
+    Returns:
+      ``(copied, total)``.
+
+    Raises:
+      None.
+    """
+    flags = [item.get(counts.FOLDER_FIELD) for item in failures]
+    if not all(isinstance(flag, bool) for flag in flags):
+        return objects
+    return counts.shown(
+        counts.file_count(event),
+        files_short=sum(1 for flag in flags if flag is False),
+        folders_short=sum(1 for flag in flags if flag is True),
+        unknown_short=max(unaccounted, 0),
+    )

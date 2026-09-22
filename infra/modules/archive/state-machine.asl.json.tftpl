@@ -420,7 +420,7 @@
     },
     "NotifyArchived": {
       "Type": "Task",
-      "Comment": "The archive's success message, and the only place the archive id reaches the user outside the receipt — which lives inside the folder that id names. AFTER write-receipt on purpose: the id it hands out is only useful once the receipt exists to be read. ResultPath is null and the Catch leads onward rather than to the failure seed, because by this state the source is DELETED: a notifier that could fail the run would turn a completed archive into a reported failure, and the data would still be gone.",
+      "Comment": "The archive's success message, and the only place the archive id reaches the user outside the receipt — which lives inside the folder that id names. AFTER write-receipt on purpose: the id it hands out is only useful once the receipt exists to be read. ResultPath is null and the Catch leads onward rather than to the failure seed, because by this state the source is DELETED: a notifier that could fail the run would turn a completed archive into a reported failure, and the data would still be gone. THE WHOLE $.transfer BLOCK IS THREADED, not its fileCount: the manifest builder put that block on the state before this point under the old code and the new alike, while an absent Parameters path is an uncatchable States.Runtime and the definition and the Lambdas deploy in no fixed order. notify reads the file count out of it and falls back to objectCount when the block carries none.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
@@ -434,7 +434,8 @@
             "name.$": "$.source.name"
           },
           "objectCount.$": "$.objectCount",
-          "totalBytes.$": "$.totalBytes"
+          "totalBytes.$": "$.totalBytes",
+          "transfer.$": "$.transfer"
         }
       },
       "Retry": [
@@ -747,7 +748,7 @@
     },
     "NotifyRestoreStarted": {
       "Type": "Task",
-      "Comment": "The only START notification in this application, and it is here rather than earlier because THIS is where the bill and the hours begin: RestoreObject is billed on request and cannot be cancelled, so a message before the Map would announce a wait that a failed retrieval never actually starts. Three to five hours of silence is indistinguishable from a request that was dropped, which is the whole reason this outcome exists.",
+      "Comment": "The only START notification in this application, and it is here rather than earlier because THIS is where the bill and the hours begin: RestoreObject is billed on request and cannot be cancelled, so a message before the Map would announce a wait that a failed retrieval never actually starts. Three to five hours of silence is indistinguishable from a request that was dropped, which is the whole reason this outcome exists. THE WHOLE $.transfer BLOCK IS THREADED, not its fileCount: the manifest builder put that block on the state before this point under the old code and the new alike, while an absent Parameters path is an uncatchable States.Runtime and the definition and the Lambdas deploy in no fixed order. notify reads the file count out of it and falls back to objectCount when the block carries none.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
@@ -761,7 +762,8 @@
             "name.$": "$.source.name"
           },
           "objectCount.$": "$.objectCount",
-          "totalBytes.$": "$.totalBytes"
+          "totalBytes.$": "$.totalBytes",
+          "transfer.$": "$.transfer"
         }
       },
       "Retry": [
@@ -1100,7 +1102,7 @@
     },
     "NotifyRestored": {
       "Type": "Task",
-      "Comment": "The restore's success message. Reached from BOTH of update-receipt's exits, including its Catch: a receipt that could not be rewritten is a flag on a successful run, and the user whose files are back must be told they are back whether or not the document recording it could be updated.",
+      "Comment": "The restore's success message. Reached from BOTH of update-receipt's exits, including its Catch: a receipt that could not be rewritten is a flag on a successful run, and the user whose files are back must be told they are back whether or not the document recording it could be updated. THE WHOLE $.transfer BLOCK IS THREADED, not its fileCount: the manifest builder put that block on the state before this point under the old code and the new alike, while an absent Parameters path is an uncatchable States.Runtime and the definition and the Lambdas deploy in no fixed order. notify reads the file count out of it and falls back to objectCount when the block carries none.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
@@ -1115,6 +1117,7 @@
           },
           "objectCount.$": "$.objectCount",
           "totalBytes.$": "$.totalBytes",
+          "transfer.$": "$.transfer",
           "cleanup.$": "$.cleanup"
         }
       },

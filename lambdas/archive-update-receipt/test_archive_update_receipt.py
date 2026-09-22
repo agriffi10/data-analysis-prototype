@@ -202,7 +202,10 @@ def test_the_restored_stage_names_where_the_data_landed():
 def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
     """FR-004, and it is the rollback verb's shape: record the outcome, then fail deliberately.
     The message names all three things a user needs — how many came back, that the archive is
-    intact under the same id, and that re-requesting will report the files that did land."""
+    intact under the same id, and that re-requesting will report the files that did land.
+
+    The verdict carries no ``shown`` block, which is what a collector from before the file
+    counts writes, so the numbers are the object counts it always named."""
     fake = _install()
 
     with pytest.raises(TerminalError) as caught:
@@ -223,6 +226,18 @@ def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
 # ── the rewrite itself ──────────────────────────────────────────────────────
 
 
+def test_a_receipt_proven_absent_is_rendered_fresh_and_counts_files():
+    """The fallback the rewrite exists to avoid, reached only when S3 proves the document is
+    gone: every archive line is recomposed from the restore's own state. Five objects were
+    archived and one is an empty folder's placeholder, so the fresh ``Files archived`` line says
+    what the archived notification said — four — read off the restore manifest's block."""
+    fake = _install(existing=None)
+
+    m.handler(_request(transfer={"itemCount": 5, "fileCount": 4}), None)
+
+    assert "Files archived:    4" in _written(fake).splitlines()
+
+
 # ── the incomplete branch counts the vault before it says anything (SPEC-237) ────────────────
 #
 # Two restores of one archive can run at once and the first to finish sweeps the vault, so "the
@@ -238,16 +253,33 @@ def _incomplete(**overrides):
     return _request(status="incomplete", transferOutcome=outcome, **overrides)
 
 
-def test_a_full_count_earns_the_body_that_calls_the_archive_complete():
+def test_a_full_count_earns_the_body_that_calls_the_archive_complete(_sink):
+    """The five archived objects are four files and one empty folder's placeholder, and the
+    placeholder is among the four that came back. The receipt line and the sentence both take
+    the collector's ``shown`` counts, so both say 3 of 4 files where the objects say 4 of 5 —
+    and the vault count still compares objects, because that is what the prefix holds."""
     fake = _install()
 
     with pytest.raises(TerminalError) as caught:
-        m.handler(_incomplete(), None)
+        m.handler(
+            _incomplete(
+                transferOutcome={
+                    "copied": 4,
+                    "failed": 1,
+                    "shown": {"copied": 3, "total": 4, "occupied": 0},
+                }
+            ),
+            None,
+        )
 
     assert caught.value.reason == "restore_incomplete"
-    assert caught.value.tokens == {"restored": "3", "total": "5"}
     assert fake.listed[0]["Prefix"] == _ARCHIVE_ROOT
     assert "The archive was still complete when this restore stopped." in _written(fake)
+    assert "Restore did not finish - 3 of 4 file(s) were written" in _written(fake)
+    assert _sink[0][1].startswith(
+        "Couldn't restore that: 3 of 4 file(s) were restored to your space before the restore "
+        "stopped"
+    )
 
 
 def test_occupied_items_select_the_sibling_body_that_says_nothing_was_overwritten():

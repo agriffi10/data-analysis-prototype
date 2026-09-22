@@ -40,7 +40,7 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 import logging
 
-from arcommon import notify, receipt, restore
+from arcommon import counts, notify, receipt, restore
 from cpcommon import observability
 from cpcommon.errors import TerminalError
 
@@ -82,7 +82,7 @@ def _fallback_record(event) -> dict:
         "startedAt": None,
         "source": {"bucket": space.get("bucket"), "root": space.get("root")},
         "archive": {"bucket": archive.get("bucket"), "root": archive.get("root")},
-        "objectCount": event.get("objectCount"),
+        "fileCount": counts.file_count(event),
         "totalBytes": event.get("totalBytes"),
     }
 
@@ -153,11 +153,15 @@ def _occupied(event) -> int:
     Raises:
       None.
     """
-    return (event.get("transferOutcome") or {}).get("occupied") or 0
+    return counts.shown_outcome(event.get("transferOutcome") or {})[2]
 
 
 def _counts(event) -> tuple[int, int]:
-    """Reads how many objects came back and how many were planned, from the one place that knows.
+    """Reads how many files came back and out of how many, from the one place that knows.
+
+    These are the collector's ``shown`` counts, so the receipt's line and the failure's sentence
+    still share one source, and a folder placeholder is counted only when it is one of the
+    things that did not come back.
 
     Args:
       event: The validated restore request, carrying the collector's verdict.
@@ -168,8 +172,8 @@ def _counts(event) -> tuple[int, int]:
     Raises:
       None.
     """
-    outcome = event.get("transferOutcome") or {}
-    return outcome.get("copied") or 0, outcome.get("expected") or 0
+    restored, expected, _ = counts.shown_outcome(event.get("transferOutcome") or {})
+    return restored, expected
 
 
 def _rewrite(event) -> str:
@@ -264,10 +268,12 @@ def _update_receipt(event) -> dict:
         "restore incomplete",
         actor=(event.get("actor") or {}).get("username"),
         archive_id=(event.get("archive") or {}).get("archiveId"),
-        objects=restored,
+        objects=outcome.get("copied"),
         failed=outcome.get("failed"),
         occupied=occupied,
-        expected=expected,
+        expected=outcome.get("expected"),
+        files=restored,
+        files_total=expected,
         archive_intact=intact,
     )
     raise _incomplete_failure(restored, expected, occupied, intact=intact)
@@ -289,8 +295,8 @@ def _incomplete_failure(
     left it alone" are different things to be told.
 
     Args:
-      restored: How many objects landed.
-      expected: How many the plan held.
+      restored: How many files landed.
+      expected: How many files the plan held, with any placeholder that did not land.
       occupied: How many were left alone because a file had appeared at their path.
       intact: Whether the vault count found every archived object still there.
 
@@ -303,14 +309,14 @@ def _incomplete_failure(
     if not intact:
         return TerminalError(
             "restore_archive_cleared",
-            f"{restored} of {expected} objects were restored and the archive could not be "
+            f"{restored} of {expected} files were restored and the archive could not be "
             "confirmed as complete",
             tokens={"restored": str(restored), "total": str(expected)},
         )
     if occupied > 0:
         return TerminalError(
             "restore_incomplete_occupied",
-            f"{restored} of {expected} objects were restored; {occupied} were left alone because "
+            f"{restored} of {expected} files were restored; {occupied} were left alone because "
             "a file had appeared at the same path",
             tokens={
                 "restored": str(restored),
@@ -320,7 +326,7 @@ def _incomplete_failure(
         )
     return TerminalError(
         "restore_incomplete",
-        f"{restored} of {expected} objects were restored; the archive was kept and nothing was "
+        f"{restored} of {expected} files were restored; the archive was kept and nothing was "
         "removed",
         tokens={"restored": str(restored), "total": str(expected)},
     )

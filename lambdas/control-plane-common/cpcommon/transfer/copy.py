@@ -451,9 +451,10 @@ def copy_batch(
       failure_reason: The domain's reason code for a failed item, carried into each outcome —
         cpcommon owns the algorithm, the calling plane owns the wording.
       echo_fields: The manifest-line fields copied onto each failure record, in the order the
-        caller wants them. An EMPTY tuple is meaningful and is what a plane with one destination
-        passes — the archive needs only the count, and echoing two fields its manifest never
-        carried wrote ``{"recipient": null, "kind": null}`` onto every archive failure.
+        caller wants them. An EMPTY tuple is meaningful: a caller that needs only the count
+        passes it, and echoing fields its manifest never carries writes a null for each onto
+        every failure — which is what the archive's records carried when this engine hardcoded
+        ``recipient`` and ``kind``. The archive now echoes one boolean, its folder flag.
       occupied_reason: The domain's reason code for an item a conditional copy would have
         overwritten, which is a different outcome from a copy that failed — the file is intact,
         it is simply not this run's. **None means the caller does not tell the two apart** and

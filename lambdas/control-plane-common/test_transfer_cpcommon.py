@@ -264,12 +264,13 @@ def test_the_engine_echoes_the_CALLERS_fields_and_nothing_of_its_own(monkeypatch
 
 
 def test_an_EMPTY_echo_set_drops_the_two_nulls_the_archive_used_to_emit(monkeypatch):
-    """SPEC-189 FR-002's NAMED exception, and the one caller whose records deliberately change.
+    """SPEC-189 FR-002's NAMED exception: an empty echo set writes no attribution at all.
 
     The archive's manifest carries no recipient and no kind — it has one destination — so the
     hardcoded engine wrote ``{"recipient": null, "kind": null, "reason": ...}`` onto every archive
-    failure. Passing the empty set removes both. This test exists so that change reads as intended
-    rather than as a regression someone repairs.
+    failure. An empty set removes both, for any caller with one destination. The archive itself
+    now echoes a single field, its boolean folder flag, and still writes neither null. This test
+    exists so the empty set reads as intended rather than as a regression someone repairs.
     """
     def boom(item):
         raise RuntimeError("deterministic")

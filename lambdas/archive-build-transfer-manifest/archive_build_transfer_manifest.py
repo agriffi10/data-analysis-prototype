@@ -15,13 +15,21 @@ is the choice the whole arc is shaped by (a GLACIER object cannot be copied at a
 hours-long retrieval has finished), and a second home for it is how one verb archives to a class
 the restore path was not built for.
 
+**Every line says whether it is a folder placeholder, and the block says how many are files.**
+The flag and the count come from ``arcommon.counts`` in the same pass over the same keys, so
+they cannot disagree. The flag rides each copy failure back to the collector, which is how a
+sentence about a shortfall can count files; the count rides the ``transfer`` block to every later
+state, which is how the notifications and the receipt name files rather than objects. The Map
+still iterates every line, placeholders included, because an archived empty folder has to come
+back.
+
 The service name is the control plane, not the function, so one archive's invocations and its Map
 fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import notify, paths, plan
+from arcommon import counts, notify, paths, plan
 from arcommon.config import ARCHIVE_STORAGE_CLASS
 from cpcommon import config, observability
 from cpcommon.transfer import manifest as manifest_writer
@@ -39,7 +47,7 @@ def _items(loaded: dict) -> list:
       loaded: The copy plan, carrying its source and archive locations and its objects.
 
     Returns:
-      One transfer item per planned object.
+      One transfer item per planned object, each flagged as a folder placeholder or not.
 
     Raises:
       TerminalError: ``forbidden`` from the destination builder for an object that does not sit
@@ -59,6 +67,7 @@ def _items(loaded: dict) -> list:
             ),
             "size": entry.get("bytes") or 0,
             "storageClass": ARCHIVE_STORAGE_CLASS,
+            counts.FOLDER_FIELD: counts.is_folder_placeholder(entry["relKey"]),
         }
         for entry in loaded["objects"]
     ]
@@ -78,8 +87,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The request with a ``transfer`` block naming the manifest, the results prefix and the item
-      count the Choice gates the Map on.
+      The request with a ``transfer`` block naming the manifest, the results prefix, the item
+      count the Choice gates the Map on and how many of those items are files.
 
     Raises:
       TerminalError: ``plan_unreadable`` or ``plan_superseded`` when the copy plan cannot be
@@ -127,5 +136,6 @@ def _build_transfer_manifest(event) -> dict:
             "resultsBucket": config.ADMIN_BUCKET,
             "resultsPrefix": plan.transfer_results_prefix(event),
             "itemCount": count,
+            counts.FILE_COUNT_FIELD: sum(1 for item in items if not item[counts.FOLDER_FIELD]),
         },
     }

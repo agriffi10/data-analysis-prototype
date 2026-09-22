@@ -804,6 +804,11 @@ Confirm. Expect:
 - A toast saying the archive **started** — never that it finished.
 - Within minutes: `Archived N files (X MB). They have been removed from your space. Archive id:
   {uuid} - you'll need it to restore them.`
+- **N counts files, not folders.** The zero-byte key **New folder** writes is carried and restored,
+  but it adds nothing to N, and the receipt's `Files archived` line agrees. One file inside a
+  New-folder folder reads `Archived 1 file`. A folder holding no files reads `Archived 1 empty
+  folder`, and its receipt says `Files archived: 0` — that pair is correct, not a disagreement.
+  The restore's "Restoring N files" and "Restored N files" count the same way.
 - **The notification is a link.** Follow it → you land in `system_settings/archive/{uuid}/`,
   **not** at the space root. A link that drops its prefix looks identical from the inbox.
 - The folder is gone from the listing; `system_settings/archive/{uuid}/receipt.txt` downloads and

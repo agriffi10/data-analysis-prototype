@@ -30,13 +30,18 @@ own space. ``ifAbsent`` is what makes the guard's rule true at the moment of eac
 at the moment of the last check: a file that appears at a path this Map has not reached yet is left
 alone, and the archive is kept because the item did not land.
 
+**Every line says whether it is a folder placeholder, and the block says how many are files**,
+for the reason build-transfer-manifest gives: the flag lets the collector count a shortfall in
+files, and the count lets the two restore notifications and the receipt name files. Both come
+from ``arcommon.counts`` in one pass over the destination keys.
+
 The service name is the control plane, not the function, so one restore's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import notify, plan
+from arcommon import counts, notify, plan
 from arcommon.config import RESTORE_STORAGE_CLASS
 from cpcommon import config, observability
 from cpcommon.transfer import manifest as manifest_writer
@@ -54,7 +59,7 @@ def _items(loaded: dict) -> list:
       loaded: The restore plan, carrying its archive and space locations and its objects.
 
     Returns:
-      One transfer item per planned object.
+      One transfer item per planned object, each flagged as a folder placeholder or not.
 
     Raises:
       None.
@@ -69,6 +74,7 @@ def _items(loaded: dict) -> list:
             "size": entry.get("bytes") or 0,
             "storageClass": RESTORE_STORAGE_CLASS,
             "ifAbsent": True,
+            counts.FOLDER_FIELD: counts.is_folder_placeholder(entry["destKey"]),
         }
         for entry in loaded["objects"]
     ]
@@ -89,8 +95,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The request with a ``transfer`` block naming the manifest, both Maps' results prefixes and
-      the item count the Choice gates the retrieval on.
+      The request with a ``transfer`` block naming the manifest, both Maps' results prefixes,
+      the item count the Choice gates the retrieval on and how many of those items are files.
 
     Raises:
       TerminalError: ``plan_unreadable`` or ``plan_superseded`` when the restore plan cannot be
@@ -137,5 +143,6 @@ def _build_restore_manifest(event) -> dict:
             "retrievalResultsPrefix": plan.retrieval_results_prefix(event),
             "resultsPrefix": plan.restore_results_prefix(event),
             "itemCount": count,
+            counts.FILE_COUNT_FIELD: sum(1 for item in items if not item[counts.FOLDER_FIELD]),
         },
     }

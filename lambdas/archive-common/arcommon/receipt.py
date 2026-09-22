@@ -142,7 +142,10 @@ def render(record: dict) -> str:
 
     Args:
       record: The archive's outcome — the request id, the execution's start time, the source and
-        archive locations, the object count and the byte total.
+        archive locations, the file count and the byte total. The file count leaves folder
+        placeholders out, so ``Files archived`` is the number the notification names whenever
+        the archive holds a file. An archive of nothing but empty folders records 0 here, where
+        the notification names the empty folders, and its size records what they held.
 
     Returns:
       The receipt, ending in a newline.
@@ -161,7 +164,7 @@ def render(record: dict) -> str:
         _line("Original path", f"s3://{source.get('bucket')}/{source.get('root')}"),
         _line("Archived path", f"s3://{archive.get('bucket')}/{archive.get('root')}"),
         _line("Total size", f"{human_bytes(total_bytes)} ({total_bytes} bytes)"),
-        _line("Files archived", str(record.get("objectCount") or 0)),
+        _line("Files archived", str(record.get("fileCount") or 0)),
         _line(RESTORE_REQUESTED_LABEL, "No"),
         _line(RESTORED_TO_LABEL, _ABSENT),
     ]
@@ -188,9 +191,11 @@ def restore_lines(restore: dict) -> dict:
     Args:
       restore: The restore's state — its ``requestedAt`` timestamp, its ``status``
         (``requested``, ``restored`` or ``incomplete``), the destination path, and, on the
-        incomplete path, how many objects did land and whether the vault count found the archive
-        complete. A missing ``archiveIntact`` reads as not confirmed, which is the direction that
-        cannot cost a user their only copy.
+        incomplete path, how many files did land out of how many and whether the vault count
+        found the archive complete — the collector's ``shown`` counts, so a folder placeholder
+        is counted only when it is one of the things that did not come back. A missing
+        ``archiveIntact`` reads as not confirmed, which is the direction that cannot cost a user
+        their only copy.
 
     Returns:
       ``{label: value}`` for the two restore lines.
