@@ -378,7 +378,9 @@ A rem step expresses visual rhythm, and rhythm is not what this value is for.
 > in prose goes stale on the first correct fix with nothing to catch it. The register has since
 > been swept in a browser, and `docs/testing/owed.md` carries the measurements and what is owed.
 > The tab-strip closes and the column resize handle left it by being sized to an absolute 24px — a
-> target at least 24 × 24 needs no spacing exception, whatever encloses it.
+> target at least 24 × 24 needs no spacing exception, whatever encloses it. The Calc panel's and the
+> *Band rows by* checkbox lists stay in it: their boxes are still 13 × 13, and it is their labels,
+> raised to a 24px minimum height, that bring them under the spacing exception.
 
 ## A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)
 
