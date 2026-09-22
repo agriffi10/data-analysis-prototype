@@ -149,6 +149,20 @@ describe('column geometry', () => {
     expect(header).toHaveClass('uppercase');
   });
 
+  // Classes again, for the same reason: the two targets conform only while each is 24px and the
+  // menu is inset by exactly the handle's width. At less, the handle paints over part of the menu.
+  it('keeps the column menu beside the resize handle, each a 24px target', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render();
+    const header = await screen.findByRole('columnheader', {name: 'total'});
+
+    const handle = within(header).getByRole('separator', {name: 'Resize column total'});
+    const menu = within(header).getByRole('button', {name: /^Column options: total/});
+    expect(handle).toHaveClass('w-[24px]');
+    expect(menu).toHaveClass('h-[24px]', 'min-w-[24px]');
+    expect(menu.closest('[data-column-menu]')).toHaveClass('right-[24px]');
+  });
+
   it('hides a column and shows it again, from the Columns panel', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     const {user} = render();

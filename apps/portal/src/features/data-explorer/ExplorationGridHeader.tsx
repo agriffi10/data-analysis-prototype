@@ -81,12 +81,12 @@ export function ExplorationGridHeader({
             aria-label={column.name}
             style={column.pinned ? {left: offsets[position]} : undefined}
             // Sticky whether pinned or not, so the names stay above the rows they label while the
-            // grid scrolls. The right padding clears the resize handle and the menu button, which
-            // is wider once it carries a sort or a filter mark.
+            // grid scrolls. The right padding clears the 24px resize handle and the menu button
+            // beside it: 24px bare, 44px with a one-digit sort position and a filter mark.
             className={cx(
               `sticky top-0 border-b border-border bg-surface-2 py-1 pl-3 text-left ${SECTION_CAPTION}`,
               column.pinned ? 'z-30' : 'z-20',
-              actions.sortOf(column.name) || actions.filterOf(column.name) ? 'pr-[60px]' : 'pr-[40px]'
+              actions.sortOf(column.name) || actions.filterOf(column.name) ? 'pr-[74px]' : 'pr-[54px]'
             )}
             // The resize handle and the menu live INSIDE the header, so a drag of the edge
             // — or a click anywhere in the menu — would otherwise finish as a click that

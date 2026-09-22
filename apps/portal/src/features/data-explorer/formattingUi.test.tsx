@@ -245,6 +245,10 @@ describe('group row striping (FR-004)', () => {
 
     const dialog = await openColours(user);
     expect(within(dialog).getByText(STRIPING_OFF_TEXT)).toBeInTheDocument();
+    // Per element, as jsdom has no layout: each row's 24px floor keeps a wrapped checkbox clear of the next.
+    const picks = within(within(dialog).getByRole('group', {name: 'Band rows by'})).getAllByRole('checkbox');
+    expect(picks).toHaveLength(COLUMNS.length);
+    for (const pick of picks) expect(pick.closest('label')).toHaveClass('min-h-[24px]');
     await user.click(within(dialog).getByRole('checkbox', {name: 'id'}));
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
 

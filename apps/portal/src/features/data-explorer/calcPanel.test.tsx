@@ -5,7 +5,7 @@ import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProv
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
-import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
+import {CALC_FUNCTIONS, EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {CALC_NO_SELECTION} from './CalcPanel';
 import {calcScopeText} from './calc';
 import {newExploration} from './exploration';
@@ -286,12 +286,17 @@ describe('the Calc panel', () => {
     expect(screen.queryByRole('complementary', {name: 'Calc'})).not.toBeInTheDocument();
   });
 
-  it('leaves the open panel axe-clean', async () => {
+  // axe's target-size rule cannot measure in jsdom, so the 24px floor on each checkbox's row is
+  // asserted per element: a file-level check passes while one list of rows loses it.
+  it('leaves the open panel axe-clean, with every checkbox on a 24px row', async () => {
     const {user} = render();
     await screen.findByRole('columnheader', {name: 'id'});
     await user.click(cell(0, 'id'));
-    await openCalc(user);
+    const panel = await openCalc(user);
 
     await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
+    const boxes = within(panel).getAllByRole('checkbox');
+    expect(boxes).toHaveLength(CALC_FUNCTIONS.length + 1);
+    for (const box of boxes) expect(box.closest('label')).toHaveClass('min-h-[24px]');
   });
 });
