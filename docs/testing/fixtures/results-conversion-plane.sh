@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Live checks for the results-conversion control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
+# NOT RUNNABLE AS WRITTEN (found 2026-09-10, banner added 2026-09-22 after a session followed
+# USAGE step 2 into nothing). Tokens are tab-scoped in sessionStorage now, so step 2's localStorage
+# read finds a stale set or nothing at all. Either read the token from sessionStorage as step 2 now
+# says, or send each section's body from the signed-in page, which is how the SPEC-239 section ran
+# on 2026-09-22 (see docs/testing/sessions.md). Every section's EXPECT text still holds.
+#
 # Named for the plane for the reason file-ops-plane.sh states at length: four specs build this
 # thing, and a script each would be four files sharing a token, a queue URL and an envelope
 # builder. A spec that owes a CLI check ADDS A SECTION HERE and points its owed.md row at it.
@@ -22,8 +28,9 @@
 #
 # USAGE
 #   1. Sign in to the portal as the account you want to act as.
-#   2. Copy its ID token out of local storage into /tmp/idtoken (no trailing newline):
-#        JSON.parse(Object.entries(localStorage).find(([k]) => k.endsWith('.idToken'))[1])
+#   2. Copy its ID token out of SESSION storage into /tmp/idtoken (no trailing newline) — it is
+#      tab-scoped, so read it in the same tab you signed in, and localStorage's copy is stale:
+#        Object.entries(sessionStorage).find(([k]) => k.endsWith('.idToken'))[1]
 #   3. Run a query in the Query workspace that returns a few thousand rows of mixed types and
 #      copy its execution id.
 #   4. USERNAME=alice EXECUTION_ID=<id> ./results-conversion-plane.sh

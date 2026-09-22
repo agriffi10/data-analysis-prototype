@@ -82,10 +82,11 @@ Install the page instruments after **every full page load**. Client-side nav (na
 `navigate` does not.
 
 ```js
-// 1. THE ONE THAT MATTERS MOST — see the trap table.
+// 1. THE ONE THAT MATTERS MOST — see the trap table. The dispatch goes to WINDOW: that is where
+// TanStack's focus manager listens, and a document dispatch reaches nothing (trap table).
 Object.defineProperty(document,'visibilityState',{get:()=>'visible',configurable:true});
 Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
-document.dispatchEvent(new Event('visibilitychange'));
+window.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
 // 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record only
@@ -130,6 +131,16 @@ const oc=HTMLAnchorElement.prototype.click;
 HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)/.test(this.href)){window.__dl=this.href;return}return oc.apply(this,arguments)};
 ```
 
+**When instrument 2 is refused, count with Resource Timing instead.** An agent session's `window.fetch` patch was refused outright by its permission classifier on 2026-09-22, and the whole sitting's request counts came from
+
+```js
+performance.getEntriesByType('resource')
+  .filter(e => e.name.includes('api.dataquarry.app'))
+  .map(e => ({t: Math.round(e.startTime), p: e.name.replace(/^https?:\/\/[^/]+/, '').split('?')[0], st: e.responseStatus}));
+```
+
+It is a weaker instrument and the difference matters: it carries **no method, no request body and no headers**, so it cannot serve §4.18's method-and-path counting or the `x-amz-target` arm above; the buffer holds 250 entries by default, so a long sitting silently loses the oldest; and a request aborted in flight leaves no entry, so prove survival positively rather than by counting absences. It is enough for *how many calls did this gesture make*, which is what §4.5's paging rows and the focus-return row rest on.
+
 **Counting a query's executions is method-and-path work now, not header work.** A start is
 `POST /v1/queries`, a poll is `GET /v1/queries/{id}` and a results read is
 `GET /v1/queries/{id}/results` — distinguishable in the network panel, unlike the single Athena
@@ -160,7 +171,7 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | **Monaco needs a click into the text layer** | `type` silently does nothing. | Click the code line, confirm `document.activeElement.className` is `native-edit-context`, `cmd+a`, type. Escape dismisses autocomplete before running. |
 | **The extension blocks returning query strings** | `[BLOCKED: Cookie/query string data]` from `javascript_tool`. | Return derived values — param *names*, booleans, counts — never the URL. |
 | **`computer type` does not reach a React input** | The DOM value changes, React state does not, and submitting sends the *old* value — a folder create that silently does nothing. | Use `form_input` (it dispatches `input`) for every controlled field **except a checkbox**. On 2026-09-21, `form_input` set a checkbox's `checked` without React seeing it, while `.click()` on the input registered; confirm by the effect, not by `checked`. `computer type` is fine for Monaco and for comboboxes that filter on keystrokes. |
-| **A dispatched focus return must go to `window`, not `document`** | TanStack Query's focus manager subscribes to `visibilitychange` **on `window`**. `document.dispatchEvent(new Event('visibilitychange'))` does not bubble, so it reaches no listener and a listing that should have refetched simply does not — which reads as a stale-listing defect (2026-09-22). | Dispatch on `window`, or with `{bubbles: true}`, and confirm a request actually went out before concluding anything. What this proves is the app's refetch path, not that a real tab return fires the event — say so when you discharge with it. |
+| **A dispatched focus return must go to `window`, not `document`** | TanStack Query's focus manager subscribes to `visibilitychange` **on `window`**. `document.dispatchEvent(new Event('visibilitychange'))` does not bubble, so it reaches no listener and a listing that should have refetched simply does not — which reads as a stale-listing defect (2026-09-22). | Dispatch on `window` — that is the form that was run. A `document` dispatch with `{bubbles: true}` should reach it too and was not tried. Confirm a request actually went out before concluding anything. What this proves is the app's refetch path, not that a real tab return fires the event — say so when you discharge with it. |
 | **A navigate wipes the instruments** | `window.__ath` is `[]` after any full page load, and an empty log reads as "no requests were issued". | Re-install after **every** `navigate`; prefer nav-tab clicks, which preserve them. |
 | **An inline link's box spans wrapped lines** | Clicking a notification link's *centre* hits the parent `<p>` and nothing happens — it looks like a dead link. | Probe with `elementFromPoint` for a coordinate the anchor actually owns, or click its first line. Not a defect; ~30% of the box belongs to the parent. |
 | **A failing Data Explorer apply used to double** | Two `StartQueryExecution` ~1.1 s apart for one gesture. | **Fixed** — `athena.start` declares no retry, so one failed apply is one `POST /v1/queries`. Counting on a failing statement is now meaningful; **two starts is a regression**, not the tool. |
@@ -799,8 +810,7 @@ Tick the folder → **Archive** in the selection toolbar. **Before confirming, r
 - **Focus is on Cancel, and Enter cancels.** The only dialog in the app where that is wanted, and
   the only place it can be observed. Test it, then reopen. Drive it through the **Chrome
   extension**, which activates a focused button even in a hidden window — take §1's positive
-  control first. The Browser pane's Enter activates no button at all (§1's traps). **Settled
-  2026-09-22**: the dialog closed, no archive started, the file stayed and the selection held.
+  control first. The Browser pane's Enter activates no button at all (§1's traps).
 
 Confirm. Expect:
 
@@ -880,7 +890,7 @@ Then leave it. Check back at roughly **1 h, 3 h and 5 h** — Phase C fills the 
 | `system_settings/archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
 | The **vault** prefix for that id is gone | **Not observable from the browser** — the sweep is of `dat-prod-archive`, which no human principal can read. `owed.md` carries the CLI check; an **`archive swept`** event in `logs/service=archive/` is what you can see. **Not `cleanup`** — this row said that until 2026-08-31, and a reader grepping for it finds nothing and concludes the sweep never ran. |
 | The receipt's ARCHIVE lines are **byte-identical to before** the restore, with `Restored to` now filled | A blanked `Requested` line is how you would know the rewrite broke. |
-| The loop actually **looped** | `logs/service=archive/` carries `retrieval polled` events **five minutes apart, spanning hours** — 39 on 2026-08-14 (`poll_count` climbing 1 → 39, 15:21:52 → 18:32:09) and 37 on 2026-09-22 (22:50:39Z → 01:50:57Z). This row used to say "hours apart", which two measurements now contradict: it is the SPAN that is hours, not the gap. `poll_count` lives under `fields`, not at the top level. |
+| The loop actually **looped** | `logs/service=archive/` carries a `retrieval polled` event **every five minutes for the whole retrieval** — so tens of them across a 3–5 hour restore, and the count is a function of duration rather than a number to match. It is the SPAN that is hours, not the gap: this row said "hours apart" until two measurements contradicted it. `poll_count` lives under `fields`, not at the top level. |
 | A **child span** survived the pipe (SPEC-226) | Every assertion about child spans is made against an in-process sink; nothing offline shows one surviving the SQS sink, the sweep's read-modify-write and the day object. In `logs/service=archive/` for this run, find a record with `message: "span.start"` and **`function: "copy-batch"`**, and check its **`parent_span_id` is non-null** and equals the `span_id` of the `copy-objects` record in the same `trace_id`. A null parent is the failure that matters — it is what a span emitted where the trace context does not reach looks like, and it reads as instrumented. The same check works per plane: `write-roster` under `service=shared-space`, `download-results` under `service=results-conversion`, `athena-run-ddl` under `service=table-builder`. |
 
 **Owed regardless of how well this goes:** the `Restore` header's format, the
@@ -1261,7 +1271,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
 | Type a message, press Enter inside it | A newline. It does **not** submit. |
-| Focus the category select and press Enter | It submits. Not from the Browser pane, whose Enter has no default action (§1's traps). |
+| Focus the category select and press Enter | It submits. Not from the Browser pane, whose Enter has no default action — drive it through the Chrome extension, which activates a focused button even in a hidden window, after taking §1's positive control (§1's traps). |
 | Send | The dialog closes and a toast reads the thank-you. Reopen it — the message is empty, not the last one. |
 | Reopen, and watch the network panel | Exactly **one** `POST /v1/feedback`, answering 200 with `{submittedAt}`. The request body carries `category`, `message` and `route` — and **no username of any kind**. |
 | Navigate to another page with the dialog open, then send | The `route` in the body is the page you **opened** it on, not the one you ended on. |
