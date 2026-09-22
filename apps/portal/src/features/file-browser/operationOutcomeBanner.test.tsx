@@ -33,7 +33,7 @@ describe('OperationOutcomeBanner', () => {
     expect(screen.getByText('Moved (2)')).toBeInTheDocument();
     expect(screen.getByText('Nothing to do (1)')).toBeInTheDocument();
     expect(screen.getByText('Protected — Data Quarry manages these (1)')).toBeInTheDocument();
-    expect(screen.getByText('Something is already in the way (1)')).toBeInTheDocument();
+    expect(screen.getByText('Something is in the way (1)')).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
   });
 
