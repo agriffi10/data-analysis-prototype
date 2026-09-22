@@ -64,6 +64,7 @@ entry you need, not the file.**
 - [A notice with no dedup id names its run in the payload, so two runs ending alike stay two notices (control-plane-wide)](#a-notice-with-no-dedup-id-names-its-run-in-the-payload-so-two-runs-ending-alike-stay-two-notices-control-plane-wide)
 - [A report may carry the user's ROWS, and it is bounded by the size it is read through (SPEC-240)](#a-report-may-carry-the-users-rows-and-it-is-bounded-by-the-size-it-is-read-through-spec-240)
 - [A conversion may keep a subset of the result's columns, and four layers refuse a list that is not one (results conversion)](#a-conversion-may-keep-a-subset-of-the-results-columns-and-four-layers-refuse-a-list-that-is-not-one-results-conversion)
+- [Not every success notice links, and the table planes' do not on purpose](#not-every-success-notice-links-and-the-table-planes-do-not-on-purpose)
 
 ## Fences
 
@@ -2670,4 +2671,15 @@ some columns; `null` means every column in the result's own order, which include
 a result has landed; an empty list means no column of the result is on screen, which is the one
 case a save cannot be made from. Reading the third as the second refuses a save that is about to
 be fine; reading the second as the third saves the wrong file.
+
+## Not every success notice links, and the table planes' do not on purpose
+
+**Decided 2026-09-22 (Andrew).** The table-build plane's success notices (built, refreshed and
+already up to date) and table-share's success notices carry no `link`. That was already the code's
+choice (`tbcommon/notify.py`'s `emit_created` passes none, and the same module links only the
+columns-removed refusal), and a live check had logged it as a failure against a "with a link"
+clause the retired Arc B script carried. Andrew kept the notices link-free and dropped the clause.
+`docs/testing/e2e.md` §4.12 records it so a live check does not log them again. The restore's
+started notice is link-free for its own reason, since nothing has arrived yet. **Do not add a link
+to these notices to make the producers uniform**; ask first, because the choice was made.
 

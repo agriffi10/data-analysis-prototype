@@ -512,7 +512,7 @@ gates.
 
 | Do | Expect |
 |---|---|
-| Build from `explorer150/` | Notification, appears in the rail, returns rows, all columns text. |
+| Build from `explorer150/` | Notification (no link, by design — §4.12), appears in the rail, returns rows, all columns text. |
 | **Create table** at a space ROOT | The button is `aria-disabled` with a reason about the folder being read whole — the dialog never opens. A table there would SUCCEED over `athenaresults/` and friends, which is what makes this worth blocking. |
 | Build from a folder whose CSV header has `Order ID` | Refused by notification, **naming the column**. Refused deliberately even though it would work today — one rule everywhere. |
 | Build from a folder whose header has `Total` and `TOTAL` | Refused, naming **both**: Athena lowercases, so they are one column to it and two to everything else. |
@@ -774,7 +774,7 @@ it is CLI-only — see `owed.md`.
 
 | Do | Expect |
 |---|---|
-| Query rail → table → **Share table**, to a real user | Success notification naming the recipient. |
+| Query rail → table → **Share table**, to a real user | Success notification naming the recipient (no link, by design — §4.12). |
 | Share to a **space** | The dialog's space entry suggests **only spaces you belong to** — no directory of all spaces exists, by decision. |
 | Share to more recipients than the cap allows | *"…that's too many files to copy to that many recipients at once."* Nothing written — no manifest for that run. |
 
@@ -921,6 +921,7 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 | Every background operation produced **exactly one** notification per outcome | Count them against the operations you ran. |
 | The unread count is right after a reload | Reload and read the bell. |
 | Every link lands in the right place **in the right space** | Click each one. A link carrying `?space=` that resolves to your personal space is the failure mode. |
+| Some notices carry no link, by design | The table-build plane's success notices (built, refreshed, already up to date) and every table-share success notice carry **none** — Andrew's decision, 2026-09-22 — and so does the restore's *started* notice, which has nothing to point at yet. Record them as link-free, not as a failure. |
 | A failure notification never carries raw AWS text | Read the wording of any refusal you staged. |
 | The requests queue deduplicates **per recipient** | From a read-only CLI, `aws sqs get-queue-attributes` on the notifications requests queue with `--attribute-names DeduplicationScope` answers `messageGroup`. Read the named attribute from the JSON output: text output drops columns. |
 | **Following a `/files` link refreshes the folder it lands on** | A cross-producer mechanism since SPEC-223, not a results-conversion behaviour: the send and archive planes' links carry it too. Have the folder open in another tab, run an operation that writes into it, then follow the notification's link — the file is present **on arrival**, without a manual refresh. The `Review conflicts` control on the same row does it as well, since it resolves to the same listing. |
@@ -1180,10 +1181,10 @@ shows the desktop file table where the app mounts a card list.
 - The **sticky pinned column block** — pin, scroll right, confirm it stays put and its background is
   opaque over the scrolling cells.
 - A column **⌄** menu near the grid's right edge is **not clipped**.
-- Below `tablet` the header menu is unreachable by design (**the build disagreed on 2026-09-21**:
-  Record view, the default here, has no header, but in Grid view the header menu opened at 400px.
-  Which is intended is an open row in `owed.md`'s *Needs 400px*). **Order and filter** is the way in, and every sort and filter must be settable from that
-  dialog alone, at 400px.
+- Below `tablet` **Record view**, the default here, has no column header (nor does Text view), so
+  **Order and filter** is the way in from the default view, and every sort and filter must be settable from that dialog
+  alone, at 400px. **Grid view keeps the header menu at every width** (Andrew, 2026-09-22): switch
+  to Grid at 400px and a column's `Column options` menu opens with its full list.
 - The **Value panel** renders as a sheet, not a side panel; **Calc and Grouping stack below** the
   grid.
 - The toolbar's controls **wrap rather than overflow**. Count them rather than trusting a number.
