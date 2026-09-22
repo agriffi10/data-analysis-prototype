@@ -354,9 +354,9 @@ function undersizedControls(source: string): string[] {
  * is still an unmeasured CANDIDATE. Revisit the decision — measure it and move it out — rather
  * than deleting the entry.
  *
- * Two of the measured ones are CONFIRMED failures rather than candidates, and are recorded as
- * such in `docs/testing/owed.md`: they are kept here because fixing them is a change to a
- * different feature's layout, not because anything exempts them.
+ * A measured entry whose `why` says CONFIRMED is a failure rather than a candidate, and is
+ * recorded as such in `docs/testing/owed.md`: it is kept here because fixing it is a change to a
+ * different feature's layout, not because anything exempts it.
  *
  * The chip's remove button was the thirteenth, and left by the intended route: someone measured it,
  * decided the cushion was invisible and load-bearing, sized it absolutely at `h-[24px]`, and this
@@ -395,10 +395,6 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     why: 'the share-kind radios, each inside its own label',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
   },
-  '/src/features/catalog/ColumnResizeHandle.tsx': {
-    why: 'the column resize handle: a focusable `role="separator"` span, MEASURED 10.5x43 and the smallest target in the app. It drags rather than clicks, which is the only reason a sweep keyed on `onClick` could not see it. Centre-to-box 0 against the header cell it sits in and 12.6px centre-to-centre from the filter menu, so it is a CONFIRMED failure. Widening it to 24 would put it on top of that menu — the fix is a header layout, not a width',
-    controls: ['<span> w-3 = 10.5px']
-  },
   '/src/features/data-explorer/AdvancedCopyDialog.tsx': {
     why: 'three copy-option checkboxes, each inside its own label, MEASURED 13x13 at 25px centre-to-centre from the `mt-2` between labels — covered by the spacing exception, by one pixel',
     controls: [
@@ -408,7 +404,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     ]
   },
   '/src/features/data-explorer/CalcPanel.tsx': {
-    why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure, and only just: the stacked `gap-2` labels put two function rows 23px apart centre-to-centre, one short of 24',
+    why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. Each label is floored at `min-h-[24px]`, so the label conforms outright and, in the `gap-1` column, two boxes sit 27.5px apart centre-to-centre, and a box\u2019s centre is 15.5px from the next label — the spacing exception covers them. Bare 16px text rows put them 19.5px apart, which failed',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/GroupingPanel.tsx': {
@@ -424,7 +420,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/StripingControl.tsx': {
-    why: 'one checkbox per column in the striping picker, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure rather than a candidate either way: the `gap-y-1` list wraps, and two rows measure 19.5px centre-to-centre, inside the 24px each needs — label pitch and checkbox pitch are equal here, so the verdict does not turn on which box is measured',
+    why: 'one checkbox per column in the striping picker, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. Each label is floored at `min-h-[24px]`, so when many columns wrap the `gap-y-1` list its rows sit 27.5px apart centre-to-centre, and a box\u2019s centre is 15.5px from the label wrapped under it — the spacing exception covers them whichever box is measured. Bare 16px text rows wrapped at 19.5px, which failed',
     controls: ['<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/TransformersDialog.tsx': {

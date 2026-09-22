@@ -229,7 +229,9 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
       [
         ['min-h-[24px]', 'min-w-[24px]'],
         ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']
-      ]
+      ],
+      // The column resize handle spans its header cell's full height, so only the width is sized.
+      [['w-[24px]'], ['features/catalog/ColumnResizeHandle.tsx']]
     ];
     for (const [classes, owners] of pins) {
       const found = filesSizedAbsolutely(classes);

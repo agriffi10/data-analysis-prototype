@@ -19,6 +19,12 @@ type ColumnResizeHandleProps<K extends string | number> = {
  * default; Arrow Left/Right nudge by COLUMN_RESIZE_STEP_PX. role="separator" +
  * aria-orientation="vertical" + a column-naming aria-label keep it accessible.
  *
+ * The hit area is 24px wide, WCAG 2.2 SC 2.5.8's minimum, though the drawn
+ * divider stays a thin line on the edge. In the Data Explorer a narrower handle
+ * cannot claim the spacing exception: it sits against the column menu and
+ * against the next header cell, which selects its column on click. A header
+ * keeps its own content clear of the rightmost 24px.
+ *
  * Lives in `features/catalog/` because two sibling features draw
  * result grids and neither may import the other. The column identifier is
  * generic for the same reason: the Query workspace keys widths by index (a
@@ -83,7 +89,7 @@ export function ColumnResizeHandle<K extends string | number>({
       onPointerDown={onPointerDown}
       onDoubleClick={() => onReset(column)}
       onKeyDown={onKeyDown}
-      className="group/handle absolute right-0 top-0 z-10 flex h-full w-3 cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
+      className="group/handle absolute right-0 top-0 z-10 flex h-full w-[24px] cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
       {/* A divider that's visible at rest (so users see the column edge is
           grabbable) and thickens to the accent color on hover/focus. */}
       <span

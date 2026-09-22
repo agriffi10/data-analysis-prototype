@@ -18,6 +18,10 @@ export const STRIPING_OFF_TEXT = 'No columns chosen, so nothing is banded.';
  * The scope sentence is not decoration. Only one page is ever in memory, so a band touching
  * either end of it may well continue past it and nothing here can know — the same claim the
  * Calc panel and the percentage column each have to make, for the same reason.
+ *
+ * Each checkbox row is at least 24px tall, WCAG 2.2 SC 2.5.8's minimum, written in px so
+ * the 14px root cannot move it. Many columns wrap the list, and the row height is what
+ * keeps a 13px box more than 24px from the one wrapped under it — a bare text row is 16px.
  */
 export function StripingControl({columns, value, onChange}: StripingControlProps) {
   const toggle = (name: string) => onChange(value.includes(name) ? value.filter((n) => n !== name) : [...value, name]);
@@ -29,7 +33,7 @@ export function StripingControl({columns, value, onChange}: StripingControlProps
       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
         {columns.map((name) => (
           <li key={name}>
-            <label className="flex items-center gap-1.5 text-xs text-text-2">
+            <label className="flex min-h-[24px] items-center gap-1.5 text-xs text-text-2">
               <input
                 type="checkbox"
                 checked={value.includes(name)}

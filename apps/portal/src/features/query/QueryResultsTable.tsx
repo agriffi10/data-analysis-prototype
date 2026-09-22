@@ -100,7 +100,8 @@ export function QueryResultsTable({
                     <th
                       key={index}
                       scope="col"
-                      className={`sticky top-0 z-20 border-b border-border bg-surface-2 px-3 ${SECTION_CAPTION}`}>
+                      // The right padding is the resize handle's 24px, so a name stops where the handle begins.
+                      className={`sticky top-0 z-20 border-b border-border bg-surface-2 pl-3 pr-[24px] ${SECTION_CAPTION}`}>
                       {/* A column name is the user's data, so it is shown as they spelled it.
                           The caption style the header borrows is uppercase, which is right for
                           a fixed label and wrong here — it made lower-case Athena columns look

@@ -8,6 +8,9 @@ import type {CalcFunction, CalcPanelState} from './dataExplorer.types';
 
 export const CALC_NO_SELECTION = 'Select cells in the grid to aggregate them.';
 
+/** A checkbox row. The floor is WCAG 2.2 SC 2.5.8's 24px, in px so the 14px root cannot move it. */
+const CHECK_ROW = 'flex min-h-[24px] items-center gap-2 text-xs text-text-2';
+
 export type CalcPanelProps = {
   /** The selected cells' raw values, row-major. `null` is SQL NULL. */
   values: (string | null)[];
@@ -31,6 +34,10 @@ export type CalcPanelProps = {
  *
  * With nothing selected it explains itself rather than showing zeroes: a
  * column of `0`s reads as a computed answer to a question nobody asked.
+ *
+ * Each checkbox row is at least 24px tall (`CHECK_ROW`). The box itself stays the
+ * browser's 13px, so it is the row height that keeps each box more than 24px from the
+ * next — a bare text row is 16px.
  */
 export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProps) {
   useEscapeKey(onClose, true);
@@ -96,7 +103,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
         </>
       )}
 
-      <label className="flex items-center gap-2 text-xs text-text-2">
+      <label className={CHECK_ROW}>
         <input
           type="checkbox"
           checked={state.includeStrings}
@@ -110,7 +117,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
         {CALC_FUNCTIONS.map((fn) => (
           <label
             key={fn}
-            className="flex items-center gap-2 text-xs text-text-2">
+            className={CHECK_ROW}>
             <input
               type="checkbox"
               checked={state.functions.includes(fn)}

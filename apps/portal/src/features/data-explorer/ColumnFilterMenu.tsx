@@ -129,9 +129,10 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
   return (
     // `data-column-menu` marks everything the menu owns, so the header cell's own click
     // handler (which selects the whole column) can tell a menu gesture from a header one.
+    // Inset by the resize handle's 24px so the two targets abut rather than overlap.
     <div
       data-column-menu="true"
-      className="absolute right-3 top-1">
+      className="absolute right-[24px] top-1">
       <Menu
         ariaLabel={`Column options: ${column}`}
         align={placement.align}
