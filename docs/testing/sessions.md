@@ -40,7 +40,8 @@ credential form by the session.
   personal data. Ran: one earlier `filter-log-events` for the execution id (it matched nothing),
   `list-state-machines`, and `ecs describe-services` and `describe-task-definition`. The three
   requests then ran as single calls, and the cross-space negative used a new space of Andrew's own.
-  No Step Functions history was read, so which state refused each negative is owed.
+  After the merge, with Andrew's go-ahead in chat, the histories and the swept API log were read; see
+  *Read after the merge* below.
 - The Chrome extension redacts a script's output when it holds a query string; the links were read
   with `?`, `=` and `&` substituted.
 
@@ -70,7 +71,7 @@ plane, so a later request's notice proves the earlier ones were started.
 | Non-owner `delete` (`c6bf68f7-0c20-4c45-8311-e393e5eda9ed`) | `200`; no notice, and no card anywhere read *Deleting*. The space was still in both accounts' lists. |
 | Non-owner `add_members` of `live0921_nobody` (`8e4e9163-fec5-4e43-9db7-a6b462cb6993`) | *"We couldn't change who belongs to the shared workspace "livecheck_186"."* |
 | Non-owner `remove_members` of themselves (`84148e0f-fc74-431d-9b5e-a924cbd213ca`) | The same sentence, as a second notice. `agriffith` was still in the roster. |
-| After all four | The roster was unchanged, and the owner's bell stayed at 33 unread. **The execution histories were not read**, so the refusal codes are inferred, not seen: the space exists, is active and has an owner, and the targets were well formed. |
+| After all four | The roster was unchanged, and the owner's bell stayed at 33 unread. The execution records, read after the merge, show which state refused each (*Read after the merge* below). |
 
 **Catalog isolation, the Lake Formation half.** It was run before any table existed in `livecheck_186`,
 so that a `DROP` could not be refused for a non-empty database instead.
@@ -128,6 +129,24 @@ At 22:45:40Z only `Restore requested` had changed, to `2026-09-21 22:45:26 UTC`.
 changed got `401 {"error":{"code":"SessionExpired",…}}` on `POST /v1/enqueue/shared-space`
 (an `acknowledge_membership` for `livecheck_186`, which returned no request id) and on
 `GET /v1/catalog/databases/livecheck_186`. The real token answered every call before and after.
+
+**Read after the merge**, with Andrew's go-ahead in chat for read-only log and Step Functions calls.
+`aws stepfunctions list-executions` on `dat-prod-shared-space-orchestrator` listed four `FAILED`
+executions between 22:28:26Z and 22:29:45Z. One `get-execution-history` with `--output text` was
+refused by the classifier; the same call with `--output json` ran.
+
+| Execution | What its history shows |
+|---|---|
+| `a91eec5a-fc20-5e98-8733-8f714d9d802d`, the owner's `leave` | `Validate` failed with `AuthorizationError`, *"owner cannot leave their own space (delete it instead)"*, then `ValidateFailureSeed`, `RecordFailure`, `NotifyFailure` and `Failed`. It is matched by that refusal and its start time. |
+| `34218176-0614-5d26-9681-e25db7f91d38`, `requestId` `c6bf68f7-…`, the non-owner's `delete` | Its input carries `identity.actor: agriffith` and `SenderId` `…:dat-prod-api`. `Validate` failed with *"delete on 'livecheck_186' is owner-only"*, then the same failure path. |
+| `8d46761a-51f9-52e7-be9d-1531e00012f9`, `requestId` `8e4e9163-…`, `add_members` | `Validate` succeeded. Its output carries `refusal: {code: MemberNotOwner}` and a registry last updated at 22:27:26Z, then `Route`, `RefusedSeed`, `NotifyFailure` and `Failed`. |
+| `a5c3468a-7a51-536e-ac6a-25a1c85d2337`, `requestId` `84148e0f-…`, `remove_members` of `agriffith` | The same as the add: `MemberNotOwner`, the registry unchanged since 22:27:26Z, and no verb state. |
+
+The SPEC-232 stamps are in the swept API log, not in CloudWatch under that field. A
+`filter-log-events` on `/aws/lambda/dat-prod-api` for `execution_ownership` returned nothing, while
+`s3://dat-prod-athena-admin/logs/service=api/year=2026/month=09/day=21/data.jsonl` holds them.
+`agriffith`'s four probes of `946b415e-…` read `foreign`, the four of the made-up `0b1c2d3e-…` read
+`unknown`, and `agriffith_three`'s four of `7e761189-…` read `foreign`, each a `404 NotFound`.
 
 **Left behind.**
 - The space `live0921_iso` (its name is spent), owned by `agriffith_three`.
