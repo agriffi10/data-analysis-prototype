@@ -92,7 +92,7 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
       onConfirm={() => (renameTarget === undefined ? setConfirmingOverwrite(true) : setRenaming(true))}
       onCancel={onClose}>
       <p className="mt-2 text-sm text-text-2">
-        Something was already in the way, so Data Quarry left it alone. Everything else in that request went ahead.
+        Something was in the way, so Data Quarry left it alone. Everything else in that request went ahead.
       </p>
       <OperationOutcomeBanner
         title={`${results.length} ${results.length === 1 ? 'item needs' : 'items need'} your attention`}

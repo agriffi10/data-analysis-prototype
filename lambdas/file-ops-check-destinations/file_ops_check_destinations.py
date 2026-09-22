@@ -52,10 +52,22 @@ Attributes:
     with and the transfer copies it having checked **no destination**, over whatever is already
     there. Defaulting to the first pass heads every planned key instead. Resurrecting a conflict
     misreports one item; skipping the guard overwrites a user's files.
-  _CONFLICT_REASONS: The reason code each pass records a collision under. Two codes rather than
-    one because the second pass's collision is a different event — something arrived while the
-    operation was being prepared, which is worth wording differently from something that was
-    already there when the user pressed the button.
+  _CONFLICT_REASONS: The reason code each pass records a ``refuse`` collision under. Two codes
+    rather than one because the second pass's collision is a different event — something arrived
+    while the operation was being prepared, which is worth wording differently from something that
+    was already there when the user pressed the button.
+  _OVERWRITE_CONFLICT_REASON: The reason code an ``overwrite`` collision records under, in BOTH
+    passes. It is a different event from either of the two above — the destination merely holding
+    something does not refuse this item; an object written after the request was submitted does —
+    and the distinction the pair above draws collapses here: both passes measure the same
+    ``LastModified >= submittedAt``, so under this answer every collision is already "something
+    arrived while this was being prepared" and a second code would be a distinction with no
+    difference behind it. **The fail-closed causes ride under it too**, since a 403 and a head
+    with no ``LastModified`` are occupied in both modes and neither yields an instant to word
+    differently; both are unreachable here, for the reasons ``_ABSENT_STATUSES`` gives, and the
+    ``refuse`` bodies carry the same exposure. It is a code of its own rather than a shared one
+    because the advice that follows a collision differs between the answers: telling a user to
+    send it again with overwrite turned on names the setting they already had on.
   _ABSENT_STATUSES: The HTTP statuses that mean the key is not there. ``403`` is deliberately not
     among them, and the reason is above. In this plane's own buckets a 403 has become unlikely
     rather than impossible — the execution role holds bucket-wide read — so the branch is a
@@ -82,6 +94,8 @@ _ABSENT_STATUSES = (404,)
 SECOND_PASS = 2
 
 _CONFLICT_REASONS = {1: "destination_occupied", 2: "destination_occupied_late"}
+
+_OVERWRITE_CONFLICT_REASON = "destination_changed_since_submit"
 
 
 def _status(err) -> int:
@@ -284,12 +298,17 @@ def _still_cleared(existing) -> set:
 def _guard(loaded: dict, request: dict, guard_pass: int) -> tuple[list, int]:
     """Decides every eligible item's outcome against the destination.
 
+    **The reason code is read off the INSTANT, not off a second look at the answer.**
+    ``submitted_at`` is already "the overwrite answer, with a usable instant behind it", and it is
+    the value the predicate below decided every collision by — so a conflict cannot come to be
+    recorded under a reason that disagrees with the test that produced it.
+
     Args:
       loaded: The parsed plan, which holds the derived destination keys.
       request: The running request, which carries the destination root the sample is rendered
         against.
       guard_pass: Which sweep this is. On the second, only items still ``cleared`` are considered
-        and a collision is recorded under the later reason code.
+        and a ``refuse`` collision is recorded under the later reason code.
 
     Returns:
       ``(decided, checked)`` — one outcome record per item this pass judged, the cleared ones
@@ -308,7 +327,11 @@ def _guard(loaded: dict, request: dict, guard_pass: int) -> tuple[list, int]:
     eligible = (
         _still_cleared(request.get("outcomes")) if guard_pass >= SECOND_PASS else None
     )
-    reason = _CONFLICT_REASONS.get(guard_pass, _CONFLICT_REASONS[SECOND_PASS])
+    reason = (
+        _OVERWRITE_CONFLICT_REASON
+        if submitted_at is not None
+        else _CONFLICT_REASONS.get(guard_pass, _CONFLICT_REASONS[SECOND_PASS])
+    )
 
     decided, checked = [], 0
     for item in loaded["items"]:

@@ -104,12 +104,12 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'resolve-file-operation-conflicts',
         title: 'When a move or copy is refused',
-        subtitle: 'Something was already in the way — here is how to finish the job.',
+        subtitle: 'Something was in the way — here is how to finish the job.',
         intro:
           'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request goes ahead. The notification tells you which ones, and you can settle them from there.',
         steps: [
           'Open the notification for the operation. Alongside the message there is a <b>Review conflicts</b> link.',
-          'The review lists the items that could not be placed, with a sample of what is already in the way.',
+          'The review lists the items that could not be placed, with a sample of what is in the way.',
           'For a rename, choose <b>Use a different name…</b> and type a name that is free. Nothing is written over, and the request is sent again for that item only.',
           'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm. Only the items that were refused are sent again — the rest already happened.',
           'You get a fresh notification for the second request, the same as the first.'

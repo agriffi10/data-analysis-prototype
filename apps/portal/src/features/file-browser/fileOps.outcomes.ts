@@ -8,10 +8,15 @@ import type {NotificationPayload} from '../notifications';
  * The plane's own `focommon.messages` words the notification; this words a LIST, which is a
  * different job — a heading over three items cannot be a sentence about one. Neither invents an
  * outcome: the vocabulary is the plane's.
+ *
+ * `conflict` says "is in the way" and not "is ALREADY in the way", which is false half the time:
+ * an overwrite request collides only with something written after it was sent, and the payload
+ * carries no reason code, so a heading chosen here cannot tell the two apart. It says what holds
+ * under both answers; the notification, which does know, says more.
  */
 const OUTCOME_HEADINGS: Record<FileOpOutcome, string> = {
   cleared: 'Ready to go',
-  conflict: 'Something is already in the way',
+  conflict: 'Something is in the way',
   noop: 'Nothing to do',
   source_missing: 'No longer there',
   source_empty: 'Empty',

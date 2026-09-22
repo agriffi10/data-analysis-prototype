@@ -40,6 +40,23 @@ would be one code with two sentences — the twin this fleet spent a whole spec 
 inside one module. So an item's clause IS the body, taken through the resolver, and only the outcomes with no
 body of their own are written out.
 
+**A CONFLICT'S ADVICE IS KEYED ON ITS REASON RATHER THAN ON THE OUTCOME, BECAUSE THE TWO ANSWERS
+COLLIDE FOR DIFFERENT REASONS.** Under ``refuse`` the destination simply holds something, and
+turning overwrite on is the fix. Under ``overwrite`` the only thing that collides is an object
+written AFTER the request was submitted, which the guard leaves alone precisely so that a file
+arriving behind the user's back is not destroyed — and that user already had overwrite on, so
+"send it again with overwrite turned on" names a setting they did not change and reads as a broken
+feature. Keyed on the outcome there is one sentence for both answers, and it is the refuse one.
+
+**AND A CONFLICT REASON WITH NO ENTRY GETS NO ADVICE RATHER THAN SOMEBODY ELSE'S.** An
+outcome-level default is what made the overwrite answer wrong in the first place: a reason nobody
+worded inherited the refuse sentence in silence. A future code losing the "cannot be undone"
+warning is a sentence a reader can see is thin; a future code inheriting a false instruction is
+not. ``test_file_ops_check_destinations`` holds the guard's own reason codes equal to the keys
+here and inside ``_BODIES``, so a code nothing words reddens rather than borrowing — and the body
+is held as well as the advice, because a code missing THERE falls through to the resolver's
+fallback and reads "something went wrong." in front of advice about a destination.
+
 **The outcome table is NOT registered as a resolver, and that is a decision rather than an
 oversight.** ``Resolver.__init__`` ends by marking every key it was given a globally valid reason
 code, so registering these would make ``TerminalError("duplicate")`` pass raise-time validation —
@@ -59,10 +76,14 @@ Attributes:
   delete_resolver: The same table under delete wording.
   _OUTCOME_CLAUSES: The per-item clause for the outcomes whose reason code has no body — the
     three terminal successes and the no-op. Everything else resolves through the table above.
-  _OUTCOME_ADDITIONS: The sentence an outcome adds AFTER its body. Two exist, and both say the
-    thing the body deliberately does not: that a duplicate leaves the data in two places (a body
-    may not assert a copy happened — see above), and that re-submitting with overwrite cannot be
-    undone.
+  _TURN_OVERWRITE_ON: The advice a ``refuse`` collision earns, written once because both of that
+    answer's reason codes give it.
+  _REASON_ADDITIONS: The sentence a REASON adds after its body, asked before the outcome's. Every
+    conflict is here, one entry per code, for the reason above: what a collision means, and
+    therefore what to tell the user to do about it, is the answer's property and not the outcome's.
+  _OUTCOME_ADDITIONS: The sentence an OUTCOME adds after its body, for the outcomes whose advice
+    holds whatever the reason. One is left: a duplicate leaves the data in two places, which a body
+    may not assert — see above.
   _SUCCESS_VERBS: The past-tense verb each operation's summary opens with.
 """
 
@@ -155,6 +176,10 @@ _BODIES = {
     "destination_occupied_late": (
         "something was put in the way there while this was being prepared. Please look at the "
         "destination, then try again."
+    ),
+    "destination_changed_since_submit": (
+        "something was put there after this was sent, so what is there was left alone rather than "
+        "replaced."
     ),
     "copy_failed": "some of the files could not be copied.",
     "transfer_results_unreadable": (
@@ -292,11 +317,20 @@ _OUTCOME_CLAUSES = {
     outcomes.NOOP: "it is already there under that name, so nothing changed.",
 }
 
-_OUTCOME_ADDITIONS = {
-    outcomes.CONFLICT: (
-        "Sending it again with overwrite turned on replaces what is there, and that cannot be "
-        "undone."
+_TURN_OVERWRITE_ON = (
+    "Sending it again with overwrite turned on replaces what is there, and that cannot be undone."
+)
+
+_REASON_ADDITIONS = {
+    "destination_occupied": _TURN_OVERWRITE_ON,
+    "destination_occupied_late": _TURN_OVERWRITE_ON,
+    "destination_changed_since_submit": (
+        "Please look at the destination - sending it again now would replace what is there, and "
+        "that cannot be undone."
     ),
+}
+
+_OUTCOME_ADDITIONS = {
     outcomes.DUPLICATE: (
         "This data is now in both places, and only you can decide which copy to keep."
     ),
@@ -310,8 +344,17 @@ def item_clause(operation: object, record: dict) -> str:
 
     An outcome that carries a reason the table already words RESOLVES THROUGH THAT TABLE rather
     than through a second one — the same code cannot come to have two sentences. Only the
-    outcomes with no body of their own are written out, and two of them append the sentence their
-    body is forbidden from carrying.
+    outcomes with no body of their own are written out, and some append the sentence their body is
+    forbidden from carrying.
+
+    **Which table the addition comes from is decided by what the advice depends on.** A collision
+    means different things under the two answers to ``onConflict``, so its advice is the reason's;
+    a duplicate's holds whatever the reason and MUST be the outcome's, because ``source_changed``
+    and ``source_delete_failed`` are also a ``delete_failed``'s reasons, where "this data is now in
+    both places" is the false sentence that outcome exists to prevent. The two tables therefore
+    name disjoint keys and nothing today depends on the order below; the reason is asked first so
+    that a reason worded later cannot be shadowed by an outcome's default, which is the shape the
+    conflict advice was wrong in.
 
     Args:
       operation: The request's operation, which selects the wording.
@@ -324,11 +367,12 @@ def item_clause(operation: object, record: dict) -> str:
       None.
     """
     outcome = str(record.get("outcome") or "")
+    reason = str(record.get("reason") or "")
     if outcome in _OUTCOME_CLAUSES:
         base = _OUTCOME_CLAUSES[outcome]
     else:
-        base = resolver_for(operation).body(str(record.get("reason") or outcome), **_markers())
-    addition = _OUTCOME_ADDITIONS.get(outcome)
+        base = resolver_for(operation).body(reason or outcome, **_markers())
+    addition = _REASON_ADDITIONS.get(reason) or _OUTCOME_ADDITIONS.get(outcome)
     return f"{base} {addition}" if addition else base
 
 

@@ -403,6 +403,22 @@ notification and use **Review conflicts** — including from a tab that did not 
 *Overwrite* saying in words that it cannot be recovered. A rename offers **Use a different name**
 instead, which re-submits safely. Confirm only the conflicted items are re-sent.
 
+**And an OVERWRITE that still refuses reads differently, which is the half the round trip above
+cannot show.** *Overwrite* does not mean "write over anything": the plane leaves a destination
+object last modified at or after the request's `submittedAt` alone, on purpose, so a file that
+landed after the button was pressed is not destroyed. That item is refused with overwrite **already
+on**, so the refuse-mode advice is the one sentence it must not get. Expect *"…" - something was
+put there after this was sent, so what is there was left alone rather than replaced. Please look
+at the destination - sending it again now would replace what is there, and that cannot be undone.*,
+and
+the older sibling in the same request replaced normally. **FAIL:** *"Sending it again with
+overwrite turned on…"*, which names a setting the request already carried and so reads as a broken
+feature. Open **Review conflicts** from that same row: it must not say the thing was **already**
+in the way, which is what the panel said for both answers until the sentences were split. It cannot
+say more than that — the payload carries no reason code, so the browser words the panel from the
+outcome alone. Staged by [`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh) §17b, which needs
+the destination file written between the stamp and the send.
+
 **The kill switch, which now switches a capability OFF rather than to a slower route.** Run the
 async-off half of §4.14 (`{"asyncFileOperations": false}`, publish, hard-reload). A single-file
 copy, move, rename, delete and download are unaffected. A **folder**, or any selection of more than
