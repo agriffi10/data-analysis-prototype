@@ -376,9 +376,9 @@ A rem step expresses visual rhythm, and rhythm is not what this value is for.
 
 > **`ACCEPTED_UNDERSIZED` is the population and the only place it is counted** — a number repeated
 > in prose goes stale on the first correct fix with nothing to catch it. The register has since
-> been swept in a browser, and a measured entry's `why` carries its number. The tab-strip closes and
-> the column resize handle left it by being sized to an absolute 24px — a target that is 24 × 24
-> needs no spacing exception, whatever encloses it. `docs/testing/owed.md` carries what is owed.
+> been swept in a browser, and `docs/testing/owed.md` carries the measurements and what is owed.
+> The tab-strip closes and the column resize handle left it by being sized to an absolute 24px — a
+> target at least 24 × 24 needs no spacing exception, whatever encloses it.
 
 ## A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)
 
