@@ -163,7 +163,8 @@ inside the execution the Pipe starts.
   not overlap needs a guard of its own: a lock, a conditional write, or a key unique to the run.
   Notifications and feedback are the exception: an event-source mapping drains them, and that does
   hold a group to one invocation. [What overlap costs, plane by plane](#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide).
-- **A shared space's NAME is held to the catalog rule where it is CHOSEN, and nowhere was.** One
+- **A shared space's NAME is held to the catalog rule where it is CHOSEN, and was held nowhere
+  before.** One
   string is four things — a Glue database, an S3 prefix segment, a principal tag VALUE the portal
   role interpolates into a resource ARN, and, raw and deliberately, the table-build and table-share
   `MessageGroupId` — and every reader was written against `CATALOG_IDENTIFIER_RE` while only the
@@ -2746,5 +2747,6 @@ validator so the narrowing cannot be tidied away later.
 **Nothing downstream was relaxed.** `fifo._checked` stays, because it turns an opaque SQS failure
 into a named one and it is the only thing standing in front of a space named before this refusal;
 so does the index source's check, which is still the last point before a name becomes an
-entitlement. Both docstrings previously argued from the premise that the rule was applied
-somewhere, and both now say where it is applied and what still gets past it.
+entitlement. `_group_table_build` previously argued from the premise that the rule was applied
+somewhere and `_from_index` from the premise that it was applied nowhere; both now say where it is
+applied and what still gets past it.

@@ -78,8 +78,11 @@ machine and every verb.
   granted at add time.
 - **No shared-space directory is published.** A full list would be more useful and is declined as a
   disclosure with no equivalent.
-- **A space's name is format-checked nowhere server-side**, which is why every statement built from
-  it must use the right escaper — see the table-share page.
+- **The create path holds the catalog rule, held nothing before it, and the refusal is
+  create-only** — `auth.create_refusal`, so a space named earlier keeps whatever it was
+  given and every statement built from a name must still use the right escaper (see the
+  table-share page). The create-only narrowing is deliberate: applying the rule to every action
+  would make the delete that recovers such a space the one verb its name refuses.
 
 ## The layer — `shared-space-common/`
 

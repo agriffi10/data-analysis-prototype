@@ -2604,9 +2604,11 @@ closes it.
 > about a delete from the post-SPEC-205 world, where the record survives — today `reg.delete` frees
 > the name, so the drops ride the member loop before it, in `forget`'s teardown path as well as
 > `delete`'s. And Premise 4 — "a space name reaching a key builder has been through
-> `CATALOG_IDENTIFIER_RE`" — **was not true when it was written**; `_from_index` makes it true on
+> `CATALOG_IDENTIFIER_RE`" — **was not true when it was written**; `_from_index` made it true on
 > that path only, because a tag value of `*` is a wildcard grant and the claims source cannot check
-> it without rewriting the equivalence it exists to preserve.
+> it without rewriting the equivalence it exists to preserve. **Superseded in part:** the create
+> path now applies the rule where the name is chosen, so the premise holds for every space created
+> since — and `_from_index` is still the only thing making it true for one named before.
 >
 > **FR-007's live parity check is OWED and expires** — it needs an environment running
 > `MEMBERSHIP_SOURCE=index`, and there is none. [`owed.md`](../testing/owed.md) carries the recipe

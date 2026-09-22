@@ -56,9 +56,11 @@ def _client(context: RequestContext) -> Any:
 def _database(context: RequestContext) -> str:
     """The database this request named.
 
-    Passed to Glue as it arrived. No format check and no membership check: a shared space's name
-    is format-checked nowhere server-side, and inventing a rule here would refuse names the rest
-    of the product accepts.
+    Passed to Glue as it arrived. No format check and no membership check, and the create path
+    taking the catalog rule does not license one here: that refusal is create-only,
+    so a space named before it is still reachable and still answers 200 through this route.
+    Applying the rule here would refuse a database the rest of the product accepts, which is the
+    one thing this route must not do.
 
     Args:
       context: The authenticated request.

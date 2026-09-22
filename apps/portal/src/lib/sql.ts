@@ -58,10 +58,11 @@ export function sqlIdentifier(name: string): string {
  * Using the wrong one fails at query time, after the diff and the golden-string test have both
  * looked right — which is the failure mode the lambda layer records for the same pair.
  *
- * It exists because a `DROP` interpolates a database name that nothing validates: for a shared
- * space the name is the space's own, and the control plane applies no format check on its
- * create path. A crafted name reaches a member's space list and from there into this statement,
- * under their own Athena credentials.
+ * It exists because a `DROP` interpolates a database name the browser does not validate: for a
+ * shared space the name is the space's own. The control plane applied no format check on its
+ * create path until it took the catalog rule, and refuses only a CREATE, so a space named
+ * earlier keeps any name at all. It reaches a member's space list and from there into this statement, under their
+ * own Athena credentials.
  *
  * @param name - The identifier: a database, table or view name.
  * @returns The quoted, escaped identifier.

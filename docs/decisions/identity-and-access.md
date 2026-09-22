@@ -113,9 +113,9 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`) — pre-signup applies the rule, which is what
 "by construction" rests on. **A shared space's NAME is the same four things and one more**, the
-table-build and table-share `MessageGroupId`, and it was catalog-safe by nothing until 2026-09-22:
-the browser's create dialog held the rule and no server path did, so a space could be created that
-can never build a table
+table-build and table-share `MessageGroupId`, and it was catalog-safe by nothing until the create
+path took the rule: the browser's create dialog held it and no server path did, so a space could be
+created that can never build a table
 ([control-planes](control-planes.md#a-spaces-name-is-held-to-the-catalog-rule-where-it-is-chosen-and-the-refusal-is-create-only-2026-09-22)).
 The username directory is built from **S3,
 not Cognito** — today Cognito is complete and S3 is not, and the client transition reverses exactly
@@ -1243,10 +1243,16 @@ both.
   set, which is what the read *produces*, so nothing can consult it before the read. One `GetObject`
   per authenticated request and no second cache — a username-keyed one would freeze membership for
   the container's life, which is the defect that key exists to prevent.
-- **The name and the username are checked against the catalog rule here, and nowhere else on this
-  path.** A space name becomes a principal tag *value* the portal role interpolates into a resource
-  ARN, and a shared space's name is format-checked nowhere when the space is created — so a name of
-  `*` would be a wildcard grant over every shared space. The claims source cannot check either
+- **The name and the username are checked against the catalog rule here — the last check before a
+  name becomes an entitlement, and the only one on this path.** A space name becomes a principal
+  tag *value* the portal role interpolates into a resource ARN — so a name of `*` would be a
+  wildcard grant over every shared space. It was format-checked
+  nowhere at all when a space was created; the create path holds the rule now
+  ([control-planes](control-planes.md#a-spaces-name-is-held-to-the-catalog-rule-where-it-is-chosen-and-the-refusal-is-create-only-2026-09-22)),
+  and this check is still the last one before a name becomes an entitlement — the only one for a
+  space named BEFORE then, of which `live0922 odd` is a live example. **It fails the WHOLE request,
+  not the entry**, so one such space costs its member every credential the day this source is
+  chosen. The claims source cannot check either
   without rewriting the byte-equivalence it exists to preserve, so the two sources legitimately
   diverge on a name the rule refuses.
 

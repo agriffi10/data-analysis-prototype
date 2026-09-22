@@ -5,9 +5,9 @@ import {buildCreateViewSql} from './createView';
  * The one `CREATE OR REPLACE VIEW` this app writes, now that two surfaces write one.
  *
  * The identifier that matters is the DATABASE. A view name is typed into a dialog that holds it
- * to the catalog-safe rule; a shared space's name is not held to anything the browser cannot
- * bypass — the shared-space control plane does no name-format check on its create path, and the
- * SPA talks to its queue directly.
+ * to the catalog-safe rule; a shared space's name was held to nothing the browser cannot bypass,
+ * since the SPA talks to its queue directly. The control plane checks a CREATE and only a
+ * create, and checked nothing before, so a space named earlier still carries anything.
  */
 describe('buildCreateViewSql', () => {
   it('quotes both identifiers with the TRINO escaper, not the DDL one', () => {

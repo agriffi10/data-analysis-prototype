@@ -191,7 +191,7 @@ def _group_table_build(principal: Principal, payload: Mapping[str, Any]) -> str:
     bounds a database name at 63 characters and admits no character SQS refuses, where an S3 key
     reaches 1024 and would breach the 128-character cap for exactly the users with the deepest
     prefixes. That rule is applied where a shared space's name is CHOSEN — it was applied nowhere
-    server-side until 2026-09-22, and a space named before that can still carry a name outside it,
+    server-side before that, and a space named earlier can still carry a name outside it,
     which ``_checked`` refuses by name rather than letting SQS refuse it anonymously.
 
     Args:
@@ -219,8 +219,8 @@ def _group_table_share(principal: Principal, payload: Mapping[str, Any]) -> str:
 
     Returns:
       The source's ``database.table``, raw for the same reason as table build — and carrying the
-      same residual, since a database is a space's name and the concatenation cannot rescue a
-      name the rule does not admit.
+      same residual, since a SHARED space's database is its own name and the concatenation cannot
+      rescue a name the rule does not admit. A personal share's database is the caller's username.
 
     Raises:
       None.
@@ -375,8 +375,8 @@ def _dedup_table_share(principal: Principal, payload: Mapping[str, Any]) -> str:
     ``ensure_ascii`` is off because it is on by default and would emit ``caf\\u00e9`` where
     ``JSON.stringify`` emits ``café`` — a divergence no test over ASCII fixtures can see, on a
     value that reaches here as a shared-space name. Such a name was format-checked nowhere
-    server-side until the create path took the catalog rule on 2026-09-22, and a space named
-    before that still carries whatever it was given, so the divergence stays reachable.
+    server-side until the create path took the catalog rule, and a space named before that still
+    carries whatever it was given, so the divergence stays reachable.
 
     Returns:
       The digest of the canonical array, matching ``JSON.stringify`` byte for byte.
@@ -436,8 +436,10 @@ def _checked(key: str, field: str) -> str:
     Four of the ten group ids are a raw string rather than a digest, and two of those concatenate a
     value nothing upstream bounds: a source table name is only required to be a non-empty string,
     and a caller's own request id becomes a dedup id verbatim. Those two also carry a database
-    name, which is a space's name — and a space created before the create path took the catalog
-    rule can hold one with a space character in it, which reaches here and can never be sent. Unchecked, an over-long or
+    name, which for a SHARED space is that space's name — and a shared space created before the
+    create path took the catalog rule can hold one with a space character in it, which reaches
+    here and can never be sent. A personal build's database is the caller's username, which
+    pre-signup holds to the same rule. Unchecked, an over-long or
     non-ASCII key is refused by SQS itself and comes back as a generic failure with nothing naming
     the key — on every attempt, for the one user whose table name or id is unusual.
 

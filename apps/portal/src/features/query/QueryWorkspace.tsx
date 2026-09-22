@@ -472,8 +472,8 @@ export function QueryWorkspace() {
     const isView = table.tableType === 'VIRTUAL_VIEW';
     ddl.run({
       // Backticks, not double quotes: a DROP is DDL, which Athena parses with Hive. The
-      // database is the identifier that needs it — a shared space's name is checked by
-      // nothing server-side.
+      // database is the identifier that needs it — a shared space named before the control
+      // plane took the catalog rule passed no server-side format check.
       sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${sqlDdlIdentifier(database)}.${sqlDdlIdentifier(table.name)}`,
       database,
       table: table.name,

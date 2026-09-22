@@ -40,8 +40,8 @@ Attributes:
     already emits it — matching what users already receive beats an internal tidiness they will
     never see.
   _REFUSALS: Reason code to the sentence a REFUSED request is reported with. ``CreateNameUnusable``
-    is the one entry that ends in a rule rather than in a fact about this request: it is the only
-    refusal here the requester can fix by retyping, and it borrows
+    is the one entry that ends in a RULE rather than in a fact about this request, which is why it
+    is the only one carrying wording from outside this module: it borrows
     ``cpcommon.config.CATALOG_IDENTIFIER_RULE`` rather than re-spelling the rule, because the
     browser's create dialog shows that same string and the two refusing one name with two
     descriptions of it is how a user concludes the two disagree. Separate from the
