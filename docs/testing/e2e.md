@@ -82,10 +82,11 @@ Install the page instruments after **every full page load**. Client-side nav (na
 `navigate` does not.
 
 ```js
-// 1. THE ONE THAT MATTERS MOST — see the trap table.
+// 1. THE ONE THAT MATTERS MOST — see the trap table. The dispatch goes to WINDOW: that is where
+// TanStack's focus manager listens, and a document dispatch reaches nothing (trap table).
 Object.defineProperty(document,'visibilityState',{get:()=>'visible',configurable:true});
 Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
-document.dispatchEvent(new Event('visibilitychange'));
+window.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
 // 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record only
@@ -130,6 +131,16 @@ const oc=HTMLAnchorElement.prototype.click;
 HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)/.test(this.href)){window.__dl=this.href;return}return oc.apply(this,arguments)};
 ```
 
+**When instrument 2 is refused, count with Resource Timing instead.** An agent session's `window.fetch` patch was refused outright by its permission classifier on 2026-09-22, and the whole sitting's request counts came from
+
+```js
+performance.getEntriesByType('resource')
+  .filter(e => e.name.includes('api.dataquarry.app'))
+  .map(e => ({t: Math.round(e.startTime), p: e.name.replace(/^https?:\/\/[^/]+/, '').split('?')[0], st: e.responseStatus}));
+```
+
+It is a weaker instrument and the difference matters: it carries **no method, no request body and no headers**, so it cannot serve §4.18's method-and-path counting or the `x-amz-target` arm above; the buffer holds 250 entries by default, so a long sitting silently loses the oldest; and a request aborted in flight leaves no entry, so prove survival positively rather than by counting absences. It is enough for *how many calls did this gesture make*, which is what §4.5's paging rows and the focus-return row rest on.
+
 **Counting a query's executions is method-and-path work now, not header work.** A start is
 `POST /v1/queries`, a poll is `GET /v1/queries/{id}` and a results read is
 `GET /v1/queries/{id}/results` — distinguishable in the network panel, unlike the single Athena
@@ -153,13 +164,14 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | **A hidden Chrome window pauses polling** | One `GetQueryExecution`, then "Running…" forever. `hasFocus()` true, `visibilityState` `hidden`. | Instrument 1. Without it you will file a hung-query bug that does not exist. |
 | **A backgrounded tab reports a STALE viewport after `resize_window`** | "Successfully resized to 700x900" while `innerWidth` stays 1512, `outerWidth` reads **0**, and every media query still matches desktop. | The window really did resize — `app_list_windows` shows its true bounds, and checking that before concluding the call failed is the cheap move. **Foregrounding the WINDOW is not enough — the TAB has to be the active one, and recording only the window cost a session.** Observed 2026-09-09: minimized, stale; un-minimized by hand, **still** `innerWidth: 1512`; `Control_Chrome`'s `switch_to_tab` on the tab id, and the viewport reads true. Reach for `switch_to_tab` — it is the call that was shown to matter. (Whether un-minimizing is also needed was not tested; it may do both.) **Assert on `matchMedia`, and treat any reading taken while the tab is backgrounded as unusable** — the earlier "the call changes nothing" reading was this artifact (2026-09-01) — **unless a reload followed the resize and `matchMedia` pins the exact width — and then only for synchronous geometry of CSS-driven layout.** A hidden tab still gets no frames, so paint, polling (the row above), `ResizeObserver`, `requestAnimationFrame` and `matchMedia` change listeners stay unusable after a reload, and `switch_to_tab` stays the first choice. Observed 2026-09-11 with no `Control_Chrome` in the session: the tab still hidden, `resize_window` then a reload read true at nine widths, `(min-width: W px)` true and `(min-width: W+1 px)` false at each; without the reload the same tab took two resizes and then stuck at 930 through four more. Print `innerWidth` on every reading — that is the only thing that caught it. Sub-900px checks ARE reachable. Chrome's minimum window width is still 606px, so **400px needs DevTools device toolbar (⌘⇧M)**, or the Claude app's Browser pane — the next row. |
 | **The Claude app's Browser pane EMULATES a width, and has its own sign-in** | Its `resize_window` sets `innerWidth` to exactly the width asked for — 375 and 400 included — because it emulates the viewport rather than resizing a window, so the stale-viewport row above does not apply to it. But it keeps its own cookies and lands on an empty Cognito form. Its page reported `hidden` (2026-09-21), and it follows the app's light or dark theme. | Ask Andrew to sign the pane in himself. Apply instrument 1 after every load. Assert `innerWidth` and `(min-width: W+1px)` false before trusting a width. Read the DOM rather than screenshots, which lagged a step behind. Clear the width with the `desktop` preset when done, and say in the record which theme was measured. |
-| **The Browser pane's Enter never activates a focused button** | On the archive confirm, with focus on **Cancel**, the pane's key `Enter` arrived as a trusted `keydown` and the dialog stayed open. The control: `Enter` on a focused **New folder** did not open its dialog either. `Return` and `space` arrive with an empty `key`. `Escape` works, because the app handles it on `keydown` (2026-09-21). | A check that relies on Enter's default action cannot be observed from the pane: §4.11's "Enter cancels", and §4.17's newline and submit rows. Run it in a visible Chrome tab instead, and record it as not run rather than failed. |
+| **The Browser pane's Enter never activates a focused button** | On the archive confirm, with focus on **Cancel**, the pane's key `Enter` arrived as a trusted `keydown` and the dialog stayed open. The control: `Enter` on a focused **New folder** did not open its dialog either. `Return` and `space` arrive with an empty `key`. `Escape` works, because the app handles it on `keydown` (2026-09-21). | A check that relies on Enter's default action cannot be observed from the pane: §4.11's "Enter cancels", and §4.17's newline and submit rows. Run it through the **Chrome extension** instead — its `computer` key action does activate a focused button, proven on 2026-09-22 in a **hidden** Chrome window with a positive control (Enter on a focused **New folder** opened the dialog) before §4.11's "Enter cancels" was read. Take that control first: without it, a dialog that stays open is indistinguishable from a key that reached nothing, and the honest record is then *not run* rather than failed. This does not loosen the backgrounded-tab rule two rows up: what a hidden tab cannot be trusted for is **geometry and paint**, and what is read here is DOM state — whether a dialog is still mounted. |
 | **`role="alertdialog"` ≠ `role="dialog"`** | `querySelector('[role="dialog"]')` returns null on the refresh and delete confirms. | Query both. `Drawer` also carries `role="dialog"`, so select modals **by title**. |
 | **Page scroll desyncs click coordinates** | A click lands on a grid cell instead of a nav tab. | Derive coordinates from `getBoundingClientRect()` immediately before clicking, or use `find` → ref. |
 | **Prefilled inputs are not selected on focus** | Typing appends: `explorer-shared-destexplorer-shared-filtered`. | `cmd+a` first, or set the value and dispatch `input`. |
 | **Monaco needs a click into the text layer** | `type` silently does nothing. | Click the code line, confirm `document.activeElement.className` is `native-edit-context`, `cmd+a`, type. Escape dismisses autocomplete before running. |
 | **The extension blocks returning query strings** | `[BLOCKED: Cookie/query string data]` from `javascript_tool`. | Return derived values — param *names*, booleans, counts — never the URL. |
 | **`computer type` does not reach a React input** | The DOM value changes, React state does not, and submitting sends the *old* value — a folder create that silently does nothing. | Use `form_input` (it dispatches `input`) for every controlled field **except a checkbox**. On 2026-09-21, `form_input` set a checkbox's `checked` without React seeing it, while `.click()` on the input registered; confirm by the effect, not by `checked`. `computer type` is fine for Monaco and for comboboxes that filter on keystrokes. |
+| **A dispatched focus return must go to `window`, not `document`** | TanStack Query's focus manager subscribes to `visibilitychange` **on `window`**. `document.dispatchEvent(new Event('visibilitychange'))` does not bubble, so it reaches no listener and a listing that should have refetched simply does not — which reads as a stale-listing defect (2026-09-22). | Dispatch on `window` — that is the form that was run. A `document` dispatch with `{bubbles: true}` should reach it too and was not tried. Confirm a request actually went out before concluding anything. What this proves is the app's refetch path, not that a real tab return fires the event — say so when you discharge with it. |
 | **A navigate wipes the instruments** | `window.__ath` is `[]` after any full page load, and an empty log reads as "no requests were issued". | Re-install after **every** `navigate`; prefer nav-tab clicks, which preserve them. |
 | **An inline link's box spans wrapped lines** | Clicking a notification link's *centre* hits the parent `<p>` and nothing happens — it looks like a dead link. | Probe with `elementFromPoint` for a coordinate the anchor actually owns, or click its first line. Not a defect; ~30% of the box belongs to the parent. |
 | **A failing Data Explorer apply used to double** | Two `StartQueryExecution` ~1.1 s apart for one gesture. | **Fixed** — `athena.start` declares no retry, so one failed apply is one `POST /v1/queries`. Counting on a failing statement is now meaningful; **two starts is a regression**, not the tool. |
@@ -796,8 +808,9 @@ Tick the folder → **Archive** in the selection toolbar. **Before confirming, r
 - It does **not** say "This can't be undone" — that would be its one false sentence, and its
   absence is deliberate.
 - **Focus is on Cancel, and Enter cancels.** The only dialog in the app where that is wanted, and
-  the only place it can be observed. Test it, then reopen. Use a visible Chrome tab: the Browser
-  pane's Enter activates no button at all (§1's traps).
+  the only place it can be observed. Test it, then reopen. Drive it through the **Chrome
+  extension**, which activates a focused button even in a hidden window — take §1's positive
+  control first. The Browser pane's Enter activates no button at all (§1's traps).
 
 Confirm. Expect:
 
@@ -877,7 +890,7 @@ Then leave it. Check back at roughly **1 h, 3 h and 5 h** — Phase C fills the 
 | `system_settings/archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
 | The **vault** prefix for that id is gone | **Not observable from the browser** — the sweep is of `dat-prod-archive`, which no human principal can read. `owed.md` carries the CLI check; an **`archive swept`** event in `logs/service=archive/` is what you can see. **Not `cleanup`** — this row said that until 2026-08-31, and a reader grepping for it finds nothing and concludes the sweep never ran. |
 | The receipt's ARCHIVE lines are **byte-identical to before** the restore, with `Restored to` now filled | A blanked `Requested` line is how you would know the rewrite broke. |
-| The loop actually **looped** | `logs/service=archive/` carries multiple `retrieval polled` events **hours apart**, `poll_count` climbing. |
+| The loop actually **looped** | `logs/service=archive/` carries a `retrieval polled` event **every five minutes for the whole retrieval** — so tens of them across a 3–5 hour restore, and the count is a function of duration rather than a number to match. It is the SPAN that is hours, not the gap: this row said "hours apart" until two measurements contradicted it. `poll_count` lives under `fields`, not at the top level. |
 | A **child span** survived the pipe (SPEC-226) | Every assertion about child spans is made against an in-process sink; nothing offline shows one surviving the SQS sink, the sweep's read-modify-write and the day object. In `logs/service=archive/` for this run, find a record with `message: "span.start"` and **`function: "copy-batch"`**, and check its **`parent_span_id` is non-null** and equals the `span_id` of the `copy-objects` record in the same `trace_id`. A null parent is the failure that matters — it is what a span emitted where the trace context does not reach looks like, and it reads as instrumented. The same check works per plane: `write-roster` under `service=shared-space`, `download-results` under `service=results-conversion`, `athena-run-ddl` under `service=table-builder`. |
 
 **Owed regardless of how well this goes:** the `Restore` header's format, the
@@ -1258,7 +1271,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
 | Type a message, press Enter inside it | A newline. It does **not** submit. |
-| Focus the category select and press Enter | It submits. Not from the Browser pane, whose Enter has no default action (§1's traps). |
+| Focus the category select and press Enter | It submits. Not from the Browser pane, whose Enter has no default action — drive it through the Chrome extension, which activates a focused button even in a hidden window, after taking §1's positive control (§1's traps). |
 | Send | The dialog closes and a toast reads the thank-you. Reopen it — the message is empty, not the last one. |
 | Reopen, and watch the network panel | Exactly **one** `POST /v1/feedback`, answering 200 with `{submittedAt}`. The request body carries `category`, `message` and `route` — and **no username of any kind**. |
 | Navigate to another page with the dialog open, then send | The `route` in the body is the page you **opened** it on, not the one you ended on. |
