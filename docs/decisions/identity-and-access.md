@@ -111,7 +111,13 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
   **`s3:prefix`-conditioned `ListBucket`** or it reads as denial.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
-catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,
+catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`) — pre-signup applies the rule, which is what
+"by construction" rests on. **A shared space's NAME is the same four things and one more**, the
+table-build and table-share `MessageGroupId`, and it was catalog-safe by nothing until 2026-09-22:
+the browser's create dialog held the rule and no server path did, so a space could be created that
+can never build a table
+([control-planes](control-planes.md#a-spaces-name-is-held-to-the-catalog-rule-where-it-is-chosen-and-the-refusal-is-create-only-2026-09-22)).
+The username directory is built from **S3,
 not Cognito** — today Cognito is complete and S3 is not, and the client transition reverses exactly
 that. It is readable by every authenticated user, accepted deliberately: usernames only, never
 emails.

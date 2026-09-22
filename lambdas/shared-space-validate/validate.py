@@ -10,14 +10,18 @@ and it has no bearer to present — so its messages declare an ``origin`` and ca
 block, and the only thing that can be trusted about one is the ``SenderId`` SQS stamps on the
 record. That comparison is the boundary; ``auth.operator_refusal`` is where it lives.
 
-**A transfer's and a member change's refusals are RETURNED on the context, not raised**, and
-the router has one branch for them all. The refusals that still raise are caught by a state whose
-input was the raw queue batch — so it seeds a null actor and a null space, and the notifier reads
-a null actor as no trustworthy recipient and stays silent. All three of those actions have to say
-which space and which member they are refusing about, so they cannot travel that way. The key is
+**A create's, a transfer's and a member change's refusals are RETURNED on the context, not
+raised**, and the router has one branch for them all. The refusals that still raise are caught by
+a state whose input was the raw queue batch — so it seeds a null actor and a null space, and the
+notifier reads a null actor as no trustworthy recipient and stays silent. All four of those
+actions have to say which space they are refusing about, and three of them which member, so they
+cannot travel that way. The key is
 set only when there IS a refusal:
 ``IsPresent`` is true for a field that is present and null, so seeding one would route every
-request on this plane into the refusal branch. For an authorized create or
+request on this plane into the refusal branch. A create is refused here on its NAME alone, and
+only a create is — the catalog rule the whole system reads a space name through was applied
+nowhere when one was chosen, and a space already carrying a name it does not admit has to stay
+deletable. For an authorized create or
 delete it also durably records the in-flight state in the actor's cache and emits a start
 notification — the browser reads only that cache, so without it the row reconciles back to
 active or vanishes on reload. Verbs trust the context it outputs and never re-read the identity
@@ -218,7 +222,9 @@ def handler(event, context):
         observability.stamp(actor=actor)
 
     if refusal is None:
-        if action == "transfer_ownership":
+        if action == "create":
+            refusal = auth.create_refusal(space)
+        elif action == "transfer_ownership":
             refusal = auth.transfer_refusal(
                 requester, space, (req.get("payload") or {}).get("newOwner"), registry_doc
             )

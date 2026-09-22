@@ -49,6 +49,12 @@ Attributes:
     folders are routinely named ``dt=``, ``hr=`` or ``d=`` and a key must match its folder. A
     separate rule rather than a looser shared one, so a two-character table or username is
     still refused.
+  CATALOG_IDENTIFIER_RULE: ``CATALOG_IDENTIFIER_RE`` written as a sentence somebody can act on,
+    for a refusal that has to say what would have been acceptable. The browser's create dialogs
+    show the same string, and a test holds the two equal, so a user refused by the dialog and a
+    user refused by the plane are told the same thing rather than two descriptions of one rule.
+    The en dash is the browser's shipped copy and the equality is byte-for-byte, which is why the
+    ambiguous-character rule is suppressed rather than the punctuation changed.
   MAX_FIFO_KEY_CHARS: The longest ``MessageGroupId`` or ``MessageDeduplicationId`` SQS accepts on
     a FIFO queue.
   FIFO_KEY_RE: The single FIFO key rule — one to ``MAX_FIFO_KEY_CHARS`` printable ASCII
@@ -83,6 +89,10 @@ CAUSE_RESERVATION_BYTES = 2 * CAUSE_MAX_CHARS
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 PARTITION_KEY_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+CATALOG_IDENTIFIER_RULE = (
+    "Use 3–63 characters: lowercase letters, "  # noqa: RUF001
+    "digits, or underscore, starting with a letter."
+)
 
 MAX_FIFO_KEY_CHARS = 128
 FIFO_KEY_RE = re.compile(f"^[\x21-\x7e]{{1,{MAX_FIFO_KEY_CHARS}}}$")

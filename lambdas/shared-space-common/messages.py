@@ -39,7 +39,12 @@ Attributes:
     marker. The create phrase reads without an article on purpose, copied from the verb that
     already emits it — matching what users already receive beats an internal tidiness they will
     never see.
-  _REFUSALS: Reason code to the sentence a REFUSED request is reported with. Separate from the
+  _REFUSALS: Reason code to the sentence a REFUSED request is reported with. ``CreateNameUnusable``
+    is the one entry that ends in a rule rather than in a fact about this request: it is the only
+    refusal here the requester can fix by retyping, and it borrows
+    ``cpcommon.config.CATALOG_IDENTIFIER_RULE`` rather than re-spelling the rule, because the
+    browser's create dialog shows that same string and the two refusing one name with two
+    descriptions of it is how a user concludes the two disagree. Separate from the
     table above because these name the target, which the failure path cannot: the notifier's
     input carries an action and a space and nothing else, so a refusal that has to say WHICH
     member is not a member must arrive with its sentence already composed. **One table, not one
@@ -55,6 +60,7 @@ Attributes:
 """
 
 from cpcommon import messages as _cpmessages
+from cpcommon.config import CATALOG_IDENTIFIER_RULE
 
 __all__ = ["failure_message", "refusal_message", "transfer_notifications"]
 
@@ -86,6 +92,9 @@ _DOMAIN_REASONS = {
 }
 
 _REFUSALS = {
+    "CreateNameUnusable": (
+        'We couldn\'t create a shared workspace called "{space}". ' + CATALOG_IDENTIFIER_RULE
+    ),
     "TransferSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
     "TransferTargetMissing": 'That request to transfer "{space}" named nobody to transfer it to.',
     "TransferNotOwner": 'Only the owner of "{space}" can transfer it.',

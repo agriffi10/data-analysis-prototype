@@ -39,6 +39,7 @@ Attributes:
 import membership
 import messages
 from cpcommon import events
+from cpcommon.config import CATALOG_IDENTIFIER_RE
 
 import config
 
@@ -58,6 +59,7 @@ _COLLAPSED_TO_REQUESTER = "MemberRequestRefused"
 REFUSAL_MESSAGE_KEYS = (
     frozenset(
         {
+            "CreateNameUnusable",
             "TransferSpaceUnknown",
             "TransferTargetMissing",
             "TransferNotOwner",
@@ -84,19 +86,21 @@ class AuthorizationError(Exception):
 def authorize(action, space, actor, registry):
     """Authorizes an actor for one action on one space. Pure — no AWS calls.
 
-    Creating is always allowed. Forgetting is a self-scoped clear, allowed even when the space
+    Creating is always allowed to whoever asks — who may create is not the question, and the
+    NAME is decided by ``create_refusal`` for the same returns-rather-than-raises reason the
+    three below give. Forgetting is a self-scoped clear, allowed even when the space
     has no registry record, such as a collision phantom or an orphaned projection; the forget
     verb itself enforces the safety matrix and refuses an active space the actor belongs to.
     Acknowledging membership is owner-exempt, since the owner is always active, and otherwise
     member-only — the same membership gate as leaving.
 
-    **Three actions return here and are decided elsewhere** — ``transfer_ownership`` by
-    ``transfer_refusal``, and the two in ``config.MEMBER_ACTIONS`` by ``member_refusal`` — each
-    of which returns rather than raises. That is not a gap. Every refusal this function makes is
-    a raise, and a raise in the validator is caught by a state whose input was the raw queue
-    batch — so it seeds a null actor and a null space, and the notifier treats a null actor as no
-    trustworthy recipient and stays silent. Those refusals have to name the space and the member
-    they are about, so they travel as a value instead.
+    **Four actions return here and are decided elsewhere** — ``create`` by ``create_refusal``,
+    ``transfer_ownership`` by ``transfer_refusal``, and the two in ``config.MEMBER_ACTIONS`` by
+    ``member_refusal`` — each of which returns rather than raises. That is not a gap. Every
+    refusal this function makes is a raise, and a raise in the validator is caught by a state
+    whose input was the raw queue batch — so it seeds a null actor and a null space, and the
+    notifier treats a null actor as no trustworthy recipient and stays silent. Those refusals
+    have to name the space, and three of them the member, so they travel as a value instead.
 
     **The branches are explicit and the function ends in a raise**, and after the member actions
     moved out the second of those stopped being cosmetic. This function used to end by falling
@@ -119,7 +123,8 @@ def authorize(action, space, actor, registry):
     Raises:
       AuthorizationError: On an unknown action, an action this function has no branch for, a
         missing space, an owner-only action attempted by a non-owner, an owner trying to leave
-        their own space, or a non-member attempting a member-only action.
+        their own space, or a non-member attempting a member-only action. Never on the NAME a
+        create asks for — that refusal has to reach the requester, so it is returned.
     """
     if not events.in_vocabulary(action, config.VALID_ACTIONS):
         raise AuthorizationError(f"unknown action: {action!r}")
@@ -152,6 +157,38 @@ def authorize(action, space, actor, registry):
             raise AuthorizationError(f"{actor!r} is not a member of {space!r}")
         return
     raise AuthorizationError(f"unhandled action: {action!r}")
+
+
+def create_refusal(space):
+    """Decides whether a create may have the NAME it asked for. Pure — no AWS calls.
+
+    The rule is not this plane's: a space name becomes a Glue database, an S3 prefix segment, a
+    principal tag value the portal role interpolates into a resource ARN, and — raw, deliberately
+    — the ``MessageGroupId`` of the table-build and table-share queues, whose grammar admits no
+    space character. Every one of those readers was written against
+    ``cpcommon.config.CATALOG_IDENTIFIER_RE`` and nothing applied it when the name was chosen: the
+    browser's create dialog held the rule, so a request built any other way could name a space
+    anything a JSON string holds. What that costs is invisible at create time and permanent
+    afterwards. A space whose name holds a space character provisions, accepts uploads and
+    answers queries, and then refuses every table build and every share it is ever asked for,
+    because the derived queue key is one SQS will not take.
+
+    **Only the create is checked.** A space that predates this refusal has to stay deletable,
+    leavable and forgettable, and refusing its name on every action would strand both it and the
+    membership slot it holds.
+
+    Args:
+      space: The name the request asked for.
+
+    Returns:
+      A ``(code, sentence)`` pair, or None when the catalog rule admits the name.
+
+    Raises:
+      None.
+    """
+    if isinstance(space, str) and CATALOG_IDENTIFIER_RE.fullmatch(space):
+        return None
+    return _refusal("CreateNameUnusable", space if isinstance(space, str) else "")
 
 
 def transfer_refusal(requester, space, target, registry):

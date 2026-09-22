@@ -9,9 +9,17 @@ accepts, and a looser one sends a request that comes back as a refusal notificat
 The Python side is imported and the TypeScript is parsed out of its module, rather than both being
 held against a third literal here, which would agree with itself while the two that matter drift.
 
+The rule's human wording is mirrored for the same reason and in the same direction. The dialog
+refuses a name before the request is sent and the shared-space create path refuses one after it, so
+one user meets both; two descriptions of one rule read as two rules.
+
 Attributes:
   BROWSER_RULES: The browser module holding the mirrored literals.
   MIRRORED: The rule names that must be spelled identically in both languages.
+  MIRRORED_TEXT: The rule wordings that must be spelled identically in both languages. Only the
+    wordings a plane actually renders are here — the partition-key rule's sentence is the
+    browser's alone, and a Python copy nothing reads would be a literal this test held against
+    itself.
 """
 
 import pathlib
@@ -29,6 +37,7 @@ BROWSER_RULES = (
     / "catalogIdentifier.ts"
 )
 MIRRORED = ("CATALOG_IDENTIFIER_RE", "PARTITION_KEY_NAME_RE")
+MIRRORED_TEXT = ("CATALOG_IDENTIFIER_RULE",)
 
 
 def _browser_literal(name: str) -> tuple[str, str]:
@@ -51,6 +60,50 @@ def _browser_literal(name: str) -> tuple[str, str]:
     )
     assert found, f"{BROWSER_RULES.name} exports no regex literal named {name}"
     return found.group(1), found.group(2)
+
+
+def _browser_string(name: str) -> str:
+    """Reads one exported string literal out of the browser's rule module.
+
+    Args:
+      name: The exported constant's name.
+
+    Returns:
+      The literal's text, with its surrounding single quotes removed.
+
+    Raises:
+      AssertionError: If the module does not export it as a single-quoted string, which would
+        leave the comparison pinned to nothing.
+    """
+    found = re.search(
+        rf"^export const {name} =\s*\n?\s*'([^']*)';$",
+        BROWSER_RULES.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert found, f"{BROWSER_RULES.name} exports no string literal named {name}"
+    return found.group(1)
+
+
+@pytest.mark.parametrize("name", MIRRORED_TEXT)
+def test_the_browser_and_the_plane_describe_each_rule_in_the_SAME_words(name: str) -> None:
+    """Equality, not containment.
+
+    The plane's copy is what a shared-space create refusal ends with, and the browser's is what the
+    create dialog shows under the field. A user who types a name both reject is told twice; if the
+    two sentences differ they have to work out whether the rules do.
+
+    Args:
+      name: The rule wording's name in both modules.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    assert _browser_string(name) == getattr(config, name), (
+        f"the browser's {name} and the plane's now word one rule differently"
+    )
 
 
 @pytest.mark.parametrize("name", MIRRORED)
