@@ -107,11 +107,15 @@ def _lines(fake):
 
 
 def test_the_manifest_names_the_archive_as_source_and_the_space_as_destination():
+    """Every line is flagged as a folder placeholder or not, and the block counts the files.
+    The plan's second object is an empty folder's placeholder, which is carried so the folder
+    comes back and left out of the count so no sentence calls it a file."""
     fake = _install()
 
     out = m.handler(_request(), None)
 
     assert out["transfer"]["itemCount"] == 2
+    assert out["transfer"]["fileCount"] == 1
     assert _lines(fake)[0] == {
         "srcBucket": "archive-bkt",
         "srcKey": f"{_ARCHIVE_ROOT}reports/q1.csv",
@@ -120,7 +124,9 @@ def test_the_manifest_names_the_archive_as_source_and_the_space_as_destination()
         "size": 9,
         "storageClass": RESTORE_STORAGE_CLASS,
         "ifAbsent": True,
+        "folder": False,
     }
+    assert _lines(fake)[1]["folder"] is True
 
 
 def test_a_folder_placeholder_is_carried_so_an_empty_folder_comes_back():

@@ -31,7 +31,7 @@ Attributes:
 
 import logging
 
-from arcommon import notify
+from arcommon import counts, notify
 from cpcommon import observability
 
 logger = logging.getLogger()
@@ -50,8 +50,9 @@ def handler(event, context) -> dict:
 
     Args:
       event: The seeded summary — ``{traceparent, outcome, requestId, actor, space, objectCount,
-        totalBytes}``, plus ``cleanup`` on the ``restored`` outcome alone. ``traceparent`` is what
-        puts this notification in the run's trace; nothing here reads it, ``traced`` does.
+        totalBytes, transfer}``, plus ``cleanup`` on the ``restored`` outcome alone.
+        ``traceparent`` is what puts this notification in the run's trace; nothing here reads it,
+        ``traced`` does.
       context: The Lambda context, unused.
 
     Returns:
@@ -71,6 +72,18 @@ def _notify(event) -> dict:
     run that has otherwise succeeded, and the only thing worse than a missing notification here
     would be turning one into a failed archive.
 
+    **Two blocks are threaded WHOLE rather than the one field read from each**, because a
+    ``Parameters`` path that is absent raises an uncatchable ``States.Runtime``. ``$.cleanup`` is
+    present on both routes into the restore's terminal while the shape inside it belongs to the
+    verb that wrote it. ``$.transfer`` is present on every run that reaches any of the three
+    states, under the definition and the code from before its file count existed as much as
+    after, so the count is read out of it by ``counts.file_count`` — which falls back to the
+    object count when an older builder wrote the block — and the folder placeholders are the
+    difference between the two.
+
+    A missing ``cleanup`` block reads as SWEPT, which is the safe default here for once: the flag
+    it would carry is only ever set true, so a missing block means the run took the ordinary route.
+
     Args:
       event: The seeded summary.
 
@@ -84,13 +97,12 @@ def _notify(event) -> dict:
     """
     summary = event if isinstance(event, dict) else {}
     outcome = summary.get("outcome")
-    # The WHOLE cleanup block is threaded, not the flag: a Parameters path that is absent raises
-    # an uncatchable States.Runtime, and `$.cleanup` is present on both routes into the terminal
-    # while the shape of what is inside it belongs to the verb that wrote it.
     cleanup = summary.get("cleanup") if isinstance(summary.get("cleanup"), dict) else {}
     actor = summary.get("actor") or ""
     space = summary.get("space") if isinstance(summary.get("space"), dict) else {}
     objects = summary.get("objectCount") or 0
+    files = counts.file_count(summary)
+    folders = max(objects - files, 0)
     total_bytes = summary.get("totalBytes") or 0
 
     request_id = summary.get("requestId") or ""
@@ -104,18 +116,17 @@ def _notify(event) -> dict:
 
     try:
         if outcome == "archived":
-            notify.emit_archived(actor, space, request_id, objects, total_bytes)
+            notify.emit_archived(actor, space, request_id, files, folders, total_bytes)
         elif outcome == "restore_started":
-            notify.emit_restore_started(actor, request_id, objects)
+            notify.emit_restore_started(actor, request_id, files, folders)
         else:
             notify.emit_restored(
                 actor,
                 space,
                 request_id,
-                objects,
+                files,
+                folders,
                 total_bytes,
-                # Absent reads as SWEPT, which is the safe default here for once: the flag is only
-                # ever set true, so a missing block means the run took the ordinary route.
                 archive_swept=not cleanup.get("cleanupIncomplete"),
             )
     except Exception:
@@ -123,12 +134,15 @@ def _notify(event) -> dict:
         observability.warning("outcome notification failed", outcome=outcome, notified=False)
         return {}
 
-    logger.info("notified %s of the %s outcome (%d object(s))", actor, outcome, objects)
+    logger.info(
+        "notified %s of the %s outcome (%d object(s), %d file(s))", actor, outcome, objects, files
+    )
     observability.info(
         "outcome notified",
         outcome=outcome,
         actor=actor,
         objects=objects,
+        files=files,
         bytes=total_bytes,
         notified=True,
     )

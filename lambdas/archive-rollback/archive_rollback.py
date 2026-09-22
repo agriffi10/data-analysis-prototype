@@ -19,13 +19,18 @@ GLACIER 90-day minimum, is unreachable by the user (the browser has no relations
 bucket), and is swept by the bucket's own 7-year expiry. Reporting it and carrying on is the
 honest handling; retrying it forever is not.
 
+**The copied and total it names are the collector's ``shown`` counts, in files**, where a folder
+placeholder counts only when it is one of the things that did not copy. The residue it names is
+every object that could not be removed, placeholders included, for the same reason: each one is a
+thing left behind.
+
 The service name is the control plane, not the function, so one archive's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import delete, notify
+from arcommon import counts, delete, notify
 from cpcommon import observability, s3_listing
 from cpcommon.errors import TerminalError
 
@@ -80,8 +85,8 @@ def handler(event, context) -> dict:
 
     Raises:
       TerminalError: ``archive_incomplete`` when the partial copy was removed cleanly, or
-        ``archive_rollback_incomplete`` when some of it could not be. Both name how many objects
-        copied and how many did not, and both say plainly that nothing was deleted.
+        ``archive_rollback_incomplete`` when some of it could not be. Both name how many files
+        copied out of how many, and both say plainly that nothing was deleted.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
         because deleting an already-absent key is not an error.
     """
@@ -126,7 +131,8 @@ def _rollback(event) -> dict:
         residue=removed["failed"],
     )
 
-    tokens = {"copied": str(copied), "total": str(expected)}
+    shown_copied, shown_total, _ = counts.shown_outcome(outcome)
+    tokens = {"copied": str(shown_copied), "total": str(shown_total)}
     if removed["failed"]:
         raise TerminalError(
             "archive_rollback_incomplete",

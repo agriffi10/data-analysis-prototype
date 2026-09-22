@@ -108,17 +108,37 @@ def test_it_deletes_exactly_the_plans_keys_in_the_plans_bucket():
     assert result["deletedCount"] == 2
 
 
-def test_a_partial_deletion_fails_the_run_and_keeps_the_archive():
+@pytest.mark.parametrize(
+    "refused,counted",
+    [({"alice/reports/a.csv"}, "1 of 1"), ({"alice/reports/empty/"}, "1 of 2")],
+    ids=["the-file-stays", "the-folder-placeholder-stays"],
+)
+def test_a_partial_deletion_fails_the_run_and_keeps_the_archive(
+    _no_real_notifications, refused, counted
+):
     """FR-005 AC4. The user's data then exists in two places, which is recoverable by hand; the
     alternative — removing the archive after a partial source deletion — is not recoverable at
-    all. The message says nothing has been lost, because nothing has."""
-    _install(errors_on={"alice/reports/a.csv"})
+    all. The message says nothing has been lost, because nothing has.
+
+    **The count is in files, and the plan holds one file and one New-folder placeholder.** A
+    file left behind is "1 of 1", because the placeholder that did go is not a file; a placeholder
+    left behind is counted, as "1 of 2", because it is the thing that could not be removed."""
+    _install(errors_on=refused)
 
     with pytest.raises(TerminalError) as err:
         m.handler(_event(), None)
 
     assert err.value.reason == "source_delete_incomplete"
-    assert err.value.tokens == {"failed": "1", "total": "2"}
+    assert _no_real_notifications == [
+        (
+            "alice",
+            (
+                f"Couldn't archive that: your files were archived, but {counted} could not be "
+                "removed from your space. Nothing has been lost - they are safe in both places. "
+                "Please contact an administrator."
+            ),
+        )
+    ]
 
 
 @pytest.mark.parametrize(

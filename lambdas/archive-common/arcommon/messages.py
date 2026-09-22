@@ -172,13 +172,13 @@ _BODIES = {
         "where they were. Please try again."
     ),
     "archive_incomplete": (
-        "only {copied} of {total} files could be copied, so nothing was deleted and your files "
-        "are exactly where they were. Please try again."
+        "only {copied} of {total} file(s) could be copied, so nothing was deleted and your "
+        "files are exactly where they were. Please try again."
     ),
     "archive_rollback_incomplete": (
-        "only {copied} of {total} files could be copied, so nothing was deleted and your files "
-        "are exactly where they were. Please try again. {residue} half-copied file(s) could not "
-        "be cleaned up; they are not in your space and will expire on their own."
+        "only {copied} of {total} file(s) could be copied, so nothing was deleted and your "
+        "files are exactly where they were. Please try again. {residue} half-copied file(s) "
+        "could not be cleaned up; they are not in your space and will expire on their own."
     ),
     "source_delete_incomplete": (
         "your files were archived, but {failed} of {total} could not be removed from your space. "
@@ -300,7 +300,7 @@ restore_resolver = _cpmessages.register(
 )
 
 
-def archived_message(request_id: str, object_count: int, total_bytes: int) -> str:
+def archived_message(request_id: str, files: int, folders: int, total_bytes: int) -> str:
     """Composes the text for a completed ARCHIVE.
 
     **It names the archive id, and that is the whole reason this message cannot be generic.** The
@@ -313,7 +313,9 @@ def archived_message(request_id: str, object_count: int, total_bytes: int) -> st
 
     Args:
       request_id: The run's id, which IS the archive's permanent identity.
-      object_count: How many objects were archived.
+      files: How many files were archived, folder placeholders left out.
+      folders: How many folder placeholders were archived, which the sentence names only when
+        there are no files.
       total_bytes: Their total size.
 
     Returns:
@@ -322,15 +324,16 @@ def archived_message(request_id: str, object_count: int, total_bytes: int) -> st
     Raises:
       None.
     """
+    phrase, one = _contents_phrase(files, folders)
     return (
-        f"Archived {_objects_phrase(object_count)} ({receipt.human_bytes(total_bytes)}). "
-        f"{'It has' if object_count == 1 else 'They have'} been removed from your space. "
+        f"Archived {phrase} ({receipt.human_bytes(total_bytes)}). "
+        f"{'It has' if one else 'They have'} been removed from your space. "
         f"Archive id: {request_id} - you'll need it to restore "
-        f"{'it' if object_count == 1 else 'them'}."
+        f"{'it' if one else 'them'}."
     )
 
 
-def restore_started_message(object_count: int) -> str:
+def restore_started_message(files: int, folders: int) -> str:
     """Composes the text for a restore that has been REQUESTED and is now waiting.
 
     **The only "started" notification in this application, and it exists because the user is about
@@ -340,7 +343,9 @@ def restore_started_message(object_count: int) -> str:
     reasonable next action is to stop waiting.
 
     Args:
-      object_count: How many objects are being retrieved.
+      files: How many files are being retrieved, folder placeholders left out.
+      folders: How many folder placeholders are being retrieved, named only when there are no
+        files.
 
     Returns:
       The sentence.
@@ -348,14 +353,17 @@ def restore_started_message(object_count: int) -> str:
     Raises:
       None.
     """
+    phrase, _ = _contents_phrase(files, folders)
     return (
-        f"Restoring {_objects_phrase(object_count)} from long-term storage. "
+        f"Restoring {phrase} from long-term storage. "
         "This takes several hours - you'll get another notification when it finishes. "
         "Nothing has changed in your space yet."
     )
 
 
-def restored_message(object_count: int, total_bytes: int, *, archive_swept: bool = True) -> str:
+def restored_message(
+    files: int, folders: int, total_bytes: int, *, archive_swept: bool = True
+) -> str:
     """Composes the text for a completed RESTORE.
 
     **The last sentence is CONDITIONAL, and that is not a nicety.** the restore made a failed vault
@@ -367,7 +375,8 @@ def restored_message(object_count: int, total_bytes: int, *, archive_swept: bool
     them to do: the residue is billed at the 90-day minimum and swept by the bucket's expiry.
 
     Args:
-      object_count: How many objects were restored.
+      files: How many files were restored, folder placeholders left out.
+      folders: How many folder placeholders were restored, named only when there are no files.
       total_bytes: Their total size.
       archive_swept: Whether the vault copy was actually removed.
 
@@ -377,26 +386,38 @@ def restored_message(object_count: int, total_bytes: int, *, archive_swept: bool
     Raises:
       None.
     """
+    phrase, one = _contents_phrase(files, folders)
     restored = (
-        f"Restored {_objects_phrase(object_count)} ({receipt.human_bytes(total_bytes)}) to your "
-        f"space, back where {'it came' if object_count == 1 else 'they came'} from."
+        f"Restored {phrase} ({receipt.human_bytes(total_bytes)}) to your "
+        f"space, back where {'it came' if one else 'they came'} from."
     )
     return f"{restored} The archive has been cleaned up." if archive_swept else restored
 
 
-def _objects_phrase(count: int) -> str:
-    """Renders an object count as a phrase, singular or plural.
+def _contents_phrase(files: int, folders: int) -> tuple:
+    """Renders what an archive holds as the phrase a sentence names, and whether it is singular.
+
+    **Folders are named only when there is no file at all.** A placeholder is how an empty folder
+    made with New folder exists, so a selection of nothing but those holds something the user
+    can see and no file; saying "0 files" there reads as though nothing happened. Beside any file
+    a placeholder is invisible — the folder shows because the file is in it — and naming it would
+    describe something the user cannot find. The singular decides the pronoun each sentence
+    carries after the phrase.
 
     Args:
-      count: The number of objects.
+      files: How many files, placeholders left out.
+      folders: How many folder placeholders.
 
     Returns:
-      ``1 file`` or ``N files``.
+      ``(phrase, singular)`` — ``1 file``, ``N files``, or with no files ``1 empty folder`` or
+      ``N empty folders``.
 
     Raises:
       None.
     """
-    return "1 file" if count == 1 else f"{count} files"
+    if files == 0 and folders > 0:
+        return ("1 empty folder" if folders == 1 else f"{folders} empty folders"), folders == 1
+    return ("1 file" if files == 1 else f"{files} files"), files == 1
 
 
 def failure_message(reason: str, *, tokens: dict | None = None, mode: str | None = None) -> str:

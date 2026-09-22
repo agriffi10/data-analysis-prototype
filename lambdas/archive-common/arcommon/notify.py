@@ -284,14 +284,17 @@ def space_link(kind: str, name: str) -> str | None:
     return f"{_FILES_ROUTE}?{_space_query(kind, name)}prefix={name}/"
 
 
-def emit_archived(actor: str, space: dict, request_id: str, objects: int, total_bytes: int) -> None:
+def emit_archived(
+    actor: str, space: dict, request_id: str, files: int, folders: int, total_bytes: int
+) -> None:
     """Tells the actor their archive finished, and where to find its id.
 
     Args:
       actor: The verified username.
       space: The source space, carrying its kind and name.
       request_id: The run's id, which is the archive's identity.
-      objects: How many objects were archived.
+      files: How many files were archived, folder placeholders left out.
+      folders: How many folder placeholders were archived.
       total_bytes: Their total size.
 
     Returns:
@@ -303,13 +306,13 @@ def emit_archived(actor: str, space: dict, request_id: str, objects: int, total_
     """
     emit_notification(
         actor,
-        archived_message(request_id, objects, total_bytes),
+        archived_message(request_id, files, folders, total_bytes),
         dedup_id=dedup_id(request_id, "archived"),
         link=archive_folder_link(space.get("kind") or "", space.get("name") or "", request_id),
     )
 
 
-def emit_restore_started(actor: str, request_id: str, objects: int) -> None:
+def emit_restore_started(actor: str, request_id: str, files: int, folders: int) -> None:
     """Tells the actor a restore is under way and will take hours.
 
     No link: nothing has arrived yet, and a link to a space that has not changed would suggest
@@ -320,7 +323,8 @@ def emit_restore_started(actor: str, request_id: str, objects: int) -> None:
       request_id: This RUN's id — the dedup token's discriminator, and the reason this message
         needs one: its text names a count and nothing else, so two restores started together
         would otherwise collapse into one inbox row.
-      objects: How many objects are being retrieved.
+      files: How many files are being retrieved, folder placeholders left out.
+      folders: How many folder placeholders are being retrieved.
 
     Returns:
       None.
@@ -330,7 +334,7 @@ def emit_restore_started(actor: str, request_id: str, objects: int) -> None:
     """
     emit_notification(
         actor,
-        restore_started_message(objects),
+        restore_started_message(files, folders),
         dedup_id=dedup_id(request_id, "restore_started"),
     )
 
@@ -339,7 +343,8 @@ def emit_restored(
     actor: str,
     space: dict,
     request_id: str,
-    objects: int,
+    files: int,
+    folders: int,
     total_bytes: int,
     *,
     archive_swept: bool = True,
@@ -350,7 +355,8 @@ def emit_restored(
       actor: The verified username.
       space: The destination space, carrying its kind and name.
       request_id: This RUN's id, for the dedup token.
-      objects: How many objects were restored.
+      files: How many files were restored, folder placeholders left out.
+      folders: How many folder placeholders were restored.
       total_bytes: Their total size.
       archive_swept: Whether the vault copy was actually removed. False on the route through
         ``CleanupIncomplete``, where the run succeeded and the sweep did not.
@@ -363,7 +369,7 @@ def emit_restored(
     """
     emit_notification(
         actor,
-        restored_message(objects, total_bytes, archive_swept=archive_swept),
+        restored_message(files, folders, total_bytes, archive_swept=archive_swept),
         dedup_id=dedup_id(request_id, "restored"),
         link=space_link(space.get("kind") or "", space.get("name") or ""),
     )

@@ -10,13 +10,16 @@ is the decision rather than an oversight: a user with no receipt has no id, and 
 route to a restore. The failure message says the data IS archived and names the request id, so the
 run is recoverable by hand rather than merely reported.
 
+**``Files archived`` is the file count off the ``transfer`` block**, the same number the archived
+notification names, so a folder placeholder is not counted as a file on either.
+
 The service name is the control plane, not the function, so one archive's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import notify, receipt
+from arcommon import counts, notify, receipt
 from cpcommon import observability
 from cpcommon.errors import TerminalError, TransientError
 
@@ -77,7 +80,7 @@ def _write_receipt(event) -> dict:
         "startedAt": (event.get("execution") or {}).get("startedAt"),
         "source": {"bucket": source.get("bucket"), "root": source.get("root")},
         "archive": {"bucket": archive.get("bucket"), "root": archive.get("root")},
-        "objectCount": event.get("objectCount"),
+        "fileCount": counts.file_count(event),
         "totalBytes": event.get("totalBytes"),
     }
 
@@ -97,6 +100,7 @@ def _write_receipt(event) -> dict:
         "receipt written",
         actor=(event.get("actor") or {}).get("username"),
         objects=event.get("objectCount"),
+        files=record["fileCount"],
         bytes=event.get("totalBytes"),
     )
     return {**event, "receiptKey": key}

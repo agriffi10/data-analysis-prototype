@@ -18,7 +18,9 @@ rest, and the count is only meaningful whole.
 
 **Counts, never keys.** The numbers reach a user-facing message, the Step Functions record and
 ``logs/service=archive/``; a failure naming file paths is a disclosure this plane has no reason to
-make, and the field rule binds what a call site chooses to emit.
+make, and the field rule binds what a call site chooses to emit. How many of the failures were
+folder placeholders is counted apart, because the sentence delete-source raises names files and
+counts a placeholder only when it is one of the things left behind.
 
 Attributes:
   MAX_KEYS_PER_BATCH: S3's own limit on one ``DeleteObjects`` request.
@@ -30,7 +32,10 @@ from cpcommon import clients, errors
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import has_dot_segment
 
-from . import messages  # noqa: F401
+from . import (
+    counts,
+    messages,  # noqa: F401
+)
 from .config import PROTECTED_MARKER_BASENAME
 
 logger = logging.getLogger(__name__)
@@ -104,7 +109,9 @@ def delete_keys(bucket: str, keys: list, allowed_prefix: str) -> dict:
         issued.
 
     Returns:
-      ``{"deleted": n, "failed": m}`` — counts only.
+      ``{"deleted": n, "failed": m, "failedFolders": f}`` — counts only, ``f`` being how many of
+      the ``m`` were folder placeholders. A whole batch that failed counts from its own keys, and
+      an ``Errors`` entry from the key S3 names in it.
 
     Raises:
       TerminalError: ``forbidden`` or ``protected_marker`` from the pre-check, before any delete
@@ -115,6 +122,7 @@ def delete_keys(bucket: str, keys: list, allowed_prefix: str) -> dict:
 
     s3 = clients.s3()
     failed = 0
+    failed_folders = 0
     transient = None
     for start in range(0, len(keys), MAX_KEYS_PER_BATCH):
         batch = keys[start : start + MAX_KEYS_PER_BATCH]
@@ -131,9 +139,14 @@ def delete_keys(bucket: str, keys: list, allowed_prefix: str) -> dict:
                 continue
             logger.warning("a delete batch of %d object(s) in %s failed", len(batch), bucket)
             failed += len(batch)
+            failed_folders += len(batch) - counts.count_files(batch)
             continue
-        failed += len(response.get("Errors") or [])
+        refused = response.get("Errors") or []
+        failed += len(refused)
+        failed_folders += sum(
+            1 for error in refused if counts.is_folder_placeholder(str(error.get("Key") or ""))
+        )
 
     if transient is not None:
         raise transient
-    return {"deleted": len(keys) - failed, "failed": failed}
+    return {"deleted": len(keys) - failed, "failed": failed, "failedFolders": failed_folders}

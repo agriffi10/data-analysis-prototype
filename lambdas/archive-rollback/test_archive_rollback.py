@@ -108,7 +108,11 @@ def test_it_deletes_what_the_listing_finds_under_this_requests_prefix():
 def test_a_clean_rollback_still_fails_the_run_and_names_the_counts(_no_real_notifications):
     """FR-004 AC5. It ALWAYS raises: the gate has already decided this archive did not happen,
     and the only question left was whether the vault was left clean. The message names how many
-    copied, how many did not, and says plainly that nothing was deleted."""
+    copied, how many did not, and says plainly that nothing was deleted.
+
+    The verdict carries no ``shown`` block, as a collector from before the file counts writes it,
+    so the sentence names the object counts it always did; the file counts are driven through the
+    real collector in ``archive-common/test_counts_arcommon.py``."""
     _install({f"{_ARCHIVE_ROOT}a.csv": 1})
 
     with pytest.raises(TerminalError) as err:

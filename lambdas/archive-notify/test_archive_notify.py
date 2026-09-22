@@ -56,7 +56,12 @@ def _event(outcome, **overrides):
 
 def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     """FR-006 AC3. The id is the load-bearing one: the archived objects sit in a bucket the
-    browser has no relationship with, so it is the user's only route back to them."""
+    browser has no relationship with, so it is the user's only route back to them.
+
+    The payload carries no ``transfer`` block, which is what the machine's definition from
+    before the file count sends — so the count is the object count, as it always was. The file
+    count read out of the block is driven through the real builder in
+    ``archive-common/test_counts_arcommon.py``."""
     m._notify(_event("archived"))
 
     user, message = sent[0][0], sent[0][1]

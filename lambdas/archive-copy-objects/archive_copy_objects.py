@@ -25,6 +25,11 @@ copy failure would tell the user their data could not be moved, when what happen
 own newer file was protected. Both counts still make the verdict incomplete, so the archive is
 kept either way; what the split buys is the sentence the user reads.
 
+**Each failure carries the line's folder flag and nothing else of it.** The collector needs to
+tell a folder placeholder that fell short from a file that did, so a sentence about the shortfall
+can count files; a boolean is a bounded name, which keeps the engine's rule that an echoed field
+is never a key.
+
 **No ``@notifies_on_failure``, deliberately.** A batch is a fragment of a request with no actor on
 it, so the decorator's emit would resolve to nothing and send nothing — a decoration that reads
 like a guarantee while providing none.
@@ -35,6 +40,7 @@ fan-out stay one queryable set. The per-verb identity rides as the ``verb`` fiel
 
 import logging
 
+from arcommon import counts
 from cpcommon import observability
 from cpcommon.transfer import copy as copy_mod
 
@@ -64,18 +70,18 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      ``{"copied": n, "failures": [{"recipient": None, "kind": None, "reason": "copy_failed"}, …]}``
-      — the shape the collector reads back out of the results export. The recipient fields are
-      empty here and that is correct rather than a gap: an archive has one destination, so a
-      failure needs no attribution and the gate needs only the COUNT. ``copied`` is what lets the
-      collector check the export against the manifest rather than trust it.
+      ``{"copied": n, "failures": [{"folder": bool, "reason": "copy_failed"}, …]}`` — the shape
+      the collector reads back out of the results export. An archive has one destination, so a
+      failure is attributed to no recipient; the folder flag is there for the counts a person
+      reads, and the gate still needs only how many failed. ``copied`` is what lets the collector
+      check the export against the manifest rather than trust it.
 
     Raises:
       TransientError: When any item failed retryably, so the Map retries the whole batch.
     """
     items = event.get("Items") or []
     outcome = copy_mod.copy_batch(
-        items, COPY_FAILED, echo_fields=(), occupied_reason=DESTINATION_OCCUPIED
+        items, COPY_FAILED, echo_fields=(counts.FOLDER_FIELD,), occupied_reason=DESTINATION_OCCUPIED
     )
 
     logger.info("copied %d of %d items in this batch", outcome["copied"], len(items))

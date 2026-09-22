@@ -116,4 +116,4 @@ def test_the_verb_names_a_SEPARATE_reason_for_an_item_it_declined_to_overwrite()
 
     assert recorded["failure_reason"] == "copy_failed"
     assert recorded["occupied_reason"] == "destination_occupied_during_copy"
-    assert recorded["echo_fields"] == ()
+    assert recorded["echo_fields"] == ("folder",)

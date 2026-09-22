@@ -1101,7 +1101,10 @@ empty set, and both are wrong without a review. Table-share and file-send pass
 `("recipient", "kind")` and their records are byte-identical, measured by rendering both rather than
 argued. **Archive passes the empty set and its records change**: its manifest carries neither field,
 so every archive failure used to read `{"recipient": null, "kind": null, …}`. A named test says the
-two nulls are gone on purpose.
+two nulls are gone on purpose. **— superseded in part 2026-09-21: archive now echoes one field,
+the boolean `folder`, so a sentence about a shortfall can count files ([the archive register's
+entry](archive-and-restore.md#a-folder-placeholder-is-not-a-file-to-the-person-reading-the-count));
+the two nulls stay gone —**
 
 **The echoed fields must stay bounded.** The list rides the exported result and then the state, where
 a key list is the unbounded term that breaches the 256 KB limit **on the Map** — destroying every
