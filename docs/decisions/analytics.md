@@ -66,8 +66,8 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   whose misses fail LOUD, which is why a CTAS had to join it: there alone the miss was SILENT and
   written to a table. Its word list is **Athena's** published one, never Trino's, which omits four
   words Athena reserves; a superset there is safe and a subset is not.
-  **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
-  a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
+  **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because a
+  space created before that rule carries a name no server path checked. A quoting fix is not done until
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names. A data-quality check judges a fold collision **per file** and merges one across files into
@@ -1043,10 +1043,12 @@ backtick doubled). The browser had only `lib/sql.ts` `sqlIdentifier`, the Trino 
 statements interpolated their identifiers raw.
 
 The identifier that matters is the **database**. A view or table name is typed into a dialog held
-to `CATALOG_IDENTIFIER_RE`; a shared space's name is held to nothing the browser cannot bypass —
-`shared-space-validate` applies **no format check** to `space` on the create path, and the SPA
-talks to its queue directly. A crafted space name reaches a member's space list and from there
-into DDL, under their own Athena credentials.
+to `CATALOG_IDENTIFIER_RE`; a shared space's name was held to nothing the browser cannot
+bypass, because the SPA talks to its queue directly and `shared-space-validate` applied **no format
+check** to `space`. It holds `CATALOG_IDENTIFIER_RE` there now — and **the refusal is
+create-only**, so every space named before it keeps whatever it was given (`live0922 odd` is one).
+A name already in a member's space list still reaches DDL under their own Athena credentials, which
+is why the escapers below are not made redundant by that rule.
 
 Both statements are quoted now, each with its own dialect's escaper (`sqlIdentifier` /
 `sqlDdlIdentifier`). The lesson that generalises is the ordering: `buildCreateViewSql` was fixed

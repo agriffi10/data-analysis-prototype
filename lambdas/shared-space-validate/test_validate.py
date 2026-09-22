@@ -800,3 +800,45 @@ def test_an_unhashable_action_reaches_this_plane_s_own_refusal():
         auth.AuthorizationError,
         "unknown action: ['create']",
     )
+
+
+# ── The name a create asks for ───────────────────────────────────────────────
+#
+# The browser's create dialog held the catalog rule and this validator held nothing, so a request
+# built any other way named a space whatever a JSON string can hold. A live check did exactly that
+# on 2026-09-22 and the space it made can never build a table or share one.
+
+_UNUSABLE = "live0922 odd"
+
+
+def test_a_create_naming_an_unusable_name_is_refused_before_anything_is_recorded():
+    """The refusal travels as a VALUE and the intent write does not happen.
+
+    Both halves matter. A raise here seeds a null actor and the notifier stays silent, so the
+    requester would never learn why. And the intent write is what puts a pending card on the
+    owner's screen: writing one for a create that was refused in the same invocation leaves a row
+    the browser reconciles against a space that will never exist.
+    """
+    s3, *_ = install()
+    before = dict(s3.store)
+
+    ctx = v.handler(_event("create", _UNUSABLE, actor="alice"), None)
+
+    assert ctx["refusal"]["code"] == "CreateNameUnusable"
+    assert s3.store == before, "a refused create recorded an intent"
+
+
+def test_the_space_the_live_check_already_made_stays_deletable():
+    """Create-only, and this is the case that says so.
+
+    ``live0922 odd`` exists in production and holds one of its owner's ten membership slots.
+    Applying the rule to every action rather than to the create would make the one verb that can
+    recover the slot the one verb the name refuses.
+    """
+    s3, *_ = install()
+    _seed_reg(s3, name=_UNUSABLE, owner="alice", members=["alice"])
+
+    ctx = v.handler(_event("delete", _UNUSABLE, actor="alice"), None)
+
+    assert "refusal" not in ctx
+    assert ctx["space"] == _UNUSABLE

@@ -34,9 +34,10 @@ Attributes:
   REASON_INDEX_OVER_CAP: Recorded when an index names more spaces than there are slots.
   REASON_INDEX_UNSAFE_NAME: Recorded when a name in the index is not one the catalog rule admits.
     A space name becomes a principal tag VALUE, which the portal role's policy interpolates into a
-    resource ARN — so a name of ``*`` is a wildcard grant over every shared space. The name is
-    format-checked nowhere server-side when a space is created, which is exactly why it is checked
-    here, at the last point before it becomes an entitlement.
+    resource ARN — so a name of ``*`` is a wildcard grant over every shared space. The create path
+    refuses such a name now and refused none before, so this check has stopped
+    being the only one and has not stopped being needed: a space created earlier keeps the name it
+    was given, and this is the last point before that name becomes an entitlement.
   ACTIVE_STATUS: The one space status that yields a tag.
 """
 
@@ -127,11 +128,15 @@ def _from_index(caller: Principal) -> Mapping[int, str]:
     is refused before any call is issued rather than after one — and it reuses the identity layer's
     own reason for that, so the failure mapping's conditions stay distinguishable. A space name is
     checked because it becomes a principal tag *value* the portal role's policy interpolates into a
-    resource ARN, and a shared space's name is format-checked nowhere when the space is created:
-    a name of ``*`` would be a wildcard grant over every shared space. The claims source cannot
-    enforce either without rewriting the equivalence it exists to preserve, so this is a deliberate
-    divergence and the one place the spec's "a space name reaching a key builder has been through
-    the catalog rule" premise is actually made true.
+    resource ARN: a name of ``*`` would be a wildcard grant over every shared space. It used to be
+    checked nowhere else at all — the create path took the rule after a live check made a space
+    called ``live0922 odd`` through the API — so this is no longer the only place that premise is
+    made true, and it is still the only place it is made true for a space named BEFORE then. **An unsafe name fails the whole request, not the entry**, so one legacy space of this
+    shape costs its member every credential the moment ``MEMBERSHIP_SOURCE`` becomes ``index``.
+    That is the correct direction for this source — a partial tag set denies a space the roster
+    allows — and it is why such a space is worth deleting rather than leaving. The claims source
+    cannot enforce any of this without rewriting the equivalence it exists to preserve, so the
+    divergence between the two sources is deliberate.
 
     **The non-active record fires per request, not once**, and it is bounded by the slot cap rather
     than by anything the caller controls. It is also rare: an index entry is written from a

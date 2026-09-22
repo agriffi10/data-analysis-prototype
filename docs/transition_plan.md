@@ -1374,8 +1374,9 @@ module, only its Cognito trigger.
    `portal-managed` tag. That is exactly why the refusal denies nothing. **The hazard exists before
    it and without it:** a session tagged with that username holds the personal-database Glue rights
    — `CreateTable`, `UpdateTable`, `DeleteTable` on `database/${aws:PrincipalTag/username}` — over a
-   shared space's catalog. A shared space's name is format-checked **nowhere** server-side, so the
-   collision is reachable, and a run over a whole list is what removes the one bound it has today —
+   shared space's catalog. A shared space's name and a username answer to the same catalog rule —
+   the create path applies it now and applied nothing before — so the collision is
+   reachable either way, and a run over a whole list is what removes the one bound it has today —
    that a colliding name arrives one signup at a time.
    **The data is a separate question, and its answer is CONDITIONAL rather than structural.** Today
    the collision reaches the catalog and not the objects, because Lake Formation is registered in
@@ -1391,7 +1392,8 @@ module, only its Cognito trigger.
    ever ran for them*. Refusing the row therefore denies nothing — it is the place the collision
    becomes **visible**, and nothing more. **A fence has four candidate homes, and the two obvious
    ones only stop NEW collisions:** validating a username where it enters the system, and validating
-   a shared-space name. The two that would actually deny an existing one are (a) the **tag-minting
+   a shared-space name — the second of which the create path now does, and which by itself denies
+   no collision that already exists. The two that would actually deny an existing one are (a) the **tag-minting
    path** — `identity.py` refusing to stamp a username that resolves to a registered space, which is
    the only choke point every request passes and which already refuses on the catalog rule there,
    though the API plane would need a registry read it does not hold today; and (b) making the two

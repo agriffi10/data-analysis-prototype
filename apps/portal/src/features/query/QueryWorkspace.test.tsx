@@ -735,7 +735,7 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
       // BACKTICKS: a DROP is DDL, which Athena parses with Hive — the mirror of CREATE VIEW
       // above, which is Trino and takes double quotes. The database is the identifier that
-      // needs quoting: a shared space's name is format-checked by nothing server-side.
+      // needs quoting: a space named before the plane took the catalog rule passed no format check.
       expect(mockRunToCompletion).toHaveBeenCalledWith(
         expect.objectContaining({sql: 'DROP TABLE `alice`.`sales_2026`'})
       );
@@ -770,8 +770,8 @@ describe('QueryWorkspace', () => {
         expect.objectContaining({
           // Both identifiers are QUOTED, with the Trino escaper — Athena parses CREATE VIEW
           // with Trino, where double quotes are the identifier quote and a backtick is an
-          // error. It matters because a shared space's name reaches the same builder and
-          // nothing server-side checks that name's format.
+          // error. It matters because a shared space's name reaches the same builder, and one
+          // named before the control plane took the catalog rule passed no format check.
           sql: 'CREATE OR REPLACE VIEW "alice"."region_view" AS SELECT region FROM alice.sales',
           database: 'alice',
           username: 'alice'

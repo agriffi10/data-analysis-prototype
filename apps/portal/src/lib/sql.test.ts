@@ -34,8 +34,9 @@ describe('sqlLiteral (SPEC-178 FR-004)', () => {
   });
 
   it('doubles an embedded backtick, so a crafted database name cannot close the quote', () => {
-    // A `DROP` interpolates a shared-space database name the control plane format-checks
-    // nowhere, so this escaper is the only thing between a crafted space name and a
+    // A `DROP` interpolates a shared-space database name the control plane format-checked
+    // nowhere until the create path took the rule, so this escaper is the only thing
+    // between a crafted space name and a
     // statement running under a member's own Athena credentials. The failure mode is the
     // one the register names for this pair: the wrong rule is a predicate that never
     // matches, and nothing goes red.

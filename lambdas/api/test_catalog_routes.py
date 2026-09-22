@@ -274,7 +274,8 @@ class TestGetDatabase:
     def test_the_name_reaches_glue_exactly_as_the_path_carried_it(self, glue) -> None:
         """No format check and no membership check: this route adds neither.
 
-        A shared space's name is format-checked nowhere server-side, so a rule invented here
+        A shared space's name is checked on the create path only, and was checked nowhere
+        before that, so a rule invented here
         would refuse names the rest of the product accepts.
         """
         stub = glue(StubGlue(get_database={"Database": {"Name": "project_alpha"}}))

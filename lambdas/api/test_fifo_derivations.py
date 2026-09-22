@@ -402,7 +402,7 @@ def test_a_request_id_ending_in_a_newline_is_refused_rather_than_sent():
 def test_a_non_ascii_value_digests_the_way_the_browser_digests_it():
     """`json.dumps` escapes non-ASCII by default and `JSON.stringify` does not.
 
-    A shared-space name is format-checked nowhere server-side and reaches the canonical array as a
+    A shared-space name created before the create path took the catalog rule passed no format check, and reaches the canonical array as a
     recipient, so the two would disagree on exactly the values the vectors — all ASCII — cannot
     show.
     """

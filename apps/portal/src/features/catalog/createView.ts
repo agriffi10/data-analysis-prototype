@@ -29,9 +29,9 @@ function stripTrailingSemicolons(sql: string): string {
  *
  * **BOTH IDENTIFIERS ARE QUOTED, AND `database` IS THE ONE THAT MATTERS.** A view name is typed
  * into a dialog that holds it to `CATALOG_IDENTIFIER_RE` before this is called, so it arrives
- * clean. A database name does not: for a shared space it is the space's own name, and nothing
- * server-side checks that name's format — the shared-space control plane trusts the browser
- * dialog, and the SPA talks to its queue directly. A crafted space name therefore reaches a
+ * clean. A database name does not: for a shared space it is the space's own name, and the
+ * control plane checks that name's format on a CREATE only — it checked nothing before that
+ * landed, and the SPA talks to its queue directly. A crafted space name therefore reaches a
  * member's catalog, their space list, and from there this statement, to run under their own
  * Athena credentials.
  *

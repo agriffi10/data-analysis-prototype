@@ -47,7 +47,8 @@ source space.
   backslash-escapes (Hive/DDL) while `cpcommon.sql._literal_dml` doubles the quote (Trino/DML). For
   *identifiers*: `sqlDdlIdentifier` and `ddl.quote` are Hive (inner backtick doubled), `sqlIdentifier`
   is Trino. **The wrong one fails silently, as a predicate that never matches** — and a shared
-  space's name is format-checked nowhere server-side.
+  space created before the create path took the catalog rule carries a name no server path
+  format-checked, and the rule refuses a create only, so the escapers stay load-bearing.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Per-recipient attribution is a verb, not a Map item.** The fan-out is over `(recipient × object)`
   pairs, so `collect-transfer-results` reads the Map Run's export and decides who gets a table:

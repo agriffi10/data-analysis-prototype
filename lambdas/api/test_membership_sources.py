@@ -764,9 +764,10 @@ class TestTheNameThatBecomesATag:
         """A name of ``*`` is a wildcard grant over every shared space.
 
         The portal role's shared-space statements interpolate the tag value straight into a
-        resource ARN, and a shared space's name is format-checked nowhere when the space is
-        created — so this is the last point at which the name can be refused before it becomes an
-        entitlement. Refused whole rather than skipped: a partial tag set is what FR-003 forbids.
+        resource ARN, and a space created before the create path took the rule was format-checked
+        nowhere at all —
+        the create path's rule refuses a CREATE and cannot reach a name already given — so this is
+        the last point at which such a name can be refused before it becomes an entitlement. Refused whole rather than skipped: a partial tag set is what FR-003 forbids.
         """
         membership_source(memberships.SOURCE_INDEX)
         index_plane(_Recorder({INDEX_KEY: document([("finance", ACTIVE), ("*", ACTIVE)])}))
