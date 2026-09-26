@@ -452,7 +452,6 @@ export function readStrictPresentation(
   value: unknown
 ): Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  if (Object.hasOwn(value, 'valuePanelOpen') || Object.hasOwn(value, 'recordRowIndex')) return null;
   const normalized: Partial<ExplorationPresentation> = normalizePresentation(value);
   delete normalized.valuePanelOpen;
   delete normalized.recordRowIndex;

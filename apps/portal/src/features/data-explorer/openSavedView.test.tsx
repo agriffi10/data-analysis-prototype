@@ -142,7 +142,7 @@ describe('a view reopened from a shared space’s folder', () => {
     expect(
       await screen.findByText(/This view was saved in teamspace, where any member can change it/)
     ).toBeInTheDocument();
-    expect(screen.getByText('Left out: 1 link column, 2 pattern color rules.')).toBeInTheDocument();
+    expect(screen.getByText('Left out: 1 link column, 3 pattern color rules.')).toBeInTheDocument();
     expect(screen.queryByText('Running…')).not.toBeInTheDocument();
     await user.click(screen.getByText('Generated SQL'));
     expect(screen.getByLabelText('Generated SQL')).toHaveValue(renderedSql(exploration));

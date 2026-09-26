@@ -18,7 +18,7 @@ export const VIEW_LINE_MARKER = '-- dataquarry-view:';
 export const VIEW_LINE_VERSION = 1;
 
 const V1_BODY_RE = /^([0-9a-f]{8}):([A-Za-z0-9_-]*)$/;
-const VERSION_RE = /^v(\d+):/;
+const VERSION_RE = /^v([1-9]\d*)(?::|$)/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
 
 /**

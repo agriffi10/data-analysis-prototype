@@ -45,6 +45,7 @@ export function fullExploration(database = 'alice'): Exploration {
         rules: [
           {id: 'r1', column: 'name', operator: 'regex', value: '^ac', background: 'accent-soft'},
           {id: 'r2', column: 'region', operator: 'like', value: '%west%', foreground: 'danger'},
+          {id: 'r4', column: 'status', operator: 'ilike', value: 'OPEN%', scope: 'row', background: 'success-soft'},
           {
             id: 'r3',
             column: 'amount',

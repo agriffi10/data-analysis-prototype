@@ -73,6 +73,36 @@ describe('a held tab', () => {
     expect(runQuery).not.toHaveBeenCalled();
   });
 
+  it('shows none of the rows an identical, unheld tab already ran', async () => {
+    const exploration = fullExploration();
+    const tab = (id: string, label: string) => ({
+      id,
+      label,
+      exploration,
+      scannedByExecution: {},
+      history: {past: [], future: []}
+    });
+    sessionStorage.setItem(
+      `${EXPLORATION_TABS_STORAGE_PREFIX}alice`,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          tab('a', 'first'),
+          {...tab('b', 'second'), awaitingRun: {space: 'teamspace', leftOut: {links: 0, patterns: 0}}}
+        ],
+        activeTabId: 'a'
+      })
+    );
+    const {user} = renderExplorer();
+    await waitFor(() => expect(getQueryResults).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('tab', {name: /second/}));
+
+    expect(await screen.findByRole('button', {name: 'Run'})).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(readExplorationTabsState('alice')?.tabs[1].scannedByExecution).toEqual({});
+  });
+
   it('runs once and stops holding when the user changes its query', async () => {
     seedHeldTab({space: 'teamspace', leftOut: {links: 0, patterns: 0}});
     const {user} = renderExplorer();

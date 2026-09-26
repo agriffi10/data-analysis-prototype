@@ -144,7 +144,7 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   **262,144-byte** `QueryString` limit, measured in UTF-8 bytes.
 - **A saved view is trusted by where its FILE was listed from, never by the database it names.** From
   a shared space's `saved_queries/`, which any member writes, it opens held, unlinked, and without
-  URL transformers or `regex`/`like`/`ilike` Colors rules; the hold is read fail-closed. Its payload
+  URL transformers or pattern-matching Colors rules; the hold is read fail-closed. Its payload
   is read strictly and its SQL is never parsed — the checksum detects an edit, it is not a signature.
 
 ## Analytics (SPEC-032→036)
@@ -1726,7 +1726,8 @@ backtracking expression — `like`'s `%` runs collapse, but `%` separated by oth
 nest, and each added `%a` multiplies the work, so an 18-character pattern stalls a tab for seconds on
 one 40-character cell (re-measure by timing `likeExpression` in `formatting.ts` on `%a…%b`). So a view from a shared folder opens **held** (rendered, shown in Generated SQL,
 not started, no cached rows under it), **stripped** of those transformers and rules with a note
-counting them, and **unlinked**, so a save cannot silently overwrite the author's version for every
+counting them (a gradient rule stays: it shades by number and never runs its operator), and
+**unlinked**, so a save cannot silently overwrite the author's version for every
 member. Keying on the view's database instead would let a member drop a file over the victim's own
 database and have it run unasked. The hold is `ExplorationTab.awaitingRun`, persisted so a reload does
 not run it, and read **fail-closed**: a malformed value is a hold with no note, never absent — the

@@ -170,7 +170,8 @@ describes with four differences.
   Generated SQL, then run it.` with a **Run** button.
 - **Stripped.** It holds no URL-link transformers and no Colors rules whose operator is `regex`,
   `like` or `ilike`: all three compile an author-typed pattern into a backtracking expression
-  that a crafted one can make freeze the tab. Under the held text, a note names what was left out, pluralised, omitting a zero part:
+  that a crafted one can make freeze the tab. A gradient rule stays: it shades by the cell's number
+  and never runs its operator. Under the held text, a note names what was left out, pluralised, omitting a zero part:
   `Left out: 1 link column, 2 pattern color rules.` No note when nothing was.
 - **Unlinked.** The tab has no saved-query link, so **Save as query** asks for a name, and a
   same-name save meets the existing replace confirm.

@@ -27,10 +27,13 @@ describe('a saved view', () => {
     Object.assign(extraField.presentation, {zoom: 2});
     const unrenderable = structuredClone(view);
     unrenderable.query.grouping = {...view.query.grouping!, aggregates: [{fn: 'SUM', column: '*'}]};
+    const tooLong = structuredClone(view);
+    tooLong.query.expression = `note = '${'x'.repeat(270_000)}'`;
 
     expect(readSavedView(unknownOperator)).toBeNull();
     expect(readSavedView(extraField)).toBeNull();
     expect(readSavedView(unrenderable)).toBeNull();
+    expect(readSavedView(tooLong)).toBeNull();
     expect(readSavedView(undefined)).toBeNull();
   });
 
@@ -39,7 +42,7 @@ describe('a saved view', () => {
 
     const {presentation, leftOut} = stripForSharedFolder(view!.presentation);
 
-    expect(leftOut).toEqual({links: 1, patterns: 2});
+    expect(leftOut).toEqual({links: 1, patterns: 3});
     expect(Object.keys(presentation.formatting.transformers)).toEqual(['amount']);
     // The gradient rule ignores its operator, so it stays.
     expect(presentation.formatting.rules.map((rule) => rule.id)).toEqual(['r3']);

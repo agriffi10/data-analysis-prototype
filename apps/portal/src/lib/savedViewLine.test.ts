@@ -20,6 +20,12 @@ describe('parseViewLine', () => {
       {kind: 'newer', sql: SQL, version: 2}
     ],
     ['a line with no version', `${SQL}\n${VIEW_LINE_MARKER}garbage\n`, {kind: 'damaged', sql: SQL}],
+    ['a newer line shaped differently', `${SQL}\n${VIEW_LINE_MARKER}v2\n`, {kind: 'newer', sql: SQL, version: 2}],
+    [
+      'a version with a leading zero',
+      saved.replace(`${VIEW_LINE_MARKER}v1:`, `${VIEW_LINE_MARKER}v01:`),
+      {kind: 'damaged', sql: SQL}
+    ],
     ['a v1 line missing its checksum', `${SQL}\n${VIEW_LINE_MARKER}v1:e30\n`, {kind: 'damaged', sql: SQL}],
     [
       'a payload that is not JSON',
