@@ -103,7 +103,6 @@ describe('CreateTableDialog', () => {
       fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: 'us'}});
       fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
       fireEvent.change(screen.getByLabelText('Partition key 2 name'), {target: {value: 'region'}});
-      fireEvent.blur(screen.getByLabelText('Partition key 2 name'));
       fireEvent.change(screen.getByLabelText('Partition key 2 values'), {target: {value: 'eu'}});
 
       const row2 = screen.getByRole('group', {name: 'Partition key 2'});
@@ -131,7 +130,6 @@ describe('CreateTableDialog', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
       fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'Dt'}});
-      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
       fireEvent.change(nameInput(), {target: {value: 'dt'}});
 
       expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription(/^Use 1–63 characters/);
@@ -141,17 +139,19 @@ describe('CreateTableDialog', () => {
   });
 
   describe('CreateTableDialog — when a key’s errors are announced', () => {
-    it('announces nothing for a blank key just added, yet holds Create', () => {
+    it('shows a blank key’s errors without announcing them, and holds Create', () => {
       renderDialog();
 
       fireEvent.click(addKeysBtn());
 
       expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
+      expect(screen.getByText('Enter at least one value.')).toBeVisible();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(createBtn()).toBeDisabled();
     });
 
-    it('shows a field’s error once it is left, and a type switch brings in no others', () => {
+    it('announces a field’s error once it is left, and none a type switch brings in', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
 
@@ -162,11 +162,10 @@ describe('CreateTableDialog', () => {
       fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'string'}});
 
       expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual(['Enter a key name.']);
-      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
-      expect(screen.getByLabelText('Partition key 1 values')).not.toHaveAccessibleDescription();
+      expect(screen.getByLabelText('Partition key 1 values')).toHaveAccessibleDescription('Enter at least one value.');
     });
 
-    it('keeps a left field’s error with its own row when an earlier row is removed', () => {
+    it('keeps a left field’s announcement with its own row when an earlier row is removed', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
       fireEvent.blur(screen.getByLabelText('Partition key 1 name'));

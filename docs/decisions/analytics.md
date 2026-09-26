@@ -699,7 +699,7 @@ Apply because that is where the conflict is *built* — sort a column, then grou
 **But the panel's Apply is not the only guard the rule needs, and this spec falsified its own premise
 in the same commit.** "While a grouping is in force the grid shows only the grouping columns and the
 aggregates" stopped being true the moment the percentage column was appended: it is a real
-`GridColumn`, so it gets a header menu, a row in the settings dialog (the only sort/filter path from
+`GridColumn`, so it gets a header menu, a row in the settings dialog (the header menu's stand-in in
 Record or Text view — **corrected 2026-09-22**: this said the only path below `tablet`, which the
 build never matched, since Grid view keeps the header menu at every width, as Andrew confirmed is
 intended) and the toolbar's *Filter by this value* — and it exists in no statement, so sorting it is
