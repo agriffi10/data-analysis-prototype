@@ -28,7 +28,7 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 import logging
 
-from arcommon import delete, notify
+from arcommon import delete
 from cpcommon import observability
 
 logger = logging.getLogger()
@@ -38,13 +38,15 @@ observability.init(service="archive")
 
 
 @observability.traced("delete-archived")
-@notify.notifies_on_failure("cleanup")
 def handler(event, context) -> dict:
     """Step Functions entry point: removes the restored archive from the vault.
 
-    ``@notifies_on_failure`` is present for the faults this verb does not swallow — a transient
-    S3 error exhausting its Retry, say — and not for the ordinary partial deletion, which is
-    reported as a flag rather than raised.
+    **No ``@notifies_on_failure``, and that is the rule of this verb rather than an omission.**
+    Every fault it raises is caught by the state machine and routed to ``CleanupIncomplete`` and
+    on to the SUCCESS terminal, which tells the user their files are back. A failure notice sent
+    on the way out said "Couldn't restore that ... please try again" for a restore that finished,
+    beside the success notice that followed it. The ordinary partial deletion is reported as a
+    flag, as before.
 
     Args:
       event: The request, carrying the archive location and the restore's verdict.
