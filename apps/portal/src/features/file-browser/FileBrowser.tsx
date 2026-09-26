@@ -43,7 +43,8 @@ import {
 } from '../archive';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {useToast} from '../../components/toastContext';
-import {useSelection, type SelectableItem} from './selectionContext';
+import {itemId, useSelection, type SelectableItem} from './selectionContext';
+import {qualityCheckRefusal} from '../data-quality';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import type {ArchiveItem} from '../../types/archive.types';
 import {toUserText} from '../../lib/errorMessages';
@@ -584,6 +585,11 @@ function FileBrowserContent({
           onRequestMove={dialogs.openMove}
           onRequestCopy={dialogs.openCopy}
           onRequestQualityCheck={username && dataQualityEnabled ? dialogs.openQualityCheck : undefined}
+          qualityCheckRefusal={
+            selection.selected.size === 1
+              ? qualityCheckRefusal(itemId([...selection.selected.values()][0]), rootPrefix)
+              : undefined
+          }
           onRequestSend={
             username && filesEnabled
               ? () =>

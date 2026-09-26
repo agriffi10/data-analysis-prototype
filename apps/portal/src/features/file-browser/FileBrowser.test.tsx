@@ -11,6 +11,7 @@ import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getIdToken} from '../../lib/idToken';
 import * as dqService from '../data-quality/dataQuality.service';
+import {QUALITY_CHECK_RESERVED_REFUSAL} from '../data-quality/qualityCheckRefusal';
 import * as sendService from '../file-send/fileSend.service';
 import {submitFileOperation} from './fileOps.service';
 import {apiRequest} from '../../lib/apiClient';
@@ -645,6 +646,17 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
       space: {kind: 'personal', bucket: 'my-bucket', prefix: 'alice/'},
       location: 'alice/report.csv'
     });
+  });
+
+  it('refuses a folder Data Quarry manages in words, where the plane would answer "no access"', async () => {
+    mock.listFiles.mockResolvedValue(ok(page({files: [], folders: [folder('shared_tables')]})));
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select folder shared_tables'}));
+
+    expect(checkButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(checkButton()).toHaveAttribute('title', QUALITY_CHECK_RESERVED_REFUSAL);
+    await user.click(checkButton());
+    expect(screen.queryByRole('alertdialog', {name: 'Confirm data quality check'})).not.toBeInTheDocument();
   });
 
   it('sends the SPACE ROOT even when browsing a subfolder, not the current folder', async () => {
