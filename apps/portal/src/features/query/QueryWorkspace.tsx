@@ -24,6 +24,7 @@ import {useAllSchemas} from '../catalog/useSchema';
 import {
   deriveViewTargetDatabase,
   isExplorableSql,
+  isTextOutputSql,
   resolveRunStatements,
   splitSqlStatements,
   statementHint,
@@ -379,9 +380,10 @@ export function QueryWorkspace() {
   // replaced unsaved SQL with no confirm, and a re-run there was recorded under that tab's
   // saved-query link although the SQL was not that query's. At the tab cap, the limit dialog.
   const openHistoryEntry = (entry: QueryHistoryEntry): string | null => {
-    setHistoryOpen(false);
     const id = tabs.openTab({sql: entry.sql});
+    // At the cap the drawer stays open, as Saved queries' does, so the user keeps their place.
     if (id === null) setLimitOpen(true);
+    else setHistoryOpen(false);
     return id;
   };
   const handleReopen = (entry: QueryHistoryEntry) => {
@@ -565,13 +567,11 @@ export function QueryWorkspace() {
   const explorerEnabled = useFeature('dataExplorer');
   const displayedStatement =
     displayedResultTab && activeRun ? activeRun.statements[displayedResultTab.statementIndex] : undefined;
-  // Save copies or converts the statement's result object, and for a SHOW, DESCRIBE or EXPLAIN
-  // Athena writes plain text there, not a result set: a CSV copy would be text under a .csv name
-  // and a conversion is refused. So those rows are refused here, on the statement the run holds.
+  // Save copies or converts the statement's result object, and for a SHOW or DESCRIBE Athena
+  // writes plain text there, not a result set: a CSV copy would be text under a .csv name and a
+  // conversion is refused. So those rows are refused here, on the statement the run holds.
   const saveResultsRefusal =
-    displayedStatement !== undefined && !isExplorableSql(displayedStatement.sql)
-      ? SAVE_RESULTS_STATEMENT_REFUSAL
-      : null;
+    displayedStatement !== undefined && isTextOutputSql(displayedStatement.sql) ? SAVE_RESULTS_STATEMENT_REFUSAL : null;
   const explore =
     queryEnabled &&
     explorerEnabled &&

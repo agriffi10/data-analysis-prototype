@@ -4,6 +4,7 @@ import {
   CLAUSE_WORDS,
   deriveViewTargetDatabase,
   isExplorableSql,
+  isTextOutputSql,
   isResultProducingSql,
   isSchemaChangingSql,
   isTrinoStatement,
@@ -193,6 +194,19 @@ describe('query.sql', () => {
       expect(isResultProducingSql('SHOW TABLES IN mydb')).toBe(true);
       expect(isResultProducingSql('DESCRIBE mydb.t')).toBe(true);
       expect(isResultProducingSql('-- comment first\nSELECT 1')).toBe(true);
+    });
+  });
+
+  describe('isTextOutputSql', () => {
+    it.each([
+      ['SHOW TABLES IN alice', true],
+      ['-- a note\nDESCRIBE alice.sales', true],
+      ['desc alice.sales', true],
+      // EXPLAIN runs as DML, so its rows save and convert like a query's.
+      ['EXPLAIN SELECT 1', false],
+      ['SELECT 1', false]
+    ])('%j → %s', (sql, textOutput) => {
+      expect(isTextOutputSql(sql)).toBe(textOutput);
     });
   });
 

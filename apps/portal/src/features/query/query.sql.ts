@@ -263,6 +263,15 @@ export function isResultProducingSql(sql: string): boolean {
 }
 
 /**
+ * True for a statement whose output Athena writes as plain text rather than a result set —
+ * SHOW and DESCRIBE, which it runs as UTILITY or DDL. EXPLAIN is not one: Athena runs it as DML
+ * (measured), so its rows save and convert like a query's. Leading comments/whitespace are skipped.
+ */
+export function isTextOutputSql(sql: string): boolean {
+  return /^(show|desc|describe)\b/i.test(stripLeadingSqlComments(sql));
+}
+
+/**
  * True for a statement the Data Explorer can open as a source — SELECT, WITH or VALUES, the
  * statements Trino accepts as a subquery. SHOW, DESCRIBE and EXPLAIN produce a result grid but
  * cannot be wrapped in `(…) AS t`. Leading comments/whitespace are skipped.

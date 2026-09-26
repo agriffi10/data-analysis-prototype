@@ -47,7 +47,7 @@ export type UseDataQualityRunsResult = {
    * The spaces whose history could not be read while others could, named as the user knows them.
    * Without it the list silently omits them, and an empty list reads "No quality checks yet".
    */
-  unreachable: string[];
+  unreachable: {label: string; shared: boolean}[];
   refresh: () => Promise<void>;
 };
 
@@ -86,7 +86,7 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
     // personal source is known, so a list that adds a shared source would have the personal
     // index read twice — once for the personal-only key, again for the key the list changes to.
     enabled: !connectionsLoading && sources.length > 0,
-    queryFn: async (): Promise<{runs: DataQualityRunSummary[]; unreachable: string[]}> => {
+    queryFn: async (): Promise<{runs: DataQualityRunSummary[]; unreachable: {label: string; shared: boolean}[]}> => {
       const settled = await Promise.all(
         sources.map(async (source) => ({source, result: await getRunsIndex(source.bucket, source.space)}))
       );
@@ -111,7 +111,13 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
         runs: settled
           .flatMap(({result}) => (result.success ? result.data : []))
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
-        unreachable: failed.map(({source}) => (source.space === username ? 'your own space' : source.space))
+        // A refused read means the membership is gone — the expected skip above, which no retry
+        // brings back — so only the failures a retry could clear are named.
+        unreachable: failed
+          .filter(({result}) => result.success || result.error.code !== 'AccessDenied')
+          .map(({source}) =>
+            source.space === username ? {label: 'your own space', shared: false} : {label: source.space, shared: true}
+          )
       };
     }
   });

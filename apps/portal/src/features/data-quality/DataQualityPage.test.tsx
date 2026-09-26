@@ -78,6 +78,7 @@ describe('DataQualityPage', () => {
   const rowForSync = (location: string) => screen.getByRole('link', {name: new RegExp(escapeRe(location))});
   const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const failed = {success: false as const, error: {message: 'nope', code: 'AccessDenied'}};
+  const unavailable = {success: false as const, error: {message: 'nope', code: 'ApiUnavailable'}};
 
   function renderPage() {
     return renderWithProviders(<DataQualityPage />, {route: '/data-quality', auth: authenticated('alice')});
@@ -131,9 +132,9 @@ describe('DataQualityPage', () => {
       expect(screen.queryByRole('link', {name: /^(view|here)$/i})).not.toBeInTheDocument();
     });
 
-    it('still renders the readable spaces when one space cannot be read', async () => {
+    it('still renders the readable spaces when one space cannot be read, and names the one that failed', async () => {
       // FR-002: one unreadable space must never blank the whole page.
-      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : failed));
+      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : unavailable));
 
       renderPage();
 
@@ -141,6 +142,28 @@ describe('DataQualityPage', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       // Not blocking, and not silent either: the space that could not be read is named.
       expect(screen.getByText(/^Checks from (?!your own space).+ couldn’t be loaded\.$/)).toBeInTheDocument();
+    });
+
+    it('names no space whose read was refused, since the membership is gone and a retry cannot help', async () => {
+      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : failed));
+
+      renderPage();
+
+      expect(await rowFor('alice/sales/')).toBeInTheDocument();
+      expect(screen.queryByText(/couldn’t be loaded/)).not.toBeInTheDocument();
+    });
+
+    it('names no shared space once shared workspaces are off, as the list shows none', async () => {
+      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : unavailable));
+
+      renderWithProviders(<DataQualityPage />, {
+        route: '/data-quality',
+        auth: authenticated('alice'),
+        featureFlags: {sharedWorkspaces: false}
+      });
+
+      expect(await rowFor('alice/sales/')).toBeInTheDocument();
+      expect(screen.queryByText(/couldn’t be loaded/)).not.toBeInTheDocument();
     });
   });
 

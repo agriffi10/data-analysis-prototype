@@ -106,6 +106,15 @@ describe('the aggregates', () => {
     expect(results.max.value).toBe('100');
   });
 
+  it('reports the winning cell as it reads, never a rounded or reformatted copy of it', () => {
+    // Sixteen-digit ids round at twelve significant digits, and a padded code loses its zero.
+    const ids = all(['min', 'max'], ['1234567890123456', '1234567890123999'], true);
+    expect(ids.max.value).toBe('1234567890123999');
+    const codes = all(['min', 'max'], ['02134', '9', '1.50'], true);
+    expect(codes.min.value).toBe('1.50');
+    expect(codes.max.value).toBe('02134');
+  });
+
   it('keeps sum, average and median numeric even with strings included', () => {
     // These have no mixed reading: an average of "unknown" is not a number, so the toggle
     // cannot make them consider text.

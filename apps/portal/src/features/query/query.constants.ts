@@ -12,7 +12,7 @@ export const DEFAULT_RESULTS_PAGE_SIZE = 100;
 
 /** Why Save results is refused for a statement that is not a query. */
 export const SAVE_RESULTS_STATEMENT_REFUSAL =
-  'Save results takes a query’s rows (SELECT, WITH or VALUES), not the output of SHOW, DESCRIBE or EXPLAIN.';
+  'Save results takes a query’s rows, not the output of SHOW or DESCRIBE, which Athena writes as plain text.';
 
 /** Smallest accepted "Rows per page" value. */
 export const MIN_RESULTS_PAGE_SIZE = 1;

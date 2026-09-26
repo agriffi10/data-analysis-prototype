@@ -171,9 +171,14 @@ function computeOne(fn: CalcFunction, values: (string | null)[], includeStrings:
   if (present.length === 0) return {fn, value: CALC_NO_VALUE, skipped};
   // A selection of numbers alone keeps numeric order whatever the toggle says: text order
   // would put 10 before 9, and nothing here asked for text.
+  // The winner is reported as its cell reads, not reformatted: an id or a padded code would
+  // otherwise come back rounded or stripped, which is a value the data does not hold.
   if ((fn === 'min' || fn === 'max') && numbers.length === present.length) {
-    const pick = numbers.reduce((best, n) => (fn === 'min' ? (n < best ? n : best) : n > best ? n : best));
-    return {fn, value: formatNumber(pick), skipped};
+    let best = 0;
+    for (let i = 1; i < numbers.length; i++) {
+      if (fn === 'min' ? numbers[i] < numbers[best] : numbers[i] > numbers[best]) best = i;
+    }
+    return {fn, value: present[best], skipped};
   }
   // Text comparison, and it is the honest one here: a selection holding both `9` and
   // `apple` has no numeric maximum, and coercing would answer a different question.
