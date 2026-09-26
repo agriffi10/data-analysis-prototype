@@ -83,6 +83,7 @@ def _summary(request_id="r-1", **over):
         "verdict": "issues_found",
         "fileCount": 3,
         "hasApproximateFigures": True,
+        "hasIncompleteFigures": True,
         "completedAt": "2026-07-21T14:32:11Z",
     }
     summary.update(over)
@@ -106,6 +107,26 @@ def test_two_concurrent_appends_both_survive():
 
     ids = sorted(e["requestId"] for e in fake.entries())
     assert ids == ["r-1", "r-2"], "a concurrent append was silently lost"
+
+
+def test_an_entry_carries_the_incomplete_flag_and_not_the_approximate_one():
+    """The row's qualifier. The approximate flag is true on every report, so a list tag keyed to
+    it sat on every row and said nothing; the incomplete flag is the one that varies."""
+    fake = _install()
+
+    index_store.append(BUCKET, PREFIX, _summary(hasIncompleteFigures=False))
+
+    [entry] = fake.entries()
+    assert entry["hasIncompleteFigures"] is False
+    assert set(entry) == {
+        "requestId",
+        "location",
+        "format",
+        "verdict",
+        "fileCount",
+        "hasIncompleteFigures",
+        "timestamp",
+    }
 
 
 # ── Absent / corrupt / capped ────────────────────────────────────────────────

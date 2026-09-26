@@ -988,8 +988,8 @@ def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
 def _has_approximate(exact: dict, approximate: dict) -> bool:
     """Reports whether any figure is approximate, sampled, skipped or not computed.
 
-    The notification reads this so it never claims an unqualified clean result over a sampled scan
-    or a check that never ran.
+    The report page reads this for its soft qualifier, that some figures are estimates, which is the
+    normal case rather than a warning.
 
     It is true for every source this arc supports, and that is the classification rather than a
     bug worth routing around: ragged and encoding are filed under approximate whenever they are
@@ -1002,7 +1002,8 @@ def _has_approximate(exact: dict, approximate: dict) -> bool:
     arc cannot produce and guarding them separately would be two branches nothing could exercise.
 
     Because it never varies it carries no information on its own, which is why the incomplete flag
-    exists beside it. The notification qualifies softly on this one and warns only on that one.
+    exists beside it. The report banner qualifies softly on this one and warns only on that one, and
+    the runs index carries only that one, because a list tag keyed to this flag sat on every row.
 
     Args:
       exact: The report's exact section, unused.
@@ -1026,10 +1027,12 @@ def _has_incomplete(exact: dict, approximate: dict) -> bool:
     The distinction the approximate flag cannot make. "Ragged rows over-count quoted delimiters"
     is a permanent property of the method and applies to every healthy CSV; "the duplicate-row
     query ran out of resources" means a figure the user asked for is not in front of them. Both
-    set the approximate flag; only the second should make a notification say something is missing.
+    set the approximate flag; only the second should make the report banner or the runs list say
+    something is missing.
 
-    False is reachable and is the common case: a CSV whose three queries all succeeded and whose
-    bytes were all scanned has nothing skipped and nothing failed.
+    False is reachable, and for CSV it is the common case: a CSV whose three queries all succeeded
+    and whose bytes were all scanned has nothing skipped and nothing failed. JSON and Parquet never
+    reach it, because the ragged figure is skipped for both.
 
     Args:
       exact: The report's exact section.

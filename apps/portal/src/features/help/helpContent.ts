@@ -247,7 +247,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Every row is tagged <b>Sampled</b>: every check has at least one figure that is an estimate or was skipped — the ragged-row count or the text-encoding check — so none is an unqualified clean result. Open the report to see which figures those are. A check that <b>failed</b> has no row here, because it never produced a report; it reports itself in your <b>notifications</b> instead — including one that was accepted but never got going.'
+          text: 'A row tagged <b>Partly checked</b> had at least one check that didn’t cover all of the data: it was skipped, it couldn’t finish, or the text-encoding check read a sample rather than every byte. Checks of JSON and Parquet data always carry it, because the ragged-row check only applies to CSV. <b>Clean</b> on such a row means no issues in what could be checked — open the report to see which checks those were. A check that <b>failed</b> has no row here, because it never produced a report; it reports itself in your <b>notifications</b> instead — including one that was accepted but never got going.'
         }
       }
     ]

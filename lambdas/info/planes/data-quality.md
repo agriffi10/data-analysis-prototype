@@ -83,7 +83,7 @@ duplicates query's, both in `test_sql_dqcommon.py`, each rendering the widest so
 rule admits. Re-measure there rather than trusting a figure written here: the samples took every column from ONE
 rendering to four, and the next addition will move it again.
 
-**Approximate**, and labelled as such in both the report and the notification: ragged rows via a
+**Approximate**, and labelled as such in the report (the notification makes no claim about the data): ragged rows via a
 single-column raw-line temp table (`\001` delimiter — quoted delimiters and embedded newlines
 over-report); invalid UTF-8 via `byte-scan`, bounded **per request** by `DQ_SCAN_TOTAL_BYTES` (2 GiB,
 divided across the manifest) with the coverage percentage stated. Compressed text is not splittable,

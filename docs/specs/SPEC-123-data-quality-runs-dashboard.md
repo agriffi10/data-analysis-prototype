@@ -57,7 +57,7 @@ So the FR-006 footer line is worded **"usually"**, not as a guarantee, and a tes
 #### Acceptance Criteria:
 
 - [ ] On a successful check, `assemble-report` (SPEC-112, amended here) **appends an entry** to `{space}/_data-quality-reports/index.json` and writes the entry **after** the report object, so the index never references a report that does not exist.
-- [ ] The entry is `{ requestId, location, format, verdict, fileCount, hasApproximateFigures, timestamp }` — **and nothing else** (`timestamp` = the report's `completedAt`, SPEC-112 FR-003). A comment records why it is deliberately small: this file is fetched on every dashboard load, and putting findings in it would make the list page pay for detail it does not render.
+- [ ] The entry is `{ requestId, location, format, verdict, fileCount, hasApproximateFigures, timestamp }` **— superseded 2026-09-26: `hasIncompleteFigures` in place of `hasApproximateFigures`, see FR-003's marker —**, **and nothing else** (`timestamp` = the report's `completedAt`, SPEC-112 FR-003). A comment records why it is deliberately small: this file is fetched on every dashboard load, and putting findings in it would make the list page pay for detail it does not render.
 - [ ] The write is a **read-modify-write under optimistic ETag CAS**, retried on a mismatch — the same mechanism as the shared-space registry (SPEC-082, `lambdas/shared-space-common/registry.py`). A comment records the race it prevents: checks of **different** locations run in parallel (the queue serializes only same-location checks **— superseded 2026-09-15, see above —**), so two `assemble-report` invocations can append at once and one would **silently lose the other's run**.
 - [ ] A test runs two concurrent appends and asserts **both entries survive**.
 - [ ] The index is capped at `DQ_INDEX_MAX_ENTRIES` (default **200**), oldest entries dropped first. A comment records why: an uncapped index grows forever and the dashboard's single GET gets slower the more the feature is used — the exact failure the index exists to avoid.
@@ -83,7 +83,7 @@ So the FR-006 footer line is worded **"usually"**, not as a guarantee, and a tes
 - [ ] Each row is a link to `/data-quality/{space}/{requestId}` (SPEC-113). The **whole row** is the link target, and its accessible name names the location — never "view" or "here".
 - [ ] The row shows: the **location** (`font-mono`, truncated from the left so the *folder* stays visible when the path is long), the **space** it belongs to, **when** it ran, the **file count**, and a **verdict chip**.
 - [ ] The verdict chip follows the `ConnectionsPage.tsx:506-520` `StatusBadge` pattern — a `bg-current` dot **plus a text label** (`Clean` / `Issues found`), tone `bg-success-soft text-success` / `bg-warning-soft text-warning`. **Never colour-only.**
-- [ ] When `hasApproximateFigures` is true, the row also carries a **`Sampled`** chip. A test asserts a sampled run **never renders as an unqualified `Clean`** — the same rule SPEC-112 and SPEC-114 enforce, applied at the list level, because the list is where a user forms a quick impression.
+- [ ] When `hasApproximateFigures` is true, the row also carries a **`Sampled`** chip. **— Superseded 2026-09-26: `hasApproximateFigures` is true on every report, so the chip sat on every row and said nothing, and read "Sampled" on any check whose bytes were all scanned — every JSON and Parquet check, and any CSV check whose encoding scan read every byte. The row now carries `Partly checked` when `hasIncompleteFigures` is true — the flag the report banner warns on — and says so in its accessible name; an older entry without the flag reads as partly checked. The never-an-unqualified-Clean rule that follows still holds, keyed to that flag. [Register entry](../decisions/analytics.md#data-quality-runs-index--dashboard-spec-123). —** A test asserts a sampled run **never renders as an unqualified `Clean`** — the same rule SPEC-112 and SPEC-114 enforce, applied at the list level, because the list is where a user forms a quick impression.
 - [ ] Row card classes follow `NotificationRow.tsx:26-30` (`flex items-start gap-3 rounded-md border p-4`, `border-border bg-surface`).
 
 ### FR-004: Navigation
@@ -130,7 +130,7 @@ So the FR-006 footer line is worded **"usually"**, not as a guarantee, and a tes
       "format": "csv",
       "verdict": "issues_found",          // | "clean"
       "fileCount": 3,
-      "hasApproximateFigures": true,
+      "hasApproximateFigures": true,      // superseded 2026-09-26: hasIncompleteFigures (FR-003's marker)
       "timestamp": "2026-07-12T14:32:11Z"
     }
   ]
@@ -153,7 +153,7 @@ export type DataQualityRunSummary = {
   format: string;
   verdict: 'clean' | 'issues_found';
   fileCount: number;
-  hasApproximateFigures: boolean;
+  hasApproximateFigures: boolean;  // superseded 2026-09-26: hasIncompleteFigures (FR-003's marker)
   timestamp: string;
 };
 ```

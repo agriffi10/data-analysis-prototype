@@ -1067,6 +1067,24 @@ def test_anything_skipped_or_failed_marks_the_report_incomplete(case):
     assert document["hasIncompleteFigures"] is True
 
 
+@pytest.mark.parametrize("fmt", ["json", "parquet"])
+def test_a_json_or_parquet_report_is_always_incomplete(fmt):
+    """Neither reads its fields by position, so the ragged figure is skipped whatever else ran.
+    The runs list tags every such row Partly checked, and its Help guide says so."""
+    encoding = _encoding() if fmt == "json" else {"status": "skipped", "reason": "binary"}
+
+    document = _build(
+        request=_request(format=fmt, ragged=None),
+        manifest=_manifest([_file("a." + fmt, ["id"])], fmt=fmt),
+        profile=[_profile_row(10, [{}])],
+        ragged=[],
+        encoding=encoding,
+    )
+
+    assert document["approximate"]["raggedRows"]["status"] == "skipped"
+    assert document["hasIncompleteFigures"] is True
+
+
 def test_the_report_carries_its_identity_and_completion_time():
     document = _build()
 

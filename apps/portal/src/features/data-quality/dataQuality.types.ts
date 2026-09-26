@@ -37,7 +37,13 @@ export type DataQualityRunSummary = {
   format: string;
   verdict: DataQualityVerdict;
   fileCount: number;
-  hasApproximateFigures: boolean;
+  /**
+   * The report's `hasIncompleteFigures`: a check was skipped or failed, or the encoding scan
+   * only sampled the bytes. It drives the row's Partly checked tag, which is the same flag
+   * the report banner warns on. An entry written before the index carried it reads as
+   * `true`, so an old run never shows as an unqualified Clean.
+   */
+  hasIncompleteFigures: boolean;
   /** The report's `completedAt`. */
   timestamp: string;
 };
@@ -163,7 +169,7 @@ export type DataQualityReport = {
    * would fire on a spotless CSV and be learned as noise.
    */
   hasApproximateFigures: boolean;
-  /** The flag that actually varies: something was skipped or failed. This one warns. */
+  /** The flag that actually varies: something was skipped or failed, or the encoding scan only sampled. This one warns. */
   hasIncompleteFigures: boolean;
   /** ISO-8601. The only field a replay changes — the key is a pure function of requestId. */
   completedAt: string;
