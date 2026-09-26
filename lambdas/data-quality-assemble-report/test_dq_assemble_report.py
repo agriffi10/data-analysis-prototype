@@ -157,6 +157,21 @@ def test_the_report_lands_at_a_key_that_is_a_pure_function_of_the_request(monkey
     assert out["reportKey"] == f"{PREFIX}/report.json"
 
 
+@pytest.mark.parametrize(("coverage", "incomplete"), [("complete", False), ("sampled", True)])
+def test_the_runs_row_carries_the_reports_incomplete_flag(monkeypatch, coverage, incomplete):
+    """The list row's Partly checked tag reads this entry field. Dropped from the threaded
+    summary, the entry would store null, the page would read that as incomplete, and every row
+    would be tagged again with nothing failing."""
+    fake = _setup(monkeypatch)
+    event = _event()
+    event["encoding"] = {**event["encoding"], "coverage": coverage}
+
+    out = v.handler(event, None)
+
+    assert out["hasIncompleteFigures"] is incomplete
+    assert [entry["hasIncompleteFigures"] for entry in _index(fake)["entries"]] == [incomplete]
+
+
 def test_the_actor_is_notified_before_the_index_is_touched(monkeypatch):
     """The notification is the user's only completion signal (SPEC-114), and the index
     append can cost several round trips under contention. Notifying second would mean a
