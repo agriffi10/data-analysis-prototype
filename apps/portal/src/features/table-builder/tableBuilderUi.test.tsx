@@ -103,6 +103,7 @@ describe('CreateTableDialog', () => {
       fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: 'us'}});
       fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
       fireEvent.change(screen.getByLabelText('Partition key 2 name'), {target: {value: 'region'}});
+      fireEvent.blur(screen.getByLabelText('Partition key 2 name'));
       fireEvent.change(screen.getByLabelText('Partition key 2 values'), {target: {value: 'eu'}});
 
       const row2 = screen.getByRole('group', {name: 'Partition key 2'});
@@ -130,11 +131,37 @@ describe('CreateTableDialog', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
       fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'Dt'}});
+      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
       fireEvent.change(nameInput(), {target: {value: 'dt'}});
 
       expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription(/^Use 1–63 characters/);
       expect(nameInput()).toHaveAccessibleDescription(/^Use 3–63 characters/);
       expect(createBtn()).toBeDisabled();
+    });
+  });
+
+  describe('CreateTableDialog — when a key’s errors are announced', () => {
+    it('announces nothing for a blank key just added, yet holds Create', () => {
+      renderDialog();
+
+      fireEvent.click(addKeysBtn());
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(createBtn()).toBeDisabled();
+    });
+
+    it('shows a field’s error once it is left, and a type switch brings in no others', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+
+      // Leaving the name for the type select, as a real pointer or Tab does.
+      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'integer'}});
+
+      expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual(['Enter a key name.']);
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
+      expect(screen.getByLabelText('Partition key 1 minimum')).not.toHaveAccessibleDescription();
     });
   });
 

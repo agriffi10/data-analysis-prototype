@@ -3,6 +3,7 @@ import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {chooseExplorationOption} from './explorationOptions.testkit';
+import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
@@ -243,6 +244,21 @@ describe('the Order and filter dialog', () => {
     await waitFor(() => expect(screen.queryByRole('columnheader', {name: 'note'})).not.toBeInTheDocument());
     // `SELECT *` always: hiding renders no SQL, so it costs nothing and applies instantly.
     expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to hide the last visible column, and says why in the row', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await open(user);
+
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Show id'}));
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Show note'}));
+    const last = within(dialog).getByRole('checkbox', {name: 'Show total'});
+    await user.click(last);
+
+    expect(last).toBeChecked();
+    expect(last).toHaveAttribute('aria-disabled', 'true');
+    expect(last).toHaveAccessibleDescription(LAST_COLUMN_REFUSAL);
   });
 
   it('reorders sort priority inside the dialog', async () => {

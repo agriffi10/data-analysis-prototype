@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Input} from '../../components/Input';
 import {Button} from '../../components/Button';
 import {emptyDraftKey, type DraftPartitionKey, type PartitionKeyErrors, type PartitionType} from './partitionKeys';
@@ -20,6 +20,11 @@ const selectClass =
  * and edits them and manages focus on add/remove (labelled dynamic rows). An empty list means a
  * flat, unpartitioned table — no keys are sent.
  *
+ * A field's error is SHOWN only once that field has been left. `Input` announces an error as an
+ * alert, so an unfiltered `errors` would interrupt with "Enter a key name." the moment a blank
+ * row appears and focus lands in it, and again for every field a type switch brings in. Confirm
+ * is disabled while any row is invalid whether or not its error is showing.
+ *
  * @example
  * <PartitionKeysField value={keys} errors={keyErrors} onChange={setKeys} />
  */
@@ -29,6 +34,14 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
   const addBtnRef = useRef<HTMLButtonElement>(null);
   // What to focus after the next render: a row id, or 'add' for the top affordance.
   const pendingFocus = useRef<string | null>(null);
+  // `${row id}:${field}` for every field the user has left, so reordering keeps the flag with its row.
+  const [left, setLeft] = useState<ReadonlySet<string>>(() => new Set());
+
+  const leave = (id: string, field: keyof PartitionKeyErrors) =>
+    setLeft((prev) => (prev.has(`${id}:${field}`) ? prev : new Set(prev).add(`${id}:${field}`)));
+
+  const shown = (id: string, err: PartitionKeyErrors, field: keyof PartitionKeyErrors) =>
+    left.has(`${id}:${field}`) ? err[field] : undefined;
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -120,7 +133,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                       aria-label={`Partition key ${i + 1} name`}
                       placeholder="e.g. year"
                       value={row.name}
-                      error={err.name}
+                      error={shown(row.id, err, 'name')}
+                      onBlur={() => leave(row.id, 'name')}
                       disabled={disabled}
                       onChange={(e) => update(row.id, {name: e.target.value})}
                     />
@@ -185,7 +199,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           inputMode="numeric"
                           placeholder="0"
                           value={row.min}
-                          error={err.min}
+                          error={shown(row.id, err, 'min')}
+                          onBlur={() => leave(row.id, 'min')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {min: e.target.value})}
                         />
@@ -195,7 +210,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           inputMode="numeric"
                           placeholder="2026"
                           value={row.max}
-                          error={err.max}
+                          error={shown(row.id, err, 'max')}
+                          onBlur={() => leave(row.id, 'max')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {max: e.target.value})}
                         />
@@ -207,7 +223,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           inputMode="numeric"
                           placeholder="—"
                           value={row.digits}
-                          error={err.digits}
+                          error={shown(row.id, err, 'digits')}
+                          onBlur={() => leave(row.id, 'digits')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {digits: e.target.value})}
                         />
@@ -223,7 +240,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           label="Range start"
                           placeholder="2020-01-01"
                           value={row.start}
-                          error={err.start}
+                          error={shown(row.id, err, 'start')}
+                          onBlur={() => leave(row.id, 'start')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {start: e.target.value})}
                         />
@@ -232,7 +250,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           label="Range end (NOW allowed)"
                           placeholder="NOW"
                           value={row.end}
-                          error={err.end}
+                          error={shown(row.id, err, 'end')}
+                          onBlur={() => leave(row.id, 'end')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {end: e.target.value})}
                         />
@@ -243,7 +262,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                           label="Format"
                           placeholder="yyyy-MM-dd"
                           value={row.format}
-                          error={err.format}
+                          error={shown(row.id, err, 'format')}
+                          onBlur={() => leave(row.id, 'format')}
                           disabled={disabled}
                           onChange={(e) => update(row.id, {format: e.target.value})}
                         />
@@ -258,7 +278,8 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                         label="Values (comma-separated)"
                         placeholder="us, eu, apac"
                         value={row.values}
-                        error={err.values}
+                        error={shown(row.id, err, 'values')}
+                        onBlur={() => leave(row.id, 'values')}
                         disabled={disabled}
                         onChange={(e) => update(row.id, {values: e.target.value})}
                       />
