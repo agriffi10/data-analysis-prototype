@@ -5,11 +5,19 @@
  */
 
 /** Which feature glyph a section/card renders (maps to an icon in `helpIcons`). */
-export type HelpIconName = 'files' | 'query' | 'tables' | 'explore' | 'connections' | 'notifications' | 'feedback';
+export type HelpIconName =
+  'files' | 'query' | 'tables' | 'explore' | 'connections' | 'notifications' | 'getting-around' | 'feedback';
 
 /** Stable section id — also the URL hash, e.g. `/help#query`. */
 export type HelpSectionId =
-  'files' | 'query' | 'tables' | 'data-explorer' | 'shared-connections' | 'notifications' | 'feedback';
+  | 'files'
+  | 'query'
+  | 'tables'
+  | 'data-explorer'
+  | 'shared-connections'
+  | 'notifications'
+  | 'getting-around'
+  | 'feedback';
 
 /** An accent "Tip" or a danger "Careful" note; a guide renders at most one. `text` may contain the same markup as a guide's steps. */
 export type HelpCallout = {kind: 'tip'; text: string} | {kind: 'warning'; text: string};

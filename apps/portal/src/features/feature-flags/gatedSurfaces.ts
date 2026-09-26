@@ -98,7 +98,13 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // `useCanFollowLink` about its destination, so it follows this flag without naming it.
     {name: 'View source files', kind: 'control', path: '/query'},
     {name: 'View in Files after saving results', kind: 'control', path: '/query'},
-    {name: 'Open folder on a data quality report', kind: 'control', path: '/data-quality/:space/:requestId'}
+    {name: 'Open folder on a data quality report', kind: 'control', path: '/data-quality/:space/:requestId'},
+    // Two guides whose every step is on the file browser's screen, though each lives in another
+    // flag's section: building a table follows `query` with its section, and working in a shared
+    // space follows `sharedWorkspaces` with its. Registered here too, on the precedent of
+    // `Explore data on the Query schema rail`, so neither describes a page that is not there.
+    {name: 'Create table guide', kind: 'guide', path: '/help', helpId: 'create-table'},
+    {name: 'Shared space files guide', kind: 'guide', path: '/help', helpId: 'use-shared-space-files'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},
@@ -144,6 +150,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Building a table from a folder is a Query capability wearing a file-browser button, so
     // its guides follow the `query` flag rather than `files`.
     {name: 'Tables help section', kind: 'guide', path: '/help', helpId: 'tables'},
+    // Every step past the first is a control this flag hides — Open in Query, Save as query,
+    // Open saved view, Create view… — so the guide follows it as well as its own section's flag.
+    {name: 'Save an exploration guide under Query', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'},
     // The table builder's "columns removed" notification deep-links into `/query`, and the row's
     // gate is derived from that destination.
     {name: 'Refresh table link on a notification', kind: 'control', path: '/notifications'}
@@ -171,6 +180,10 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Shared spaces in the save-query dialog', kind: 'control', path: '/query'},
     {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
     {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'},
+    // The recipient-kind choice in the send and share dialogs, each split into a guide of its
+    // own so the Files and Tables guides beside them stay true with this flag off.
+    {name: 'Send to a shared space guide', kind: 'guide', path: '/help', helpId: 'send-files-to-a-space'},
+    {name: 'Share with a shared space guide', kind: 'guide', path: '/help', helpId: 'share-table-to-a-space'},
     // The SPACE variant of the same link, and the worse failure of the two: with this
     // flag off the route does not READ ?space=, resolves the personal space, and then discards a
     // prefix that does not start with it — landing the space's owner in their OWN files with no
@@ -225,7 +238,8 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Data quality link on a notification', kind: 'control', path: '/notifications'},
     // Inside the FILES section — which is why guides are gated individually, not by section.
     {name: 'Check data quality guide', kind: 'guide', path: '/help', helpId: 'check-data-quality'},
-    {name: 'Past data quality checks guide', kind: 'guide', path: '/help', helpId: 'past-data-quality-checks'}
+    {name: 'Past data quality checks guide', kind: 'guide', path: '/help', helpId: 'past-data-quality-checks'},
+    {name: 'Data quality report guide', kind: 'guide', path: '/help', helpId: 'read-data-quality-report'}
   ],
   dataExplorer: [
     {name: 'Data Explorer', kind: 'nav', path: '/explore'},
@@ -294,7 +308,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   // which the archive plane's link is the precedent for leaving alone.
   resultsConversion: [
     {name: 'Format in the save-results dialog', kind: 'control', path: '/query'},
-    {name: 'Format in the Data Explorer export dialog', kind: 'control', path: '/explore'}
+    {name: 'Format in the Data Explorer export dialog', kind: 'control', path: '/explore'},
+    // The formats each have a guide of their own, so the save guides they were split from stay
+    // true with this switch thrown.
+    {name: 'Save results formats guide', kind: 'guide', path: '/help', helpId: 'save-results-formats'},
+    {name: 'Data Explorer save formats guide', kind: 'guide', path: '/help', helpId: 'explore-save-formats'}
   ],
   // The second kill switch, over the one surface where a mistake cannot be undone. One key for
   // archive AND restore: they run on one state machine, so a defect in it can reach either

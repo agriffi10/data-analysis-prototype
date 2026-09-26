@@ -217,6 +217,52 @@ describe('useNotifications — optimistic mutations', () => {
   });
 });
 
+describe('useNotifications — the bell and the page share one overlay', () => {
+  // The header bell and the Notifications page each call the hook, so they are two instances
+  // over one cache. Fake timers hold every reconcile refetch back: the bell's count has to move
+  // on the page's mark-read alone, not on the server catching up.
+  it('drops the bell’s count the moment the page marks a notification read', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
+      const client = newClient();
+      const bell = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
+      const page = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {queryClient: client});
+      await act(async () => {
+        await vi.waitFor(() => expect(bell.result.current.unreadCount).toBe(2));
+      });
+      const readsBefore = mockGet.mock.calls.length;
+
+      act(() => page.result.current.markRead('05'));
+      await act(async () => {
+        await vi.waitFor(() => expect(page.result.current.unreadCount).toBe(1));
+      });
+
+      expect(bell.result.current.unreadCount).toBe(1);
+      expect(mockGet).toHaveBeenCalledTimes(readsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('puts the bell’s count back when the page’s mark-all-read fails', async () => {
+    mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
+    let failEnqueue: (value: Awaited<ReturnType<typeof enqueueNotificationAction>>) => void = () => undefined;
+    mockEnqueue.mockReturnValue(new Promise((resolve) => (failEnqueue = resolve)));
+    const client = newClient();
+    const bell = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
+    const page = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {queryClient: client});
+    await waitFor(() => expect(bell.result.current.unreadCount).toBe(2));
+
+    act(() => page.result.current.markAllRead());
+    await waitFor(() => expect(bell.result.current.unreadCount).toBe(0));
+    await act(async () => failEnqueue({success: false, error: {message: 'queue down'}}));
+
+    await waitFor(() => expect(bell.result.current.unreadCount).toBe(2));
+    expect(page.result.current.unreadCount).toBe(2);
+  });
+});
+
 describe('useNotifications — background poll (FR-006)', () => {
   it('polls on the 60s interval while there is no unread', async () => {
     vi.useFakeTimers();

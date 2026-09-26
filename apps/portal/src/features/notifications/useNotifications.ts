@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useMutation, useQuery, useQueryClient, type QueryClient} from '@tanstack/react-query';
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
 import {unwrap} from '../../lib/serviceResult';
@@ -44,6 +44,25 @@ function countUnread(list: Notification[] | undefined): number {
   return (list ?? []).reduce((n, item) => (item.read ? n : n + 1), 0);
 }
 
+/** Reads the user has asked for that the writer has not yet confirmed. */
+type PendingReads = {ids: readonly string[]; all: boolean};
+
+const NO_PENDING_READS: PendingReads = {ids: [], all: false};
+
+/**
+ * Drop every pending read the server has confirmed, or whose row aged out of the capped inbox,
+ * so the overlay never grows without bound.
+ *
+ * @param current - The overlay as it stands.
+ * @param list - The server's latest list.
+ * @returns `current` itself when nothing changed, so a caller can skip the write.
+ */
+function prunePendingReads(current: PendingReads, list: Notification[]): PendingReads {
+  const ids = current.ids.filter((id) => list.some((n) => n.id === id && !n.read));
+  const all = current.all && !list.every((n) => n.read);
+  return ids.length === current.ids.length && all === current.all ? current : {ids, all};
+}
+
 /**
  * Notifications list + unread indicator for one user.
  *
@@ -51,6 +70,10 @@ function countUnread(list: Notification[] | undefined): number {
  * the notifications queue — the browser never writes the inbox — so mark-read state
  * is held as an optimistic overlay on top of server truth and cleared per-entry once
  * a delayed reconcile refetch confirms the writer applied it. Disabled when signed out.
+ *
+ * The overlay lives in the query cache rather than in this hook's own state, because the
+ * header bell and the Notifications page are two instances: held per instance, a read marked
+ * on the page left the bell's count unchanged until a refetch caught the writer up.
  */
 export function useNotifications(
   username: string | null,
@@ -78,8 +101,18 @@ export function useNotifications(
   // the read cache (which a refetch racing ahead of the writer would revert), hold
   // optimistic reads as an overlay on server truth and clear each only once the
   // server confirms it — that's what makes a mark-read stick instead of snapping back.
-  const [pendingRead, setPendingRead] = useState<Set<string>>(() => new Set());
-  const [pendingAll, setPendingAll] = useState(false);
+  // Never fetched: the entry exists only to be shared, so its queryFn returns what is there.
+  const pendingKey = notificationsKeys.pendingReads(username ?? NO_KEY);
+  const {data: pending} = useQuery({
+    queryKey: pendingKey,
+    queryFn: () => queryClient.getQueryData<PendingReads>(pendingKey) ?? NO_PENDING_READS,
+    initialData: NO_PENDING_READS,
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity
+  });
+  const updatePending = (update: (current: PendingReads) => PendingReads) =>
+    queryClient.setQueryData<PendingReads>(pendingKey, (current) => update(current ?? NO_PENDING_READS));
 
   // Reconcile timers are cleared on unmount so no stray invalidate fires. Capture the
   // ref OBJECT (stable) and read its `.current` array at teardown — so it clears
@@ -100,38 +133,26 @@ export function useNotifications(
     }
   };
 
-  // Clear overlay entries the writer has confirmed (server reports read, or the row
-  // aged out of the capped inbox) so the overlay never grows unbounded. Done during
-  // render — the "adjust state when a value changes" pattern, guarded to only set on
-  // an actual change — rather than in an effect, which would cascade a re-render.
-  if (query.data) {
-    if (pendingRead.size > 0) {
-      const stillPending = [...pendingRead].filter((id) => {
-        const row = query.data.find((n) => n.id === id);
-        return row !== undefined && !row.read;
-      });
-      if (stillPending.length !== pendingRead.size) setPendingRead(new Set(stillPending));
-    }
-    if (pendingAll && query.data.every((n) => n.read)) setPendingAll(false);
-  }
+  // Clear overlay entries the writer has confirmed. In an effect rather than during render:
+  // the overlay is shared, and writing it while rendering would update the other instance
+  // mid-render.
+  useEffect(() => {
+    const list = query.data;
+    if (!list) return;
+    const sharedKey = notificationsKeys.pendingReads(username ?? NO_KEY);
+    const current = queryClient.getQueryData<PendingReads>(sharedKey) ?? NO_PENDING_READS;
+    const pruned = prunePendingReads(current, list);
+    if (pruned !== current) queryClient.setQueryData(sharedKey, pruned);
+  }, [query.data, queryClient, username]);
 
   const markReadMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markRead', username: username as string, id});
       unwrap(result);
     },
-    onMutate: (id: string) =>
-      setPendingRead((p) => {
-        const next = new Set(p);
-        next.add(id);
-        return next;
-      }),
+    onMutate: (id: string) => updatePending((p) => (p.ids.includes(id) ? p : {...p, ids: [...p.ids, id]})),
     onError: (err, id) => {
-      setPendingRead((p) => {
-        const next = new Set(p);
-        next.delete(id);
-        return next;
-      });
+      updatePending((p) => ({...p, ids: p.ids.filter((pendingId) => pendingId !== id)}));
       onMutationError?.(err);
     },
     onSuccess: scheduleReconcile
@@ -142,9 +163,9 @@ export function useNotifications(
       const result = await enqueueNotificationAction({action: 'markAllRead', username: username as string});
       unwrap(result);
     },
-    onMutate: () => setPendingAll(true),
+    onMutate: () => updatePending((p) => ({...p, all: true})),
     onError: (err) => {
-      setPendingAll(false);
+      updatePending((p) => ({...p, all: false}));
       onMutationError?.(err);
     },
     onSuccess: scheduleReconcile
@@ -153,9 +174,9 @@ export function useNotifications(
   // Server truth with the optimistic read overlay applied.
   const notifications = useMemo<Notification[]>(() => {
     const list = query.data ?? [];
-    if (!pendingAll && pendingRead.size === 0) return list;
-    return list.map((n) => (!n.read && (pendingAll || pendingRead.has(n.id)) ? {...n, read: true} : n));
-  }, [query.data, pendingAll, pendingRead]);
+    if (!pending.all && pending.ids.length === 0) return list;
+    return list.map((n) => (!n.read && (pending.all || pending.ids.includes(n.id)) ? {...n, read: true} : n));
+  }, [query.data, pending]);
 
   const unreadCount = useMemo(() => countUnread(notifications), [notifications]);
 

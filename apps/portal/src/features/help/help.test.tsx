@@ -604,7 +604,8 @@ describe('the long-query guides', () => {
 
     const runQuery = guide('query', 'run-query')?.callout?.text ?? '';
     const runScript = guide('query', 'run-script')?.steps.find((step) => step.startsWith('If a statement fails')) ?? '';
-    const explore = guide('data-explorer', 'start-exploring')?.steps.find((step) => step.includes(minutes)) ?? '';
+    // Not something a user does, so the Explorer states it in its callout rather than a step.
+    const explore = guide('data-explorer', 'start-exploring')?.callout?.text ?? '';
 
     for (const text of [runQuery, runScript, explore]) expect(text).toContain(minutes);
     expect(runQuery).toContain('athenaresults');
@@ -741,5 +742,33 @@ describe('the archive switch in Help', () => {
 
   it('shows the archive guide with every flag on', () => {
     expect(filesGuides(visibleHelpSections(() => true))).toContain('archive-files');
+  });
+});
+
+describe('what a switch removes, Help leaves out of the guides it does not hide', () => {
+  const guideText = (id: string) => {
+    const guide = HELP_SECTIONS.flatMap((s) => s.guides).find((g) => g.id === id);
+    expect(guide, id).toBeDefined();
+    return [guide!.subtitle, guide!.intro ?? '', ...guide!.steps, guide!.callout?.text ?? ''].join(' ');
+  };
+
+  it('keeps the theme guide with every switch off, since the Theme control is on every page', () => {
+    const guides = visibleHelpSections(() => false).flatMap((s) => s.guides.map((g) => g.id));
+
+    expect(guides).toContain('choose-a-theme');
+  });
+
+  it('names a shared space or a conversion format only in the guides those switches hide', () => {
+    // The recipient kind and the Format field are each removed by their own switch, so the send,
+    // share and save guides beside them must stay true without them. The options live in the
+    // split-out guides, which the registry hides with the switch.
+    for (const id of ['send-files', 'share-table']) expect(guideText(id), id).not.toMatch(/shared space|Space names/i);
+    for (const id of ['save-results', 'explore-copy-and-export'])
+      expect(guideText(id), id).not.toMatch(/Parquet|Excel|<b>Format<\/b>/);
+
+    expect(guideText('send-files-to-a-space')).toMatch(/<b>Shared spaces<\/b>/);
+    expect(guideText('share-table-to-a-space')).toMatch(/<b>Shared spaces<\/b>/);
+    expect(guideText('save-results-formats')).toMatch(/<b>Format<\/b>/);
+    expect(guideText('explore-save-formats')).toMatch(/<b>Format<\/b>/);
   });
 });
