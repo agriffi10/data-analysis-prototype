@@ -29,7 +29,9 @@ Attributes:
   ENTRY_FIELDS: The keys one entry carries — deliberately the row's fields and nothing more. The
     size of this object is the dashboard's load time, since it is fetched whole on every page
     load, so putting findings in it would make the list page pay to download detail it never
-    renders. The heavy findings stay in the per-run report, fetched only on drill-down.
+    renders. The heavy findings stay in the per-run report, fetched only on drill-down. The row's
+    qualifier is the incomplete flag rather than the approximate one: the approximate flag is true
+    on every report, so a tag keyed to it sat on every row and told the user nothing.
 """
 
 import json
@@ -49,7 +51,7 @@ ENTRY_FIELDS = (
     "format",
     "verdict",
     "fileCount",
-    "hasApproximateFigures",
+    "hasIncompleteFigures",
     "timestamp",
 )
 

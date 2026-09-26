@@ -506,7 +506,7 @@ last**; nothing else depends on it.
 folder** (`{space}/_data-quality-reports/{requestId}/report.json`) with a drill-down view — but had **no parent page and no nav
 entry**, so a report was reachable *only* from its notification and **dismissing the notification lost it**. **123** adds a
 `/data-quality` list page (a **primary nav** entry + an `AppNavDrawer` destination), aggregating runs across the user's personal
-space and their shared spaces, newest first, 10/page, with verdict and `Sampled` chips — drilling into the SPEC-113 report view.
+space and their shared spaces, newest first, 10/page, with verdict and `Sampled` chips **— superseded 2026-09-26: the tag is `Partly checked`, keyed to `hasIncompleteFigures`, since `hasApproximateFigures` is true on every report; see the SPEC-123 register entry —** — drilling into the SPEC-113 report view.
 **The mechanism that makes it possible is a per-space `index.json`**: listing the reports prefix and GETting every report would be
 one round-trip per row *and* return them in **UUID order — no chronology at all**, so "recent checks" would be randomly sorted and
 would get slower the more the feature is used. `assemble-report` therefore appends a small entry (location, verdict, timestamp,

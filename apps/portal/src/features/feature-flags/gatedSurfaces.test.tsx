@@ -1111,7 +1111,7 @@ function runSummary(space: string): DataQualityRunSummary {
     format: 'csv',
     verdict: 'clean',
     fileCount: 1,
-    hasApproximateFigures: false,
+    hasIncompleteFigures: false,
     timestamp: '2026-09-01T00:00:00Z'
   };
 }

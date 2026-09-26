@@ -58,7 +58,7 @@ describe('DataQualityPage', () => {
       format: 'csv',
       verdict: 'issues_found',
       fileCount: 3,
-      hasApproximateFigures: false,
+      hasIncompleteFigures: false,
       timestamp: '2026-07-20T10:00:00Z',
       ...over
     };
@@ -142,30 +142,33 @@ describe('DataQualityPage', () => {
     });
   });
 
-  describe('DataQualityPage — the verdict and the sampled qualifier', () => {
-    it('never renders a sampled run as an unqualified Clean', async () => {
-      // The list is where a user forms a quick impression, so the same rule SPEC-112 and
-      // SPEC-114 enforce in the report and the notification applies at row level too.
+  describe('DataQualityPage — the verdict and the partly checked qualifier', () => {
+    it('never renders a partly checked run as an unqualified Clean', async () => {
+      // The list is where a user forms a quick impression, so the flag the report banner
+      // warns on qualifies the row too — visibly, and in the link's accessible name, which
+      // replaces the tag's text for a screen reader.
       mockIndex.mockImplementation(async (_bucket, space) =>
-        space === 'alice' ? ok([run({verdict: 'clean', hasApproximateFigures: true})]) : ok([])
+        space === 'alice' ? ok([run({verdict: 'clean', hasIncompleteFigures: true})]) : ok([])
       );
 
       renderPage();
 
       const row = (await screen.findAllByRole('listitem'))[0];
       expect(within(row).getByText('Clean')).toBeInTheDocument();
-      expect(within(row).getByText('Sampled')).toBeInTheDocument();
-      // The link's name replaces what the row shows, so it must not drop the qualifier either.
-      expect(within(row).getByRole('link')).toHaveAccessibleName(/— clean, sampled$/);
+      expect(within(row).getByText('Partly checked')).toBeInTheDocument();
+      expect(within(row).getByRole('link')).toHaveAccessibleName(/— clean, partly checked$/);
     });
 
-    it('omits the sampled chip when nothing was estimated', async () => {
+    it('omits the tag when every check ran in full', async () => {
       mockIndex.mockImplementation(async (_bucket, space) =>
-        space === 'alice' ? ok([run({verdict: 'clean', hasApproximateFigures: false})]) : ok([])
+        space === 'alice' ? ok([run({verdict: 'clean', hasIncompleteFigures: false})]) : ok([])
       );
       renderPage();
-      expect(await screen.findByText('Clean')).toBeInTheDocument();
-      expect(screen.queryByText('Sampled')).not.toBeInTheDocument();
+      // Wait on the ROW: the filter bar has its own "Clean" button, so waiting on that text
+      // would let the absence below pass before any run had rendered.
+      const link = await rowFor('alice/sales/');
+      expect(link).toHaveAccessibleName(/— clean$/);
+      expect(screen.queryByText('Partly checked')).not.toBeInTheDocument();
     });
   });
 
@@ -438,7 +441,7 @@ describe('DataQualityPage.a11y', () => {
       format: 'csv',
       verdict: 'issues_found',
       fileCount: 3,
-      hasApproximateFigures: true,
+      hasIncompleteFigures: true,
       timestamp: '2026-07-20T10:00:00Z',
       ...over
     };
@@ -461,7 +464,7 @@ describe('DataQualityPage.a11y', () => {
     mockCache.mockResolvedValue({success: true, data: {version: 1, connections: []}});
     mockIndex.mockResolvedValue({
       success: true,
-      data: [run(), run({requestId: 'r-2', verdict: 'clean', hasApproximateFigures: false, location: 'alice/ok.csv'})]
+      data: [run(), run({requestId: 'r-2', verdict: 'clean', hasIncompleteFigures: false, location: 'alice/ok.csv'})]
     });
     // A folder AND a file, so the start-a-check dialog's selectable file row is in the
     // tree axe sees. The suite-wide `listFiles` mock is bare `vi.fn()`.

@@ -12,16 +12,16 @@ import type {DataQualityRunSummary} from './dataQuality.types';
  * THE WHOLE ROW IS THE LINK, and its accessible name names the location — never "view" or
  * "here". A screen-reader user tabbing the list hears where each link goes without having
  * to read the surrounding row. The name carries everything the card shows: the label replaces
- * the content, so a figure left out of it is one a screen reader never hears — the Sampled
- * qualifier above all, and the time and file count that tell two checks of one folder apart.
+ * the content, so a figure left out of it is one a screen reader never hears — the Partly
+ * checked qualifier above all, and the time and file count that tell two checks of one folder apart.
  */
 export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
-  const {space, requestId, location, verdict, fileCount, hasApproximateFigures, timestamp} = run;
+  const {space, requestId, location, verdict, fileCount, hasIncompleteFigures, timestamp} = run;
   const {parent, name} = splitLocation(location);
   const clean = verdict === 'clean';
   const when = formatRelativeTime(timestamp);
   const files = `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
-  const outcome = `${clean ? 'clean' : 'issues found'}${hasApproximateFigures ? ', sampled' : ''}`;
+  const outcome = `${clean ? 'clean' : 'issues found'}${hasIncompleteFigures ? ', partly checked' : ''}`;
 
   return (
     <li>
@@ -56,11 +56,13 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
 
         <div className="flex flex-none flex-col items-end gap-1">
           <VerdictChip clean={clean} />
-          {/* THE SAMPLED CHIP IS NOT DECORATION. The list is where a user forms a quick
-              impression, so a run whose figures are estimates must never read as an
-              unqualified "Clean" here any more than it may in the report or the
-              notification (the same rule applied at list level). */}
-          {hasApproximateFigures && <Badge>Sampled</Badge>}
+          {/* THE PARTLY CHECKED TAG IS NOT DECORATION. The list is where a user forms a
+              quick impression, so a run where a check was skipped, failed or only sampled
+              must never read as an unqualified "Clean" here, just as the report banner
+              warns on the same flag. It keys off the incomplete flag, not the approximate
+              one: that is true on every report, so a tag keyed to it said nothing. The
+              link's aria-label replaces this text for a screen reader, so it says it too. */}
+          {hasIncompleteFigures && <Badge>Partly checked</Badge>}
         </div>
       </Link>
     </li>

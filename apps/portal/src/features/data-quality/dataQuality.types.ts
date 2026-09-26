@@ -37,7 +37,13 @@ export type DataQualityRunSummary = {
   format: string;
   verdict: DataQualityVerdict;
   fileCount: number;
-  hasApproximateFigures: boolean;
+  /**
+   * The report's `hasIncompleteFigures`: a check was skipped or failed, or the encoding scan
+   * only sampled the bytes. It drives the row's Partly checked tag, which is the same flag
+   * the report banner warns on. An entry written before the index carried it reads as
+   * `true`, so an old run never shows as an unqualified Clean.
+   */
+  hasIncompleteFigures: boolean;
   /** The report's `completedAt`. */
   timestamp: string;
 };

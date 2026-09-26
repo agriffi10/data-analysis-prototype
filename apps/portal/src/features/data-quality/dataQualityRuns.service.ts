@@ -35,6 +35,10 @@ function isEntry(value: unknown): value is Omit<DataQualityRunSummary, 'space'> 
  * `entries` array reads as the empty list, mirroring the writer — which rebuilds the index
  * on the next run rather than treating a corrupt one as fatal. `space` is stamped onto every
  * entry here because the entry on S3 does not carry its own, and the row's link needs it.
+ *
+ * Anything but an explicit `false` in `hasIncompleteFigures` reads as incomplete. Entries
+ * written before the index carried the flag lack it, and guessing "complete" for them
+ * would show a run nobody can vouch for as an unqualified Clean.
  */
 function parseIndex(body: string | undefined, space: string): DataQualityRunSummary[] {
   let parsed: unknown;
@@ -45,7 +49,9 @@ function parseIndex(body: string | undefined, space: string): DataQualityRunSumm
   }
   const entries = (parsed as {entries?: unknown})?.entries;
   if (!Array.isArray(entries)) return [];
-  return entries.filter(isEntry).map((entry) => ({...entry, space}));
+  return entries
+    .filter(isEntry)
+    .map((entry) => ({...entry, space, hasIncompleteFigures: entry.hasIncompleteFigures !== false}));
 }
 
 /**

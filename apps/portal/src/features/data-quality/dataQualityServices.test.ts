@@ -247,7 +247,7 @@ describe('dataQualityRuns.service', () => {
     format: 'csv',
     verdict: 'issues_found',
     fileCount: 3,
-    hasApproximateFigures: false,
+    hasIncompleteFigures: false,
     timestamp: '2026-07-20T10:00:00Z',
     ...over
   });
@@ -296,6 +296,27 @@ describe('dataQualityRuns.service', () => {
       expect(result.success).toBe(true);
       if (!result.success) return;
       expect(result.data.map((r) => r.requestId)).toEqual(['r-1']);
+    });
+
+    it('reads an entry written before the index carried the incomplete flag as incomplete', async () => {
+      // An older entry has only the always-true approximate flag. Guessing "complete" for
+      // it would put an unqualified Clean on a run nobody can vouch for.
+      const older = {
+        requestId: 'r-1',
+        location: 'alice/sales/',
+        format: 'csv',
+        verdict: 'clean',
+        fileCount: 3,
+        hasApproximateFigures: true,
+        timestamp: '2026-07-20T10:00:00Z'
+      };
+      send.mockResolvedValue(body({entries: [older, entry({requestId: 'r-2'})]}));
+
+      const result = await getRunsIndex('user-space', 'alice');
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.map((r) => r.hasIncompleteFigures)).toEqual([true, false]);
     });
   });
 });
