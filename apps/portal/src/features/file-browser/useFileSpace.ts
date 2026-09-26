@@ -170,8 +170,10 @@ export function useFileSpace({
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          // A space switch resets navigation to the space's root.
+          // A space switch resets navigation to the space's root, and drops a conflict review's
+          // id: the switch remounts the browser, which would open the review again.
           next.delete('prefix');
+          next.delete('requestId');
           if (id === 'personal') next.delete('space');
           else next.set('space', id);
           return next;

@@ -47,6 +47,20 @@ describe('AppNavDrawer', () => {
       expect(onClose).toHaveBeenCalledTimes(4);
     });
 
+    it('stays open when a press inside the drawer is released over the scrim', async () => {
+      const onClose = vi.fn();
+      const {user} = renderDrawer({onClose});
+      const drawer = screen.getByRole('dialog', {name: 'Navigation'});
+
+      await user.pointer([
+        {keys: '[MouseLeft>]', target: drawer},
+        {target: drawer.parentElement!},
+        {keys: '[/MouseLeft]', target: drawer.parentElement!}
+      ]);
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
     it('moves focus into the drawer on open and returns it to the trigger on close', async () => {
       function Harness({open}: {open: boolean}) {
         return (
@@ -108,6 +122,26 @@ describe('CollapsibleRail', () => {
       await user.click(handle);
       expect(screen.queryByRole('button', {name: /show sidebar/i})).not.toBeInTheDocument();
       expect(screen.getByRole('button', {name: /collapse sidebar/i})).toBeInTheDocument();
+    });
+
+    it('moves focus to Show sidebar on a collapse, having taken none on mount', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      renderRail();
+      expect(document.body).toHaveFocus();
+
+      await user.click(screen.getByRole('button', {name: /collapse sidebar/i}));
+
+      expect(screen.getByRole('button', {name: /show sidebar/i})).toHaveFocus();
+    });
+
+    it('moves focus back to Collapse when Show sidebar unmounts itself', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      localStorage.setItem(RAIL_COLLAPSED_STORAGE_KEY, 'true');
+      renderRail();
+
+      await user.click(screen.getByRole('button', {name: /show sidebar/i}));
+
+      expect(screen.getByRole('button', {name: /collapse sidebar/i})).toHaveFocus();
     });
 
     it('persists the collapsed choice under the single shared key', async () => {

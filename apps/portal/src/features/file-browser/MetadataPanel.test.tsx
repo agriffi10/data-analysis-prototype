@@ -1,11 +1,12 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {MetadataPanel} from './MetadataPanel';
 import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import type {ObjectMetadata} from './fileBrowser.types';
 import type {S3FileItem} from '../../types/s3.types';
+import type {QueryClient} from '@tanstack/react-query';
 
 // Integration style (react.md §21): render the REAL MetadataPanel + its real
 // useObjectMetadata hook + the shared Drawer, and mock ONLY the AWS boundary —
@@ -40,7 +41,7 @@ const metadata: ObjectMetadata = {
 const ok = <T,>(data: T) => ({success: true as const, data});
 const fail = (message: string) => ({success: false as const, error: {message}});
 
-function renderPanel(over: {canModify?: boolean} = {}) {
+function renderPanel(over: {canModify?: boolean; queryClient?: QueryClient} = {}) {
   const onClose = vi.fn();
   const onRequestRename = vi.fn();
   const result = renderWithProviders(
@@ -51,7 +52,8 @@ function renderPanel(over: {canModify?: boolean} = {}) {
       canModify={over.canModify ?? true}
       onRequestRename={onRequestRename}
       onClose={onClose}
-    />
+    />,
+    {queryClient: over.queryClient}
   );
   return {...result, onClose, onRequestRename};
 }
@@ -86,6 +88,22 @@ describe('MetadataPanel', () => {
     // Copy affordances for both path fields.
     expect(screen.getByRole('button', {name: /copy path/i})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: /copy full cloud path/i})).toBeInTheDocument();
+  });
+
+  it('reads the metadata again when Details reopens, so an overwrite never shows the old ETag', async () => {
+    // The app's own cache timings, not the harness's zero, or the old answer could never be served.
+    const queryClient = createTestQueryClient();
+    queryClient.setDefaultOptions({queries: {retry: false, staleTime: 30_000, gcTime: Infinity}});
+    const first = renderPanel({queryClient});
+    expect(await screen.findByText('abc123')).toBeInTheDocument();
+    first.unmount();
+    mock.getObjectMetadata.mockResolvedValue(ok({...metadata, size: 10, etag: '"def456"'}));
+
+    renderPanel({queryClient});
+
+    expect(await screen.findByText('def456')).toBeInTheDocument();
+    expect(screen.queryByText('abc123')).not.toBeInTheDocument();
+    expect(mock.getObjectMetadata).toHaveBeenCalledTimes(2);
   });
 
   it('renders custom metadata pairs, or an empty state when there are none', async () => {

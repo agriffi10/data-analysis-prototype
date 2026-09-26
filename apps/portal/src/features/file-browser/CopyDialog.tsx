@@ -5,6 +5,7 @@ import type {SelectableItem} from './selectionContext';
 // confirm is a submission point, so a structural copy here could drift from what actually runs.
 import type {SameFolderPromptControls} from './useFileBrowserDialogs';
 import type {FileSpaceTarget} from './useFileSpace';
+import {Banner} from '../../components/Banner';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
@@ -21,6 +22,10 @@ type Props = {
   // When set, the copy is into the items' current parent: the picker is
   // replaced by an editable, pre-filled non-colliding name field.
   sameFolderPrompt?: SameFolderPromptControls | null;
+  // Why the same-folder name lookup failed. Shown here, not on the page, because the dialog is
+  // still open over the page and modal: anything behind it is under the scrim and unannounced.
+  error?: string | null;
+  onDismissError?: () => void;
   onCopy: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
@@ -71,6 +76,10 @@ function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPromptCont
  * triggers the same-folder auto-number flow, which replaces the picker
  * with an editable name field.
  *
+ * Only for a SINGLE item: the auto-number prompt names one copy, so a selection of
+ * several is refused at the current folder, with the reason, rather than copying the
+ * first item and dropping the rest.
+ *
  * @example
  * <CopyDialog bucket={bucket} items={selected} rootPrefix="alice/" currentPrefix="alice/docs/" destinations={destinations} onCopy={copy} onCancel={close} />
  */
@@ -83,6 +92,8 @@ export function CopyDialog({
   isBusy = false,
   destinations,
   sameFolderPrompt,
+  error,
+  onDismissError,
   onCopy,
   onCancel
 }: Props) {
@@ -111,6 +122,15 @@ export function CopyDialog({
         Copy {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>
 
+      {error && (
+        <Banner
+          variant="danger"
+          onDismiss={onDismissError}
+          className="mt-3">
+          {error}
+        </Banner>
+      )}
+
       <DestinationPicker
         bucket={bucket}
         items={items}
@@ -119,7 +139,8 @@ export function CopyDialog({
         currentPrefix={currentPrefix}
         isBusy={isBusy}
         destinations={destinations}
-        allowCurrentParent
+        allowCurrentParent={items.length === 1}
+        currentParentMessage="Copy several items into a different folder."
         autoFocus
         confirmLabel="Copy here"
         busyLabel="Copying…"

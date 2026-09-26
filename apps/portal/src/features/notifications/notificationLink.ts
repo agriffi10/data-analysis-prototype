@@ -1,5 +1,8 @@
 import {spaceBuckets} from '../../lib/userSpace';
 
+/** A stand-in origin to resolve against: only whether a path LEAVES it matters. */
+const IN_APP_BASE = 'https://in-app.invalid';
+
 /**
  * Is `link` a safe IN-APP path that may be rendered as a router `<Link>`?
  *
@@ -16,6 +19,10 @@ import {spaceBuckets} from '../../lib/userSpace';
  *    browser resolves it to another origin entirely.
  *  - `/\evil.test` and `/\\evil.test` — the same attack past a naive `//` check:
  *    browsers normalize a backslash to a forward slash in the authority position.
+ *  - any ASCII control character — `/\t/evil.test` passes a second-character check, and
+ *    the URL parser then strips tab, newline and carriage return, leaving `//evil.test`.
+ *    As a backstop against the next such normalisation, the path must also RESOLVE on
+ *    this origin.
  *  - a relative path (`data-quality/...`) — resolves against whatever route the user
  *    happens to be on, so where it lands is not knowable here.
  *
@@ -26,7 +33,13 @@ export function isSafeInAppPath(link: unknown): link is string {
   if (typeof link !== 'string' || link.length < 1) return false;
   if (link[0] !== '/') return false;
   // Second character decides: anything that can open an authority is out.
-  return link[1] !== '/' && link[1] !== '\\';
+  if (link[1] === '/' || link[1] === '\\') return false;
+  if ([...link].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f)) return false;
+  try {
+    return new URL(link, IN_APP_BASE).origin === IN_APP_BASE;
+  } catch {
+    return false;
+  }
 }
 
 /**

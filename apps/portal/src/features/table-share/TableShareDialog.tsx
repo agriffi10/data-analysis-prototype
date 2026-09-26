@@ -71,6 +71,8 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
   const nameRef = useRef<HTMLInputElement>(null);
   const entryRef = useRef<UsernameComboboxHandle>(null);
   const entryHelpId = useId();
+  const pendingEntryId = useId();
+  const [attempted, setAttempted] = useState(false);
   const userSuggestions = useUsernameSuggestions();
   const spaceSuggestions = useSpaceSuggestions();
 
@@ -112,9 +114,15 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
     setRecipients((prev) => prev.filter((r) => !(r.kind === recipient.kind && r.name === recipient.name)));
 
   const canSubmit = recipients.length > 0 && nameValid && !busy;
+  // Text typed and never added. Sharing past it would silently drop a recipient the user can see
+  // in the field, so the share is refused, inline, until it is added or cleared. Not folded into
+  // `submitDisabled`: a disabled Share explains nothing.
+  const pendingEntry = entry.trim() !== '';
+  const showPendingEntry = attempted && pendingEntry;
 
   const attempt = () => {
-    if (canSubmit) onSubmit({tableName: trimmedName, recipients});
+    setAttempted(true);
+    if (canSubmit && !pendingEntry) onSubmit({tableName: trimmedName, recipients});
   };
 
   return (
@@ -213,7 +221,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
             value={entry}
             placeholder={kind === 'space' ? 'e.g. salesteam' : 'e.g. bob, cara'}
             disabled={busy}
-            describedBy={entryHelpId}
+            describedBy={showPendingEntry ? `${pendingEntryId} ${entryHelpId}` : entryHelpId}
             suppress={listed}
             {...(kind === 'space' ? {unlistedNote: unlistedSpaceNote} : {})}
             onChange={setEntry}
@@ -232,6 +240,14 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
           Add
         </Button>
       </div>
+      {showPendingEntry && (
+        <p
+          id={pendingEntryId}
+          role="alert"
+          className="mb-1 text-xs text-danger">
+          Add the name you typed (press Enter or Add), or clear it, before sharing.
+        </p>
+      )}
       <p
         id={entryHelpId}
         className="mb-2 text-xs text-text-3">

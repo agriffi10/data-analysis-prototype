@@ -331,13 +331,13 @@ export function useFileBrowserDialogs({
     // Awaited by its dialog where the other three are fire-and-forget, and the dispatch returns
     // the SYNCHRONOUS delete's own promise as well as the enqueue's — so the close-and-clear waits
     // for whichever ran. Closing first would dismiss the dialog before either resolved and lose
-    // the busy state the confirm control reads.
+    // the busy state the confirm control reads. Because the clear comes AFTER the request, a
+    // refused one simply keeps the selection rather than clearing and restoring it — a restore
+    // here would read the live count from before this clear and skip itself.
     confirmDelete: async () => {
       const items = [...selection.selected.values()];
-      const from = currentPrefix;
       const outcome = await dispatch({operation: 'delete', items}, () => del.runDelete(items));
-      selection.clear();
-      restoreOnFailure(outcome, items, from);
+      if (outcome !== 'refused') selection.clear();
       setConfirmDeleteOpen(false);
     },
 
@@ -390,9 +390,15 @@ export function useFileBrowserDialogs({
     },
 
     copying,
-    openCopy: () => setCopying([...selection.selected.values()]),
+    // The dialog shows the copy error while it is open, so one from an earlier copy is dropped
+    // on the way in, and the dialog's own is not left behind on the page on the way out.
+    openCopy: () => {
+      copy.dismissError();
+      setCopying([...selection.selected.values()]);
+    },
     cancelCopy: () => {
       copy.cancelCollision();
+      copy.dismissError();
       setCopying(null);
     },
     confirmCopy: (destPrefix, destBucket) => {

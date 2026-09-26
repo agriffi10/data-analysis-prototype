@@ -26,6 +26,13 @@ export function Header() {
   const [navOpen, setNavOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const isMobile = useIsMobile();
+  // The drawer exists below `tablet` only. Kept open across a width change it would reappear,
+  // open and unasked, when the width came back — rotating an iPad twice — so a change closes it.
+  const [wasMobile, setWasMobile] = useState(isMobile);
+  if (isMobile !== wasMobile) {
+    setWasMobile(isMobile);
+    setNavOpen(false);
+  }
   const navDrawerId = useId();
   const contextualRail = useNavRailContent();
 

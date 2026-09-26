@@ -1,4 +1,4 @@
-import {useId, type ReactNode} from 'react';
+import {useEffect, useId, useRef, type ReactNode} from 'react';
 import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {ChevronLeftIcon, ChevronRightIcon} from './icons';
@@ -33,10 +33,31 @@ type CollapsibleRailProps = {
  * it from the accessibility tree once collapsed (matching the previous `display:none`).
  * The collapsed choice is remembered per browser via `useRailCollapsed` (shared across
  * both rails).
+ *
+ * **Focus follows the user's toggle, never dropped.** Collapse leaves its own button
+ * invisible and Show sidebar unmounts, so each moves focus to the control that now stands
+ * in its place. Only a toggle the user made moves it — a remembered state restored on
+ * mount focuses nothing.
  */
 export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', children}: CollapsibleRailProps) {
   const {collapsed, setCollapsed} = useRailCollapsed();
   const railId = useId();
+  const collapseRef = useRef<HTMLButtonElement>(null);
+  const showRef = useRef<HTMLButtonElement>(null);
+  // Set by the toggles, read once after the commit that renders the new state.
+  const focusAfterToggle = useRef<'show' | 'collapse' | null>(null);
+
+  useEffect(() => {
+    const target = focusAfterToggle.current;
+    focusAfterToggle.current = null;
+    if (target === 'show') showRef.current?.focus();
+    if (target === 'collapse') collapseRef.current?.focus();
+  }, [collapsed]);
+
+  const toggle = (next: boolean) => {
+    focusAfterToggle.current = next ? 'show' : 'collapse';
+    setCollapsed(next);
+  };
 
   return (
     <>
@@ -56,11 +77,12 @@ export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', chi
           <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">
             {title ? <span className={SECTION_CAPTION}>{title}</span> : <span aria-hidden="true" />}
             <IconButton
+              ref={collapseRef}
               label="Collapse sidebar"
               size="sm"
               aria-expanded={!collapsed}
               aria-controls={railId}
-              onClick={() => setCollapsed(true)}>
+              onClick={() => toggle(true)}>
               <ChevronLeftIcon className="h-4 w-4" />
             </IconButton>
           </div>
@@ -70,11 +92,12 @@ export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', chi
 
       {collapsed && (
         <button
+          ref={showRef}
           type="button"
           aria-label="Show sidebar"
           aria-expanded={false}
           aria-controls={railId}
-          onClick={() => setCollapsed(false)}
+          onClick={() => toggle(false)}
           className="hidden w-7 shrink-0 items-start justify-center border-r border-border bg-surface pt-3 text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent tablet:flex">
           <ChevronRightIcon className="h-4 w-4" />
         </button>

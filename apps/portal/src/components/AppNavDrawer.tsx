@@ -7,6 +7,7 @@ import {BellIcon, HelpCircleIcon} from './icons';
 import {DestinationIcon} from './DestinationIcon';
 import {BrandMark} from './BrandMark';
 import {useEscapeKey} from '../hooks/useEscapeKey';
+import {useBackdropDismiss} from './useBackdropDismiss';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -113,6 +114,7 @@ const DESTS: NavDest[] = [
  */
 export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, actions}: AppNavDrawerProps) {
   useEscapeKey(onClose, open);
+  const backdrop = useBackdropDismiss(onClose);
   const panelRef = useRef<HTMLElement>(null);
 
   // Lock background scroll while open (parity with the modal/drawer overlays).
@@ -143,7 +145,7 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
       }}>
       <div
         className="fixed inset-0 z-40 flex bg-black/30 backdrop-blur-sm"
-        onClick={onClose}>
+        {...backdrop}>
         <aside
           ref={panelRef}
           id={id}

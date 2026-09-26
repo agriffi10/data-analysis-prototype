@@ -73,6 +73,8 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
     const banner = await screen.findByText(/Couldn’t load your shared spaces/);
     expect(banner).not.toHaveTextContent('boom');
     expect(screen.getByRole('button', {name: 'New shared space'})).toBeInTheDocument();
+    // A load that failed says nothing about what the user has, so no "you have none" beside it.
+    expect(screen.queryByText(/No shared spaces yet/)).not.toBeInTheDocument();
   });
 
   it('Refresh forces a credential refresh then re-reads, picking up a now-active connection', async () => {
@@ -103,6 +105,26 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
     expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({action: 'create', space: 'sales_data'}));
     const created = await rowFor('sales_data');
     expect(within(created).getByText('Provisioning…')).toBeInTheDocument();
+  });
+
+  it('drops a created space’s pending row once the cache lists it, so a later delete leaves no phantom', async () => {
+    mockRead.mockResolvedValue(cache([]));
+    const {user} = renderPage();
+    await screen.findByText(/No shared spaces yet/);
+    await user.click(screen.getByRole('button', {name: 'New shared space'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Create shared space'});
+    await user.type(within(dialog).getByLabelText('Space name'), 'sales_data');
+    await user.click(within(dialog).getByRole('button', {name: 'Create'}));
+    await rowFor('sales_data');
+    mockRead.mockResolvedValue(cache([{name: 'sales_data', role: 'owner', status: 'active'}]));
+    await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
+    expect(within(await rowFor('sales_data')).getByText('Active')).toBeInTheDocument();
+    mockRead.mockResolvedValue(cache([]));
+
+    await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
+
+    expect(await screen.findByText(/No shared spaces yet/)).toBeInTheDocument();
+    expect(screen.queryByText('Provisioning…')).not.toBeInTheDocument();
   });
 
   it('a failed entry surfaces its reason with Retry (re-enqueues, flips to provisioning) and Dismiss (durable forget, removes)', async () => {
@@ -540,6 +562,19 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     const drawer = screen.getByRole('dialog', {name: 'Manage members'});
     expect(within(within(drawer).getByText('alice').closest('li')!).getByText('Owner')).toBeInTheDocument();
     expect(within(drawer).getByRole('button', {name: 'Make owner: bob'})).toBeInTheDocument();
+  });
+
+  it('closes the Manage drawer once the transfer lands and the row is a member one', async () => {
+    mockRead.mockResolvedValue(cache(OWNED));
+    const {user} = renderPage();
+    await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
+    const drawer = await screen.findByRole('dialog', {name: 'Manage members'});
+    mockRead.mockResolvedValue(cache([{name: 'owned', role: 'member', status: 'active', owner: 'bob'}]));
+
+    await user.click(within(drawer).getByRole('button', {name: 'Refresh shared spaces'}));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Manage members'})).not.toBeInTheDocument());
+    expect(within(await rowFor('owned')).getByText('member')).toBeInTheDocument();
   });
 
   it('renders our own wording on a failure, never the service’s', async () => {

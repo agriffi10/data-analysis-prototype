@@ -86,10 +86,9 @@ export function FileListRowMobile(props: FileListRowMobileProps) {
       {isFolder ? (
         <ChevronRightIcon className="h-4 w-4 shrink-0 text-text-3" />
       ) : props.isDownloading ? (
-        <span
-          className="shrink-0 text-sm text-text-3"
-          aria-label="Downloading">
-          …
+        <span className="shrink-0 text-sm text-text-3">
+          <span aria-hidden="true">…</span>
+          <span className="sr-only">Downloading</span>
         </span>
       ) : (
         <span className="shrink-0 text-sm text-text-2">{formatSize(props.file.size)}</span>

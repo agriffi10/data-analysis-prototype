@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {MockedFunction} from 'vitest';
 import {act, renderHook} from '@testing-library/react';
 import {enqueueSharedSpaceRequest} from './sharedSpaces.service';
@@ -31,6 +31,10 @@ describe('useAcknowledgeMembership', () => {
     mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   describe('useAcknowledgeMembership (SPEC-073 FR-003)', () => {
     it('enqueues exactly one acknowledge_membership request for a member on an active shared space', () => {
       renderHook(() => useAcknowledgeMembership('bob', [personal, memberActive], 'sales'));
@@ -42,6 +46,20 @@ describe('useAcknowledgeMembership', () => {
       const {rerender} = renderHook(() => useAcknowledgeMembership('bob', [personal, memberActive], 'sales'));
       rerender();
       rerender();
+      expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('acks once, and throws nothing, when session storage refuses every access', () => {
+      const refuse = () => {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      };
+      vi.stubGlobal('sessionStorage', {getItem: refuse, setItem: refuse});
+      const {rerender} = renderHook(({connections}) => useAcknowledgeMembership('bob', connections, 'sales'), {
+        initialProps: {connections: [personal, memberActive]}
+      });
+
+      rerender({connections: [personal, {...memberActive}]});
+
       expect(mockEnqueue).toHaveBeenCalledTimes(1);
     });
 

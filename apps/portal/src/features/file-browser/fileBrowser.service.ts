@@ -581,6 +581,9 @@ export async function uploadFile(params: {
     signal
   });
   if (!begun.success) {
+    // A cancel landing while the plan is fetched arrives as the client's own abort code, which
+    // would otherwise tell the user their cancel timed out.
+    if (signal?.aborted) return cancelled();
     if (begun.error.code === 'Conflict') {
       return {success: false, error: {message: `"${key}" already exists.`, code: 'Collision'}};
     }

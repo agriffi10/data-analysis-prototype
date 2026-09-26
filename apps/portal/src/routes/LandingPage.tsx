@@ -1,8 +1,8 @@
-import type {ReactNode} from 'react';
+import {useEffect, type ReactNode} from 'react';
 import {Navigate, useNavigate} from 'react-router';
 import {useAuth} from '../features/auth';
 import {FEATURE_FLAG_KEYS, navDestination, useFeatureSet} from '../features/feature-flags';
-import {takeReturnPath} from '../lib/returnPath';
+import {clearReturnPath, peekReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
@@ -392,23 +392,28 @@ export default function LandingPage() {
   // Named after the destination it opens, always — no page is called Dashboard.
   const dashboard = dashboardKey ? navDestination(dashboardKey) : undefined;
 
-  // A visitor who just completed an auth round-trip is sent on to their pending
-  // return path. An already-signed-in visitor has none — they stay here and see
-  // "Go to Files" instead of the sign-in/sign-up buttons.
   // Signed in with every feature off: there is nowhere to send them, so the landing page
   // becomes the same "not available" state a gated route renders, naming no feature.
-  if (isAuthed && flagsStatus !== 'loading' && !dashboardKey) return <FeatureUnavailablePage />;
+  const unavailable = isAuthed && flagsStatus !== 'loading' && !dashboardKey;
+  // A visitor who just completed an auth round-trip is sent on to their pending
+  // return path. An already-signed-in visitor has none — they stay here and see
+  // "Go to Files" instead of the sign-in/sign-up buttons. Read in render and cleared
+  // once committed: StrictMode keeps the SECOND render, which a read that cleared would
+  // leave with nothing, dropping the deep link.
+  const returnTarget = isAuthed && !unavailable ? peekReturnPath() : null;
+  useEffect(() => {
+    if (returnTarget) clearReturnPath();
+  }, [returnTarget]);
 
-  if (isAuthed) {
-    const target = takeReturnPath();
-    if (target)
-      return (
-        <Navigate
-          to={target}
-          replace
-        />
-      );
-  }
+  if (unavailable) return <FeatureUnavailablePage />;
+
+  if (returnTarget)
+    return (
+      <Navigate
+        to={returnTarget}
+        replace
+      />
+    );
 
   return (
     <div className="min-h-screen bg-bg">

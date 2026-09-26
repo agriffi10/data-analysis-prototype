@@ -3,7 +3,7 @@ import {cx} from './cx';
 import {formatPageTitle} from './formatPageTitle';
 import {parseS3Url} from './s3Url';
 import {sharedSpaceBucket, spaceBuckets, userSettingsKey, userSpaceBucket} from './userSpace';
-import {setReturnPath, setReturnPathIfAbsent, takeReturnPath} from './returnPath';
+import {clearReturnPath, peekReturnPath, setReturnPath, setReturnPathIfAbsent} from './returnPath';
 import {formatAbsoluteDate, formatBytes, formatCount, formatDurationMs, formatRelativeTime} from './format';
 import {renderHook} from '@testing-library/react';
 import {useBreakpoint, useIsMobile} from './useBreakpoint';
@@ -119,17 +119,19 @@ describe('returnPath', () => {
   });
 
   describe('returnPath', () => {
-    it('stores a path with setReturnPath and reads it back once', () => {
+    it('stores a path, reads it without clearing, and clears it on request', () => {
       setReturnPath('/query');
       expect(sessionStorage.getItem(KEY)).toBe('/query');
-      expect(takeReturnPath()).toBe('/query');
-      // takeReturnPath clears — a second read is null.
-      expect(takeReturnPath()).toBeNull();
+      // A peek does not clear, so a second render reads the same path; the clear does.
+      expect(peekReturnPath()).toBe('/query');
+      expect(peekReturnPath()).toBe('/query');
+      clearReturnPath();
+      expect(peekReturnPath()).toBeNull();
       expect(sessionStorage.getItem(KEY)).toBeNull();
     });
 
-    it('takeReturnPath returns null when nothing is stored', () => {
-      expect(takeReturnPath()).toBeNull();
+    it('peekReturnPath returns null when nothing is stored', () => {
+      expect(peekReturnPath()).toBeNull();
     });
 
     it('setReturnPathIfAbsent does not clobber an already-stored path', () => {
@@ -138,11 +140,11 @@ describe('returnPath', () => {
       expect(sessionStorage.getItem(KEY)).toBe('/query/tab-1');
     });
 
-    it('takeReturnPath returns null when storage access throws', () => {
+    it('peekReturnPath returns null when storage access throws', () => {
       vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
         throw new Error('SecurityError');
       });
-      expect(takeReturnPath()).toBeNull();
+      expect(peekReturnPath()).toBeNull();
     });
   });
 });

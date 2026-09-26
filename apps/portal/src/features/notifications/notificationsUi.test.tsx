@@ -272,6 +272,12 @@ describe('notificationLink', () => {
       expect(isSafeInAppPath('//evil.test/phish')).toBe(false); // protocol-relative
       expect(isSafeInAppPath('/\\evil.test/phish')).toBe(false); // backslash authority
       expect(isSafeInAppPath('/\\\\evil.test')).toBe(false);
+      // Control characters the URL parser strips, leaving a protocol-relative path behind.
+      expect(isSafeInAppPath('/\t/evil.test')).toBe(false);
+      expect(isSafeInAppPath('/\n/evil.test')).toBe(false);
+      expect(isSafeInAppPath('/\r\\evil.test')).toBe(false);
+      // Refused for the character itself, though this one would resolve on this origin.
+      expect(isSafeInAppPath('/files\u0000')).toBe(false);
     });
 
     it('rejects absent and non-string values', () => {

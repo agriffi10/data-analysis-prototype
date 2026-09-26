@@ -1089,6 +1089,26 @@ describe('uploadFile', () => {
     expect(FakeXhr.last).toBeUndefined();
   });
 
+  it('reads a cancel that aborts the plan request as Cancelled, not as a timeout', async () => {
+    // The client reports its own abort as `RequestTimeout`, so the signal has to be read first.
+    const controller = new AbortController();
+    mockRequest.mockImplementationOnce(async () => {
+      controller.abort();
+      return apiFailure('RequestTimeout');
+    });
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv',
+      signal: controller.signal
+    });
+
+    expect(result).toEqual({success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}});
+    expect(FakeXhr.last).toBeUndefined();
+  });
+
   it('reports a dead connection as a network failure', async () => {
     mintedUrl();
     const pending = uploadFile({

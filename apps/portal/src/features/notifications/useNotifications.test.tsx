@@ -107,6 +107,54 @@ describe('useNotifications — optimistic mutations', () => {
     expect(result.current.notifications.every((n) => n.read)).toBe(true);
   });
 
+  it('leaves a notification that arrives after Mark all read unread', async () => {
+    vi.useFakeTimers();
+    try {
+      // The reconcile read brings a new row before the writer has applied the mark-all.
+      mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
+      mockGet.mockResolvedValue({success: true, data: [note('06'), note('05')]});
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
+      act(() => result.current.markAllRead());
+      await act(async () => {
+        await vi.waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+
+      expect(result.current.notifications.find((n) => n.id === '06')?.read).toBe(false);
+      expect(result.current.notifications.find((n) => n.id === '05')?.read).toBe(true);
+      expect(result.current.unreadCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a failed Mark all read takes back only the rows it marked', async () => {
+    mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
+    mockEnqueue.mockResolvedValueOnce({success: true, data: undefined});
+    mockEnqueue.mockResolvedValueOnce({success: false, error: {message: 'queue down'}});
+    const onMutationError = vi.fn();
+    const {result} = renderHookWithProviders(() => useNotifications('alice', {onMutationError}), {
+      queryClient: newClient()
+    });
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    act(() => result.current.markRead('05'));
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.markAllRead());
+
+    await waitFor(() => expect(onMutationError).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledTimes(2);
+    expect(result.current.unreadCount).toBe(1);
+    expect(result.current.notifications.find((n) => n.id === '05')?.read).toBe(true);
+    expect(result.current.notifications.find((n) => n.id === '04')?.read).toBe(false);
+  });
+
   it('schedules a delayed reconcile refetch after a successful enqueue', async () => {
     vi.useFakeTimers();
     try {
@@ -259,7 +307,7 @@ describe('useNotifications — the bell and the page share one overlay', () => {
       mockGet.mockResolvedValue({success: true, data: [note('05'), note('04')]});
       const client = newClient();
       const bell = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
-      const page = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {queryClient: client});
+      const page = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
       await act(async () => {
         await vi.waitFor(() => expect(bell.result.current.unreadCount).toBe(2));
       });
@@ -283,7 +331,7 @@ describe('useNotifications — the bell and the page share one overlay', () => {
     mockEnqueue.mockReturnValue(new Promise((resolve) => (failEnqueue = resolve)));
     const client = newClient();
     const bell = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
-    const page = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {queryClient: client});
+    const page = renderHookWithProviders(() => useNotifications('alice'), {queryClient: client});
     await waitFor(() => expect(bell.result.current.unreadCount).toBe(2));
 
     act(() => page.result.current.markAllRead());
@@ -337,28 +385,6 @@ describe('useNotifications — background poll (FR-006)', () => {
       await act(async () => {
         await vi.waitFor(() => expect(result.current.unreadCount).toBe(2));
       });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('pausePoll suspends the 60s poll (the /notifications page)', async () => {
-    vi.useFakeTimers();
-    try {
-      // All read → the interval would normally poll; pausePoll must stop it.
-      mockGet.mockResolvedValue({success: true, data: [note('05', true)]});
-      const {result} = renderHookWithProviders(() => useNotifications('alice', {pausePoll: true}), {
-        queryClient: newClient()
-      });
-      await act(async () => {
-        await vi.waitFor(() => expect(result.current.notifications).toHaveLength(1));
-      });
-      expect(mockGet).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(180_000);
-      });
-      expect(mockGet).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
