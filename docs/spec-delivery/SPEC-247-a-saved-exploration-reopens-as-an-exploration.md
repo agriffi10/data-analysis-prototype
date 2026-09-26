@@ -50,5 +50,8 @@
 ## Verification
 
 Format, lint, typecheck, build, the portal suite and the doc/flag/path validators ran green
-locally. Owed after deploy: the §4.7 rows in `docs/testing/e2e.md` (a saved view run in Query
-returns the tab's rows; the personal and shared reopen; an edited file refused).
+locally. Live on 2026-09-26 (`docs/testing/sessions.md`): a saved view run in Query returns the
+tab's rows; the personal reopen restores and links it; a shared-space view is held, stripped and
+unlinked, and stays held across a reload; an edited file is refused with **Open in Query**. Still
+owed from §4.7: a linked re-save with no second confirm, a held view's Generated SQL and empty-name
+save, Run counted as one execution against a cold cache, and a Query-saved file's refusal.
