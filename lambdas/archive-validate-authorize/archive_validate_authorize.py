@@ -295,6 +295,10 @@ def _validate_and_authorize(event) -> dict:
     means the copier, the receipt writer and the restore all read one string rather than
     three agreeing constructions of it.
 
+    The wording mode is seeded from the untrusted body, so a refusal raised INSIDE the contract
+    check is still worded as the operation the user asked for; the mode is then replaced by the
+    validated value the rest of the function uses.
+
     Args:
       event: The EventBridge Pipe envelope.
 
@@ -317,8 +321,6 @@ def _validate_and_authorize(event) -> dict:
     )
     actor = who.username
 
-    # Seeded from the untrusted body so a refusal raised INSIDE _check_contract is still worded as
-    # the operation the user asked for, then replaced by the validated value the branch below uses.
     mode = _wording_mode(req)
     try:
         mode = _check_contract(req)

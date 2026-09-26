@@ -125,7 +125,11 @@ def _build_version():
     override without a rebuild.
 
     Read at import and never again: the answer cannot change within a container, and a
-    per-record file read would pay for that on every event.
+    per-record file read would pay for that on every event. ``LAMBDA_TASK_ROOT`` is set by the
+    runtime, so its absence means this is not a Lambda — a unit test or the local CLI — where
+    there is no artefact to identify. A missing or unreadable stamp must never keep a function
+    from starting: every control-plane verb resolves this module, and an import-time failure here
+    would cost a real outage.
 
     Args:
       None.
@@ -140,8 +144,6 @@ def _build_version():
     stamped = os.environ.get("BUILD_VERSION", "").strip()
     if stamped:
         return stamped
-    # LAMBDA_TASK_ROOT is set by the runtime; its absence means this is not a Lambda (a unit
-    # test, or the local CLI), where there is no artefact to identify.
     root = os.environ.get("LAMBDA_TASK_ROOT", "")
     if not root:
         return UNSTAMPED_VERSION
@@ -149,9 +151,6 @@ def _build_version():
         with open(os.path.join(root, "BUILD_VERSION"), encoding="utf-8") as handle:
             return handle.read().strip() or UNSTAMPED_VERSION
     except OSError:
-        # A missing or unreadable stamp must never keep a function from starting: every
-        # control-plane verb resolves this module, and a real outage is what an import-time
-        # failure here costs.
         return UNSTAMPED_VERSION
 
 
@@ -237,6 +236,9 @@ def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -
     below 1, so a caller that must not emit credentials scrubs at its boundary and does not
     reach for this.
 
+    ``ENV_NAME`` is read here rather than at import: unlike the build stamp it is a plain variable
+    with no file behind it, and reading it at configure time keeps it overridable.
+
     Args:
       service: The control-plane name — ``data-quality``, never
           ``data-quality-inspect-source``. It becomes an S3 key prefix under ``logs/`` when
@@ -279,8 +281,6 @@ def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -
     lf.configure(
         service=service,
         version=_VERSION,
-        # Read here rather than at import: unlike the build stamp this is a plain variable
-        # with no file behind it, and reading it at configure time keeps it overridable.
         env=os.environ.get("ENV_NAME", ""),
         sink=sink,  # type: ignore[arg-type]
         defaults=dict(defaults),

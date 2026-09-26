@@ -138,7 +138,10 @@ Attributes:
     while staying an order of magnitude below the memory ceiling. The size comes from the listing,
     so the refusal costs no ``GetObject`` at all.
   DONE: A file that is out of the inbox — enqueued, or rejected.
-  DEFERRED: A file this invocation had no budget left for, which stops the sweep.
+  DEFERRED: A file this invocation had no budget left for, which stops the sweep. The two are
+    constants rather than bare literals at five call sites: a typo in one would compare unequal to
+    "deferred" and fall through to the skip — the overtaking behaviour ``handler``'s sweep was
+    corrected for, and silently.
   MESSAGE_GROUP_ID: The queue's single constant group, so operator and UI requests are started as
     one ordered stream rather than two. The runs still overlap, which ``_requests`` refuses to hide.
   SCHEMA_VERSION: The envelope version the validator accepts.
@@ -200,10 +203,6 @@ MAX_ADD_ROWS_PER_FILE = 100
 
 MAX_FILE_BYTES = 1_048_576
 
-#: The two things a file can be after one pass, as constants rather than bare literals at five
-#: call sites. A typo in one of those would compare unequal to "deferred" and fall through to the
-#: skip — which is precisely the overtaking behaviour this function was corrected for, and it
-#: would be silent.
 DONE = "done"
 DEFERRED = "deferred"
 
@@ -237,6 +236,10 @@ def _queue_url():
 def _inbox_objects():
     """Lists the inbox in listing order, which is lexicographic by key.
 
+    **The size is indexed, never read with a default of zero**: a default passes every file
+    through the size ceiling, which is the one direction that guard must never fail, and S3 always
+    sends it.
+
     Args:
       None.
 
@@ -255,8 +258,6 @@ def _inbox_objects():
             kwargs["ContinuationToken"] = token
         page = s3.list_objects_v2(**kwargs)
         keys.extend(
-            # NOT `.get("Size", 0)`: a default of zero passes every file through the ceiling
-            # below, which is the one direction this guard must never fail. S3 always sends it.
             (item["Key"], item["Size"])
             for item in page.get("Contents", [])
             if not item["Key"].endswith("/")
@@ -283,7 +284,19 @@ def _rows(body, key):
     operator's editor the moment one appears — and every refusal after it then names a line they
     cannot find, which is the one thing a message whose whole job is to be actionable must not do.
     It drifts on a skipped blank line too. What ``line_num`` gives for a record spanning several
-    lines is its LAST one, which is the closest thing to a single number that is true of it.
+    lines is its LAST one, which is the closest thing to a single number that is true of it — it is
+    read AFTER the iterator yields, which is what makes it that record's last physical line.
+
+    **The whole parse is guarded, not just the header.** ``newline=""`` is the csv module's own
+    requirement, and without it a file saved with lone-CR endings raises ``csv.Error`` instead of
+    parsing; and ``csv`` also raises on a field over its size limit, which one unmatched quote in a
+    large file produces. Uncaught, either escapes the sweep, and the file stays in an inbox with no
+    expiry, ahead of every later-named file in listing order — one bad upload silencing the door
+    for good.
+
+    **A row of empty FIELDS is not a blank line.** ``,,`` and ``"","",""`` both parse to three empty
+    strings, and skipping them would drop a row the operator wrote with no line named and no
+    refusal; only a truly empty record or a single whitespace-only field is skipped.
 
     Args:
       body: The object's bytes.
@@ -302,9 +315,6 @@ def _rows(body, key):
     except UnicodeDecodeError as exc:
         raise RejectedFile(f"{key} is not UTF-8 text: {exc}") from exc
 
-    # `newline=""` is the csv module's own requirement, and without it a file saved with lone-CR
-    # endings raises `_csv.Error` instead of parsing. That error is the reason the whole parse is
-    # wrapped below rather than only the header read.
     reader = csv.reader(io.StringIO(text.lstrip("\ufeff"), newline=""))
     try:
         header = next(reader)
@@ -324,21 +334,12 @@ def _rows(body, key):
         raise RejectedFile(f"{key} has header {header!r}; the only header accepted is {HEADER!r}")
 
     rows = []
-    # The iteration itself is guarded, not just the header: `csv` raises on a field over its own
-    # size limit, which one unmatched quote in a large file produces. Uncaught, that escapes the
-    # sweep — and the file it came from stays in an inbox with no expiry, ahead of every
-    # later-named file in listing order, so one bad upload silences the door for good.
     try:
-        # `reader.line_num` is read AFTER the iterator yields, so it is that record's last
-        # physical line — the one the operator's editor shows for a row, multi-line or not.
         records = [(reader.line_num, row) for row in reader]
     except csv.Error as exc:
         raise RejectedFile(f"{key} is not readable as CSV: {exc}") from exc
 
     for number, row in records:
-        # A row of empty FIELDS is not a blank line: `,,` and `"","",""` both parse to three empty
-        # strings, and skipping them silently drops a row the operator wrote, with no line named
-        # and no refusal. Only a truly empty record or a single whitespace-only field is skipped.
         if not row or (len(row) == 1 and not row[0].strip()):
             continue
         if len(row) != 3:
@@ -591,6 +592,12 @@ def _process(key, size, stamp, budget):
     The budget is counted in ROWS READ rather than in messages sent, which coalescing makes
     conservative and which is the point: this function was never the expensive half.
 
+    **The ETag is indexed, never read with an empty default.** An empty salt silently reverts the
+    deduplication token to a value computable from two literals in this repository, which is the
+    whole thing the salt exists to prevent, with no log line and no refusal. S3 always returns an
+    ETag, so a ``KeyError`` means something is wrong that should stop the file rather than degrade
+    it, and raising leaves the file in the inbox for the next tick.
+
     Args:
       key: The object key in the inbox.
       size: The object's size in bytes, from the listing.
@@ -624,11 +631,6 @@ def _process(key, size, stamp, budget):
 
     obj = s3.get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)
     body = obj["Body"].read()
-    # NOT `.get(... ) or ""`. An empty salt silently reverts the deduplication token to a value
-    # computable from two literals in this repository, which is the whole thing the salt exists to
-    # prevent — and it would do it with no log line and no refusal. S3 always returns an ETag, so
-    # a KeyError here means something is wrong that should stop the file rather than degrade it:
-    # raising leaves it in the inbox for the next tick.
     etag = obj["ETag"]
 
     try:

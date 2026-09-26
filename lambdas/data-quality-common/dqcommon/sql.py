@@ -57,6 +57,14 @@ Attributes:
     else the check is vacuous, not merely redundant: a typed column cannot hold a value that
     fails to cast, because the catalog or the SerDe already guaranteed it.
   _CAST_TYPES: The casts the type-consistency check tries, in report order.
+  _NESTED_TYPES: Column types the duplicates statement cannot render as text. See
+    ``has_nested_column``.
+  SAMPLE_VALUE_CHARS: How much of one sampled value — an offending value or a duplicate-sample
+    cell — the statements keep, in characters. One MORE than the report's own cut, so a value that
+    was shortened is still recognisable as shortened after the report cuts it again — at exactly
+    the report's cut the two are indistinguishable and a value of the full length would gain an
+    ellipsis it had not earned. ``report.py`` reads this to size the CSV reader's field limit, so
+    the bound exists once rather than at each end of the wire.
 """
 
 from cpcommon import columns as columns_mod
@@ -327,15 +335,8 @@ def profiled_columns(
     return ddl.body_columns(columns, partition_keys, fmt)
 
 
-#: Column types the duplicates statement cannot render as text. See ``has_nested_column``.
 _NESTED_TYPES = ("array<", "struct<")
 
-#: How much of one sampled value — an offending value or a duplicate-sample cell — the statements
-#: keep, in characters. One MORE than the report's own cut, so a value that was shortened is still
-#: recognisable as shortened after the report cuts it again — at exactly the report's cut the two
-#: are indistinguishable and a value of the full length would gain an ellipsis it had not earned.
-#: ``report.py`` reads this to size the CSV reader's field limit, so the bound exists once rather
-#: than at each end of the wire.
 SAMPLE_VALUE_CHARS = 201
 
 

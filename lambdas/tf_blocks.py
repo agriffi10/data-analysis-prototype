@@ -429,7 +429,10 @@ def argument(body: str, name: str) -> str:
     count.** Measured: a ``#`` comment carrying one unmatched ``}`` makes a raw count end the value
     early and swallow the argument after it, and a string containing ``}`` truncates it. Both blank
     to spaces here, and because ``strip_noise`` preserves length the offsets still point into the
-    original, which is what is sliced.
+    original, which is what is sliced. The value is trimmed against the BLANKED text too, which is
+    what keeps a trailing ``# …`` out of it: the comment is spaces there, so the trim finds the
+    value's real last character, and the same offset in the original ends the slice before the
+    comment begins.
 
     Args:
       body: A block's body, outer braces excluded — so its own arguments sit at depth zero.
@@ -460,9 +463,6 @@ def argument(body: str, name: str) -> str:
             depth += _OPENERS.get(char, 0)
             depth -= _CLOSERS.get(char, 0)
             index += 1
-        # Trimmed against the BLANKED text, which is what keeps a trailing `# …` out of the
-        # value: the comment is spaces there, so rstrip finds the value's real last character,
-        # and the same offset in the original ends the slice before the comment begins.
         return body[start : start + len(scan[start:index].rstrip())].strip()
 
     raise ValueError(f"no top-level `{name} = …` in this block")

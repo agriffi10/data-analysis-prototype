@@ -261,7 +261,7 @@ def _update_receipt(event) -> dict:
 
     try:
         _rewrite(counted)
-    except Exception as err:  # noqa: BLE001 - the data that landed has landed; the raise below stands
+    except Exception as err:  # noqa: BLE001 - the data that landed stays, and the raise below stands
         logger.warning("the receipt could not record the partial restore: %s", err)
 
     observability.info(

@@ -47,9 +47,19 @@ Attributes:
     No shared source has one today — every suite, ``conftest.py`` and ``fakes.py`` under
     ``lambdas/*-common/`` sits at the top level — and the layer build this replaced pruned less
     still, dropping only ``__pycache__``. Stated rather than quietly assumed, because the gap is
-    exactly one filename wide.
-  NOT_SHARED: The directories that are neither functions nor shared code, each with its reason.
-  SHARED_SUFFIX: What makes a directory shared code.
+    exactly one filename wide. ``fakes.py`` is the entry worth naming: it matches none of the
+    image's offender patterns, so shipping it would put a test double carrying bare ``assert``s on
+    every function's import surface, entirely green.
+  NOT_SHARED: The directories under ``lambdas/`` that are neither functions nor shared code, each
+    with the reason it contributes nothing to ``/opt/python``. The partition guard in
+    ``test_image_layout.py`` fails on any directory that is none of the three, so a new one has to
+    be classified rather than silently defaulting into shared code — which is how a heuristic
+    quietly starts shipping a test double to the whole fleet.
+  SHARED_SUFFIX: What makes a directory shared code. A POSITIVE recognizer, and that is the whole
+    point: with shared code as the default bucket, the partition is total by construction and its
+    guard cannot fail — measured, on a planted ``lambdas/notes-scratch/`` that joined
+    ``/opt/python`` in silence. Every shared source ends in it, and no function directory or
+    exemption does.
 """
 
 import argparse
@@ -148,11 +158,6 @@ def packaged_modules(directory: pathlib.Path) -> list[pathlib.PurePath]:
     return modules
 
 
-#: Directories under ``lambdas/`` that are neither a function nor shared code, each with the
-#: reason it contributes nothing to ``/opt/python``. The partition guard in
-#: ``test_image_layout.py`` fails on any directory that is none of the three, so a new one has to
-#: be classified rather than silently defaulting into shared code — which is how a heuristic
-#: quietly starts shipping a test double to the whole fleet.
 NOT_SHARED = {
     "docker": "the assembler itself, deleted in the layer it runs in",
     "fixtures": "test data, no importable module",
@@ -160,16 +165,8 @@ NOT_SHARED = {
     "data-quality-polars": "a requirements file only; the Dockerfile installs it into site-packages",
 }
 
-#: Files in a shared source directory that are deliberately NOT shipped. ``fakes.py`` is the one
-#: worth naming: it matches none of the image's offender patterns, so shipping it would put a test
-#: double carrying bare ``assert``s on every function's import surface, entirely green.
 NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
 
-#: What makes a directory shared code. A POSITIVE recognizer, and that is the whole point: with
-#: shared code as the default bucket, the partition is total by construction and its guard cannot
-#: fail — measured, on a planted ``lambdas/notes-scratch/`` that joined ``/opt/python`` in silence.
-#: Verified over all 98 directories: every shared source ends in this, no function directory does,
-#: and no exemption does.
 SHARED_SUFFIX = "-common"
 
 

@@ -12,9 +12,10 @@ carries its own internal index and is written to be loaded in parts.
 scoped); **`python.md` is about style** and layers over it. A new verb Lambda needs both.
 
 **python.md §14** is the authority for the docstring standard `CLAUDE.md` states in summary:
-`lambdas/` carries **no** inline comments at all — every module, class, method and function, public
-or `_private`, gets a Google-style docstring with `Args:` / `Returns:` / `Raises:` written out, using
-`None.` where a section is empty.
+`lambdas/` production code carries **no** inline comments beyond §14's lint-directive shape, and
+every module, class, method and function, public or `_private`, gets a Google-style docstring — a
+function's with `Args:` / `Returns:` / `Raises:` written out, using `None.` where a section is
+empty. Test modules, `conftest.py` and `fakes.py` are outside it.
 
 Sibling trees: [`../INDEX.md`](../INDEX.md) for the lambda index grouped by control plane;
 [`docs/best-practices/INDEX.md`](../../../docs/best-practices/INDEX.md) for the React and

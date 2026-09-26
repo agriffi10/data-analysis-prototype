@@ -27,6 +27,13 @@ because it had to be attributed to one of many.
 
 The service name is the control plane, not the function, so one restore's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  _REASONS: Which pass this invocation is, and the reason code that words its refusal. **The
+    stage is SEEDED BY THE MACHINE, never inferred from what else is on the state** — "the
+    retrieval has not run" and "the retrieval reported nothing" look identical from inside a
+    handler, and getting it wrong here means telling a user their retrieval is still warm when it
+    was never made.
 """
 
 import logging
@@ -39,10 +46,6 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="archive")
 
-#: Which pass this invocation is, and the reason code that words its refusal. **The stage is
-#: SEEDED BY THE MACHINE, never inferred from what else is on the state** — "the retrieval has not
-#: run" and "the retrieval reported nothing" look identical from inside a handler, and getting it
-#: wrong here means telling a user their retrieval is still warm when it was never made.
 _REASONS = {
     "before": "destination_occupied",
     "after": "destination_occupied_after_retrieval",

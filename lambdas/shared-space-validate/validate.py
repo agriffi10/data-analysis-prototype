@@ -166,7 +166,9 @@ def handler(event, context):
     could own, and it passes the catalog rule that would otherwise catch it. The owner is also the
     right recipient: for a forged operator message they are the named victim, and for a fault
     mid-transfer it is their space. A space with no owner yields no recipient, which is honest —
-    there is nobody to tell.
+    there is nobody to tell. The span records the DECLARED origin, not one this service accepts:
+    a message claiming some other origin is refused, and a span recording it as an operator
+    request would describe something that never happened.
 
     **A registry record that is not a dict is read as no record at all**, and that has to happen
     here rather than only in the authorizer. The authorizer already answers a malformed record
@@ -202,9 +204,6 @@ def handler(event, context):
     )
 
     if is_operator:
-        # The DECLARED value, not the one this service accepts. A message claiming some other
-        # origin is refused below, and a span recording it as an operator request would describe
-        # something that never happened.
         observability.stamp(origin=origin)
         requester = None
     else:

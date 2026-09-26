@@ -34,6 +34,15 @@ them into one inbox row — the user sees a response to one of two requests and 
 ``cpcommon.notify.dedup_id(requestId, outcome)`` is per RUN and per OUTCOME, so it keeps the
 retry-safety content dedup was providing (a re-invocation composes the same token) without
 letting two runs share one. This is the rule read literally: one token per outcome.
+
+Attributes:
+  _FILES_ROUTE: The file browser's route. Every link minted here is a PATH, never a URL — the
+    browser's ``isSafeInAppPath`` rejects anything that could resolve off this origin, and this
+    module is the first of the two gates.
+  _SEGMENT: What a space name may contain to be interpolated into a link. Usernames and space
+    names are already constrained to this by the catalog rule, so it rejects nothing this plane
+    legitimately produces — it is here so a future change to either format cannot quietly put a
+    traversal or a query string into a link.
 """
 
 import logging
@@ -72,15 +81,8 @@ __all__ = [
     "space_link",
 ]
 
-#: The file browser's route. Every link minted here is a PATH, never a URL — the browser's
-#: ``isSafeInAppPath`` rejects anything that could resolve off this origin, and this module is
-#: the first of the two gates.
 _FILES_ROUTE = "/files"
 
-#: What a space name may contain to be interpolated into a link. Usernames and space names are
-#: already constrained to this by the catalog rule, so it rejects nothing this plane legitimately
-#: produces — it is here so a future change to either format cannot quietly put a traversal or a
-#: query string into a link.
 _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -231,6 +233,12 @@ def archive_folder_link(kind: str, name: str, request_id: str) -> str | None:
     space's own root, so a root-relative ``archive/{uuid}/`` is silently discarded and the user
     lands at their space root with no idea why — a link that looks like it worked and did not.
 
+    **A refused id returns None rather than raising.** ``_plain`` and ``validated_request_id`` do
+    not agree — the first accepts any plain segment, the second only a UUID v4 — and the gap
+    between them raises. It is unreachable while the front door validates the id, but the caller's
+    caller would otherwise lose the WHOLE ``archived`` message to its blanket except: the only one
+    carrying the archive id, on the arm where the source is already deleted.
+
     Args:
       kind: The space kind, ``personal`` or ``shared``.
       name: The space's name, which is also its root prefix.
@@ -249,12 +257,6 @@ def archive_folder_link(kind: str, name: str, request_id: str) -> str | None:
     try:
         prefix = receipt_root(name, request_id)
     except TerminalError:
-        # `_plain` and `validated_request_id` do not agree — the first accepts any plain segment,
-        # the second only a UUID v4 — and the gap between them RAISES rather than returning None.
-        # Unreachable today (the id is validated at the front door), but this function's contract
-        # is "None when no working link can be minted", and the caller's caller would otherwise
-        # lose the WHOLE `archived` message to its blanket except: the only one carrying the
-        # archive id, on the arm where the source is already deleted.
         logger.warning("refusing to build an archive link from an id that is not a UUID")
         return None
     return f"{_FILES_ROUTE}?{_space_query(kind, name)}prefix={prefix}"
