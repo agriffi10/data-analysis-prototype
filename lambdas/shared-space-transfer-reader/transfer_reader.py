@@ -236,12 +236,12 @@ def _queue_url():
 def _inbox_objects():
     """Lists the inbox in listing order, which is lexicographic by key.
 
-    Args:
-      None.
-
     **The size is indexed, never read with a default of zero**: a default passes every file
     through the size ceiling, which is the one direction that guard must never fail, and S3 always
     sends it.
+
+    Args:
+      None.
 
     Returns:
       ``(key, size)`` pairs, oldest-named first. The size rides along because refusing an

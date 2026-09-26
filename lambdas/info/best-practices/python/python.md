@@ -160,8 +160,11 @@ Close what you open; avoid mutable module/class state.
 ## §14 Docstrings & comments
 Docstrings describe the interface and are the **primary source of context**; comments explain the non-obvious and should be rare.
 
-> **`lambdas/` is stricter, and the rule there is absolute (2026-08-06).** No inline comments at
-> all — the only `#` permitted is a lint directive (`# noqa: <rule>`, `# type: ignore[<code>]`).
+> **`lambdas/` is stricter, and in its PRODUCTION modules the rule is absolute (2026-08-06; scoped
+> 2026-09-26).** No inline comments at all — the only `#` permitted is a lint directive
+> (`# noqa: <rule>`, `# type: ignore[<code>]`) on a line of code, optionally followed by ` - ` and ONE
+> short clause saying why (no sentence break, at most 80 characters). Test modules, `conftest.py` and
+> `fakes.py` are outside it. `lambdas/test_production_docstring_standard.py` enforces exactly this.
 > **Every** module, class, method and function, `_private` ones included, carries a docstring with
 > **all three sections written out**, using `None.` where a section is empty:
 >

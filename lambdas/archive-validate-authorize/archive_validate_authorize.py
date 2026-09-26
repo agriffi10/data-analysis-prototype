@@ -296,7 +296,7 @@ def _validate_and_authorize(event) -> dict:
     three agreeing constructions of it.
 
     The wording mode is seeded from the untrusted body, so a refusal raised INSIDE the contract
-    check is still worded as the operation the user asked for, and is then replaced by the
+    check is still worded as the operation the user asked for; the mode is then replaced by the
     validated value the rest of the function uses.
 
     Args:

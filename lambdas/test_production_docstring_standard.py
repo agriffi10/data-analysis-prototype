@@ -1,15 +1,16 @@
 """Every production module under ``lambdas/`` carries no comments and documents every definition.
 
-The rule is ``lambdas/info/best-practices/python/python.md`` §14's, and it is absolute for this
-tree: the only ``#`` permitted is a lint directive, and every module, class, method and function —
-``_private`` and nested ones included — has a docstring, a function's writing out ``Args:``,
-``Returns:`` (``Yields:`` for a generator) and ``Raises:``. Nothing held it, and ninety-odd comments
-and an undocumented closure accumulated across fourteen modules before an audit swept them by
-hand. A rule that has to be re-swept by hand is not being held.
+The rule is ``lambdas/info/best-practices/python/python.md`` §14's: in a production module the
+only ``#`` permitted is a lint directive — its code, and at most one short clause saying why, on a
+line that has code — and every module, class, method and function, ``_private`` and nested ones
+included, has a docstring, a function's writing out ``Args:``, ``Returns:`` (``Yields:`` for a
+generator) and ``Raises:``. Nothing held it, and ninety-odd comment lines across thirteen modules,
+and an undocumented closure in a fourteenth, accumulated before an audit swept them by hand. A rule
+that has to be re-swept by hand is not being held.
 
-**The scope is production code.** Test modules, ``conftest.py`` and ``fakes.py`` are left out: they
-are not shipped as handlers, and the suites carry comments and undocumented helpers throughout, so
-including them would be a different decision from the one this file enforces.
+**The scope is production code, as §14 states it.** Test modules, ``conftest.py`` and ``fakes.py``
+are left out; the suites carry comments and undocumented helpers throughout, and the rule was
+scoped to what ships rather than widened to them.
 
 The checks read TOKENS for comments and the AST for docstrings, so a ``#`` inside a string is never
 a comment and a docstring is never mistaken for one. Each check owns a plant in the corpus below
@@ -19,7 +20,10 @@ Attributes:
   LAMBDAS: The tree the sweep walks.
   NOT_OURS: Directory names holding code this repo does not write.
   SUPPORT_FILES: Non-test basenames that exist only to serve the suites.
-  DIRECTIVE: A comment that is a lint directive rather than prose.
+  DIRECTIVE: The whole of a comment that is a lint directive: the directive and its codes, then
+    optionally `` - `` and one clause of at most ``REASON_CHARS`` characters with no sentence break
+    in it, so a reason cannot grow into a paragraph behind a directive.
+  REASON_CHARS: The longest reason a directive may carry.
 """
 
 import ast
@@ -33,7 +37,11 @@ import pytest
 LAMBDAS = pathlib.Path(__file__).resolve().parent
 NOT_OURS = frozenset({"__pycache__", "node_modules", "build", "dist", "venv", ".venv"})
 SUPPORT_FILES = frozenset({"conftest.py", "fakes.py"})
-DIRECTIVE = re.compile(r"#\s*(noqa\b|type:\s*ignore\b)")
+REASON_CHARS = 80
+DIRECTIVE = re.compile(
+    r"#\s*(?:noqa: [A-Z]+[0-9]+(?:, ?[A-Z]+[0-9]+)*|type: ignore\[[a-z-]+(?:, ?[a-z-]+)*\])"
+    rf"(?: - [^.;]{{1,{REASON_CHARS}}})?\s*$"
+)
 
 
 def _production_modules() -> list[pathlib.Path]:
@@ -58,7 +66,7 @@ def _production_modules() -> list[pathlib.Path]:
 
 
 def _comments(source: str) -> list[str]:
-    """Finds every comment in a module that is not a lint directive or a shebang.
+    """Finds every comment in a module that is not a lint directive on a line of code, or a shebang.
 
     Args:
       source: The module's text.
@@ -75,17 +83,38 @@ def _comments(source: str) -> list[str]:
             continue
         if token.start[0] == 1 and token.string.startswith("#!"):
             continue
-        if DIRECTIVE.match(token.string):
+        if DIRECTIVE.match(token.string) and not token.line.lstrip().startswith("#"):
             continue
         found.append(f"line {token.start[0]}: comment")
     return found
+
+
+def _own_nodes(node: ast.AST):
+    """Walks a function's own body, stopping at any function or class defined inside it.
+
+    Args:
+      node: The function.
+
+    Yields:
+      Every node the function's own body holds.
+
+    Raises:
+      None.
+    """
+    pending = list(ast.iter_child_nodes(node))
+    while pending:
+        child = pending.pop()
+        yield child
+        if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+            pending.extend(ast.iter_child_nodes(child))
 
 
 def _missing_sections(node: ast.FunctionDef | ast.AsyncFunctionDef, doc: str) -> list[str]:
     """Names the docstring sections a function leaves out.
 
     A generator documents what it yields, and ``Returns:`` is accepted in its place because the
-    fleet's existing generators say so either way.
+    fleet's existing generators say so either way. Only the function's OWN body decides that: a
+    ``yield`` inside a function nested in it makes the nested one the generator, not this one.
 
     Args:
       node: The function.
@@ -97,7 +126,7 @@ def _missing_sections(node: ast.FunctionDef | ast.AsyncFunctionDef, doc: str) ->
     Raises:
       None.
     """
-    generator = any(isinstance(inner, ast.Yield | ast.YieldFrom) for inner in ast.walk(node))
+    generator = any(isinstance(inner, ast.Yield | ast.YieldFrom) for inner in _own_nodes(node))
     produces = ("Yields:", "Returns:") if generator else ("Returns:",)
     missing = [
         header
@@ -181,6 +210,17 @@ def f(a):
             "inner has no docstring",
         ),
         ('"""M."""\nclass C:\n    pass\n', "C has no docstring"),
+        ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa because it is long\n", "comment"),
+        ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa: E501 - long. And here is why at length\n", "comment"),
+        ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa: E501 - " + "w" * 81 + "\n", "comment"),
+        ('"""M."""\n# noqa: E501 - a directive standing on its own line\n' + _DOCUMENTED, "comment"),
+        ('"""M."""\n#!/bin/sh\n' + _DOCUMENTED, "comment"),
+        (
+            '"""M."""\n'
+            + _DOCUMENTED.replace("    Returns:", "    Yields:")
+            + "    def inner():\n        yield 1\n",
+            "f has no Returns:",
+        ),
     ],
     ids=[
         "trailing-comment",
@@ -192,6 +232,12 @@ def f(a):
         "raises",
         "nested-closure",
         "class-docstring",
+        "noqa-without-a-code",
+        "noqa-with-two-sentences",
+        "noqa-reason-too-long",
+        "directive-on-its-own-line",
+        "shebang-past-line-one",
+        "nested-generator-is-not-the-outer",
     ],
 )
 def test_each_check_names_the_offence_it_was_planted_for(source, expected):
