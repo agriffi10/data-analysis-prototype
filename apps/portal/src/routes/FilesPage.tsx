@@ -1,4 +1,4 @@
-import {useEffect, useMemo} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useSearchParams} from 'react-router';
 import {
   FileBrowser,
@@ -81,8 +81,18 @@ export default function FilesPage() {
   // opens resolves it against the user's OWN inbox, which is the only gate that means anything.
   const requestIdParam = searchParams.get('requestId') || undefined;
   // Dropped, in place, once the review is closed or resolved: while the URL carries the id, a
-  // reload or Back reopens the review for a run already re-submitted.
-  const closeConflictReview = () =>
+  // reload or Back reopens the review for a run already re-submitted. Only while this page is
+  // mounted: a resolve is a round trip, and one landing after the user has gone elsewhere would
+  // otherwise navigate them back here, over the entry they went to.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const closeConflictReview = () => {
+    if (!mounted.current) return;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -91,6 +101,7 @@ export default function FilesPage() {
       },
       {replace: true}
     );
+  };
 
   // The file-browser target comes from the active space. A null space means the user-space (or
   // shared) bucket is missing from the runtime configuration.

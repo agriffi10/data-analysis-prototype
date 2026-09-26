@@ -6,8 +6,10 @@ import {ToastContext, type ToastApi, type ToastInput} from './toastContext';
  * App-level toast host: mounts a single {@link Toast} and exposes push/dismiss to the
  * whole tree via {@link ToastContext}, replacing per-page toast state.
  * Single-toast semantics — a new push replaces the current toast; `dismiss` clears it.
- * Every push remounts the toast, so a repeated message gets its own display time and is
- * announced again rather than riding out the first one's timer.
+ * Every push restarts the toast's timer, so a repeated message gets its own display time rather
+ * than riding out the first one's. The toast itself stays mounted across pushes: a live region
+ * whose text changes in place is what screen readers announce reliably, and one remounted with its
+ * text already in it is not.
  * Consume it with the `useToast` hook (in `toastContext.ts`).
  *
  * @example
@@ -27,7 +29,7 @@ export function ToastProvider({children}: {children: React.ReactNode}) {
       {children}
       {toast && (
         <Toast
-          key={toast.pushId}
+          pushId={toast.pushId}
           {...toast.input}
           onDismiss={dismiss}
         />

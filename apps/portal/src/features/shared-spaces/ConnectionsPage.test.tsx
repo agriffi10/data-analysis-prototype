@@ -577,6 +577,22 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     expect(within(await rowFor('owned')).getByText('member')).toBeInTheDocument();
   });
 
+  it('does not reopen the Manage drawer unasked when ownership comes back', async () => {
+    mockRead.mockResolvedValue(cache(OWNED));
+    const {user} = renderPage();
+    await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
+    const drawer = await screen.findByRole('dialog', {name: 'Manage members'});
+    mockRead.mockResolvedValue(cache([{name: 'owned', role: 'member', status: 'active', owner: 'bob'}]));
+    await user.click(within(drawer).getByRole('button', {name: 'Refresh connections'}));
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Manage members'})).not.toBeInTheDocument());
+    mockRead.mockResolvedValue(cache(OWNED));
+
+    await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+
+    expect(await within(await rowFor('owned')).findByRole('button', {name: 'Manage'})).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', {name: 'Manage members'})).not.toBeInTheDocument();
+  });
+
   it('renders our own wording on a failure, never the service’s', async () => {
     mockRead.mockResolvedValue(cache(OWNED));
     mockEnqueue.mockResolvedValue({

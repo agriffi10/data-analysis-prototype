@@ -177,6 +177,19 @@ describe('TableShareDialog', () => {
       expect(onSubmit).not.toHaveBeenCalled();
     });
 
+    it('drops the refusal once the name is added, and does not raise it for the next one typed', async () => {
+      const {user} = renderDialog();
+      await addRecipients(user, 'bob');
+      await user.keyboard('cara');
+      await user.click(shareButton());
+      await user.click(entryInput());
+      await user.keyboard('{Enter}');
+
+      await user.keyboard('d');
+
+      expect(screen.queryByText(/Add the name you typed/)).not.toBeInTheDocument();
+    });
+
     it('Cancel invokes onCancel', async () => {
       const {onCancel, user} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Cancel'}));

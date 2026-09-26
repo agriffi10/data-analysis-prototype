@@ -141,7 +141,12 @@ describe('CollapsibleRail', () => {
 
       await user.click(screen.getByRole('button', {name: /show sidebar/i}));
 
-      expect(screen.getByRole('button', {name: /collapse sidebar/i})).toHaveFocus();
+      const collapse = screen.getByRole('button', {name: /collapse sidebar/i});
+      expect(collapse).toHaveFocus();
+      // jsdom runs no transitions, so this is the only fence it has on the real-browser half: a
+      // panel whose visibility transitions IN is still hidden when that focus lands, and Chrome
+      // refuses it. Measured: a 200ms visibility transition left focus on <body>, 0ms on the button.
+      expect(collapse.closest('.transition-\\[visibility\\]')).toHaveClass('duration-0');
     });
 
     it('persists the collapsed choice under the single shared key', async () => {

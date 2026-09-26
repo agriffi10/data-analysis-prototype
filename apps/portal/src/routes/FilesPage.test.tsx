@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import type {ReactNode} from 'react';
-import {Link, useLocation} from 'react-router';
+import {Link, Route, Routes, useLocation, useNavigate} from 'react-router';
 import {act, screen, within, waitFor} from '@testing-library/react';
 import type {UserEvent} from '@testing-library/user-event';
 import type {QueryClient} from '@tanstack/react-query';
@@ -418,6 +418,46 @@ describe('FilesPage — a conflict review deep link', () => {
     await waitFor(() => expect(screen.getByLabelText('Address query')).toHaveTextContent(/^\?prefix=alice%2Fdocs%2F$/));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(vi.mocked(submitFileOperation)).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the user where they went when the resolve lands after they left the page', async () => {
+    vi.mocked(getNotifications).mockResolvedValue(ok([CONFLICTED]));
+    let land: (value: Awaited<ReturnType<typeof submitFileOperation>>) => void = () => undefined;
+    vi.mocked(submitFileOperation).mockReturnValue(new Promise((resolve) => (land = resolve)));
+    let go: ReturnType<typeof useNavigate> = () => undefined;
+    function Where() {
+      go = useNavigate();
+      const {pathname, search} = useLocation();
+      return <output aria-label="Address">{pathname + search}</output>;
+    }
+    const {user} = renderWithProviders(
+      <UploadQueueProvider>
+        <FileOpsInFlightProvider>
+          <Routes>
+            <Route
+              path="/files"
+              element={<FilesPage />}
+            />
+            <Route
+              path="/notifications"
+              element={<p>Inbox</p>}
+            />
+          </Routes>
+          <Where />
+        </FileOpsInFlightProvider>
+      </UploadQueueProvider>,
+      {route: '/files?prefix=alice/docs/&requestId=run-1', auth: authenticated('alice')}
+    );
+    const review = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    await user.click(within(review).getByRole('button', {name: 'Overwrite…'}));
+    const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
+    await user.click(within(confirm).getByRole('button', {name: 'Overwrite'}));
+    await act(async () => go('/notifications'));
+
+    await act(async () => land({success: true, data: undefined}));
+
+    expect(await screen.findByText('Inbox')).toBeInTheDocument();
+    expect(screen.getByLabelText('Address')).toHaveTextContent(/^\/notifications$/);
   });
 
   it('drops ?requestId= on a space switch, which remounts the browser', async () => {

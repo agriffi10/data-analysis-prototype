@@ -101,7 +101,11 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   // in the field, so the send is refused until it is added or cleared.
   const pendingEntry = entry.trim() !== '';
   const canSubmit = recipients.length > 0 && !pendingEntry && !busy;
-  const showPendingEntry = attempted && pendingEntry;
+  // Set by an attempt refused for typed-but-unadded text, and dropped once the field empties —
+  // by Add or by clearing — so the next name typed is not told off mid-word.
+  const [pendingRefused, setPendingRefused] = useState(false);
+  if (pendingRefused && !pendingEntry) setPendingRefused(false);
+  const showPendingEntry = pendingRefused && pendingEntry;
 
   const attempt = () => {
     // The Send control stays ENABLED with no recipients, deliberately: the rule asks for the
@@ -110,6 +114,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
     // would make the banner below unreachable, which is what the first version of this dialog
     // did: dead code where an acceptance criterion was supposed to be.
     setAttempted(true);
+    setPendingRefused(pendingEntry);
     if (canSubmit) onSubmit(recipients);
   };
 

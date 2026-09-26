@@ -70,9 +70,13 @@ export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', chi
         )}>
         <div
           className={cx(
-            'flex flex-1 flex-col overflow-y-auto transition-[visibility] duration-200 motion-reduce:transition-none',
+            'flex flex-1 flex-col overflow-y-auto transition-[visibility] motion-reduce:transition-none',
             widthClass,
-            collapsed ? 'invisible' : 'visible'
+            // Hidden once the width has closed, but shown at once: a visibility transition reads as
+            // its START value at its first instant, and a panel still hidden refuses the focus Show
+            // sidebar hands to Collapse in that same task. jsdom runs no transitions, so only the
+            // class can be asserted there.
+            collapsed ? 'invisible duration-200' : 'visible duration-0'
           )}>
           <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">
             {title ? <span className={SECTION_CAPTION}>{title}</span> : <span aria-hidden="true" />}

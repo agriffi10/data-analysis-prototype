@@ -72,7 +72,6 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
   const entryRef = useRef<UsernameComboboxHandle>(null);
   const entryHelpId = useId();
   const pendingEntryId = useId();
-  const [attempted, setAttempted] = useState(false);
   const userSuggestions = useUsernameSuggestions();
   const spaceSuggestions = useSpaceSuggestions();
 
@@ -118,10 +117,14 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
   // in the field, so the share is refused, inline, until it is added or cleared. Not folded into
   // `submitDisabled`: a disabled Share explains nothing.
   const pendingEntry = entry.trim() !== '';
-  const showPendingEntry = attempted && pendingEntry;
+  // Set by an attempt refused for typed-but-unadded text, and dropped once the field empties —
+  // by Add or by clearing — so the next name typed is not told off mid-word.
+  const [pendingRefused, setPendingRefused] = useState(false);
+  if (pendingRefused && !pendingEntry) setPendingRefused(false);
+  const showPendingEntry = pendingRefused && pendingEntry;
 
   const attempt = () => {
-    setAttempted(true);
+    setPendingRefused(pendingEntry);
     if (canSubmit && !pendingEntry) onSubmit({tableName: trimmedName, recipients});
   };
 
