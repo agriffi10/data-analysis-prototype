@@ -151,6 +151,12 @@ describe('LandingPage', () => {
   });
 
   describe('LandingPage when unauthenticated', () => {
+    it('says why a sign-in did not complete, since it returns here and not to the app', () => {
+      renderApp({...unauthenticated(), error: 'Sign-in failed or was cancelled.'});
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign-in failed or was cancelled.');
+    });
+
     it('shows Sign in and Create account entry points for a signed-out visitor', () => {
       renderApp(unauthenticated());
 

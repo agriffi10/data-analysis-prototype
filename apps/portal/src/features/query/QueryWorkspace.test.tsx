@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
+import {DEFAULT_RESULTS_PAGE_SIZE, SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {
@@ -684,7 +684,21 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
     });
 
-    it('re-runs a history entry into the active tab (no database context)', async () => {
+    it('refuses a statement over Athena’s length bound before starting anything, and says how to fix it', async () => {
+      seedSingle(`SELECT '${'x'.repeat(262_144)}'`);
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(
+        await screen.findByText(/This statement is too long to run — Athena takes at most 256 KB/)
+      ).toBeInTheDocument();
+      expect(mockRunQuery).not.toHaveBeenCalled();
+    });
+
+    it('re-runs a history entry in a NEW tab, leaving the one it was opened from as it was', async () => {
+      seedSingle('SELECT draft_i_have_not_saved');
       mockGetHistory.mockResolvedValue(
         ok({
           version: 1,
@@ -707,6 +721,15 @@ describe('QueryWorkspace', () => {
 
       expect(mockRunQuery).toHaveBeenCalledTimes(1);
       expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 42', username: 'alice'});
+      expect(editor()).toHaveValue('SELECT 42');
+      // The run belongs to the NEW tab — the id is passed explicitly because the switch to it has
+      // not committed when the run is submitted, and without it the run lands in the draft's tab.
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      // The first tab still holds the draft, which loading into the active tab used to replace,
+      // and no run.
+      await user.click(screen.getAllByRole('tab')[0]);
+      expect(editor()).toHaveValue('SELECT draft_i_have_not_saved');
+      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
     });
 
     // --- table actions (driven through the REAL rail menu) ---
@@ -896,6 +919,18 @@ describe('QueryWorkspace', () => {
       await user.type(nameInput, filename);
       return dialog;
     }
+
+    it('refuses Save results for a SHOW result, which is not a result set, and says why', async () => {
+      seedSingle('SHOW TABLES IN alice');
+      const {user} = renderWorkspace();
+      await runToSucceeded(user);
+
+      const save = await screen.findByRole('button', {name: 'Save results…'});
+      expect(save).toHaveAttribute('aria-disabled', 'true');
+      expect(save).toHaveAttribute('title', SAVE_RESULTS_STATEMENT_REFUSAL);
+      await user.click(save);
+      expect(screen.queryByRole('dialog', {name: 'Save results'})).not.toBeInTheDocument();
+    });
 
     it('saves a succeeded result to the personal space (cross-checked copy + Files deep-link)', async () => {
       seedSingle('SELECT 1');

@@ -4,6 +4,7 @@ import {
   CLAUSE_WORDS,
   deriveViewTargetDatabase,
   isExplorableSql,
+  isTextOutputSql,
   isResultProducingSql,
   isSchemaChangingSql,
   isTrinoStatement,
@@ -75,6 +76,13 @@ describe('query.sql', () => {
       expect(deriveViewTargetDatabase('SELECT * FROM mydb.orders')).toEqual({database: 'mydb'});
       // A self-join across the same db (FROM + JOIN) still resolves to one database.
       expect(deriveViewTargetDatabase('SELECT * FROM mydb.a JOIN mydb.b ON a.id = b.id')).toEqual({database: 'mydb'});
+    });
+
+    it('reads a quoted database and table, which is how the Data Explorer writes them', () => {
+      expect(deriveViewTargetDatabase('SELECT "id" FROM "mydb"."Orders ""2026""" AS t')).toEqual({database: 'mydb'});
+      expect(deriveViewTargetDatabase('SELECT * FROM mydb."orders" JOIN "other"."t" ON 1 = 1')).toEqual({
+        error: expect.stringMatching(/more than one database/i)
+      });
     });
 
     it('errors (never picks) when the body spans more than one database', () => {
@@ -186,6 +194,19 @@ describe('query.sql', () => {
       expect(isResultProducingSql('SHOW TABLES IN mydb')).toBe(true);
       expect(isResultProducingSql('DESCRIBE mydb.t')).toBe(true);
       expect(isResultProducingSql('-- comment first\nSELECT 1')).toBe(true);
+    });
+  });
+
+  describe('isTextOutputSql', () => {
+    it.each([
+      ['SHOW TABLES IN alice', true],
+      ['-- a note\nDESCRIBE alice.sales', true],
+      ['desc alice.sales', true],
+      // EXPLAIN runs as DML, so its rows save and convert like a query's.
+      ['EXPLAIN SELECT 1', false],
+      ['SELECT 1', false]
+    ])('%j → %s', (sql, textOutput) => {
+      expect(isTextOutputSql(sql)).toBe(textOutput);
     });
   });
 

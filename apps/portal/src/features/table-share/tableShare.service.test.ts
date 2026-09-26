@@ -1,7 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
-import {enqueueTableShare} from './tableShare.service';
+import {enqueueTableShare, SHARE_MAX_RECIPIENTS} from './tableShare.service';
+import {toUserText} from '../../lib/errorMessages';
 import type {TableShareRequest} from './tableShare.types';
 
 vi.mock('../../lib/apiClient', async (importOriginal) => ({
@@ -50,6 +51,22 @@ describe('enqueueTableShare', () => {
       tableName: 'orders_copy',
       recipients: req.recipients
     });
+  });
+
+  it('refuses more recipients than the plane accepts, now and in words, without calling the API', async () => {
+    const everyone = Array.from({length: SHARE_MAX_RECIPIENTS + 1}, (_, i) => ({
+      kind: 'user' as const,
+      name: `user_${i}`
+    }));
+
+    const result = await enqueueTableShare({...req, recipients: everyone});
+
+    expect(api.calls).toEqual([]);
+    if (!result.success) {
+      expect(toUserText(result.error)).toBe(
+        `You can share with at most ${SHARE_MAX_RECIPIENTS} recipients at a time. Share with the rest in a second request.`
+      );
+    } else expect.unreachable('an over-cap share was requested');
   });
 
   it('returns the failure as a result and never throws', async () => {

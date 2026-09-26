@@ -38,7 +38,7 @@ const FILTERS: {value: Filter; label: string}[] = [
  */
 export function DataQualityPage() {
   usePageTitle('Data quality');
-  const {runs: readableRuns, isLoading, error, refresh} = useDataQualityRuns();
+  const {runs: readableRuns, isLoading, error, unreachable, refresh} = useDataQualityRuns();
   // A run is listed only while its report can be opened: a shared space's run leaves with shared
   // workspaces, as every other shared-workspace surface does, rather than linking to a report
   // the rest of the app no longer shows.
@@ -60,6 +60,8 @@ export function DataQualityPage() {
   const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared).filter(
     (space) => sharedSpacesEnabled || space.kind === 'personal'
   );
+  // Named on the same terms as the runs: a shared space is not mentioned once shared workspaces are off.
+  const missing = unreachable.filter((u) => !u.shared || sharedSpacesEnabled).map((u) => u.label);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [started, setStarted] = useState<string | null>(null);
   const {start: startCheck, isPending} = useDataQualityCheck();
@@ -133,6 +135,18 @@ export function DataQualityPage() {
         <Banner
           variant="danger"
           title={error}
+          retry={() => void handleRefresh()}
+          className="mb-2"
+        />
+      )}
+
+      {/* Some spaces loaded and some did not: the list shows what it could, and says what is missing
+          rather than letting an absent space read as one with no checks. */}
+      {!error && missing.length > 0 && (
+        <Banner
+          variant="warning"
+          role="status"
+          title={`Checks from ${missing.join(', ')} couldn’t be loaded.`}
           retry={() => void handleRefresh()}
           className="mb-2"
         />

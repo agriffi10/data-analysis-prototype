@@ -230,7 +230,7 @@ function isSavedQueryKey(key: string, prefix: string): boolean {
  */
 export async function readSavedQuery(params: {bucket: string; key: string}): Promise<ServiceResult<string>> {
   const {bucket, key} = params;
-  return readJsonDocument<string>({
+  const read = await readJsonDocument<string>({
     bucket,
     key,
     parse: (body) => ok(body ?? ''),
@@ -244,6 +244,19 @@ export async function readSavedQuery(params: {bucket: string; key: string}): Pro
     }),
     fallbackMessage: `Failed to open “${savedQueryName(key)}”`
   });
+  // The content route's one InvalidRequest for a key this app listed is its refusal of bytes that
+  // are not UTF-8 — a .sql uploaded through Files in another encoding. The user can fix that; the
+  // generic sentence sent them to the Administrator, who cannot.
+  if (!read.success && read.error.code === 'InvalidRequest') {
+    return {
+      success: false,
+      error: {
+        message: `“${savedQueryName(key)}” isn’t saved as UTF-8 text, so it can’t be opened here. Download it from its space’s saved_queries folder in Files, save it as UTF-8, and upload it again.`,
+        code: 'SavedQueryNotText'
+      }
+    };
+  }
+  return read;
 }
 
 /**
@@ -288,6 +301,18 @@ export async function writeSavedQuery(params: {
       return {
         success: false,
         error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
+      };
+    }
+    // Over the writable cap, the API's generic sentence would read as the NAME being too long in a
+    // dialog whose only field is the name, so the refusal is re-coded to say it is the query.
+    if (written.error.code === 'PayloadTooLarge') {
+      return {
+        success: false,
+        error: {
+          message: 'Saved query too large to write',
+          code: 'SavedQueryTooLargeToSave',
+          params: written.error.params
+        }
       };
     }
     return fromApiFailure(written.error, 'Failed to save query');

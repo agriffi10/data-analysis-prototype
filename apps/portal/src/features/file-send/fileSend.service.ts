@@ -16,6 +16,8 @@ import type {FileSendRequest} from './fileSend.types';
  */
 const SEND_MAX_ITEMS = 200;
 const SEND_MAX_ITEM_BYTES = 84 * 1024;
+/** The plane's recipient cap, mirrored so a longer list is refused now rather than by notification later. */
+export const SEND_MAX_RECIPIENTS = 50;
 
 /**
  * Enqueue a send-files request through the API's `fileSend.enqueue` route — the browser's only
@@ -35,6 +37,16 @@ export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResu
       error: {
         message: 'That selection is too large to send in one go. Select fewer items and try again.',
         code: 'SelectionTooLarge'
+      }
+    };
+  }
+
+  if (req.recipients.length > SEND_MAX_RECIPIENTS) {
+    return {
+      success: false,
+      error: {
+        message: `You can send to at most ${SEND_MAX_RECIPIENTS} recipients at a time. Send to the rest in a second request.`,
+        code: 'TooManyRecipients'
       }
     };
   }

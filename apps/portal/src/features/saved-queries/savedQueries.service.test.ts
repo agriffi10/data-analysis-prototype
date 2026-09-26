@@ -13,6 +13,7 @@ import {
 } from './savedQueries.service';
 import {SAVED_QUERIES_MARKER_BODY} from '../file-browser';
 import type {SavedQueryLink} from './savedQueries.types';
+import {toUserText} from '../../lib/errorMessages';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 // The AWS boundary is the only seam (react.md §21): the service composes
@@ -309,6 +310,18 @@ describe('readSavedQuery (FR-004)', () => {
     expect(result.error.code).toBe('SavedQueryNotFound');
   });
 
+  it('answers a file that is not UTF-8 with how to fix it, naming the file, not the Administrator', async () => {
+    mockSend.mockResolvedValue({success: false, error: {message: '', code: 'InvalidRequest'}});
+
+    const result = await readSavedQuery({bucket: 'user-space', key: 'alice/saved_queries/Q1 revenue.sql'});
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(toUserText(result.error)).toBe(
+      '“Q1 revenue” isn’t saved as UTF-8 text, so it can’t be opened here. Download it from its space’s saved_queries folder in Files, save it as UTF-8, and upload it again.'
+    );
+  });
+
   it('answers a query too large to read with its own code, not the one that asks for less', async () => {
     mockSend.mockResolvedValue({
       success: false,
@@ -324,6 +337,22 @@ describe('readSavedQuery (FR-004)', () => {
 });
 
 describe('writeSavedQuery (FR-004)', () => {
+  it('answers SQL over the writable cap as the query being too large, naming the cap', async () => {
+    mockSend.mockResolvedValue({
+      success: false,
+      error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}
+    });
+
+    const result = await writeSavedQuery({space: PERSONAL, name: 'report', sql: 'SELECT 1'});
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    // Not the generic "one field is over its limit", which in a dialog with one field reads as the name.
+    expect(toUserText(result.error)).toBe(
+      'This query is too large to save — a saved query can be at most 3.0 MB. Shorten it, or split it into smaller saved queries.'
+    );
+  });
+
   it('refuses a collision rather than clobbering, in ONE call, NAMING the query', async () => {
     // The name in the sentence is the one the user sees in the list — `report`, not
     // `report.sql` — so it is minted here from the key rather than taken from the wire.

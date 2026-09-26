@@ -42,7 +42,7 @@ import logging
 
 from arcommon import counts, notify, receipt, restore
 from cpcommon import observability
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -221,6 +221,11 @@ def handler(event, context) -> dict:
         and by how many items were left alone rather than failed.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb. Safe: the
         key is a pure function of the request and the write is a whole-object PUT.
+
+    **On the restored stage a non-transient receipt fault is logged and swallowed.** The state
+    machine routes that stage's every failure to the success notice, so raising it through the
+    failure decorator sent "Couldn't restore that" beside "Restored", for a restore that finished.
+    The requested and incomplete stages still raise: their failures do fail the run.
     """
     return _update_receipt(event)
 
@@ -232,7 +237,8 @@ def _update_receipt(event) -> dict:
       event: The validated restore request.
 
     Returns:
-      The request with ``receiptKey``, on the ``requested`` and ``restored`` branches.
+      The request with ``receiptKey``, on the ``requested`` and ``restored`` branches, or without
+      it on the ``restored`` branch when the receipt could not be written.
 
     Raises:
       TerminalError: one of the three partial-restore outcomes, on the incomplete branch.
@@ -243,7 +249,20 @@ def _update_receipt(event) -> dict:
     restored, expected = _counts(event)
 
     if status != INCOMPLETE:
-        key = _rewrite(event)
+        try:
+            key = _rewrite(event)
+        except TransientError:
+            raise
+        except Exception as err:
+            if status != RESTORED:
+                raise
+            logger.warning("the receipt could not record the finished restore: %s", err)
+            observability.error(
+                "receipt not updated after a finished restore",
+                archive_id=(event.get("archive") or {}).get("archiveId"),
+                error=type(err).__name__,
+            )
+            return event
         logger.info("receipt %s updated: restore %s", key, status)
         observability.info(
             "receipt updated",

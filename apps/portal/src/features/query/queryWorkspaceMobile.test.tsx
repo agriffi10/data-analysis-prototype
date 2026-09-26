@@ -19,8 +19,10 @@ import {
   queueRuns,
   renderWorkspace,
   resetViewport,
+  mockAppend,
   savedListing,
   seedSingle,
+  seedTabs,
   statusMap
 } from '../../test/queryWorkspaceSupport';
 import {catalogKeys} from '../catalog/catalogKeys';
@@ -157,6 +159,47 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     // Back returns to the browse-first home.
     await user.click(screen.getByRole('button', {name: 'Back to queries'}));
     expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+  });
+
+  it('records the saved query it ran, not the one the active tab is linked to', async () => {
+    seedTabs({
+      version: 1,
+      tabs: [
+        {
+          id: 'a',
+          label: 'Monthly',
+          sql: 'SELECT 1',
+          savedQuery: {
+            spaceId: 'personal',
+            bucket: 'user-bucket',
+            key: 'alice/saved_queries/Monthly.sql',
+            name: 'Monthly'
+          }
+        }
+      ],
+      activeTabId: 'a',
+      nextQueryNumber: 2
+    });
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    await waitFor(() => expect(mockAppend).toHaveBeenCalled());
+    expect(mockAppend.mock.calls[0][1]).toEqual(expect.objectContaining({savedQueryName: 'Revenue'}));
+  });
+
+  it('records the saved query when it is viewed first and run from its results view', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'View saved query Revenue'}));
+    await user.click(await screen.findByRole('button', {name: 'Run'}));
+
+    await waitFor(() => expect(mockAppend).toHaveBeenCalled());
+    expect(mockAppend.mock.calls[0][1]).toEqual(expect.objectContaining({savedQueryName: 'Revenue'}));
   });
 
   it('says the total is still being counted on a phone too', async () => {

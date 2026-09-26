@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {AddMembersDialog} from './AddMembersDialog';
-import {parseMemberInput} from './memberInput';
+import {ADD_MEMBERS_MAX, parseMemberInput} from './memberInput';
 import {getUserDirectory} from '../user-directory';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -64,6 +64,17 @@ describe('AddMembersDialog', () => {
   const chips = () => screen.queryByRole('list', {name: 'Members to add'});
 
   describe('AddMembersDialog', () => {
+    it('refuses more usernames than one request may carry, and says how many it takes', async () => {
+      const {onAdd, user} = renderDialog();
+      await user.click(field());
+      const names = Array.from({length: ADD_MEMBERS_MAX + 1}, (_, i) => `member_${i}`).join(', ');
+      await user.keyboard(`${names}{Enter}`);
+
+      expect(screen.getByText(new RegExp(`you can add up to ${ADD_MEMBERS_MAX} at a time`))).toBeInTheDocument();
+      await user.click(addButton());
+      expect(onAdd).not.toHaveBeenCalled();
+    });
+
     it('sends the parsed list, excluding usernames already in the space', async () => {
       // The `existing` prop already includes the OWNER, and it is passed straight through as the
       // field's `exclude` — a like-for-like translation of the filter the textarea applied, not a

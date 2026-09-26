@@ -11,6 +11,7 @@ import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getIdToken} from '../../lib/idToken';
 import * as dqService from '../data-quality/dataQuality.service';
+import {QUALITY_CHECK_RESERVED_REFUSAL} from '../data-quality/qualityCheckRefusal';
 import * as sendService from '../file-send/fileSend.service';
 import {submitFileOperation} from './fileOps.service';
 import {apiRequest} from '../../lib/apiClient';
@@ -647,6 +648,17 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
     });
   });
 
+  it('refuses a folder Data Quarry manages in words, where the plane would answer "no access"', async () => {
+    mock.listFiles.mockResolvedValue(ok(page({files: [], folders: [folder('shared_tables')]})));
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select folder shared_tables'}));
+
+    expect(checkButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(checkButton()).toHaveAttribute('title', QUALITY_CHECK_RESERVED_REFUSAL);
+    await user.click(checkButton());
+    expect(screen.queryByRole('alertdialog', {name: 'Confirm data quality check'})).not.toBeInTheDocument();
+  });
+
   it('sends the SPACE ROOT even when browsing a subfolder, not the current folder', async () => {
     // Every other test browses at the root, where the two are identical — so without
     // this one, sending `currentPrefix` as the space prefix would pass unnoticed and
@@ -821,6 +833,20 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
     await user.clear(field);
     await user.type(field, `${newName}{Enter}`);
   }
+
+  it('offers no Overwrite for a new folder, which would only rewrite the existing one’s empty marker', async () => {
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    expect(
+      await within(await screen.findByRole('alertdialog')).findByRole('button', {name: 'Rename'})
+    ).toBeInTheDocument();
+    expect(within(folderPrompt()).queryByRole('button', {name: /overwrite/i})).not.toBeInTheDocument();
+  });
 
   it('refuses a new folder name containing a slash, in the folder wording, and creates nothing more', async () => {
     mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);

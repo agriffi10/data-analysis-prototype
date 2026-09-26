@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {apiFailure, mockApi} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
-import {enqueueFileSend} from './fileSend.service';
+import {enqueueFileSend, SEND_MAX_RECIPIENTS} from './fileSend.service';
 import {toUserText} from '../../lib/errorMessages';
 import type {FileSendRequest} from './fileSend.types';
 
@@ -90,6 +90,22 @@ describe('enqueueFileSend', () => {
     // And the wording reaches the user: without a rule in errorMessages the refusal presents as
     // "Something went wrong", which is the one thing a fixable limit must not say.
     if (!result.success) expect(toUserText(result.error)).toContain('too large');
+  });
+
+  it('refuses more recipients than the plane accepts, now and in words, without calling the API', async () => {
+    const everyone = Array.from({length: SEND_MAX_RECIPIENTS + 1}, (_, i) => ({
+      kind: 'user' as const,
+      name: `user_${i}`
+    }));
+
+    const result = await enqueueFileSend({...req, recipients: everyone});
+
+    expect(api.calls).toEqual([]);
+    if (!result.success) {
+      expect(toUserText(result.error)).toBe(
+        `You can send to at most ${SEND_MAX_RECIPIENTS} recipients at a time. Send to the rest in a second request.`
+      );
+    } else expect.unreachable('an over-cap send was requested');
   });
 
   it('refuses more items than the plane accepts, without calling the API', async () => {

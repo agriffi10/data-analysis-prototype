@@ -76,8 +76,8 @@ export function AuthProvider({children}: {children: ReactNode}) {
   // that belief can disagree with Amplify — a transient `getCurrentUser()` failure
   // leaves `status` unauthenticated over a live session. Amplify then refuses to
   // redirect and throws `UserAlreadyAuthenticatedException`, so the click produced a
-  // swallowed error and no visible effect (the landing page renders no error banner
-  // at all, and the app Header is suppressed on '/'). Treat it as what it is —
+  // swallowed error and no visible effect: setting an error would put a failure banner
+  // over what is really a live session. Treat it as what it is —
   // already signed in — and re-derive state, which flips the UI to its authenticated
   // form and lets the pending return path route the user on.
   const recoverIfAlreadySignedIn = useCallback(

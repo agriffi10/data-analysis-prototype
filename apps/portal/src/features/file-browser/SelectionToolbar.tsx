@@ -99,6 +99,7 @@ export function SelectionToolbar({
   onRequestMove,
   onRequestCopy,
   onRequestQualityCheck,
+  qualityCheckRefusal,
   onRequestSend,
   onRequestArchive,
   archiveDisabledReason,
@@ -114,6 +115,8 @@ export function SelectionToolbar({
   onRequestCopy: () => void;
   /** Absent when the space can't be resolved (no space name) — the action is then omitted. */
   onRequestQualityCheck?: () => void;
+  /** Why the one selected item cannot be checked — a folder Data Quarry manages — or undefined. */
+  qualityCheckRefusal?: string;
   /**
    * Absent in the dev-unauth path and while the `files` flag is off — the
    * action is then omitted rather than disabled, which is the rule: hidden means removed.
@@ -209,6 +212,7 @@ export function SelectionToolbar({
           className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
           onClick={onRequestQualityCheck}
           disabled={count !== 1 || isBusy}
+          disabledReason={count === 1 && !isBusy ? qualityCheckRefusal : undefined}
           aria-label="Check data quality of the selected item">
           <QualityCheckIcon />
           <span className={TOOLBAR_ACTION_LABEL}>Check data quality</span>

@@ -199,6 +199,25 @@ def test_the_restored_stage_names_where_the_data_landed():
     assert line.split(":", 1)[1].strip() == "s3://user-bkt/alice/"
 
 
+def test_a_receipt_fault_on_the_restored_stage_sends_no_failure_beside_the_success(_sink):
+    """The state machine routes this stage's failures to the success notice, so a failure notice
+    sent on the way out told the user their finished restore had failed."""
+    _install(put_error=_S3Error("AccessDenied", 403))
+
+    out = m.handler(_request(), None)
+
+    assert "receiptKey" not in out
+    assert _sink == []
+
+
+def test_the_same_fault_on_the_requested_stage_still_fails_the_run(_sink):
+    """That stage's failure does fail the run, so it is not swallowed."""
+    _install(put_error=_S3Error("AccessDenied", 403))
+
+    with pytest.raises(_S3Error):
+        m.handler(_request(status="requested"), None)
+
+
 def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
     """FR-004, and it is the rollback verb's shape: record the outcome, then fail deliberately.
     The message names all three things a user needs — how many came back, that the archive is

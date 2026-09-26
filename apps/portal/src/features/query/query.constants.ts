@@ -10,6 +10,10 @@
  */
 export const DEFAULT_RESULTS_PAGE_SIZE = 100;
 
+/** Why Save results is refused for a statement that is not a query. */
+export const SAVE_RESULTS_STATEMENT_REFUSAL =
+  'Save results takes a query’s rows, not the output of SHOW or DESCRIBE, which Athena writes as plain text.';
+
 /** Smallest accepted "Rows per page" value. */
 export const MIN_RESULTS_PAGE_SIZE = 1;
 
@@ -24,6 +28,14 @@ export const QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX = 's3portal.query.resultsPag
 
 /** Cap on the per-user query-history JSON; the oldest entries beyond this are dropped. */
 export const QUERY_HISTORY_MAX = 100;
+
+/**
+ * Byte budget for the same document, oldest entries dropped until it fits. The count alone let a
+ * hundred long statements grow the file past the API's 3 MiB document cap, after which it could be
+ * neither read nor written and history stopped recording. A third of that cap leaves room for the
+ * escaping a read-back adds.
+ */
+export const QUERY_HISTORY_MAX_BYTES = 1024 * 1024;
 
 /**
  * History-drawer entries per page (newest-first). Client-side only — the full

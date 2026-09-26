@@ -9,6 +9,9 @@
 // The original error is logged to the console in dev builds only (see
 // `logOriginal`) so developers can still debug.
 
+import {ATHENA_QUERY_STRING_MAX} from './athenaLimit';
+import {formatBytes} from './format';
+
 /** What a surface renders: an optional bold title, one short sentence, and sometimes the engine's own words. */
 export type UserFacingMessage = {
   title?: string;
@@ -134,6 +137,9 @@ const CODE_RULES: readonly ErrorRule[] = [
   // large for StartExecution, which dead-letters and reaches the user minutes later as a
   // failure notification for something they could have fixed by selecting less.
   {code: 'SelectionTooLarge', userFixable: true, passthrough: true},
+  // Trigger: a send or a share naming more recipients than its plane accepts, refused in the
+  // browser. Passthrough because the service names the cap and the verb.
+  {code: 'TooManyRecipients', userFixable: true, passthrough: true},
   // The Data Explorer rendered a statement longer than StartQueryExecution accepts, caught
   // before anything was started. The user's way out is their own filters, so it says which.
   {
@@ -142,11 +148,23 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: true
   },
 
+  // Trigger: a Query statement over Athena's length bound, refused in the browser before anything
+  // was started. The Explorer's twin above names filters; here the statement is the user's own.
+  {
+    code: 'QueryStatementTooLong',
+    message: `This statement is too long to run — Athena takes at most ${ATHENA_QUERY_STRING_MAX / 1024} KB of SQL in one statement. Shorten it, or split it into smaller statements.`,
+    userFixable: true
+  },
+
   // Trigger: a saved query's `.sql` file is gone — deleted from the file browser, or by a
   // colleague in a shared space, between the listing and the open. Passthrough because the
   // sentence NAMES the file, which the generic `NotFound` cannot: a user looking at a list of
   // twenty-five queries needs to know which one vanished, not that "that item" did.
   {code: 'SavedQueryNotFound', userFixable: true, passthrough: true},
+
+  // Trigger: a saved query's bytes are not UTF-8, which the content route refuses rather than
+  // guessing at. Passthrough because the sentence names the file; the user re-saves it as UTF-8.
+  {code: 'SavedQueryNotText', userFixable: true, passthrough: true},
 
   // Trigger: the API refused to READ a stored document as too large — over the document cap, or
   // too large to send back once escaped. The document reader re-codes the API's `PayloadTooLarge`
@@ -163,6 +181,16 @@ const CODE_RULES: readonly ErrorRule[] = [
     code: 'SavedQueryTooLarge',
     message:
       'This saved query is too large to open here. Download it from its space’s saved_queries folder in Files to read it.',
+    userFixable: true
+  },
+
+  // Trigger: a saved query's SQL is over the API's writable document cap. Re-coded by the save
+  // service from `PayloadTooLarge`, whose "one field" sentence would point at the Name field.
+  {
+    code: 'SavedQueryTooLargeToSave',
+    message: 'This query is too large to save. Shorten it, or split it into smaller saved queries.',
+    withParams: ({limit}) =>
+      `This query is too large to save — a saved query can be at most ${formatBytes(limit)}. Shorten it, or split it into smaller saved queries.`,
     userFixable: true
   },
 

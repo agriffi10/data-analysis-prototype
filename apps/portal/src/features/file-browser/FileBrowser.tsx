@@ -43,7 +43,8 @@ import {
 } from '../archive';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {useToast} from '../../components/toastContext';
-import {useSelection, type SelectableItem} from './selectionContext';
+import {itemId, useSelection, type SelectableItem} from './selectionContext';
+import {qualityCheckRefusal} from '../data-quality';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import type {ArchiveItem} from '../../types/archive.types';
 import {toUserText} from '../../lib/errorMessages';
@@ -425,12 +426,14 @@ function FileBrowserContent({
             />
           )}
 
-          {/* Folder-name collision — Overwrite or pick a new name */}
+          {/* New-folder collision — pick a new name. No Overwrite: the folder is already there, and
+              replacing it would only rewrite its empty marker. */}
           {pendingCollision && (
             <CollisionPrompt
               kind={pendingCollision.kind}
               name={pendingCollision.label}
               parentPrefix={pendingCollision.prefix}
+              allowOverwrite={false}
               onOverwrite={() => pendingCollision.retry({overwrite: true})}
               onRename={(newName) => pendingCollision.retry({rename: newName})}
               onCancel={cancelCollision}
@@ -582,6 +585,11 @@ function FileBrowserContent({
           onRequestMove={dialogs.openMove}
           onRequestCopy={dialogs.openCopy}
           onRequestQualityCheck={username && dataQualityEnabled ? dialogs.openQualityCheck : undefined}
+          qualityCheckRefusal={
+            selection.selected.size === 1
+              ? qualityCheckRefusal(itemId([...selection.selected.values()][0]), rootPrefix)
+              : undefined
+          }
           onRequestSend={
             username && filesEnabled
               ? () =>

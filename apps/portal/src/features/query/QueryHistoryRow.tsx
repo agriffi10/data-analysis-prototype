@@ -34,9 +34,9 @@ export function QueryHistoryRow({
   onRerun,
   rerunDisabled,
   openLabel = 'Open',
-  openAriaLabel = 'Open this query in the editor',
+  openAriaLabel = 'Open this query in a new tab',
   runLabel = 'Re-run',
-  runAriaLabel = 'Re-run this query'
+  runAriaLabel = 'Re-run this query in a new tab'
 }: {
   entry: QueryHistoryEntry;
   onReopen: () => void;

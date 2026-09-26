@@ -11,6 +11,7 @@ export {getRunsIndex, runsIndexKey} from './dataQualityRuns.service';
 export {DataQualityRunRow} from './DataQualityRunRow';
 export {dataQualityKeys} from './dataQualityKeys';
 export {locationLabel, sourceFolderPrefix} from './dataQuality.format';
+export {qualityCheckRefusal, QUALITY_CHECK_RESERVED_REFUSAL} from './qualityCheckRefusal';
 export type {DataQualityTarget} from './useDataQualityCheck';
 export type {
   ColumnFinding,

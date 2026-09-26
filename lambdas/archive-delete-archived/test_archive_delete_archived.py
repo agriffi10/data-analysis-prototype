@@ -88,7 +88,6 @@ def _request(**overrides):
 def _sink(monkeypatch):
     sent = []
     monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)))
-    monkeypatch.setattr(m.notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)))
     return sent
 
 
@@ -108,9 +107,12 @@ def test_the_whole_archive_prefix_goes_including_its_own_record():
     assert out["cleanup"] == {"deleted": 3, "residue": 0, "cleanupIncomplete": False}
 
 
-def test_a_key_outside_the_prefix_refuses_before_anything_is_issued():
+def test_a_key_outside_the_prefix_refuses_before_anything_is_issued(_sink):
     """`assert_deletable` checks the whole list up front, so a listing that somehow returned a
-    foreign key fails the verb rather than stopping a deletion half way through."""
+    foreign key fails the verb rather than stopping a deletion half way through.
+
+    And it tells the user NOTHING: the state machine routes this failure to the success terminal,
+    whose notice says the files are back, so a failure notice here contradicted it."""
     fake = _install(contents=[("personal/bob/archive/x/theirs.csv", 9)])
     fake.honour_prefix = False
 
@@ -119,3 +121,4 @@ def test_a_key_outside_the_prefix_refuses_before_anything_is_issued():
 
     assert caught.value.reason == "forbidden"
     assert fake.deleted == []
+    assert _sink == []

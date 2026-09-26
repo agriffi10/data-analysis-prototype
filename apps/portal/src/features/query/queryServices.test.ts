@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {apiRequest} from '../../lib/apiClient';
 import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
+import {QUERY_HISTORY_MAX_BYTES} from './query.constants';
 
 vi.mock('../../lib/apiClient', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/apiClient')>()),
@@ -20,8 +21,12 @@ describe('queryHistory.service', () => {
   // `commands` holds ROUTE IDS where it used to hold SDK command names. That is the same
   // assertion one layer out: the read-copy-write ORDER is what SPEC-159's quarantine turns on,
   // and it is observable either way.
-  function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
+  function fakeBucket(
+    initial: string | null,
+    opts: {copyFails?: boolean; putFails?: boolean; tooLargeToRead?: boolean} = {}
+  ) {
     let stored = initial;
+    let tooLarge = opts.tooLargeToRead ?? false;
     const commands: string[] = [];
     const copies: {key: string; source: string}[] = [];
 
@@ -43,8 +48,10 @@ describe('queryHistory.service', () => {
       if (route === 'objects.writeContent') {
         if (opts.putFails) return {success: false, error: {message: '', code: 'AccessDenied'}};
         stored = String((options?.body ?? {}).body);
+        tooLarge = false;
         return {success: true, data: {key: String((options?.body ?? {}).key), etag: 'e'}};
       }
+      if (tooLarge) return {success: false, error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}};
       if (stored === null) return {success: false, error: {message: '', code: 'NotFound'}};
       return {success: true, data: {body: stored, etag: 'e'}};
     }) as never);
@@ -124,6 +131,32 @@ describe('queryHistory.service', () => {
       expect(result.data.entries[0].queryExecutionId).toBe('new');
       // old-99 (the previous oldest) is dropped.
       expect(result.data.entries.at(-1)?.queryExecutionId).toBe('old-98');
+    });
+
+    it('drops the oldest entries until the document fits its byte budget, never the new one', async () => {
+      const long = (id: string) => ({...entry(id), sql: `SELECT '${'x'.repeat(200_000)}'`});
+      const existing = Array.from({length: 8}, (_, i) => long(`old-${i}`));
+      fakeBucket(JSON.stringify({version: 1, entries: existing} as QueryHistory));
+
+      const result = await appendQueryHistory('alice', long('new'));
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.entries[0].queryExecutionId).toBe('new');
+      expect(result.data.entries.length).toBeLessThan(9);
+      expect(JSON.stringify(result.data).length).toBeLessThanOrEqual(QUERY_HISTORY_MAX_BYTES);
+    });
+
+    it('sets aside a document too large to read, and records again from a fresh one', async () => {
+      const fake = fakeBucket('{}', {tooLargeToRead: true});
+
+      const result = await appendQueryHistory('alice', entry('after'));
+
+      expect(result.success && result.recovered).toBe(true);
+      expect(fake.copies).toHaveLength(1);
+      expect(JSON.parse(fake.stored() as string).entries.map((e: QueryHistoryEntry) => e.queryExecutionId)).toEqual([
+        'after'
+      ]);
     });
 
     it('starts a fresh history when the file is absent', async () => {

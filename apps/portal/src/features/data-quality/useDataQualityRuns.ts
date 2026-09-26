@@ -43,6 +43,11 @@ export type UseDataQualityRunsResult = {
   isLoading: boolean;
   /** Already passed through `toUserMessage` — render it directly. */
   error: string | undefined;
+  /**
+   * The spaces whose history could not be read while others could, named as the user knows them.
+   * Without it the list silently omits them, and an empty list reads "No quality checks yet".
+   */
+  unreachable: {label: string; shared: boolean}[];
   refresh: () => Promise<void>;
 };
 
@@ -81,7 +86,7 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
     // personal source is known, so a list that adds a shared source would have the personal
     // index read twice — once for the personal-only key, again for the key the list changes to.
     enabled: !connectionsLoading && sources.length > 0,
-    queryFn: async (): Promise<DataQualityRunSummary[]> => {
+    queryFn: async (): Promise<{runs: DataQualityRunSummary[]; unreachable: {label: string; shared: boolean}[]}> => {
       const settled = await Promise.all(
         sources.map(async (source) => ({source, result: await getRunsIndex(source.bucket, source.space)}))
       );
@@ -102,9 +107,18 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
         throw failed[0].result.success ? new Error('unreachable') : failed[0].result.error;
       }
 
-      return settled
-        .flatMap(({result}) => (result.success ? result.data : []))
-        .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      return {
+        runs: settled
+          .flatMap(({result}) => (result.success ? result.data : []))
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
+        // A refused read means the membership is gone — the expected skip above, which no retry
+        // brings back — so only the failures a retry could clear are named.
+        unreachable: failed
+          .filter(({result}) => result.success || result.error.code !== 'AccessDenied')
+          .map(({source}) =>
+            source.space === username ? {label: 'your own space', shared: false} : {label: source.space, shared: true}
+          )
+      };
     }
   });
 
@@ -113,7 +127,8 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
   };
 
   return {
-    runs: query.data ?? [],
+    runs: query.data?.runs ?? [],
+    unreachable: query.data?.unreachable ?? [],
     isLoading: connectionsLoading || (sources.length > 0 && query.isPending),
     error: query.error ? toUserText(query.error) : undefined,
     refresh

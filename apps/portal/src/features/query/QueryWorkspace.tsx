@@ -24,12 +24,14 @@ import {useAllSchemas} from '../catalog/useSchema';
 import {
   deriveViewTargetDatabase,
   isExplorableSql,
+  isTextOutputSql,
   resolveRunStatements,
   splitSqlStatements,
   statementHint,
   stripTrailingSemicolons
 } from './query.sql';
 import {unnamedColumnsRefusal} from './exploreResult';
+import {SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {buildExploreSqlHandoff, readOpenSqlHandoff} from '../../lib/routeHandoff';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
@@ -374,18 +376,23 @@ export function QueryWorkspace() {
   const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
     submitBatch(splitSqlStatements(activeTab.sql), scope);
 
-  // re-open loads the entry's SQL into the active
-  // tab's editor (no auto-run); re-run loads it and submits.
+  // History opens its entry in a NEW tab, as Saved queries does: loaded into the active tab it
+  // replaced unsaved SQL with no confirm, and a re-run there was recorded under that tab's
+  // saved-query link although the SQL was not that query's. At the tab cap, the limit dialog.
+  const openHistoryEntry = (entry: QueryHistoryEntry): string | null => {
+    const id = tabs.openTab({sql: entry.sql});
+    // At the cap the drawer stays open, as Saved queries' does, so the user keeps their place.
+    if (id === null) setLimitOpen(true);
+    else setHistoryOpen(false);
+    return id;
+  };
   const handleReopen = (entry: QueryHistoryEntry) => {
-    tabs.setActiveSql(entry.sql);
-    setHistoryOpen(false);
-    editorRef.current?.focus();
+    if (openHistoryEntry(entry) !== null) editorRef.current?.focus();
   };
   const handleRerun = (entry: QueryHistoryEntry) => {
-    if (activeIsInFlight) return;
-    tabs.setActiveSql(entry.sql);
-    setHistoryOpen(false);
-    submitBatch(splitSqlStatements(entry.sql), 'script-single');
+    const id = openHistoryEntry(entry);
+    // The new tab's id, explicitly: the active-tab change has not committed yet.
+    if (id !== null) submitBatch(splitSqlStatements(entry.sql), 'script-single', id);
   };
 
   // Open a tab through the cap guard; at the cap show the dialog.
@@ -560,6 +567,11 @@ export function QueryWorkspace() {
   const explorerEnabled = useFeature('dataExplorer');
   const displayedStatement =
     displayedResultTab && activeRun ? activeRun.statements[displayedResultTab.statementIndex] : undefined;
+  // Save copies or converts the statement's result object, and for a SHOW or DESCRIBE Athena
+  // writes plain text there, not a result set: a CSV copy would be text under a .csv name and a
+  // conversion is refused. So those rows are refused here, on the statement the run holds.
+  const saveResultsRefusal =
+    displayedStatement !== undefined && isTextOutputSql(displayedStatement.sql) ? SAVE_RESULTS_STATEMENT_REFUSAL : null;
   const explore =
     queryEnabled &&
     explorerEnabled &&
@@ -618,8 +630,12 @@ export function QueryWorkspace() {
               historyError={historyError}
               onRun={mobile.runSql}
               onView={mobile.viewSql}
-              onRunSaved={(q) => savedFlow.withSavedSql(q, mobile.runSql)}
-              onViewSaved={(q) => savedFlow.withSavedSql(q, mobile.viewSql)}
+              onRunSaved={(q) =>
+                savedFlow.withSavedSql(q, (sql, title) => mobile.runSql(sql, title, {key: q.key, name: q.name}))
+              }
+              onViewSaved={(q) =>
+                savedFlow.withSavedSql(q, (sql, title) => mobile.viewSql(sql, title, {key: q.key, name: q.name}))
+              }
               runDisabled={activeIsInFlight || mobile.pending}
             />
           ) : (
@@ -627,7 +643,7 @@ export function QueryWorkspace() {
               title={mobileView.title}
               sql={mobileView.sql}
               onBack={mobile.back}
-              onRun={() => mobile.runSql(mobileView.sql, mobileView.title)}
+              onRun={() => mobile.runSql(mobileView.sql, mobileView.title, mobileView.savedQuery)}
               runDisabled={activeIsInFlight || mobile.pending}
               status={mobile.ownsRun ? displayStatus : undefined}
               isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
@@ -748,6 +764,7 @@ export function QueryWorkspace() {
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
                     onCloseResultTab={(index) => closeResultTab(activeTabId, index)}
                     canSaveResults={canSaveResults}
+                    saveResultsRefusal={saveResultsRefusal}
                     onSaveResults={saveResults.openDialog}
                     explore={explore}
                   />
@@ -770,7 +787,7 @@ export function QueryWorkspace() {
             username={username}
             onReopen={handleReopen}
             onRerun={handleRerun}
-            rerunDisabled={activeIsInFlight}
+            rerunDisabled={false}
           />
 
           <SavedQueriesPanel

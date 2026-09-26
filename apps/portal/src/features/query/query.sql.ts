@@ -58,10 +58,12 @@ export function isSchemaChangingSql(sql: string): boolean {
   );
 }
 
-// Matches a fully-qualified base table `database.table` right after FROM or JOIN.
-// CTE names and aliases are referenced unqualified (no dot) so they don't match;
-// only the `db` capture group is used.
-const QUALIFIED_BASE_TABLE = /\b(?:from|join)\s+([a-z_][a-z0-9_]*)\s*\.\s*[a-z_][a-z0-9_]*/gi;
+// Matches a fully-qualified base table `database.table` right after FROM or JOIN, either part
+// bare or double-quoted — the Data Explorer quotes both, and its Open in Query hands that SQL here.
+// CTE names and aliases are referenced unqualified (no dot) so they don't match; only the `db`
+// capture groups (quoted, bare) are used. Linear: `[^"]` and `""` cannot both match one character.
+const QUALIFIED_BASE_TABLE =
+  /\b(?:from|join)\s+(?:"([a-z_][a-z0-9_]*)"|([a-z_][a-z0-9_]*))\s*\.\s*(?:"(?:[^"]|"")+"|[a-z_][a-z0-9_]*)/gi;
 
 // The fully-qualified `database.` right after TABLE/VIEW in a DDL statement
 // (optionally through IF [NOT] EXISTS), e.g. CREATE EXTERNAL TABLE db.t / DROP
@@ -97,7 +99,7 @@ export type ViewTarget = {database: string} | {error: string};
 export function deriveViewTargetDatabase(body: string): ViewTarget {
   const databases = new Set<string>();
   for (const match of body.matchAll(QUALIFIED_BASE_TABLE)) {
-    databases.add(match[1].toLowerCase());
+    databases.add((match[1] ?? match[2]).toLowerCase());
   }
   if (databases.size === 1) return {database: [...databases][0]};
   if (databases.size === 0) {
@@ -258,6 +260,15 @@ export function resolveRunStatements(
  */
 export function isResultProducingSql(sql: string): boolean {
   return /^(select|with|show|desc|describe|values|explain)\b/i.test(stripLeadingSqlComments(sql));
+}
+
+/**
+ * True for a statement whose output Athena writes as plain text rather than a result set —
+ * SHOW and DESCRIBE, which it runs as UTILITY or DDL. EXPLAIN is not one: Athena runs it as DML
+ * (measured), so its rows save and convert like a query's. Leading comments/whitespace are skipped.
+ */
+export function isTextOutputSql(sql: string): boolean {
+  return /^(show|desc|describe)\b/i.test(stripLeadingSqlComments(sql));
 }
 
 /**
