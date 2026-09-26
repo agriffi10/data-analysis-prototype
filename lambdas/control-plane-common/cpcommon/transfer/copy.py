@@ -33,6 +33,13 @@ length, and was counted copied either way. The head the multipart path already m
 length it copies and the ETag every part copy is conditioned on, so a source that changes part way
 fails its item instead.
 
+**A line can also pin the copy to the version its PLAN listed** (``srcEtag``), on both paths. The
+archive is the caller that needs it: it deletes the original afterwards, so the vault has to hold
+the version it will compare the original against, and a copy of whatever happened to be current
+would let a file rewritten and then restored to its planned bytes be deleted while the vault held
+the version in between. A pinned line never also carries ``ifAbsent``: both conditions answer a
+refusal with ``412``, and one status cannot say which of the two refused.
+
 **A copy carries the source object's metadata, and the two paths do that DIFFERENTLY**
 . ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
 now passed explicitly. A multipart copy has no such directive: ``UploadPartCopy`` moves bytes
@@ -85,6 +92,14 @@ _CARRIED_HEADERS = {
     "WebsiteRedirectLocation": "WebsiteRedirectLocation",
     "Metadata": "Metadata",
 }
+
+
+class SourceChanged(Exception):
+    """A pinned copy's source no longer carries the ETag the line was pinned to.
+
+    Deterministic for the item — the version the caller planned is gone — so it is reported as the
+    caller's failure reason rather than retried.
+    """
 
 
 class DestinationOccupied(Exception):
@@ -258,6 +273,7 @@ def copy_one(
     size: int,
     storage_class: str = "",
     if_absent: bool = False,
+    source_etag: str = "",
 ) -> None:
     """Copies one object server-side, choosing single or multipart by its size.
 
@@ -308,6 +324,8 @@ def copy_one(
       if_absent: Whether the copy may overwrite. False means the argument is not passed at all,
         for the storage class's reason: the four callers that do not ask for it issue exactly
         the requests they issued before it existed.
+      source_etag: The version of the source the copy must be of. Empty means unpinned on the
+        single-copy path and pinned to the head's own tag on the multipart one.
 
     Returns:
       None.
@@ -316,11 +334,14 @@ def copy_one(
       TransientError: On a retryable fault, and on a conflict against a conditional write.
       DestinationOccupied: When a conditional write was refused by something this copy did not
         write.
-      Exception: The raw fault on a deterministic one, for the caller to attribute.
+      SourceChanged: When a pinned multipart source no longer carries the pinned tag.
+      Exception: The raw fault on a deterministic one, for the caller to attribute — a pinned
+        single copy whose source changed is S3's own ``412``.
     """
     source = {"Bucket": src_bucket, "Key": src_key}
     extra = {"StorageClass": storage_class} if storage_class else {}
     condition = {"IfNoneMatch": "*"} if if_absent else {}
+    planned = {"CopySourceIfMatch": source_etag} if source_etag else {}
     detail = f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}"
     if size <= MULTIPART_COPY_THRESHOLD:
         try:
@@ -331,6 +352,7 @@ def copy_one(
                 MetadataDirective="COPY",
                 **extra,
                 **condition,
+                **planned,
             )
         except Exception as exc:
             if if_absent and cas.is_precondition(exc):
@@ -340,8 +362,11 @@ def copy_one(
             raise
         return
 
-    carried, length, pinned = _source_head(s3, src_bucket, src_key)
+    carried, length, current = _source_head(s3, src_bucket, src_key)
+    if source_etag and current != source_etag:
+        raise SourceChanged(f"{src_bucket}/{src_key} is no longer the version the plan listed")
     extra.update(carried)
+    pinned = source_etag or current
     pin = {"CopySourceIfMatch": pinned} if pinned else {}
     try:
         upload_id = s3.create_multipart_upload(Bucket=dest_bucket, Key=dest_key, **extra)[
@@ -406,6 +431,10 @@ def _copy_item(item: dict) -> None:
     line that asked not to overwrite into one that does. A missing key is a different thing from
     a malformed one and stays the unconditional default.
 
+    **``srcEtag`` is held to the same standard**, and a line carrying it beside ``ifAbsent`` fails
+    too: S3 refuses either condition with ``412``, so the refusal could not be told apart, and a
+    changed source would be settled as a destination in the way.
+
     Args:
       item: A manifest line — source and destination bucket and key, the size the plan measured,
         and optionally the destination storage class and whether the copy may overwrite.
@@ -417,12 +446,18 @@ def _copy_item(item: dict) -> None:
       TransientError: On a retryable fault.
       DestinationOccupied: When a conditional line met something it did not write.
       KeyError: When the line is missing a location field.
-      TypeError: When ``ifAbsent`` is present and is not a boolean.
+      TypeError: When ``ifAbsent`` is present and is not a boolean, when ``srcEtag`` is present and
+        is not a non-empty string, or when a line carries both.
       Exception: The raw fault on a deterministic one.
     """
     if_absent = item.get("ifAbsent", False)
     if not isinstance(if_absent, bool):
         raise TypeError(f"ifAbsent is a {type(if_absent).__name__}, which is not a boolean")
+    source_etag = item.get("srcEtag", "")
+    if "srcEtag" in item and (not isinstance(source_etag, str) or not source_etag):
+        raise TypeError("srcEtag is present and is not a tag")
+    if source_etag and if_absent:
+        raise TypeError("a line pinned to its source cannot also be conditioned on its destination")
     copy_one(
         clients.s3(),
         item["srcBucket"],
@@ -432,6 +467,7 @@ def _copy_item(item: dict) -> None:
         item.get("size") or 0,
         item.get("storageClass") or "",
         if_absent=if_absent,
+        source_etag=source_etag,
     )
 
 

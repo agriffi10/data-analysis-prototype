@@ -41,6 +41,20 @@ class _FakeS3:
         self._current = current
         self.deletes = []
         self.heads = []
+        self.vault = set(_VAULT_KEYS)
+
+    def get_paginator(self, name):
+        fake = self
+
+        class _Pages:
+            def paginate(self, Bucket, Prefix):
+                yield {
+                    "Contents": [
+                        {"Key": key, "Size": 1} for key in sorted(fake.vault) if key.startswith(Prefix)
+                    ]
+                }
+
+        return _Pages()
 
     def head_object(self, Bucket, Key):
         self.heads.append(Key)
@@ -69,6 +83,12 @@ class _FakeS3:
             ]
         }
 
+
+_VAULT_KEYS = (
+    f"personal/alice/archive/{_REQUEST_ID}/_manifest.json",
+    f"personal/alice/archive/{_REQUEST_ID}/reports/a.csv",
+    f"personal/alice/archive/{_REQUEST_ID}/reports/empty/",
+)
 
 _PLANNED_ETAGS = {
     "alice/reports/a.csv": '"a1"',
@@ -196,13 +216,14 @@ def test_a_plan_that_does_not_describe_this_run_deletes_nothing(field, value):
     assert fake.deletes == []
 
 
-def test_a_source_changed_since_the_plan_is_kept_and_fails_the_run(_no_real_notifications):
-    """The vault holds the bytes the copy read, so an original written over after the plan listed
-    it is NEWER than its archived copy — and versioning is off, so deleting it destroys the only
-    copy of what the user last wrote. The file-ops plane's move has the same shape and compares
-    ETags before deleting; this verb deleted by key alone. The changed file stays where it is, the
-    unchanged one goes, and the run fails the way any partial deletion does, keeping the archive.
-    """
+def test_an_original_changed_since_the_plan_refuses_the_whole_deletion_and_removes_the_vault_copy(
+    _no_real_notifications,
+):
+    """The vault holds the version the plan listed, so an original written over since is NEWER
+    than its archived copy, and with versioning off deleting it destroys what the user last wrote.
+    So nothing is deleted — not even the unchanged originals, which would otherwise go into a vault
+    the user holds no receipt for and cannot find — and the vault copy is removed, leaving the user
+    exactly where they started, and told so."""
     fake = _install(
         current={**_PLANNED_ETAGS, "alice/reports/a.csv": '"rewritten-after-the-copy"'}
     )
@@ -210,15 +231,28 @@ def test_a_source_changed_since_the_plan_is_kept_and_fails_the_run(_no_real_noti
     with pytest.raises(TerminalError) as err:
         m.handler(_event(), None)
 
-    assert err.value.reason == "source_delete_incomplete"
-    assert fake.deletes == [{"Bucket": "user-bkt", "Keys": ["alice/reports/empty/"]}]
-    assert err.value.tokens == {"failed": "1", "total": "1"}
+    assert err.value.reason == "source_changed_during_archive"
+    assert fake.deletes == [
+        {
+            "Bucket": "archive-bkt",
+            "Keys": sorted(_VAULT_KEYS),
+        }
+    ]
+    assert _no_real_notifications == [
+        (
+            "alice",
+            (
+                "Couldn't archive that: 1 file(s) changed while they were being archived, so "
+                "nothing was archived and your files are exactly where they were. Please try again."
+            ),
+        )
+    ]
 
 
 def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
     """Fail-closed, because a missing tag is not evidence the object is unchanged: a plan written
-    before the tag was recorded, or one hand-edited, cannot say what was copied. Keeping the file
-    costs a partial-deletion message; deleting it on a guess can cost the file."""
+    before the tag was recorded, or edited since, cannot say what the vault holds. It is never
+    headed, and it refuses the deletion like a changed original."""
     fake = _install(
         _plan([{"relKey": "reports/a.csv", "bytes": 5}, {"relKey": "reports/b.csv", "bytes": 1, "etag": '"b1"'}]),
         current={"alice/reports/a.csv": '"a1"', "alice/reports/b.csv": '"b1"'},
@@ -227,8 +261,9 @@ def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
     with pytest.raises(TerminalError) as err:
         m.handler(_event(), None)
 
-    assert err.value.reason == "source_delete_incomplete"
-    assert fake.deletes == [{"Bucket": "user-bkt", "Keys": ["alice/reports/b.csv"]}]
+    assert err.value.reason == "source_changed_during_archive"
+    assert "alice/reports/a.csv" not in fake.heads
+    assert all(call["Bucket"] == "archive-bkt" for call in fake.deletes)
 
 
 def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():

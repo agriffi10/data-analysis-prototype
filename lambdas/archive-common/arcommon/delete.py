@@ -23,13 +23,16 @@ folder placeholders is counted apart, because the sentence delete-source raises 
 counts a placeholder only when it is one of the things left behind.
 
 **The source deletion is also conditional on the original being UNCHANGED, and the rollback and
-the vault sweep are not.** What the vault holds is what the copy read, so an original written over
-after the plan listed it is newer than its archived copy, and with versioning off deleting it
-destroys the only copy of what the user last wrote. ``changed_keys`` heads each original and
-compares the plan's tag, the same HEAD-compare the file-operations move runs; a conditional
-``DeleteObjects`` is not used because whether S3 enforces its ETag on these buckets is unproven,
-and a condition serialized and ignored would delete silently. The residual is the gap between a
-head and its batch's delete, which is milliseconds against the minutes a copy takes.
+the vault sweep are not.** Every archive copy is pinned to the ETag the plan recorded, so the vault
+holds exactly the planned version, and an original that no longer carries that tag is newer than
+its archived copy: with versioning off, deleting it destroys the only copy of what the user last
+wrote. ``changed_keys`` heads each original and compares the plan's tag, the same HEAD-compare the
+file-operations move runs; a conditional ``DeleteObjects`` is not used because whether S3 enforces
+its ETag on these buckets is unproven, and a condition serialized and ignored would delete
+silently. **The residual is the time between an original's head and its batch's delete**: the
+whole sweep heads before anything is deleted, because the caller decides all or nothing on it, so
+a write landing after its head and before its batch goes is not seen. That is seconds for an
+ordinary archive and a few minutes at the object cap, against the copy's minutes to hours.
 
 Attributes:
   MAX_KEYS_PER_BATCH: S3's own limit on one ``DeleteObjects`` request.
@@ -41,7 +44,7 @@ Attributes:
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from cpcommon import clients, errors
+from cpcommon import clients, errors, s3_listing
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import has_dot_segment
 
@@ -211,3 +214,48 @@ def changed_keys(bucket: str, expected: dict) -> set:
     keys = list(expected)
     with ThreadPoolExecutor(max_workers=SOURCE_HEAD_CONCURRENCY) as pool:
         return {key for key, kept in zip(keys, pool.map(changed, keys), strict=True) if kept}
+
+
+def _everything(key: str, size: int, prefix: str) -> bool:
+    """Ignores nothing, so a listing of an archive prefix sees every object the copy wrote.
+
+    The shared paginator's default predicate drops zero-byte objects and hidden segments, and an
+    archive deliberately carries both — a folder placeholder is how an empty folder survives, and
+    ``_manifest.json`` is hidden by that rule too.
+
+    Args:
+      key: The absolute object key, unused.
+      size: The object's byte size, unused.
+      prefix: The listing prefix, unused.
+
+    Returns:
+      False, always.
+
+    Raises:
+      None.
+    """
+    del key, size, prefix
+    return False
+
+
+def delete_prefix(bucket: str, root: str) -> dict:
+    """Removes everything under one archive prefix, found by LISTING it.
+
+    What the rollback, the vault sweep and a refused source deletion all do to a vault copy, and
+    by listing rather than from a key list, because keys are the unbounded term and a listing also
+    finds what a batch copied before it died and never reported.
+
+    Args:
+      bucket: The archive bucket.
+      root: The archive prefix, ending in a slash.
+
+    Returns:
+      ``delete_keys``' counts, with ``listed`` — how many objects the listing found.
+
+    Raises:
+      TerminalError: ``forbidden`` or ``protected_marker`` from the pre-check.
+      TransientError: When a delete batch failed retryably.
+      ClientError: Propagated raw from the listing.
+    """
+    keys = [key for key, _ in s3_listing.list_data_objects(bucket, root, ignore=_everything)]
+    return {"listed": len(keys), **delete_keys(bucket, keys, root)}

@@ -2201,6 +2201,13 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   each builds its manifest from whatever plan is at its plan key when it gets there, and two
   members' shares do not even share that key, since it digests the actor — and the table then
   reads both snapshots.
+- **File operations: the lock serialises the plane, not every writer.** `check-destinations`
+  heads each planned key twice, the second immediately before the transfer, and the copy is then
+  an unconditional `CopyObject`, for as long as the Map runs. The per-space lock orders one file
+  operation against another, but not a browser upload, an API document write, a restore's
+  copy-back or a delivery into the space — so a file landing at a planned key mid-transfer is
+  overwritten and the run reports success, under the `refuse` answer as well as `overwrite`. Found
+  by the control-plane data-loss audit on 2026-09-26.
 - **File send: an overlapping send can overwrite what the recipient did with the first.** The guard
   lists the names already in `shared_files/{sender}/`, and the copy is an unconditional `CopyObject`.
   A second send of an item to one recipient, submitted before the first run's copy of that name
@@ -2224,15 +2231,17 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
 
 **Decided 2026-09-15 (Andrew): record now, and repair file send and table share in the follow-up
 spec [decided the same day](archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
-for the archive restore's copy-back.** All three overwrite through the
+for the archive restore's copy-back — and on 2026-09-26 he folded the file-operations arm into that
+same spec, under the `refuse` answer.** All of them overwrite through the
 one copy engine, `cpcommon.transfer`, and the repair chosen there — `If-None-Match: *` on
-`CopyObject` and `CompleteMultipartUpload` — makes "never overwrites" true at every write on both
-planes, which is the promise the Help page already makes for a send and for a share. It does not by
+`CopyObject` and `CompleteMultipartUpload` — makes "never overwrites" true at every write on each
+plane, which is the promise the Help page already makes for a send and for a share. It does not by
 itself make the losing run report a conflict: the engine records a `412` as an ordinary per-item
 failure, and both collectors turn any failed item into `copy_failed`, so the spec owes that mapping
 too, and for table share an answer to two runs that each lose a key to the other and leave a
 half-copied prefix with no table. The same spec adds a `request_id_reused` refusal to file send, as
-archive and file-ops carry. Until it lands, the file-send and table-share arms above are live.
+archive and file-ops carry. Until it lands, the file-operations, file-send and table-share arms
+above are live.
 The table builder's misreported create is closed above, by a post-condition rather than a lock,
 and its own residual is named there.
 
@@ -2779,7 +2788,10 @@ unmarked database exactly as it is. The one test is `teardown.owns_database`, fo
 `is_destroyable` is one predicate: complements written twice drift.
 
 **The cost, accepted:** a space created before the marker is unmarked, so tearing one of those down
-leaves its database behind as residue — against the alternative of guessing whose it is. **Not
+leaves its database behind as residue — against the alternative of guessing whose it is. A create
+that FAILED before the marker existed is the sharp end of it: its database is unmarked, so the
+owner's retry is refused as taken, and forgetting it leaves that database behind, so no later
+create can take the name either. With no users on the plane yet that is a name, not data. **Not
 closed here, and Andrew chose to split it off:** the entry doors (a space name that is a username,
 and a username that is a space name, the second of which has post-confirmation adopt a space's
 database and grant the new user on it), and whether a space tag naming a user's database reaches

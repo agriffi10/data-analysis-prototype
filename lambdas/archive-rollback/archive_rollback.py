@@ -31,36 +31,13 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 import logging
 
 from arcommon import counts, delete, notify
-from cpcommon import observability, s3_listing
+from cpcommon import observability
 from cpcommon.errors import TerminalError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="archive")
-
-
-def _keep_everything(key: str, size: int, prefix: str) -> bool:
-    """Ignores nothing, so the rollback lists every object the copy could have written.
-
-    The shared paginator's default predicate drops zero-byte objects and hidden segments, and
-    both of those are things this plane deliberately archives — a folder placeholder is how an
-    empty folder survives, and an underscore-prefixed folder is the user's own. A rollback that
-    inherited the default would leave exactly those behind.
-
-    Args:
-      key: The absolute object key, unused.
-      size: The object's byte size, unused.
-      prefix: The listing prefix, unused.
-
-    Returns:
-      False, always.
-
-    Raises:
-      None.
-    """
-    del key, size, prefix
-    return False
 
 
 @observability.traced("rollback")
@@ -112,13 +89,12 @@ def _rollback(event) -> dict:
     copied = outcome.get("copied") or 0
     expected = outcome.get("expected") or 0
 
-    keys = [key for key, _ in s3_listing.list_data_objects(bucket, root, ignore=_keep_everything)]
-    removed = delete.delete_keys(bucket, keys, root)
+    removed = delete.delete_prefix(bucket, root)
 
     logger.info(
         "rolled back %d of %d archived object(s) after %d of %d copied",
         removed["deleted"],
-        len(keys),
+        removed["listed"],
         copied,
         expected,
     )

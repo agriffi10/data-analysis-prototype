@@ -96,9 +96,10 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   them.**
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
   the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
-  unrecognisable verdict fails closed. **And only an original still carrying the ETag the plan
-  recorded**: the gate proves a copy was made, not that the original stood still since, and one
-  rewritten while the Map ran is newer than its archived copy — kept, and counted short
+  unrecognisable verdict fails closed. **And all or nothing on the ETag the plan recorded**: every
+  copy is pinned to it, and delete-source heads every original first — one that changed refuses
+  the whole deletion and removes the vault copy, because a partial one deletes into a vault the
+  user holds no receipt for
   ([entry](#the-source-is-deleted-only-while-it-is-unchanged-since-the-plan-listed-it)). **It, not the queue, is what makes two overlapping archives of
   one space safe when their ids differ** — the group id orders their starts and nothing else. **One
   id sent twice is closed by a CLAIM**, not by the queue and not by the prefix listing, which two
@@ -1175,18 +1176,29 @@ shared space — was deleted, leaving the vault's older copy as the only one, wi
 The file-operations move had already closed the same shape with a HEAD-compare before its
 deletion; this plane had not.
 
-**The plan now records each object's ETag**, from the listing or the file head that already
-returned it, and `delete-source` heads every original before deleting anything and keeps the ones
-that differ. A kept original counts short exactly as one S3 refused to delete, so the run fails
-`source_delete_incomplete` and the archive copy stays beside it — both versions survive, and the
-existing sentence ("safe in both places") is true of each file, if not of which version each place
-holds. An entry with **no** recorded tag is kept rather than headed: a plan written before the tag
-existed, or edited since, cannot say what the vault holds, and "unchanged" would be a guess. An
-original that heads as **absent** is not a change, because a Retry re-heads what its first attempt
-removed. The heads cost the guard's arithmetic over the same plan, so `delete-source` took the
-guard's 600s and a test reads it back.
+**The plan records each object's ETag** — from the listing, or the file head that already returned
+it — and it is used twice. **Every copy line is pinned to it** (`srcEtag`, sent as
+`CopySourceIfMatch`), so the vault holds exactly the planned version, and a file changed before its
+copy fails that item and the commit gate rolls the archive back under the existing message. **Then
+`delete-source` heads every original before deleting any**, and one that no longer carries the tag
+refuses the whole deletion: it removes the vault copy by the rollback's own listing and fails
+`source_changed_during_archive` — "N file(s) changed while they were being archived, so nothing was
+archived and your files are exactly where they were. Please try again." An entry with **no**
+recorded tag refuses the same way without being headed: a plan written before the tag existed
+cannot say what the vault holds. An original that heads as **absent** is not a change, because a
+Retry re-heads what its first attempt removed.
 
-**Not a conditional `DeleteObjects`,** for `focommon.delete`'s reason: whether S3 enforces the ETag
-on these buckets is unproven, and a condition serialized and ignored deletes silently. The residual
-is the gap between a head and its batch's delete — milliseconds, against the copy's minutes.
+**All or nothing, and Andrew chose it over keeping per file.** The first shape kept only the
+changed originals, deleted the rest and failed `source_delete_incomplete`; a review found that this
+deletes into a vault the user cannot find — the receipt that names an archive is written only after
+this state succeeds — and that the kept file then blocks a restore of it as a collision. Per file
+is right on file operations because each item's outcome reaches the user; here nothing does.
 
+**The residual is the time between an original's head and its batch's delete.** Deciding all or
+nothing needs every head before the first delete, so a write landing after its head is not seen:
+seconds for an ordinary archive, a few minutes at the object cap. A second sweep just before each
+batch would narrow it and was computed against the budget instead of added — two sweeps at the
+guard's modelled latency do not fit the Lambda ceiling with this file's headroom rule. The heads cost the
+guard's arithmetic, so `delete-source` took the guard's 600s and a test reads it back. **Not a
+conditional `DeleteObjects`,** for `focommon.delete`'s reason: whether S3 enforces the ETag on
+these buckets is unproven, and a condition serialized and ignored deletes silently.

@@ -20,8 +20,9 @@ Attributes:
     number this module can know — and ``test_every_marker_in_every_body_can_be_filled_by_
     somebody`` holds every marker to having a supplier, because ``blank_unfilled=True`` renders
     an unsupplied one as a GAP, which reads as a typo rather than as a bug. The archive outcome
-    bodies fill ``{copied}``, ``{total}``, ``{failed}``, ``{residue}`` and ``{requestId}`` the
-    same way, for the same reason: they are counts of one run, not properties of this plane.
+    bodies fill ``{copied}``, ``{total}``, ``{failed}``, ``{residue}``, ``{changed}`` and
+    ``{requestId}`` the same way, for the same reason: they are counts of one run, not properties
+    of this plane.
 
     **Every body downstream of the copy says what happened to the SOURCE**, and that is the one
     editorial rule here. Archiving is the only operation in this portal that deletes a user's
@@ -180,6 +181,10 @@ _BODIES = {
         "files are exactly where they were. Please try again. {residue} half-copied file(s) "
         "could not be cleaned up; they are not in your space and will expire on their own."
     ),
+    "source_changed_during_archive": (
+        "{changed} file(s) changed while they were being archived, so nothing was archived and "
+        "your files are exactly where they were. Please try again."
+    ),
     "source_delete_incomplete": (
         "your files were archived, but {failed} of {total} could not be removed from your space. "
         "Nothing has been lost - they are safe in both places. Please contact an administrator."
@@ -280,6 +285,7 @@ ARCHIVE_ONLY = frozenset(
         "manifest_write_failed",
         "archive_incomplete",
         "archive_rollback_incomplete",
+        "source_changed_during_archive",
         "source_delete_incomplete",
         "receipt_write_failed",
         "archive_timed_out",

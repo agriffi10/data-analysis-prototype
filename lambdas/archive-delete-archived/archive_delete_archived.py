@@ -29,35 +29,12 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 import logging
 
 from arcommon import delete, notify
-from cpcommon import observability, s3_listing
+from cpcommon import observability
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="archive")
-
-
-def _keep_everything(key: str, size: int, prefix: str) -> bool:
-    """Ignores nothing, so the sweep lists every object the archive holds.
-
-    The shared paginator's default predicate drops zero-byte objects and hidden segments, and an
-    archive deliberately carries both — a folder placeholder is how an empty folder survives, and
-    ``_manifest.json`` is hidden by that rule too. A sweep that inherited the default would leave
-    exactly the objects this plane wrote.
-
-    Args:
-      key: The absolute object key, unused.
-      size: The object's byte size, unused.
-      prefix: The listing prefix, unused.
-
-    Returns:
-      False, always.
-
-    Raises:
-      None.
-    """
-    del key, size, prefix
-    return False
 
 
 @observability.traced("delete-archived")
@@ -103,17 +80,18 @@ def _delete_archived(event) -> dict:
     archive = event.get("archive") or {}
     bucket, root = archive.get("bucket"), archive.get("root")
 
-    keys = [key for key, _ in s3_listing.list_data_objects(bucket, root, ignore=_keep_everything)]
-    removed = delete.delete_keys(bucket, keys, root)
+    removed = delete.delete_prefix(bucket, root)
 
-    logger.info("swept %d of %d archived object(s) after the restore", removed["deleted"], len(keys))
+    logger.info(
+        "swept %d of %d archived object(s) after the restore", removed["deleted"], removed["listed"]
+    )
     observability.info(
         "archive swept",
         actor=(event.get("actor") or {}).get("username"),
         archive_id=archive.get("archiveId"),
         objects=removed["deleted"],
         residue=removed["failed"],
-        expected=len(keys),
+        expected=removed["listed"],
     )
     return {
         **event,

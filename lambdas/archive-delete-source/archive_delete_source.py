@@ -5,11 +5,14 @@ invoked, every object in the plan has been confirmed present in the vault and th
 has been written. What it deletes is exactly the plan — the same list the manifest was built from
 — so an object that was never copied is also never deleted.
 
-**And only the originals still carrying the tag the plan recorded.** The gate confirms a copy was
-made, not that the original has stood still since: a file written over while the Map ran is newer
-than its archived copy, and deleting it would leave the user the older version and nothing else.
-A changed original is kept and counted short exactly as an original S3 refused to delete is, so
-the run fails the same way and the archive copy is kept beside it.
+**And only when EVERY original still carries the tag the plan recorded — or none is deleted.**
+The gate confirms a copy was made, not that the original has stood still since: a file written
+over while the Map ran is newer than its archived copy, and deleting it would leave the user the
+older version and nothing else. Every original is headed before anything is deleted, and one that
+changed refuses the whole deletion and removes the vault copy, so the user is told nothing was
+archived and their files are where they were. Keeping only the changed ones was the first shape
+and was rejected: it deleted the rest into a vault the user could not find, because the receipt
+that names an archive is written only after this state succeeds.
 
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array**, and a response inspected
 only by its status code is a defect this repo has already had once. Here that defect
@@ -63,8 +66,9 @@ def handler(event, context) -> dict:
       TerminalError: ``plan_unreadable`` or ``plan_superseded`` when the plan cannot be read
         back or is not this run's — the second is what stops a run deleting a DIFFERENT
         selection after another execution overwrote the plan under a reused request id —
-        ``source_delete_incomplete`` when any object survived or was kept because it changed
-        since the plan, or ``forbidden`` /
+        ``source_changed_during_archive`` when any original changed since the plan, before
+        anything is deleted, ``source_delete_incomplete`` when any object survived a deletion
+        that was attempted, or ``forbidden`` /
         ``protected_marker`` from the pre-delete assertion, which fails the run BEFORE issuing
         a delete the bucket policy would refuse mid-batch.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
@@ -82,6 +86,11 @@ def _delete_source(event) -> dict:
     from. The whole list is checked as deletable before any original is headed, so a plan that
     names a protected key refuses exactly as it did before the heads existed.
 
+    **The vault copy is removed on a changed original**, by the rollback's own listing, because
+    the source is then untouched and a copy nobody holds a receipt for is one nobody can restore.
+    A removal that only partly lands leaves residue the bucket's expiry reclaims, and does not
+    change what the user is told: their files are where they were either way.
+
     Args:
       event: The request with its copy plan key.
 
@@ -89,8 +98,8 @@ def _delete_source(event) -> dict:
       The request with ``deletedCount``.
 
     Raises:
-      TerminalError: ``plan_unreadable``, ``plan_superseded``, ``source_delete_incomplete``,
-        ``forbidden`` or ``protected_marker``.
+      TerminalError: ``plan_unreadable``, ``plan_superseded``, ``source_changed_during_archive``,
+        ``source_delete_incomplete``, ``forbidden`` or ``protected_marker``.
       TransientError: On a retryable S3 fault.
     """
     loaded = plan.load(event.get("copyPlanKey"), event)
@@ -100,17 +109,13 @@ def _delete_source(event) -> dict:
     keys = list(planned)
 
     delete.assert_deletable(keys, root)
-    kept = delete.changed_keys(source["bucket"], planned)
-    removed = delete.delete_keys(source["bucket"], [key for key in keys if key not in kept], root)
-    failed = removed["failed"] + len(kept)
-    folders_short = removed["failedFolders"] + len(kept) - counts.count_files(kept)
+    changed = delete.changed_keys(source["bucket"], planned)
+    if changed:
+        _refuse_changed(event, loaded["archive"], changed, len(keys))
 
-    logger.info(
-        "deleted %d of %d source object(s), kept %d changed since the plan",
-        removed["deleted"],
-        len(keys),
-        len(kept),
-    )
+    removed = delete.delete_keys(source["bucket"], keys, root)
+
+    logger.info("deleted %d of %d source object(s)", removed["deleted"], len(keys))
     observability.info(
         "source deleted",
         actor=(event.get("actor") or {}).get("username"),
@@ -118,19 +123,63 @@ def _delete_source(event) -> dict:
         source_root=root,
         objects=removed["deleted"],
         failed=removed["failed"],
-        changed=len(kept),
     )
 
-    if failed:
+    if removed["failed"]:
+        folders_short = removed["failedFolders"]
         _, total = counts.shown(
             counts.count_files(keys),
-            files_short=failed - folders_short,
+            files_short=removed["failed"] - folders_short,
             folders_short=folders_short,
         )
         raise TerminalError(
             "source_delete_incomplete",
-            f"{failed} of {len(keys)} source object(s) could not be deleted, {len(kept)} of them "
-            "because they changed after they were copied; the archive copy was kept",
-            tokens={"failed": str(failed), "total": str(total)},
+            f"{removed['failed']} of {len(keys)} source object(s) could not be deleted; the "
+            "archive copy was kept",
+            tokens={"failed": str(removed["failed"]), "total": str(total)},
         )
     return {**event, "deletedCount": removed["deleted"]}
+
+
+def _refuse_changed(event, archive: dict, changed: set, planned: int) -> None:
+    """Removes the vault copy and refuses the deletion, because an original changed since the plan.
+
+    Args:
+      event: The request, for the actor the record names.
+      archive: The plan's archive location, whose prefix is removed.
+      changed: The originals that no longer carry the plan's tag.
+      planned: How many originals the plan named.
+
+    Returns:
+      Never.
+
+    Raises:
+      TerminalError: ``source_changed_during_archive``, always, naming how many changed. Also
+        ``forbidden`` or ``protected_marker`` from the vault removal's pre-check.
+      TransientError: When a vault delete batch failed retryably, so the Retry re-runs the verb
+        — which heads the originals again and removes whatever of the copy is left.
+      ClientError: Propagated raw from the vault listing.
+    """
+    removed = delete.delete_prefix(archive["bucket"], archive["root"])
+    logger.warning(
+        "%d of %d original(s) changed since the plan; deleted none and removed %d of %d "
+        "archived object(s)",
+        len(changed),
+        planned,
+        removed["deleted"],
+        removed["listed"],
+    )
+    observability.warning(
+        "archive refused because originals changed",
+        actor=(event.get("actor") or {}).get("username"),
+        changed=len(changed),
+        planned=planned,
+        vault_removed=removed["deleted"],
+        vault_residue=removed["failed"],
+    )
+    raise TerminalError(
+        "source_changed_during_archive",
+        f"{len(changed)} of {planned} original(s) changed since the plan, so none was deleted "
+        f"and the archive copy was removed ({removed['failed']} object(s) could not be)",
+        tokens={"changed": str(len(changed))},
+    )

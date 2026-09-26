@@ -1415,6 +1415,8 @@ class _ConditionalS3:
         self._maybe_transient(Key)
         self._refuse_if_taken(kwargs, Bucket, Key)
         source = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        if kwargs.get("CopySourceIfMatch") not in (None, source["ETag"]):
+            raise _S3Error("PreconditionFailed")
         self.objects[(Bucket, Key)] = {
             **source,
             "ETag": _single_etag(source["body"]),
@@ -1567,6 +1569,47 @@ def test_a_source_rewritten_between_two_part_copies_fails_its_item_and_writes_no
     assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
     assert ("user-bkt", "bob/big.csv") not in conditional.objects
     assert conditional.aborted == ["bob/big.csv"]
+
+
+@pytest.mark.parametrize("size", [6, 12], ids=["single-copy", "multipart-copy"])
+def test_a_line_pinned_to_its_planned_version_fails_when_the_source_has_moved_on(conditional, size):
+    """The archive deletes the original after copying it, so the vault must hold the version the
+    plan listed and not whatever is current: a source rewritten since the plan fails its item on
+    both paths, and nothing lands."""
+    conditional.seed("user-bkt", "alice/a.csv", b"x" * size)
+    planned = conditional.objects[("user-bkt", "alice/a.csv")]["ETag"]
+    conditional.seed("user-bkt", "alice/a.csv", b"y" * size)
+
+    out = copy_mod.copy_batch(
+        [{**_plain_line("alice/a.csv", size, "vault/a.csv"), "srcEtag": planned}],
+        _FAILED,
+        echo_fields=(),
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
+    assert ("user-bkt", "vault/a.csv") not in conditional.objects
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"srcEtag": "CURRENT", "ifAbsent": True}, {"srcEtag": ""}, {"srcEtag": 7}],
+    ids=["pinned-and-conditional", "empty-pin", "non-string-pin"],
+)
+def test_a_pin_that_cannot_be_honoured_fails_its_item_and_issues_no_copy(conditional, extra):
+    """A 412 cannot say which of two conditions refused, so a line asking for both is refused
+    before S3 is asked — pinned to the source's CURRENT tag here, so that anything short of the
+    refusal would land the copy; and a pin that is not a tag is a line that meant something it
+    did not say."""
+    conditional.seed("user-bkt", "alice/a.csv", b"abcdef")
+    if extra.get("srcEtag") == "CURRENT":
+        extra = {**extra, "srcEtag": conditional.objects[("user-bkt", "alice/a.csv")]["ETag"]}
+
+    out = copy_mod.copy_batch(
+        [{**_plain_line("alice/a.csv", 6, "vault/a.csv"), **extra}], _FAILED, echo_fields=()
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
+    assert conditional.writes == []
 
 
 def test_a_destination_holding_DIFFERENT_bytes_is_occupied_and_is_never_written_over(conditional):

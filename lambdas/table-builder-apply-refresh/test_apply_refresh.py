@@ -643,6 +643,33 @@ def test_a_retype_over_a_table_another_writer_changed_is_abandoned_rather_than_w
     assert glue.update_calls == []
 
 
+@pytest.mark.parametrize(
+    ("live_range", "live_type"),
+    [("2000,2200", "bigint"), ("2000,2100", "string")],
+    ids=["only-the-projection-moved", "only-a-type-moved"],
+)
+def test_either_half_of_what_the_refresh_writes_moving_underneath_it_abandons_the_write(
+    live_range, live_type
+):
+    """Each half on its own. The projection half is the real retry: this run's retype landed, the
+    user then widened the range, and the Lambda retried — the columns now match exactly and only
+    the projection says another writer was there."""
+    live = _partitioned_live(live_range, UpdateTime="2026-03-01T00:00:00Z")
+    live["StorageDescriptor"]["Columns"] = [{"Name": "order_id", "Type": live_type}]
+    glue, _sqs = _install(table=live)
+    event = _event(
+        observedUpdateTime="2026-02-01T00:00:00Z",
+        partitionKeys=_KEYS,
+        columns=[{"name": "order_id", "type": "bigint"}],
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "table_changed_during_refresh"
+    assert glue.update_calls == []
+
+
 def test_a_retry_after_this_runs_own_update_landed_rewrites_it_rather_than_refusing():
     """The other half of the same check, and why it exists: a Lambda retry can re-run the verb
     after its update committed, and the stamp it moved itself must not read as another writer."""

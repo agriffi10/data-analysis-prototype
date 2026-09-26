@@ -181,8 +181,9 @@ def _transfer_item_bytes() -> int:
     Pessimistic in a way real items cannot be: the destination key is DERIVED from the source key
     (the archive prefix plus the same relative path), so both cannot independently be 1024 bytes.
     Over-counting is the safe direction for a bound. It carries every field either arm's builder
-    writes — the restore's conditional-write flag and both arms' folder flag — so a field added
-    to a line has to be added here for the bound to keep measuring the real line.
+    writes — the restore's conditional-write flag, the archive's source pin and both arms' folder
+    flag — so a field added to a line has to be added here for the bound to keep measuring the
+    real line. No real line carries both the flag and the pin; this one does, which over-counts.
     """
     item = {
         "srcBucket": "b" * 63,
@@ -192,6 +193,7 @@ def _transfer_item_bytes() -> int:
         "size": 10 * 1024**3,
         "storageClass": config.ARCHIVE_STORAGE_CLASS,
         "ifAbsent": True,
+        "srcEtag": '"' + "f" * 32 + '-10000"',
         "folder": False,
     }
     return len(json.dumps(item, separators=(",", ":")).encode())

@@ -45,6 +45,8 @@ def test_every_marker_in_every_body_can_be_filled_by_somebody():
         # collector's `transferOutcome.occupied`, which counts the failures carrying the
         # per-item occupied reason — a fact of one run, like the two counts beside it.
         "occupied",
+        # How many originals delete-source found changed since the plan, from its own raise.
+        "changed",
     }
     for reason, body in messages._BODIES.items():
         for marker in re.findall(r"\{(\w+)\}", body):

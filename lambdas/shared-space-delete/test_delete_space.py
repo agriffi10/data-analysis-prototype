@@ -157,6 +157,22 @@ def test_a_never_usable_space_named_after_a_user_leaves_that_users_database_alon
     assert ("admin-bkt", "shared-spaces/alice.json") not in s3.store
 
 
+def test_a_database_whose_owner_cannot_be_read_keeps_its_grants(monkeypatch):
+    """The revoke is best-effort and raises nothing, so a fault reading whose database it is must
+    not fall through to revoking: those could be another tenant's grants."""
+    _s3, glue, lf, _cognito = install()
+    glue.seed_space_database("sales")
+
+    def unreadable(**kwargs):
+        raise RuntimeError("glue is unavailable")
+
+    monkeypatch.setattr(glue, "get_database", unreadable)
+
+    teardown.revoke_portal_role("sales")
+
+    assert lf.revokes == []
+
+
 def test_an_ever_active_space_that_is_now_failed_is_emptied_not_destroyed():
     # The record a delete-that-failed leaves behind. Keying the route on live status rather
     # than the durable stamp would destroy a live workspace here.
