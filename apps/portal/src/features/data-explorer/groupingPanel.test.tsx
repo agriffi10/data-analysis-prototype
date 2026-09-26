@@ -322,13 +322,28 @@ describe('grouping’s extras', () => {
     await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
     await user.click(byValue);
 
-    // And the settings dialog, the only way to sort or filter from Record or Text view.
+    // And the settings dialog, which stands in for the header menu in Record and Text view — so
+    // Tab has to reach the refusal, and the reason has to be more than a hover.
     await chooseExplorationOption(user, 'Order and filter');
-    expect(await screen.findByRole('combobox', {name: `Sort ${percent}`})).toBeDisabled();
-    expect(screen.getByRole('combobox', {name: `Filter ${percent}`})).toBeDisabled();
+    const dialog = await screen.findByRole('dialog', {name: 'Order and filter'});
+    const sortPercent = within(dialog).getByRole('combobox', {name: `Sort ${percent}`});
+    const filterPercent = within(dialog).getByRole('combobox', {name: `Filter ${percent}`});
+    // Focusable rather than tabbed to: the dialog's focus trap finds nothing tabbable without
+    // layout. A `disabled` select refuses focus, which is the regression this guards.
+    sortPercent.focus();
+    expect(sortPercent).toHaveFocus();
+    expect(sortPercent).toHaveAccessibleDescription(CALCULATED_COLUMN_REFUSAL);
+    expect(filterPercent).toHaveAccessibleDescription(CALCULATED_COLUMN_REFUSAL);
     // Geometry still applies to it — only the two controls that reach SQL are refused.
-    expect(screen.getByRole('checkbox', {name: `Show ${percent}`})).toBeEnabled();
+    expect(within(dialog).getByRole('checkbox', {name: `Show ${percent}`})).not.toHaveAttribute('aria-disabled');
 
+    await user.selectOptions(sortPercent, 'asc');
+    await user.selectOptions(filterPercent, within(filterPercent).getAllByRole('option')[1]);
+    expect(sortPercent).toHaveValue('');
+    expect(filterPercent).toHaveValue('');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });

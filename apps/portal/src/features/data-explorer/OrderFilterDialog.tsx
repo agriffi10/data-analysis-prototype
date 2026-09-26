@@ -1,7 +1,8 @@
-import {useState} from 'react';
+import {useId, useState} from 'react';
 import {Button} from '../../components/Button';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
+import {cx} from '../../lib/cx';
 import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
 import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
 import {FilterValuesField} from './FilterValuesField';
@@ -29,6 +30,9 @@ import {isBareNumeric} from './renderExplorationSql';
 import type {ExplorationQuery, FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
+/** How a refused control looks: dimmed like `Button.disabledReason`, and still focusable. */
+const REFUSED = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-45';
+
 export type OrderFilterSettings = {
   query: ExplorationQuery;
   hiddenColumns: string[];
@@ -42,9 +46,9 @@ export type OrderFilterDialogProps = {
    * Why a column takes no filter and no sort, or null when it does.
    *
    * The same reader the header menu asks. It matters most HERE: Record view, the default
-   * below `tablet`, and Text view have no column header, so this dialog is the only way to
-   * sort or filter from them — and a calculated column offered a sort here would be refused
-   * by the renderer, not by Athena, taking the whole exploration to an error banner.
+   * below `tablet`, and Text view have no column header, so this dialog stands in for the
+   * header menu's sort and criteria there — and a calculated column offered a sort here would
+   * be refused by the renderer, not by Athena, taking the whole exploration to an error banner.
    */
   queryRefusalOf: (column: string) => string | null;
   /** The applied description — the starting point for the staged one. */
@@ -70,6 +74,12 @@ export type OrderFilterDialogProps = {
  * to submit from: every field in it is a criteria row, and a criteria row mid-edit filing
  * the whole dialog is exactly what that suppression exists to prevent. Enter on the Apply
  * button still submits, natively.
+ *
+ * **A refused Show, Sort or Filter is `aria-disabled`, never `disabled`,** and is described by
+ * its reason, printed in the row. A `disabled` one is skipped by Tab and can only explain itself
+ * in a `title`, which a phone never shows — and on a phone, Record view has no column header, so
+ * this dialog is where its sort and criteria live. Each handler checks the refusal itself, and
+ * the controlled value puts the control back.
  */
 export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCancel}: OrderFilterDialogProps) {
   const [draft, setDraft] = useState<OrderFilterSettings>({
@@ -78,6 +88,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     pinnedColumns: columns.filter((c) => c.pinned).map((c) => c.name)
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const reasonId = useId();
   // The multi-line field's RAW text, per column, held apart from the staged query: a list
   // is `string[]`, which cannot represent a blank line the user has just opened or a
   // duplicate they are half way through typing. It is parsed once, on Apply.
@@ -176,13 +187,18 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
       </p>
 
       <ul className="mt-4 flex flex-col gap-2">
-        {columns.map((column) => {
+        {columns.map((column, index) => {
           const hidden = draft.hiddenColumns.includes(column.name);
+          // The grid needs a column to draw; the same refusal the panel makes, over the
+          // STAGED state rather than the applied one.
+          const lastVisible = !hidden && visibleCount <= 1;
           const sort = sortOf(draft.query, column.name);
           const filter = filterOf(draft.query, column.name);
           // Show and Pin stay available on a calculated column — geometry applies to it
           // like any other; only the two controls that would reach the SQL are refused.
           const refusal = queryRefusalOf(column.name);
+          const showReasonId = `${reasonId}-${index}-show`;
+          const queryReasonId = `${reasonId}-${index}-query`;
           return (
             <li
               key={column.name}
@@ -197,11 +213,13 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   type="checkbox"
                   aria-label={`Show ${column.name}`}
                   checked={!hidden}
-                  // The grid needs a column to draw; the same refusal the panel
-                  // makes, over the STAGED state rather than the applied one.
-                  disabled={!hidden && visibleCount <= 1}
-                  title={!hidden && visibleCount <= 1 ? LAST_COLUMN_REFUSAL : undefined}
-                  onChange={() => setDraft((d) => ({...d, hiddenColumns: toggle(d.hiddenColumns, column.name)}))}
+                  className={REFUSED}
+                  aria-disabled={lastVisible || undefined}
+                  aria-describedby={lastVisible ? showReasonId : undefined}
+                  onChange={() => {
+                    if (lastVisible) return;
+                    setDraft((d) => ({...d, hiddenColumns: toggle(d.hiddenColumns, column.name)}));
+                  }}
                 />
                 Show
               </label>
@@ -218,17 +236,17 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
 
               <select
                 aria-label={`Sort ${column.name}`}
-                className={SELECT_CLASS}
-                disabled={refusal !== null}
-                title={refusal ?? undefined}
+                className={cx(SELECT_CLASS, REFUSED)}
+                aria-disabled={refusal !== null || undefined}
+                aria-describedby={refusal !== null ? queryReasonId : undefined}
                 value={sort?.direction ?? ''}
-                onChange={(e) =>
+                onChange={(e) => {
+                  if (refusal !== null) return;
+                  const direction = e.target.value;
                   editQuery((q) =>
-                    e.target.value === ''
-                      ? clearSort(q, column.name)
-                      : setSort(q, column.name, e.target.value as 'asc' | 'desc')
-                  )
-                }>
+                    direction === '' ? clearSort(q, column.name) : setSort(q, column.name, direction as 'asc' | 'desc')
+                  );
+                }}>
                 <option value="">No sort</option>
                 <option value="asc">Ascending</option>
                 <option value="desc">Descending</option>
@@ -258,11 +276,13 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
 
               <select
                 aria-label={`Filter ${column.name}`}
-                className={SELECT_CLASS}
-                disabled={refusal !== null}
-                title={refusal ?? undefined}
+                className={cx(SELECT_CLASS, REFUSED)}
+                aria-disabled={refusal !== null || undefined}
+                aria-describedby={refusal !== null ? queryReasonId : undefined}
                 value={filter?.operator ?? ''}
-                onChange={(e) => changeOperator(column.name, e.target.value as FilterOperator | '')}>
+                onChange={(e) => {
+                  if (refusal === null) changeOperator(column.name, e.target.value as FilterOperator | '');
+                }}>
                 <option value="">No filter</option>
                 {operatorsFor(column.type).map((operator) => (
                   <option
@@ -299,6 +319,21 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                     setListText((t) => ({...t, [column.name]: next}));
                   }}
                 />
+              )}
+
+              {lastVisible && (
+                <p
+                  id={showReasonId}
+                  className="basis-full text-xs text-text-3">
+                  {LAST_COLUMN_REFUSAL}
+                </p>
+              )}
+              {refusal !== null && (
+                <p
+                  id={queryReasonId}
+                  className="basis-full text-xs text-text-3">
+                  {refusal}
+                </p>
               )}
             </li>
           );

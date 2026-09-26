@@ -138,6 +138,46 @@ describe('CreateTableDialog', () => {
     });
   });
 
+  describe('CreateTableDialog — when a key’s errors are announced', () => {
+    it('shows a blank key’s errors without announcing them, and holds Create', () => {
+      renderDialog();
+
+      fireEvent.click(addKeysBtn());
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
+      expect(screen.getByText('Enter at least one value.')).toBeVisible();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(createBtn()).toBeDisabled();
+    });
+
+    it('announces a field’s error once it is left, and none a type switch brings in', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+
+      // Leaving each field for the next, as a real pointer or Tab does.
+      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
+      fireEvent.blur(screen.getByLabelText('Partition key 1 values'));
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'integer'}});
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'string'}});
+
+      expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual(['Enter a key name.']);
+      expect(screen.getByLabelText('Partition key 1 values')).toHaveAccessibleDescription('Enter at least one value.');
+    });
+
+    it('does not hand a left field’s alert to the row that slides up when an earlier one is removed', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
+      fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
+
+      fireEvent.click(screen.getByRole('button', {name: 'Remove partition key 1'}));
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
   describe('CreateTableDialog — busy + error', () => {
     it('locks the form and shows a submit error', () => {
       renderDialog({busy: true, submitError: 'SQS is unavailable'});
