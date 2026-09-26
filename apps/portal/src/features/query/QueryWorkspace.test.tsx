@@ -684,6 +684,17 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
     });
 
+    it('refuses a statement over Athena’s length bound before starting anything, and says how to fix it', async () => {
+      seedSingle(`SELECT '${'x'.repeat(262_144)}'`);
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(await screen.findByText(/This statement is too long to run — Athena takes at most 256 KB/)).toBeInTheDocument();
+      expect(mockRunQuery).not.toHaveBeenCalled();
+    });
+
     it('re-runs a history entry in a NEW tab, leaving the one it was opened from as it was', async () => {
       seedSingle('SELECT draft_i_have_not_saved');
       mockGetHistory.mockResolvedValue(

@@ -9,6 +9,8 @@
 // The original error is logged to the console in dev builds only (see
 // `logOriginal`) so developers can still debug.
 
+import {ATHENA_QUERY_STRING_MAX} from './athenaLimit';
+
 /** What a surface renders: an optional bold title, one short sentence, and sometimes the engine's own words. */
 export type UserFacingMessage = {
   title?: string;
@@ -139,6 +141,14 @@ const CODE_RULES: readonly ErrorRule[] = [
   {
     code: 'ExplorationStatementTooLong',
     message: 'This query is too long to run. Use fewer or shorter filter values, or a shorter expression.',
+    userFixable: true
+  },
+
+  // Trigger: a Query statement over Athena's length bound, refused in the browser before anything
+  // was started. The Explorer's twin above names filters; here the statement is the user's own.
+  {
+    code: 'QueryStatementTooLong',
+    message: `This statement is too long to run — Athena takes at most ${ATHENA_QUERY_STRING_MAX / 1024} KB of SQL in one statement. Shorten it, or split it into smaller statements.`,
     userFixable: true
   },
 

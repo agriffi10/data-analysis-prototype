@@ -1,6 +1,7 @@
 import {useCallback, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {runQuery, stopQuery} from '../catalog/athena.service';
+import {exceedsAthenaQueryLimit} from '../../lib/athenaLimit';
 import {invalidateSchema} from '../catalog/useSchema';
 import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
@@ -360,6 +361,12 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     };
     void (async () => {
       try {
+        // Athena refuses a statement over its length bound with an error that maps to nothing a
+        // user can act on, so every statement of the batch is measured before the first starts.
+        if (statements.some((statement) => exceedsAthenaQueryLimit(statement.sql))) {
+          reportStartFailure(toUserText({code: 'QueryStatementTooLong'}));
+          return;
+        }
         const first = statements[0];
         // no execution database context — the query fully-qualifies its
         // own tables. Results land in the personal prefix (runQuery's default); a
