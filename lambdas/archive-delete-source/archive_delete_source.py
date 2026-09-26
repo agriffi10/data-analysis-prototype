@@ -15,10 +15,17 @@ and was rejected: it deleted the rest into a vault the user could not find, beca
 that names an archive is written only after this state succeeds.
 
 **No original is deleted unless the vault holds every planned object at that moment**, counted by
-the restore's own fail-closed ``archive_is_intact``. The refusal above removes the vault copy, and
-a Retry after that removal was interrupted re-heads the originals — which can now all look
-unchanged, for instance when the first attempt's "change" was a head it could not read. Without
-the count, that re-run would delete every original with the copy already half gone.
+the restore's own fail-closed ``archive_is_intact``; a short count refuses as a change does.
+
+**The verdict is RECORDED before it is acted on, and every later attempt follows the record.** A
+batch that throttles raises only after every other batch ran, so by the time the state's Retry
+re-runs this verb its first attempt has already partly acted — and re-deciding lets the two paths
+undo each other. A refusal that follows a partial deletion removes the vault copy of what was
+already deleted; a deletion that follows a partial refusal deletes originals whose copy is half
+gone. So the first attempt writes its verdict create-only beside the claim (``arcommon.plan``'s
+decision record), and a Retry, a lost response or a redrive finishes whatever that verdict began:
+a refusal finishes removing the vault copy, and a deletion never touches it — an original that
+changed since the verdict is kept, and the run fails as a partial deletion with the copy intact.
 
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array**, and a response inspected
 only by its status code is a defect this repo has already had once. Here that defect
@@ -85,7 +92,7 @@ def handler(event, context) -> dict:
 
 
 def _delete_source(event) -> dict:
-    """Rebuilds the source keys from the plan and deletes the ones that have not changed.
+    """Rebuilds the source keys from the plan, then decides — or follows the decision — and acts.
 
     The keys are rebuilt from the plan's relative keys and the source root rather than stored
     absolute, which keeps the plan half the size it would otherwise be at the object cap — and
@@ -117,17 +124,25 @@ def _delete_source(event) -> dict:
     keys = list(planned)
 
     delete.assert_deletable(keys, root)
-    changed = delete.changed_keys(source["bucket"], planned)
-    if changed:
-        _refuse_changed(event, loaded["archive"], changed, len(keys))
-    if not restore.archive_is_intact(
-        loaded["archive"]["bucket"], loaded["archive"]["root"], len(keys)
-    ):
+    record = plan.read_source_decision(event)
+    written = False
+    if record is None:
+        record, written = _decide(event, loaded, planned)
+    if record["decision"] == "refuse":
+        _refuse_changed(event, loaded["archive"], record["changed"], len(keys))
+    if record["decision"] == "unconfirmed":
         _refuse_unconfirmed(event, loaded["archive"], len(keys))
 
-    removed = delete.delete_keys(source["bucket"], keys, root)
+    kept = set() if written else delete.changed_keys(source["bucket"], planned)
+    removed = delete.delete_keys(source["bucket"], [key for key in keys if key not in kept], root)
+    failed = removed["failed"] + len(kept)
 
-    logger.info("deleted %d of %d source object(s)", removed["deleted"], len(keys))
+    logger.info(
+        "deleted %d of %d source object(s), kept %d changed since the verdict",
+        removed["deleted"],
+        len(keys),
+        len(kept),
+    )
     observability.info(
         "source deleted",
         actor=(event.get("actor") or {}).get("username"),
@@ -135,31 +150,60 @@ def _delete_source(event) -> dict:
         source_root=root,
         objects=removed["deleted"],
         failed=removed["failed"],
+        changed=len(kept),
     )
 
-    if removed["failed"]:
-        folders_short = removed["failedFolders"]
+    if failed:
+        folders_short = removed["failedFolders"] + len(kept) - counts.count_files(kept)
         _, total = counts.shown(
             counts.count_files(keys),
-            files_short=removed["failed"] - folders_short,
+            files_short=failed - folders_short,
             folders_short=folders_short,
         )
         raise TerminalError(
             "source_delete_incomplete",
-            f"{removed['failed']} of {len(keys)} source object(s) could not be deleted; the "
-            "archive copy was kept",
-            tokens={"failed": str(removed["failed"]), "total": str(total)},
+            f"{failed} of {len(keys)} source object(s) could not be deleted, {len(kept)} of them "
+            "because they changed after the verdict to delete; the archive copy was kept",
+            tokens={"failed": str(failed), "total": str(total)},
         )
     return {**event, "deletedCount": removed["deleted"]}
 
 
-def _refuse_changed(event, archive: dict, changed: set, planned: int) -> None:
+def _decide(event, loaded: dict, planned: dict) -> tuple[dict, bool]:
+    """Heads every original, counts the vault, and records the verdict before anything acts on it.
+
+    Args:
+      event: The request, carrying the stamped execution the record names.
+      loaded: The copy plan.
+      planned: Absolute source key to the ETag the plan recorded.
+
+    Returns:
+      ``plan.record_source_decision``'s ``(record, written)`` — this attempt's verdict, or an
+      earlier one's when that was recorded first.
+
+    Raises:
+      TransientError: On a retryable S3 fault heading, counting or recording.
+      TerminalError: ``malformed_event`` from the decision key.
+    """
+    changed = delete.changed_keys(loaded["source"]["bucket"], planned)
+    if changed:
+        decision = "refuse"
+    elif not restore.archive_is_intact(
+        loaded["archive"]["bucket"], loaded["archive"]["root"], len(planned)
+    ):
+        decision = "unconfirmed"
+    else:
+        decision = "delete"
+    return plan.record_source_decision(event, decision, len(changed))
+
+
+def _refuse_changed(event, archive: dict, changed: int, planned: int) -> None:
     """Removes the vault copy and refuses the deletion, because an original changed since the plan.
 
     Args:
       event: The request, for the actor the record names.
       archive: The plan's archive location, whose prefix is removed.
-      changed: The originals that no longer carry the plan's tag.
+      changed: How many originals the recorded verdict found no longer carrying the plan's tag.
       planned: How many originals the plan named.
 
     Returns:
@@ -169,14 +213,14 @@ def _refuse_changed(event, archive: dict, changed: set, planned: int) -> None:
       TerminalError: ``source_changed_during_archive``, always, naming how many changed. Also
         ``forbidden`` or ``protected_marker`` from the vault removal's pre-check.
       TransientError: When a vault delete batch failed retryably, so the Retry re-runs the verb
-        — which heads the originals again and removes whatever of the copy is left.
+        — which reads the recorded refusal and removes whatever of the copy is left.
       ClientError: Propagated raw from the vault listing.
     """
     removed = delete.delete_prefix(archive["bucket"], archive["root"])
     logger.warning(
         "%d of %d original(s) changed since the plan; deleted none and removed %d of %d "
         "archived object(s)",
-        len(changed),
+        changed,
         planned,
         removed["deleted"],
         removed["listed"],
@@ -184,16 +228,16 @@ def _refuse_changed(event, archive: dict, changed: set, planned: int) -> None:
     observability.warning(
         "archive refused because originals changed",
         actor=(event.get("actor") or {}).get("username"),
-        changed=len(changed),
+        changed=changed,
         planned=planned,
         vault_removed=removed["deleted"],
         vault_residue=removed["failed"],
     )
     raise TerminalError(
         "source_changed_during_archive",
-        f"{len(changed)} of {planned} original(s) changed since the plan, so none was deleted "
+        f"{changed} of {planned} original(s) changed since the plan, so none was deleted "
         f"and the archive copy was removed ({removed['failed']} object(s) could not be)",
-        tokens={"changed": str(len(changed))},
+        tokens={"changed": str(changed)},
     )
 
 

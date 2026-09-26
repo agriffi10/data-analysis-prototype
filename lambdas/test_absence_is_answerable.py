@@ -185,6 +185,11 @@ DISPOSITIONS = {
     # archive id, which is this plane's unrecoverable case. A throttle raises instead, so a
     # run that may well hold the claim is asked again rather than refused.
     "lambdas/archive-common/arcommon/plan.py::_claim_holder": DENIAL_IS_ABSENT,
+    # delete-source's recorded verdict. A denied read answers "no record", and the only thing done
+    # on that is a CREATE-ONLY write, which a record that is there refuses — the refusal is then
+    # read again, and a record that still cannot be read raises rather than being decided over.
+    "lambdas/archive-common/arcommon/plan.py::read_source_decision": DENIAL_IS_ABSENT,
+    "lambdas/archive-common/arcommon/plan.py::record_source_decision": DENIAL_IS_ABSENT,
 }
 
 

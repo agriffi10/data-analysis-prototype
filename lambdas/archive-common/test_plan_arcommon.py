@@ -177,9 +177,11 @@ def test_every_artifact_of_one_run_shares_its_folder_and_none_collides():
         plan.transfer_results_prefix(request),
         plan.retrieval_results_prefix(request),
         plan.restore_results_prefix(request),
+        plan.claim_key(request),
+        plan.source_decision_key(request),
     }
 
-    assert len(keys) == 8
+    assert len(keys) == 10
     assert all(key.startswith(f"archive/{request['requestId']}/") for key in keys)
 
 
@@ -835,3 +837,43 @@ def test_the_claim_sits_under_the_prefix_the_grant_and_the_lifecycle_rule_alread
     assert plan.claim_key(request) == plan.plan_key(request).replace(
         plan.BASENAME, plan.CLAIM_BASENAME
     )
+
+
+class _RecordS3:
+    """An admin bucket that honours create-only writes, for the decision record."""
+
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
+        if IfNoneMatch == "*" and Key in self.objects:
+            raise _S3Error("PreconditionFailed")
+        self.objects[Key] = Body
+
+    def get_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise _S3Error("AccessDenied")
+
+        class _Body:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+        return {"Body": _Body(self.objects[Key])}
+
+
+def test_an_earlier_attempts_verdict_wins_over_a_later_one_whatever_either_says():
+    """The record exists so a Retry finishes what its first attempt began rather than deciding
+    again: a second verdict meets the first, and gets the first back."""
+    clients._s3 = _RecordS3()
+    request = {**_request(), "execution": {"name": "exec-1"}}
+
+    first = plan.record_source_decision(request, "delete", 0)
+    second = plan.record_source_decision(request, "refuse", 2)
+
+    assert first == ({"decision": "delete", "changed": 0}, True)
+    assert second == ({"decision": "delete", "changed": 0}, False)
+    assert plan.read_source_decision(request) == {"decision": "delete", "changed": 0}
+

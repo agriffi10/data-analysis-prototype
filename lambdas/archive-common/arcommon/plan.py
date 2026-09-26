@@ -9,7 +9,8 @@ user is told nothing at all. So the plan goes to the admin bucket and its KEY is
 onward, with the count and the byte total beside it.
 
 This module owns **every** admin-bucket key layout on this plane — the two plans, the two
-transfer manifests, the poll's progress record and the three Map Run result exports — for
+transfer manifests, the poll's progress record, the three Map Run result exports, the claim and
+delete-source's decision record — for
 The reason: one module, one place a key can be wrong. Where they live is this plane's
 business; a manifest's BYTES and an export's reader belong to ``cpcommon.transfer``, which is
 shared with table-share and file-send.
@@ -74,6 +75,13 @@ Attributes:
     copy plan, under the same request folder, so the plane's existing admin-bucket grant and the
     bucket's existing expiry rule both already cover it — a claim outside either would deny every
     archive, or never expire, and neither would look wrong in review.
+  DECISION_BASENAME: delete-source's recorded verdict — delete the originals, or refuse and remove
+    the vault copy — written create-only before either is acted on. A Retry after the first
+    attempt acted part way must follow that verdict rather than re-decide, because the two paths
+    undo each other's premise: a refusal that follows a partial deletion removes the only copy of
+    what was deleted, and a deletion that follows a partial refusal deletes originals whose copy
+    is half gone. Beside the claim, so the grant and the expiry that cover it cover this too.
+  DECISIONS: The three verdicts a decision record may carry.
   RESTORE_RESULTS_FOLDER: The copy-back Map's export folder, which the collector DOES read.
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
@@ -115,6 +123,8 @@ from .config import (
 PREFIX = "archive"
 BASENAME = "copy-plan.json"
 CLAIM_BASENAME = "claim.json"
+DECISION_BASENAME = "source-decision.json"
+DECISIONS = frozenset({"delete", "refuse", "unconfirmed"})
 RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESTORE_MANIFEST_BASENAME = "restore-manifest.jsonl"
@@ -303,6 +313,107 @@ def claim_archive_id(request: dict) -> None:
                 "request_id_reused",
                 f"{key} is held by another execution, so this request id has been used before",
             ) from err
+
+
+def source_decision_key(request: dict) -> str:
+    """Derives the key of delete-source's recorded verdict, beside the claim.
+
+    Args:
+      request: The running archive request.
+
+    Returns:
+      The decision key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'source decision')}{DECISION_BASENAME}"
+
+
+def read_source_decision(request: dict) -> dict | None:
+    """Reads delete-source's recorded verdict, or None when there is none to follow.
+
+    A denial reads as absent, and that is safe for the same reason it is for the claim: the only
+    thing done on None is a CREATE-ONLY write, which a present-but-unreadable record refuses, and
+    the refusal is then read again rather than overwritten.
+
+    Args:
+      request: The running archive request.
+
+    Returns:
+      ``{"decision", "changed"}`` when a well-formed record is there, else None.
+
+    Raises:
+      TransientError: On a retryable S3 fault — a record that might be there must not be decided
+        over.
+      TerminalError: ``malformed_event`` from the key derivation.
+    """
+    key = source_decision_key(request)
+    try:
+        raw = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
+    except Exception as err:  # noqa: BLE001 - absent or unreadable is answered by a create-only write
+        errors.raise_if_transient(err, f"read decision {cpconfig.ADMIN_BUCKET}/{key}")
+        return None
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(document, dict) or not events.in_vocabulary(document.get("decision"), DECISIONS):
+        return None
+    changed = document.get("changed")
+    if not isinstance(changed, int) or isinstance(changed, bool) or changed < 0:
+        return None
+    return {"decision": document["decision"], "changed": changed}
+
+
+def record_source_decision(request: dict, decision: str, changed: int) -> tuple[dict, bool]:
+    """Records delete-source's verdict create-only, or returns the one an earlier attempt recorded.
+
+    Args:
+      request: The running archive request, carrying the stamped execution.
+      decision: One of ``DECISIONS``.
+      changed: How many originals the verdict found changed since the plan.
+
+    Returns:
+      ``(record, written)`` — the verdict to act on, and whether THIS call wrote it. An earlier
+      attempt's record wins over this one's, whatever it says.
+
+    Raises:
+      TransientError: When a concurrent write interrupted the create, when the record that
+        refused it cannot be read, or on a retryable S3 fault.
+      TerminalError: ``malformed_event`` from the key derivation.
+    """
+    key = source_decision_key(request)
+    body = json.dumps(
+        {
+            "decision": decision,
+            "changed": changed,
+            "execution": (request.get("execution") or {}).get("name"),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except Exception as err:
+        if cas.is_conditional_conflict(err):
+            raise TransientError(f"the decision write for {key} was interrupted") from err
+        if not cas.is_precondition_failed(err):
+            errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+            raise
+        earlier = read_source_decision(request)
+        if earlier is None:
+            raise TransientError(
+                f"{key} holds an earlier verdict that could not be read, and it is never replaced"
+            ) from err
+        return earlier, False
+    return {"decision": decision, "changed": changed}, True
 
 
 def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: int) -> str:

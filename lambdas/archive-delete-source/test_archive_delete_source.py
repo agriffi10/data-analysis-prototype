@@ -23,7 +23,7 @@ import archive_delete_source as m
 import pytest
 from arcommon import notify
 from cpcommon import clients
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 
@@ -35,13 +35,22 @@ class _S3Error(Exception):
 
 
 class _FakeS3:
+    """A stateful S3: deletes remove what they name, so a Retry sees what its first attempt left.
+
+    ``source`` is the originals by key to their current tag (an exception to raise on a head of
+    it), ``vault`` the archive prefix's keys, and ``admin`` the admin bucket's objects — the plan
+    and whatever decision record a run writes. ``throttle_on`` makes the Nth ``DeleteObjects``
+    call raise a retryable fault, once.
+    """
+
     def __init__(self, plan_body, errors_on=(), current=None):
-        self._plan_body = plan_body
         self._errors_on = set(errors_on)
-        self._current = current
+        self.source = dict(current if current is not None else _PLANNED_ETAGS)
+        self.vault = set(_VAULT_KEYS)
+        self.admin = {f"archive/{_REQUEST_ID}/copy-plan.json": plan_body}
+        self.throttle_on = None
         self.deletes = []
         self.heads = []
-        self.vault = set(_VAULT_KEYS)
 
     def get_paginator(self, name):
         fake = self
@@ -58,12 +67,11 @@ class _FakeS3:
 
     def head_object(self, Bucket, Key):
         self.heads.append(Key)
-        etags = self._current if self._current is not None else _PLANNED_ETAGS
-        if Key not in etags:
+        if Key not in self.source:
             raise _S3Error("404", 404)
-        if isinstance(etags[Key], Exception):
-            raise etags[Key]
-        return {"ETag": etags[Key]}
+        if isinstance(self.source[Key], Exception):
+            raise self.source[Key]
+        return {"ETag": self.source[Key]}
 
     def get_object(self, Bucket, Key):
         class _Body:
@@ -73,15 +81,30 @@ class _FakeS3:
             def read(self):
                 return self._body
 
-        return {"Body": _Body(self._plan_body)}
+        if Key not in self.admin:
+            raise _S3Error("AccessDenied", 403)
+        return {"Body": _Body(self.admin[Key])}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
+        if IfNoneMatch == "*" and Key in self.admin:
+            raise _S3Error("PreconditionFailed", 412)
+        self.admin[Key] = Body
 
     def delete_objects(self, Bucket, Delete):
-        self.deletes.append({"Bucket": Bucket, "Keys": [o["Key"] for o in Delete["Objects"]]})
-        return {
-            "Errors": [
-                {"Key": o["Key"]} for o in Delete["Objects"] if o["Key"] in self._errors_on
-            ]
-        }
+        keys = [o["Key"] for o in Delete["Objects"]]
+        self.deletes.append({"Bucket": Bucket, "Keys": keys})
+        if self.throttle_on == len(self.deletes):
+            raise _S3Error("SlowDown", 503)
+        store = self.vault if Bucket == "archive-bkt" else self.source
+        for key in keys:
+            if key not in self._errors_on:
+                store.discard(key) if isinstance(store, set) else store.pop(key, None)
+        return {"Errors": [{"Key": key} for key in keys if key in self._errors_on]}
+
+
+def _decision(fake):
+    """The decision record the run wrote, parsed."""
+    return json.loads(fake.admin[f"archive/{_REQUEST_ID}/source-decision.json"])
 
 
 _VAULT_KEYS = (
@@ -279,6 +302,68 @@ def test_a_retry_after_an_interrupted_refusal_deletes_no_original_even_when_none
 
     assert err.value.reason == "archive_copy_unconfirmed"
     assert all(call["Bucket"] == "archive-bkt" for call in fake.deletes)
+
+
+_THREE = {"alice/r/a.csv": '"a"', "alice/r/b.csv": '"b"', "alice/r/c.csv": '"c"'}
+
+
+def _three_file_run(monkeypatch):
+    """Three planned files, one per delete batch, and the vault holding all three."""
+    monkeypatch.setattr(m.delete, "MAX_KEYS_PER_BATCH", 1)
+    fake = _install(
+        _plan([
+            {"relKey": key.removeprefix("alice/"), "bytes": 1, "etag": tag}
+            for key, tag in _THREE.items()
+        ]),
+        current=_THREE,
+    )
+    root = f"personal/alice/archive/{_REQUEST_ID}/"
+    fake.vault = {f"{root}_manifest.json"} | {f"{root}{key.removeprefix('alice/')}" for key in _THREE}
+    event = {**_event(object_count=3), "totalBytes": 3}
+    return fake, event
+
+
+def test_a_retry_after_a_partial_deletion_never_turns_into_a_refusal(monkeypatch):
+    """The verdict was DELETE and one batch throttled after another had gone. Before the Retry the
+    user saved a file still waiting to be deleted. Re-deciding would refuse and remove the vault —
+    the only copy of what the first attempt already deleted. Following the recorded verdict keeps
+    the changed file, deletes nothing else, and leaves the vault whole."""
+    fake, event = _three_file_run(monkeypatch)
+    fake.throttle_on = 2
+    with pytest.raises(TransientError):
+        m.handler(event, None)
+    fake.source["alice/r/b.csv"] = '"b-saved-after-the-first-attempt"'
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "source_delete_incomplete"
+    assert _decision(fake)["decision"] == "delete"
+    assert fake.source == {"alice/r/b.csv": '"b-saved-after-the-first-attempt"'}
+    assert len(fake.vault) == 4
+    assert not any(call["Bucket"] == "archive-bkt" for call in fake.deletes)
+
+
+def test_a_retry_after_a_partial_refusal_never_turns_into_a_deletion(monkeypatch):
+    """The verdict was REFUSE and removing the vault copy throttled part way. Before the Retry the
+    user deleted the file they had changed, so nothing now heads as changed. Re-deciding would
+    delete every original with the copy half gone; following the recorded refusal finishes
+    removing the copy and deletes no original."""
+    fake, event = _three_file_run(monkeypatch)
+    fake.source["alice/r/a.csv"] = '"a-changed"'
+    fake.throttle_on = 1
+    with pytest.raises(TransientError):
+        m.handler(event, None)
+    del fake.source["alice/r/a.csv"]
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "source_changed_during_archive"
+    assert _decision(fake) == {"changed": 1, "decision": "refuse", "execution": None}
+    assert set(fake.source) == {"alice/r/b.csv", "alice/r/c.csv"}
+    assert fake.vault == set()
+    assert not any(call["Bucket"] == "user-bkt" for call in fake.deletes)
 
 
 def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():

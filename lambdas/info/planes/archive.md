@@ -110,7 +110,9 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   unrecognisable verdict fails closed. **And all or nothing on the ETag the plan recorded**: every
   copy line is pinned to it, and `delete-source` heads every original before deleting any — one
   that changed since the plan refuses the whole deletion, removes the vault copy and fails
-  `source_changed_during_archive`, with the user's files where they were.
+  `source_changed_during_archive`, with the user's files where they were. **The verdict is written
+  create-only before it is acted on, and a Retry follows it** rather than deciding again — the two
+  paths undo each other if an attempt that began one re-decides into the other.
 - `archive-delete-archived` is the one deletion allowed to fail quietly — it sweeps the vault after
   a successful restore, and a leftover object costs storage, not data. **The vault sweep may fail
   quietly and the source deletion may not**, on the same algorithm with opposite consequences: a

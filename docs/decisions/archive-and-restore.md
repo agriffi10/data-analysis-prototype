@@ -1191,10 +1191,19 @@ Retry re-heads what its first attempt removed.
 **And no original is deleted unless the vault holds every planned object at that moment**, counted
 by the restore's own fail-closed `archive_is_intact`; a short count removes what is left of the copy
 and fails `archive_copy_unconfirmed`, in the existing "we could not confirm that every file had been
-copied" sentence. The refusal above is what makes this needed: it removes the vault copy, and a
-Retry after that removal is interrupted re-heads the originals, which can all look unchanged —
-when the first attempt's "change" was a head it could not read — and would otherwise be deleted
-with the copy half gone.
+copied" sentence.
+
+**The verdict is RECORDED before it is acted on, and every later attempt follows the record** — the
+second review's finding, and the one that made the shape above safe to retry. A delete batch that
+throttles raises only after every other batch ran, so the state's Retry meets a first attempt that
+has already partly acted, and re-deciding let the two paths undo each other in both directions,
+each proved against a stateful fake: a deletion that re-decided as a refusal removed the vault copy
+of the originals it had already deleted, and a refusal that re-decided as a deletion — the changed
+file deleted in between, or a head that failed once — deleted originals whose copy was half gone
+and reported success. So `delete-source` writes `source-decision.json` create-only beside the claim
+before acting, and a Retry, a lost response or a redrive follows it: a recorded refusal finishes
+removing the copy, and a recorded deletion never touches the vault — an original changed since the
+verdict is kept, and the run fails `source_delete_incomplete` with the copy intact.
 
 **All or nothing, and Andrew chose it over keeping per file.** The first shape kept only the
 changed originals, deleted the rest and failed `source_delete_incomplete`; a review found that this
