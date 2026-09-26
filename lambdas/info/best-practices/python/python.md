@@ -31,10 +31,10 @@
 ---
 
 ## §1 Tooling & the "foolish consistency" rule
-Every file is linted and type-checked — style is not hand-argued.
+Every file is linted, and the packages mypy is configured for are type-checked — style is not hand-argued.
 
 - ✅ Run the **linter**, `ruff check lambdas/ scripts/ .github/scripts/`, and keep it green by exit code before a PR. It is a required gate, run locally because CI's lint step is disabled (`docs/process/ci-and-deploy-traps.md`). ✅ Run **`mypy`** where configured (§8); it is a required gate too.
-- 🔴 The **formatter** (`ruff format`) is **not enforced**: nothing runs it, and most of the tree is not in its layout (at 533d0f0c, `ruff format --check lambdas/` would reformat 445 files and leave 93 as they are). Don't treat its output as the rule, and don't reformat a file to satisfy it (the bullet on unrelated code below).
+- 🔴 The **formatter** (`ruff format`) is **not enforced**: nothing runs it, and most of the tree is not in its layout (at 533d0f0c, `ruff format --check lambdas/` would reformat 445 files and leave 93 as they are). Don't treat its output as the rule, and don't reformat unrelated code to satisfy it (the bullet below).
 - ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>`, with a short reason after it when the rule name isn't self-explanatory, or a line-level `# type: ignore[<code>]`, which takes no text after it: mypy rejects the whole directive when free text follows, and the second comment it would accept is an inline comment, which a production module may not carry. Its reason goes in the docstring (§14 has the exact shape). Searchable suppressions can be revisited.
 - 🔴 Don't blanket-disable rules for a whole file to dodge one line, and don't leave an unexplained `# noqa`. ✅ Fix the issue or justify the exception.
 - ✅ For an unused-but-required argument (callback/interface signature), delete it at the top (`del unused_arg`, with the reason in its `Args:` entry rather than a comment — §14) or prefix `unused_`.
@@ -42,7 +42,7 @@ Every file is linted and type-checked — style is not hand-argued.
 - 🔴 Don't reformat unrelated code to satisfy style inside a feature PR — it buries the real change in diff noise. **Be consistent** with the surrounding file; prefer converging on the newer style over perpetuating an old one.
 
 ## §2 Layout & formatting
-The rules below are the layout `ruff format` would produce. Nothing enforces them on this tree, so know them for hand-edits and stay consistent with the surrounding file.
+The rules below are PEP 8 and Google layout, not `ruff format`'s, which differs on several of them. Nothing enforces them on this tree, so know them for hand-edits and stay consistent with the surrounding file.
 
 - ✅ **4-space indent**, never tabs; never mix tabs and spaces. One statement per line (a single `if foo: bar()` with no `else` is the only same-line allowance; never for `try`/`except`). 🔴 No `;`-joined statements.
 - ✅ **Line length:** use the project's configured limit; PEP 8 default is 79 (72 for docstrings/comments), Google caps at 80, many teams raise to 99/100. Don't argue with the configured value. Long imports, URLs/paths in comments, and `# noqa`-style directives may exceed.

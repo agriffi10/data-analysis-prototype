@@ -34,8 +34,8 @@ skip_empty = true
 # decide which families we enforce. `lambdas/requirements-dev.txt` bounds the minor as
 # the second half of that guarantee.
 #
-# CI runs `ruff check lambdas/` from the repo root; this file is the project root ruff
-# resolves against.
+# The local gate runs `ruff check lambdas/ scripts/ .github/scripts/` from the repo root (CI's
+# lint step is disabled); this file is the project root ruff resolves against.
 
 [tool.ruff]
 target-version = "py312"  # the Lambda runtime, and the floor of the CI matrix
