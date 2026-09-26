@@ -20,10 +20,14 @@ import {ExplorationResultsRegion, NOTHING_TO_EXPORT} from './ExplorationResultsR
 import {ExportExplorationDialog} from './ExportExplorationDialog';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
 import {SaveExplorationDialog} from './SaveExplorationDialog';
+import {OpenSavedViewDrawer} from './OpenSavedViewDrawer';
+import {SavedViewRefusal} from './SavedViewRefusal';
+import {useOpenSavedView} from './useOpenSavedView';
 import {SourcePicker} from './SourcePicker';
 import {useExploration} from './useExploration';
 import {useExplorationQuery} from './useExplorationQuery';
 import {useExplorationTabs} from './useExplorationTabs';
+import type {OpenExplorationOpts} from './useExplorationTabs';
 import {useExploreDeepLink} from './useExploreDeepLink';
 import {evictSqlSource} from './useExplorationEviction';
 import {useSourceColumns} from './useSourceColumns';
@@ -56,6 +60,8 @@ export function DataExplorerWorkspace() {
   // precedent): the hook answers "which spaces can this user reach", which is a question
   // about access, and a flag is presentation.
   const sharedEnabled = useFeature('sharedWorkspaces');
+  // The saved-query store is hidden with Query off, so the saved views it holds are too.
+  const queryEnabled = useFeature('query');
   const allSpaces = useQuerySpaces();
   const spaces = useMemo(
     () => (sharedEnabled ? allSpaces : allSpaces.filter((space) => space.id === 'personal')),
@@ -64,6 +70,7 @@ export function DataExplorerWorkspace() {
 
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
+  const [browsingSaved, setBrowsingSaved] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
   // Which tab, and the statement on screen, both taken at the gesture rather than read live
   // while the dialog is up. The dialog is modal, so nothing can change the active tab behind
@@ -100,7 +107,9 @@ export function DataExplorerWorkspace() {
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(
     linkUnsettled || handoffPending || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null),
-    tabs.activeTab?.id
+    tabs.activeTab?.id,
+    // A tab reopened from a shared space's saved view shows its statement and waits to be asked.
+    {hold: Boolean(tabs.activeTab?.awaitingRun)}
   );
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
   // Glue nothing at all, and this hook reads a database.
@@ -143,12 +152,16 @@ export function DataExplorerWorkspace() {
   // Every way a tab opens — the picker, a link, a hand-off — goes through here. `openTab` is the
   // authority on the cap and says so by returning null, and every caller raises the same dialog
   // rather than pre-checking a count that may already be stale.
-  const openExplorationTab = (source: ExplorationSource): string | null => {
-    const id = tabs.openTab(source);
+  const openExplorationTab = (source: ExplorationSource, opts?: OpenExplorationOpts): string | null => {
+    const id = tabs.openTab(source, opts);
     if (id === null) setLimitReached(true);
-    else setPicking(false);
+    else {
+      setPicking(false);
+      setBrowsingSaved(false);
+    }
     return id;
   };
+  const savedView = useOpenSavedView({username, spaces, openTab: openExplorationTab, toast});
   const openSource = (target: ExploreTarget) => {
     openExplorationTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
   };
@@ -295,6 +308,7 @@ export function DataExplorerWorkspace() {
           username={username}
           onChoose={openSource}
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
+          onOpenSaved={queryEnabled ? () => setBrowsingSaved(true) : undefined}
         />
       ) : (
         // The region each tab controls. `aria-controls` on a tab has to name something, or
@@ -324,6 +338,8 @@ export function DataExplorerWorkspace() {
               tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
             }
             queryControls={queryControls}
+            held={tabs.activeTab?.awaitingRun ?? null}
+            onRun={() => tabs.activeTab && tabs.releaseHold(tabs.activeTab.id)}
             onSaveQuery={() => {
               if (tabs.activeTab && exploration.sql !== null) {
                 setSaving({tabId: tabs.activeTab.id, sql: exploration.sql, exploration: tabs.activeTab.exploration});
@@ -410,6 +426,28 @@ export function DataExplorerWorkspace() {
       )}
 
       <ExportExplorationDialog saveResults={saveResults} />
+
+      {browsingSaved && (
+        <OpenSavedViewDrawer
+          spaces={spaces}
+          space={savedSpace.space}
+          onSelectSpace={savedSpace.selectSpace}
+          openingKey={savedView.openingKey}
+          onOpen={savedView.openFile}
+          onClose={() => setBrowsingSaved(false)}
+        />
+      )}
+
+      {savedView.refusal && (
+        <SavedViewRefusal
+          refusal={savedView.refusal}
+          onClose={savedView.dismissRefusal}
+          onOpenInQuery={() => {
+            const {sql, name} = savedView.refusal ?? {sql: '', name: ''};
+            navigate('/query', {state: buildOpenSqlHandoff({sql, label: name})});
+          }}
+        />
+      )}
 
       {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}
     </div>

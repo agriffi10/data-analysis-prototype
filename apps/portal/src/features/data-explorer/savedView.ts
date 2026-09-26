@@ -1,7 +1,13 @@
 import {exceedsAthenaQueryLimit} from '../../lib/athenaLimit';
 import {readStrictPresentation, readStrictQuery} from './explorationTabs';
 import {renderExplorationSql} from './renderExplorationSql';
-import type {ColourOperator, Exploration, ExplorationPresentation, ExplorationQuery} from './dataExplorer.types';
+import type {
+  AwaitingRun,
+  ColourOperator,
+  Exploration,
+  ExplorationPresentation,
+  ExplorationQuery
+} from './dataExplorer.types';
 
 /**
  * What a saved `.sql` file's view line records: enough to rebuild the tab it was saved from.
@@ -97,3 +103,28 @@ export function stripForSharedFolder(presentation: SavedView['presentation']): {
     }
   };
 }
+
+/** What a held tab says: where its file came from, and that its SQL is there to be checked. */
+export function heldText(space: string): string {
+  return `This view was saved in ${space || 'a shared space'}, where any member can change it. Check its Generated SQL, then run it.`;
+}
+
+/** The note under a held tab naming what was not restored, or null when nothing was left out. */
+export function leftOutNote(leftOut: AwaitingRun['leftOut']): string | null {
+  const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+  const parts = [
+    leftOut.links > 0 ? plural(leftOut.links, 'link column') : null,
+    leftOut.patterns > 0 ? plural(leftOut.patterns, 'pattern color rule') : null
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? `Left out: ${parts.join(', ')}.` : null;
+}
+
+/** Why a saved query did not reopen as a view, as the dialog says it. */
+export const SAVED_VIEW_REFUSALS = {
+  none: (name: string) => `“${name}” has no Data Explorer view saved in it.`,
+  edited: (name: string) =>
+    `“${name}” has been edited since it was saved from the Data Explorer, so its view no longer describes it.`,
+  newer: (name: string) => `“${name}” was saved by a newer version of Data Quarry.`,
+  unreadable: (name: string) => `“${name}” carries a view that can’t be read.`,
+  noAccess: (database: string) => `You don’t have access to ${database}, the database this view explores.`
+} as const;

@@ -194,9 +194,12 @@ describe('the source picker', () => {
         .map((h) => h.textContent)
     ).toEqual(['Space', 'Tables (1)', 'Views (1)']);
 
-    // No tab is open in this render, so no Cancel row: the list is the column's first child.
+    // No tab is open in this render, so no Cancel: the one row above the list holds only
+    // Open saved view, and the list follows it directly.
     const list = tables.closest('section')!.parentElement!;
-    expect(list.parentElement!.firstElementChild).toBe(list);
+    const row = list.parentElement!.firstElementChild as HTMLElement;
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['Open saved view']);
+    expect(row.nextElementSibling).toBe(list);
   });
 
   // Pinned to the class because jsdom loads no Tailwind and has no layout, so a prominent

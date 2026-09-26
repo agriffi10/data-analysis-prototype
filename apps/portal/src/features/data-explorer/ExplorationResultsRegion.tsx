@@ -52,7 +52,9 @@ import {
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn, QueryState} from '../catalog/catalog.types';
+import {heldText, leftOutNote} from './savedView';
 import type {
+  AwaitingRun,
   CalcPanelState,
   ColumnFilter,
   CopyOptions,
@@ -96,6 +98,13 @@ export type ExplorationResultsRegionProps = {
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
   /** The query description and every operation over it. */
   queryControls: UseExplorationQueryResult;
+  /**
+   * Set while the tab is held: reopened from a shared space's saved view and not yet run. The
+   * statement is rendered and on screen, and nothing has started.
+   */
+  held?: AwaitingRun | null;
+  /** Runs a held tab's statement. */
+  onRun?: () => void;
   /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
   /**
@@ -168,6 +177,7 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+
 /** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
 /**
@@ -226,6 +236,8 @@ export function ExplorationResultsRegion({
   presentation,
   onPresentationChange,
   queryControls,
+  held = null,
+  onRun,
   onSaveQuery,
   onOpenInQuery,
   onCreateView,
@@ -528,6 +540,7 @@ export function ExplorationResultsRegion({
   // with no earlier result to show is not loading either — it said "Running…" under a failure.
   const loading =
     !queryControls.suspended &&
+    !held &&
     (failed ? shownExecutionId !== null && results.isPending : isPending || !shownExecutionId || results.isPending);
 
   // `failed` is checked FIRST and is the one that is easy to miss: a failed
@@ -598,6 +611,16 @@ export function ExplorationResultsRegion({
   };
 
   const body = () => {
+    if (held) {
+      const note = leftOutNote(held.leftOut);
+      return (
+        <div className="flex flex-col items-start gap-2 p-4">
+          <p className="text-sm text-text-2">{heldText(held.space)}</p>
+          {note && <p className="text-sm text-text-2">{note}</p>}
+          <Button onClick={onRun}>Run</Button>
+        </div>
+      );
+    }
     if (queryControls.suspended) {
       return (
         <div className="flex flex-col items-start gap-2 p-4">

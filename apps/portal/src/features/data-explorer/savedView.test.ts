@@ -1,60 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {appendViewLine, parseViewLine} from '../../lib/savedViewLine';
-import {emptyExplorationPresentation, newExploration} from './exploration';
 import {buildSavedView, readSavedView, stripForSharedFolder} from './savedView';
+import {fullExploration} from './savedView.testkit';
 import type {SavedView} from './savedView';
-import type {Exploration} from './dataExplorer.types';
-
-/** A tab with every part of a view set, the way this build's own panels set them. */
-function fullExploration(): Exploration {
-  const base = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'});
-  return {
-    ...base,
-    query: {
-      filters: [
-        {column: 'name', operator: 'contains', value: 'acme', valueKind: 'string'},
-        {column: 'amount', operator: '>', value: '10', valueKind: 'number'}
-      ],
-      expression: "status <> 'void'",
-      ordering: [{column: 'region', direction: 'asc', priority: 0}],
-      grouping: {
-        columns: ['region'],
-        aggregates: [{fn: 'COUNT', column: '*'}],
-        duplicatesOnly: false,
-        showPercentage: true
-      }
-    },
-    presentation: {
-      ...emptyExplorationPresentation(),
-      hiddenColumns: ['notes'],
-      pinnedColumns: ['region'],
-      columnOrder: ['region', 'name'],
-      columnWidths: {region: 180},
-      presentation: 'record',
-      valuePanelOpen: true,
-      recordRowIndex: 4,
-      formatting: {
-        rules: [
-          {id: 'r1', column: 'name', operator: 'regex', value: '^ac', background: 'accent-soft'},
-          {id: 'r2', column: 'region', operator: 'like', value: '%west%', foreground: 'danger'},
-          {
-            id: 'r3',
-            column: 'amount',
-            operator: 'regex',
-            value: '',
-            gradient: {min: 0, max: 9, from: 'accent-soft', to: 'danger-soft'}
-          }
-        ],
-        colourByType: true,
-        stripeColumns: ['region'],
-        transformers: {
-          name: {kind: 'url', template: 'https://example.test/{value}'},
-          amount: {kind: 'numeric', precision: 2, lenient: false}
-        }
-      }
-    }
-  };
-}
 
 describe('a saved view', () => {
   it('comes back whole from the file this build writes, minus only the panel and record row', () => {

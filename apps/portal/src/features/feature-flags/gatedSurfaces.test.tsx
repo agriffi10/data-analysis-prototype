@@ -517,6 +517,23 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('button', {name: /^alice/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
   },
+  'Open saved view': {
+    render: () => {
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+    },
+    // The picker's personal space: always offered, so it settles the picker without the row.
+    anchor: async () => screen.findByRole('button', {name: /^alice/}),
+    find: async () => screen.queryByRole('button', {name: 'Open saved view'})
+  },
+  'Shared spaces in the saved-view drawer': {
+    render: async () => {
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await userEvent.setup({delay: null}).click(await screen.findByRole('button', {name: 'Open saved view'}));
+    },
+    anchor: async () => screen.findByRole('option', {name: 'alice'}),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
+  },
   'Create view…': {
     render: async () => {
       seedExplorationTab();
@@ -1274,6 +1291,7 @@ describe('the registry itself', () => {
         // The generated statement opened in a Query tab: a Query surface wearing a Data Explorer
         // control, on the same terms as the two above it.
         'Open in Query',
+        'Open saved view',
         'Query help section',
         'Tables help section',
         'Refresh table link on a notification'
@@ -1298,6 +1316,7 @@ describe('the registry itself', () => {
         // SPEC-179: the Data Explorer's own reader of `useQuerySpaces`, on SPEC-174's
         // reasoning — the rows above render other surfaces entirely.
         'Shared spaces in the Data Explorer source picker',
+        'Shared spaces in the saved-view drawer',
         // SPEC-183: the third instance of the same choice, and the second WRITE target.
         'Shared spaces in the Data Explorer save dialog',
         // SPEC-185: the export destination, and the Query workspace's Save-results twin,

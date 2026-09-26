@@ -7,13 +7,25 @@ import {
   tabBytesScanned,
   writeExplorationTabsState
 } from './explorationTabs';
-import type {Exploration, ExplorationSource, ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import type {
+  AwaitingRun,
+  Exploration,
+  ExplorationSource,
+  ExplorationTab,
+  ExplorationTabsState
+} from './dataExplorer.types';
 import type {QueryColumn} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 export type OpenExplorationOpts = {
   /** Verbatim label; omit to take the source's own name. */
   label?: string;
+  /** A query and presentation to open with — a reopened saved view's — instead of empty ones. */
+  seed?: Pick<Exploration, 'query' | 'presentation'>;
+  /** Opens the tab held: its statement renders but does not run until asked. */
+  awaitingRun?: AwaitingRun;
+  /** The saved query the tab was opened from, so a re-save replaces it. */
+  savedQuery?: SavedQueryLink;
 };
 
 export type UseExplorationTabsResult = {
@@ -46,6 +58,8 @@ export type UseExplorationTabsResult = {
    * would make its next re-save replace a file it has nothing to do with.
    */
   setTabSavedQuery: (tabId: string, link: SavedQueryLink) => void;
+  /** Ends a held tab's hold, dropping the field rather than blanking it: a blank reads back as held. */
+  releaseHold: (tabId: string) => void;
   /**
    * Remembers a `sql` tab's source columns, from an execution with no grouping.
    *
@@ -112,12 +126,15 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     setState((s) => {
       if (s.tabs.length >= EXPLORATION_TABS_MAX) return s;
       const named = opts.label !== undefined;
+      const fresh = newExploration(source);
       const tab: ExplorationTab = {
         id,
         label: named ? (opts.label as string) : explorationSourceLabel(source),
-        exploration: newExploration(source),
+        exploration: opts.seed ? {...fresh, query: opts.seed.query, presentation: opts.seed.presentation} : fresh,
         scannedByExecution: {},
-        history: emptyQueryHistory()
+        history: emptyQueryHistory(),
+        ...(opts.awaitingRun && {awaitingRun: opts.awaitingRun}),
+        ...(opts.savedQuery && {savedQuery: opts.savedQuery})
       };
       return {
         ...s,
@@ -171,6 +188,17 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
       };
     });
 
+  const releaseHold = (tabId: string) =>
+    setState((s) => ({
+      ...s,
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId || !t.awaitingRun) return t;
+        const released = {...t};
+        delete released.awaitingRun;
+        return released;
+      })
+    }));
+
   const setTabSavedQuery = (tabId: string, link: SavedQueryLink) =>
     setState((s) => ({...s, tabs: s.tabs.map((t) => (t.id === tabId ? {...t, savedQuery: link} : t))}));
 
@@ -193,6 +221,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     updateTab,
     recordScan,
     setTabSavedQuery,
+    releaseHold,
     setTabSourceColumns,
     activeTabBytesScanned: activeTab ? tabBytesScanned(activeTab) : 0
   };

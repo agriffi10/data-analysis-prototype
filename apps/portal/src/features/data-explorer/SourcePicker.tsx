@@ -26,6 +26,8 @@ export type SourcePickerProps = {
   onChoose: (target: ExploreTarget) => void;
   /** Offered only when there is somewhere to go back to — i.e. a tab is already open. */
   onCancel?: () => void;
+  /** Opens the list of saved queries to reopen as a view. Absent where the store is off. */
+  onOpenSaved?: () => void;
 };
 
 /**
@@ -46,7 +48,7 @@ export type SourcePickerProps = {
  * @example
  * <SourcePicker spaces={spaces} username="alice" onChoose={openTab} />
  */
-export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePickerProps) {
+export function SourcePicker({spaces, username, onChoose, onCancel, onOpenSaved}: SourcePickerProps) {
   const [selectedId, setSelectedId] = useState(spaces[0]?.id ?? '');
   const selected = spaces.find((s) => s.id === selectedId) ?? spaces[0];
   const database = selected ? spaceDatabase(selected, username) : null;
@@ -98,16 +100,26 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
       <div className="flex min-h-0 flex-1 flex-col p-3">
         {/* No title over the list. "Tables and views" restated what the two headings below
             already say, and it took the prominence they needed: the group a name is in is the
-            thing a reader is actually scanning for. Rendered only for the Cancel button, so
-            the list starts at the top of the column when there is nothing to go back to. */}
-        {onCancel && (
-          <div className="flex items-center justify-end px-2 pb-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onCancel}>
-              Cancel
-            </Button>
+            thing a reader is actually scanning for. Rendered only for its buttons, so the list
+            starts at the top of the column when there is nothing to put there. */}
+        {(onCancel || onOpenSaved) && (
+          <div className="flex items-center justify-end gap-2 px-2 pb-2">
+            {onOpenSaved && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={onOpenSaved}>
+                Open saved view
+              </Button>
+            )}
+            {onCancel && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
           </div>
         )}
         {isPending && (

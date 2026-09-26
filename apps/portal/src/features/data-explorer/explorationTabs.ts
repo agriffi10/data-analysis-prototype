@@ -498,20 +498,25 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
     if (!isValidTabsState(parsed)) return null;
     return {
       ...parsed,
-      tabs: parsed.tabs.map((tab) => ({
-        ...tab,
-        // A document written before these fields existed carries no history at all, which is the
-        // ordinary case for the first session after a deploy — not a fault.
-        history: normalizeHistory(tab.history),
-        savedQuery: normalizeSavedQueryLink(tab.savedQuery),
-        sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
-        awaitingRun: normalizeAwaitingRun(tab.awaitingRun),
-        exploration: {
-          ...tab.exploration,
-          query: normalizeQuery(tab.exploration.query),
-          presentation: normalizePresentation(tab.exploration.presentation)
-        }
-      }))
+      tabs: parsed.tabs.map((tab) => {
+        const restored: ExplorationTab = {
+          ...tab,
+          // A document written before these fields existed carries no history at all, which is the
+          // ordinary case for the first session after a deploy — not a fault.
+          history: normalizeHistory(tab.history),
+          savedQuery: normalizeSavedQueryLink(tab.savedQuery),
+          sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
+          exploration: {
+            ...tab.exploration,
+            query: normalizeQuery(tab.exploration.query),
+            presentation: normalizePresentation(tab.exploration.presentation)
+          }
+        };
+        const held = normalizeAwaitingRun(tab.awaitingRun);
+        if (held) restored.awaitingRun = held;
+        else delete restored.awaitingRun;
+        return restored;
+      })
     };
   } catch {
     return null;
