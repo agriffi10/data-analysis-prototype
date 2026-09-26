@@ -1,6 +1,5 @@
 import {useEffect, useState} from 'react';
 import {Button} from '../../components/Button';
-import {cx} from '../../lib/cx';
 import {formatBytes} from '../../lib/format';
 import {formatCount, formatDurationMs} from '../../lib/format';
 import type {QueryStatus} from '../catalog/catalog.types';
@@ -252,15 +251,11 @@ export function QueryStatusBar({
       {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
           already produced are complete, and re-running to reach Save bills them twice. */}
       {hasVerdict && canSaveResults && (
-        <button
-          type="button"
-          aria-disabled={saveResultsRefusal ? true : undefined}
-          title={saveResultsRefusal ?? undefined}
-          onClick={saveResultsRefusal ? undefined : onSaveResults}
-          className={cx(
-            'inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-            saveResultsRefusal && 'cursor-not-allowed opacity-45'
-          )}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onSaveResults}
+          disabledReason={saveResultsRefusal ?? undefined}>
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -273,7 +268,7 @@ export function QueryStatusBar({
             <path d="M8 21v-7h8v7" />
           </svg>
           Save results…
-        </button>
+        </Button>
       )}
     </div>
   );
