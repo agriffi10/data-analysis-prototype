@@ -375,18 +375,22 @@ export function QueryWorkspace() {
   const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
     submitBatch(splitSqlStatements(activeTab.sql), scope);
 
-  // re-open loads the entry's SQL into the active
-  // tab's editor (no auto-run); re-run loads it and submits.
-  const handleReopen = (entry: QueryHistoryEntry) => {
-    tabs.setActiveSql(entry.sql);
+  // History opens its entry in a NEW tab, as Saved queries does: loaded into the active tab it
+  // replaced unsaved SQL with no confirm, and a re-run there was recorded under that tab's
+  // saved-query link although the SQL was not that query's. At the tab cap, the limit dialog.
+  const openHistoryEntry = (entry: QueryHistoryEntry): string | null => {
     setHistoryOpen(false);
-    editorRef.current?.focus();
+    const id = tabs.openTab({sql: entry.sql});
+    if (id === null) setLimitOpen(true);
+    return id;
+  };
+  const handleReopen = (entry: QueryHistoryEntry) => {
+    if (openHistoryEntry(entry) !== null) editorRef.current?.focus();
   };
   const handleRerun = (entry: QueryHistoryEntry) => {
-    if (activeIsInFlight) return;
-    tabs.setActiveSql(entry.sql);
-    setHistoryOpen(false);
-    submitBatch(splitSqlStatements(entry.sql), 'script-single');
+    const id = openHistoryEntry(entry);
+    // The new tab's id, explicitly: the active-tab change has not committed yet.
+    if (id !== null) submitBatch(splitSqlStatements(entry.sql), 'script-single', id);
   };
 
   // Open a tab through the cap guard; at the cap show the dialog.
@@ -777,7 +781,7 @@ export function QueryWorkspace() {
             username={username}
             onReopen={handleReopen}
             onRerun={handleRerun}
-            rerunDisabled={activeIsInFlight}
+            rerunDisabled={false}
           />
 
           <SavedQueriesPanel

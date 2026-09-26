@@ -684,7 +684,8 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
     });
 
-    it('re-runs a history entry into the active tab (no database context)', async () => {
+    it('re-runs a history entry in a NEW tab, leaving the one it was opened from as it was', async () => {
+      seedSingle('SELECT draft_i_have_not_saved');
       mockGetHistory.mockResolvedValue(
         ok({
           version: 1,
@@ -707,6 +708,10 @@ describe('QueryWorkspace', () => {
 
       expect(mockRunQuery).toHaveBeenCalledTimes(1);
       expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 42', username: 'alice'});
+      expect(editor()).toHaveValue('SELECT 42');
+      // The first tab still holds the draft, which loading into the active tab used to replace.
+      await user.click(screen.getAllByRole('tab')[0]);
+      expect(editor()).toHaveValue('SELECT draft_i_have_not_saved');
     });
 
     // --- table actions (driven through the REAL rail menu) ---

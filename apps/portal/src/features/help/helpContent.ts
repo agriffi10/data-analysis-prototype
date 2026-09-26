@@ -375,7 +375,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Click <b>History</b> at the right-hand end of the tab strip above the editor to see your past runs, newest first.',
           'Each entry shows whether it succeeded, when it ran, the query, how much data it scanned and how long it took — and the saved query’s name if it came from one.',
-          'Click <b>Open</b> to put the query into the tab you’re on, or <b>Re-run</b> to put it there and run it straight away. Either one replaces what’s in that tab, so open a new tab with <b>+</b> first if you want to keep it.'
+          'Click <b>Open</b> to open the query in a new tab, or <b>Re-run</b> to open it in a new tab and run it straight away. The tab you were on keeps its own query.'
         ]
       },
       {
