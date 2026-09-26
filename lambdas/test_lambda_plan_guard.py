@@ -296,6 +296,65 @@ def test_a_changed_parity_field_is_named_with_both_values(pre_cutover, fixture):
     assert any("timeout moved from 60 to 900" in p for p in problems), problems
 
 
+def test_a_deliberate_change_is_held_to_exactly_its_declared_value(pre_cutover, fixture, monkeypatch):
+    """A field moved on purpose is declared rather than re-captured, and the declaration is a
+    new pin, not a waiver: the declared value passes, and any other value — the old one
+    included — is still reported as a move.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+      monkeypatch: Declares the change for this test alone.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a declared move is refused, or a different one is let through.
+    """
+    monkeypatch.setattr(GUARD, "DELIBERATE_CHANGES", {("dat-prod-archive-copy-objects", "timeout"): 900})
+    moved = json.loads(json.dumps(pre_cutover))
+    moved["resource_changes"][0]["change"]["after"]["timeout"] = 900
+    elsewhere = json.loads(json.dumps(pre_cutover))
+    elsewhere["resource_changes"][0]["change"]["after"]["timeout"] = 600
+
+    assert _check(moved, fixture) == []
+    assert any("timeout moved from 900 to 600" in p for p in _check(elsewhere, fixture))
+    assert any("timeout moved from 900 to 60" in p for p in _check(pre_cutover, fixture))
+
+
+def test_every_committed_deliberate_change_is_real_and_is_what_terraform_sets():
+    """A declaration naming nothing, or restating the capture, is a pin on nothing; and one that
+    disagrees with the Terraform would fail the plan it exists to pass. Each entry must name a
+    captured function and a parity field, differ from the capture, and equal the value the
+    function's row in its module's ``locals.tf`` sets — found by the handler, which the fixture
+    records and the row names.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an entry is dead, stale or disagrees with the Terraform.
+    """
+    import re
+
+    captured = json.loads(FIXTURE.read_text(encoding="utf-8"))["functions"]
+    rows = "\n".join(
+        path.read_text(encoding="utf-8") for path in (ROOT / "infra" / "modules").glob("*/locals.tf")
+    )
+    assert GUARD.DELIBERATE_CHANGES, "nothing declared — delete this test with the last entry"
+    for (name, field), value in GUARD.DELIBERATE_CHANGES.items():
+        assert name in captured, f"{name} was never captured"
+        assert field in GUARD.PARITY_FIELDS, f"{field} is not a parity field"
+        assert captured[name][field] != value, f"{name}.{field} restates the capture"
+        handler = re.escape(captured[name]["handler"])
+        row = re.search(rf'handler = "{handler}",[^}}]*\b{field} = (\d+)', rows)
+        assert row and int(row.group(1)) == value, f"{name}.{field}: Terraform sets {row and row.group(1)}"
+
+
 def test_a_function_left_on_zip_by_a_partial_cutover_fails(fixture):
     """Derived from the plan, so a function left behind fails rather than being missed.
 
