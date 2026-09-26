@@ -98,10 +98,11 @@ export function ColumnsPanel({open, onClose, geometry}: ColumnsPanelProps) {
                 whose CURRENT state the user needs to read off the row — hidden is legible
                 from the grid, pinned is not. The accessible name still names the ACTION and
                 flips with the state, which is why there is no `aria-pressed` here: a toggle
-                label that already changes, announced as pressed, says the state twice. */}
+                label that already changes, announced as pressed, says the state twice. It
+                opens with the chip's own word, so a spoken "click Pinned" finds it (WCAG 2.5.3). */}
             <button
               type="button"
-              aria-label={`${column.pinned ? 'Unpin' : 'Pin'} ${column.name}`}
+              aria-label={column.pinned ? `Pinned, unpin ${column.name}` : `Pin ${column.name}`}
               onClick={() => {
                 geometry.togglePinned(column.name);
                 setAnnouncement(`${column.name} ${column.pinned ? 'unpinned' : 'pinned to the left'}.`);

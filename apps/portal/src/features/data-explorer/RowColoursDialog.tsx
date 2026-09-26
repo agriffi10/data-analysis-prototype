@@ -264,7 +264,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
               <label className="flex items-center gap-1.5 text-xs text-text-2">
                 <input
                   type="checkbox"
-                  aria-label={`Rule ${position} shades a number range`}
+                  aria-label={`Shade a number range, rule ${position}`}
                   checked={Boolean(gradient)}
                   onChange={(e) =>
                     editRule(rule.id, {

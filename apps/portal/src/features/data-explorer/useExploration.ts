@@ -83,10 +83,13 @@ export function useExploration(
 
   // The source segments the key is filed under. A stable placeholder while there is nothing
   // to run, for the same reason the SQL has one: the hook order must not depend on it.
-  const scope = useMemo(
-    () => (exploration ? explorationSourceScope(exploration.source) : ([NO_KEY, NO_KEY, NO_KEY] as const)),
-    [exploration]
-  );
+  // Memoised on the three strings, never the exploration: every presentation edit is a new
+  // exploration object, and the eviction below re-runs its cleanup whenever `scope` changes
+  // identity — which, after a failure, evicted the live entry and started the statement again.
+  const [scopeKind, scopeFirst, scopeSecond] = exploration
+    ? explorationSourceScope(exploration.source)
+    : [NO_KEY, NO_KEY, NO_KEY];
+  const scope = useMemo(() => [scopeKind, scopeFirst, scopeSecond] as const, [scopeKind, scopeFirst, scopeSecond]);
 
   const enabled = sql !== null && username !== '' && !hold;
 

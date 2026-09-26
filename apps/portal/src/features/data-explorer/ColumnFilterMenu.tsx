@@ -82,11 +82,13 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
   const filter = actions.filterOf(column);
   const refusal = actions.queryRefusalOf(column);
 
-  // A column the query cannot address keeps its menu and offers ONE disabled item saying
+  // A column the query cannot address keeps its menu and offers ONE refused item saying
   // why — rather than a menu of controls that would each take the exploration down, or no
-  // menu at all, which would leave the user to discover the difference by clicking.
+  // menu at all, which would leave the user to discover the difference by clicking. Refused
+  // by `disabledReason`, not `disabled`: a natively disabled item leaves the roving order,
+  // and this item's label is the only place the reason is said.
   const queryItems: MenuItem[] = refusal
-    ? [{kind: 'action', label: refusal, disabled: true, onSelect: () => {}}]
+    ? [{kind: 'action', label: refusal, disabledReason: refusal, onSelect: () => {}}]
     : [
         {kind: 'action', label: 'Sort ascending', onSelect: () => actions.sort(column, 'asc')},
         {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},

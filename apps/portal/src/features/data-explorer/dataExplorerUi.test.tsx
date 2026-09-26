@@ -525,6 +525,39 @@ describe('the exploration tabs', () => {
     await user.keyboard('{Delete}');
 
     expect(screen.queryByRole('tab', {name: 'orders'})).not.toBeInTheDocument();
+    // The focused element is gone; focus goes to the tab now showing, not back to the page top.
+    expect(screen.getByRole('tab', {name: 'refunds'})).toHaveFocus();
+  });
+
+  it('hands focus to the picker when Delete closes the last tab', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    const tab = await screen.findByRole('tab', {name: 'orders'});
+
+    tab.focus();
+    await user.keyboard('{Delete}');
+
+    expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toHaveFocus();
+  });
+
+  it('moves focus with the arrows without opening, so passing a tab runs nothing', async () => {
+    // Showing an exploration is running it, and a restored session caches nothing — so a
+    // tab strip that selected on every arrow would bill a scan for each tab it passed.
+    seedTabs([
+      {id: 't1', table: 'orders'},
+      {id: 't2', table: 'refunds'},
+      {id: 't3', table: 'invoices'}
+    ]);
+    const {user} = render();
+    const first = await screen.findByRole('tab', {name: 'orders'});
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    first.focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+
+    expect(screen.getByRole('tab', {name: 'invoices'})).toHaveFocus();
+    expect(first).toHaveAttribute('aria-selected', 'true');
+    expect(runQuery).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -550,6 +583,18 @@ describe('accessibility', () => {
     ]);
     render();
     await screen.findByRole('columnheader', {name: 'id'});
+
+    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('leaves the tab strip axe-clean while the picker stands in for the panel', async () => {
+    // The selected tab names the panel it controls, and the panel is not rendered while
+    // the picker is — a tab pointing at nothing is an invalid relationship.
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'id'});
+    await user.click(screen.getByRole('button', {name: 'New exploration'}));
+    await screen.findByRole('button', {name: 'orders'});
 
     await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
   });

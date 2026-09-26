@@ -63,13 +63,22 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
   // Only auth STILL RESOLVING is `'loading'`. Treating that as fallback instead would show
   // every gated surface and then take them away a tick later once the real read began —
   // the flicker the rule exists to prevent, arriving by the other door.
+  //
+  // A read that has ever failed stays `'fallback'` while it is re-read. Every gated page reads
+  // the flags from inside, a new observer re-fetches a failed read on mount — which is how
+  // the app recovers from one — and re-fetching a query with no data puts it back to pending.
+  // Read as `'loading'`, that made `FeatureRoute` swap its page for the loader, unmounting the
+  // page whose own read started the fetch and remounting it when the fetch failed again, for
+  // as long as the document was unreadable.
   const status: FeatureFlagsStatus =
     authStatus === 'loading'
       ? 'loading'
       : !enabled
         ? 'fallback'
         : query.isPending
-          ? 'loading'
+          ? query.errorUpdateCount > 0
+            ? 'fallback'
+            : 'loading'
           : query.isError
             ? 'fallback'
             : 'ready';

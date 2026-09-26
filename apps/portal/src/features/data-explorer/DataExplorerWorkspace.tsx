@@ -70,6 +70,9 @@ export function DataExplorerWorkspace() {
 
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
+  // Closing the last tab unmounts the strip that held focus; the picker takes its place and
+  // takes the focus with it.
+  const [pickerTakesFocus, setPickerTakesFocus] = useState(false);
   const [browsingSaved, setBrowsingSaved] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
   // Which tab, and the statement on screen, both taken at the gesture rather than read live
@@ -158,6 +161,7 @@ export function DataExplorerWorkspace() {
     else {
       setPicking(false);
       setBrowsingSaved(false);
+      setPickerTakesFocus(false);
     }
     return id;
   };
@@ -229,6 +233,9 @@ export function DataExplorerWorkspace() {
     const known = tabs.activeTab.scannedByExecution[exploration.queryExecutionId as string];
     setLastApply({key: costKey, bytesScanned: known ?? exploration.cost.bytesScanned, fromCache: known !== undefined});
   }
+  // Keyed by tab, and read back by tab: a tab whose own run has not reported yet shows no
+  // per-apply figure, rather than the one the previous tab left behind.
+  const shownApply = tabs.activeTab && lastApply?.key.startsWith(`${tabs.activeTab.id}:`) ? lastApply : null;
 
   // The tab's cost ledger, keyed by execution id upstream — recording the same execution
   // twice changes nothing, which is what makes a cache hit free by construction.
@@ -293,12 +300,16 @@ export function DataExplorerWorkspace() {
           // slides into view: if it has run this session its statement is cached, but a tab
           // restored from `sessionStorage` and never opened has not, and showing an
           // exploration is running it.
-          onClose={tabs.closeTab}
+          onClose={(id) => {
+            if (tabs.tabs.length === 1) setPickerTakesFocus(true);
+            tabs.closeTab(id);
+          }}
           // A state read is honest for ONE human click — the picker's choice still goes
           // through `openTab`, which is the authority and refuses on its own synchronous
           // count. What this buys is the refusal arriving at the gesture that
           // asked for it, rather than one table-click later.
           onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
+          panelShown={!showPicker}
         />
       )}
 
@@ -309,6 +320,7 @@ export function DataExplorerWorkspace() {
           onChoose={openSource}
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
           onOpenSaved={queryEnabled ? () => setBrowsingSaved(true) : undefined}
+          takeFocus={pickerTakesFocus}
         />
       ) : (
         // The region each tab controls. `aria-controls` on a tab has to name something, or
@@ -375,8 +387,8 @@ export function DataExplorerWorkspace() {
             onSourceColumns={tabs.setTabSourceColumns}
           />
           <CostIndicator
-            bytesScanned={lastApply?.bytesScanned ?? null}
-            fromCache={lastApply?.fromCache ?? false}
+            bytesScanned={shownApply?.bytesScanned ?? null}
+            fromCache={shownApply?.fromCache ?? false}
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>

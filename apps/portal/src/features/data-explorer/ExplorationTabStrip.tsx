@@ -1,4 +1,4 @@
-import {useRef} from 'react';
+import {useEffect, useRef} from 'react';
 import {cx} from '../../lib/cx';
 import {EXPLORATION_TABPANEL_ID} from './dataExplorer.constants';
 import type {ExplorationTab} from './dataExplorer.types';
@@ -10,25 +10,50 @@ export type ExplorationTabStripProps = {
   onClose: (id: string) => void;
   /** Opens the source picker, or raises the cap dialog when there is no room. */
   onNew: () => void;
+  /**
+   * Whether the tab panel is on screen. The picker takes its place while choosing a source, and
+   * a tab must not name a panel that is not in the document.
+   */
+  panelShown: boolean;
 };
 
 /**
  * The strip of open explorations, above the results.
  *
- * Mirrors the Query workspace's tab strip in shape and keyboard model rather than sharing
- * it: `features/query/` is a sibling this feature may not import, and the two
- * differ where it counts — an exploration tab has no dirty state, and closing the last one
- * is legal here, so the close control is never hidden.
+ * Mirrors the Query workspace's tab strip in shape rather than sharing it: `features/query/`
+ * is a sibling this feature may not import, and the two differ where it counts — an
+ * exploration tab has no dirty state, closing the last one is legal here, so the close
+ * control is never hidden, and the arrows only move focus, because opening an exploration
+ * runs it.
  *
  * The `+` is never disabled. The cap is enforced by refusal and announced by a dialog, so a
  * user at the limit is told why rather than left clicking a dead control.
  */
-export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew}: ExplorationTabStripProps) {
+export function ExplorationTabStrip({
+  tabs,
+  activeTabId,
+  onSelect,
+  onClose,
+  onNew,
+  panelShown
+}: ExplorationTabStripProps) {
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
+  const refocusAfterClose = useRef(false);
 
-  // WAI-ARIA tabs keyboard model (WCAG 2.1.1): with a roving tabindex only the active tab is
-  // in the Tab sequence, so the arrows have to move focus and selection together. Delete
-  // closes, because the ✕ is a sibling button rather than a focusable descendant.
+  // A tab closed from the keyboard takes the focused element with it; hand focus to the tab
+  // now showing rather than letting it fall back to the top of the page (WCAG 2.4.3). Closing
+  // the last one unmounts this strip, and the picker that replaces it takes the focus instead.
+  useEffect(() => {
+    if (!refocusAfterClose.current) return;
+    refocusAfterClose.current = false;
+    tabRefs.current.get(activeTabId)?.focus();
+  }, [tabs, activeTabId]);
+
+  // WAI-ARIA tabs keyboard model with MANUAL activation (WCAG 2.1.1): the arrows move focus
+  // and Enter or Space opens. Showing an exploration runs it, so selecting on every arrow
+  // would start an execution for each uncached tab passed on the way. The active tab keeps the
+  // roving tabindex, so Tab back into the strip lands on it. Delete closes, because the ✕ is a
+  // sibling button rather than a focusable descendant.
   const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
     let next: number | null = null;
     if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
@@ -41,14 +66,13 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
       return;
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
+      refocusAfterClose.current = true;
       onClose(tabs[index].id);
       return;
     }
     if (next === null) return;
     e.preventDefault();
-    const nextTab = tabs[next];
-    onSelect(nextTab.id);
-    tabRefs.current.get(nextTab.id)?.focus();
+    tabRefs.current.get(tabs[next].id)?.focus();
   };
 
   return (
@@ -89,7 +113,7 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
               id={`exploration-tab-${tab.id}`}
               role="tab"
               aria-selected={active}
-              aria-controls={EXPLORATION_TABPANEL_ID}
+              aria-controls={panelShown ? EXPLORATION_TABPANEL_ID : undefined}
               tabIndex={active ? 0 : -1}
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}

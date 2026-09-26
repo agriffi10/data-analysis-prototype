@@ -120,10 +120,12 @@ export function useQueryExecution(
     // A stable placeholder key keeps the hook order constant while disabled.
     queryKey: catalogKeys.execution(queryExecutionId ?? NO_KEY),
     // Evaluated against the query, so it turns false the moment the retries are spent: the
-    // status stays pending or success while a retry is in flight. The two ceiling clauses gate
-    // the interval, a reconnect and a remount at once, as a stop must.
+    // status stays pending or success while a retry is in flight. The terminal clause and the
+    // two ceiling clauses gate the interval, a reconnect and a remount at once, as a stop must:
+    // a settled execution never changes, and re-reading one can only turn it into an error.
     enabled: (q) =>
       queryExecutionId !== null &&
+      !(q.state.data !== undefined && isTerminalState(q.state.data.state)) &&
       !(stopOnError && q.state.status === 'error') &&
       !outlived(ceilingAt, q.state.data, () => q.state.dataUpdatedAt) &&
       !(ceilingAt !== null && q.state.status === 'error' && q.state.errorUpdatedAt > ceilingAt),

@@ -1,3 +1,4 @@
+import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
 import {Route, Routes} from 'react-router';
@@ -45,6 +46,7 @@ import {FeatureRoute} from '../../routes/FeatureRoute';
 import LandingPage from '../../routes/LandingPage';
 import DataQualityReportPage from '../../routes/DataQualityReportPage';
 import {HelpPage} from '../help/HelpPage';
+import {FeatureGate} from './FeatureGate';
 import {getQualityReport} from '../data-quality/dataQualityReport.service';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
@@ -322,6 +324,38 @@ describe('FR-005/FR-007 — fallback is indistinguishable from all-on', () => {
 
     const nav = await screen.findByRole('navigation', {name: 'Primary'});
     await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(5));
+  });
+
+  it('mounts a gated page once on an unreadable document, rather than trading it for the loader', async () => {
+    // Every gated page asks the flags again from inside, and that new reader re-reads a failed
+    // document — which blanks its status back to pending. A gate that read that as 'loading'
+    // unmounted the page, which ended the read, which remounted the page: a loop for as long as
+    // the document stayed unreadable.
+    vi.mocked(getFeatureFlags).mockResolvedValue({success: false, error: {message: 'unreadable'}});
+    let mounts = 0;
+    function Page() {
+      useEffect(() => {
+        mounts += 1;
+      }, []);
+      return (
+        <FeatureGate flag="files">
+          <p>QUERY PAGE</p>
+        </FeatureGate>
+      );
+    }
+
+    renderWithProviders(
+      <FeatureRoute flag="query">
+        <Page />
+      </FeatureRoute>,
+      opts
+    );
+
+    expect(await screen.findByText('QUERY PAGE')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mounts).toBe(1);
+    // The route's read, then the page's own one re-read — and nothing after it.
+    expect(getFeatureFlags).toHaveBeenCalledTimes(2);
   });
 });
 

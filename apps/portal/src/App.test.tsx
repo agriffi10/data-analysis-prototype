@@ -37,6 +37,8 @@ describe('App routing', () => {
 
     expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
+    // The skip link's target: without it, "Skip to main content" does nothing on this page.
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main');
   });
 
   // A lazy route with no ErrorBoundary unmounts the tree on a chunk-load rejection, and

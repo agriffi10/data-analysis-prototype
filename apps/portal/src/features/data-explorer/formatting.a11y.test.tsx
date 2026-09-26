@@ -97,7 +97,7 @@ describe('the formatting surfaces are accessible', () => {
     // it takes to have every control in this dialog on screen at once.
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
-    await user.click(within(dialog).getByRole('checkbox', {name: 'Rule 2 shades a number range'}));
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Shade a number range, rule 2'}));
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });

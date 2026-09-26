@@ -241,7 +241,7 @@ describe('column geometry', () => {
     await user.click(within(await columnRow(user, 'status')).getByRole('button', {name: 'Pin status'}));
     await waitFor(() => expect(headerNames()).toEqual(['status', 'id', 'total']));
 
-    await user.click(within(await columnRow(user, 'status')).getByRole('button', {name: 'Unpin status'}));
+    await user.click(within(await columnRow(user, 'status')).getByRole('button', {name: 'Pinned, unpin status'}));
     await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
   });
 

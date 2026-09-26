@@ -16,7 +16,9 @@ export type FeatureRouteProps = {
  * so rendering it first and swapping to the unavailable state a tick later would issue the
  * very requests the gate forbids — and on `/data-quality/:space/:requestId` that request is an
  * existence oracle for someone else's report. Hence a neutral `LoadingState` while
- * the flags resolve, rather than the optimistic render a nav item can afford.
+ * the flags resolve, rather than the optimistic render a nav item can afford. A read that
+ * failed IS an answer — the compiled-in defaults — and stays one while the document is read
+ * again, so a page already mounted under it is not swapped for the loader mid-session.
  *
  * It is `LoadingState` and not `null` because a route is the whole viewport: an empty frame
  * for a beat reads as a broken page, where an absent tab reads as a tab that was never there.

@@ -317,6 +317,34 @@ describe('cost reporting', () => {
     expect(screen.getByText(/4.0 KB scanned by this exploration/)).toBeInTheDocument();
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
+
+  it('never shows another tab’s figure while this tab’s own run has not reported', async () => {
+    seedTwoTabs();
+    vi.mocked(listTables).mockResolvedValue(
+      ok([
+        {name: 'orders', tableType: 'EXTERNAL_TABLE', columns: []},
+        {name: 'invoices', tableType: 'EXTERNAL_TABLE', columns: []}
+      ]) as never
+    );
+    const sqlById = new Map<string, string>();
+    let seq = 0;
+    vi.mocked(runQuery).mockImplementation((async ({sql}: {sql: string}) => {
+      seq += 1;
+      sqlById.set(`exec-${seq}`, sql);
+      return ok({queryExecutionId: `exec-${seq}`});
+    }) as never);
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+      (sqlById.get(queryExecutionId) ?? '').includes('invoices')
+        ? ok({queryExecutionId, state: 'RUNNING'})
+        : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+    const {user} = render();
+    await screen.findByText(/This query scanned 2.0 KB/);
+
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+
+    expect(await screen.findByText(/^0 B scanned by this exploration$/)).toBeInTheDocument();
+    expect(screen.queryByText(/This query scanned 2.0 KB/)).not.toBeInTheDocument();
+  });
 });
 
 // ─── The pure edits underneath all of it ─────────────────────────────────────
@@ -416,6 +444,29 @@ describe('across tabs', () => {
     await user.click(screen.getByRole('tab', {name: /invoices/}));
     await waitFor(() => expect(screen.queryByText(SUSPENDED_TEXT)).not.toBeInTheDocument());
     expect(await screen.findByText('paid')).toBeInTheDocument();
+  });
+
+  it('keeps a suspended tab suspended when the user comes back to it', async () => {
+    seedTwoTabs();
+    mockTwoTables();
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+    await screen.findByText('open');
+    await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
+    await screen.findByText(/syntax error in your query/i);
+    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await screen.findByText(SUSPENDED_TEXT);
+    const badStarts = () => vi.mocked(runQuery).mock.calls.filter(([{sql}]) => sql.includes('bad')).length;
+    const before = badStarts();
+
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+    await screen.findByText('paid');
+    await user.click(screen.getByRole('tab', {name: /orders/}));
+
+    // The round trip is not the user asking for the failed statement again.
+    expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
+    expect(badStarts()).toBe(before);
   });
 
   it('never falls back to ANOTHER tab’s rows', async () => {

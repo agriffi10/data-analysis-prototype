@@ -230,6 +230,29 @@ describe('the Grouping panel', () => {
     expect(within(column).queryByRole('option', {name: 'All rows (*)'})).not.toBeInTheDocument();
   });
 
+  it('hands focus to the next ✕ when a grouped column is removed', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+    await addColumn(user, panel, 'qty');
+
+    await user.click(within(panel).getByRole('button', {name: 'Remove status from grouping'}));
+
+    expect(within(panel).getByRole('button', {name: 'Remove qty from grouping'})).toHaveFocus();
+  });
+
+  it('hands focus to the add control when the last grouped column is removed', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+
+    await user.click(within(panel).getByRole('button', {name: 'Remove status from grouping'}));
+
+    expect(within(panel).getByRole('combobox', {name: 'Column to group by'})).toHaveFocus();
+  });
+
   it('leaves grouping mode when the last column goes, returning to the cached execution', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -287,6 +310,9 @@ describe('grouping’s extras', () => {
     const items = await screen.findAllByRole('menuitem');
     // Hiding is not a query edit, so the column the SQL cannot address still offers it.
     expect(items.map((item) => item.textContent)).toEqual([CALCULATED_COLUMN_REFUSAL, 'Hide column']);
+    // The refusal is the menu's only explanation, so the keyboard has to be able to reach it.
+    await user.keyboard('{ArrowDown}');
+    expect(items[0]).toHaveFocus();
     await user.keyboard('{Escape}');
 
     // The cursor can sit in it like any other cell, and this action does not go through

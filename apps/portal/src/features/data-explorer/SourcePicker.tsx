@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {cx} from '../../lib/cx';
 import {Button} from '../../components/Button';
 import {DatabaseRowIcon} from '../../components/icons';
@@ -28,6 +28,11 @@ export type SourcePickerProps = {
   onCancel?: () => void;
   /** Opens the list of saved queries to reopen as a view. Absent where the store is off. */
   onOpenSaved?: () => void;
+  /**
+   * Takes focus as it mounts: set when the picker replaces the control that held it — the last
+   * tab, closed from the keyboard — so focus does not fall back to the top of the page.
+   */
+  takeFocus?: boolean;
 };
 
 /**
@@ -48,7 +53,18 @@ export type SourcePickerProps = {
  * @example
  * <SourcePicker spaces={spaces} username="alice" onChoose={openTab} />
  */
-export function SourcePicker({spaces, username, onChoose, onCancel, onOpenSaved}: SourcePickerProps) {
+export function SourcePicker({
+  spaces,
+  username,
+  onChoose,
+  onCancel,
+  onOpenSaved,
+  takeFocus = false
+}: SourcePickerProps) {
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (takeFocus) sectionRef.current?.focus();
+  }, [takeFocus]);
   const [selectedId, setSelectedId] = useState(spaces[0]?.id ?? '');
   const selected = spaces.find((s) => s.id === selectedId) ?? spaces[0];
   const database = selected ? spaceDatabase(selected, username) : null;
@@ -60,8 +76,10 @@ export function SourcePicker({spaces, username, onChoose, onCancel, onOpenSaved}
   if (spaces.length === 0) {
     return (
       <section
+        ref={sectionRef}
+        tabIndex={-1}
         aria-label="Choose a table to explore"
-        className="mx-auto flex max-w-lg flex-col gap-3 p-8 text-center">
+        className="mx-auto flex max-w-lg flex-col gap-3 p-8 text-center focus:outline-none">
         <h2 className="text-lg font-semibold text-text">Nothing to explore yet</h2>
         <p className="text-sm leading-relaxed text-text-2">
           The Data Explorer reads tables from your own space and from shared spaces you are a member of. Sign in, or ask
@@ -73,8 +91,10 @@ export function SourcePicker({spaces, username, onChoose, onCancel, onOpenSaved}
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
       aria-label="Choose a table to explore"
-      className="flex min-h-0 flex-1 flex-col tablet:flex-row">
+      className="flex min-h-0 flex-1 flex-col focus:outline-none tablet:flex-row">
       <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:min-h-0 tablet:w-64 tablet:overflow-y-auto tablet:border-b-0 tablet:border-r">
         <h2 className={`px-2 pb-1 ${SECTION_CAPTION}`}>Space</h2>
         {/* ONE name per row, and it is the database: every space's label is its database
