@@ -215,6 +215,38 @@ describe('useNotifications — optimistic mutations', () => {
       vi.useRealTimers();
     }
   });
+
+  it('shows a notification that arrives after a confirmed mark-all-read as unread', async () => {
+    // The test above passes whether or not the overlay is pruned. This one does not: an
+    // unpruned mark-all-read would go on reading every later notification as read, and the
+    // bell would never light again.
+    vi.useFakeTimers();
+    try {
+      mockGet.mockResolvedValueOnce({success: true, data: [note('05')]});
+      mockGet.mockResolvedValueOnce({success: true, data: [note('05', true)]}); // writer caught up
+      mockGet.mockResolvedValue({success: true, data: [note('06'), note('05', true)]}); // then a new one
+      const {result} = renderHookWithProviders(() => useNotifications('alice'), {queryClient: newClient()});
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(1));
+      });
+
+      act(() => result.current.markAllRead());
+      await act(async () => {
+        await vi.waitFor(() => expect(result.current.unreadCount).toBe(0));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9_000);
+      });
+
+      expect(result.current.notifications.map((n) => n.id)).toEqual(['06', '05']);
+      expect(result.current.unreadCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('useNotifications — the bell and the page share one overlay', () => {

@@ -423,7 +423,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Which to choose: <b>CSV</b> and <b>Excel</b> open in a spreadsheet; <b>Parquet</b> is the one to build a table from, and it takes the largest results, up to about 1.4 GB; <b>JSON</b> is written one object per line, which is what most tools expect. <b>Excel</b> takes results up to 64 MB and about a million rows, fewer when the results are wide, and it stores numbers approximately, so very large whole numbers and long decimals may be rounded. No format takes more than 1,500 columns. Over a limit, the notification says which one it reached.'
+          text: 'Which to choose: <b>CSV</b> and <b>Excel</b> open in a spreadsheet; <b>Parquet</b> is the one to build a table from, and of the converted formats it takes the largest results, up to about 1.4 GB; <b>JSON</b> is written one object per line, which is what most tools expect. <b>Excel</b> takes results up to 64 MB and about a million rows, fewer when the results are wide, and it stores numbers approximately, so very large whole numbers and long decimals may be rounded. No converted file takes more than 1,500 columns. Over a limit, the notification says which one it reached.'
         }
       },
       {
@@ -434,7 +434,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'A view is a saved query that behaves like a table: it shows up in the schema rail, you can query it by name, and it runs its SQL again each time it’s read, so it always reflects the latest data.',
         steps: [
           'Write the query in the editor, naming every table in full as <b>database.table</b>, all from the same database. That is the database the view is created in.',
-          'Click <b>Create view</b> in the toolbar above the editor. If the query names no database, or more than one, a message says so and nothing is created.',
+          'Click <b>Create view</b> in the toolbar above the editor — in a narrower window it shows only its eye icon. If the query names no database, or more than one, a message says so and nothing is created.',
           'The dialog names the database the view goes into. Type a <b>View name</b> — 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter — and click <b>Create</b>.',
           'A message confirms the view was created, and it appears under that database in the schema rail, for anyone who can see that database.',
           'To remove it, open its <b>⋮</b> menu in the schema rail and choose <b>Drop view</b>.'
@@ -612,15 +612,16 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Color cells and change how values are shown',
         subtitle: 'Highlight what matters, and show a column as rounded numbers, codes or links.',
         intro:
-          'Two dialogs change what the page looks like and nothing else. <b>Colors</b> tints values, bands rows and highlights cells by what they hold; <b>Transformers</b> changes how a column’s values are written. Both work on the rows already in your browser, so neither one runs a query or costs anything, and each tab keeps its own. They show in <b>Grid</b> and <b>Record</b>; <b>Text</b> shows the values as they are.',
+          'Two dialogs change what the page looks like and nothing else. <b>Colors</b> tints values, bands rows and highlights cells by what they hold; <b>Transformers</b> changes how a column’s values are written. Both work on the rows already in your browser, so neither one runs a query or costs anything, and each tab keeps its own. They show in <b>Grid</b> and <b>Record</b>, except bands, which only <b>Grid</b> draws; <b>Text</b> shows the values as they are.',
         steps: [
           'Open <b>Options</b> and choose <b>Colors</b>. Tick <b>Color values by their data type</b> to tint each value by its type, so numbers, dates and true-or-false values stand apart from plain text.',
           'Under <b>Band rows by</b>, tick the column or columns that tie rows together — an order number, say. Each run of rows with the same values in all of them becomes a band, and every other band is shaded. Bands are worked out from the rows on this page.',
           'Click <b>Add rule</b> and choose the column it tests, or <b>Any column</b> to test every cell in the row. Then pick a test and type its value: <b>equals</b>, <b>does not equal</b>, <b>greater than</b> and the other comparisons; <b>matches (% and _)</b>, where <code>%</code> stands for any run of characters and <code>_</code> for one, and the whole value has to match; <b>matches, ignoring case</b>, the same without minding capitals; or <b>matches a pattern</b>, which looks for a regular expression anywhere in the value. <b>Is empty</b> and <b>is not empty</b> need no value, and a <b>NULL</b> cell matches only <b>is empty</b>.',
           'Choose <b>Paint the matching cells</b> or <b>Paint the whole row</b>, then a text color, a background, or both — <b>No change</b> leaves that one as it was. To shade by size instead, tick <b>Shade a number range</b>, type the two ends of the range and pick a tint for each; a value that isn’t a number is left alone.',
           'Rules run in order, and a later one wins where two set the same thing. Use <b>↑</b> and <b>↓</b> to move a rule and <b>Remove</b> to delete one, then click <b>Apply</b> — nothing changes until you do.',
-          'Open <b>Options</b> and choose <b>Transformers</b> to change how a column is written. Every column starts <b>As it is</b>. <b>Number</b> rounds to the decimal places you give; with <b>Leave non-numbers alone</b> ticked a value that isn’t a number shows as it is, and without it shows <b>#ERR</b>. <b>Encoded</b> writes the value out as <b>Hex</b> or <b>Base64</b>, cut short with <b>…</b> past the length you set. Click <b>Apply</b> when you’re done.',
-          'Choose <b>Link</b> to turn a column’s values into links. Type the web address with <code>${value}</code> where the cell’s value goes, such as <code>https://example.com/orders/${value}</code>, or just <code>${value}</code> when the column already holds web addresses. Clicking a cell opens its link in a new browser tab. Only <b>https</b> links open: any other cell stays plain text, and hovering over it says why. In <b>Record</b>, or from the keyboard, select the cell and open <b>Value</b> from <b>Options</b> to follow its link.'
+          'Open <b>Options</b> and choose <b>Transformers</b> to change how a column is written. Every column starts <b>As it is</b>. <b>Number</b> rounds to the decimal places you give; with <b>Leave non-numbers alone</b> ticked a value that isn’t a number shows as it is, and without it shows <b>#ERR</b>. <b>Encoded</b> writes the value out as <b>Hex</b> or <b>Base64</b>, cut short with <b>…</b> past the length you set.',
+          'Choose <b>Link</b> to turn a column’s values into links. Type the web address with <code>${value}</code> where the cell’s value goes, such as <code>https://example.com/orders/${value}</code>, or just <code>${value}</code> when the column already holds web addresses. Clicking a cell opens its link in a new browser tab. Only <b>https</b> links open: any other cell stays plain text, and hovering over it says why. In <b>Record</b>, or from the keyboard, select the cell and open <b>Value</b> from <b>Options</b> to follow its link.',
+          'Click <b>Apply</b> when you’re done — nothing changes until you do.'
         ],
         callout: {
           kind: 'tip',
@@ -659,7 +660,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: '<b>Parquet</b> is the one to build a table from, and it takes the largest results, up to about 1.4 GB. <b>JSON</b> is written one object per line. <b>Excel</b> takes results up to 64 MB and about a million rows, fewer when the results are wide, and stores numbers approximately, so long decimals may be rounded.'
+          text: '<b>Parquet</b> is the one to build a table from, and of the converted formats it takes the largest results, up to about 1.4 GB. <b>JSON</b> is written one object per line. <b>Excel</b> takes results up to 64 MB and about a million rows, fewer when the results are wide, and stores numbers approximately, so long decimals may be rounded.'
         }
       },
       {

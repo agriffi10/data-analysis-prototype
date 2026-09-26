@@ -1059,6 +1059,8 @@ const RECIPES: Record<string, Recipe> = {
   'Copy and export guide': helpRecipe('explore-copy-and-export'),
   'Save an exploration guide': helpRecipe('explore-save-as-query'),
   'Save an exploration guide under Query': helpRecipe('explore-save-as-query'),
+  'Colors and Transformers guide': helpRecipe('explore-colors-and-formats'),
+  'Data Explorer save formats guide under the Data Explorer': helpRecipe('explore-save-formats'),
   'Create table guide': helpRecipe('create-table'),
   'Shared space files guide': helpRecipe('use-shared-space-files'),
   'Send to a shared space guide': helpRecipe('send-files-to-a-space'),
@@ -1379,7 +1381,9 @@ describe('the registry itself', () => {
         'Start exploring guide',
         'Filter and sort guide',
         'Grouping and Calc guide',
+        'Colors and Transformers guide',
         'Copy and export guide',
+        'Data Explorer save formats guide under the Data Explorer',
         'Save an exploration guide'
       ],
       // SPEC-190: a kill switch rather than an area. It hides the record of what this session

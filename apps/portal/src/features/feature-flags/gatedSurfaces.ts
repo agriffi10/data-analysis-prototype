@@ -259,7 +259,14 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Start exploring guide', kind: 'guide', path: '/help', helpId: 'start-exploring'},
     {name: 'Filter and sort guide', kind: 'guide', path: '/help', helpId: 'explore-filter-sort'},
     {name: 'Grouping and Calc guide', kind: 'guide', path: '/help', helpId: 'explore-group-and-calc'},
+    {name: 'Colors and Transformers guide', kind: 'guide', path: '/help', helpId: 'explore-colors-and-formats'},
     {name: 'Copy and export guide', kind: 'guide', path: '/help', helpId: 'explore-copy-and-export'},
+    {
+      name: 'Data Explorer save formats guide under the Data Explorer',
+      kind: 'guide',
+      path: '/help',
+      helpId: 'explore-save-formats'
+    },
     {name: 'Save an exploration guide', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'}
   ],
   // A kill switch rather than an area, so it hides two things and not a tab: the record of what

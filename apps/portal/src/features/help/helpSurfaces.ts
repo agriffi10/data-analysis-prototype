@@ -26,14 +26,15 @@ export const HELP_SURFACES: readonly HelpSurface[] = [
   {path: '/files', sectionId: 'files'},
   {path: '/query', sectionId: 'query'},
   {path: '/connections', sectionId: 'shared-connections'},
-  // Its two guides were authored inside the Files section, so this panel is headed "Files"
-  // and holds eight guides that are not about data quality. The alternative is a seventh
-  // section, which is content work; if the guides are ever regrouped, this row moves with them.
+  // Its guides were authored inside the Files section, so this panel is headed "Files" and
+  // holds the Files guides that are not about data quality too. The alternative is a section
+  // of its own, which is content work; if the guides are ever regrouped, this row moves with
+  // them.
   //
   // It is also the one row whose panel survives its own feature being off — there is no
   // data-quality SECTION to filter out, so this opens over the unavailable page. Benign: the
-  // two data-quality guides are hidden with the flag, and what is left is Files content the
-  // user is entitled to either way.
+  // data-quality guides are hidden with the flag, and what is left is Files content the user
+  // is entitled to either way.
   {path: '/data-quality', sectionId: 'files'},
   {path: '/explore', sectionId: 'data-explorer'},
   {path: '/notifications', sectionId: 'notifications'}
