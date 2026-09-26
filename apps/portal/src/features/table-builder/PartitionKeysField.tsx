@@ -20,12 +20,15 @@ const selectClass =
  * and edits them and manages focus on add/remove (labelled dynamic rows). An empty list means a
  * flat, unpartitioned table — no keys are sent.
  *
- * Every error is on screen from the start, but a field's is ANNOUNCED only once that field has
- * been left, and a type switch forgets the fields it brings in. Announced at once, a blank row
- * would interrupt with "Enter a key name." as focus lands in it, and a type switch would do the
- * same for every field it brings in. Hiding an error until its field is left would instead grow
- * the dialog between mousedown and mouseup, moving a button out from under the click, and would
- * leave Create table disabled with no reason on screen for a field never visited.
+ * Every error is on screen from the start, but becomes an alert only once its field has been
+ * left, and a type switch forgets the fields it brings in — so nothing is announced before the
+ * user has had a chance to type. As alerts from the start, a blank row would interrupt with
+ * "Enter a key name." as focus lands in it, and a type switch would do the same for every field
+ * it brings in. Whether a screen reader speaks the error at the moment it becomes an alert
+ * varies; a later change to its text is announced. Hiding an error until its field is left
+ * would instead grow the dialog between mousedown and mouseup, moving a button out from under
+ * the click, and would leave Create table disabled with no reason on screen for a field never
+ * visited.
  *
  * @example
  * <PartitionKeysField value={keys} errors={keyErrors} onChange={setKeys} />

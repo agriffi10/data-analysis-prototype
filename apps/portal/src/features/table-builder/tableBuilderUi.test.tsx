@@ -165,7 +165,7 @@ describe('CreateTableDialog', () => {
       expect(screen.getByLabelText('Partition key 1 values')).toHaveAccessibleDescription('Enter at least one value.');
     });
 
-    it('keeps a left field’s announcement with its own row when an earlier row is removed', () => {
+    it('does not hand a left field’s alert to the row that slides up when an earlier one is removed', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
       fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
