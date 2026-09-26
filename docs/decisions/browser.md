@@ -969,6 +969,10 @@ scans data**, with the figures at the bottom as the cost signal; and that a save
 **reopens in the Query workspace as SQL**, not back here as an exploration — SPEC-183 descoped the
 loading half, so a guide promising otherwise would document a spec that has not been written.
 
+> **Superseded by SPEC-247.** A file saved from the Data Explorer now reopens here through **Open
+> saved view**, and the guide says so; a file saved from Query, or edited there since, still reopens
+> only as SQL in Query. The entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one comment line, and a shared space's is held*.
+
 ---
 
 ## A default that an empty string can defeat is not a default (SPEC-186)

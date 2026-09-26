@@ -1,7 +1,7 @@
 # Spec: A Saved Exploration Reopens as an Exploration
 
 **ID:** SPEC-247
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-25
 **Depends On:** SPEC-183, SPEC-242, SPEC-243
 
@@ -190,8 +190,8 @@ describes with four differences.
 - [ ] Its **Save as query** dialog opens with an empty name.
 - [ ] Reloading on a held tab starts no execution and still shows **Run**; a stored
       `awaitingRun` of `"garbage"` reads back as held.
-- [ ] Adding a filter through **Order and filter…** on a held tab runs the new statement once and
-      ends the hold.
+- [ ] Changing a held tab's query (for example **Remove all filters and grouping**) runs the new
+      statement once and ends the hold.
 - [ ] The same file listed from the personal folder runs at once, keeps both features, and is
       linked.
 
@@ -204,8 +204,9 @@ hands the file's SQL, without its view line, to a new Query tab through `buildOp
 
 Only the **last non-blank line** is read as the view line. The checks run in this order and the
 first that fails decides: the last line carries the marker (else, if an earlier line starts with
-the marker, **edited**, since text was added after it; otherwise **none**); the line splits into a
-version, a checksum and a payload (else **unreadable**); its version is 1 (else **newer**); its checksum matches (else **edited**); the payload decodes, reads strictly and
+the marker, **edited**, since text was added after it; otherwise **none**); the line carries a
+version (else **unreadable**), which is 1 (else **newer**, whatever else the line holds); it splits
+into a checksum and a payload (else **unreadable**); its checksum matches (else **edited**); the payload decodes, reads strictly and
 renders within Athena's limit (else **unreadable**); its database is among the picker's spaces
 once they have settled (else **no access**).
 

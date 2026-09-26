@@ -314,12 +314,12 @@ export type ExplorationTab = {
   label: string;
   exploration: Exploration;
   /**
-   * The `.sql` file this tab was last saved to.
+   * The `.sql` file this tab was last saved to, or reopened from.
    *
    * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
-   * here — nothing else in this feature mints a link, because loading a `.sql` file as a
-   * source is deferred. Optional because a tab that has never been saved has none, and
-   * because a document written before these fields existed carries none either.
+   * here. A save mints it, and so does reopening a saved view from the user's own folder; a
+   * view from a shared space's folder opens unlinked. Optional because a tab that has never been
+   * saved has none, and because a document written before these fields existed carries none.
    *
    * It does NOT rename the tab. A Query workspace tab IS its buffer, so a save renames it;
    * an exploration tab is named for the source it is exploring, which a save does not change.

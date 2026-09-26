@@ -755,8 +755,11 @@ as honestly as a succeeding one.
 | Load it back | Byte-identical, and it appears in `saved_queries/` in the file browser. |
 | Save a `.SQL`-cased name | Stem case is kept, extension is lowercased — no second object rendering identically. |
 | From the Data Explorer: **Save as query** → `explorer-roundtrip` → your own space (listed under your username) | Exactly **one** `PutObject` after a HEAD on the exact key. No sidecar. |
-| Open it in **Query** → **Saved queries** | The **rendered** statement — the filters and the ORDER BY, **not** a bare `SELECT *`. Run it: the same rows. |
-| Save from Query, load in Query | Works. The Explorer offers **no** affordance to load a `.sql` as a source — confirming that absence *is* the check. |
+| Open it in **Query** → **Saved queries** | The **rendered** statement — the filters and the ORDER BY, **not** a bare `SELECT *` — followed by one `-- dataquarry-view:v1:…` comment line. Run it: the same rows as the Explorer tab. |
+| Back in the Data Explorer: **+** → **Open saved view** → your space → **Open** `explorer-roundtrip` | A new tab with the same filter chips, expression, sort, grouping and hidden/pinned columns, and it runs. **Save as query** offers `explorer-roundtrip` and replaces it with no second confirm. |
+| Save one with a link column and a pattern Colors rule into a **shared space**; open it from that space's list | It does **not** run: "This view was saved in {space}…" with **Run**, the Generated SQL shows the statement, and "Left out: 1 link column, 1 pattern color rule." Reload: still held. **Run** runs it once. **Save as query** opens with an empty name. |
+| Edit `explorer-roundtrip` in Query (change a literal), save, then **Open saved view** it | Refused: "…has been edited since it was saved from the Data Explorer…", and **Open in Query** lands a new, unrun Query tab holding the SQL without the view line. |
+| Save from Query, load in Query | Works. The Explorer's **Open saved view** lists the file and refuses it with **Open in Query**, because a Query save carries no view (SPEC-247). |
 | Save to a **shared space** | Cross-bucket write succeeds; the file appears in that space's `saved_queries/`. |
 
 The `saved_queries/` folder's own Delete/Rename refusal is in §4.2. The bucket-policy layer beneath
@@ -962,8 +965,9 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - Each section's guide count matches what shipped — the Data Explorer section has **five**.
 - The filtering guide's callout says plainly that each apply runs against Athena and scans data.
   That is the one thing a user cannot infer from the UI.
-- Nothing promises a chart, cell editing, named filters, a References panel, or loading a `.sql`
-  back into the Explorer.
+- Nothing promises a chart, cell editing, named filters or a References panel. Reopening a saved
+  view through **Open saved view** IS promised (SPEC-247), and only for a file saved from the
+  Explorer and not edited since — the guide must not promise a file saved from Query reopens here.
 
 **The contextual panel (SPEC-207) — the two things jsdom cannot decide.**
 

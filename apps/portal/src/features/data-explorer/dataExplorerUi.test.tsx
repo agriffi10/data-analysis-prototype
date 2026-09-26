@@ -198,7 +198,11 @@ describe('the source picker', () => {
     // Open saved view, and the list follows it directly.
     const list = tables.closest('section')!.parentElement!;
     const row = list.parentElement!.firstElementChild as HTMLElement;
-    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['Open saved view']);
+    expect(
+      within(row)
+        .getAllByRole('button')
+        .map((b) => b.textContent)
+    ).toEqual(['Open saved view']);
     expect(row.nextElementSibling).toBe(list);
   });
 

@@ -44,6 +44,7 @@ entry you need, not the file.**
 - [Suggestions follow the statement, and a Trino insert is quoted where the name needs it (SPEC-244)](#suggestions-follow-the-statement-and-a-trino-insert-is-quoted-where-the-name-needs-it-spec-244)
 - [A statement handed to the Data Explorer runs again, and a result it cannot name is not explorable (SPEC-242)](#a-statement-handed-to-the-data-explorer-runs-again-and-a-result-it-cannot-name-is-not-explorable-spec-242)
 - [A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)](#a-column-filter-shows-as-a-chip-and-the-generated-sql-is-edited-in-query-on-a-copy-spec-243)
+- [A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)](#a-saved-exploration-carries-its-view-on-one-comment-line-and-a-shared-spaces-is-held-spec-247)
 
 ## Fences
 
@@ -141,6 +142,10 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   of. A membership test over that table uses **`Object.hasOwn`, never `in`**, which admits
   `toString`. A rendered statement is refused before it starts when it exceeds Athena's
   **262,144-byte** `QueryString` limit, measured in UTF-8 bytes.
+- **A saved view is trusted by where its FILE was listed from, never by the database it names.** From
+  a shared space's `saved_queries/`, which any member writes, it opens held, unlinked, and without
+  URL transformers or `regex`/`like`/`ilike` Colors rules; the hold is read fail-closed. Its payload
+  is read strictly and its SQL is never parsed — the checksum detects an edit, it is not a signature.
 
 ## Analytics (SPEC-032→036)
 
@@ -510,7 +515,9 @@ silently never matches. The raw expression bar does **not** relax this and the a
 thing a reader must not get backwards — the bar is the *user's own SQL* and passes through
 verbatim, as Monaco's does, while a filter value arrives *from data* and is quoted on their behalf.
 A cell containing `O'Brien` filtered by one click is the whole hazard, and it arrives from real
-data long before anyone thinks to type it.
+data long before anyone thinks to type it. *(Qualified by SPEC-247: an expression can now also
+arrive in a saved view another member of a shared space wrote, so it is not always the viewer's own
+SQL. Such a view is held until the viewer runs it — the SPEC-247 entry below.)*
 
 **The spec's own filter model would not have worked, and nothing offline would have caught it.**
 `value?: string` with every value quoted renders `WHERE "qty" > '5'`, and Trino does not coerce
@@ -551,7 +558,9 @@ signal the feature can give.
 specs.** A saved `.sql` file cannot be reverse-engineered into a table plus filters without a SQL
 parser, so SPEC-183's loaded file is a **source**, not a view state; filters, ordering and grouping
 compose over either arm without knowing which. Retrofitting the union at 183 would have touched
-every spec in between.
+every spec in between. *(Superseded in part by SPEC-247: a Data Explorer save now also writes the
+view state, on one comment line in the same file, and that is what reopens — never the SQL, which is
+still not parsed.)*
 
 ## A space maps to ONE database, so the picker has no database step — and a deep link resolves without asking (SPEC-179)
 
@@ -759,7 +768,8 @@ so a file written from here lands somewhere the user cannot see, open or delete 
 "Create table" is on the `query` list for. The control is **removed** with the flag rather than
 disabled: a `disabledReason` would explain a state the user has no way to change.
 
-**A save mints a link even though a load cannot.** `ExplorationTab.savedQuery` is written by
+**A save mints a link even though a load cannot.** *(Since SPEC-247 a load can: reopening a view
+from the personal folder links the tab to its file.)* `ExplorationTab.savedQuery` is written by
 `setTabSavedQuery` on success, **by tab id** — the write is async and a tab switch behind it would
 link the wrong tab, whose next re-save would then replace a file it has nothing to do with. Without
 it, every SPEC-175 rule about in-place replacement would be vacuously satisfied by a predicate that
@@ -1684,3 +1694,53 @@ the cap it would have shown nothing at all.
 **Rejected.** Writing filters into the expression box; a SQL parser to read an edit back; chips
 that edit; running the statement on arrival in Query; on a phone, opening no tab, as *View DDL*
 does — this statement is meant to be edited, and the editor exists only at a wider width.
+
+## A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)
+
+**The view rides inside the `.sql` file, on its last line, and that is the whole format.** A Data
+Explorer save writes the SQL that ran, then `-- dataquarry-view:v1:<checksum>:<payload>` — a comment,
+so the file still runs unchanged in Query and in Athena, and still one object, so storage.md's
+sidecar rule and SPEC-183's one-`PutObject` guard both stand. The payload is base64url over UTF-8
+JSON: no quote, semicolon, comment terminator or newline for either lexer to trip on. The format
+lives in `lib/savedViewLine.ts` and knows nothing of the Explorer's types, so Query's splitter test
+can build a real body. **Only the last non-blank line is read**: the SQL above can hold a line that
+starts like the marker, inside a multi-line literal, and a first-match parser misreads this build's
+own save. A marker line anywhere else means text was added after it, which is an edit.
+
+**The SQL is never parsed; the view is what reopens.** The checksum — FNV-1a over the SQL with the
+byte-order mark, CRLF and trailing whitespace normalised away — detects an edit made in good faith,
+so a file changed in Query is refused with **Open in Query** rather than half-restored. It is not a
+signature: whoever can write the file can write a matching line. So the payload is read
+**strictly** — it must equal what the tab store's own normalisers make of it, and render within
+Athena's limit — and one this build would have to repair is refused whole. The store's lenient read
+of `sessionStorage` is untouched; the two answer different questions (keep a session's tabs; trust a
+file). `ExplorationQuery` and `ExplorationPresentation` are therefore a FILE FORMAT now: changing
+either needs a reader for the old shape or a new line version, not a session reset.
+
+**Where the FILE came from decides how much of it is trusted — never the database it names.** Only
+the owner writes a personal `saved_queries/`, and file sends land in a separate inbox, so a view from
+there restores whole, runs, and stays linked. Any member writes a shared one, and a view's expression
+is raw SQL (the bar passes it verbatim), its URL transformer turns cell values into links to wherever
+the author points, and a `regex`, `like` or `ilike` Colors rule compiles the author's pattern into a
+backtracking expression — `like`'s `%` runs collapse, but `%` separated by other characters still
+nest, and each added `%a` multiplies the work, so an 18-character pattern stalls a tab for seconds on
+one 40-character cell (re-measure by timing `likeExpression` in `formatting.ts` on `%a…%b`). So a view from a shared folder opens **held** (rendered, shown in Generated SQL,
+not started, no cached rows under it), **stripped** of those transformers and rules with a note
+counting them, and **unlinked**, so a save cannot silently overwrite the author's version for every
+member. Keying on the view's database instead would let a member drop a file over the victim's own
+database and have it run unasked. The hold is `ExplorationTab.awaitingRun`, persisted so a reload does
+not run it, and read **fail-closed**: a malformed value is a hold with no note, never absent — the
+saved-query link beside it drops a bad value, and here dropping is the direction that runs a
+statement. **Run** releases it; so does an `apply` that changes the query, in the same update.
+
+**A space the list lacks is refused only after a connections read that settles after the open,** as
+a deep link's is. The trap: `useSpaceLinkPending` re-arms by setting its own state during render, so
+in the render that first sees a new request it still answers for the previous one. The deep link
+only derives a value from it; this flow ACTS on it, and acting in that render refused a space whose
+read had not been asked for. The open settles one render later, once the wait is armed.
+
+**Rejected.** A sidecar (storage.md); reading filters back out of the SQL (SPEC-243); restoring a
+`sql`-source tab's view, which would re-run a statement taken from a file; stripping only `regex`;
+a linear-time LIKE matcher, which is the real fix for that pathology and a larger one than this
+spec; listing only files that carry a view, which reads every body; a signature, which the
+personal/shared split makes unnecessary.

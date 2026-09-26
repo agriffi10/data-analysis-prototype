@@ -30,6 +30,9 @@ SPEC-173 settled that a saved query is a `.sql` **file** in an ordinary folder, 
 would reintroduce exactly the JSON store that spec deleted, plus a second artifact to keep in
 sync with a file users can freely rename, edit or delete from the file browser.
 
+> **Superseded by SPEC-247.** The view now rides on one comment line inside the `.sql` file, which
+> reopens as an exploration with its chips; the sidecar stays rejected. The entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one comment line, and a shared space's is held*.
+
 ## Scope
 
 ### In Scope
@@ -45,7 +48,8 @@ sync with a file users can freely rename, edit or delete from the file browser.
 
 - **Loading a `.sql` file as an exploration source** — deferred to a later spec, along with the
   multi-statement and non-`SELECT` refusals a wrapped subquery requires.
-- **Any new store, format, sidecar or metadata.** Nothing is written but a `.sql` file.
+- **Any new store, format, sidecar or metadata.** Nothing is written but a `.sql` file. *(SPEC-247
+  adds one comment line to that file; still no second object.)*
 - **Migrating or rewriting existing saved queries.**
 - **Editing the loaded SQL.** The Data Explorer has no SQL editor; a file that needs editing
   belongs in the Query workspace, which is one click away.

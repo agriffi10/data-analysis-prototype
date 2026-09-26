@@ -252,7 +252,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 244 — Autocomplete Offers the Columns of the Tables the Statement Names | Completed |
 | 245 — The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing | Completed |
 | 246 — Archive and Restore Get Their Own Kill Switch | Draft |
-| 247 — A Saved Exploration Reopens as an Exploration | In Progress |
+| 247 — A Saved Exploration Reopens as an Exploration | Completed |
 
 ## Arcs
 

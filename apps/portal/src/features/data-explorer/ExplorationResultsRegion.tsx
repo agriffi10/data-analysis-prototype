@@ -535,9 +535,10 @@ export function ExplorationResultsRegion({
   // all, and either one as a predicate matches nothing.
   const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
-  // Suspended is not loading: nothing is in flight, deliberately. Without this the status
-  // line announced "Running…" directly above the panel saying nothing had been run. A banner
-  // with no earlier result to show is not loading either — it said "Running…" under a failure.
+  // Suspended is not loading, and neither is held: nothing is in flight, deliberately. Without
+  // this the status line announced "Running…" directly above the panel saying nothing had been
+  // run. A banner with no earlier result to show is not loading either — it said "Running…"
+  // under a failure.
   const loading =
     !queryControls.suspended &&
     !held &&
