@@ -3,6 +3,7 @@ import {FormDialog} from '../../components/FormDialog';
 import {UsernameChipsField} from '../user-directory/UsernameChipsField';
 import {useUsernameSuggestions} from '../user-directory/useUsernameSuggestions';
 import {FIELD_HINT} from '../../components/fieldStyles';
+import {ADD_MEMBERS_MAX} from './memberInput';
 
 type Props = {
   /** In-flight while the add request is being enqueued — locks Add + dismiss. */
@@ -37,8 +38,9 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
   // this relies on.
   const existingSet = useMemo(() => new Set(existing.map((m) => m.toLowerCase())), [existing]);
 
+  const overCap = members.length > ADD_MEMBERS_MAX;
   const attempt = () => {
-    if (members.length > 0 && !busy) onAdd(members);
+    if (members.length > 0 && !overCap && !busy) onAdd(members);
   };
 
   return (
@@ -50,7 +52,7 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
       submitLabel="Add"
       busy={busy}
       busyLabel="Adding…"
-      submitDisabled={members.length === 0}
+      submitDisabled={members.length === 0 || overCap}
       onSubmit={attempt}
       onCancel={onCancel}>
       {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
@@ -79,7 +81,9 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
           ? // This exact sentence is what tells a user their input did not take. Pinned by a
             // test; do not reword it.
             'No valid new usernames yet.'
-          : // The names themselves are no longer repeated here — the chips above carry them,
+          : overCap
+            ? `${members.length} usernames — you can add up to ${ADD_MEMBERS_MAX} at a time. Remove some and add them in a second request.`
+            : // The names themselves are no longer repeated here — the chips above carry them,
             // and reading the same list twice is noise.
             `${members.length} username${members.length === 1 ? '' : 's'} to add.`}
       </p>

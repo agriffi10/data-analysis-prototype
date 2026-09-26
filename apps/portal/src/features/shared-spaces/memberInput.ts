@@ -1,6 +1,13 @@
 import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 
 /**
+ * The most usernames one add-members request may carry — the API's own bound, mirrored so a
+ * longer paste is refused here in words rather than by the API as "one field is over its limit".
+ * `lambdas/test_shared_space_browser_mirrors.py` holds it equal to `MAX_MEMBERS_PER_REQUEST`.
+ */
+export const ADD_MEMBERS_MAX = 44;
+
+/**
  * Parse single-or-bulk member input (comma / whitespace / newline separated) into a
  * de-duplicated, lowercased username list. Tokens failing the catalog-safe username
  * rule are dropped client-side, but the pipeline is the final authority — it validates
