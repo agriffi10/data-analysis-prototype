@@ -139,6 +139,8 @@ describe('DataQualityPage', () => {
 
       expect(await rowFor('alice/sales/')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      // Not blocking, and not silent either: the space that could not be read is named.
+      expect(screen.getByText(/^Checks from (?!your own space).+ couldn’t be loaded\.$/)).toBeInTheDocument();
     });
   });
 
