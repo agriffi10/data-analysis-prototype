@@ -1,7 +1,7 @@
 # Spec: A Saved Exploration Reopens as an Exploration
 
 **ID:** SPEC-247
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-25
 **Depends On:** SPEC-183, SPEC-242, SPEC-243
 
@@ -142,8 +142,8 @@ the store's lenient read of `sessionStorage` is unchanged.
 #### Acceptance Criteria:
 
 - [ ] A view saved by this build, with two column filters, an expression, a sort, a grouping, a
-      hidden column, a pinned column, a column width, a Colors rule, a transformer and a
-      non-grid presentation, reopens from the personal folder; the new tab's stored exploration
+      hidden column, a pinned column, a column width, a `regex` Colors rule, a URL-link
+      transformer and a non-grid presentation, reopens from the personal folder with all of them; the new tab's stored exploration
       equals the saved one, the filters show as chips, and the tab runs its query once.
 - [ ] That tab's **Save as query** dialog opens with the file's name and space, and saving
       replaces the file with no confirm.
@@ -168,8 +168,9 @@ describes with four differences.
   results for that statement are not shown, and the status line does not say it is running. The
   results area says `This view was saved in {space}, where any member can change it. Check its
   Generated SQL, then run it.` with a **Run** button.
-- **Stripped.** It holds no URL-link transformers and no Colors rules whose operator is `regex`.
-  Under the held text, a note names what was left out, pluralised, omitting a zero part:
+- **Stripped.** It holds no URL-link transformers and no Colors rules whose operator is `regex`,
+  `like` or `ilike`: all three compile an author-typed pattern into a backtracking expression
+  that a crafted one can make freeze the tab. Under the held text, a note names what was left out, pluralised, omitting a zero part:
   `Left out: 1 link column, 2 pattern color rules.` No note when nothing was.
 - **Unlinked.** The tab has no saved-query link, so **Save as query** asks for a name, and a
   same-name save meets the existing replace confirm.
@@ -184,8 +185,8 @@ describes with four differences.
       statement, the status line is not "Running", and **Run** starts one execution against a
       cold cache.
 - [ ] A shared-folder file whose view names the **opener's personal** database is held too.
-- [ ] A shared-folder view saved with one URL-link transformer and two `regex` Colors rules opens
-      without them, and the note reads `Left out: 1 link column, 2 pattern color rules.`
+- [ ] A shared-folder view saved with one URL-link transformer, one `regex` and one `like` Colors
+      rule opens without them, and the note reads `Left out: 1 link column, 2 pattern color rules.`
 - [ ] Its **Save as query** dialog opens with an empty name.
 - [ ] Reloading on a held tab starts no execution and still shows **Run**; a stored
       `awaitingRun` of `"garbage"` reads back as held.
@@ -300,11 +301,20 @@ export function readStrictPresentation(value: unknown): SavedView['presentation'
 // features/data-explorer/useExplorationTabs.ts — openTab gains a seed
 openTab(
   source: ExplorationSource,
-  options?: {label?: string; seed?: Pick<Exploration, 'query' | 'presentation'>; awaitingRun?: ExplorationTab['awaitingRun']}
+  options?: {
+    label?: string;
+    seed?: Pick<Exploration, 'query' | 'presentation'>;
+    awaitingRun?: ExplorationTab['awaitingRun'];
+    savedQuery?: SavedQueryLink;
+  }
 ): string | null;
 
 // features/data-explorer/useExploration.ts — renders the SQL, starts nothing, shows no cached rows
-useExploration(exploration: Exploration | null, options?: {hold?: boolean});
+useExploration(exploration: Exploration | null, tabId?: string, options?: {hold?: boolean});
+
+// lib/athenaLimit.ts — moved from renderExplorationSql.ts so the line format can measure against it
+export const ATHENA_QUERY_STRING_MAX = 262_144;
+export function exceedsAthenaQueryLimit(sql: string): boolean;
 ```
 
 ---
@@ -314,14 +324,19 @@ useExploration(exploration: Exploration | null, options?: {hold?: boolean});
 ```
 apps/portal/src/
 ├── lib/
+│   ├── athenaLimit.ts               (moved here from renderExplorationSql.ts; one home for 262,144)
 │   ├── savedViewLine.ts             (new)
 │   └── savedViewLine.test.ts        (new)
 ├── features/data-explorer/
 │   ├── savedView.ts                 (new: build, strict read, render check, shared-folder strip)
 │   ├── savedView.test.ts            (new)
 │   ├── OpenSavedViewDrawer.tsx      (new)
+│   ├── OpenSavedViewDrawer.test.tsx (new: FR-002)
 │   ├── SavedViewRefusal.tsx         (new)
-│   ├── openSavedView.test.tsx       (new: the journeys)
+│   ├── useOpenSavedView.ts          (new: read, parse, resolve, open or refuse)
+│   ├── openSavedView.test.tsx       (new: save-to-reopen journeys, personal and shared)
+│   ├── savedViewRefusal.test.tsx    (new: FR-005, one table over the reasons, and the hand-off)
+│   ├── heldTab.test.tsx             (new: FR-004's hold lifecycle)
 │   ├── SaveExplorationDialog.tsx    (the line, the toast, the invalidation)
 │   ├── SourcePicker.tsx             (the control)
 │   ├── useExploration.ts            (the hold)
