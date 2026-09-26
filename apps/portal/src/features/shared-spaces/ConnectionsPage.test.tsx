@@ -583,11 +583,11 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
     const drawer = await screen.findByRole('dialog', {name: 'Manage members'});
     mockRead.mockResolvedValue(cache([{name: 'owned', role: 'member', status: 'active', owner: 'bob'}]));
-    await user.click(within(drawer).getByRole('button', {name: 'Refresh connections'}));
+    await user.click(within(drawer).getByRole('button', {name: 'Refresh shared spaces'}));
     await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Manage members'})).not.toBeInTheDocument());
     mockRead.mockResolvedValue(cache(OWNED));
 
-    await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+    await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
 
     expect(await within(await rowFor('owned')).findByRole('button', {name: 'Manage'})).toBeInTheDocument();
     expect(screen.queryByRole('dialog', {name: 'Manage members'})).not.toBeInTheDocument();
