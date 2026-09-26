@@ -8,6 +8,7 @@ import {
   NUMERIC_TRANSFORMER_MAX_PRECISION
 } from './dataExplorer.constants';
 import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
+import {MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import {isFilterOperator} from './explorationQueryOps';
 import type {
   AwaitingRun,
@@ -426,6 +427,71 @@ function sameJson(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Whether a value is a plain object holding no key outside `allowed`.
+ *
+ * The store's normalisers pass unknown keys through by reference, so comparing their output with
+ * their input cannot see one. A saved view is a file another member may have written, so every
+ * level of it is held to the keys this build declares.
+ */
+function onlyKeys(value: unknown, allowed: readonly string[]): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+const QUERY_KEYS = ['filters', 'expression', 'ordering', 'grouping'] as const;
+const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'valueKind'] as const;
+const SORT_KEYS = ['column', 'direction', 'priority'] as const;
+const GROUPING_KEYS = ['columns', 'aggregates', 'duplicatesOnly', 'showPercentage'] as const;
+const AGGREGATE_KEYS = ['fn', 'column'] as const;
+const VIEW_PRESENTATION_KEYS = [
+  'hiddenColumns',
+  'columnOrder',
+  'pinnedColumns',
+  'columnWidths',
+  'presentation',
+  'formatting'
+] as const;
+const FORMATTING_KEYS = ['rules', 'colourByType', 'stripeColumns', 'transformers'] as const;
+const RULE_KEYS = ['id', 'column', 'scope', 'operator', 'value', 'foreground', 'background', 'gradient'] as const;
+const GRADIENT_KEYS = ['min', 'max', 'from', 'to'] as const;
+const TRANSFORMER_KEYS: Record<string, readonly string[]> = {
+  numeric: ['kind', 'precision', 'lenient'],
+  binary: ['kind', 'encoding', 'maxLength'],
+  url: ['kind', 'template']
+};
+
+function queryHasOnlyDeclaredKeys(query: ExplorationQuery): boolean {
+  const grouping = query.grouping;
+  return (
+    onlyKeys(query, QUERY_KEYS) &&
+    query.filters.every((filter) => onlyKeys(filter, FILTER_KEYS)) &&
+    query.ordering.every((entry) => onlyKeys(entry, SORT_KEYS)) &&
+    (grouping === null ||
+      (onlyKeys(grouping, GROUPING_KEYS) &&
+        grouping.aggregates.every((aggregate) => onlyKeys(aggregate, AGGREGATE_KEYS))))
+  );
+}
+
+function presentationHasOnlyDeclaredShape(value: Record<string, unknown>, formatting: FormattingState): boolean {
+  const widths = Object.values((value.columnWidths ?? {}) as Record<string, unknown>);
+  return (
+    onlyKeys(value, VIEW_PRESENTATION_KEYS) &&
+    // The resize handle stores whole pixels inside these bounds; anything else is not a width this
+    // build could have written, and a zero one hides a column the Columns panel says is shown.
+    widths.every(
+      (px) => Number.isInteger(px) && (px as number) >= MIN_COLUMN_WIDTH && (px as number) <= MAX_COLUMN_WIDTH
+    ) &&
+    onlyKeys(value.formatting, FORMATTING_KEYS) &&
+    formatting.rules.every(
+      (rule) => onlyKeys(rule, RULE_KEYS) && (rule.gradient === undefined || onlyKeys(rule.gradient, GRADIENT_KEYS))
+    ) &&
+    Object.values(formatting.transformers).every((transformer) =>
+      onlyKeys(transformer, TRANSFORMER_KEYS[transformer.kind] ?? [])
+    )
+  );
+}
+
+/**
  * Reads a saved view's query STRICTLY: valid, and already in the form the store keeps.
  *
  * The store's own read repairs what it can, because a session's tabs are worth keeping. A saved
@@ -438,7 +504,7 @@ function sameJson(a: unknown, b: unknown): boolean {
 export function readStrictQuery(value: unknown): ExplorationQuery | null {
   if (!isValidQuery(value)) return null;
   const normalized = normalizeQuery(value as ExplorationQuery);
-  return sameJson(normalized, value) ? normalized : null;
+  return sameJson(normalized, value) && queryHasOnlyDeclaredKeys(normalized) ? normalized : null;
 }
 
 /**
@@ -455,8 +521,10 @@ export function readStrictPresentation(
   const normalized: Partial<ExplorationPresentation> = normalizePresentation(value);
   delete normalized.valuePanelOpen;
   delete normalized.recordRowIndex;
-  return sameJson(normalized, value)
-    ? (normalized as Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>)
+  const full = normalized as Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>;
+  return sameJson(normalized, value) &&
+    presentationHasOnlyDeclaredShape(value as Record<string, unknown>, full.formatting)
+    ? full
     : null;
 }
 

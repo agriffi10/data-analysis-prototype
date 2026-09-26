@@ -1711,8 +1711,14 @@ own save. A marker line anywhere else means text was added after it, which is an
 byte-order mark, CRLF and trailing whitespace normalised away — detects an edit made in good faith,
 so a file changed in Query is refused with **Open in Query** rather than half-restored. It is not a
 signature: whoever can write the file can write a matching line. So the payload is read
-**strictly** — it must equal what the tab store's own normalisers make of it, and render within
-Athena's limit — and one this build would have to repair is refused whole. The store's lenient read
+**strictly** — it must equal what the tab store's own normalisers make of it, hold no key at any
+level this build does not declare (the normalisers pass unknown keys through by reference, so the
+comparison alone cannot see one), keep column widths to the whole pixels the resize handle stores,
+and render within Athena's limit — and one this build would have to repair is refused whole. A file
+larger than Athena's limit is refused before it is read: this build never writes one, and size alone
+(tens of thousands of Colors rules, which survive the strip) stalls a page on every render. Inside
+that bound a crafted file can still carry a few thousand rules, at well under a second a page; that
+is accepted. The store's lenient read
 of `sessionStorage` is untouched; the two answer different questions (keep a session's tabs; trust a
 file). `ExplorationQuery` and `ExplorationPresentation` are therefore a FILE FORMAT now: changing
 either needs a reader for the old shape or a new line version, not a session reset.
@@ -1729,7 +1735,11 @@ not started, no cached rows under it), **stripped** of those transformers and ru
 counting them (a gradient rule stays: it shades by number and never runs its operator), and
 **unlinked**, so a save cannot silently overwrite the author's version for every
 member. Keying on the view's database instead would let a member drop a file over the victim's own
-database and have it run unasked. The hold is `ExplorationTab.awaitingRun`, persisted so a reload does
+database and have it run unasked. The folder is judged by BUCKET, not by space id, because a shared
+space's id is its name and nothing reserves `personal`. **Accepted residual:** a file copied into the
+user's own `saved_queries/` (file operations allow that destination) or re-uploaded there is fully
+trusted — copying it is the act of trusting it, as copying a script one then runs is (user decision,
+2026-09-26). The hold is `ExplorationTab.awaitingRun`, persisted so a reload does
 not run it, and read **fail-closed**: a malformed value is a hold with no note, never absent — the
 saved-query link beside it drops a bad value, and here dropping is the direction that runs a
 statement. **Run** releases it; so does an `apply` that changes the query, in the same update.

@@ -553,14 +553,14 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open <b>Generated SQL</b> above the rows to see the statement your filters, sorting and grouping produced.',
           'Choose <b>Open in Query</b> there to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration.',
-          'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file. The file also records your filters, sorting, grouping and column layout.',
+          'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file. Exploring a table, the file also records your filters, sorting, grouping and column layout.',
           'To pick up where you left off, choose <b>Open saved view</b> where you pick a table, then <b>Open</b> the file. Everything comes back as you left it, ready to change.',
           'A view saved in a shared space opens without running, because anyone in that space can change the file. Check its <b>Generated SQL</b>, then choose <b>Run</b>. Its link columns and pattern color rules are left out.',
           'Or pick <b>Create view…</b> from <b>Options</b> to keep it as a <b>view</b> in the catalog instead. A view behaves like a table — it turns up in the <b>Data explorer</b> and the <b>Query</b> tab for anyone who can see that space, and it re-runs your query each time it is read.'
         ],
         callout: {
           kind: 'tip',
-          text: 'The same file opens in the <b>Query</b> tab from <b>Saved queries</b>, as SQL you can edit. Once its SQL has been edited there, or if it was saved from <b>Query</b> in the first place, it opens only in <b>Query</b>.'
+          text: 'The same file opens in the <b>Query</b> tab from <b>Saved queries</b>, as SQL you can edit. Once its SQL has been edited there — or if it was saved from <b>Query</b>, or from an exploration of a <b>Query</b> result — it opens only in <b>Query</b>.'
         }
       }
     ]

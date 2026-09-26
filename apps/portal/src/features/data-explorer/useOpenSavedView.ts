@@ -1,4 +1,5 @@
 import {useEffect, useEffectEvent, useRef, useState} from 'react';
+import {exceedsAthenaQueryLimit} from '../../lib/athenaLimit';
 import {toUserText} from '../../lib/errorMessages';
 import {parseViewLine} from '../../lib/savedViewLine';
 import {useConnections} from '../connections/useConnections';
@@ -26,8 +27,15 @@ type Pending = {query: SavedQuery; fileSpace: QuerySpace; view: SavedView; sql: 
  * @returns The source and how to open it: whole and linked from the personal folder; held,
  *   stripped and unlinked from a shared one.
  */
-function openRequest(done: Pending, space: QuerySpace): {source: ExplorationSource; opts: OpenExplorationOpts} {
-  const stripped = done.fileSpace.id !== 'personal' ? stripForSharedFolder(done.view.presentation) : null;
+function openRequest(
+  done: Pending,
+  space: QuerySpace,
+  personalBucket: string | undefined
+): {source: ExplorationSource; opts: OpenExplorationOpts} {
+  // By BUCKET rather than by space id: a shared space's id is its name, and nothing reserves the
+  // name `personal`. A missing personal space leaves nothing trusted.
+  const shared = personalBucket === undefined || done.fileSpace.bucket !== personalBucket;
+  const stripped = shared ? stripForSharedFolder(done.view.presentation) : null;
   const presentation = {
     ...(stripped?.presentation ?? done.view.presentation),
     valuePanelOpen: false,
@@ -99,7 +107,7 @@ export function useOpenSavedView({username, spaces, openTab, toast}: Params) {
   if (pending && armed === pending && !waiting) {
     setPending(null);
     setOpeningKey(null);
-    if (space) setToOpen(openRequest(pending, space));
+    if (space) setToOpen(openRequest(pending, space, spaces.find((s) => s.id === 'personal')?.bucket));
     else
       setRefusal({name: pending.query.name, message: SAVED_VIEW_REFUSALS.noAccess(database ?? ''), sql: pending.sql});
   }
@@ -128,6 +136,9 @@ export function useOpenSavedView({username, spaces, openTab, toast}: Params) {
       setOpeningKey(null);
       setRefusal({name: query.name, message, sql: parsed.sql});
     };
+    // This build never writes a file Athena would not run, so a larger one was written by hand,
+    // and its size alone — tens of thousands of Colors rules — is enough to stall the page.
+    if (exceedsAthenaQueryLimit(read.data)) return refuse(SAVED_VIEW_REFUSALS.unreadable(query.name));
     if (parsed.kind === 'none') return refuse(SAVED_VIEW_REFUSALS.none(query.name));
     if (parsed.kind === 'edited') return refuse(SAVED_VIEW_REFUSALS.edited(query.name));
     if (parsed.kind === 'newer') return refuse(SAVED_VIEW_REFUSALS.newer(query.name));

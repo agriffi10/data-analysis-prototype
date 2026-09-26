@@ -23,7 +23,8 @@ export function fullExploration(database = 'alice'): Exploration {
     query: {
       filters: [
         {column: 'name', operator: 'contains', value: 'acme', valueKind: 'string'},
-        {column: 'amount', operator: '>', value: '10', valueKind: 'number'}
+        {column: 'amount', operator: '>', value: '10', valueKind: 'number'},
+        {column: 'region', operator: 'in', values: ['east', 'west'], valueKind: 'string'}
       ],
       expression: "status <> 'void'",
       ordering: [{column: 'region', direction: 'asc', priority: 0}],
@@ -58,7 +59,8 @@ export function fullExploration(database = 'alice'): Exploration {
         stripeColumns: ['region'],
         transformers: {
           name: {kind: 'url', template: 'https://example.test/{value}'},
-          amount: {kind: 'numeric', precision: 2, lenient: false}
+          amount: {kind: 'numeric', precision: 2, lenient: false},
+          payload: {kind: 'binary', encoding: 'hex', maxLength: 64}
         }
       }
     }

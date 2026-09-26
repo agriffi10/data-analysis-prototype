@@ -618,7 +618,15 @@ export function ExplorationResultsRegion({
         <div className="flex flex-col items-start gap-2 p-4">
           <p className="text-sm text-text-2">{heldText(held.space)}</p>
           {note && <p className="text-sm text-text-2">{note}</p>}
-          <Button onClick={onRun}>Run</Button>
+          <Button
+            onClick={() => {
+              onRun?.();
+              // The button leaves with the hold; focus goes to the filter expression, where the
+              // user carries on, rather than to the page body.
+              expressionInputRef.current?.focus();
+            }}>
+            Run
+          </Button>
         </div>
       );
     }
@@ -822,13 +830,15 @@ export function ExplorationResultsRegion({
         <p
           role="status"
           className="text-xs text-text-3">
-          {loading
-            ? shownExecutionId
-              ? 'Loading rows…'
-              : 'Running…'
-            : selection.selectedCount > 0
-              ? `${selection.selectedCount} ${selection.selectedCount === 1 ? 'cell' : 'cells'} selected on this page`
-              : ''}
+          {held
+            ? 'Not run yet.'
+            : loading
+              ? shownExecutionId
+                ? 'Loading rows…'
+                : 'Running…'
+              : selection.selectedCount > 0
+                ? `${selection.selectedCount} ${selection.selectedCount === 1 ? 'cell' : 'cells'} selected on this page`
+                : ''}
         </p>
       </div>
 

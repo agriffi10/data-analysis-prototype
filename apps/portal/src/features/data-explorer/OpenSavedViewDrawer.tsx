@@ -100,12 +100,14 @@ export function OpenSavedViewDrawer({spaces, space, onSelectSpace, openingKey, o
             </div>
             <div className="flex items-center gap-3">
               <p className="flex-1 text-sm text-text-3">{formatBytes(query.size)}</p>
+              {/* `aria-disabled` rather than `disabled` while a file opens, so the focused button
+                  keeps focus; `min-h-[24px]` is the WCAG 2.5.8 minimum pointer target. */}
               <button
                 type="button"
-                disabled={openingKey !== null}
-                onClick={() => space && onOpen(query, space)}
+                aria-disabled={openingKey !== null}
+                onClick={() => openingKey === null && space && onOpen(query, space)}
                 aria-label={`Open saved view ${query.name}`}
-                className="min-h-[24px] rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50">
+                className="min-h-[24px] rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                 {openingKey === query.key ? 'Opening…' : 'Open'}
               </button>
             </div>

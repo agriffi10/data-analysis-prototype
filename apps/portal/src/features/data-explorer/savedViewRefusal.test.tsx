@@ -1,12 +1,14 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
-import {VIEW_LINE_MARKER} from '../../lib/savedViewLine';
+import {VIEW_LINE_MARKER, viewChecksum} from '../../lib/savedViewLine';
+import {toUserText} from '../../lib/errorMessages';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {listSavedQueries, readSavedQuery} from '../saved-queries/savedQueries.service';
 import {readExplorationTabsState} from './explorationTabs';
+import {buildSavedView} from './savedView';
 import {fullExploration, renderedSql, renderExplorer, savedFile, savedFileText} from './savedView.testkit';
 
 vi.mock('../catalog/glue.service', () => ({getDatabase: vi.fn(), listTables: vi.fn()}));
@@ -71,6 +73,19 @@ describe('a saved query that cannot reopen as a view', () => {
       '“Orders view” carries a view that can’t be read.'
     ],
     [
+      'larger than any file this build writes',
+      // A VALID view under an oversized statement, so the size bound is the only thing refusing it.
+      (() => {
+        const big = `${sql}\n${'-- padding\n'.repeat(30_000)}`.trimEnd();
+        const payload = btoa(JSON.stringify(buildSavedView(fullExploration())))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+        return `${big}\n${VIEW_LINE_MARKER}v1:${viewChecksum(big)}:${payload}\n`;
+      })(),
+      '“Orders view” carries a view that can’t be read.'
+    ],
+    [
       'over a database the user cannot reach',
       savedFileText(fullExploration('payroll')),
       'You don’t have access to payroll, the database this view explores.'
@@ -102,14 +117,20 @@ describe('a saved query that cannot reopen as a view', () => {
   });
 
   it('says the file could not be read, leaves the list open and offers no Open in Query', async () => {
-    vi.mocked(readSavedQuery).mockResolvedValue({success: false, error: {message: 'gone', code: 'NotFound'}});
+    const error = {message: 'gone', code: 'NotFound'};
+    vi.mocked(readSavedQuery).mockResolvedValue({success: false, error});
 
     await openTheFile();
 
     // A danger toast in the store's own words: the mapped sentence, never the raw error text.
-    expect((await screen.findByRole('alert')).textContent).toMatch(/\w/);
+    expect(await screen.findByRole('alert')).toHaveTextContent(toUserText(error));
     expect(screen.getByRole('dialog', {name: 'Open saved view'})).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', {name: 'Open saved view Orders view'})).not.toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByRole('button', {name: 'Open saved view Orders view'})).toHaveAttribute(
+        'aria-disabled',
+        'false'
+      )
+    );
     expect(screen.queryByRole('alertdialog', {name: 'Saved view can’t be opened'})).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('gone');
   });

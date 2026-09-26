@@ -1,3 +1,4 @@
+import {useMemo} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {useToast} from '../../components/toastContext';
@@ -61,8 +62,11 @@ export function SaveExplorationDialog({
 }: SaveExplorationDialogProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const view = buildSavedView(exploration);
-  const withView = view ? appendViewLine(sql, view) : null;
+  // Encoded once per statement and exploration, not on every keystroke in the name field.
+  const {view, withView} = useMemo(() => {
+    const built = buildSavedView(exploration);
+    return {view: built, withView: built ? appendViewLine(sql, built) : null};
+  }, [sql, exploration]);
   const save = useSaveQuery({
     spaces,
     defaultSpace,

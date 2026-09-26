@@ -27,6 +27,10 @@ describe('a saved view', () => {
     Object.assign(extraField.presentation, {zoom: 2});
     const unrenderable = structuredClone(view);
     unrenderable.query.grouping = {...view.query.grouping!, aggregates: [{fn: 'SUM', column: '*'}]};
+    const nestedExtra = structuredClone(view);
+    Object.assign(nestedExtra.query.filters[0], {caseSensitive: true});
+    const hiddenByWidth = structuredClone(view);
+    hiddenByWidth.presentation.columnWidths = {region: 0};
     const tooLong = structuredClone(view);
     tooLong.query.expression = `note = '${'x'.repeat(270_000)}'`;
 
@@ -34,6 +38,8 @@ describe('a saved view', () => {
     expect(readSavedView(extraField)).toBeNull();
     expect(readSavedView(unrenderable)).toBeNull();
     expect(readSavedView(tooLong)).toBeNull();
+    expect(readSavedView(nestedExtra)).toBeNull();
+    expect(readSavedView(hiddenByWidth)).toBeNull();
     expect(readSavedView(undefined)).toBeNull();
   });
 
@@ -43,7 +49,7 @@ describe('a saved view', () => {
     const {presentation, leftOut} = stripForSharedFolder(view!.presentation);
 
     expect(leftOut).toEqual({links: 1, patterns: 3});
-    expect(Object.keys(presentation.formatting.transformers)).toEqual(['amount']);
+    expect(Object.keys(presentation.formatting.transformers)).toEqual(['amount', 'payload']);
     // The gradient rule ignores its operator, so it stays.
     expect(presentation.formatting.rules.map((rule) => rule.id)).toEqual(['r3']);
   });

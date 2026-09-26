@@ -1525,9 +1525,6 @@ saved query is a `.sql` **file** in an ordinary folder — a sidecar reintroduce
 store that spec deleted, plus a second artifact to keep in sync with a file users can freely rename,
 edit or delete from the file browser.
 
-> **Superseded by SPEC-247.** The view state rides on one comment line inside the same `.sql` file,
-> so the filters come back as chips with no sidecar; the entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one comment line, and a shared space's is held*.
-
 > **183 landed 2026-08-13, and it shipped HALF of the above.** The loading half was descoped during
 > build at the user's direction and deferred to a later spec, so the paragraph above now describes
 > that spec rather than this one — the `sql` arm of `ExplorationSource` stays exactly as 178 left
@@ -1547,6 +1544,11 @@ edit or delete from the file browser.
 > One thing the deferred load spec has to face first: `splitSqlStatements` lives in
 > `features/query/`, which this feature may not import, and the wrapped-subquery refusals are built
 > on it. It moves down to `lib/sql.ts` — the same move 176 and 177 made, one layer lower.
+
+> **Superseded in part by SPEC-247.** The union argument above stands, but the view state now rides
+> on one comment line inside the same `.sql` file, so the filters come back as chips with no
+> sidecar; the entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one
+> comment line, and a shared space's is held*.
 
 **The flag is independent, and the expression bar is not gated on `query`.** `dataExplorer` stands
 alone, so an environment can ship the grid while keeping the SQL editor hidden — arguably the main

@@ -102,7 +102,7 @@ describe('a view reopened from the personal folder', () => {
       name: 'Orders view'
     });
     expect(tab?.history).toEqual({past: [], future: []});
-    expect(within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem')).toHaveLength(3);
     expect(screen.queryByRole('dialog', {name: 'Open saved view'})).not.toBeInTheDocument();
 
     await chooseExplorationOption(user, 'Save as query');
@@ -148,7 +148,7 @@ describe('a view reopened from a shared space’s folder', () => {
     expect(screen.getByLabelText('Generated SQL')).toHaveValue(renderedSql(exploration));
     expect(runQuery).not.toHaveBeenCalled();
     const formatting = storedTab()?.exploration.presentation.formatting;
-    expect(Object.keys(formatting?.transformers ?? {})).toEqual(['amount']);
+    expect(Object.keys(formatting?.transformers ?? {})).toEqual(['amount', 'payload']);
     expect(formatting?.rules.map((rule) => rule.id)).toEqual(['r3']);
     expect(storedTab()?.savedQuery).toBeUndefined();
 

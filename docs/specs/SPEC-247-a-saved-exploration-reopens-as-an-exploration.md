@@ -135,7 +135,10 @@ connections read has settled (the rule `useSpaceLinkPending` applies to a deep l
 shared space and the personal space share a name, the personal space wins, as in the picker.
 
 **Strict** means the payload must equal, by order-insensitive deep equality, what the tab store's
-own normalisers make of it, with `valuePanelOpen` and `recordRowIndex` left out of the comparison.
+own normalisers make of it, with `valuePanelOpen` and `recordRowIndex` left out of the comparison;
+hold no key, at any level, that this build does not declare; and keep every column width to the
+whole pixels the resize handle stores. A file larger than Athena's limit is refused before any of
+this, since this build never writes one.
 `readStrictQuery` and `readStrictPresentation` are new functions built on the store's validators;
 the store's lenient read of `sessionStorage` is unchanged.
 
@@ -217,7 +220,8 @@ once they have settled (else **no access**).
 - [ ] Edited, including SQL added after the line: `“{name}” has been edited since it was saved
       from the Data Explorer, so its view no longer describes it.`
 - [ ] Newer: `“{name}” was saved by a newer version of Data Quarry.`
-- [ ] Unreadable: `“{name}” carries a view that can’t be read.` No part of it is applied.
+- [ ] Unreadable: `“{name}” carries a view that can’t be read.` No part of it is applied. A
+      file over 262,144 bytes, an unknown nested key and a zero column width each reach it.
 - [ ] No access: `You don’t have access to {database}, the database this view explores.`
 - [ ] A marker-shaped line INSIDE the SQL (a multi-line literal) above a valid view line does not
       disturb the parse.
