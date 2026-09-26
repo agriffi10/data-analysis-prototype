@@ -226,6 +226,19 @@ than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5, §4.14
 | ~~**The `excel_row_limit` refusal, staged above the limit** — the one row here that needs more than a sitting~~ **DISCHARGED 2026-09-10 with no fixture** — `SELECT 1 AS x FROM UNNEST(sequence(1,1049)) CROSS JOIN UNNEST(sequence(1,1000))` (1,049,000 rows, 0 B scanned) gave the pinned sentence, and the same result saved as Parquet. The refusal prints `1049000` where success messages print `1,049,000` — **fixed by SPEC-230**, which renders every count with separators and checks Excel's row ceiling first, from a count taken before anything is built, so the third column's `results_too_large` note is now true only over 64 MB | §4.3 | Over **1,048,575 data rows** (Excel's ceiling less the header) **and under 64 MB** as CSV — `describe-results` refuses on size before convert counts rows, so a wide result returns `results_too_large` and this refusal never fires. No §2 fixture reaches either bound (the largest is 150 rows). The cost is building one: a generated single-narrow-column CSV — about 8 bytes a row keeps 1.05M rows near 8 MB — in its own folder, a table over it, then `SELECT` that one column. The wording is pinned in both languages by `test_the_row_limit_refusal_is_the_sentence_the_browser_renders`; what is unobserved is a user receiving it. |
 | ~~**The dialog at 375 px, and across the 375–899 band**~~ **DISCHARGED: 768, 899 and 900 px on 2026-09-10, and 375, 500 and 640 px on 2026-09-21** in the Claude app's Browser pane, whose `resize_window` emulates the width (`innerWidth` 375, 500 and 640). At each width the name, **Format** and **Save to** fields are full width and stacked, never side by side — 312 px wide at 375 and 413 px at 500 and 640. **Convert and save** is 31.5 px tall at each width, and **Save here** was measured at 375, also 31.5 px. There is no horizontal page scroll. Below 900 px the dialog is opened from the Explorer, because the Query page shows only Saved and History. Evidence: [`sessions.md`](sessions.md), 2026-09-21 evening. The 2026-09-10 run found the **top bar overflowing from 900 px up to about 960 px**, a separate defect in the table at the top of §1 | §4.15 | Four widths — 375, 768, 899, 900. The fields stack and the format select is full width at each. jsdom measures no geometry at all, so this is the only place the layout is checked. |
 
+### SPEC-246's `archive` sitting — RUN 2026-09-26: one step owed
+
+Run on 2026-09-26 and recorded in [`sessions.md`](sessions.md): the switch was read on, thrown off
+and set back on one image, and every step of [`e2e.md`](e2e.md) §4.14's `archive` sitting passed
+but one. That one was proxied rather than run, so it stays owed. Like the `resultsConversion` row
+above it needs more than a sitting — a merge to throw the switch and a merge to set it back — and
+it needs Andrew at the keyboard as well: an agent's confirm and delete clicks in the live app each
+need his approval, and §0's gate list does not name them.
+
+| Check | Where | What would settle it |
+|---|---|---|
+| **Copy, Move and Delete still work on a file with `archive` off** | §4.14, the `archive` sitting's step 3 | With the switch thrown, copy a disposable file into a scratch folder, move the copy, and delete it, each reaching its success toast. What ran instead: all three controls present and not disabled on a selected file with the switch off. The offline pin is `archiveJourney.test.tsx`'s one-file-selection test. The premise that the switch's gate in `FileBrowser.tsx` reaches only the archive and restore booleans is a premise, not a run. |
+
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
 | Check | Note |
