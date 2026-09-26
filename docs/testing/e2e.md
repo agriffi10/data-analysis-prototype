@@ -948,6 +948,10 @@ original path **while the restore is waiting**, then let it finish.
 already begun retrieval looks *identical* there, and being wrong costs 3–5 billed hours. The audit
 trail answers it — `owed.md` carries the query and the `IsLogging` precondition.
 
+**The kill switch.** Archive and restore have their own flag, `archive`, and §4.14 carries its
+sitting. Off, every Archive control and Restore Archived Data are **absent**, not disabled; an
+archive or restore already running finishes and notifies as usual, and its notification still links.
+
 ### 4.12 Notifications
 
 | Assertion | How |
@@ -1143,7 +1147,7 @@ is not a pass.
    what proves the app reads the document at runtime and picks its `prod` block by the
    `environment` key the container renders into `/config.json` — nothing in the all-on pass can.
 
-**`asyncFileOperations` is the sixth key and it is the odd one out** — a kill switch, not an area,
+**`asyncFileOperations` is the sixth key and the first kill switch** — a switch, not an area,
 so what it hides is a behaviour rather than a tab. Its own sitting, and §4.2's async rows are what
 it is checked against:
 
@@ -1171,6 +1175,26 @@ and nothing else. It takes nobody's access away: the enqueue route is live and u
    refreshes the folder. Notifications are never gated: the record of what happened outlives the
    surface that would show it.
 4. Set it back to `{}`, publish, hard-reload, and confirm the select returns on both surfaces.
+
+**`archive` is the eighth key and the second kill switch** — over archive AND restore, the one
+surface where a mistake cannot be undone, so what it hides is the way into both gestures and nothing
+else. It takes nobody's access away: the `archive.archive` and `archive.restore` routes are live and
+ungated either way, and an execution already running finishes and notifies as it would have. Run it
+on one image tag throughout, noted before step 1 and read again at step 5, on the rule the
+two-flag sitting above spells out.
+
+1. Set `environments.prod` to `{"archive": false}`; publish; hard-reload.
+2. In **Files**, with one file selected: **no Archive** in the selection toolbar, while **Copy**,
+   **Move**, **Delete** and **Send to another user** are there. **Details** on that file and on a
+   folder: **no Archive** in either panel, Rename still there. **No Restore Archived Data** on the
+   toolbar, and at 400px **no Restore** in the bottom bar beside New folder and Upload. Absent, not
+   disabled.
+3. `system_settings/` is still listed at the space root and `archive` is still listed inside it — the
+   receipts hold the ids a later restore needs. **Copy**, **Move** and **Delete** still work on a file.
+4. In **Help**, the *Files* section keeps *"Rename, move, copy, or delete"* and loses *"Archive and
+   restore files"*.
+5. Set it back to `{}`, publish, hard-reload: every control in step 2 and the guide return. Read the
+   image tag: the same one noted before step 1, or the sitting proves nothing.
 
 ### 4.15 Responsive, and the 400px pass
 

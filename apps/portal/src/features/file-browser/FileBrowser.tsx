@@ -123,6 +123,9 @@ function FileBrowserContent({
   // plane resolves the source from the verified username and the space name, and a folder deep
   // inside it is just where the selection came from.
   const filesEnabled = useFeature('files');
+  // Archive and restore's own kill switch, so an operator can withdraw the one irreversible
+  // gesture without taking the whole file browser away with `files`.
+  const archiveSwitchOn = useFeature('archive');
 
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
@@ -190,14 +193,18 @@ function FileBrowserContent({
   // the query results folder — where a write would therefore stay — so the controls that would
   // write or destroy in either say why instead.
   const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
-  // Archive is gated by the receipt folder's lock alone — an archive of an archive is not a thing.
-  // In the app's own results folder it stays, and `archiveRefusal` refuses it naming the folder.
+  // Of the write locks, archive follows only the receipt folder's — an archive of an archive is
+  // not a thing. In the app's own results folder it stays, and `archiveRefusal` refuses it naming
+  // the folder.
   const archiveEnabled =
-    !!username && filesEnabled && !isWriteLockedPrefix(currentPrefix, rootPrefix, spaceKind ?? 'personal');
-  // A RESTORE is not: it writes into the space root, never into the folder being browsed — and
-  // gating it on the write lock removed the button from `archive/`, which is the one place the
-  // dialog itself tells the user to go and look for an id (the write gate says `writable`).
-  const restoreEnabled = !!username && filesEnabled;
+    !!username &&
+    filesEnabled &&
+    archiveSwitchOn &&
+    !isWriteLockedPrefix(currentPrefix, rootPrefix, spaceKind ?? 'personal');
+  // A RESTORE follows no write lock: it writes into the space root, never into the folder being
+  // browsed — and gating it on the write lock removed the button from `archive/`, which is the one
+  // place the dialog itself tells the user to go and look for an id (the write gate says `writable`).
+  const restoreEnabled = !!username && filesEnabled && archiveSwitchOn;
 
   // Per-file download. Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than

@@ -18,7 +18,8 @@ const allOn = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };
 
 const resolved = (flags: Partial<typeof allOn> = {}) => ({success: true as const, data: {...allOn, ...flags}});
@@ -48,6 +49,9 @@ describe('useFeatureFlags — status', () => {
 
     await waitFor(() => expect(result.current.status).toBe('fallback'));
     expect(result.current.flags).toEqual(FEATURE_FLAG_DEFAULTS);
+    // A literal, not the constant: the line above would pass with a switch defaulting off, and an
+    // unreadable document must never withdraw archive and restore.
+    expect(result.current.flags.archive).toBe(true);
   });
 
   it('does not fetch at all when there is no signed-in user', () => {

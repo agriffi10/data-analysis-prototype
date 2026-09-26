@@ -52,6 +52,10 @@ folder** on the current prefix at all, so a user who navigates into `archive/` a
 - A separate feature flag. Archive is a **Files sub-surface**, not one of the four primary features
   SPEC-162 names, so it inherits the Files flag through SPEC-163's registry rather than gaining its
   own — the registry entry is an acceptance criterion below if 163 has landed.
+  > **Superseded by SPEC-246 (2026-09-26).** Archive and restore gained their own key, `archive`, a
+  > kill switch: the only other way to withdraw the one irreversible gesture was `files: false`, which
+  > removes the whole file browser. The `files` rows this spec registered stay, beside the new ones.
+  > Full entry: `docs/decisions/browser.md` → *Archive and restore get their own kill switch*.
 
 ---
 

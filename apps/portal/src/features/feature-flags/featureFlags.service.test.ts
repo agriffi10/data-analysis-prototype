@@ -30,7 +30,8 @@ const allOn = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };
 
 beforeEach(() => {
@@ -79,7 +80,8 @@ describe('getFeatureFlags — resolution', () => {
         dataQuality: false,
         dataExplorer: true,
         asyncFileOperations: true,
-        resultsConversion: true
+        resultsConversion: true,
+        archive: true
       }
     });
   });
@@ -91,6 +93,15 @@ describe('getFeatureFlags — resolution', () => {
     );
 
     expect(await getFeatureFlags('prod')).toMatchObject({data: {files: false, query: false, sharedWorkspaces: true}});
+  });
+
+  it('throws the archive switch from an environment block and leaves every other key alone', async () => {
+    // How an operator withdraws archive and restore: the published document names the switch
+    // under the environment's block and nowhere else. A document that never names it resolves
+    // it on — the first test in this file, whose document has no `archive` anywhere.
+    api.on('featureFlags.get', body(document({defaults: allOn, environments: {prod: {archive: false}}})));
+
+    expect(await getFeatureFlags('prod')).toEqual({success: true, data: {...allOn, archive: false}});
   });
 
   it('resolves an environment the document does not name to the defaults, and calls it a success', async () => {
@@ -138,7 +149,8 @@ describe('getFeatureFlags — one bad value is not a bad document', () => {
         dataQuality: true,
         dataExplorer: true,
         asyncFileOperations: true,
-        resultsConversion: true
+        resultsConversion: true,
+        archive: true
       }
     });
   });

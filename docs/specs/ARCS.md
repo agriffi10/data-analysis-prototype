@@ -1222,6 +1222,11 @@ arc has no dependency on 162→163 or 164→167 beyond the shared `cpcommon.tran
 landed by the time 172 is built, the archive entry points register in its surface registry (they
 inherit the Files flag rather than gaining one of their own).
 
+> **Superseded in part by SPEC-246 (2026-09-26):** archive and restore now have a flag of their own,
+> `archive` — a kill switch, the second after `asyncFileOperations` — so an operator can withdraw both
+> entry points without turning off `files`. The entry points stay registered under `files` too, whose
+> gate stays. Full entry: `docs/decisions/browser.md` → *Archive and restore get their own kill switch*.
+
 ## Saved-queries-in-spaces arc (SPEC-173 → 174 → 175)
 
 **A saved query is a file, and SPEC-043 made it a row in a private document.** Today every saved
@@ -1767,6 +1772,12 @@ checks; **190** the browser's async model and its in-flight state.
    is already on shipped notification rows. A registry row's `name` is its accessible name and
    `RECIPES` keys are unique, so one control cannot hold a row under two flags — a spec adding a
    surface gated by two flags has to pick, or give the second one a different name.
+
+   > **Superseded in part by SPEC-246 (2026-09-26):** one control can hold a row under two flags,
+   > and the registry does it — the second row takes a description rather than the accessible name,
+   > as `Explore data` had already done and the archive rows now do. Choosing `files` for the
+   > conflict view stands on its own reasoning. Full entry: `docs/decisions/browser.md` → *The kill
+   > switch is a flag key, and it is the sixth*.
 
 **Build 191 BEFORE 190 — the numbering is not the build order, and the arc review is why.** SPEC-190
 consumes 191's extended notification wire shape and its producer: its conflict view is reachable from

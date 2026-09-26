@@ -18,8 +18,9 @@ export const FEATURE_FLAG_KEYS: readonly FeatureFlagKey[] = [
   'dataQuality',
   'dataExplorer',
   'asyncFileOperations',
+  'resultsConversion',
   // Appended LAST, per the order rule above.
-  'resultsConversion'
+  'archive'
 ];
 
 /**
@@ -43,5 +44,6 @@ export const FEATURE_FLAG_DEFAULTS: FeatureFlags = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };

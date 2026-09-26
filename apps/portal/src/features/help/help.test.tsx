@@ -4,6 +4,7 @@ import {Link, useLocation} from 'react-router';
 import {HelpGuideCard} from './HelpGuideCard';
 import {HelpPage} from './HelpPage';
 import {HELP_SECTIONS} from './helpContent';
+import {visibleHelpSections} from './visibleSections';
 import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
@@ -722,5 +723,23 @@ describe('HelpPage guide deep links', () => {
 
     expect(new Set(keys).size).toBe(1);
     expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('the archive switch in Help', () => {
+  const filesGuides = (sections: HelpSection[]) =>
+    sections.find((section) => section.id === 'files')?.guides.map((g) => g.id);
+
+  it('drops the archive guide and keeps the Files section that holds it', () => {
+    const off = filesGuides(visibleHelpSections((key) => key !== 'archive'));
+
+    expect(off).toBeDefined();
+    expect(off).not.toContain('archive-files');
+    // Names Archive in passing and stays: the switch hides the archive guide, not every mention.
+    expect(off).toContain('rename-move-copy-delete');
+  });
+
+  it('shows the archive guide with every flag on', () => {
+    expect(filesGuides(visibleHelpSections(() => true))).toContain('archive-files');
   });
 });

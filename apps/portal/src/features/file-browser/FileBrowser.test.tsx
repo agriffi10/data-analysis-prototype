@@ -15,6 +15,7 @@ import * as sendService from '../file-send/fileSend.service';
 import {submitFileOperation} from './fileOps.service';
 import {apiRequest} from '../../lib/apiClient';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
+import type {FeatureFlags} from '../feature-flags';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
 // hooks (useFileBrowser/useDelete/useMove/useCopy/useCreateFolder), real child
@@ -103,7 +104,10 @@ const fail = (message: string) => ({success: false as const, error: {message}});
 
 /** Renders the browser inside the app provider stack + the real upload queue.
  *  Authenticated/writable personal space by default. */
-function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}): ReturnType<typeof renderWithProviders> {
+function renderBrowser(
+  props: Partial<Parameters<typeof FileBrowser>[0]> = {},
+  featureFlags?: Partial<FeatureFlags>
+): ReturnType<typeof renderWithProviders> {
   const ui: ReactElement = (
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
@@ -119,7 +123,7 @@ function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}): 
       </FileOpsInFlightProvider>
     </UploadQueueProvider>
   );
-  return renderWithProviders(ui);
+  return renderWithProviders(ui, {featureFlags});
 }
 
 beforeEach(() => {
@@ -679,6 +683,16 @@ describe('FileBrowser — responsive', () => {
     // In a third of a phone's width the whole label wraps to three lines and spills out of the
     // button. The visible word must begin the name, or voice control cannot reach it.
     expect(within(bar).getByRole('button', {name: 'Restore Archived Data'})).toHaveTextContent(/^Restore$/);
+  });
+
+  it('leaves Restore out of the action bar while the archive switch is off', async () => {
+    window.innerWidth = 500;
+    renderBrowser({}, {archive: false});
+    await screen.findByText('report.csv');
+    const bar = screen.getByRole('toolbar', {name: 'File actions'});
+
+    expect(within(bar).getByRole('button', {name: 'New folder'})).toBeInTheDocument();
+    expect(within(bar).queryByRole('button', {name: 'Restore Archived Data'})).not.toBeInTheDocument();
   });
 
   it('keeps the whole label on the top toolbar', async () => {

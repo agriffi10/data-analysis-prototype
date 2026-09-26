@@ -20,8 +20,9 @@ Attributes:
   SUPPORTED_VERSIONS: The document versions this validator (and the browser reader) understand.
   FLAG_KEYS: Every flag. A key outside this set is a typo, never a new flag — adding one is a
     code change here, in the browser's key list, and in the document. Five are primary features;
-    `asyncFileOperations` is a kill switch over the file browser's copy/move/delete routing, and
-    `resultsConversion` is a presentation flag over the Save-results dialog's format choice.
+    two are kill switches — `asyncFileOperations` over the file browser's copy/move/delete
+    routing, and `archive` over the Archive and Restore controls — and `resultsConversion` is a
+    presentation flag over the Save-results dialog's format choice.
   DOCUMENT: The one file a flag value may be edited in.
   PUBLISH_WORKFLOW: The workflow whose matrix declares where the document is published.
   TARGET_RE: Matches one ``environment_name:`` entry in that matrix. Deliberately not
@@ -51,6 +52,7 @@ FLAG_KEYS = frozenset(
         "dataExplorer",
         "asyncFileOperations",
         "resultsConversion",
+        "archive",
     }
 )
 DOCUMENT = ROOT / "config" / "feature-flags.json"

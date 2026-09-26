@@ -19,8 +19,9 @@ type Props = {
   /** Opens RenameDialog for this folder. */
   onRequestRename: (folder: S3FolderItem) => void;
   /**
-   * archives THIS folder without selecting it first. Absent when the space can't be
-   * resolved, the `files` flag is off, or the user is inside the read-only `archive/` folder.
+   * archives THIS folder without selecting it first. Absent when the space can't be resolved,
+   * the `files` flag or the `archive` switch is off, or the user is inside the read-only
+   * `archive/` folder.
    */
   onRequestArchive?: (folder: S3FolderItem) => void;
   /** Why this folder can't be archived (a portal-managed root), if it can't. */

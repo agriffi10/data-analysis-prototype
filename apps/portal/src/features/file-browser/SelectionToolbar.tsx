@@ -120,8 +120,8 @@ export function SelectionToolbar({
    */
   onRequestSend?: () => void;
   /**
-   * Absent in the dev-unauth path, while the `files` flag is off, and inside the
-   * read-only `archive/` folder — removed rather than disabled, which is the rule.
+   * Absent in the dev-unauth path, while the `files` flag or the `archive` switch is off, and
+   * inside the read-only `archive/` folder — removed rather than disabled, which is the rule.
    */
   onRequestArchive?: () => void;
   /**

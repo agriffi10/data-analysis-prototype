@@ -21,8 +21,9 @@ type Props = {
   /** Opens RenameDialog for this file. */
   onRequestRename: (file: S3FileItem) => void;
   /**
-   * archives THIS file without selecting it first. Absent when the space can't be
-   * resolved, the `files` flag is off, or the user is inside the read-only `archive/` folder.
+   * archives THIS file without selecting it first. Absent when the space can't be resolved,
+   * the `files` flag or the `archive` switch is off, or the user is inside the read-only
+   * `archive/` folder.
    */
   onRequestArchive?: (file: S3FileItem) => void;
   /**

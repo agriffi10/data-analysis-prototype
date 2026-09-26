@@ -161,7 +161,8 @@ const ALL_ON: FeatureFlags = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };
 
 /** Point the mocked service at one flag set, as the real reader would resolve it. */
@@ -382,6 +383,35 @@ const helpRecipe = (helpId: string): Recipe => ({
   }
 });
 
+/**
+ * The archive entry points, each walked twice: once under `files`, whose gate removes the whole
+ * file browser, and once under `archive`, the kill switch over these controls alone. One recipe per
+ * control, so the two rows cannot drift into asserting different things.
+ */
+const archiveToolbarRecipe: Recipe = {
+  render: renderFileBrowser,
+  anchor: fileBrowserReady,
+  find: byRole('button', 'Archive selected items')
+};
+
+const restoreRecipe: Recipe = {
+  render: renderFileBrowser,
+  anchor: fileBrowserReady,
+  find: byRole('button', 'Restore Archived Data')
+};
+
+// The DETAILS-PANEL entry point, reached the way a user reaches it: open a file's details
+// drawer. There is no context menu in this file browser, so this is the ONLY route to
+// archiving one item without selecting it, and it is a different component from the toolbar.
+const archivePanelRecipe: Recipe = {
+  render: async () => {
+    renderFileBrowser();
+    (await screen.findByRole('button', {name: 'Details for a.csv'})).click();
+  },
+  anchor: async () => screen.findByRole('dialog', {name: 'Details for a.csv'}),
+  find: byRole('button', 'Archive this item')
+};
+
 const RECIPES: Record<string, Recipe> = {
   // ── nav ──
   Files: {render: renderHeader, anchor: navReady, find: byRole('link', 'Files')},
@@ -437,27 +467,12 @@ const RECIPES: Record<string, Recipe> = {
     anchor: fileBrowserReady,
     find: byRole('button', 'Send to another user')
   },
-  'Archive selected items': {
-    render: renderFileBrowser,
-    anchor: fileBrowserReady,
-    find: byRole('button', 'Archive selected items')
-  },
-  'Restore Archived Data': {
-    render: renderFileBrowser,
-    anchor: fileBrowserReady,
-    find: byRole('button', 'Restore Archived Data')
-  },
-  // The DETAILS-PANEL entry point, reached the way a user reaches it: open a file's details
-  // drawer. There is no context menu in this file browser, so this is the ONLY route to
-  // archiving one item without selecting it, and it is a different component from the toolbar.
-  'Archive this item': {
-    render: async () => {
-      renderFileBrowser();
-      (await screen.findByRole('button', {name: 'Details for a.csv'})).click();
-    },
-    anchor: async () => screen.findByRole('dialog', {name: 'Details for a.csv'}),
-    find: byRole('button', 'Archive this item')
-  },
+  'Archive selected items': archiveToolbarRecipe,
+  'Restore Archived Data': restoreRecipe,
+  'Archive this item': archivePanelRecipe,
+  'Archive in the selection toolbar': archiveToolbarRecipe,
+  'Archive in the details panel': archivePanelRecipe,
+  'Restore Archived Data in the file browser': restoreRecipe,
   'Refresh table': {
     render: async () => {
       renderWithProviders(
@@ -1034,6 +1049,7 @@ const RECIPES: Record<string, Recipe> = {
   'Past data quality checks guide': helpRecipe('past-data-quality-checks'),
   'Send files guide': helpRecipe('send-files'),
   'Archive and restore guide': helpRecipe('archive-files'),
+  'Archive and restore guide under the archive switch': helpRecipe('archive-files'),
   // SPEC-185. The first guide rows outside the section the Help page opens on — see
   // `helpRecipe`, which had to learn to select the owning section for them.
   'Data Explorer help section': helpRecipe('data-explorer'),
@@ -1252,7 +1268,7 @@ describe('the registry itself', () => {
         'Send to another user',
         'Send files guide',
         // NOT in SPEC-163's table — SPEC-172's own, recorded in its delivery doc. Archive is a
-        // Files sub-surface and inherits this flag rather than gaining one.
+        // Files sub-surface, so it goes with the file browser; its own switch holds these again.
         'Archive selected items',
         'Archive this item',
         'Restore Archived Data',
@@ -1360,7 +1376,16 @@ describe('the registry itself', () => {
       asyncFileOperations: ['File operations in progress', 'Background file operations guide'],
       // SPEC-223: one control, two dialogs. The completion notification's link is deliberately
       // not here — it is a `/files` link, already covered by the row's link gate.
-      resultsConversion: ['Format in the save-results dialog', 'Format in the Data Explorer export dialog']
+      resultsConversion: ['Format in the save-results dialog', 'Format in the Data Explorer export dialog'],
+      // The second kill switch: the same archive surfaces the `files` entry holds, under
+      // descriptive names because a name keys the walk. The folder details panel and the mobile
+      // action bar are asserted beside the archive journey and the responsive tests instead.
+      archive: [
+        'Archive in the selection toolbar',
+        'Archive in the details panel',
+        'Restore Archived Data in the file browser',
+        'Archive and restore guide under the archive switch'
+      ]
     };
     for (const key of FEATURE_FLAG_KEYS) {
       expect(GATED_SURFACES[key].map((s) => s.name).sort(), key).toEqual([...contract[key]].sort());
