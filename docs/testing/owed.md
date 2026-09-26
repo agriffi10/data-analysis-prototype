@@ -257,6 +257,25 @@ signed-in session can run them unattended.
 | **A JSON check's row carries the tag** | §4.6, *The runs list* | Check `dq_case_json/`; its row carries **Partly checked** and the name ends *", partly checked"*. Its report's banner reads *"No issues found in what could be checked"* or *"Issues found"*, never a plain *"No issues found"*. |
 | **A row written before `ae297ed8`'s Lambda deploy reads as partly checked, and nothing reads Sampled** | §4.6, *The runs list* | Any row that predates that deploy (the entry field changed there, not at the merge) carries **Partly checked**; no row anywhere on the page reads **Sampled**. Read-only: needs no new check. |
 
+### The UI audit's browser-only fixes (#887, #888, #894) — NOT RUN: the landing session could not reach production
+
+Three PRs from an audit of the SPA, merged 2026-09-26 (`865a89bd`, `7052cfa1`, `bb264467`). Five of
+the fixes below have a unit test; the viewport cap has none, because jsdom has no layout, so the first
+row is its only check. All six change what only a real browser shows — layout, focus under a
+transition, Monaco's undo stack, a real pointer drag, an Athena statement.
+**The same kind of owing as #889's section above:** a signed-in session can run every row; they are
+here because the landing session had no signed-in Chrome tab and the in-app browser's navigation to
+`dataquarry.app` was refused. None is one of [`e2e.md`](e2e.md) §0's approval gates.
+
+| Check | Where | What would settle it |
+|---|---|---|
+| **The Explorer grid scrolls inside its box from tablet width up** | [`e2e.md`](e2e.md) §4.5 | At 1200px wide, open a table with more rows than the viewport holds: the page itself does not scroll, the grid does, and its column headers stay put. The `<main>` landmark the fix added carries the viewport cap; a hand-built harness at 1200×800 measured the page 800px tall with the cap on the landmark and 3,136px without it. |
+| **Arrow keys across restored Explorer tabs start nothing** | §4.5 | Open three explorations, reload (the session restores them uncached), focus the active tab and press → twice: focus moves, the selected tab does not change, and the network panel shows **no** new `POST /v1/queries`. Enter then opens the focused tab, which starts exactly one. |
+| **Undo stays in its own query tab** | §4.3 | Type in tab A, switch to tab B, press Cmd+Z in B: A's SQL never appears in B, and A still reads what was typed. Switching back to A restores A's caret. |
+| **View DDL still works, on a table and on a view** | §4.3 | Table-row menu → View DDL on an ordinary table and on a view: each opens its DDL. Both statements are byte-identical to before for ordinary names. A view named with a reserved word is a known gap (bare `SHOW CREATE VIEW`) — record what it does, do not expect it to work. |
+| **The Files rail collapses and expands by keyboard without losing focus** | §4.2 | At 1200px wide (the rail is hidden below 900px), Tab to *Collapse sidebar* and press Enter: focus lands on *Show sidebar*. Press Enter: focus lands on *Collapse sidebar* — not on the page — and once the rail is open its content starts at the same left edge as on a fresh load, with the space caption visible; the regression this guards showed only the right-hand part of the rail. |
+| **A drag that ends outside a dialog does not close it** | §4.2 | Open Rename on a file, drag-select its name and release past the dialog's edge over the backdrop: the dialog stays open with the selection intact. A plain click on the backdrop still closes it. |
+
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
 | Check | Note |

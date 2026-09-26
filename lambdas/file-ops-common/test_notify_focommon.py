@@ -314,10 +314,11 @@ def test_the_link_is_a_path_the_browsers_own_gate_accepts():
     """``isSafeInAppPath`` is the second gate and rejects anything that could resolve off this
     origin. Its rule is read from the TypeScript rather than restated."""
     guard = (_PORTAL / "features" / "notifications" / "notificationLink.ts").read_text()
-    assert "link[0] !== '/'" in guard and "link[1] !== '/'" in guard
+    assert "link[0] !== '/'" in guard and "link[1] === '/'" in guard and "charCodeAt(0) < 0x20" in guard
 
     link = notify.outcome_link(_summary(), _records(("alice/reports/", "moved", {})))
     assert link.startswith("/") and link[1] not in ("/", "\\")
+    assert not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in link)
 
 
 def test_a_planes_notification_link_gets_NO_registry_row_and_the_registry_says_so():
