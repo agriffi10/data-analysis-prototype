@@ -10,6 +10,68 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-26 (#879's result tabs and archive notice, and SPEC-247's saved views)
+
+**What was under test.** #879 (`eb573bf4`) and SPEC-247 (#880, `1cd6cfcc`). Two SPA builds were
+deployed in the window, and both carry both PRs: `1cd6cfcc`'s (push run ended 12:13:30Z) and
+`a6a03e09`'s (13:33:31Z), which the SPEC-246 sitting above read on task definition `:237` at 13:40:07Z
+and 13:55:50Z. The later push runs (`bfd64329`, `cf5593df`, `dd7f88a8`) skipped the build. Which of
+the two builds served each row was not read from the service; every row ran after 12:13:30Z, and the
+archive row ran at 14:38Z, after SPEC-246's switch was set back on (#883). #879's Lambda change
+deployed with `eb573bf4` (Deploy Lambdas green at 02:36:40Z). Times are UTC.
+
+**Browser.** Andrew's Chrome, as **agriffith**, in a new tab in the `claude-in-chrome` group that
+Andrew signed in himself at the Cognito form (the Hosted UI cookie had expired). Width 1512.
+
+**Instruments, each a way this run differed from a user's.**
+- `visibilityState`/`hidden` overridden to visible after each load, since the window was in the
+  background and a hidden tab pauses TanStack's polls. Screenshots timed out for the same reason, so
+  what a user would see was read as DOM queries instead.
+- **Tab state was read from `sessionStorage`** (`s3portal.dataExplorer.tabs.agriffith`): "linked",
+  "not held", "held", "unlinked", "empty history" and "equal to the saved tab" below are that store,
+  not the page.
+- Seeded in `sessionStorage` rather than built by hand: the Query tab's three statements, the Data
+  Explorer view that was saved, and the `'Sales'` → `'Marketing'` edit (the Query tab's buffer
+  rewritten, then the page reloaded — Monaco was not typed into). The save, the reopen, the hold and
+  the refusal all ran through the real UI.
+- Real pointer clicks (the extension's `computer` tool): the ✕, the result tabs, the drawer's Open,
+  Open in Query and Run. Backspace was the extension's key action. The name `explorer-roundtrip` was
+  typed by the extension; `explorer-shared-lc` and the space selects were set with the native value
+  setter plus a `change`/`input` event. Menus, dialogs' **Save** buttons and the archive confirm were
+  driven by `element.click()`. `archive-lc.txt` was put on the upload input with `DataTransfer` and a
+  `change` event — no file picker.
+- The extension's network reader showed a single preflight while the drawer listed and read files, so
+  request counts come from **Resource Timing**; it does not record the method, but the bare
+  `/v1/queries` path is used only by the start route.
+
+**Approvals.** The archive was approved by Andrew in chat before it ran.
+
+| Row | Result |
+|---|---|
+| **#879 — close the middle result tab with its ✕** | **PASS.** `SELECT 1 AS a; SELECT 2 AS b; SELECT 3 AS c` by Run Multiple Queries gave three tabs, each with a ✕. With tab 2 selected, its ✕ left `1 · SELECT 1 AS a` and `3 · SELECT 3 AS c`, tab 3 selected, the panel labelled by it, and its grid showing `3`. |
+| **#879 — Backspace** | **PASS, on the other case.** Backspace was pressed on the LAST tab (tab 3, focused), not the middle one: only tab 1 is left, selected and focused, with **no** ✕, and its grid shows `1`. Backspace on a middle tab was not run live; the unit test covers it. |
+| **SPEC-247 — the picker** | **PASS.** Open saved view sits beside the table list with no tab open. |
+| **Save a view, then reopen it from the personal folder** | **PASS, in part.** `employees` with two column filters, an expression, a sort, `employee_id` hidden, `name` pinned, a `regex` Colors rule and a URL transformer (no grouping), saved as `explorer-roundtrip`. The drawer listed it at once (1–3 of 3). Reopened: a new active tab whose stored query and presentation equal the saved tab's, linked to `agriffith/saved_queries/explorer-roundtrip.sql`, not held, empty history; on the page, the two chips and rows. Save as query **offered** `explorer-roundtrip` in agriffith and was cancelled — **replacing it with no second confirm was not run.** |
+| **The file in Query** | **PASS.** Saved queries → `explorer-roundtrip`: the rendered statement and one `-- dataquarry-view:v1:d48fb7f9:…` line. Run Statement: Athena accepted it, `2 rows`, Alice Johnson and Bob Martinez, as in the Explorer tab. |
+| **An edited file is refused** | **PASS.** After the edit was saved from Query (no second confirm), Open saved view refused it: "“explorer-roundtrip” has been edited since it was saved from the Data Explorer, so its view no longer describes it." No tab opened. **Open in Query** landed on `/query` with no search string, in a new selected tab holding the edited SQL without the view line, and nothing ran. |
+| **A shared space's view is held and stripped** | **PASS, in part.** The same view saved as `explorer-shared-lc` into `live0922 odd` and opened from that space's list: stored as held (`awaitingRun` naming live0922 odd) and unlinked, with no transformers or rules left; on the page, "Not run yet.", "This view was saved in live0922 odd, where any member can change it. Check its Generated SQL, then run it.", "Left out: 1 link column, 1 pattern color rule.", a Run button and **no grid cells**. Resource Timing held **no `/v1/queries` entry of any kind** (neither the start nor a status read of the cached execution) after the drawer's listing and the file read, which it did record — but those precede the window, so no entry after it vouches for the buffer. Its view names agriffith's own database, so this is also the cross case. **Not read:** the Generated SQL panel's text, and Save as query's empty name. |
+| **Run on a held tab** | **PASS for the hold; the count NOT MEASURED.** Run cleared the hold, moved focus to the filter expression, and showed the rows. It started no execution: the identical statement had run earlier this session, so its cached execution was reused, as designed. **FR-004's "one execution against a cold cache" was not measured live** — every run of a SPEC-247 path this session was a cache hit. |
+| **A held tab across a reload** | **PASS.** Opened again, then reloaded: still held, Run shown, "Not run yet.", no grid cells, and no `/v1/queries` entry since the reload (no positive control was read after it). |
+| **#879 — a shared space's archive notice** | **PASS.** `archive-lc.txt` (34 B) uploaded to `live0922 odd` and archived at 14:38:58Z. At 14:39:52Z the notification, 31 s old, read "Archived 1 file (34 B). It has been removed from your space. Archive id: 40085460-93e6-4475-8313-29c466cae36b - to restore it, open the live0922 odd space in Files, choose Restore Archived Data and enter this id." |
+| **The archive confirm's Archive, by pointer** | **UNEXPLAINED.** One real click on the confirm's **Archive** did not register: the dialog stayed open, idle and enabled, with no toast. `element.click()` on the same button then started it. Not reproduced, so not yet a finding; owed as a second pointer try in a foreground window. |
+
+**Still owed from §4.7 and the PRs.** A linked re-save replacing the file with no second confirm; a
+shared-space view's Generated SQL text and its empty-name save; Run counted as one execution against a
+cold cache; §4.7's "Save from Query, load in Query" refusal (a Query-saved file refused with
+**Open in Query**); and the archive confirm by pointer.
+
+**Left behind.** `explorer-roundtrip.sql` in agriffith's `saved_queries/` (the edited version; §4.7's
+rows use it), `explorer-shared-lc.sql` in live0922 odd's (the shared rows above still owed use it), and
+archive `40085460-…` of `archive-lc.txt`, not restored — a restore is billed and approval-gated, and
+this check needed only the notice. The Chrome tab was closed.
+
+---
+
 ## Live-check session — 2026-09-26 (SPEC-246: the `archive` switch read on, thrown off and set back on one image)
 
 **What was under test.** The SPA image **`a6a03e09`** (#881), read from the service — task
