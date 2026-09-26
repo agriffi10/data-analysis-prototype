@@ -253,6 +253,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 245 — The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing | Completed |
 | 246 — Archive and Restore Get Their Own Kill Switch | Completed |
 | 247 — A Saved Exploration Reopens as an Exploration | Completed |
+| 248 — A Name Is One User's or One Space's, and Only the Plane Writes a Membership | Draft |
 
 ## Arcs
 
