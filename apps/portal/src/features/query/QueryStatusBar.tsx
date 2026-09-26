@@ -1,5 +1,6 @@
 import {useEffect, useState} from 'react';
 import {Button} from '../../components/Button';
+import {cx} from '../../lib/cx';
 import {formatBytes} from '../../lib/format';
 import {formatCount, formatDurationMs} from '../../lib/format';
 import type {QueryStatus} from '../catalog/catalog.types';
@@ -35,6 +36,11 @@ type QueryStatusBarProps = {
    * statement still shows an earlier statement's complete, already-billed result.
    */
   canSaveResults?: boolean;
+  /**
+   * Why the displayed result cannot be saved although it has rows: a SHOW, DESCRIBE or EXPLAIN
+   * result is not a query's result set. The button stays, refused, so the reason is reachable.
+   */
+  saveResultsRefusal?: string | null;
   onSaveResults: () => void;
   /**
    * Opens the displayed result's statement in the Data Explorer, or null where it is not offered.
@@ -90,6 +96,7 @@ export function QueryStatusBar({
   totalRowCount = null,
   countingRows = false,
   canSaveResults = false,
+  saveResultsRefusal = null,
   onSaveResults,
   explore = null,
   batchFailed = false,
@@ -247,8 +254,13 @@ export function QueryStatusBar({
       {hasVerdict && canSaveResults && (
         <button
           type="button"
-          onClick={onSaveResults}
-          className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          aria-disabled={saveResultsRefusal ? true : undefined}
+          title={saveResultsRefusal ?? undefined}
+          onClick={saveResultsRefusal ? undefined : onSaveResults}
+          className={cx(
+            'inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            saveResultsRefusal && 'cursor-not-allowed opacity-45'
+          )}>
           <svg
             viewBox="0 0 24 24"
             fill="none"

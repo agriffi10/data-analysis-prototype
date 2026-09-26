@@ -49,6 +49,8 @@ type Props = {
   onSelectResultTab: (index: number) => void;
   onCloseResultTab: (index: number) => void;
   canSaveResults: boolean;
+  /** Why the displayed result's rows cannot be saved, or null. */
+  saveResultsRefusal: string | null;
   onSaveResults: () => void;
   /** *Explore in Data Explorer* for the displayed result, or null where it is not offered. */
   explore: {onExplore: () => void; disabledReason: string | null} | null;
@@ -84,6 +86,7 @@ export function QueryResultsRegion({
   onSelectResultTab,
   onCloseResultTab,
   canSaveResults,
+  saveResultsRefusal,
   onSaveResults,
   explore
 }: Props) {
@@ -103,6 +106,7 @@ export function QueryResultsRegion({
           totalRowCount={totalRowCount}
           countingRows={countingRows}
           canSaveResults={canSaveResults}
+          saveResultsRefusal={saveResultsRefusal}
           onSaveResults={onSaveResults}
           explore={explore}
           batchFailed={!!run?.failure}

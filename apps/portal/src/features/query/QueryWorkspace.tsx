@@ -30,6 +30,7 @@ import {
   stripTrailingSemicolons
 } from './query.sql';
 import {unnamedColumnsRefusal} from './exploreResult';
+import {SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {buildExploreSqlHandoff, readOpenSqlHandoff} from '../../lib/routeHandoff';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
@@ -560,6 +561,11 @@ export function QueryWorkspace() {
   const explorerEnabled = useFeature('dataExplorer');
   const displayedStatement =
     displayedResultTab && activeRun ? activeRun.statements[displayedResultTab.statementIndex] : undefined;
+  // Save copies or converts the statement's result object, and for a SHOW, DESCRIBE or EXPLAIN
+  // Athena writes plain text there, not a result set: a CSV copy would be text under a .csv name
+  // and a conversion is refused. So those rows are refused here, on the statement the run holds.
+  const saveResultsRefusal =
+    displayedStatement !== undefined && !isExplorableSql(displayedStatement.sql) ? SAVE_RESULTS_STATEMENT_REFUSAL : null;
   const explore =
     queryEnabled &&
     explorerEnabled &&
@@ -748,6 +754,7 @@ export function QueryWorkspace() {
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
                     onCloseResultTab={(index) => closeResultTab(activeTabId, index)}
                     canSaveResults={canSaveResults}
+                    saveResultsRefusal={saveResultsRefusal}
                     onSaveResults={saveResults.openDialog}
                     explore={explore}
                   />

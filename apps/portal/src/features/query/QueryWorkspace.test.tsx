@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
+import {DEFAULT_RESULTS_PAGE_SIZE, SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {
@@ -896,6 +896,18 @@ describe('QueryWorkspace', () => {
       await user.type(nameInput, filename);
       return dialog;
     }
+
+    it('refuses Save results for a SHOW result, which is not a result set, and says why', async () => {
+      seedSingle('SHOW TABLES IN alice');
+      const {user} = renderWorkspace();
+      await runToSucceeded(user);
+
+      const save = await screen.findByRole('button', {name: 'Save results…'});
+      expect(save).toHaveAttribute('aria-disabled', 'true');
+      expect(save).toHaveAttribute('title', SAVE_RESULTS_STATEMENT_REFUSAL);
+      await user.click(save);
+      expect(screen.queryByRole('dialog', {name: 'Save results'})).not.toBeInTheDocument();
+    });
 
     it('saves a succeeded result to the personal space (cross-checked copy + Files deep-link)', async () => {
       seedSingle('SELECT 1');
