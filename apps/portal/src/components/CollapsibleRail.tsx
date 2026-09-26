@@ -50,8 +50,10 @@ export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', chi
   useEffect(() => {
     const target = focusAfterToggle.current;
     focusAfterToggle.current = null;
-    if (target === 'show') showRef.current?.focus();
-    if (target === 'collapse') collapseRef.current?.focus();
+    // `preventScroll`: the rail's box is still easing open from zero width, and scrolling the
+    // Collapse button into view there anchors the content right and leaves it a pixel off.
+    if (target === 'show') showRef.current?.focus({preventScroll: true});
+    if (target === 'collapse') collapseRef.current?.focus({preventScroll: true});
   }, [collapsed]);
 
   const toggle = (next: boolean) => {
