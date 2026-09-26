@@ -5,6 +5,7 @@ import {IconButton} from '../../components/IconButton';
 import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
 import {QueryStatusBar} from './QueryStatusBar';
+import {resultsReadFailed} from './resultsReadFailed';
 import type {QueryStatus} from '../catalog/catalog.types';
 import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 
@@ -131,7 +132,7 @@ export function QueryResultsMobile({
           </Banner>
         )}
 
-        {displayExecutionId !== null && rows.length === 0 && results.isError ? (
+        {displayExecutionId !== null && rows.length === 0 && resultsReadFailed(results) ? (
           // A read that failed is not a run that returned nothing.
           <ErrorBanner error={results.error} />
         ) : displayExecutionId === null || rows.length === 0 ? (

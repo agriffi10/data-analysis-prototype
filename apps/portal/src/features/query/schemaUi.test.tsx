@@ -245,6 +245,25 @@ describe('DatabaseNode', () => {
       expect(screen.queryByText(/Couldn.t load this schema/)).not.toBeInTheDocument();
     });
 
+    it('reports a shared space’s missing database as a failure, not as setting up', async () => {
+      // A shared space's database exists before anyone joins it; "right after sign-up" would be untrue.
+      mock.getDatabase.mockResolvedValue({success: false, error: {message: '', code: 'NotFound'}});
+
+      renderNode({
+        connection: {
+          id: 's1',
+          label: 'Project Alpha',
+          database: 'project_alpha',
+          kind: 'shared',
+          status: 'active',
+          role: 'member'
+        }
+      });
+
+      expect(await screen.findByText(/Couldn.t load this schema/)).toBeInTheDocument();
+      expect(screen.queryByText(/Setting up your database/)).not.toBeInTheDocument();
+    });
+
     // SPEC-086: per-database Refresh re-reads only this node's schema.
     it('re-reads this database on Refresh, reflecting the new table set', async () => {
       mock.listTables.mockResolvedValue(ok([table('old_table', {columns: []})]));

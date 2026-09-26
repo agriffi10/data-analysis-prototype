@@ -254,7 +254,9 @@ describe('QueryResultsMobile', () => {
 
     it('says the results could not be read, rather than that the run returned no rows', () => {
       renderResults({
+        // A read that never loaded has no page, so no columns either.
         results: resultsFixture({
+          columns: [],
           rows: [],
           loadedRowCount: 0,
           isError: true,

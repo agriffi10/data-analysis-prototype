@@ -124,6 +124,9 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
+  // Tabs closed this session. A close drops a tab's run at once, but a submit still recording
+  // its first statement has no run yet to drop — this is how it learns the tab is gone.
+  const closedTabsRef = useRef<Set<string>>(new Set());
 
   // Sends a cancel and says so when it is refused: the statement then settles on its own verdict,
   // which would otherwise look like a Stop that worked.
@@ -385,6 +388,12 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             savedQueryName: linkedSaved.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
+        // Closed while the entry was being recorded: installing the run now would mount a poller
+        // and carry the batch on, statement by statement, for a tab nobody can see or stop.
+        if (closedTabsRef.current.has(tabId)) {
+          cancelExecution(id);
+          return;
+        }
         updateRuns((r) => ({
           ...r,
           [tabId]: {
@@ -439,6 +448,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // Drop the closed tab's in-memory run state (its execution keeps running
   // server-side; history is the durable record).
   const dropRunState = (id: string) => {
+    closedTabsRef.current.add(id);
     const without = <T,>(m: Record<string, T>) => {
       const next = {...m};
       delete next[id];

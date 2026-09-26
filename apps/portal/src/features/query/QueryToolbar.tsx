@@ -106,6 +106,11 @@ export function QueryToolbar({
             ref={runStopRef}
             variant="ghost"
             onClick={onStop}
+            // A key still held from pressing Run repeats onto this same element once it is Stop;
+            // only a fresh press may stop the query that press started.
+            onKeyDown={(e) => {
+              if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
+            }}
             aria-label="Stop the running query"
             className="text-danger hover:bg-danger-soft hover:text-danger">
             <svg

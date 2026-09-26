@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
@@ -1036,6 +1037,60 @@ describe('QueryWorkspace', () => {
       expect(mockStopQuery.mock.calls).toEqual([['q-2']]);
     });
 
+    // Run and Stop are one control, so focus stays on it across the swap — and so a held Enter's
+    // repeats land on Stop, which would cancel the query that same keypress started.
+    it('keeps focus on the run control as it becomes Stop, and a held Enter does not stop the run', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      seedScript('SELECT 1;');
+      renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      screen.getByRole('button', {name: 'Run statement'}).focus();
+      // Spaced like a real auto-repeat, so the repeats straddle the moment Run becomes Stop.
+      const held = userEvent.setup({delay: 5});
+
+      await held.keyboard('{Enter>12/}');
+
+      expect(await screen.findByRole('button', {name: 'Stop the running query'})).toHaveFocus();
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
+      expect(mockStopQuery).not.toHaveBeenCalled();
+    });
+
+    // The first statement is recorded before its run exists, so there is no run for the close to
+    // drop yet: installed afterwards, it would carry the whole batch on for a tab nobody can see.
+    it('cancels the first statement, and starts no other, when its tab is closed while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend.mockReturnValueOnce(
+        new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []}))))
+      );
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT 1; SELECT 2;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-1'}))
+      );
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-1'));
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
+    });
+
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
       queueRuns('q-1', 'q-2', 'q-3');
       seedScript();
@@ -1977,6 +2032,28 @@ describe('QueryWorkspace', () => {
       ).toBeInTheDocument();
       expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
       expect(screen.queryByText(/results read refused/)).not.toBeInTheDocument();
+    });
+
+    // A failed RE-read keeps the page it already has, so an empty result that loaded is still
+    // an empty result — only a read that never loaded anything stands in for the answer.
+    it('still says a loaded empty result returned no rows when a later re-read fails', async () => {
+      mockGetResults.mockResolvedValue(ok({columns: [{name: 'region', type: 'varchar'}], rows: []}));
+      seedSingle('SELECT 1');
+      const {user, queryClient} = renderWorkspace();
+      await runOnce(user);
+      await screen.findByText('No rows returned.');
+      mockGetResults.mockResolvedValue(fail('raw: results read refused for alice', 'NetworkError'));
+
+      await act(async () => {
+        await queryClient.refetchQueries({predicate: (q) => q.queryKey.includes('results')});
+        // TanStack notifies observers on a later tick; the page must have re-rendered on the error.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(screen.getByText('No rows returned.')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Can’t reach the server. Check your connection and try again.')
+      ).not.toBeInTheDocument();
     });
 
     it('fetches page 2 with the NextToken and renders it', async () => {
