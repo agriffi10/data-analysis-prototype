@@ -20,9 +20,11 @@ Attributes:
   LAMBDAS: The tree the sweep walks.
   NOT_OURS: Directory names holding code this repo does not write.
   SUPPORT_FILES: Non-test basenames that exist only to serve the suites.
-  DIRECTIVE: The whole of a comment that is a lint directive: the directive and its codes, then
-    optionally `` - `` and one clause of at most ``REASON_CHARS`` characters with no sentence break
-    in it, so a reason cannot grow into a paragraph behind a directive.
+  DIRECTIVE: The whole of a comment that is a lint directive. A ``noqa`` names its codes and may
+    add `` - `` and one clause of at most ``REASON_CHARS`` characters holding none of ``. ; ? ! #``,
+    so a reason cannot grow into a paragraph or smuggle a second comment behind a directive. A
+    ``type: ignore`` takes nothing after its codes, because mypy refuses the whole comment then
+    and reports the error it was meant to suppress.
   REASON_CHARS: The longest reason a directive may carry.
 """
 
@@ -39,8 +41,8 @@ NOT_OURS = frozenset({"__pycache__", "node_modules", "build", "dist", "venv", ".
 SUPPORT_FILES = frozenset({"conftest.py", "fakes.py"})
 REASON_CHARS = 80
 DIRECTIVE = re.compile(
-    r"#\s*(?:noqa: [A-Z]+[0-9]+(?:, ?[A-Z]+[0-9]+)*|type: ignore\[[a-z-]+(?:, ?[a-z-]+)*\])"
-    rf"(?: - [^.;]{{1,{REASON_CHARS}}})?\s*$"
+    rf"#\s*(?:noqa: [A-Z]+[0-9]+(?:, ?[A-Z]+[0-9]+)*(?: - [^.;?!#]{{1,{REASON_CHARS}}})?"
+    r"|type: ignore\[[a-z-]+(?:, ?[a-z-]+)*\])\s*$"
 )
 
 
@@ -215,6 +217,9 @@ def f(a):
         ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa: E501 - " + "w" * 81 + "\n", "comment"),
         ('"""M."""\n# noqa: E501 - a directive standing on its own line\n' + _DOCUMENTED, "comment"),
         ('"""M."""\n#!/bin/sh\n' + _DOCUMENTED, "comment"),
+        ('"""M."""\n' + _DOCUMENTED + "x = f(1)  # type: ignore[arg-type] - why\n", "comment"),
+        ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa: E501 - fine  # TODO: smuggled\n", "comment"),
+        ('"""M."""\n' + _DOCUMENTED + "x = 1  # noqa: E501 - why? because\n", "comment"),
         (
             '"""M."""\n'
             + _DOCUMENTED.replace("    Returns:", "    Yields:")
@@ -237,6 +242,9 @@ def f(a):
         "noqa-reason-too-long",
         "directive-on-its-own-line",
         "shebang-past-line-one",
+        "type-ignore-with-a-reason",
+        "second-comment-behind-a-reason",
+        "question-in-a-reason",
         "nested-generator-is-not-the-outer",
     ],
 )
