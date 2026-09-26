@@ -611,6 +611,80 @@ def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():
 _KEYS = [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4}]
 
 
+def _partitioned_live(year_range, **over):
+    """A partitioned live table whose projection range the test chooses."""
+    live = _live_table(PartitionKeys=[{"Name": "year", "Type": "int"}], **over)
+    live["Parameters"] = {
+        **live["Parameters"],
+        "projection.enabled": "true",
+        "projection.year.type": "integer",
+        "projection.year.range": year_range,
+        "projection.year.digits": "4",
+    }
+    return live
+
+
+def test_a_retype_over_a_table_another_writer_changed_is_abandoned_rather_than_written_over():
+    """The run loaded the table with years to 2100; while it inferred, the user widened the
+    projection to 2200. A retype keeps the column NAMES, so a check on names alone read the moved
+    stamp as this run's own landed update and wrote 2100 back — every partition past it gone from
+    every query. The live table must carry exactly what this run writes for that reading to hold."""
+    glue, _sqs = _install(table=_partitioned_live("2000,2200", UpdateTime="2026-03-01T00:00:00Z"))
+    event = _event(
+        observedUpdateTime="2026-02-01T00:00:00Z",
+        partitionKeys=_KEYS,
+        columns=[{"name": "order_id", "type": "bigint"}],
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "table_changed_during_refresh"
+    assert glue.update_calls == []
+
+
+@pytest.mark.parametrize(
+    ("live_range", "live_type"),
+    [("2000,2200", "bigint"), ("2000,2100", "string")],
+    ids=["only-the-projection-moved", "only-a-type-moved"],
+)
+def test_either_half_of_what_the_refresh_writes_moving_underneath_it_abandons_the_write(
+    live_range, live_type
+):
+    """Each half on its own. The projection half is the real retry: this run's retype landed, the
+    user then widened the range, and the Lambda retried — the columns now match exactly and only
+    the projection says another writer was there."""
+    live = _partitioned_live(live_range, UpdateTime="2026-03-01T00:00:00Z")
+    live["StorageDescriptor"]["Columns"] = [{"Name": "order_id", "Type": live_type}]
+    glue, _sqs = _install(table=live)
+    event = _event(
+        observedUpdateTime="2026-02-01T00:00:00Z",
+        partitionKeys=_KEYS,
+        columns=[{"name": "order_id", "type": "bigint"}],
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "table_changed_during_refresh"
+    assert glue.update_calls == []
+
+
+def test_a_retry_after_this_runs_own_update_landed_rewrites_it_rather_than_refusing():
+    """The other half of the same check, and why it exists: a Lambda retry can re-run the verb
+    after its update committed, and the stamp it moved itself must not read as another writer."""
+    glue, _sqs = _install(table=_partitioned_live("2000,2100"))
+    event = _event(partitionKeys=_KEYS, columns=[{"name": "order_id", "type": "bigint"}])
+    m.handler(event, None)
+    glue.table = {**glue.table, "UpdateTime": "2026-03-01T00:00:00Z"}
+    glue.update_calls.clear()
+
+    result = m.handler({**event, "observedUpdateTime": "2026-02-01T00:00:00Z"}, None)
+
+    assert result["status"] == "refreshed"
+    assert len(glue.update_calls) == 1
+
+
 # ── SPEC-153 FR-006: the Athena case-fold premise, pinned ────────────────────
 
 

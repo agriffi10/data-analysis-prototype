@@ -48,6 +48,14 @@ Attributes:
         `role` is a reference to a role created beside it and is unknown by construction.
     PACKAGING_FIELDS: The three the cutover is ALLOWED to change. Named explicitly rather than
         skipping unknown keys, so a field nobody meant to move is still caught.
+    DELIBERATE_CHANGES: Captured fields moved ON PURPOSE since the fixture was frozen, as
+        ``(function, field) -> the value the plan must now carry``. The fixture stays frozen — it
+        is the record of what the cutover left, and re-capturing it would compare the code with
+        itself — so a deliberate move is named here instead, beside its reason, and is held to
+        EXACTLY the declared value: moving the field again, or anywhere else, still fails.
+        ``lambdas/test_lambda_plan_guard.py`` holds every entry to a captured function, a parity
+        field and a value that differs from the capture, and a ``timeout`` to the value its
+        function's ``locals.tf`` row sets; it resolves no other field and fails on one.
 """
 
 from __future__ import annotations
@@ -69,6 +77,10 @@ PARITY_FIELDS = (
 PACKAGING_FIELDS = ("package_type", "image_uri", "image_config")
 
 LITERAL_FIELDS = ("timeout", "memory_size", "architectures")
+
+DELIBERATE_CHANGES: dict[tuple[str, str], object] = {
+    ("dat-prod-archive-delete-source", "timeout"): 600,
+}
 
 
 def _has_unknown_leaf(marker) -> bool:
@@ -394,8 +406,9 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
             if (name, field) in unknown_fields:
                 continue
             got = _comparable(field, entry["after"].get(field))
-            if got != want[field]:
-                problems.append(f"{name}: {field} moved from {want[field]!r} to {got!r}")
+            expected = DELIBERATE_CHANGES.get((name, field), want[field])
+            if got != expected:
+                problems.append(f"{name}: {field} moved from {expected!r} to {got!r}")
 
     return problems
 

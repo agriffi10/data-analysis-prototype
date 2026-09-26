@@ -9,7 +9,8 @@ user is told nothing at all. So the plan goes to the admin bucket and its KEY is
 onward, with the count and the byte total beside it.
 
 This module owns **every** admin-bucket key layout on this plane — the two plans, the two
-transfer manifests, the poll's progress record and the three Map Run result exports — for
+transfer manifests, the poll's progress record, the three Map Run result exports, the claim and
+delete-source's decision record — for
 The reason: one module, one place a key can be wrong. Where they live is this plane's
 business; a manifest's BYTES and an export's reader belong to ``cpcommon.transfer``, which is
 shared with table-share and file-send.
@@ -74,6 +75,13 @@ Attributes:
     copy plan, under the same request folder, so the plane's existing admin-bucket grant and the
     bucket's existing expiry rule both already cover it — a claim outside either would deny every
     archive, or never expire, and neither would look wrong in review.
+  DECISION_BASENAME: delete-source's recorded verdict — delete the originals, or refuse and remove
+    the vault copy — written create-only before either is acted on. A Retry after the first
+    attempt acted part way must follow that verdict rather than re-decide, because the two paths
+    undo each other's premise: a refusal that follows a partial deletion removes the only copy of
+    what was deleted, and a deletion that follows a partial refusal deletes originals whose copy
+    is half gone. Beside the claim, so the grant and the expiry that cover it cover this too.
+  DECISIONS: The three verdicts a decision record may carry.
   RESTORE_RESULTS_FOLDER: The copy-back Map's export folder, which the collector DOES read.
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
@@ -115,6 +123,8 @@ from .config import (
 PREFIX = "archive"
 BASENAME = "copy-plan.json"
 CLAIM_BASENAME = "claim.json"
+DECISION_BASENAME = "source-decision.json"
+DECISIONS = frozenset({"delete", "refuse", "unconfirmed"})
 RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESTORE_MANIFEST_BASENAME = "restore-manifest.jsonl"
@@ -303,6 +313,107 @@ def claim_archive_id(request: dict) -> None:
                 "request_id_reused",
                 f"{key} is held by another execution, so this request id has been used before",
             ) from err
+
+
+def source_decision_key(request: dict) -> str:
+    """Derives the key of delete-source's recorded verdict, beside the claim.
+
+    Args:
+      request: The running archive request.
+
+    Returns:
+      The decision key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'source decision')}{DECISION_BASENAME}"
+
+
+def read_source_decision(request: dict) -> dict | None:
+    """Reads delete-source's recorded verdict, or None when there is none to follow.
+
+    A denial reads as absent, and that is safe for the same reason it is for the claim: the only
+    thing done on None is a CREATE-ONLY write, which a present-but-unreadable record refuses, and
+    the refusal is then read again rather than overwritten.
+
+    Args:
+      request: The running archive request.
+
+    Returns:
+      ``{"decision", "changed"}`` when a well-formed record is there, else None.
+
+    Raises:
+      TransientError: On a retryable S3 fault — a record that might be there must not be decided
+        over.
+      TerminalError: ``malformed_event`` from the key derivation.
+    """
+    key = source_decision_key(request)
+    try:
+        raw = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
+    except Exception as err:  # noqa: BLE001 - absent or unreadable is answered by a create-only write
+        errors.raise_if_transient(err, f"read decision {cpconfig.ADMIN_BUCKET}/{key}")
+        return None
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(document, dict) or not events.in_vocabulary(document.get("decision"), DECISIONS):
+        return None
+    changed = document.get("changed")
+    if not isinstance(changed, int) or isinstance(changed, bool) or changed < 0:
+        return None
+    return {"decision": document["decision"], "changed": changed}
+
+
+def record_source_decision(request: dict, decision: str, changed: int) -> tuple[dict, bool]:
+    """Records delete-source's verdict create-only, or returns the one an earlier attempt recorded.
+
+    Args:
+      request: The running archive request, carrying the stamped execution.
+      decision: One of ``DECISIONS``.
+      changed: How many originals the verdict found changed since the plan.
+
+    Returns:
+      ``(record, written)`` — the verdict to act on, and whether THIS call wrote it. An earlier
+      attempt's record wins over this one's, whatever it says.
+
+    Raises:
+      TransientError: When a concurrent write interrupted the create, when the record that
+        refused it cannot be read, or on a retryable S3 fault.
+      TerminalError: ``malformed_event`` from the key derivation.
+    """
+    key = source_decision_key(request)
+    body = json.dumps(
+        {
+            "decision": decision,
+            "changed": changed,
+            "execution": (request.get("execution") or {}).get("name"),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except Exception as err:
+        if cas.is_conditional_conflict(err):
+            raise TransientError(f"the decision write for {key} was interrupted") from err
+        if not cas.is_precondition_failed(err):
+            errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+            raise
+        earlier = read_source_decision(request)
+        if earlier is None:
+            raise TransientError(
+                f"{key} holds an earlier verdict that could not be read, and it is never replaced"
+            ) from err
+        return earlier, False
+    return {"decision": decision, "changed": changed}, True
 
 
 def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: int) -> str:
@@ -714,7 +825,8 @@ def _expand_item(bucket: str, root: str, entry: dict):
       entry: One normalised selection item.
 
     Yields:
-      ``(rel_key, size)`` per resolved object.
+      ``(rel_key, size, etag)`` per resolved object — the tag the object carried when it was
+      planned, which is what delete-source compares before it removes the original.
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, or ``forbidden`` for a listed key
@@ -729,16 +841,17 @@ def _expand_item(bucket: str, root: str, entry: dict):
     if entry["kind"] == "file":
         assert_inside_root(root, key)
         _assert_deletable_folder(root, key)
-        size = s3_listing.object_size(bucket, key, missing_reason="source_missing")
-        if not exclude(key, size, key):
-            yield _assert_not_the_record(key[len(root):]), size
+        head = s3_listing.object_record(bucket, key, missing_reason="source_missing")
+        if not exclude(key, head["size"], key):
+            yield _assert_not_the_record(key[len(root):]), head["size"], head["etag"]
         return
-    for object_key, size in s3_listing.list_data_objects(bucket, key, ignore=exclude):
+    for record in s3_listing.list_data_records(bucket, key, ignore=exclude):
+        object_key = record["key"]
         assert_inside_root(root, object_key)
         _assert_deletable_folder(root, object_key)
         relative = object_key[len(root):]
         if relative:
-            yield _assert_not_the_record(relative), size
+            yield _assert_not_the_record(relative), record["size"], record["etag"]
 
 
 def expand(source: dict) -> tuple[list, int]:
@@ -762,9 +875,10 @@ def expand(source: dict) -> tuple[list, int]:
       source: The authorized source, carrying the bucket, root and normalised items.
 
     Returns:
-      ``(objects, total_bytes)``, each object carrying its key relative to the space root and its
-      size. Folder placeholders are CARRIED (so an archived empty folder is restorable) and
-      counted, and contribute zero bytes because that is what they hold.
+      ``(objects, total_bytes)``, each object carrying its key relative to the space root, its
+      size and the ETag the listing or head reported. Folder placeholders are CARRIED (so an
+      archived empty folder is restorable) and counted, and contribute zero bytes because that is
+      what they hold.
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, ``object_too_large``,
@@ -778,7 +892,7 @@ def expand(source: dict) -> tuple[list, int]:
     objects: list = []
     total_bytes = 0
     for entry in source["items"]:
-        for rel_key, size in _expand_item(bucket, root, entry):
+        for rel_key, size, etag in _expand_item(bucket, root, entry):
             if rel_key in seen:
                 continue
             if size > ARCHIVE_MAX_OBJECT_BYTES:
@@ -788,7 +902,7 @@ def expand(source: dict) -> tuple[list, int]:
                     f"{ARCHIVE_MAX_OBJECT_BYTES}",
                 )
             seen.add(rel_key)
-            objects.append({"relKey": rel_key, "bytes": size})
+            objects.append({"relKey": rel_key, "bytes": size, "etag": etag})
             total_bytes += size
             if len(objects) > ARCHIVE_MAX_OBJECTS:
                 raise TerminalError(
@@ -922,7 +1036,7 @@ def write(request: dict, source: dict, actor: str, objects: list, total_bytes: i
         destination.
       source: The authorized source, carrying the bucket and root.
       actor: The verified actor, recorded for diagnosis.
-      objects: The expanded objects, each carrying its relative key and size.
+      objects: The expanded objects, each carrying its relative key, size and planned ETag.
       total_bytes: How many bytes those objects hold.
 
     Returns:

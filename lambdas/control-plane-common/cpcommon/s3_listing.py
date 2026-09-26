@@ -1,5 +1,5 @@
-"""Paginated S3 listing, the size of one named object, and the shared rules for what counts
-as a data object.
+"""Paginated S3 listing, the size and tag of one named object, and the shared rules for what
+counts as a data object.
 
 The reads sit together because every plane that expands a selection into a copy plan needs them:
 a listing for a folder item and a head for a file item, which costs its own serial ``HeadObject``.
@@ -172,8 +172,13 @@ def list_data_objects(
         yield (key[len(prefix):] if relative else key), record["size"]
 
 
-def object_size(bucket: str, key: str, *, missing_reason: str) -> int:
-    """Reads one selected file's size, or fails the request naming it.
+def object_record(bucket: str, key: str, *, missing_reason: str) -> dict:
+    """Reads one selected file's size and ETag, or fails the request naming it.
+
+    ``list_data_records``' counterpart for a file item, and for the same reason: a plane that
+    deletes what it copied needs the tag the object carried when it was planned, so that the
+    deletion can refuse an object rewritten since — and the head that measures the size already
+    returned it.
 
     A file item costs its own serial ``HeadObject`` where a folder item costs one listing page
     per thousand objects, which is why a plane's per-item timeout is sized against the number of
@@ -187,14 +192,37 @@ def object_size(bucket: str, key: str, *, missing_reason: str) -> int:
         for every other reason code this layer takes.
 
     Returns:
-      The object's size in bytes.
+      ``{"size", "etag"}``, the tag None when the response carried none.
 
     Raises:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
       TerminalError: ``missing_reason``, naming the key, when the object is absent or unreadable.
     """
     try:
-        return int(clients.s3().head_object(Bucket=bucket, Key=key)["ContentLength"])
+        head = clients.s3().head_object(Bucket=bucket, Key=key)
     except Exception as err:
         errors.raise_if_transient(err, f"head {bucket}/{key}")
         raise TerminalError(missing_reason, f"{key!r}: {err}") from err
+    return {"size": int(head["ContentLength"]), "etag": head.get("ETag")}
+
+
+def object_size(bucket: str, key: str, *, missing_reason: str) -> int:
+    """Reads one selected file's size, or fails the request naming it.
+
+    ``object_record`` projected onto the size, so there is one head and one classification of
+    its faults.
+
+    Args:
+      bucket: The source bucket.
+      key: The selected file's key.
+      missing_reason: The caller's registered terminal reason for a source object that cannot be
+        read.
+
+    Returns:
+      The object's size in bytes.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
+      TerminalError: ``missing_reason``, naming the key, when the object is absent or unreadable.
+    """
+    return int(object_record(bucket, key, missing_reason=missing_reason)["size"])

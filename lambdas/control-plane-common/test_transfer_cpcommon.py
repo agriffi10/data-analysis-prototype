@@ -64,15 +64,17 @@ class _FakeS3:
         self.heads = []
         self.copy_error = copy_error
         self.get_error = get_error
-        # What HeadObject reports for a source object. Empty by default: the multipart path
-        # re-states only what the source actually carries, so the default case must produce a
-        # CreateMultipartUpload identical to the one that shipped before SPEC-171.
-        self.source_headers = source_headers or {}
+        # What HeadObject reports for a source object. No carried header by default: the
+        # multipart path re-states only what the source actually carries, so the default case must
+        # produce a CreateMultipartUpload identical to the one that shipped before SPEC-171. The
+        # length and tag are what every multipart test here copies — the parts cover the length
+        # the head reports and are pinned to its tag.
+        self.source_headers = {"ContentLength": 6 * GIB, "ETag": '"src"', **(source_headers or {})}
         self._uploads = 0
 
     def head_object(self, **kwargs):
         self.heads.append(kwargs)
-        return {"ContentLength": 0, **self.source_headers}
+        return dict(self.source_headers)
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
@@ -489,8 +491,8 @@ def test_every_item_is_copied_to_its_own_destination():
 
 
 def test_a_large_object_still_multipart_copies():
-    fake = _setup()
     size = 5 * GIB + 512
+    fake = _setup(source_headers={"ContentLength": size, "ETag": '"src"'})
     copy_mod.copy_batch([_item(rel="big.parquet", size=size)], _FAILED, echo_fields=_ECHO)
 
     parts = [c for c in fake.multipart if "PartNumber" in c and "complete" not in c]
@@ -1413,6 +1415,8 @@ class _ConditionalS3:
         self._maybe_transient(Key)
         self._refuse_if_taken(kwargs, Bucket, Key)
         source = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        if kwargs.get("CopySourceIfMatch") not in (None, source["ETag"]):
+            raise _S3Error("PreconditionFailed")
         self.objects[(Bucket, Key)] = {
             **source,
             "ETag": _single_etag(source["body"]),
@@ -1430,9 +1434,14 @@ class _ConditionalS3:
         }
         return {"UploadId": upload_id}
 
-    def upload_part_copy(self, Bucket, Key, UploadId, PartNumber, CopySource, CopySourceRange):
+    def upload_part_copy(
+        self, Bucket, Key, UploadId, PartNumber, CopySource, CopySourceRange, **kwargs
+    ):
+        source = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        if kwargs.get("CopySourceIfMatch") not in (None, source["ETag"]):
+            raise _S3Error("PreconditionFailed")
         start, end = (int(n) for n in CopySourceRange.removeprefix("bytes=").split("-"))
-        chunk = self.objects[(CopySource["Bucket"], CopySource["Key"])]["body"][start : end + 1]
+        chunk = source["body"][start : end + 1]
         self._uploads[UploadId]["parts"].append(chunk)
         return {"CopyPartResult": {"ETag": _single_etag(chunk)}}
 
@@ -1511,6 +1520,96 @@ def test_a_batch_RETRIED_after_a_transient_fault_reports_its_own_earlier_writes_
 
     assert conditional.writes.count("alice/a.csv") == 1, "the first attempt did not land"
     assert out == {"copied": 2, "failures": []}
+
+
+def _plain_line(key, size, dest):
+    return {"srcBucket": "user-bkt", "srcKey": key, "destBucket": "user-bkt", "destKey": dest, "size": size}
+
+
+def test_a_multipart_copy_of_a_source_that_GREW_since_the_plan_copies_all_of_it(conditional):
+    """The plan measured twelve bytes and the source now holds sixteen. Copying the ranges the
+    plan measured delivered the first twelve and counted the file copied; the parts cover what
+    the head reports instead, so the destination is the source as it is, whole."""
+    conditional.seed("user-bkt", "alice/big.csv", b"abcdefghijklmnop")
+
+    out = copy_mod.copy_batch(
+        [_plain_line("alice/big.csv", 12, "bob/big.csv")], _FAILED, echo_fields=()
+    )
+
+    assert out == {"copied": 1, "failures": []}
+    assert conditional.objects[("user-bkt", "bob/big.csv")]["body"] == b"abcdefghijklmnop"
+
+
+@pytest.mark.parametrize("if_absent", [False, True], ids=["unconditional", "conditional"])
+def test_a_source_rewritten_between_two_part_copies_fails_its_item_and_writes_nothing(
+    conditional, if_absent
+):
+    """Unpinned, the first part came from one version and the rest from the next, and the
+    spliced file — which never existed — was counted copied. Every part is conditioned on the tag
+    the head read, so the rewrite fails the item and the upload is abandoned. On a line that asked
+    not to overwrite, the part copy's 412 is about the SOURCE, so it is a failed copy and never a
+    destination reported as occupied."""
+    conditional.seed("user-bkt", "alice/big.csv", b"abcdefghijkl")
+    real_part_copy = conditional.upload_part_copy
+
+    def rewrite_after_the_first_part(**kwargs):
+        result = real_part_copy(**kwargs)
+        conditional.seed("user-bkt", "alice/big.csv", b"ABCDEFGHIJKL")
+        return result
+
+    conditional.upload_part_copy = rewrite_after_the_first_part
+
+    out = copy_mod.copy_batch(
+        [{**_plain_line("alice/big.csv", 12, "bob/big.csv"), "ifAbsent": if_absent}],
+        _FAILED,
+        echo_fields=(),
+        occupied_reason=_OCCUPIED,
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
+    assert ("user-bkt", "bob/big.csv") not in conditional.objects
+    assert conditional.aborted == ["bob/big.csv"]
+
+
+@pytest.mark.parametrize("size", [6, 12], ids=["single-copy", "multipart-copy"])
+def test_a_line_pinned_to_its_planned_version_fails_when_the_source_has_moved_on(conditional, size):
+    """The archive deletes the original after copying it, so the vault must hold the version the
+    plan listed and not whatever is current: a source rewritten since the plan fails its item on
+    both paths, and nothing lands."""
+    conditional.seed("user-bkt", "alice/a.csv", b"x" * size)
+    planned = conditional.objects[("user-bkt", "alice/a.csv")]["ETag"]
+    conditional.seed("user-bkt", "alice/a.csv", b"y" * size)
+
+    out = copy_mod.copy_batch(
+        [{**_plain_line("alice/a.csv", size, "vault/a.csv"), "srcEtag": planned}],
+        _FAILED,
+        echo_fields=(),
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
+    assert ("user-bkt", "vault/a.csv") not in conditional.objects
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"srcEtag": "CURRENT", "ifAbsent": True}, {"srcEtag": ""}, {"srcEtag": 7}],
+    ids=["pinned-and-conditional", "empty-pin", "non-string-pin"],
+)
+def test_a_pin_that_cannot_be_honoured_fails_its_item_and_issues_no_copy(conditional, extra):
+    """A 412 cannot say which of two conditions refused, so a line asking for both is refused
+    before S3 is asked — pinned to the source's CURRENT tag here, so that anything short of the
+    refusal would land the copy; and a pin that is not a tag is a line that meant something it
+    did not say."""
+    conditional.seed("user-bkt", "alice/a.csv", b"abcdef")
+    if extra.get("srcEtag") == "CURRENT":
+        extra = {**extra, "srcEtag": conditional.objects[("user-bkt", "alice/a.csv")]["ETag"]}
+
+    out = copy_mod.copy_batch(
+        [{**_plain_line("alice/a.csv", 6, "vault/a.csv"), **extra}], _FAILED, echo_fields=()
+    )
+
+    assert out == {"copied": 0, "failures": [{"reason": _FAILED}]}
+    assert conditional.writes == []
 
 
 def test_a_destination_holding_DIFFERENT_bytes_is_occupied_and_is_never_written_over(conditional):

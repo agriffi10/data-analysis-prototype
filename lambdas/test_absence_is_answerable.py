@@ -128,6 +128,7 @@ DISPOSITIONS = {
     "lambdas/data-quality-inspect-source/dq_inspect_source.py::_resolve_listing_prefix": LIST_GRANT,
     "lambdas/file-ops-check-destinations/file_ops_check_destinations.py::_occupied": LIST_GRANT,
     "lambdas/file-ops-common/focommon/delete.py::compare": LIST_GRANT,
+    "lambdas/archive-common/arcommon/delete.py::verdict": LIST_GRANT,
     "lambdas/file-ops-inspect-source/file_ops_inspect_source.py::_head": LIST_GRANT,
     # A denial and an absence take the same branch, and the branch is safe either way: the write
     # that follows is create-only, so a present-but-unreadable object fails its precondition
@@ -184,6 +185,11 @@ DISPOSITIONS = {
     # archive id, which is this plane's unrecoverable case. A throttle raises instead, so a
     # run that may well hold the claim is asked again rather than refused.
     "lambdas/archive-common/arcommon/plan.py::_claim_holder": DENIAL_IS_ABSENT,
+    # delete-source's recorded verdict. A denied read answers "no record", and the only thing done
+    # on that is a CREATE-ONLY write, which a record that is there refuses — the refusal is then
+    # read again, and a record that still cannot be read raises rather than being decided over.
+    "lambdas/archive-common/arcommon/plan.py::read_source_decision": DENIAL_IS_ABSENT,
+    "lambdas/archive-common/arcommon/plan.py::record_source_decision": DENIAL_IS_ABSENT,
 }
 
 

@@ -38,8 +38,11 @@ class _S3Error(Exception):
 class _FakeS3:
     """An S3 that pages at a configurable size, so the paginator is genuinely exercised."""
 
-    def __init__(self, objects, page_size=1000, put_error=None, get_body=None, get_error=None):
+    def __init__(
+        self, objects, page_size=1000, put_error=None, get_body=None, get_error=None, etags=None
+    ):
         self._objects = objects
+        self._etags = etags or {}
         self._page_size = page_size
         self._put_error = put_error
         self._get_body = get_body
@@ -57,7 +60,7 @@ class _FakeS3:
                     fake.pages_served += 1
                     yield {
                         "Contents": [
-                            {"Key": k, "Size": s}
+                            {"Key": k, "Size": s, **({"ETag": fake._etags[k]} if k in fake._etags else {})}
                             for k, s in matching[start : start + fake._page_size]
                         ]
                     }
@@ -67,7 +70,7 @@ class _FakeS3:
     def head_object(self, Bucket, Key):
         if Key not in self._objects:
             raise _S3Error("NoSuchKey")
-        return {"ContentLength": self._objects[Key]}
+        return {"ContentLength": self._objects[Key], **({"ETag": self._etags[Key]} if Key in self._etags else {})}
 
     def put_object(self, Bucket, Key, Body, ContentType):
         if self._put_error:
@@ -174,9 +177,11 @@ def test_every_artifact_of_one_run_shares_its_folder_and_none_collides():
         plan.transfer_results_prefix(request),
         plan.retrieval_results_prefix(request),
         plan.restore_results_prefix(request),
+        plan.claim_key(request),
+        plan.source_decision_key(request),
     }
 
-    assert len(keys) == 8
+    assert len(keys) == 10
     assert all(key.startswith(f"archive/{request['requestId']}/") for key in keys)
 
 
@@ -284,6 +289,28 @@ def test_a_folder_placeholder_is_carried_and_counts_but_weighs_nothing():
 
     assert {entry["relKey"] for entry in objects} == {"reports/empty/", "reports/a.csv"}
     assert total == 5
+
+
+def test_every_planned_object_carries_the_tag_it_was_listed_or_headed_with():
+    """What delete-source compares before it removes an original, and the only moment it can be
+    had cheaply: the listing and the file head already returned it. A folder's objects take the
+    listing's tag and a selected file takes its head's, so both paths are driven."""
+    _install(
+        {"alice/reports/a.csv": 5, "alice/notes.txt": 2},
+        etags={"alice/reports/a.csv": '"listed"', "alice/notes.txt": '"headed"'},
+    )
+
+    objects, _ = plan.expand(
+        _source([
+            {"kind": "folder", "key": "alice/reports/"},
+            {"kind": "file", "key": "alice/notes.txt"},
+        ])
+    )
+
+    assert objects == [
+        {"relKey": "reports/a.csv", "bytes": 5, "etag": '"listed"'},
+        {"relKey": "notes.txt", "bytes": 2, "etag": '"headed"'},
+    ]
 
 
 def test_a_hidden_or_underscore_folder_is_the_users_own_and_is_archived():
@@ -810,3 +837,43 @@ def test_the_claim_sits_under_the_prefix_the_grant_and_the_lifecycle_rule_alread
     assert plan.claim_key(request) == plan.plan_key(request).replace(
         plan.BASENAME, plan.CLAIM_BASENAME
     )
+
+
+class _RecordS3:
+    """An admin bucket that honours create-only writes, for the decision record."""
+
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
+        if IfNoneMatch == "*" and Key in self.objects:
+            raise _S3Error("PreconditionFailed")
+        self.objects[Key] = Body
+
+    def get_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise _S3Error("AccessDenied")
+
+        class _Body:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+        return {"Body": _Body(self.objects[Key])}
+
+
+def test_an_earlier_attempts_verdict_wins_over_a_later_one_whatever_either_says():
+    """The record exists so a Retry finishes what its first attempt began rather than deciding
+    again: a second verdict meets the first, and gets the first back."""
+    clients._s3 = _RecordS3()
+    request = {**_request(), "execution": {"name": "exec-1"}}
+
+    first = plan.record_source_decision(request, "delete", 0)
+    second = plan.record_source_decision(request, "refuse", 2)
+
+    assert first == ({"decision": "delete", "changed": 0}, True)
+    assert second == ({"decision": "delete", "changed": 0}, False)
+    assert plan.read_source_decision(request) == {"decision": "delete", "changed": 0}
+

@@ -30,7 +30,14 @@ def _sent(sqs):
 
 
 def _seed_full_space(
-    s3, glue, cognito, name="sales", members=("alice", "bob"), status="active", ever_active=None
+    s3,
+    glue,
+    cognito,
+    name="sales",
+    members=("alice", "bob"),
+    status="active",
+    ever_active=None,
+    own_database=True,
 ):
     owner = members[0]
     record = {
@@ -48,8 +55,11 @@ def _seed_full_space(
     s3.store[("shared-bkt", f"{name}/DO_NOT_DELETE.txt")] = b"marker"
     s3.store[("shared-bkt", f"{name}/data/file.csv")] = b"data"
     s3.store[("shared-bkt", f"{name}/athenaresults/alice/q.csv")] = b"result"
-    glue.databases.add(name)
-    glue.tables[name] = ["t1", "t2"]
+    if own_database:
+        glue.seed_space_database(name, ["t1", "t2"])
+    else:
+        glue.databases.add(name)
+        glue.tables[name] = ["t1", "t2"]
     cognito.users = {}
     for m in members:
         cognito.users[m] = {"custom:shared_space_1": name}
@@ -130,6 +140,37 @@ def test_a_never_active_space_is_still_destroyed_and_its_name_freed():
     assert "sales" not in glue.databases and "sales" not in glue.tables
     assert len(lf.revokes) == 2
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_a_never_usable_space_named_after_a_user_leaves_that_users_database_alone():
+    """The failed create of space ``alice`` holds a record, a prefix and a slot — and alice's
+    personal database under the same name, which it never made. Tearing the space down removes
+    what the space owns; revoking on or dropping that database would take every table alice has."""
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, name="alice", members=("mallory",), status="failed", own_database=False)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/alice.json")])
+
+    d.delete_space("alice", "mallory", "req-d", reg)
+
+    assert "alice" in glue.databases and glue.tables["alice"] == ["t1", "t2"]
+    assert lf.revokes == []
+    assert ("admin-bkt", "shared-spaces/alice.json") not in s3.store
+
+
+def test_a_database_whose_owner_cannot_be_read_keeps_its_grants(monkeypatch):
+    """The revoke is best-effort and raises nothing, so a fault reading whose database it is must
+    not fall through to revoking: those could be another tenant's grants."""
+    _s3, glue, lf, _cognito = install()
+    glue.seed_space_database("sales")
+
+    def unreadable(**kwargs):
+        raise RuntimeError("glue is unavailable")
+
+    monkeypatch.setattr(glue, "get_database", unreadable)
+
+    teardown.revoke_portal_role("sales")
+
+    assert lf.revokes == []
 
 
 def test_an_ever_active_space_that_is_now_failed_is_emptied_not_destroyed():

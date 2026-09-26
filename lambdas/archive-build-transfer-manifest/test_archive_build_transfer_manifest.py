@@ -111,6 +111,22 @@ def test_every_line_carries_the_storage_class_from_the_one_definition():
     assert out["transfer"]["fileCount"] == 1
 
 
+def test_every_line_is_pinned_to_the_version_its_plan_listed():
+    """The vault must hold the version delete-source checks the original against, so each line
+    carries the plan's tag as ``srcEtag``; an entry the plan recorded no tag for is left unpinned,
+    and delete-source keeps that original rather than guessing."""
+    fake = _install(
+        _plan([
+            {"relKey": "reports/2026/q1.csv", "bytes": 90_112, "etag": '"q1"'},
+            {"relKey": "reports/empty/", "bytes": 0},
+        ])
+    )
+
+    m.handler(_event(), None)
+
+    assert [line.get("srcEtag") for line in _lines(fake)] == ['"q1"', None]
+
+
 def test_a_plan_short_of_its_recorded_count_is_refused_before_a_line_is_written():
     """The shape that would otherwise produce a manifest short of its lines, a copy that
     succeeded over it, a commit gate that agreed with both, and a deletion of a source the

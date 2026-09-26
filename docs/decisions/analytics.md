@@ -404,8 +404,11 @@ alternative is a table that can never be refreshed again.
 `UpdateTime` captured at the start of the run against its own pre-write read. **A moved stamp is not by
 itself another writer** — the state retries on faults that can fire *after* the update committed, so
 the retry re-reads a table whose stamp this run moved; judging on the stamp alone failed a run that had
-already succeeded and sent the user a notification contradicting the success one. The columns settle
-it: a live table already carrying what this run intends to write was written by this run.
+already succeeded and sent the user a notification contradicting the success one. What the run writes
+settles it: a live table already carrying exactly those columns, types and projection properties is
+one the update cannot change. **It is everything the write owns, not the column names** — a name-only
+check, found by an audit on 2026-09-26, read any moved stamp as this run's own whenever a refresh only
+retyped, and wrote the loaded projection back over a range the user had widened meanwhile.
 
 Full account: `docs/spec-delivery/SPEC-157-serialize-concurrent-table-refresh.md`.
 

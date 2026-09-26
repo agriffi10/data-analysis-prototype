@@ -42,8 +42,7 @@ def test_forget_own_failed_space_tears_down_resources_and_frees_name():
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed", "reason": "boom"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
     s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
-    glue.databases.add("sales")
-    glue.tables["sales"] = ["t1"]
+    glue.seed_space_database("sales", ["t1"])
     _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed", "reason": "boom"}])
 
     out = f.forget_space("sales", "alice", "req-f", registry)
@@ -78,8 +77,7 @@ def test_forget_multi_member_failed_space_clears_every_slot_BEFORE_the_name_is_f
     }
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
     s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
-    glue.databases.add("sales")
-    glue.tables["sales"] = ["t1"]
+    glue.seed_space_database("sales", ["t1"])
     for m in members:
         _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
 
@@ -112,7 +110,7 @@ def test_forget_teardown_fault_leaves_the_actors_card_so_the_verb_can_be_retried
     cognito.users = {m: {"custom:shared_space_1": "sales"} for m in members}
     registry = {"name": "sales", "owner": "alice", "members": list(members), "status": "failed"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     for m in members:
         _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
 
@@ -138,7 +136,7 @@ def test_forget_teardown_index_fanout_covers_the_owner_even_if_members_omits_the
     cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob")}
     registry = {"name": "sales", "owner": "alice", "members": ["bob"], "status": "failed"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     for m in ("alice", "bob"):
         s3.store[("admin-bkt", f"memberships/{m}.json")] = json.dumps(
             {"version": 1, "username": m, "spaces": [{"name": "sales", "status": "active"}]}
@@ -156,7 +154,7 @@ def test_forget_refuses_active_space_owner():
     s3, glue, _lf, _cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "active"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     raises(lambda: f.forget_space("sales", "alice", "req-f", registry), AuthorizationError, "active")
     # Nothing torn down.
     assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
@@ -181,7 +179,7 @@ def test_forget_refuses_an_active_space_on_a_string_roster_it_cannot_membership_
     s3, glue, _lf, _cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": "alice,bob", "status": "active"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
 
     raises(
         lambda: f.forget_space("sales", "ali", "req-f", registry),
@@ -232,7 +230,7 @@ def test_forget_tears_down_a_never_active_space_whose_roster_is_unreadable():
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
     registry = {"name": "sales", "owner": "alice", "members": "alice", "status": "failed"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
 
     result = f.forget_space("sales", "alice", "req-f", registry)
 
@@ -245,7 +243,7 @@ def test_forget_still_refuses_a_real_member_of_a_live_space():
     s3, glue, _lf, _cognito = install()
     registry = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
 
     raises(
         lambda: f.forget_space("sales", "bob", "req-f", registry),
@@ -282,7 +280,7 @@ def test_forget_teardown_clears_EVERY_members_index_because_it_frees_the_name():
             {"version": 1, "username": member, "spaces": [{"name": "sales", "status": "active"}]}
         ).encode()
     _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed"}])
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
 
     assert f.forget_space("sales", "alice", "req-f", registry)["mode"] == "teardown"
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
@@ -316,7 +314,7 @@ def test_forget_as_the_OWNER_of_a_was_active_now_failed_space_tears_down_NOTHING
         {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "failed", "everActive": True}
     ).encode()
     s3.store[("shared-bkt", "sales/data/file.csv")] = b"data"
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] = json.dumps(
         {"version": 1, "connections": [{"name": "sales", "role": "owner", "status": "failed"}]}
     ).encode()
@@ -343,7 +341,7 @@ def test_forget_raises_when_the_record_reappears_after_the_name_is_freed():
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
     registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed"}])
     real_delete = forget_registry.delete
 
@@ -370,7 +368,7 @@ def test_forget_teardown_clears_a_member_the_validator_never_saw():
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
         {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "failed"}
     ).encode()
-    glue.databases.add("sales")
+    glue.seed_space_database("sales")
     for m in ("alice", "bob"):
         _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
     stale_event_copy = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}

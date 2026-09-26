@@ -18,8 +18,7 @@ def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
         {"name": name, "owner": owner, "members": list(members), "status": "active", "createdAt": "t0"}
     ).encode()
     s3.store[("shared-bkt", f"{name}/DO_NOT_DELETE.txt")] = b"marker"
-    glue.databases.add(name)
-    glue.tables[name] = ["t1", "t2"]
+    glue.seed_space_database(name, ["t1", "t2"])
     cognito.users = {}
     for m in members:
         cognito.users[m] = {"custom:shared_space_1": name}

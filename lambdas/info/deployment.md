@@ -159,6 +159,14 @@ agrees with Terraform's own evaluator" rather than a comparison of a list with i
 4. Extend the deploy role for any new actions — [`../../infra/info/deploy-role-iam.md`](../../infra/info/deploy-role-iam.md).
 5. Add a row to [`INDEX.md`](INDEX.md).
 
+**Changing an EXISTING function's timeout, memory, role or other parity field** fails the same plan
+guard, and only in CI — the capture is frozen, so every captured field is pinned to what the cutover
+left. Declare the move in `DELIBERATE_CHANGES` in `.github/scripts/lambda_plan_guard.py`, with the
+new value: the declaration is a new pin, not a waiver. `test_lambda_plan_guard.py` ties a declared
+`timeout` to the function's row in its module's `locals.tf`; it cannot resolve any other field, or a
+function with no such row, and fails on one rather than passing it — extend the test when you need
+one.
+
 **The first `deploy-infra.yml` apply must precede `deploy-lambdas.yml`** — the function has to exist
 before code can be pointed at it.
 

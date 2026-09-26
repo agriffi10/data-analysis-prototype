@@ -46,6 +46,11 @@ def _items(loaded: dict) -> list:
     Args:
       loaded: The copy plan, carrying its source and archive locations and its objects.
 
+    Every line is pinned to the ETag the plan recorded, so the vault holds exactly the version
+    delete-source later checks the original against; a file changed before its copy fails that
+    item and the commit gate rolls the archive back. A plan entry with no tag gives an unpinned
+    line, and delete-source keeps that original.
+
     Returns:
       One transfer item per planned object, each flagged as a folder placeholder or not.
 
@@ -68,6 +73,7 @@ def _items(loaded: dict) -> list:
             "size": entry.get("bytes") or 0,
             "storageClass": ARCHIVE_STORAGE_CLASS,
             counts.FOLDER_FIELD: counts.is_folder_placeholder(entry["relKey"]),
+            **({"srcEtag": entry["etag"]} if entry.get("etag") else {}),
         }
         for entry in loaded["objects"]
     ]

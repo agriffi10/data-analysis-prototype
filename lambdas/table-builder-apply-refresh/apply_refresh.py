@@ -229,10 +229,10 @@ def _table_input(
 
 
 def _folded_names(table_def: dict) -> set[str]:
-    """The folded names of a Glue table's data columns, as the checks around the write read them.
+    """The folded names of a Glue table's data columns, as the read-back after the write reads them.
 
-    One helper for both reads of the catalog, so the stale-stamp check and the read-back cannot
-    fold differently from each other or from the write.
+    It folds through ``columns.fold``, as ``_owned_fields`` does for the stale-stamp check, so
+    neither read of the catalog can fold differently from the other or from the write.
 
     Args:
       table_def: A table as Glue reports it.
@@ -249,8 +249,37 @@ def _folded_names(table_def: dict) -> set[str]:
     }
 
 
+def _owned_fields(table_def: dict) -> tuple[list, dict]:
+    """The two things a refresh writes, read off a table so two tables can be compared on them.
+
+    Everything else in the update is the live table's own, carried through, so these are the
+    whole of what a write could change: the data columns, folded and in order with their types,
+    and the projection properties.
+
+    Args:
+      table_def: A table as Glue reports it, or the input about to be written.
+
+    Returns:
+      ``(columns, projection)`` — ``(folded name, type)`` pairs, and every ``projection.*``
+      parameter.
+
+    Raises:
+      None.
+    """
+    columns = [
+        (columns_mod.fold(column.get("Name") or ""), column.get("Type"))
+        for column in (table_def.get("StorageDescriptor") or {}).get("Columns") or []
+    ]
+    projection = {
+        key: value
+        for key, value in (table_def.get("Parameters") or {}).items()
+        if key.startswith("projection.")
+    }
+    return columns, projection
+
+
 def _abandon_if_changed(
-    event: dict, live_table: dict, database: str, table: str, intended: set[str]
+    event: dict, live_table: dict, database: str, table: str, table_input: dict
 ) -> None:
     """Refuses to write when ANOTHER writer committed between this run's read and this write.
 
@@ -265,10 +294,15 @@ def _abandon_if_changed(
     service completed, or a lost response. The retry then re-reads a table whose stamp THIS RUN
     moved. Judging on the stamp alone, it would fail a run that had already succeeded, notify the
     user that something else changed their table, and contradict the success notification the
-    first attempt already sent. So the stamp only opens the question, and the columns answer it:
-    if the live table already carries exactly what this run intends to write, the writer was this
-    run, and the update ahead is an idempotent rewrite. That keeps ``ApplyRefresh``'s "a
-    re-invocation simply re-reads and writes again" true.
+    first attempt already sent. So the stamp only opens the question, and what this run writes
+    answers it: if the live table already carries exactly those columns, types and projection
+    properties, the update ahead changes nothing, whoever moved the stamp. That keeps
+    ``ApplyRefresh``'s "a re-invocation simply re-reads and writes again" true.
+
+    **The comparison is everything the write owns, not the column names.** A retype keeps every
+    name, so a name-only check read ANY moved stamp as this run's own and wrote on — and the write
+    re-renders the projection from what the run loaded, so a range the user widened meanwhile went
+    back to the old one, and every partition past it vanished from every query.
 
     THIS NARROWS THE WINDOW; IT DOES NOT CLOSE IT. ``GetTable`` and ``UpdateTable`` are still two
     separate calls, and Glue offers no compare-and-set to make them one — ``UpdateTable``'s
@@ -288,7 +322,7 @@ def _abandon_if_changed(
       live_table: The pre-write ``GetTable`` response's table dict.
       database: The target database, for the message.
       table: The target table, for the message.
-      intended: The folded column names this run is about to write.
+      table_input: The definition this run is about to write.
 
     Returns:
       None.
@@ -301,7 +335,7 @@ def _abandon_if_changed(
     if not observed or not current or observed == current:
         return
 
-    if _folded_names(live_table) == intended:
+    if _owned_fields(live_table) == _owned_fields(table_input):
         logger.info("refresh for %s.%s already landed — re-applying idempotently", database, table)
         observability.info(
             "re-applying a refresh that already landed", database=database, table=table
@@ -505,7 +539,7 @@ def _apply(event: dict) -> dict:
     live_table = _get_table(database, table)
     table_input = _table_input(live_table, columns, partition_keys, fmt)
     written = [column["Name"] for column in table_input["StorageDescriptor"]["Columns"]]
-    _abandon_if_changed(event, live_table, database, table, set(written))
+    _abandon_if_changed(event, live_table, database, table, table_input)
 
     observability.info(
         "applying refresh",

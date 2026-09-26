@@ -22,6 +22,7 @@ def test_create_happy_path_provisions_everything():
     out = c.create_space("sales", "alice", "req-1")
     assert out["status"] == "active"
     assert glue.created == ["sales"]
+    assert glue.parameters["sales"] == {"dataquarry.shared-space": "sales"}
     assert len(lf.grants) == 2
     assert cognito.attrs["custom:shared_space_1"] == "sales"
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
@@ -60,6 +61,32 @@ def test_create_name_collision_fails():
         {"name": "sales", "owner": "bob", "lastRequestId": "other", "status": "active"}
     ).encode()
     raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "name already taken")
+
+
+def test_a_name_whose_database_is_not_this_spaces_is_refused_and_that_database_left_alone():
+    """A user's personal database and a space's share one Glue namespace under the bare name, and
+    a space may be named after a user. Treating "already exists" as this create's own retry
+    adopted alice's database — tagged it, granted on it — and a teardown of the failed or
+    provisioning space then dropped every table in it. Only a database carrying this space's
+    marker is the create's own; anything else is a name that is taken."""
+    s3, glue, lf, _cognito = install()
+    glue.databases.add("alice")
+    glue.tables["alice"] = ["orders"]
+
+    raises(lambda: c.create_space("alice", "mallory", "req-1"), reg.ProvisioningError, "name already taken")
+
+    assert glue.tables["alice"] == ["orders"]
+    assert lf.lf_tags == [] and lf.grants == []
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/alice.json")])["status"] == "failed"
+
+
+def test_a_retry_meets_the_database_its_first_attempt_created_and_carries_on():
+    _s3, glue, _lf, _cognito = install()
+    glue.seed_space_database("sales")
+
+    out = c.create_space("sales", "alice", "req-1")
+
+    assert out["status"] == "active"
 
 
 def test_create_replay_same_request_is_idempotent():

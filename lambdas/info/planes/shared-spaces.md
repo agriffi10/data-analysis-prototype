@@ -74,6 +74,9 @@ machine and every verb.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success. Raise, and leave the registry record —
   **the record IS the name lock**.
+- **A teardown touches only a database the space made.** A space's database and a user's personal
+  one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,
+  and `teardown.owns_database` gates the revoke and the drop the same way.
 - **Every member sees the roster.** The join acknowledgement is display-only, since access is
   granted at add time.
 - **No shared-space directory is published.** A full list would be more useful and is declined as a
