@@ -99,6 +99,13 @@ describe('the aggregates', () => {
     expect(mixed.max.skipped).toBe(0);
   });
 
+  it('keeps numeric order for an all-numeric selection with strings included', () => {
+    // The toggle is on by default, and 9, 10 and 100 read as text would give min 10, max 9.
+    const results = all(['min', 'max'], ['9', '10', '100', null], true);
+    expect(results.min.value).toBe('9');
+    expect(results.max.value).toBe('100');
+  });
+
   it('keeps sum, average and median numeric even with strings included', () => {
     // These have no mixed reading: an average of "unknown" is not a number, so the toggle
     // cannot make them consider text.

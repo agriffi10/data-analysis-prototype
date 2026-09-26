@@ -169,6 +169,12 @@ function computeOne(fn: CalcFunction, values: (string | null)[], includeStrings:
   if (fn === 'count') return {fn, value: String(present.length), skipped};
   if (fn === 'countDistinct') return {fn, value: String(new Set(present).size), skipped};
   if (present.length === 0) return {fn, value: CALC_NO_VALUE, skipped};
+  // A selection of numbers alone keeps numeric order whatever the toggle says: text order
+  // would put 10 before 9, and nothing here asked for text.
+  if ((fn === 'min' || fn === 'max') && numbers.length === present.length) {
+    const pick = numbers.reduce((best, n) => (fn === 'min' ? (n < best ? n : best) : n > best ? n : best));
+    return {fn, value: formatNumber(pick), skipped};
+  }
   // Text comparison, and it is the honest one here: a selection holding both `9` and
   // `apple` has no numeric maximum, and coercing would answer a different question.
   const sorted = [...present].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
