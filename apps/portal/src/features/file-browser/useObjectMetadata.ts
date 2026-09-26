@@ -29,7 +29,11 @@ export function useObjectMetadata(bucket: string, key: string | null): UseObject
       const result = await getObjectMetadata({bucket, key: key!});
       return unwrap(result);
     },
-    enabled: key !== null
+    enabled: key !== null,
+    // A point-in-time read that nothing invalidates: an overwrite, a rename back or a re-upload
+    // would otherwise reopen Details on the old size, date and ETag for the app-wide 30 s.
+    staleTime: 0,
+    gcTime: 0
   });
 
   return {

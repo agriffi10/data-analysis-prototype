@@ -27,9 +27,9 @@ const ExplorePage = lazy(() => import('./routes/ExplorePage'));
 /**
  * Route definitions. RootLayout wraps every page with the shared Header;
  * ProtectedLayout is a nested sub-layout that gates protected routes on auth
- * state.
+ * state. A named export: it is the route table, not a page.
  */
-export default function App() {
+export function App() {
   return (
     <Routes>
       <Route element={<RootLayout />}>

@@ -7,6 +7,8 @@ export type ToastState = {
 };
 
 type Props = ToastState & {
+  /** Changes on every push, so a message pushed again restarts the display time. */
+  pushId?: number;
   onDismiss: () => void;
   /** Optional inline action (e.g. "View in Files"); suppresses auto-dismiss so it stays reachable. */
   action?: {label: string; onClick: () => void};
@@ -19,13 +21,13 @@ const AUTO_DISMISS_MS = 4000;
  * manually dismissible. Success/danger auto-dismiss; `info` (a "working…"
  * notice) stays until the caller clears it. Never blocks interaction.
  */
-export function Toast({variant, message, onDismiss, action}: Props) {
+export function Toast({variant, message, pushId, onDismiss, action}: Props) {
   useEffect(() => {
     if (variant === 'info') return; // caller clears the working notice
     if (action) return; // keep an actionable toast until the user acts/dismisses
     const t = setTimeout(onDismiss, AUTO_DISMISS_MS);
     return () => clearTimeout(t);
-  }, [variant, message, onDismiss, action]);
+  }, [variant, message, pushId, onDismiss, action]);
 
   return (
     <div

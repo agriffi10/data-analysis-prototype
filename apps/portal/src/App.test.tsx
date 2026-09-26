@@ -1,6 +1,6 @@
 import {describe, it, expect, vi} from 'vitest';
 import {screen} from '@testing-library/react';
-import App from './App';
+import {App} from './App';
 import {renderWithProviders} from './test/renderWithProviders';
 import {authenticated, unauthenticated} from './test/authFixtures';
 

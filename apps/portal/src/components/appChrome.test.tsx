@@ -125,6 +125,23 @@ describe('Header', () => {
       expect(hamburger.getAttribute('aria-controls')).toBe(drawer.id);
     });
 
+    it('closes the nav drawer when the width leaves the phone band, so it does not come back open', async () => {
+      setWidth(500);
+      const {user, rerender} = renderHeader(authenticated('alice'));
+      await user.click(screen.getByRole('button', {name: 'Open navigation'}));
+      expect(screen.getByRole('dialog', {name: 'Navigation'})).toBeInTheDocument();
+      // The test `matchMedia` answers from the width but sends no change event, so a re-render
+      // stands in for the one a rotation would cause.
+      setWidth(1024);
+      rerender(<Header />);
+
+      setWidth(500);
+      rerender(<Header />);
+
+      expect(screen.queryByRole('dialog', {name: 'Navigation'})).not.toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Open navigation'})).toHaveAttribute('aria-expanded', 'false');
+    });
+
     it('does not mount the nav drawer at desktop widths', () => {
       setWidth(1400);
       renderHeader(authenticated('alice'));

@@ -1,7 +1,7 @@
 import {useState, type ReactNode} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
-import App from './App';
+import {App} from './App';
 import {renderWithProviders} from './test/renderWithProviders';
 import {authenticated, unauthenticated} from './test/authFixtures';
 import {AuthContext} from './features/auth/authContext';

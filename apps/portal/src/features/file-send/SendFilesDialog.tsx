@@ -63,6 +63,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   const [attempted, setAttempted] = useState(false);
   const entryRef = useRef<UsernameComboboxHandle>(null);
   const entryHelpId = useId();
+  const pendingEntryId = useId();
   const userSuggestions = useUsernameSuggestions();
   const spaceSuggestions = useSpaceSuggestions();
 
@@ -96,7 +97,15 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   const remove = (recipient: SendRecipient) =>
     setRecipients((prev) => prev.filter((r) => !(r.kind === recipient.kind && r.name === recipient.name)));
 
-  const canSubmit = recipients.length > 0 && !busy;
+  // Text typed and never added. Sending past it would silently drop a recipient the user can see
+  // in the field, so the send is refused until it is added or cleared.
+  const pendingEntry = entry.trim() !== '';
+  const canSubmit = recipients.length > 0 && !pendingEntry && !busy;
+  // Set by an attempt refused for typed-but-unadded text, and dropped once the field empties —
+  // by Add or by clearing — so the next name typed is not told off mid-word.
+  const [pendingRefused, setPendingRefused] = useState(false);
+  if (pendingRefused && !pendingEntry) setPendingRefused(false);
+  const showPendingEntry = pendingRefused && pendingEntry;
 
   const attempt = () => {
     // The Send control stays ENABLED with no recipients, deliberately: the rule asks for the
@@ -105,6 +114,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
     // would make the banner below unreachable, which is what the first version of this dialog
     // did: dead code where an acceptance criterion was supposed to be.
     setAttempted(true);
+    setPendingRefused(pendingEntry);
     if (canSubmit) onSubmit(recipients);
   };
 
@@ -198,7 +208,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
             value={entry}
             placeholder={kind === 'space' ? 'e.g. salesteam' : 'e.g. bob, cara'}
             disabled={busy}
-            describedBy={entryHelpId}
+            describedBy={showPendingEntry ? `${pendingEntryId} ${entryHelpId}` : entryHelpId}
             suppress={listed}
             {...(kind === 'space' ? {unlistedNote: unlistedSpaceNote} : {})}
             onChange={setEntry}
@@ -216,6 +226,14 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
           Add
         </Button>
       </div>
+      {showPendingEntry && (
+        <p
+          id={pendingEntryId}
+          role="alert"
+          className="mb-1 text-xs text-danger">
+          Add the name you typed (press Enter or Add), or clear it, before sending.
+        </p>
+      )}
       <p
         id={entryHelpId}
         className="mb-2 text-xs text-text-3">

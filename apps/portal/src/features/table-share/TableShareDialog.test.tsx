@@ -164,6 +164,32 @@ describe('TableShareDialog', () => {
       });
     });
 
+    it('refuses a share while a typed name is not yet added, and says so on the field', async () => {
+      const {user, onSubmit} = renderDialog();
+      await addRecipients(user, 'bob');
+      await user.keyboard('cara');
+
+      await user.click(shareButton());
+
+      expect(entryInput()).toHaveAccessibleDescription(
+        expect.stringContaining('Add the name you typed (press Enter or Add), or clear it, before sharing.')
+      );
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('drops the refusal once the name is added, and does not raise it for the next one typed', async () => {
+      const {user} = renderDialog();
+      await addRecipients(user, 'bob');
+      await user.keyboard('cara');
+      await user.click(shareButton());
+      await user.click(entryInput());
+      await user.keyboard('{Enter}');
+
+      await user.keyboard('d');
+
+      expect(screen.queryByText(/Add the name you typed/)).not.toBeInTheDocument();
+    });
+
     it('Cancel invokes onCancel', async () => {
       const {onCancel, user} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Cancel'}));

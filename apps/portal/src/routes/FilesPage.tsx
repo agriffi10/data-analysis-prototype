@@ -1,4 +1,4 @@
-import {useEffect, useMemo} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useSearchParams} from 'react-router';
 import {
   FileBrowser,
@@ -13,13 +13,14 @@ import {Sidebar} from '../features/connections/Sidebar';
 import {SpacesList} from '../features/connections/SpacesList';
 import {useProvideNavRail} from '../components/navRailContext';
 import {Banner} from '../components/Banner';
+import {ErrorBanner} from '../components/ErrorBanner';
 import {LoadingState} from '../components/LoadingState';
 import {useAuth} from '../features/auth';
 import {useConnections} from '../features/connections/useConnections';
 import {useAcknowledgeMembership} from '../features/shared-spaces';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
-import {logBackgroundFailure, toUserMessage} from '../lib/errorMessages';
+import {logBackgroundFailure} from '../lib/errorMessages';
 import {SECTION_CAPTION} from '../components/fieldStyles';
 
 /** The file browser page (`/files`) — browses the active space (personal by default, or a shared space picked in the Sidebar / `?space=`). */
@@ -73,12 +74,34 @@ export default function FilesPage() {
   // check reads the parent's last segment: `…/system_settings/athena` + `results`
   // would pass it and write the app's own results folder. Every segment must be a
   // name as well, since S3 resolves neither `//` nor a dot segment.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const prefixParam = searchParams.get('prefix') || undefined;
   // `?requestId=` — the run whose conflicts to review. Minted by a notification row's own control
   // and never by this page, so it is read and passed on rather than validated here: the view it
   // opens resolves it against the user's OWN inbox, which is the only gate that means anything.
   const requestIdParam = searchParams.get('requestId') || undefined;
+  // Dropped, in place, once the review is closed or resolved: while the URL carries the id, a
+  // reload or Back reopens the review for a run already re-submitted. Only while this page is
+  // mounted: a resolve is a round trip, and one landing after the user has gone elsewhere would
+  // otherwise navigate them back here, over the entry they went to.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const closeConflictReview = () => {
+    if (!mounted.current) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('requestId');
+        return next;
+      },
+      {replace: true}
+    );
+  };
 
   // The file-browser target comes from the active space. A null space means the user-space (or
   // shared) bucket is missing from the runtime configuration.
@@ -142,10 +165,6 @@ export default function FilesPage() {
       ? prefixParam
       : target.rootPrefix;
   const ready = !!target.bucket && !!user;
-  // Resolved inside the component, not at module scope: `toUserMessage` logs the original
-  // in a dev build, so a module-level call warns about an error that has not happened on
-  // every page load and in every test that imports this route.
-  const spaceUnavailable = toUserMessage({code: 'SpaceUnavailable'});
 
   return (
     <>
@@ -188,14 +207,10 @@ export default function FilesPage() {
             destinations={destinations}
             spaceKind={space?.kind}
             requestId={requestIdParam}
+            onConflictReviewClosed={closeConflictReview}
           />
         ) : (
-          <div
-            role="alert"
-            className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
-            <p className="font-medium">{spaceUnavailable.title}</p>
-            <p className="mt-1 text-sm">{spaceUnavailable.message}</p>
-          </div>
+          <ErrorBanner error={{code: 'SpaceUnavailable'}} />
         )}
       </main>
     </>

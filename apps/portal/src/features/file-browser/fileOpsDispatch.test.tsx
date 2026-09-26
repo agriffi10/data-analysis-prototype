@@ -435,6 +435,23 @@ describe('in-flight state', () => {
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 
+  it('keeps the selection when a DELETE enqueue is refused', async () => {
+    mockSubmit.mockResolvedValue({
+      success: false,
+      error: {message: 'That selection is too large to do in one go', code: 'SelectionTooLarge'}
+    });
+    const {user} = render();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+
+    await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+
+    expect(await screen.findByText('That selection is too large to do in one go')).toBeInTheDocument();
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
+  });
+
   it('holds ARCHIVE for a single file too, because archive always reaches a plane', async () => {
     // The routing predicate speaks for file operations. Archive enqueues one file exactly as it
     // enqueues a folder, so asking that predicate on its behalf would leave it clickable over the
@@ -447,6 +464,20 @@ describe('in-flight state', () => {
     await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
     const archive = screen.getByRole('button', {name: 'Archive selected items'});
     await waitFor(() => expect(archive).toHaveAttribute('aria-disabled', 'true'));
+    expect(archive.getAttribute('title')).toMatch(/still running here/);
+  });
+
+  it('holds a details panel’s Archive the same way as the toolbar’s', async () => {
+    const {user} = render();
+    await selectAnd(user, 'folder docs', 'Delete selected items');
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await screen.findByRole('region', {name: 'File operations in progress'});
+
+    await user.click(await screen.findByRole('button', {name: 'Details for notes.txt'}));
+
+    const panel = await screen.findByRole('dialog', {name: 'Details for notes.txt'});
+    const archive = within(panel).getByRole('button', {name: 'Archive this item'});
+    expect(archive).toHaveAttribute('aria-disabled', 'true');
     expect(archive.getAttribute('title')).toMatch(/still running here/);
   });
 

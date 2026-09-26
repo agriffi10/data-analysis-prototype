@@ -3,6 +3,7 @@ import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
 import {useEscapeBlock, useEscapeKey} from '../hooks/useEscapeKey';
 import {EscapeLayer} from './EscapeLayer';
+import {useBackdropDismiss} from './useBackdropDismiss';
 
 type ModalProps = {
   onDismiss: () => void;
@@ -43,6 +44,7 @@ export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true
   // Present but refusing: swallow Escape rather than let it dismiss whatever is behind.
   useEscapeBlock(!dismissible);
   const panelRef = useRef<HTMLDivElement>(null);
+  const backdrop = useBackdropDismiss(onDismiss, dismissible);
 
   return (
     // `initialFocus: false` defers to each consumer's own focus effect
@@ -58,9 +60,7 @@ export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true
       }}>
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-        onClick={() => {
-          if (dismissible) onDismiss();
-        }}>
+        {...backdrop}>
         <div
           ref={panelRef}
           role={role}

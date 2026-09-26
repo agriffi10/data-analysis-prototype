@@ -30,13 +30,25 @@ export function setReturnPathIfAbsent(path: string): void {
   }
 }
 
-/** Reads and clears the stored return path. Returns null when none is set. */
-export function takeReturnPath(): string | null {
+/**
+ * Reads the stored return path without clearing it. Returns null when none is set.
+ *
+ * Separate from {@link clearReturnPath} so a render can read it: StrictMode renders twice and
+ * keeps the second render, so a read that cleared would leave that render with nothing.
+ */
+export function peekReturnPath(): string | null {
   try {
-    const path = sessionStorage.getItem(RETURN_PATH_KEY);
-    if (path) sessionStorage.removeItem(RETURN_PATH_KEY);
-    return path;
+    return sessionStorage.getItem(RETURN_PATH_KEY) || null;
   } catch {
     return null;
+  }
+}
+
+/** Clears the stored return path once it has been used — from an effect, not a render. */
+export function clearReturnPath(): void {
+  try {
+    sessionStorage.removeItem(RETURN_PATH_KEY);
+  } catch {
+    // Non-fatal — the path is simply offered again.
   }
 }

@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import type {ReactNode} from 'react';
-import {Link} from 'react-router';
+import {Link, Route, Routes, useLocation, useNavigate} from 'react-router';
 import {act, screen, within, waitFor} from '@testing-library/react';
 import type {UserEvent} from '@testing-library/user-event';
 import type {QueryClient} from '@tanstack/react-query';
@@ -10,6 +10,8 @@ import {authenticated} from '../test/authFixtures';
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../features/file-browser';
 import * as fileService from '../features/file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
+import {getNotifications} from '../features/notifications/notifications.service';
+import {submitFileOperation} from '../features/file-browser/fileOps.service';
 import type {FileListPage} from '../types/s3.types';
 import type {SharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.types';
 
@@ -42,6 +44,11 @@ vi.mock('../features/shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn(),
   enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
 }));
+vi.mock('../features/notifications/notifications.service', async (importActual) => ({
+  ...(await importActual<typeof import('../features/notifications/notifications.service')>()),
+  getNotifications: vi.fn()
+}));
+vi.mock('../features/file-browser/fileOps.service', () => ({submitFileOperation: vi.fn()}));
 const listFiles = vi.mocked(fileService.listFiles);
 const mockReadCache = vi.mocked(readSharedConnectionsCache);
 
@@ -129,6 +136,8 @@ beforeEach(() => {
   window.innerWidth = 1024;
   listFiles.mockResolvedValue(ok(page()));
   mockReadCache.mockResolvedValue(ok(cache));
+  vi.mocked(getNotifications).mockResolvedValue(ok([]));
+  vi.mocked(submitFileOperation).mockResolvedValue({success: true, data: undefined});
 });
 
 describe('FilesPage — personal space (SPEC-013/044)', () => {
@@ -371,5 +380,93 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
       expect(listFiles).toHaveBeenCalledWith('user-bucket', 'alice/', undefined, expect.any(AbortSignal))
     );
     expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
+  });
+});
+
+describe('FilesPage — a conflict review deep link', () => {
+  /** The page's query string, as the address bar would show it. */
+  function LocationProbe() {
+    return <output aria-label="Address query">{useLocation().search}</output>;
+  }
+
+  const CONFLICTED = {
+    id: 'n9',
+    message: 'Moved 1 of 2 items to “out”.',
+    read: false,
+    timestamp: '2026-08-23T00:00:00Z',
+    link: '/files?prefix=alice/out/',
+    payload: {
+      requestId: 'run-1',
+      operation: 'move',
+      source: {kind: 'personal', name: 'alice'},
+      destination: {kind: 'personal', name: 'alice', prefix: 'alice/out/'},
+      conflicts: [{itemKey: 'alice/q1.csv', kind: 'file'}]
+    }
+  };
+
+  it('drops ?requestId= in place once the review is resolved, so a reload or Back cannot reopen it', async () => {
+    vi.mocked(getNotifications).mockResolvedValue(ok([CONFLICTED]));
+    const {user} = renderAt('/files?prefix=alice/docs/&requestId=run-1', undefined, <LocationProbe />);
+
+    const review = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    await user.click(within(review).getByRole('button', {name: 'Overwrite…'}));
+    const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
+    await user.click(within(confirm).getByRole('button', {name: 'Overwrite'}));
+
+    // Waited on the ADDRESS, not the dialog: the review closes on local state at once, and the
+    // navigation that drops the id may commit a render later.
+    await waitFor(() => expect(screen.getByLabelText('Address query')).toHaveTextContent(/^\?prefix=alice%2Fdocs%2F$/));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(vi.mocked(submitFileOperation)).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the user where they went when the resolve lands after they left the page', async () => {
+    vi.mocked(getNotifications).mockResolvedValue(ok([CONFLICTED]));
+    let land: (value: Awaited<ReturnType<typeof submitFileOperation>>) => void = () => undefined;
+    vi.mocked(submitFileOperation).mockReturnValue(new Promise((resolve) => (land = resolve)));
+    let go: ReturnType<typeof useNavigate> = () => undefined;
+    function Where() {
+      go = useNavigate();
+      const {pathname, search} = useLocation();
+      return <output aria-label="Address">{pathname + search}</output>;
+    }
+    const {user} = renderWithProviders(
+      <UploadQueueProvider>
+        <FileOpsInFlightProvider>
+          <Routes>
+            <Route
+              path="/files"
+              element={<FilesPage />}
+            />
+            <Route
+              path="/notifications"
+              element={<p>Inbox</p>}
+            />
+          </Routes>
+          <Where />
+        </FileOpsInFlightProvider>
+      </UploadQueueProvider>,
+      {route: '/files?prefix=alice/docs/&requestId=run-1', auth: authenticated('alice')}
+    );
+    const review = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    await user.click(within(review).getByRole('button', {name: 'Overwrite…'}));
+    const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
+    await user.click(within(confirm).getByRole('button', {name: 'Overwrite'}));
+    await act(async () => go('/notifications'));
+
+    await act(async () => land({success: true, data: undefined}));
+
+    expect(await screen.findByText('Inbox')).toBeInTheDocument();
+    expect(screen.getByLabelText('Address')).toHaveTextContent(/^\/notifications$/);
+  });
+
+  it('drops ?requestId= on a space switch, which remounts the browser', async () => {
+    const {user} = renderAt('/files?requestId=run-1', undefined, <LocationProbe />);
+
+    const spaces = (await screen.findAllByRole('list', {name: 'Spaces'}))[0];
+    await user.click(await within(spaces).findByRole('button', {name: /marketing_data/}));
+
+    await waitFor(() => expect(screen.getByLabelText('Address query')).toHaveTextContent('?space=marketing_data'));
+    expect(screen.getByLabelText('Address query')).not.toHaveTextContent('requestId');
   });
 });

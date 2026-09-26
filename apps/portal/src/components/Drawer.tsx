@@ -4,6 +4,7 @@ import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 import {EscapeLayer} from './EscapeLayer';
+import {useBackdropDismiss} from './useBackdropDismiss';
 
 /** Below `tablet`, how the drawer presents: docked bottom sheet or full-height sheet. */
 export type DrawerMobileVariant = 'bottom-sheet' | 'full-height';
@@ -66,6 +67,7 @@ export function Drawer({
 }: DrawerProps) {
   useEscapeKey(onClose, open);
   const panelRef = useRef<HTMLElement>(null);
+  const backdrop = useBackdropDismiss(onClose);
 
   if (!open) return null;
 
@@ -86,7 +88,7 @@ export function Drawer({
           // (and desktop) stretch. Reset to stretch at tablet for the slide-over.
           mobileVariant === 'bottom-sheet' ? 'items-end tablet:items-stretch' : ''
         )}
-        onClick={onClose}>
+        {...backdrop}>
         <aside
           ref={panelRef}
           role="dialog"

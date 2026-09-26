@@ -8,7 +8,8 @@ import type {Notification} from './notifications.types';
 
 // Background poll cadence for the unread indicator. Runs continuously (not just
 // until something is unread) so the bell count stays live as further notifications
-// arrive; paused only via `pausePoll`.
+// arrive. Not pausable per caller: TanStack runs `refetchInterval` per observer, and the
+// header bell observes this key on every page, so one caller's pause would stop nothing.
 const POLL_INTERVAL_MS = 60_000;
 
 // After a successful enqueue, refetch a few times to pick up the writer's eventual
@@ -21,12 +22,6 @@ export type UseNotificationsOptions = {
   /** Called on enqueue failure, after the optimistic change is rolled back (e.g. to show a toast). */
   /** Receives the failed mutation's error (mapped to friendly text by the caller). */
   onMutationError?: (error: unknown) => void;
-  /**
-   * Suspend the 60s background poll (the /notifications page sets this so a poll
-   * doesn't fight in-page mark-read actions — the writer is the async source of
-   * truth and may lag). Post-action reconcile refetches still run.
-   */
-  pausePoll?: boolean;
 };
 
 export type UseNotificationsResult = {
@@ -44,10 +39,17 @@ function countUnread(list: Notification[] | undefined): number {
   return (list ?? []).reduce((n, item) => (item.read ? n : n + 1), 0);
 }
 
-/** Reads the user has asked for that the writer has not yet confirmed. */
-type PendingReads = {ids: readonly string[]; all: boolean};
+/**
+ * Reads the user has asked for that the writer has not yet confirmed, by id.
+ *
+ * Mark-all goes through the same ids, recording the rows unread when it was pressed: an
+ * "everything" flag would also cover rows that arrived after it, and it cleared only once
+ * every row read as read — so a notification landing before the writer caught up showed as
+ * read, and so did every one after it, for as long as the overlay lived.
+ */
+type PendingReads = {ids: readonly string[]};
 
-const NO_PENDING_READS: PendingReads = {ids: [], all: false};
+const NO_PENDING_READS: PendingReads = {ids: []};
 
 /**
  * Drop every pending read the server has confirmed, or whose row aged out of the capped inbox,
@@ -59,8 +61,7 @@ const NO_PENDING_READS: PendingReads = {ids: [], all: false};
  */
 function prunePendingReads(current: PendingReads, list: Notification[]): PendingReads {
   const ids = current.ids.filter((id) => list.some((n) => n.id === id && !n.read));
-  const all = current.all && !list.every((n) => n.read);
-  return ids.length === current.ids.length && all === current.all ? current : {ids, all};
+  return ids.length === current.ids.length ? current : {ids};
 }
 
 /**
@@ -82,7 +83,6 @@ export function useNotifications(
   const queryClient = useQueryClient();
   const key = notificationsKeys.list(username ?? NO_KEY);
   const onMutationError = options.onMutationError;
-  const pausePoll = options.pausePoll === true;
 
   const query = useQuery({
     queryKey: key,
@@ -91,7 +91,7 @@ export function useNotifications(
       const result = await getNotifications(username as string);
       return unwrap(result);
     },
-    refetchInterval: () => (pausePoll ? false : POLL_INTERVAL_MS),
+    refetchInterval: POLL_INTERVAL_MS,
     // Returning to the tab re-checks once regardless of poll state; the interval
     // itself is paused while the tab is hidden (refetchIntervalInBackground is false).
     refetchOnWindowFocus: true
@@ -158,14 +158,22 @@ export function useNotifications(
     onSuccess: scheduleReconcile
   });
 
-  const markAllReadMutation = useMutation<void, Error, void>({
+  // The context is the ids THIS mark-all added, so a failure takes back exactly those and
+  // leaves a separate, still-pending mark-read alone.
+  const markAllReadMutation = useMutation<void, Error, void, string[]>({
     mutationFn: async (): Promise<void> => {
       const result = await enqueueNotificationAction({action: 'markAllRead', username: username as string});
       unwrap(result);
     },
-    onMutate: () => updatePending((p) => ({...p, all: true})),
-    onError: (err) => {
-      updatePending((p) => ({...p, all: false}));
+    onMutate: () => {
+      const unread = (queryClient.getQueryData<Notification[]>(key) ?? []).filter((n) => !n.read).map((n) => n.id);
+      const current = queryClient.getQueryData<PendingReads>(pendingKey) ?? NO_PENDING_READS;
+      const added = unread.filter((id) => !current.ids.includes(id));
+      updatePending((p) => ({ids: [...p.ids, ...added.filter((id) => !p.ids.includes(id))]}));
+      return added;
+    },
+    onError: (err, _vars, added) => {
+      updatePending((p) => ({ids: p.ids.filter((id) => !(added ?? []).includes(id))}));
       onMutationError?.(err);
     },
     onSuccess: scheduleReconcile
@@ -174,8 +182,8 @@ export function useNotifications(
   // Server truth with the optimistic read overlay applied.
   const notifications = useMemo<Notification[]>(() => {
     const list = query.data ?? [];
-    if (!pending.all && pending.ids.length === 0) return list;
-    return list.map((n) => (!n.read && (pending.all || pending.ids.includes(n.id)) ? {...n, read: true} : n));
+    if (pending.ids.length === 0) return list;
+    return list.map((n) => (!n.read && pending.ids.includes(n.id) ? {...n, read: true} : n));
   }, [query.data, pending]);
 
   const unreadCount = useMemo(() => countUnread(notifications), [notifications]);

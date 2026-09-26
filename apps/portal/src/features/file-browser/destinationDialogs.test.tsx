@@ -58,6 +58,22 @@ describe('CopyDialog', () => {
       expect(onCopy).toHaveBeenCalledWith('alice/', 'us', undefined);
     });
 
+    it('refuses the current folder for several items, saying why, and copies nothing', async () => {
+      const items: SelectableItem[] = [
+        {type: 'file', key: 'alice/a.txt'},
+        {type: 'file', key: 'alice/b.txt'},
+        {type: 'file', key: 'alice/c.txt'}
+      ];
+      const {user, onCopy} = renderDialog({items, currentPrefix: 'alice/'});
+
+      await user.click(screen.getByRole('button', {name: /copy here/i}));
+
+      const copyHere = screen.getByRole('button', {name: /copy here/i});
+      expect(copyHere).toBeDisabled();
+      expect(copyHere).toHaveAccessibleDescription('Copy several items into a different folder.');
+      expect(onCopy).not.toHaveBeenCalled();
+    });
+
     it('filters protected (athenaresults) and the folders being copied from the picker', async () => {
       mock.listFiles.mockResolvedValue(
         ok(

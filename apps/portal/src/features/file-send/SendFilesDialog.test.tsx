@@ -168,6 +168,33 @@ describe('SendFilesDialog', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('refuses a send while a typed name is not yet added, and says so on the field', async () => {
+    // Sending to the committed recipients would silently drop the one still in the field.
+    const {user, onSubmit} = renderDialog();
+    await addRecipients(user, 'bob');
+    await user.keyboard('cara');
+
+    await user.click(sendButton());
+
+    expect(entryInput()).toHaveAccessibleDescription(
+      expect.stringContaining('Add the name you typed (press Enter or Add), or clear it, before sending.')
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('drops the refusal once the name is added, and does not raise it for the next one typed', async () => {
+    const {user} = renderDialog();
+    await addRecipients(user, 'bob');
+    await user.keyboard('cara');
+    await user.click(sendButton());
+    await user.click(entryInput());
+    await user.keyboard('{Enter}');
+
+    await user.keyboard('d');
+
+    expect(screen.queryByText(/Add the name you typed/)).not.toBeInTheDocument();
+  });
+
   it('closes the suggestion list on the first Escape and the dialog on the second', async () => {
     // SPEC-155's depth registry, exercised rather than inherited: the innermost enabled handler
     // wins, and a child that stops the event never reaches the registry at all.

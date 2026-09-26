@@ -71,6 +71,8 @@ type Props = {
   requestId?: string; // `?requestId=` — the run whose conflicts to review, from a notification's
   // own control. The view it opens is reachable from a tab that never submitted, which is the
   // whole reason the plane puts the id on the row.
+  onConflictReviewClosed?: () => void; // the review was closed or resolved — the page, which owns
+  // the URL, drops `?requestId=` so nothing that remounts this component reopens it.
 };
 
 /**
@@ -99,6 +101,7 @@ function FileBrowserContent({
   destinations,
   spaceKind,
   requestId,
+  onConflictReviewClosed,
   prefix,
   setPrefix
 }: ContentProps) {
@@ -218,10 +221,15 @@ function FileBrowserContent({
   // wrote a notification for, and for a run that conflicted with nothing — both render no view
   // rather than an empty one, because the id arrives in a URL anyone can type.
   const conflicts = useFileOpConflicts(requestId ?? null);
-  // The id that was closed, not a boolean: `?requestId=` survives a resolve, so a reload would
-  // otherwise re-open the review for a run the user has already re-submitted — with a second
-  // overwrite one confirm away.
+  // The id that was closed, so the view goes at once. This state dies with the component, so it
+  // cannot stop a reload, Back or a space switch reopening the review for a run already
+  // re-submitted — a second overwrite one confirm away. `closeConflictReview` also tells the page,
+  // which drops `?requestId=` from the URL, and that is what does.
   const [closedRequestId, setClosedRequestId] = useState<string | null>(null);
+  function closeConflictReview(id: string) {
+    setClosedRequestId(id);
+    onConflictReviewClosed?.();
+  }
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
@@ -488,8 +496,9 @@ function FileBrowserContent({
         )}
       </OperationFeedback>
 
+      {/* While the Copy dialog is open its error is the dialog's, shown inside it. */}
       <OperationFeedback
-        op={copy}
+        op={dialogs.copying ? {...copy, error: null} : copy}
         pastVerb="Copied"
         failVerb="copy"
       />
@@ -548,9 +557,9 @@ function FileBrowserContent({
           busy={dialogs.submitting}
           onResolve={async (choice) => {
             if (await dialogs.resolveConflict(conflicts.payload, choice))
-              setClosedRequestId(conflicts.payload.requestId);
+              closeConflictReview(conflicts.payload.requestId);
           }}
-          onClose={() => setClosedRequestId(conflicts.payload.requestId)}
+          onClose={() => closeConflictReview(conflicts.payload.requestId)}
         />
       )}
 
@@ -707,8 +716,9 @@ function FileBrowserContent({
         onRequestArchiveFolder={
           archiveEnabled ? (folder) => archive.open([{kind: 'folder', key: folder.prefix}]) : undefined
         }
+        // Held by an in-flight run exactly as the toolbar's Archive is, for the same reason.
         archiveRefusalFor={(key: string, kind: 'file' | 'folder') =>
-          archiveRefusal([{kind, key}], rootPrefix) ?? undefined
+          archiveRefusal([{kind, key}], rootPrefix) ?? dialogs.spaceBusyReason ?? undefined
         }
         writeLockReason={writeLockReason}
         selectedItems={selectedItems}
@@ -760,7 +770,8 @@ export function FileBrowser({
   username,
   destinations,
   spaceKind,
-  requestId
+  requestId,
+  onConflictReviewClosed
 }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
@@ -779,6 +790,7 @@ export function FileBrowser({
         destinations={destinations}
         spaceKind={spaceKind}
         requestId={requestId}
+        onConflictReviewClosed={onConflictReviewClosed}
         prefix={prefix}
         setPrefix={setPrefix}
       />

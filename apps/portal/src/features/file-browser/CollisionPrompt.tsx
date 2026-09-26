@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useId, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {validateFolderName, validateLeafName} from './fileBrowser.service';
@@ -30,6 +30,9 @@ export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, onRename
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
   const [touched, setTouched] = useState(false);
+  // Several collision rows can be renaming at once, so a fixed id would pair one row's label
+  // and error with another row's field.
+  const renameId = useId();
 
   const trimmed = newName.trim();
   const nameError =
@@ -68,12 +71,12 @@ export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, onRename
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label
             className="sr-only"
-            htmlFor="collision-rename">
+            htmlFor={renameId}>
             New name
           </label>
           <div className="min-w-0 flex-1">
             <Input
-              id="collision-rename"
+              id={renameId}
               autoFocus
               required
               aria-required="true"

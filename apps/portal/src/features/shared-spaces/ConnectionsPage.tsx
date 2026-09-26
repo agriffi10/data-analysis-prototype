@@ -53,7 +53,11 @@ export function ConnectionsPage() {
   const username = user?.username ?? null;
 
   const {connections, isLoading, error, refresh, isRefreshing, reconcile} = useConnections(username);
-  const {create, busy, pending} = useCreateSharedConnection(username);
+  const cachedNames = useMemo(
+    () => new Set(connections.filter((c) => c.kind === 'shared').map((c) => c.database)),
+    [connections]
+  );
+  const {create, busy, pending} = useCreateSharedConnection(username, cachedNames);
   const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
   const {transfer, busy: transferBusy} = useTransferOwnership(username);
   const {leave, remove, forget, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
@@ -94,10 +98,9 @@ export function ConnectionsPage() {
         createdAt: c.createdAt,
         owner: c.owner
       }));
-    const cacheNames = new Set(fromCache.map((r) => r.name));
     // Local pending entries not yet reflected in the cache (cache wins on dupes).
     const fromPending: ConnectionRow[] = pending
-      .filter((p) => !cacheNames.has(p.name))
+      .filter((p) => !cachedNames.has(p.name))
       .map((p) => ({name: p.name, role: p.role, status: p.status}));
     return (
       [...fromCache, ...fromPending]
@@ -117,7 +120,7 @@ export function ConnectionsPage() {
         })
         .sort((a, b) => a.name.localeCompare(b.name))
     );
-  }, [connections, pending, dismissed, retrying, transitioning]);
+  }, [connections, cachedNames, pending, dismissed, retrying, transitioning]);
 
   // The live row for the open Manage drawer, re-derived from `rows` each render so a
   // Refresh (or auto-poll) surfaces member/status changes without reopening.
@@ -125,6 +128,11 @@ export function ConnectionsPage() {
     () => (managingName ? (rows.find((r) => r.name === managingName) ?? null) : null),
     [managingName, rows]
   );
+  // Owner controls belong to an owner row only. A transfer that lands turns this row into a
+  // member one, so the drawer closes rather than keep offering Remove and Make owner in the
+  // name of someone who no longer owns the space. Cleared, not just hidden, so a transfer back
+  // does not reopen it unasked.
+  if (managing && managing.role !== 'owner') setManagingName(null);
 
   // Same for the member roster drawer.
   const viewing = useMemo(
@@ -305,9 +313,13 @@ export function ConnectionsPage() {
             Loading your shared spaces…
           </p>
         ) : rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-surface-2 px-5 py-10 text-center text-sm text-text-2">
-            No shared spaces yet — create one or ask an owner to add you.
-          </div>
+          // A failed load has told us nothing about what the user has, so the banner above
+          // speaks alone rather than beside a claim that they have nothing.
+          error ? null : (
+            <div className="rounded-lg border border-dashed border-border bg-surface-2 px-5 py-10 text-center text-sm text-text-2">
+              No shared spaces yet — create one or ask an owner to add you.
+            </div>
+          )
         ) : (
           <ul className="flex flex-col gap-3">
             {rows.map((row) => (
@@ -334,12 +346,14 @@ export function ConnectionsPage() {
           onCancel={() => setDialogOpen(false)}
         />
       )}
-      {managing && username && (
+      {managing?.role === 'owner' && username && (
         <ManageMembersDrawer
           open
           onClose={() => setManagingName(null)}
           space={managing.name}
-          owner={username}
+          // The row's own owner where the cache names one; an owner row otherwise vouches for
+          // the signed-in user, since the cache writes `owner` on member entries only.
+          owner={managing.owner ?? username}
           members={managing.members ?? [{username, status: 'active'}]}
           unavailable={managing.members === undefined}
           busy={membersBusy || transferBusy}

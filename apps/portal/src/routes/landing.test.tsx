@@ -97,9 +97,9 @@ describe('LandingPage', () => {
   // Integration style (react.md §21): render the REAL LandingPage — it makes no AWS
   // calls, so nothing is mocked. Auth state is injected via `renderWithProviders`
   // (real `useAuth`), and the return-path branch is driven through the real
-  // `takeReturnPath` (backed by jsdom sessionStorage). A sibling `/files` route lets
+  // `peekReturnPath`/`clearReturnPath` (backed by jsdom sessionStorage). A sibling `/files` route lets
   // us observe navigation/redirects as rendered output.
-  function renderApp(auth: AuthContextValue) {
+  function renderApp(auth: AuthContextValue, strictMode = false) {
     return renderWithProviders(
       <Routes>
         <Route
@@ -111,7 +111,7 @@ describe('LandingPage', () => {
           element={<div>files-page</div>}
         />
       </Routes>,
-      {route: '/', auth}
+      {route: '/', auth, strictMode}
     );
   }
 
@@ -138,6 +138,15 @@ describe('LandingPage', () => {
 
       expect(screen.getByText('files-page')).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /go to files/i})).not.toBeInTheDocument();
+    });
+
+    it('still redirects under StrictMode, whose second render is the one kept, and uses the path once', () => {
+      setReturnPath('/files');
+
+      renderApp(authenticated('alice'), true);
+
+      expect(screen.getByText('files-page')).toBeInTheDocument();
+      expect(sessionStorage.getItem('portal.returnPath')).toBeNull();
     });
   });
 

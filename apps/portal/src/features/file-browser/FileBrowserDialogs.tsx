@@ -33,7 +33,7 @@ type Props = {
    */
   onRequestArchiveFile?: (file: S3FileItem) => void;
   onRequestArchiveFolder?: (folder: S3FolderItem) => void;
-  /** Why THIS item can't be archived (a portal-managed root), if it can't. */
+  /** Why THIS item can't be archived (a portal-managed root, or a run holding the space), if it can't. */
   archiveRefusalFor: (key: string, kind: 'file' | 'folder') => string | undefined;
   /** Why nothing in the current folder can be written. */
   writeLockReason?: string;
@@ -167,6 +167,8 @@ export function FileBrowserDialogs({
           isBusy={copy.isBusy || dialogs.submitting}
           destinations={destinations}
           sameFolderPrompt={dialogs.sameFolderPrompt}
+          error={copy.error}
+          onDismissError={copy.dismissError}
           onCopy={dialogs.confirmCopy}
           onCancel={dialogs.cancelCopy}
         />

@@ -318,7 +318,8 @@ describe('FileListRowMobile', () => {
 
     it('shows a downloading indicator in place of the size while a download is signing', () => {
       renderFile({isDownloading: true});
-      expect(screen.getByLabelText('Downloading')).toBeInTheDocument();
+      // Text a reader announces, not an `aria-label` on a generic element, which readers ignore.
+      expect(screen.getByText('Downloading')).toBeInTheDocument();
       expect(screen.queryByText('2.0 KB')).not.toBeInTheDocument();
     });
 

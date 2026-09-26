@@ -162,7 +162,7 @@ describe('the bootstrap module graph', () => {
   )[0] as string;
 
   /**
-   * The whole point of the boundary. Re-adding `import App from './App.tsx'` — or any
+   * The whole point of the boundary. Re-adding `import {App} from './App.tsx'` — or any
    * provider beside it — evaluates the application graph before the document is
    * fetched, which is a boot failure in production and INVISIBLE in dev, where the
    * fallback answers every read.

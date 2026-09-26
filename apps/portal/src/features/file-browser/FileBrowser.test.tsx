@@ -597,6 +597,20 @@ describe('FileBrowser — move / copy / rename', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
     expect(await screen.findByText(/Copying into the same folder/)).toBeInTheDocument();
   });
+
+  it('shows a failed same-folder name lookup inside the Copy dialog, which stays open', async () => {
+    mock.firstFreeName.mockResolvedValue({success: false, error: {message: 'raw', code: 'AccessDenied'}});
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Copy selected items'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Copy to folder'});
+
+    await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
+
+    const message = toUserText({message: 'raw', code: 'AccessDenied'});
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(message);
+    expect(screen.getAllByText(message)).toHaveLength(1);
+  });
 });
 
 describe('FileBrowser — upload', () => {
