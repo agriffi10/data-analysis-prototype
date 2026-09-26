@@ -1057,7 +1057,17 @@ const RECIPES: Record<string, Recipe> = {
   'Filter and sort guide': helpRecipe('explore-filter-sort'),
   'Grouping and Calc guide': helpRecipe('explore-group-and-calc'),
   'Copy and export guide': helpRecipe('explore-copy-and-export'),
-  'Save an exploration guide': helpRecipe('explore-save-as-query')
+  'Save an exploration guide': helpRecipe('explore-save-as-query'),
+  'Save an exploration guide under Query': helpRecipe('explore-save-as-query'),
+  'Colors and Transformers guide': helpRecipe('explore-colors-and-formats'),
+  'Data Explorer save formats guide under the Data Explorer': helpRecipe('explore-save-formats'),
+  'Create table guide': helpRecipe('create-table'),
+  'Shared space files guide': helpRecipe('use-shared-space-files'),
+  'Send to a shared space guide': helpRecipe('send-files-to-a-space'),
+  'Share with a shared space guide': helpRecipe('share-table-to-a-space'),
+  'Data quality report guide': helpRecipe('read-data-quality-report'),
+  'Save results formats guide': helpRecipe('save-results-formats'),
+  'Data Explorer save formats guide': helpRecipe('explore-save-formats')
 };
 
 /**
@@ -1280,7 +1290,9 @@ describe('the registry itself', () => {
         // Three ways into the file browser from other features' screens.
         'View source files',
         'View in Files after saving results',
-        'Open folder on a data quality report'
+        'Open folder on a data quality report',
+        'Create table guide',
+        'Shared space files guide'
       ],
       query: [
         'Query',
@@ -1310,6 +1322,7 @@ describe('the registry itself', () => {
         'Open saved view',
         'Query help section',
         'Tables help section',
+        'Save an exploration guide under Query',
         'Refresh table link on a notification'
       ],
       sharedWorkspaces: [
@@ -1327,6 +1340,8 @@ describe('the registry itself', () => {
         'Shared spaces in the save-query dialog',
         'Shared spaces as a move destination',
         'Shared connections help section',
+        'Send to a shared space guide',
+        'Share with a shared space guide',
         'Received files link to a space on a notification',
         'Shared spaces recipient kind in the send dialog',
         // SPEC-179: the Data Explorer's own reader of `useQuerySpaces`, on SPEC-174's
@@ -1353,7 +1368,8 @@ describe('the registry itself', () => {
         'Check data quality of the selected item',
         'Data quality link on a notification',
         'Check data quality guide',
-        'Past data quality checks guide'
+        'Past data quality checks guide',
+        'Data quality report guide'
       ],
       dataExplorer: [
         'Data Explorer',
@@ -1365,7 +1381,9 @@ describe('the registry itself', () => {
         'Start exploring guide',
         'Filter and sort guide',
         'Grouping and Calc guide',
+        'Colors and Transformers guide',
         'Copy and export guide',
+        'Data Explorer save formats guide under the Data Explorer',
         'Save an exploration guide'
       ],
       // SPEC-190: a kill switch rather than an area. It hides the record of what this session
@@ -1376,7 +1394,12 @@ describe('the registry itself', () => {
       asyncFileOperations: ['File operations in progress', 'Background file operations guide'],
       // SPEC-223: one control, two dialogs. The completion notification's link is deliberately
       // not here — it is a `/files` link, already covered by the row's link gate.
-      resultsConversion: ['Format in the save-results dialog', 'Format in the Data Explorer export dialog'],
+      resultsConversion: [
+        'Format in the save-results dialog',
+        'Format in the Data Explorer export dialog',
+        'Save results formats guide',
+        'Data Explorer save formats guide'
+      ],
       // The second kill switch: the same archive surfaces the `files` entry holds, under
       // descriptive names because a name keys the walk. The folder details panel and the mobile
       // action bar are asserted beside the archive journey and the responsive tests instead.

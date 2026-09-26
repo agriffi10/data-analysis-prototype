@@ -6,7 +6,7 @@ Public surface only — the code is the source of truth; verify signatures befor
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `HELP_SECTIONS` | `helpContent.ts` | Static, code-grounded Help & guides content (Files incl. table builder, Query, Shared connections incl. join status, Notifications). Update on every spec that changes a user-facing feature (SPEC-074 FR-005) (SPEC-074). |
+| `HELP_SECTIONS` | `helpContent.ts` | Static, code-grounded Help & guides content, eight sections in sidebar order: Files (incl. data quality), Query, Tables, Data Explorer, Shared connections, Notifications, Getting around, Give feedback. An option a separate switch can remove is its own guide under that switch (`docs/decisions/browser.md`). Update on every spec that changes a user-facing feature (SPEC-074 FR-005). |
 | `HelpPage` | `HelpPage.tsx` | Section selector + accordion cards; active section synced to the URL hash (`/help#query`), first-section fallback, first card default-open (SPEC-074). Mount-gates the rail (≥ tablet) vs `HelpSectionChips` (mobile) by `useIsMobile` (SPEC-103). |
 | `HelpSidebar` | `HelpSidebar.tsx` | Left rail: one item per section (icon, label, guide count, `aria-current`); `w-[220px] desktop:w-[248px]`, short labels at tablet / full at desktop via `useBreakpoint` (SPEC-074/103). |
 | `HelpSectionChips` | `HelpSectionChips.tsx` | Mobile horizontal `overflow-x-auto` chip section selector (`nav "Guides sections"`), active chip highlighted, hash-driven `onSelect` — the `< tablet` counterpart to `HelpSidebar` (SPEC-103). |

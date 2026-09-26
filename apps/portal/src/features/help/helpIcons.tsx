@@ -1,6 +1,6 @@
 import type {ComponentType} from 'react';
 import {DestinationIcon, type Destination} from '../../components/DestinationIcon';
-import {BellIcon, FeedbackIcon, TableIcon} from '../../components/icons';
+import {BellIcon, FeedbackIcon, HelpCircleIcon, TableIcon} from '../../components/icons';
 import type {HelpIconName} from './help.types';
 
 type IconComponent = ComponentType<{className?: string}>;
@@ -26,5 +26,6 @@ export const helpIcons: Record<HelpIconName, IconComponent> = {
   explore: destination('explore'),
   connections: destination('connections'),
   notifications: BellIcon,
+  'getting-around': HelpCircleIcon,
   feedback: FeedbackIcon
 };
