@@ -109,6 +109,34 @@ function releaseSqlCompletions() {
   }
 }
 
+/**
+ * The Monaco model path a query tab's buffer lives under — one model per tab.
+ *
+ * One model per tab is what gives each tab its own undo stack. With a single shared model a tab
+ * switch was applied as an edit, so Undo after switching wrote the previous tab's SQL into this one.
+ *
+ * @param tabId - The query tab's id.
+ * @returns The path `@monaco-editor/react` keys the tab's model by.
+ */
+function tabModelPath(tabId: string): string {
+  return `query-tab-${tabId}.sql`;
+}
+
+/**
+ * Disposes a query tab's model, unless the editor is still showing it.
+ *
+ * The one skipped is never leaked: `@monaco-editor/react` disposes the model it is showing when
+ * the editor unmounts.
+ *
+ * @param tabId - The query tab whose model to dispose.
+ * @param shown - The model the editor currently shows, if any.
+ * @returns Nothing.
+ */
+function disposeTabModel(tabId: string, shown: monaco.editor.ITextModel | null | undefined): void {
+  const model = monaco.editor.getModel(monaco.Uri.parse(tabModelPath(tabId)));
+  if (model && model !== shown) model.dispose();
+}
+
 export type SqlEditorHandle = {
   /** Focuses the editor (used after re-opening a history entry / a table action). */
   focus: () => void;
@@ -121,6 +149,10 @@ export type SqlEditorHandle = {
 };
 
 type SqlEditorProps = {
+  /** The tab whose buffer `value` is; each tab edits its own model, with its own undo history. */
+  tabId: string;
+  /** Every open tab, so a closed tab's model is disposed rather than kept for the session. */
+  tabIds: readonly string[];
   value: string;
   onChange: (value: string) => void;
   /** ⌘/Ctrl+Enter in the editor triggers Run Statement; optional so the shell can mount the editor before the run handler is wired. */
@@ -144,7 +176,7 @@ type SqlEditorProps = {
  * loads.
  */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
-  {value, onChange, onRun, onRunScriptSingle, onRunScriptTabs, completionSchemas},
+  {tabId, tabIds, value, onChange, onRun, onRunScriptSingle, onRunScriptTabs, completionSchemas},
   ref
 ) {
   // The `theme` prop is a THEME NAME, and @monaco-editor/react applies a change to it through
@@ -171,6 +203,23 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     acquireSqlCompletions(monaco);
     return () => releaseSqlCompletions();
   }, []);
+
+  // A closed tab's model goes with it, and every tab's model goes with the editor: the tabs are
+  // the record of each buffer, so a model outliving the editor could only ever be a stale copy.
+  const knownTabIdsRef = useRef(tabIds);
+  useEffect(() => {
+    const open = new Set(tabIds);
+    for (const id of knownTabIdsRef.current) {
+      if (!open.has(id)) disposeTabModel(id, editorRef.current?.getModel());
+    }
+    knownTabIdsRef.current = tabIds;
+  }, [tabIds]);
+  useEffect(
+    () => () => {
+      for (const id of knownTabIdsRef.current) disposeTabModel(id, editorRef.current?.getModel());
+    },
+    []
+  );
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -218,6 +267,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       theme={THEMES[effective]}
       beforeMount={defineThemes}
       onMount={handleMount}
+      path={tabModelPath(tabId)}
+      saveViewState
       value={value}
       onChange={(v) => onChange(v ?? '')}
       options={{

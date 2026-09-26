@@ -102,6 +102,13 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                 role="group"
                 aria-label={`Partition key ${i + 1}`}
                 className="rounded-md border border-border bg-surface-2 p-3">
+                {/* A visible label, as every other field here has; outside the row so the controls
+                    beside the input stay level with it. */}
+                <label
+                  htmlFor={`${row.id}-name`}
+                  className={FIELD_LABEL}>
+                  Name
+                </label>
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <Input
@@ -109,8 +116,9 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                         if (el) nameRefs.current.set(row.id, el);
                         else nameRefs.current.delete(row.id);
                       }}
+                      id={`${row.id}-name`}
                       aria-label={`Partition key ${i + 1} name`}
-                      placeholder="key name (e.g. year)"
+                      placeholder="e.g. year"
                       value={row.name}
                       error={err.name}
                       disabled={disabled}
@@ -194,7 +202,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                       </div>
                       <div className="tablet:col-span-2">
                         <Input
-                          aria-label={`Partition key ${i + 1} digit width`}
+                          aria-label={`Digits for partition key ${i + 1}`}
                           label="Digits (optional zero-pad, e.g. 2 for 01)"
                           inputMode="numeric"
                           placeholder="—"

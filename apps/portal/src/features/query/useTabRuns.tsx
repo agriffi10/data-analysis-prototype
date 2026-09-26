@@ -125,6 +125,19 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
 
+  // Sends a cancel and says so when it is refused: the statement then settles on its own verdict,
+  // which would otherwise look like a Stop that worked.
+  const cancelExecution = useCallback(
+    (executionId: string) => {
+      void stopQuery(executionId).then((result) => {
+        if (!result.success) {
+          toast.push({variant: 'danger', message: `Couldn’t stop the query. ${toUserText(result.error)}`});
+        }
+      });
+    },
+    [toast]
+  );
+
   // Stable callbacks for the per-tab pollers.
   const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
     setStatuses((s) => (s[tabId] === status ? s : {...s, [tabId]: status}));
@@ -219,7 +232,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         // entry would never finalize).
         const latest = runsRef.current[tabId];
         if (!latest || latest.halted || latest.executionId !== executionId) {
-          void stopQuery(nextId);
+          cancelExecution(nextId);
           patchRun((cur) => ({...cur, done: true}));
           return;
         }
@@ -244,9 +257,14 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
           currentIndex: cur.currentIndex + 1,
           submittedSql: next.sql
         }));
+        // A Stop pressed while the entry was being recorded cancelled the statement before this
+        // one, which had already finished. The run carries the halt, so the poller records the
+        // cancel and the batch ends there.
+        const installed = runsRef.current[tabId];
+        if (installed?.executionId === nextId && installed.halted) cancelExecution(nextId);
       })();
     },
-    [updateEntry, queryClient, username, appendEntry, updateRuns]
+    [updateEntry, queryClient, username, appendEntry, updateRuns, cancelExecution]
   );
 
   // The statement's status could not be read, so the batch ends there, as it would on
@@ -408,11 +426,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       if (!cur || cur.done) return r;
       return {...r, [activeTabId]: {...cur, halted: true}};
     });
-    void stopQuery(run.executionId).then((result) => {
-      if (!result.success) {
-        toast.push({variant: 'danger', message: `Couldn’t stop the query. ${toUserText(result.error)}`});
-      }
-    });
+    cancelExecution(run.executionId);
   };
 
   // Drop the closed tab's in-memory run state (its execution keeps running

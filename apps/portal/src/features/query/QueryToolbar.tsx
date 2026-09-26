@@ -1,3 +1,4 @@
+import {useRef} from 'react';
 import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {cx} from '../../lib/cx';
@@ -46,6 +47,13 @@ export function QueryToolbar({
   onRunScript
 }: Props) {
   const {copied, copy} = useCopyToClipboard();
+  const runStopRef = useRef<HTMLButtonElement>(null);
+  // The run scopes in the menu hand focus to Run, which becomes Stop: the menu's trigger, where
+  // focus would otherwise return, leaves the page with the rest of the split button.
+  const runScript = (scope: 'script-single' | 'script-tabs') => {
+    onRunScript(scope);
+    runStopRef.current?.focus();
+  };
   return (
     <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
       <div className="flex-1" />
@@ -90,36 +98,40 @@ export function QueryToolbar({
           <span className={TOOLBAR_LABEL}>Create view</span>
         </Button>
       </FeatureGate>
-      {isInFlight ? (
-        <Button
-          variant="ghost"
-          onClick={onStop}
-          aria-label="Stop the running query"
-          className="text-danger hover:bg-danger-soft hover:text-danger">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="h-4 w-4"
-            aria-hidden="true">
-            <rect
-              x="6"
-              y="6"
-              width="12"
-              height="12"
-              rx="2"
-            />
-          </svg>
-          <span className={TOOLBAR_LABEL}>Stop</span>
-        </Button>
-      ) : (
-        // Three distinct run scopes as a split button.
-        // Run Statement stays the primary action (⌘⏎); the two whole-script
-        // scopes — which differ only in how results are shown — live in an
-        // attached dropdown so the toolbar stays compact.
-        <div className="inline-flex items-stretch">
+      {/* Run and Stop are ONE element whose role changes, so focus on it survives the swap
+          (WCAG 2.4.3) — two elements would drop it to <body> as each unmounts. */}
+      <div className="inline-flex items-stretch">
+        {isInFlight ? (
           <Button
+            ref={runStopRef}
+            variant="ghost"
+            onClick={onStop}
+            aria-label="Stop the running query"
+            className="text-danger hover:bg-danger-soft hover:text-danger">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true">
+              <rect
+                x="6"
+                y="6"
+                width="12"
+                height="12"
+                rx="2"
+              />
+            </svg>
+            <span className={TOOLBAR_LABEL}>Stop</span>
+          </Button>
+        ) : (
+          // Three distinct run scopes as a split button.
+          // Run Statement stays the primary action (⌘⏎); the two whole-script
+          // scopes — which differ only in how results are shown — live in an
+          // attached dropdown so the toolbar stays compact.
+          <Button
+            ref={runStopRef}
             variant="primary"
             onClick={onRunStatement}
             disabled={!canRun}
@@ -129,6 +141,8 @@ export function QueryToolbar({
             <PlayIcon />
             <span className={TOOLBAR_LABEL}>Run Statement</span>
           </Button>
+        )}
+        {!isInFlight && (
           <Menu
             ariaLabel="More run options"
             align="right"
@@ -171,7 +185,7 @@ export function QueryToolbar({
                     <path d="M14 20h6" />
                   </svg>
                 ),
-                onSelect: () => onRunScript('script-single')
+                onSelect: () => runScript('script-single')
               },
               {
                 kind: 'action',
@@ -201,12 +215,12 @@ export function QueryToolbar({
                     />
                   </svg>
                 ),
-                onSelect: () => onRunScript('script-tabs')
+                onSelect: () => runScript('script-tabs')
               }
             ]}
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

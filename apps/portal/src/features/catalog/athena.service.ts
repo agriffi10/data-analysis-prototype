@@ -1,4 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
+import {sqlDdlIdentifier} from '../../lib/sql';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
@@ -208,6 +209,9 @@ export async function runStatementToCompletion(p: {
  * — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
+ *
+ * Both verbs are DDL, so the names are backtick-quoted: a table the builder named with a
+ * reserved word (`order`) is otherwise a parse error.
  */
 export async function getTableDdl(p: {
   database: string;
@@ -217,7 +221,7 @@ export async function getTableDdl(p: {
 }): Promise<ServiceResult<string>> {
   const verb = p.isView ? 'SHOW CREATE VIEW' : 'SHOW CREATE TABLE';
   const done = await runStatementToCompletion({
-    sql: `${verb} ${p.database}.${p.table}`,
+    sql: `${verb} ${sqlDdlIdentifier(p.database)}.${sqlDdlIdentifier(p.table)}`,
     database: p.database,
     username: p.username
   });

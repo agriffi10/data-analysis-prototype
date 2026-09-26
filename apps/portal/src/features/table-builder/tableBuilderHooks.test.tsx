@@ -14,6 +14,7 @@ import {enqueueTableBuild, enqueueTableRefresh} from './tableBuild.service';
 import {authenticated} from '../../test/authFixtures';
 import {catalogKeys} from '../catalog/catalogKeys';
 import {useTableRefresh} from './useTableRefresh';
+import {drainCatalogCatchUp} from './useCatalogCatchUp';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 
 // ─── from CreateTableButton.test.tsx ───
@@ -190,7 +191,7 @@ describe('CreateTableButton', () => {
       await user.selectOptions(row(1).getByLabelText('Type'), 'integer');
       await user.type(row(1).getByLabelText('Partition key 1 minimum'), '2020');
       await user.type(row(1).getByLabelText('Partition key 1 maximum'), '2026');
-      await user.type(row(1).getByLabelText('Partition key 1 digit width'), '4');
+      await user.type(row(1).getByLabelText('Digits for partition key 1'), '4');
 
       await user.click(dialog().getByRole('button', {name: 'Add another key'}));
       await user.type(row(2).getByLabelText('Partition key 2 name'), 'region');
@@ -248,6 +249,8 @@ describe('useTableRefresh', () => {
     beforeEach(() => {
       mockEnqueue.mockReset();
       mockEnqueue.mockResolvedValue({success: true, data: undefined});
+      // The catch-up is module state, so an arm a previous case left would leak into this one.
+      drainCatalogCatchUp(() => {});
     });
 
     it('open carries a link-borne pending removal', () => {
@@ -300,6 +303,10 @@ describe('useTableRefresh', () => {
       expect(result.current.target).toEqual({database: 'alice', table: TABLE, pending: null});
       expect(result.current.error).toBe('Sign in to continue.');
       expect(notify).not.toHaveBeenCalled();
+      // Nothing was enqueued, so nothing is owed a re-read.
+      const owed = vi.fn();
+      drainCatalogCatchUp(owed);
+      expect(owed).not.toHaveBeenCalled();
     });
 
     it('ignores submit with no target', async () => {
@@ -308,23 +315,21 @@ describe('useTableRefresh', () => {
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
-    it('invalidates the rail once on submit and once on the next focus', async () => {
-      const {result, queryClient} = render();
+    // The refresh lands minutes later, usually after the user has left the query workspace —
+    // so the re-read it is owed is held by the shell's catch-up, not by this hook.
+    it('invalidates the rail on submit and owes it one more re-read that outlives the hook', async () => {
+      const {result, queryClient, unmount} = render();
       const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+      const owed = vi.fn();
       act(() => result.current.open('alice', TABLE));
+
       await act(() => result.current.submit(false));
+      unmount();
+      drainCatalogCatchUp(owed);
 
       expect(invalidate).toHaveBeenCalledTimes(1);
       expect(invalidate).toHaveBeenCalledWith({queryKey: catalogKeys.schema('alice')});
-
-      // The refresh lands while the user is elsewhere, so coming back re-reads once…
-      await act(async () => void window.dispatchEvent(new Event('focus')));
-      expect(invalidate).toHaveBeenCalledTimes(2);
-
-      // …and only once: further focus events are not a reason to refetch.
-      await act(async () => void window.dispatchEvent(new Event('focus')));
-      await act(async () => void window.dispatchEvent(new Event('focus')));
-      expect(invalidate).toHaveBeenCalledTimes(2);
+      expect(owed.mock.calls).toEqual([['alice', 'sales_2026']]);
     });
 
     describe('a link-borne target (FR-005)', () => {

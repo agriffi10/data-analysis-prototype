@@ -1,4 +1,5 @@
 import {Banner, type BannerVariant} from '../../components/Banner';
+import {ErrorBanner} from '../../components/ErrorBanner';
 import {ErrorDetails} from '../../components/ErrorDetails';
 import {IconButton} from '../../components/IconButton';
 import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
@@ -130,7 +131,10 @@ export function QueryResultsMobile({
           </Banner>
         )}
 
-        {displayExecutionId === null || rows.length === 0 ? (
+        {displayExecutionId !== null && rows.length === 0 && results.isError ? (
+          // A read that failed is not a run that returned nothing.
+          <ErrorBanner error={results.error} />
+        ) : displayExecutionId === null || rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-text-3">
             {isInFlight
               ? 'Running your query…'
@@ -146,9 +150,10 @@ export function QueryResultsMobile({
               key={`${results.pageIndex}-${rowIndex}`}
               aria-label={`Row ${results.rangeStart + rowIndex}`}
               className="rounded-md border border-border bg-surface p-3 text-sm">
+              {/* Keyed by position: a join's `SELECT *` repeats a column name. */}
               {columns.map((column, colIndex) => (
                 <div
-                  key={column.name}
+                  key={colIndex}
                   className="flex gap-3 border-b border-border py-1.5 last:border-b-0">
                   <dt className="w-2/5 flex-none truncate font-medium text-text-3">{column.name}</dt>
                   <dd className="min-w-0 flex-1 break-words font-mono text-text">{row[colIndex]}</dd>

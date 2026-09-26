@@ -187,12 +187,15 @@ export function useSavedQueryFlow({
     })();
   };
 
-  // The tab keeps its SQL; a later Save creates a new file.
+  // The tab keeps its SQL; a later Save creates a new file. Unlinked only once the file is gone:
+  // a refused delete leaves it in place, and the tab still saves over it.
   const deleteSaved = (query: SavedQuery) => {
-    saved.remove(query).catch((e) => {
-      toast.push({variant: 'danger', message: `Couldn’t delete the query. ${toUserText(e)}`});
-    });
-    tabs.unlinkSavedQuery(query.key);
+    saved
+      .remove(query)
+      .then(() => tabs.unlinkSavedQuery(query.key))
+      .catch((e) => {
+        toast.push({variant: 'danger', message: `Couldn’t delete the query. ${toUserText(e)}`});
+      });
   };
 
   return {savedSpaces, savedSpace, saved, dirtyTabIds, saveQuery, openSaved, withSavedSql, deleteSaved};

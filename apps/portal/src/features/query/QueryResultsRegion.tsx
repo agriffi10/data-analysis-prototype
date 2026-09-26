@@ -169,6 +169,7 @@ export function QueryResultsRegion({
               hasNext={results.hasNext}
               isFetchingNext={results.isFetchingNext}
               isLoading={results.isPending}
+              loadError={results.isError ? results.error : null}
               widths={colWidths.widths}
               onResize={colWidths.setWidth}
               onResetColumn={colWidths.resetColumn}

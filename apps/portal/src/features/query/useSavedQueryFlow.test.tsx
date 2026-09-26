@@ -101,6 +101,29 @@ describe('useSavedQueryFlow', () => {
     expect(onOpened).not.toHaveBeenCalled();
   });
 
+  it('keeps a tab linked to its file when the delete is refused, and says why', async () => {
+    const link = {spaceId: 'personal', bucket: 'user-space', key: monthly.key, name: 'Monthly'};
+    sessionStorage.setItem(
+      `${QUERY_TABS_STORAGE_PREFIX}alice`,
+      JSON.stringify({
+        version: 1,
+        tabs: [{id: 't0', label: 'Monthly', sql: 'SELECT 1;', savedQuery: link}],
+        activeTabId: 't0',
+        nextQueryNumber: 1
+      })
+    );
+    vi.mocked(deleteSavedQuery).mockResolvedValue({success: false, error: {message: '', code: 'NetworkError'}});
+    const {result} = render();
+
+    act(() => result.current.flow.deleteSaved(monthly));
+
+    expect(
+      await screen.findByText('Couldn’t delete the query. Can’t reach the server. Check your connection and try again.')
+    ).toBeInTheDocument();
+    expect(deleteSavedQuery).toHaveBeenCalledTimes(1);
+    expect(result.current.tabs.activeTab.savedQuery).toEqual(link);
+  });
+
   it('checks the tab cap BEFORE reading, so a refused open costs no request', async () => {
     const tabs = Array.from({length: QUERY_TABS_MAX}, (_, i) => ({id: `t${i}`, label: `Query ${i + 1}`, sql: ''}));
     sessionStorage.setItem(

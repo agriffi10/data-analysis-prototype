@@ -1,4 +1,4 @@
-import {useRef} from 'react';
+import {useEffect, useRef} from 'react';
 import {cx} from '../../lib/cx';
 import {DocumentIcon} from '../../components/icons';
 import type {QueryTab} from './query.types';
@@ -40,6 +40,23 @@ export function QueryTabStrip({
 }: Props) {
   const solo = tabs.length === 1;
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
+  const newTabRef = useRef<HTMLButtonElement>(null);
+
+  // A closed tab takes focus with it, and a confirmed close returns focus to the tab it just
+  // removed — either way it lands on <body> (WCAG 2.4.3). Which tab becomes active is the
+  // workspace's rule, so focus follows it once the close has rendered rather than guessing here.
+  const closingRef = useRef<string | null>(null);
+  const requestClose = (id: string) => {
+    closingRef.current = id;
+    onClose(id);
+  };
+  useEffect(() => {
+    const closing = closingRef.current;
+    if (closing === null || tabs.some((t) => t.id === closing)) return;
+    closingRef.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (tabRefs.current.get(activeTabId) ?? newTabRef.current)?.focus();
+  }, [tabs, activeTabId]);
 
   // WAI-ARIA tabs keyboard model (WCAG 2.1.1): with a roving tabindex only the
   // active tab is in the Tab sequence, so Left/Right/Home/End must move focus
@@ -59,7 +76,7 @@ export function QueryTabStrip({
       // a sibling of the tab — not a focusable descendant (nested-interactive) — so
       // Delete is how keyboard users close the focused tab.
       e.preventDefault();
-      onClose(tabs[index].id);
+      requestClose(tabs[index].id);
       return;
     }
     if (next === null) return;
@@ -74,6 +91,7 @@ export function QueryTabStrip({
       {/* The `+` sits to the LEFT of the tabs and outside the scrollable region so
           it stays visible at any tab count (FR: only the tabs scroll). */}
       <button
+        ref={newTabRef}
         type="button"
         aria-label="New query tab"
         title="New query tab"
@@ -153,7 +171,7 @@ export function QueryTabStrip({
                   title={`Close ${tab.label}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onClose(tab.id);
+                    requestClose(tab.id);
                   }}
                   className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                   <svg

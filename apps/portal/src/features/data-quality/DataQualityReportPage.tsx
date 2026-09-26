@@ -522,10 +522,16 @@ function ColumnsSection({columns, partitionNamed}: {columns: ColumnFinding[]; pa
                   <div className="w-40 text-xs">
                     <ColumnTypeCell column={column} />
                   </div>
+                  {/* The header strip above is hidden from assistive technology, so each figure
+                      carries its own column name or it is read as a bare number. */}
                   <span className={cx('w-32 text-right', issues > 0 ? 'font-medium text-danger' : 'text-text-2')}>
+                    <span className="sr-only">Doesn’t fit </span>
                     {isTypedColumn(column) ? formatCount(issues) : '—'}
                   </span>
-                  <span className="w-28 text-right text-text-2">{formatRatio(column.nullBlankRatio)}</span>
+                  <span className="w-28 text-right text-text-2">
+                    <span className="sr-only">Null or blank </span>
+                    {formatRatio(column.nullBlankRatio)}
+                  </span>
                 </li>
               );
             })}

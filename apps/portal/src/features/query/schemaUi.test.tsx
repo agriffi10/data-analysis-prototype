@@ -236,12 +236,13 @@ describe('DatabaseNode', () => {
     });
 
     it('renders a per-node "setting up" state on a NotFound error', async () => {
-      mock.getDatabase.mockResolvedValue({
-        success: false,
-        error: {message: 'Database "alice" does not exist yet.', code: 'NotFound'}
-      });
+      // The shape getDatabase actually returns: the API's failures carry a code and no message.
+      mock.getDatabase.mockResolvedValue({success: false, error: {message: '', code: 'NotFound'}});
+
       renderNode();
+
       expect(await screen.findByText(/Setting up your database/)).toBeInTheDocument();
+      expect(screen.queryByText(/Couldn.t load this schema/)).not.toBeInTheDocument();
     });
 
     // SPEC-086: per-database Refresh re-reads only this node's schema.

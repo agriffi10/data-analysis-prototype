@@ -1,3 +1,4 @@
+import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import type {QueryColumn} from '../catalog/catalog.types';
@@ -19,6 +20,8 @@ type QueryResultsTableProps = {
   hasNext: boolean;
   isFetchingNext: boolean;
   isLoading: boolean; // first page in flight
+  /** The results could not be read. Shown in place of the empty state, which would claim the query returned nothing. */
+  loadError?: unknown;
   // Controlled column widths (px per data column), owned by the parent's
   // useColumnWidths so they survive paging AND tab switches; handlers clamp/reset.
   widths: number[];
@@ -55,6 +58,7 @@ export function QueryResultsTable({
   hasNext,
   isFetchingNext,
   isLoading,
+  loadError = null,
   widths,
   onResize,
   onResetColumn,
@@ -63,7 +67,9 @@ export function QueryResultsTable({
 }: QueryResultsTableProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {rows.length === 0 ? (
+      {rows.length === 0 && !isLoading && loadError !== null ? (
+        <ErrorBanner error={loadError} />
+      ) : rows.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-3">
           {isLoading ? 'Loading results…' : 'No rows returned.'}
         </div>

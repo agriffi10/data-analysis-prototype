@@ -11,18 +11,23 @@ import type {DataQualityRunSummary} from './dataQuality.types';
  *
  * THE WHOLE ROW IS THE LINK, and its accessible name names the location — never "view" or
  * "here". A screen-reader user tabbing the list hears where each link goes without having
- * to read the surrounding row.
+ * to read the surrounding row. The name carries everything the card shows: the label replaces
+ * the content, so a figure left out of it is one a screen reader never hears — the Sampled
+ * qualifier above all, and the time and file count that tell two checks of one folder apart.
  */
 export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
   const {space, requestId, location, verdict, fileCount, hasApproximateFigures, timestamp} = run;
   const {parent, name} = splitLocation(location);
   const clean = verdict === 'clean';
+  const when = formatRelativeTime(timestamp);
+  const files = `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+  const outcome = `${clean ? 'clean' : 'issues found'}${hasApproximateFigures ? ', sampled' : ''}`;
 
   return (
     <li>
       <Link
         to={reportPath(space, requestId)}
-        aria-label={`Data quality check on ${location} — ${clean ? 'clean' : 'issues found'}`}
+        aria-label={`Data quality check on ${location} in ${space}, ${when}, ${files} — ${outcome}`}
         className={cx(
           'flex items-start gap-3 rounded-md border border-border bg-surface p-4',
           'hover:border-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
@@ -43,11 +48,9 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-3">
             <span>{space}</span>
             <span aria-hidden="true">·</span>
-            <span>{formatRelativeTime(timestamp)}</span>
+            <span>{when}</span>
             <span aria-hidden="true">·</span>
-            <span>
-              {fileCount} {fileCount === 1 ? 'file' : 'files'}
-            </span>
+            <span>{files}</span>
           </p>
         </div>
 

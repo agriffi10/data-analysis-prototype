@@ -1,10 +1,11 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {invalidateSchema} from '../catalog/useSchema';
 import {toUserText} from '../../lib/errorMessages';
 import {enqueueTableRefresh} from './tableBuild.service';
 import {parseTableLocation} from './tableRefresh.location';
+import {armCatalogCatchUp} from './useCatalogCatchUp';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {PendingRemoval, TableRefreshTarget} from './tableRefresh.types';
 
@@ -37,8 +38,9 @@ type LinkedTarget = {
  * It also owns the schema invalidation, because the successful enqueue is the
  * only signal there is: the rail is invalidated once on submit and once more the
  * next time the window regains focus — the refresh is asynchronous, so the columns
- * usually land while the user is elsewhere. The second pass is armed by a submit
- * and disarmed by firing, so idle focus events never invalidate.
+ * usually land while the user is elsewhere. The second pass is the shell's catalog
+ * catch-up, armed by a submit and disarmed by firing: held here, it died when the
+ * user left the query workspace, which is when the columns usually land.
  */
 export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: LinkedTarget) {
   const {user} = useAuth();
@@ -47,23 +49,10 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
   const [opened, setOpened] = useState<TableRefreshTarget | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The database and table owed a post-focus re-read, or null when nothing is armed.
-  const refetchOnFocus = useRef<{database: string; table: string} | null>(null);
   // A ref, not `busy`: see useDataQualityCheck for why the state read loses the race.
   // It matters more here — concurrent refreshes on one table can race,
   // and `deduplicationId` is a fresh UUID per call, so SQS cannot collapse the pair.
   const inFlight = useRef(false);
-
-  useEffect(() => {
-    const onFocus = () => {
-      const armed = refetchOnFocus.current;
-      if (!armed) return;
-      refetchOnFocus.current = null;
-      void invalidateSchema(queryClient, armed.database, armed.table);
-    };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [queryClient]);
 
   // A menu-opened target wins over a link-borne one: the user acted more recently.
   const linkTarget = linked?.target ?? null;
@@ -123,7 +112,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
         setOpened(null);
         consumeLink?.();
         void invalidateSchema(queryClient, database, table.name);
-        refetchOnFocus.current = {database, table: table.name};
+        armCatalogCatchUp(database, table.name);
         notify({
           variant: 'success',
           message: `Refreshing “${database}.${table.name}” — the result will appear in your notifications.`

@@ -19,8 +19,11 @@ const h = vi.hoisted(() => {
   // both `undefined`, coerced to 0 by `|`, and all three run scopes registered the
   // identical binding 2051 — dropping one, or swapping two, passed green. The real
   // values are Monaco's own (KeyMod.CtrlCmd = 1<<11, Shift = 1<<10, Alt = 1<<9).
+  // The per-tab models, by the path each is keyed under; `Uri.parse` hands the path straight back.
+  const models = new Map<string, {dispose: () => void}>();
   const monacoMock = {
-    editor: {defineTheme: vi.fn()},
+    editor: {defineTheme: vi.fn(), getModel: (uri: string) => models.get(uri) ?? null},
+    Uri: {parse: (path: string) => path},
     languages: {
       registerCompletionItemProvider,
       CompletionItemKind: {Field: 3, Struct: 5, Interface: 7}
@@ -35,9 +38,9 @@ const h = vi.hoisted(() => {
   // to change the first and leave the second alone: `@monaco-editor/react` applies a changed
   // `theme` through `editor.setTheme` in an effect, so a remount would be a regression that
   // costs the user their buffer.
-  const rendered: {theme?: string; value?: string}[] = [];
+  const rendered: {theme?: string; value?: string; path?: string; saveViewState?: boolean}[] = [];
   const created = vi.fn();
-  return {registerCompletionItemProvider, addCommand, monacoMock, rendered, created};
+  return {registerCompletionItemProvider, addCommand, monacoMock, models, rendered, created};
 });
 
 vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({default: class {}}));
@@ -48,15 +51,19 @@ vi.mock('@monaco-editor/react', () => ({
     onMount,
     beforeMount,
     theme,
-    value
+    value,
+    path,
+    saveViewState
   }: {
     onMount: (editor: unknown, m: unknown) => void;
     beforeMount?: (m: unknown) => void;
     theme?: string;
     value?: string;
+    path?: string;
+    saveViewState?: boolean;
   }) => {
-    h.rendered.push({theme, value});
-    onMount({addCommand: h.addCommand}, h.monacoMock);
+    h.rendered.push({theme, value, path, saveViewState});
+    onMount({addCommand: h.addCommand, getModel: () => null}, h.monacoMock);
     return <MonacoStub onCreate={() => beforeMount?.(h.monacoMock)} />;
   }
 }));
@@ -95,15 +102,72 @@ const orders: GlueTableSummary = {
   columns: [{name: 'id', type: 'bigint'}]
 };
 
+/** A workspace with a single tab, for the cases that are not about tabs. */
+const ONE_TAB = {tabId: 'a', tabIds: ['a']} as const;
+
 beforeEach(() => {
   h.registerCompletionItemProvider.mockClear();
   h.addCommand.mockClear();
   h.monacoMock.editor.defineTheme.mockClear();
   h.created.mockClear();
   h.rendered.length = 0;
+  h.models.clear();
   resetThemeForTest();
 });
 afterEach(cleanup);
+
+describe('each query tab keeps its own buffer', () => {
+  it('edits each tab in a model of its own, so Undo after a switch cannot reach the other tab', () => {
+    const {rerender} = render(
+      <SqlEditor
+        tabId="a"
+        tabIds={['a', 'b']}
+        value="select 'a'"
+        onChange={() => {}}
+      />
+    );
+
+    rerender(
+      <SqlEditor
+        tabId="b"
+        tabIds={['a', 'b']}
+        value="select 'b'"
+        onChange={() => {}}
+      />
+    );
+
+    // One shared model took the switch as an edit onto its own undo stack.
+    expect(h.rendered[0]?.path).toBe('query-tab-a.sql');
+    expect(h.rendered.at(-1)).toMatchObject({path: 'query-tab-b.sql', saveViewState: true});
+  });
+
+  it('disposes a closed tab’s model and keeps the open ones', () => {
+    const modelA = {dispose: vi.fn()};
+    const modelB = {dispose: vi.fn()};
+    h.models.set('query-tab-a.sql', modelA);
+    h.models.set('query-tab-b.sql', modelB);
+    const {rerender} = render(
+      <SqlEditor
+        tabId="a"
+        tabIds={['a', 'b']}
+        value=""
+        onChange={() => {}}
+      />
+    );
+
+    rerender(
+      <SqlEditor
+        tabId="a"
+        tabIds={['a']}
+        value=""
+        onChange={() => {}}
+      />
+    );
+
+    expect(modelB.dispose).toHaveBeenCalledTimes(1);
+    expect(modelA.dispose).not.toHaveBeenCalled();
+  });
+});
 
 // SPEC-150 FR-010 / SPEC-078 FR-005. These are the primary way users run a query,
 // and until now nothing asserted them: with `Shift`/`Alt` missing from the mock all
@@ -118,6 +182,7 @@ describe('run-scope keybindings', () => {
   it('registers exactly three commands, under three distinct keybindings', () => {
     render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -139,6 +204,7 @@ describe('run-scope keybindings', () => {
     const handlers = {onRun: vi.fn(), onRunScriptSingle: vi.fn(), onRunScriptTabs: vi.fn()};
     render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
         {...handlers}
@@ -158,6 +224,7 @@ describe('run-scope keybindings', () => {
   it('does not throw when a scope has no handler wired (every prop is optional)', () => {
     render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -174,6 +241,7 @@ describe('SqlEditor completion-provider wiring', () => {
 
     const {rerender, unmount} = render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -181,6 +249,7 @@ describe('SqlEditor completion-provider wiring', () => {
     // Re-rendering (e.g. a tab switch changing value) must not re-register.
     rerender(
       <SqlEditor
+        {...ONE_TAB}
         value="select 1"
         onChange={() => {}}
       />
@@ -195,7 +264,12 @@ describe('SqlEditor completion-provider wiring', () => {
   it('survives an unmount/remount (tab switch / StrictMode) — one active provider, still functional [SPEC-084]', () => {
     const disposable = {dispose: vi.fn()};
     h.registerCompletionItemProvider.mockReturnValue(disposable);
-    const props = {value: '', onChange: () => {}, completionSchemas: [{database: 'alice', tables: [orders]}]};
+    const props = {
+      ...ONE_TAB,
+      value: '',
+      onChange: () => {},
+      completionSchemas: [{database: 'alice', tables: [orders]}]
+    };
 
     // Mount → unmount (switch away) → remount (switch back).
     render(<SqlEditor {...props} />).unmount();
@@ -230,12 +304,14 @@ describe('SqlEditor completion-provider wiring', () => {
 
     const a = render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
     );
     const b = render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -253,6 +329,7 @@ describe('SqlEditor completion-provider wiring', () => {
   it('feeds the provider the latest completionSchemas via the shared ref', () => {
     const {rerender} = render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
         completionSchemas={undefined}
@@ -275,6 +352,7 @@ describe('SqlEditor completion-provider wiring', () => {
 
     rerender(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
         completionSchemas={[{database: 'alice', tables: [orders]}]}
@@ -290,6 +368,7 @@ describe('the editor follows the app theme', () => {
   it('defines both themes up front, from the palette rather than from its own copy', () => {
     render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -320,6 +399,7 @@ describe('the editor follows the app theme', () => {
     // needs no internal exported for it and cannot drift from what the editor actually renders.
     render(
       <SqlEditor
+        {...ONE_TAB}
         value=""
         onChange={() => {}}
       />
@@ -352,6 +432,7 @@ describe('the editor follows the app theme', () => {
     // test is not about.
     render(
       <SqlEditor
+        {...ONE_TAB}
         value="select 1"
         onChange={() => {}}
       />

@@ -252,6 +252,21 @@ describe('QueryResultsMobile', () => {
       expect(screen.queryByRole('button', {name: /load more/i})).not.toBeInTheDocument();
     });
 
+    it('says the results could not be read, rather than that the run returned no rows', () => {
+      renderResults({
+        results: resultsFixture({
+          rows: [],
+          loadedRowCount: 0,
+          isError: true,
+          error: Object.assign(new Error('raw: results read refused for alice'), {code: 'NetworkError'})
+        })
+      });
+
+      expect(screen.getByText('Can’t reach the server. Check your connection and try again.')).toBeInTheDocument();
+      expect(screen.queryByText('The run finished without returning rows.')).not.toBeInTheDocument();
+      expect(screen.queryByText(/results read refused/)).not.toBeInTheDocument();
+    });
+
     it('prompts to run when opened without a run, and shows the failure banner when one failed', () => {
       const {unmount} = renderResults({hasRun: false, displayExecutionId: null});
       expect(screen.getByText('Run this query to see results.')).toBeInTheDocument();
@@ -434,6 +449,8 @@ describe('QueryStatusBar', () => {
       );
       expect(screen.getByText('Running…')).toBeInTheDocument();
       expect(screen.getByText(/elapsed/)).toBeInTheDocument();
+      // The bar is a live region, and a clock inside one is re-announced every second.
+      expect(screen.getByText(/elapsed/)).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('never counts a new run’s elapsed time from the previous run’s last tick', async () => {

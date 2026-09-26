@@ -300,10 +300,10 @@ describe('RefreshTableDialog', () => {
       // asserting it here would pass no matter what this component does.
       it('scrolls a long column list rather than growing without bound', () => {
         render({...LINKED, pending: {...LINKED.pending!, columns: Array.from({length: 20}, (_, i) => `col_${i}`)}});
-        expect(screen.getByRole('list', {name: /columns that would be removed/i})).toHaveClass(
-          'max-h-32',
-          'overflow-y-auto'
-        );
+        const scroller = screen.getByRole('region', {name: /columns that would be removed/i});
+        expect(scroller).toHaveClass('max-h-32', 'overflow-y-auto');
+        // A scrolling region the keyboard cannot reach hides the columns past its fold.
+        expect(scroller).toHaveAttribute('tabindex', '0');
         // The behavioural half: however long the list gets, confirm is still reachable.
         expect(confirmButton()).toBeInTheDocument();
       });

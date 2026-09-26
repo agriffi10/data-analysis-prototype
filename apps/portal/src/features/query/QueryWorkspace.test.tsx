@@ -304,6 +304,29 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByRole('tab', {name: /Query 3/})).not.toBeInTheDocument();
     });
 
+    // The dialog hands focus back to what opened it, and that is the tab it just removed.
+    it('puts focus on the tab that becomes active when Delete closes the focused one', async () => {
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT bye;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await waitFor(() => expect(screen.getByRole('tab', {name: /Query 1/})).toHaveFocus());
+      expect(screen.getByRole('tab', {name: /Query 1/})).toHaveAttribute('aria-selected', 'true');
+    });
+
     it('shows the tab-limit dialog at the cap and opens no further tab', async () => {
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
@@ -722,6 +745,19 @@ describe('QueryWorkspace', () => {
       expect(mockRunQuery.mock.calls.at(-1)?.[0].sql).not.toMatch(/limit/i);
     });
 
+    // The table builder accepts a reserved word as a name, and bare it is a keyword, not a table.
+    it('View data quotes a table named with a reserved word, and only that part', async () => {
+      vi.mocked(listTables).mockResolvedValue(ok([{...salesTable, name: 'order'}]));
+      const {user} = renderWorkspace();
+
+      await openTableMenu(user, 'order');
+      await user.click(await screen.findByRole('menuitem', {name: 'View data'}));
+
+      await waitFor(() =>
+        expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT * FROM alice."order"'}))
+      );
+    });
+
     it('Drop table confirms, runs DROP TABLE in the background (history + toast); a failure shows an error toast', async () => {
       const {user} = renderWorkspace();
 
@@ -939,6 +975,30 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText(/Statement 2 of 2 failed\. The service is busy/)).toBeInTheDocument();
       expect(screen.getByText('Failed')).toBeInTheDocument();
       expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    });
+
+    // While the next statement's history entry is being written, the run still names the statement
+    // before it — so a Stop there cancelled a finished query and the started one ran on, billed.
+    it('cancels the next statement when Stop lands while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-2'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend
+        .mockResolvedValueOnce(ok({version: 1, entries: []}))
+        .mockReturnValueOnce(new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []})))));
+      seedScript('SELECT 1; SELECT 2;');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-2'}))
+      );
+      await user.click(screen.getByRole('button', {name: 'Stop the running query'}));
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-2'));
+      expect(mockStopQuery.mock.calls).toEqual([['q-1'], ['q-2']]);
     });
 
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
@@ -1869,6 +1929,20 @@ describe('QueryWorkspace', () => {
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
       await screen.findByText('Succeeded');
     }
+
+    it('says the results could not be read, rather than that the query returned no rows', async () => {
+      mockGetResults.mockResolvedValue(fail('raw: results read refused for alice', 'NetworkError'));
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+
+      await runOnce(user);
+
+      expect(
+        await screen.findByText('Can’t reach the server. Check your connection and try again.')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
+      expect(screen.queryByText(/results read refused/)).not.toBeInTheDocument();
+    });
 
     it('fetches page 2 with the NextToken and renders it', async () => {
       seedTwoPages();

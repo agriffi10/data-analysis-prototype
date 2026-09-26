@@ -356,11 +356,25 @@ describe('the catalog services over the API', () => {
         success: true,
         data: 'CREATE EXTERNAL TABLE db.t (\n  id int\n)'
       });
+      // Hive DDL, so backticks: the names themselves go through untouched.
       expect(api.bodyFor('athena.start')).toEqual({
-        sql: 'SHOW CREATE TABLE db.t',
+        sql: 'SHOW CREATE TABLE `db`.`t`',
         database: 'db'
       });
       expect(api.queryFor('athena.results')).toEqual({maxRows: '999'});
+    });
+
+    it('quotes a table named with a reserved word, which bare is a parse error', async () => {
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('SUCCEEDED')});
+      api.on('athena.results', {
+        success: true,
+        data: {columns: [{name: 'createtab_stmt', type: 'varchar'}], rows: [['CREATE TABLE']], nextToken: null}
+      });
+
+      await getTableDdl({database: 'alice', table: 'order', username: 'alice'});
+
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE TABLE `alice`.`order`', database: 'alice'});
     });
 
     it('runs SHOW CREATE VIEW for a view', async () => {
@@ -373,7 +387,7 @@ describe('the catalog services over the API', () => {
 
       await getTableDdl({database: 'db', table: 'v', username: 'alice', isView: true});
 
-      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW db.v', database: 'db'});
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW `db`.`v`', database: 'db'});
     });
 
     it('returns an error when the statement does not succeed', async () => {
