@@ -372,7 +372,7 @@ const FEATURES = [
 
 /** Public marketing landing page (`/`) — self-contained nav (the app Header is suppressed on '/'), no S3 calls. */
 export default function LandingPage() {
-  const {status, signIn, signUp} = useAuth();
+  const {status, signIn, signUp, error} = useAuth();
   const navigate = useNavigate();
   usePageTitle();
 
@@ -473,6 +473,16 @@ export default function LandingPage() {
           </div>
         </div>
       </nav>
+
+      {/* Sign-in returns HERE, and the app header that shows auth errors everywhere else is
+          suppressed on this page — without this a refused or cancelled sign-in landed silently. */}
+      {!isAuthed && error && (
+        <div
+          role="alert"
+          className="border-b border-danger-soft bg-danger-soft px-4 py-2 text-center text-sm text-danger">
+          {error}
+        </div>
+      )}
 
       <main id="main">
         {/* Hero */}
