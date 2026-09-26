@@ -30,6 +30,14 @@ export const QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX = 's3portal.query.resultsPag
 export const QUERY_HISTORY_MAX = 100;
 
 /**
+ * Byte budget for the same document, oldest entries dropped until it fits. The count alone let a
+ * hundred long statements grow the file past the API's 3 MiB document cap, after which it could be
+ * neither read nor written and history stopped recording. A third of that cap leaves room for the
+ * escaping a read-back adds.
+ */
+export const QUERY_HISTORY_MAX_BYTES = 1024 * 1024;
+
+/**
  * History-drawer entries per page (newest-first). Client-side only — the full
  * capped list is already in memory, so paging is a slice, not a fetch.
  */

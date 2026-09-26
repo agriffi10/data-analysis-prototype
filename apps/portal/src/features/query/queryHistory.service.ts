@@ -4,7 +4,8 @@ import type {DocumentParse, WriteOutcome} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
-import {QUERY_HISTORY_MAX} from './query.constants';
+import {QUERY_HISTORY_MAX, QUERY_HISTORY_MAX_BYTES} from './query.constants';
+import {wireBytes} from '../../lib/wireBytes';
 
 // A private, per-user query history stored as JSON alongside the user's
 // results. This is the backend-free way to give each user a private history
@@ -55,6 +56,9 @@ async function readHistoryForWrite(username: string): Promise<ServiceResult<Docu
     key: historyKey(username),
     parse: (body) => ok(classifyHistory(body)),
     onMissing: () => ok({readable: true, value: emptyHistory()}),
+    // A document over the API's cap can be neither read nor rewritten, so it is set aside like an
+    // unparseable one rather than refusing every write from now on.
+    onTooLarge: () => ok({readable: false, reason: 'unparseable'}),
     fallbackMessage: 'Failed to load query history'
   });
 }
@@ -137,7 +141,10 @@ export async function appendQueryHistory(
   if (!current.success) return current;
   const {history, recovered} = current.data;
 
-  const entries = [entry, ...history.entries].slice(0, QUERY_HISTORY_MAX);
+  let entries = [entry, ...history.entries].slice(0, QUERY_HISTORY_MAX);
+  while (entries.length > 1 && wireBytes({version: HISTORY_VERSION, entries}) > QUERY_HISTORY_MAX_BYTES) {
+    entries = entries.slice(0, -1);
+  }
   const next: QueryHistory = {version: HISTORY_VERSION, entries};
 
   const written = await writeHistory(username, next);
