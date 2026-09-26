@@ -115,7 +115,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
           // refused as not found.
           const message =
             result.error.code === 'Timeout'
-              ? `Data Quarry stopped waiting on “${table}”, but Athena may still finish the change. Refresh the tables in a minute to see whether it did.`
+              ? `Data Quarry stopped waiting on ${table ? `“${table}”` : 'that statement'}, but Athena may still finish the change. Check again in a minute to see whether it did.`
               : `${describe.failure} ${toUserText(result.error)}`;
           toast.push({variant: 'danger', message});
           return;

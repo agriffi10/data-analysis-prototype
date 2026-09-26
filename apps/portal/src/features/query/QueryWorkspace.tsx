@@ -793,7 +793,12 @@ export function QueryWorkspace() {
       )}
 
       <QueryDialogs
-        clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
+        clear={{
+          open: clearOpen,
+          linkedName: activeTab.savedQuery?.name,
+          onConfirm: handleClearConfirm,
+          onCancel: () => setClearOpen(false)
+        }}
         save={saveQuery}
         closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
         tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}

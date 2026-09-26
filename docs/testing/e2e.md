@@ -616,7 +616,7 @@ as honestly as a succeeding one.
 | 6 | Clear the filter, then apply the **same** one again | **Zero** new executions, and the line reads *"Loaded from an earlier run in this tab — nothing more scanned"*. Total unchanged. |
 | 7 | Click an `O'Brien` cell → **Filter by this value** | **Rows come back** — count them in the unfiltered grid first. **An empty grid here is a FAILURE.** **Generated SQL** reads `WHERE "owner" = 'O''Brien'`. The wrong escaper fails *silently*, as a predicate that matches nothing. |
 | 8 | Type `qty >>> 5` into **Filter expression** → **Apply** | Error banner, the **previous** rows still beneath it, toolbar and expression bar still there. |
-| 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This set of filters failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
+| 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This version of the query failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
 | 10 | **Grouping** → group by `region`, `COUNT(*)`, tick **Show percentage**, Apply | **1** execution, changed figure. **Generated SQL** is a real `GROUP BY` and the percentage column is **not in it** — it is computed in the browser and its header says `(this page)`. |
 | 11 | Copy the disclosed SQL, then `aws athena get-query-execution --query-execution-id <id>` and compare `QueryString` | **Byte-identical.** The only check that proves the disclosure and the executed string have not drifted — and a JSON hop now sits in the middle, so the comparison is against Athena's own read-back, not against the request body. |
 | 12 | Leave grouping | Any sort on `count_all` is **dropped**, not carried onto the raw table. |
@@ -636,7 +636,7 @@ as honestly as a succeeding one.
 3. Click a **column header**, copy → the loaded page's rows only.
 4. **Copy…** → **JSON** → `null` for the NULL and `""` for the empty cell. Distinguishable is the point.
 5. **Save results…** (Options) before anything has run → refused, `aria-disabled`, `disabled`
-   false, `tabIndex 0`, *"Run a query first — there are no results to save yet."*, and no such button
+   false, `tabIndex 0`, *"There’s nothing to save until this query finishes successfully."*, and no such button
    beside the pager. No need to be quick: "nothing has run" and "still running" are one state.
 6. **Save results…** beside the pager → `explorer-export` → **My files** → **Save here** →
    success toast, and the file in **Files**.
@@ -770,7 +770,7 @@ it is CLI-only — see `owed.md`.
 | Do | Expect |
 |---|---|
 | Create a space | Creator-only. It appears in the rail with its own Glue database. |
-| Add a member | The member sees it on their Connections page without signing out, and their own roster row reads Active. Opening the space's Files page acknowledges it, and after a Refresh the owner's roster flips from Pending to Active. The Files page asks for **Refresh access** until the member's token carries the space. |
+| Add a member | The member sees it on their Shared spaces page without signing out, and their own roster row reads Active. Opening the space's Files page acknowledges it, and after a Refresh the owner's roster flips from Pending to Active. The Files page asks for **Refresh access** until the member's token carries the space. |
 | Add a member who does not exist | Silently ignored — the others are still added, and the execution still SUCCEEDS. |
 | Add the same member twice | Idempotent. The owner can never be added as a member. |
 | **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
@@ -778,7 +778,7 @@ it is CLI-only — see `owed.md`.
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
 | Query the space's database | It runs, and its results go to **your own** `system_settings/athenaresults/`, not the space's. That is by design: the API writes every query under the caller's own prefix, because that prefix is how every query route proves an execution is the caller's (`cpcommon/results.py`). |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
-| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Connections page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
+| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Shared spaces page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
 | **[approval gate]** Re-create a space with the just-deleted name | **Refused** by name. The record is never released, so the name is spent forever — the opposite of what this row asserted before, and the reason the create dialog now warns before the name is chosen. |
 | **Transfer ownership** to a member (Manage → **Make owner**) | The dialog names the space and the member, says you stay a member, and says only they can transfer it back. After it lands: their card reads **Owner**, yours reads **Member** and names them as owner, and **both of you still read `Active` in the roster** — the outgoing owner rendering as `Pending` is the defect this is here to catch. |
 | Transfer, then Refresh, then reopen Manage | You no longer have Manage on that space at all. The two of you get one notification each, naming the other; nobody else does. |
@@ -1126,7 +1126,7 @@ is not a pass.
 
    | Where | Expect |
    |---|---|
-   | Topbar | **Files** and **Connections** only — Query and Data quality *absent*, not greyed |
+   | Topbar | **Files** and **Shared spaces** only — Query and Data quality *absent*, not greyed |
    | `/query` typed in | The **"Query isn't available"** page with a working **Go to Files** link — **not** "Page not found" |
    | Files, in a folder | **No "Create table"** on the toolbar |
    | Files, one item selected | **No "Check data quality"** in the selection toolbar |

@@ -1205,7 +1205,7 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).not.toBeChecked();
-    expect(await screen.findByText(/you’ll get a notification with the outcome/i)).toBeInTheDocument();
+    expect(await screen.findByText(/the outcome will arrive in your notifications/i)).toBeInTheDocument();
   });
 
   it('sends from a SHARED space as that space, not as the signed-in user', async () => {

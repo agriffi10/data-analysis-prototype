@@ -813,6 +813,28 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByText(/table locked/)).not.toBeInTheDocument();
     });
 
+    it('Drop table in a shared space says the drop is everyone’s', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      vi.mocked(listTables).mockImplementation(async (database: string) =>
+        database === 'teamspace'
+          ? ok([{name: 'team_sales', location: 's3://shared-bucket/teamspace/sales/', columns: []}])
+          : ok([salesTable])
+      );
+      const {user} = renderWorkspace();
+
+      await user.click(await screen.findByRole('button', {name: /teamspace/}));
+      await openTableMenu(user, 'team_sales');
+      await user.click(await screen.findByRole('menuitem', {name: 'Drop table'}));
+
+      expect(
+        within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByText(
+          /from teamspace, for everyone in this shared space\./
+        )
+      ).toBeInTheDocument();
+    });
+
     it('Drop table that outlasts the wait says it may still finish, never that it failed', async () => {
       const {user} = renderWorkspace();
       mockRunToCompletion.mockResolvedValueOnce({

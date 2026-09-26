@@ -9,7 +9,7 @@ import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './da
 import {emptyExplorationQuery, newExploration} from './exploration';
 import {CACHE_HIT_TEXT} from './CostIndicator';
 import {NO_HISTORY_BACK, NO_HISTORY_FORWARD} from './FilterHistoryControls';
-import {SUSPENDED_TEXT} from './ExplorationResultsRegion';
+import {NOTHING_TO_SAVE, NOTHING_TO_VIEW, SUSPENDED_TEXT} from './ExplorationResultsRegion';
 import {filterValueKind, isEmptyQuery, moveSortPriority, sameQuery, setSort, sortOf} from './explorationQueryOps';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -228,6 +228,9 @@ describe('filter history', () => {
     expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
     expect(screen.getByLabelText('Filter expression')).toHaveValue('not sql at all');
     expect(runQuery).toHaveBeenCalledTimes(2);
+    // Held back, so there is no statement: each of the two actions built from one says so in its own words.
+    expect(await explorationOption(user, 'Save as query')).toHaveAttribute('title', NOTHING_TO_SAVE);
+    expect(await explorationOption(user, 'Create view…')).toHaveAttribute('title', NOTHING_TO_VIEW);
 
     // The retry is the USER's (AC4).
     await user.click(screen.getByRole('button', {name: 'Run it anyway'}));
@@ -460,8 +463,8 @@ describe('across tabs', () => {
     await screen.findByText('open');
     await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
     await screen.findByText(/syntax error in your query/i);
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
-    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
     await screen.findByText(SUSPENDED_TEXT);
     const badStarts = () => vi.mocked(runQuery).mock.calls.filter(([{sql}]) => sql.includes('bad')).length;
     const before = badStarts();

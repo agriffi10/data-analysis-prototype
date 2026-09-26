@@ -468,10 +468,12 @@ duplicates of one description. `clearAll` deliberately **preserves `grouping`**:
 and un-grouping a view from a control labelled "Remove all filters" is a change nobody asked for.
 
 > **SUPERSEDED by SPEC-182 (FR-006 AC3): `clearAll` clears the grouping too, and the control's LABEL
-> changes with it** — `Remove all filters and sorts` becomes `Remove all filters, sorts and grouping` while a grouping (both name sorts, which the clear always removed)
+> changes with it** — `Remove all filters` becomes `Remove all filters and grouping` while a grouping
 > is in force. The concern above was never the clearing, it was the silence; naming the action is the
 > other way to keep the same promise. `isEmptyQuery` counts grouping from the same spec, so its
-> refusal wording changed with it.
+> refusal wording changed with it. The UI copy audit later named sorts in both labels —
+> `Remove all filters and sorts`, `Remove all filters, sorts and grouping` — because the clear had
+> always removed them too, and a label naming only filters was the same silence.
 
 **The hook takes the tabs result rather than reading its own** — a deviation from the spec's
 `useExplorationQuery(tabId)`. The history lives with the tab in `sessionStorage` (FR-006 AC3) and
