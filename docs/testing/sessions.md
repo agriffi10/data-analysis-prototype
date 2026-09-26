@@ -10,6 +10,33 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-26 (View DDL, and which quote `SHOW CREATE VIEW` takes)
+
+**What was under test.** The View DDL row of `owed.md`'s UI-audit section, and the question that
+row left open: which engine parses `SHOW CREATE VIEW`, and so which quote a view name that needs
+one takes. The SPA served was the image built from `bb264467` (#894), the last push run that built
+one; `2fa1470b`'s and `2a1e7988`'s runs skipped the build. Times are UTC, about 19:50Z to 19:58Z.
+
+**Browser.** Andrew's Chrome, as **agriffith**, in new tabs in the `claude-in-chrome` group. Andrew
+signed the first in at the Cognito form; the second signed in with one click on the warm Hosted UI
+cookie. Width 1512.
+
+**Instruments.** `document.visibilityState` overridden to `visible` (the window was hidden). SQL was
+typed into Monaco and read back from the tab's persisted state before each run. Buttons and menu
+items were pressed with `element.click()`. The three editor runs each wrote an entry to
+**agriffith**'s query history.
+
+**Results.**
+- In the editor, `SHOW CREATE VIEW agriffith."single_employee"` returned the view's DDL, five rows
+  under a `create view` column. `SHOW CREATE VIEW "agriffith"."single_employee"` returned the same.
+  ``SHOW CREATE VIEW agriffith.`single_employee` `` was refused at start with *"There’s a syntax
+  error in your query."* So `SHOW CREATE VIEW` is Trino's, and takes double quotes on both parts.
+- Table-row menu → View DDL on the table `employees` opened *DDL: employees*, selected, holding its
+  `CREATE EXTERNAL TABLE`. On the view `single_employee` it opened *DDL: single_employee*, selected,
+  holding its `CREATE VIEW`. No toast was showing after either, so the loading notice had cleared.
+- Not run: View DDL on a view whose name is a reserved word. No such view exists, and creating one
+  is a production write.
+
 ## Live-check session — 2026-09-26 (#879's result tabs and archive notice, and SPEC-247's saved views)
 
 **What was under test.** #879 (`eb573bf4`) and SPEC-247 (#880, `1cd6cfcc`). Two SPA builds were
