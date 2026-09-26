@@ -14,7 +14,7 @@ import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {buildOpenSqlHandoff, readExploreSqlHandoff} from '../../lib/routeHandoff';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
-import {CostIndicator, type CostIndicatorProps} from './CostIndicator';
+import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsRegion, NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
 import {ExportExplorationDialog} from './ExportExplorationDialog';
@@ -70,6 +70,9 @@ export function DataExplorerWorkspace() {
 
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
+  // Closing the last tab unmounts the strip that held focus; the picker takes its place and
+  // takes the focus with it.
+  const [pickerTakesFocus, setPickerTakesFocus] = useState(false);
   const [browsingSaved, setBrowsingSaved] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
   // Which tab, and the statement on screen, both taken at the gesture rather than read live
@@ -158,6 +161,7 @@ export function DataExplorerWorkspace() {
     else {
       setPicking(false);
       setBrowsingSaved(false);
+      setPickerTakesFocus(false);
     }
     return id;
   };
@@ -220,25 +224,14 @@ export function DataExplorerWorkspace() {
   // Read during render rather than in the effect below, and that ordering is the whole
   // point — `recordScan` puts the id in the ledger, after which every execution looks
   // known and every apply would report itself a cache hit.
-  const [lastApply, setLastApply] = useState<{
-    key: string;
-    bytesScanned: number;
-    cacheHit: CostIndicatorProps['cacheHit'];
-  } | null>(null);
+  const [lastApply, setLastApply] = useState<{key: string; bytesScanned: number; fromCache: boolean} | null>(null);
   const costKey =
     tabs.activeTab && exploration.queryExecutionId && exploration.cost
       ? `${tabs.activeTab.id}:${exploration.queryExecutionId}`
       : null;
   if (costKey !== null && lastApply?.key !== costKey && tabs.activeTab && exploration.cost) {
-    const executionId = exploration.queryExecutionId as string;
-    const activeId = tabs.activeTab.id;
-    const known = tabs.activeTab.scannedByExecution[executionId];
-    const ranElsewhere = tabs.tabs.some((t) => t.id !== activeId && t.scannedByExecution[executionId] !== undefined);
-    setLastApply({
-      key: costKey,
-      bytesScanned: known ?? exploration.cost.bytesScanned,
-      cacheHit: known !== undefined ? 'this-tab' : ranElsewhere ? 'another-tab' : 'none'
-    });
+    const known = tabs.activeTab.scannedByExecution[exploration.queryExecutionId as string];
+    setLastApply({key: costKey, bytesScanned: known ?? exploration.cost.bytesScanned, fromCache: known !== undefined});
   }
   // Keyed by tab, and read back by tab: a tab whose own run has not reported yet shows no
   // per-apply figure, rather than the one the previous tab left behind.
@@ -307,7 +300,10 @@ export function DataExplorerWorkspace() {
           // slides into view: if it has run this session its statement is cached, but a tab
           // restored from `sessionStorage` and never opened has not, and showing an
           // exploration is running it.
-          onClose={tabs.closeTab}
+          onClose={(id) => {
+            if (tabs.tabs.length === 1) setPickerTakesFocus(true);
+            tabs.closeTab(id);
+          }}
           // A state read is honest for ONE human click — the picker's choice still goes
           // through `openTab`, which is the authority and refuses on its own synchronous
           // count. What this buys is the refusal arriving at the gesture that
@@ -324,6 +320,7 @@ export function DataExplorerWorkspace() {
           onChoose={openSource}
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
           onOpenSaved={queryEnabled ? () => setBrowsingSaved(true) : undefined}
+          takeFocus={pickerTakesFocus}
         />
       ) : (
         // The region each tab controls. `aria-controls` on a tab has to name something, or
@@ -391,7 +388,7 @@ export function DataExplorerWorkspace() {
           />
           <CostIndicator
             bytesScanned={shownApply?.bytesScanned ?? null}
-            cacheHit={shownApply?.cacheHit ?? 'none'}
+            fromCache={shownApply?.fromCache ?? false}
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>

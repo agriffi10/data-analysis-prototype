@@ -177,17 +177,13 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
   const recordScan = (tabId: string, queryExecutionId: string, bytesScanned: number) =>
     setState((s) => {
       const tab = s.tabs.find((t) => t.id === tabId);
-      // Already recorded: this is the cache hit, and it must change nothing — an execution's
-      // final statistics never change, and re-reading another tab's zero here would erase
-      // what this tab paid. Returning the same state also keeps the calling effect from looping.
-      if (!tab || tab.scannedByExecution[queryExecutionId] !== undefined) return s;
-      // Two tabs showing one description share one execution, so a tab reaching one another
-      // tab already recorded scanned nothing itself — it is filed here at zero.
-      const owed = s.tabs.some((t) => t.scannedByExecution[queryExecutionId] !== undefined) ? 0 : bytesScanned;
+      // Already recorded: this is the cache hit, and it must change nothing. Returning the
+      // same state also keeps the effect that calls this from looping.
+      if (!tab || tab.scannedByExecution[queryExecutionId] === bytesScanned) return s;
       return {
         ...s,
         tabs: s.tabs.map((t) =>
-          t.id === tabId ? {...t, scannedByExecution: {...t.scannedByExecution, [queryExecutionId]: owed}} : t
+          t.id === tabId ? {...t, scannedByExecution: {...t.scannedByExecution, [queryExecutionId]: bytesScanned}} : t
         )
       };
     });

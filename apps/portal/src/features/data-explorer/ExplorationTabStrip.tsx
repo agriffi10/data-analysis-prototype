@@ -38,15 +38,15 @@ export function ExplorationTabStrip({
   panelShown
 }: ExplorationTabStripProps) {
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
-  const newRef = useRef<HTMLButtonElement>(null);
   const refocusAfterClose = useRef(false);
 
   // A tab closed from the keyboard takes the focused element with it; hand focus to the tab
-  // now showing rather than letting it fall back to the top of the page (WCAG 2.4.3).
+  // now showing rather than letting it fall back to the top of the page (WCAG 2.4.3). Closing
+  // the last one unmounts this strip, and the picker that replaces it takes the focus instead.
   useEffect(() => {
     if (!refocusAfterClose.current) return;
     refocusAfterClose.current = false;
-    (tabRefs.current.get(activeTabId) ?? newRef.current)?.focus();
+    tabRefs.current.get(activeTabId)?.focus();
   }, [tabs, activeTabId]);
 
   // WAI-ARIA tabs keyboard model with MANUAL activation (WCAG 2.1.1): the arrows move focus
@@ -78,7 +78,6 @@ export function ExplorationTabStrip({
   return (
     <div className="flex h-10 flex-none items-center gap-1 border-b border-border bg-surface-2 px-3">
       <button
-        ref={newRef}
         type="button"
         aria-label="New exploration"
         title="New exploration"

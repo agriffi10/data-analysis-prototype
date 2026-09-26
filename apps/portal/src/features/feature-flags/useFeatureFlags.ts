@@ -50,9 +50,6 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
     // A retry only delays the fallback: the service already treats every recoverable shape
     // as a resolved answer, so anything reaching here is a real fault.
     retry: false,
-    // Every gated page reads the flags from inside, so each page mount is a new observer —
-    // and by default a new observer re-fetches a failed read on mount.
-    retryOnMount: false,
     queryFn: async (): Promise<FeatureFlags> => unwrap(await getFeatureFlags(environment))
   });
 
@@ -67,10 +64,12 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
   // every gated surface and then take them away a tick later once the real read began —
   // the flicker the rule exists to prevent, arriving by the other door.
   //
-  // A read that has ever failed stays `'fallback'` while it is re-read. Re-fetching a query
-  // with no data puts it back to pending, and `FeatureRoute` swaps its page for the loader
-  // on `'loading'` — unmounting the page whose own flag read started the fetch, then
-  // remounting it when the fetch failed again, for as long as the document was unreadable.
+  // A read that has ever failed stays `'fallback'` while it is re-read. Every gated page reads
+  // the flags from inside, a new observer re-fetches a failed read on mount — which is how
+  // the app recovers from one — and re-fetching a query with no data puts it back to pending.
+  // Read as `'loading'`, that made `FeatureRoute` swap its page for the loader, unmounting the
+  // page whose own read started the fetch and remounting it when the fetch failed again, for
+  // as long as the document was unreadable.
   const status: FeatureFlagsStatus =
     authStatus === 'loading'
       ? 'loading'

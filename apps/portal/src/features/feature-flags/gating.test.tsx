@@ -47,7 +47,6 @@ import LandingPage from '../../routes/LandingPage';
 import DataQualityReportPage from '../../routes/DataQualityReportPage';
 import {HelpPage} from '../help/HelpPage';
 import {FeatureGate} from './FeatureGate';
-import {featureFlagKeys} from './featureFlagKeys';
 import {getQualityReport} from '../data-quality/dataQualityReport.service';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
@@ -328,57 +327,35 @@ describe('FR-005/FR-007 — fallback is indistinguishable from all-on', () => {
   });
 
   it('mounts a gated page once on an unreadable document, rather than trading it for the loader', async () => {
-    // Every gated page asks the flags again from inside. A new observer of a failed read
-    // re-fetches it, which blanks its status back to pending — and a gate that read that as
-    // 'loading' unmounted the page, which ended the fetch, which remounted the page: a loop
-    // for as long as the document stayed unreadable.
+    // Every gated page asks the flags again from inside, and that new reader re-reads a failed
+    // document — which blanks its status back to pending. A gate that read that as 'loading'
+    // unmounted the page, which ended the read, which remounted the page: a loop for as long as
+    // the document stayed unreadable.
     vi.mocked(getFeatureFlags).mockResolvedValue({success: false, error: {message: 'unreadable'}});
-
-    renderWithProviders(
-      <FeatureRoute flag="query">
+    let mounts = 0;
+    function Page() {
+      useEffect(() => {
+        mounts += 1;
+      }, []);
+      return (
         <FeatureGate flag="files">
           <p>QUERY PAGE</p>
         </FeatureGate>
+      );
+    }
+
+    renderWithProviders(
+      <FeatureRoute flag="query">
+        <Page />
       </FeatureRoute>,
       opts
     );
 
     expect(await screen.findByText('QUERY PAGE')).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.getByText('QUERY PAGE')).toBeInTheDocument();
-    expect(getFeatureFlags).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the gated page mounted while an unreadable document is read again', async () => {
-    // A focus return or a reconnect re-reads a failed document. Swapping the page for the
-    // loader while it does would throw away everything the page held. The re-read is held
-    // open: one that settles at once never shows an observer its pending state at all.
-    vi.mocked(getFeatureFlags)
-      .mockResolvedValueOnce({success: false, error: {message: 'unreadable'}})
-      .mockReturnValueOnce(new Promise(() => {}));
-    let mounts = 0;
-    function Page() {
-      useEffect(() => {
-        mounts += 1;
-      }, []);
-      return <p>QUERY PAGE</p>;
-    }
-    const {queryClient} = renderWithProviders(
-      <FeatureRoute flag="query">
-        <Page />
-      </FeatureRoute>,
-      opts
-    );
-    await screen.findByText('QUERY PAGE');
-
-    await act(async () => {
-      void queryClient.refetchQueries({queryKey: featureFlagKeys.all});
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-
-    expect(getFeatureFlags).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('QUERY PAGE')).toBeInTheDocument();
     expect(mounts).toBe(1);
+    // The route's read, then the page's own one re-read — and nothing after it.
+    expect(getFeatureFlags).toHaveBeenCalledTimes(2);
   });
 });
 

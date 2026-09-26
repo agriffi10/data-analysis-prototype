@@ -7,7 +7,7 @@ import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
 import {emptyExplorationQuery, newExploration} from './exploration';
-import {CACHE_HIT_ELSEWHERE_TEXT, CACHE_HIT_TEXT} from './CostIndicator';
+import {CACHE_HIT_TEXT} from './CostIndicator';
 import {NO_HISTORY_BACK, NO_HISTORY_FORWARD} from './FilterHistoryControls';
 import {SUSPENDED_TEXT} from './ExplorationResultsRegion';
 import {filterValueKind, isEmptyQuery, moveSortPriority, sameQuery, setSort, sortOf} from './explorationQueryOps';
@@ -71,23 +71,6 @@ function seedTab(history: {past: ExplorationQuery[]; future: ExplorationQuery[]}
 function storedHistory() {
   const raw = sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? '{}';
   return (JSON.parse(raw) as ExplorationTabsState).tabs[0].history;
-}
-
-function seedTwinTabs() {
-  const orders = {kind: 'table' as const, spaceId: 'personal', database: 'alice', table: 'orders'};
-  const tab = (id: string, label: string) => ({
-    id,
-    label,
-    exploration: newExploration(orders, id),
-    scannedByExecution: {},
-    history: {past: [], future: []}
-  });
-  const state: ExplorationTabsState = {
-    version: 1,
-    tabs: [tab('t1', 'orders'), tab('t2', 'orders again')],
-    activeTabId: 't1'
-  };
-  sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
 }
 
 async function chooseFromMenu(user: ReturnType<typeof userEvent.setup>, column: string, item: string) {
@@ -361,32 +344,6 @@ describe('cost reporting', () => {
 
     expect(await screen.findByText(/^0 B scanned by this exploration$/)).toBeInTheDocument();
     expect(screen.queryByText(/This query scanned 2.0 KB/)).not.toBeInTheDocument();
-  });
-
-  it('says an execution another tab already ran is a cache hit, and adds nothing here', async () => {
-    seedTwinTabs();
-    const {user} = render();
-    await screen.findByText(/This query scanned 2.0 KB · 2.0 KB scanned by this exploration/);
-
-    await user.click(screen.getByRole('tab', {name: /orders again/}));
-
-    // One description, one execution, one bill — the second tab scanned nothing.
-    expect(
-      await screen.findByText(new RegExp(`${CACHE_HIT_ELSEWHERE_TEXT} · 0 B scanned by this exploration`))
-    ).toBeInTheDocument();
-    expect(runQuery).toHaveBeenCalledTimes(1);
-  });
-
-  it('takes nothing away from the tab that ran it when a twin tab is visited', async () => {
-    seedTwinTabs();
-    const {user} = render();
-    await screen.findByText(/This query scanned 2.0 KB/);
-    await user.click(screen.getByRole('tab', {name: /orders again/}));
-    await screen.findByText(new RegExp(CACHE_HIT_ELSEWHERE_TEXT));
-
-    await user.click(screen.getByRole('tab', {name: /^orders$/}));
-
-    expect(await screen.findByText(/· 2.0 KB scanned by this exploration/)).toBeInTheDocument();
   });
 });
 

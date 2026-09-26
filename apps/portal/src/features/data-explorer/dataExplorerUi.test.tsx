@@ -529,6 +529,17 @@ describe('the exploration tabs', () => {
     expect(screen.getByRole('tab', {name: 'refunds'})).toHaveFocus();
   });
 
+  it('hands focus to the picker when Delete closes the last tab', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    const tab = await screen.findByRole('tab', {name: 'orders'});
+
+    tab.focus();
+    await user.keyboard('{Delete}');
+
+    expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toHaveFocus();
+  });
+
   it('moves focus with the arrows without opening, so passing a tab runs nothing', async () => {
     // Showing an exploration is running it, and a restored session caches nothing — so a
     // tab strip that selected on every arrow would bill a scan for each tab it passed.
