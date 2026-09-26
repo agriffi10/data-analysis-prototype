@@ -10,7 +10,7 @@ Lives under ``lambdas/`` because that is where pytest runs.
 Attributes:
   ROOT: The repository root.
   FLAG_KEYS: Every flag, re-stated from the validator so a test cannot pass by agreeing with a
-    mistake it imported — a key is added in six places, and this is the one that fails if the
+    mistake it imported — a key is added in eight places, and this is the one that fails if the
     validator was not one of them.
 """
 
@@ -31,6 +31,7 @@ FLAG_KEYS = (
     "dataExplorer",
     "asyncFileOperations",
     "resultsConversion",
+    "archive",
 )
 
 DOCUMENT = ROOT / "config" / "feature-flags.json"

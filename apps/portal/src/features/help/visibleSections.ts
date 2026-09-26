@@ -33,7 +33,7 @@ export function visibleHelpSections(isEnabled: (key: FeatureFlagKey) => boolean)
  * {@link visibleHelpSections} against the live flags — the one surface both the Help page and
  * the contextual panel read.
  *
- * Seven single-question `useFeature` calls rather than the whole-set hook, which is for the few
+ * Eight single-question `useFeature` calls rather than the whole-set hook, which is for the few
  * places that cannot ask one question. They share one cached answer, so the extra calls cost
  * nothing.
  *
@@ -50,6 +50,7 @@ export function useVisibleHelpSections(): HelpSection[] {
   const dataExplorer = useFeature('dataExplorer');
   const asyncFileOperations = useFeature('asyncFileOperations');
   const resultsConversion = useFeature('resultsConversion');
+  const archive = useFeature('archive');
 
   return useMemo(
     () =>
@@ -58,8 +59,17 @@ export function useVisibleHelpSections(): HelpSection[] {
       // guide row is registered.
       visibleHelpSections(
         (key) =>
-          ({files, query, sharedWorkspaces, dataQuality, dataExplorer, asyncFileOperations, resultsConversion})[key]
+          ({
+            files,
+            query,
+            sharedWorkspaces,
+            dataQuality,
+            dataExplorer,
+            asyncFileOperations,
+            resultsConversion,
+            archive
+          })[key]
       ),
-    [files, query, sharedWorkspaces, dataQuality, dataExplorer, asyncFileOperations, resultsConversion]
+    [files, query, sharedWorkspaces, dataQuality, dataExplorer, asyncFileOperations, resultsConversion, archive]
   );
 }

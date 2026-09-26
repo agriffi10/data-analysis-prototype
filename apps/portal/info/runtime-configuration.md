@@ -122,5 +122,29 @@ else would have caught it.
 If a reachability assertion fails it is a finding to raise, **not** a licence to widen infra.
 
 The flag key set is re-stated in that suite rather than imported from the validator, so a test
-cannot pass by agreeing with a mistake it imported. A key is added in five places, and that
-restatement is the one that fails if the validator was not among them.
+cannot pass by agreeing with a mistake it imported. A key is added in eight places — the list is in
+[`feature-flags-feature.md`](component-inventory/feature-flags-feature.md) — and that restatement is
+the one that fails if the validator was not among them.
+
+**Throwing a switch.** To turn a key off in an environment — `archive` to withdraw archive and
+restore, `asyncFileOperations` to stop folder and multi-item file operations, or any area — set it
+`false` under that environment's block in `config/feature-flags.json`
+(`"environments": {"prod": {"archive": false}}`), merge, and `deploy-config.yml` publishes it. No app
+build is involved, and turning it back on is the same edit reversed.
+
+**When it takes effect.** A session that starts after the publish reads the new document at once. A
+session already open keeps the copy it last read until that copy is **an hour old** (`STALE_TIME_MS`
+in `useFeatureFlags.ts`), and after that re-reads it only when something mounts a flag reader —
+moving to another page (a header tab, or a link into another feature), or opening a dialog, drawer
+or panel that reads one; opening a folder inside Files is neither — when the network reconnects, or
+on a reload. There is no refetch on window focus (`refetchOnWindowFocus: false` in
+`lib/queryClient.ts`) and no interval, so a session that sits on one screen and opens nothing keeps
+the controls until one of those happens. A dialog already open can still submit, and a session
+whose read of the document failed runs all-on and ignores the switch, as above.
+
+**What it does not do.** A flag is presentation, never authorization: the API routes behind a
+withdrawn control stay live, and a hand-built request still goes through. An execution already
+running finishes and notifies as it would have. It works only on an image that knows the key: a
+service pointed back at an image built before the key existed shows the controls whatever the
+document says. Stopping a plane itself is an operator action on the infrastructure, not a flag, and
+no plane has a documented stop procedure.

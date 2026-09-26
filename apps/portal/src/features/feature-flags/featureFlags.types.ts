@@ -3,13 +3,18 @@
  * for the components that render them — a flag governs an AREA, and the gating has
  * to reach every entry point into that area, not one screen.
  *
- * Five of the seven are areas, and the two exceptions are deliberate and different from each
- * other. `asyncFileOperations` is a kill switch over the file browser's copy/move/delete
- * routing, whose only other switch is `files: false` — which removes the entire file browser.
- * Off, exactly one file keeps the browser's synchronous path and every other shape the routing
- * rule would send to the plane is refused at the control; on, anything that is not exactly one
- * file is handed to the control plane. Publishing it needs no app build, which is what
- * makes the largest user-visible change in the product survivable.
+ * Five of the eight are areas. The other three are deliberate exceptions: two kill switches and
+ * one presentation flag.
+ *
+ * The kill switches exist because the only other way to stop a file-browser gesture is
+ * `files: false`, which removes the entire file browser, and publishing a flag needs no app build.
+ * `asyncFileOperations` is the first, over the file browser's copy/move/delete routing: off,
+ * exactly one file keeps the browser's synchronous path and every other shape the routing rule
+ * would send to the plane is refused at the control; on, anything that is not exactly one file is
+ * handed to the control plane. `archive` is the second, over the one irreversible surface: off,
+ * the Archive and Restore controls leave the file browser and the archive guide leaves Help. One
+ * key covers both directions because they run on one state machine. Like every flag it is
+ * presentation only — the archive and restore routes stay live and ungated.
  *
  * `resultsConversion` is neither an area nor a kill switch but a PRESENTATION flag over one
  * control: off, the Save-results dialog offers no format choice and saves the CSV it always did.
@@ -17,7 +22,14 @@
  * three options and changes what nobody may do.
  */
 export type FeatureFlagKey =
-  'files' | 'query' | 'sharedWorkspaces' | 'dataQuality' | 'dataExplorer' | 'asyncFileOperations' | 'resultsConversion';
+  | 'files'
+  | 'query'
+  | 'sharedWorkspaces'
+  | 'dataQuality'
+  | 'dataExplorer'
+  | 'asyncFileOperations'
+  | 'resultsConversion'
+  | 'archive';
 
 /** Every flag, always. No consumer ever handles `undefined`. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;

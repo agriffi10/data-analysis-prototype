@@ -1,8 +1,8 @@
 # Spec: Archive and Restore Get Their Own Kill Switch
 
 **ID:** SPEC-246
-**Status:** Draft
-**Last Updated:** 2026-09-25
+**Status:** In Progress
+**Last Updated:** 2026-09-26
 **Depends On:** SPEC-162/163 (the flag document and the gated-surfaces registry), SPEC-172 (the archive and restore entry points), SPEC-190 (the first kill switch, `asyncFileOperations`)
 
 ## Overview
@@ -191,11 +191,14 @@ an operator can find how to throw the switch and what it will not do.
 - [ ] `apps/portal/info/runtime-configuration.md` gains a short "throwing a switch" paragraph: set
       the key `false` under the environment's block in `config/feature-flags.json`, merge, and
       `deploy-config.yml` publishes it. It says **when it takes effect**: a new session reads it at
-      once, but an open session keeps its cached document for **at least** an hour
-      (`STALE_TIME_MS` in `useFeatureFlags.ts`), and after that only re-reads it at the next
-      navigation that mounts a flag reader, when the network reconnects, or on a reload — there is
-      no refetch on window focus and no interval, so a session that stays on one screen keeps the
-      controls until one of those happens. A dialog
+      once, but an open session keeps its cached document until it is an hour old
+      (`STALE_TIME_MS` in `useFeatureFlags.ts`), and after that only re-reads it when something
+      mounts a flag reader — moving to another page, or opening a dialog, drawer or panel that
+      reads one, but not opening a folder inside Files — when the network reconnects, or on a
+      reload; there is no refetch on window focus and no interval, so a session that sits on one
+      screen and opens nothing keeps the controls until one of those happens. (Amended while
+      building: this said "at least an hour" and "the next navigation"; a dialog mounting a flag
+      reader re-reads a stale document too, and a folder click does not.) A dialog
       already open can still submit. It names what the switch does not do: the API routes stay live, and running
       executions finish.
 - [ ] `apps/portal/info/component-inventory/feature-flags-feature.md` names `archive` wherever it
@@ -271,6 +274,8 @@ apps/portal/src/features/archive/archiveJourney.test.tsx      (edit)
 apps/portal/src/features/help/visibleSections.ts              (edit)
 apps/portal/src/features/help/help.test.tsx                   (edit)
 apps/portal/src/**/*.test.ts(x)                               (edit — FeatureFlags values)
+apps/portal/src/test/renderWithProviders.tsx                  (edit — a `featureFlags` option)
+apps/portal/info/component-inventory/test-utilities.md        (edit — that option)
 apps/portal/info/runtime-configuration.md                     (edit)
 apps/portal/info/component-inventory/feature-flags-feature.md (edit)
 docs/decisions/browser.md                                     (edit)
@@ -290,3 +295,8 @@ docs/testing/e2e.md, docs/testing/sessions.md                (the archive sittin
 
 - The taxonomy, the new register entry and the superseded sites (FR-004).
 - Gates, one PR, the post-merge deploy watch and the two live reads (FR-005); completion ritual.
+- **Amended while building:** the sitting costs two more PRs and the close a fourth. Publish Config
+  can only publish `main`'s document — the deploy role trusts `refs/heads/main` and pull requests
+  only — so turning the switch off and back on is a merge each, and the record of what the second
+  publish produced can only be written after it merges. The queue lock is held from the first
+  sitting PR through the second, so no peer's merge can move the image tag between them.

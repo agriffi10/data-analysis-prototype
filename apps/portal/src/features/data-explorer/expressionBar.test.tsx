@@ -56,7 +56,8 @@ const ALL_ON: FeatureFlags = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };
 
 function lastSql(): string {

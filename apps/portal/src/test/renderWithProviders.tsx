@@ -12,6 +12,7 @@ import type {AuthContextValue} from '../features/auth/auth.types';
 import {ToastProvider} from '../components/ToastProvider';
 import {authValue} from './authFixtures';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../features/feature-flags';
+import type {FeatureFlags} from '../features/feature-flags';
 import {configValue} from '../lib/runtimeConfig';
 
 /**
@@ -93,6 +94,14 @@ export type ProviderOptions = {
    */
   seedFeatureFlags?: boolean;
   /**
+   * Flags to seed over the compiled-in defaults, for a test that needs one switch off —
+   * `{archive: false}` — while every other gated surface stays as the app at its most visible.
+   *
+   * Refused alongside `seedFeatureFlags: false`, where nothing would be seeded and the overrides
+   * would be silently dropped.
+   */
+  featureFlags?: Partial<FeatureFlags>;
+  /**
    * Render under a `BrowserRouter` on the real jsdom history, at `route`, instead of a
    * `MemoryRouter`.
    *
@@ -110,7 +119,7 @@ export type ProviderOptions = {
  * Written through the SAME key factory the hook uses, so a change to the key shape cannot
  * leave every test silently un-seeded and every gated surface silently absent.
  */
-function seedFlags(client: QueryClient): void {
+function seedFlags(client: QueryClient, overrides: Partial<FeatureFlags> = {}): void {
   // `setQueryDefaults` FIRST, and it is not optional: the test client runs `gcTime: 0`, so a
   // seeded entry with no observer yet is evicted the moment it is written. Every gated
   // surface that mounts LATER — a control inside a drawer the test has to click open — would
@@ -118,7 +127,20 @@ function seedFlags(client: QueryClient): void {
   // asserted at first paint passed. Infinite gc/stale keeps the seed alive and stops the real
   // service being called behind it.
   client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
-  client.setQueryData(featureFlagKeys.resolved(configValue('environment')), FEATURE_FLAG_DEFAULTS);
+  client.setQueryData(featureFlagKeys.resolved(configValue('environment')), {...FEATURE_FLAG_DEFAULTS, ...overrides});
+}
+
+/** The client every render entry point seeds, or refuses overrides it could not seed. */
+function seededClient(
+  queryClient: QueryClient | undefined,
+  seedFeatureFlags: boolean,
+  featureFlags: Partial<FeatureFlags> | undefined
+): QueryClient {
+  if (featureFlags && !seedFeatureFlags)
+    throw new Error('featureFlags needs seedFeatureFlags: the overrides would be dropped');
+  const client = queryClient ?? createTestQueryClient();
+  if (seedFeatureFlags) seedFlags(client, featureFlags);
+  return client;
 }
 
 /**
@@ -132,13 +154,13 @@ export function TestProviders({
   auth = authValue(),
   queryClient,
   seedFeatureFlags = true,
+  featureFlags,
   browserRouter = false
 }: ProviderOptions & {children: ReactNode}): ReactElement {
   // Built here rather than required, so a direct caller (an axe render) gets the same seeded
   // client `renderWithProviders` would have handed it.
   const [client] = useState(() => {
-    const created = queryClient ?? createTestQueryClient();
-    if (seedFeatureFlags) seedFlags(created);
+    const created = seededClient(queryClient, seedFeatureFlags, featureFlags);
     // Only when this component owns the client: one passed in was already registered by the
     // `renderWithProviders`/`renderHookWithProviders` call that built it.
     if (!queryClient) clearAfterTest(created);
@@ -192,13 +214,13 @@ export function renderWithProviders(
     auth,
     queryClient,
     seedFeatureFlags = true,
+    featureFlags,
     browserRouter = false,
     strictMode = false,
     ...options
   }: RenderWithProvidersOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
-  const client = queryClient ?? createTestQueryClient();
-  if (seedFeatureFlags) seedFlags(client);
+  const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
   // A BrowserRouter reads jsdom's own history, so the route is put there rather than passed —
   // and put back afterwards, since that history outlives the test. State is written in the
@@ -217,6 +239,7 @@ export function renderWithProviders(
       auth={auth}
       queryClient={client}
       seedFeatureFlags={seedFeatureFlags}
+      featureFlags={featureFlags}
       browserRouter={browserRouter}>
       {children}
     </TestProviders>
@@ -239,11 +262,11 @@ export function renderHookWithProviders<Result, Props>(
     auth,
     queryClient,
     seedFeatureFlags = true,
+    featureFlags,
     ...options
   }: ProviderOptions & Omit<RenderHookOptions<Props>, 'wrapper'> = {}
 ) {
-  const client = queryClient ?? createTestQueryClient();
-  if (seedFeatureFlags) seedFlags(client);
+  const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
   const result = renderHook(hook, {
     wrapper: ({children}) => (
@@ -251,7 +274,8 @@ export function renderHookWithProviders<Result, Props>(
         route={route}
         auth={auth}
         queryClient={client}
-        seedFeatureFlags={seedFeatureFlags}>
+        seedFeatureFlags={seedFeatureFlags}
+        featureFlags={featureFlags}>
         {children}
       </TestProviders>
     ),

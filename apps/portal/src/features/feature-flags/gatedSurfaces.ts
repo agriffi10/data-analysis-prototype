@@ -3,14 +3,20 @@ import type {FeatureFlagKey} from './featureFlags.types';
 /**
  * One surface a flag controls.
  *
- * `name` is the ACCESSIBLE NAME the registry test queries by — not a test id and not a CSS
+ * The registry test queries every surface by ACCESSIBLE NAME — not a test id and not a CSS
  * class. That is the point of it: a control removed from the DOM and a control still present
  * under a changed label are different bugs, and only an accessible-name query tells them
- * apart. It is also the name a user would say out loud, which is what makes a registry row
- * reviewable by someone who has not read the component.
+ * apart. A row's `name` is usually that accessible name, which is what makes it reviewable by
+ * someone who has not read the component — `name` says when it is a description instead.
  */
 export type GatedSurface = {
-  /** Accessible name of the control or nav item, as the registry test queries it. */
+  /**
+   * The accessible name, where the row is one control or nav item the recipe queries by it;
+   * otherwise a description of the surface, where the recipe queries something inside it.
+   *
+   * Unique across the registry, because it keys the walking test's recipes. That is why one control
+   * held under two flags carries its accessible name in one row and a description in the other.
+   */
   name: string;
   kind: 'nav' | 'route' | 'control' | 'guide';
   /** Route path for `kind: 'route'`; the owning route otherwise. */
@@ -66,9 +72,10 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send to another user', kind: 'control', path: '/files'},
     {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'},
-    // Archive is a Files SUB-SURFACE, not one of the five primary features, so it
-    // inherits this flag rather than gaining one — and it needs THREE rows, because its two
-    // entry points are in different places and the restore has no selection at all.
+    // Archive is a Files SUB-SURFACE, so with this flag off it goes with the file browser — and
+    // it needs THREE rows, because its two entry points are in different places and the restore
+    // has no selection at all. The same surfaces are registered again under `archive`, its own
+    // kill switch: one row per (surface, flag), because either gate can be deleted alone.
     //
     // Its notification link deliberately gets no row of its own: the `/files` link gate is a
     // mechanism, already registered twice above, and a row per producer would grow one row per
@@ -288,6 +295,30 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   resultsConversion: [
     {name: 'Format in the save-results dialog', kind: 'control', path: '/query'},
     {name: 'Format in the Data Explorer export dialog', kind: 'control', path: '/explore'}
+  ],
+  // The second kill switch, over the one surface where a mistake cannot be undone. One key for
+  // archive AND restore: they run on one state machine, so a defect in it can reach either
+  // direction, and hiding Restore delays data that already takes hours to return rather than
+  // losing any. It hides the entry points and nothing else — the routes stay live, an execution in
+  // flight finishes, and the notifications and their `/files` links are not gated, because the
+  // record of what happened outlives the surface that started it. The receipt folder stays listed
+  // and the "Rename, move, copy, or delete" guide, which names Archive in passing, stays visible.
+  //
+  // Every row here is also a row under `files`, whose gate stays: one row per (surface, flag), on
+  // the precedent of `Explore data`. The names are descriptions because the `files` rows already
+  // hold the accessible names, and a name keys the walk.
+  archive: [
+    {name: 'Archive in the selection toolbar', kind: 'control', path: '/files'},
+    // The FILE details panel. The folder panel takes the same button behind the same gate, and is
+    // asserted beside the archive journey rather than walked twice.
+    {name: 'Archive in the details panel', kind: 'control', path: '/files'},
+    {name: 'Restore Archived Data in the file browser', kind: 'control', path: '/files'},
+    {
+      name: 'Archive and restore guide under the archive switch',
+      kind: 'guide',
+      path: '/help',
+      helpId: 'archive-files'
+    }
   ]
 };
 

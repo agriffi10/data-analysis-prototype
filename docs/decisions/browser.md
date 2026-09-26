@@ -49,6 +49,7 @@ entry you need, not the file.**
 - [A persistent in-flight surface is NEW scope, with no precedent here (SPEC-190)](#a-persistent-in-flight-surface-is-new-scope-with-no-precedent-here-spec-190)
 - [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
 - [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
+- [Archive and restore get their own kill switch (SPEC-246)](#archive-and-restore-get-their-own-kill-switch-spec-246)
 - [A flag can be neither an area nor a kill switch (SPEC-223)](#a-flag-can-be-neither-an-area-nor-a-kill-switch-spec-223)
 - [Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)](#help-is-read-where-the-work-is-and-a-gated-pages-help-is-gated-by-derivation-spec-207)
 - [One split, two clamp domains, and the pair has to agree (SPEC-209)](#one-split-two-clamp-domains-and-the-pair-has-to-agree-spec-209)
@@ -1093,7 +1094,8 @@ whose whole point is that the browser stops watching.
 ## The kill switch is a flag key, and it is the sixth (SPEC-190)
 
 Five flags are areas; `asyncFileOperations` is a switch over the file browser's copy/move/delete
-routing. It earns a key rather than a build-time constant because its only other kill switch is
+routing. **— Since SPEC-246 it is the first of two: `archive` is the second, over the archive and
+restore entry points (*Archive and restore get their own kill switch*, below).** It earns a key rather than a build-time constant because its only other kill switch is
 `files: false`, which removes the entire file browser — and because publishing a flag needs no app
 build, which is what makes the largest user-visible change in the product survivable. Default **on**,
 keeping the all-on fallback rule intact: an unreadable document must never change behaviour. ~~Off,
@@ -1107,9 +1109,49 @@ Its two registry rows are the in-flight surface and the conflicts guide. **The c
 registered under `files` instead**, deliberately: throwing the switch must not strand a conflict
 raised before it was thrown, and resolving one finishes work the plane already started rather than
 beginning a new gesture — and it keeps the `Review conflicts` control already shipping on
-notification rows from becoming a link to nothing. A row's `name` is its accessible name and
+notification rows from becoming a link to nothing. ~~A row's `name` is its accessible name and
 `RECIPES` keys are unique, so one control cannot hold a row under two flags; the choice had to be
-made rather than hedged.
+made rather than hedged.~~ **— superseded by SPEC-246:** the `Explore data` rows already held one
+surface under two flags, by giving the second row a description rather than the accessible name,
+and the archive rows now do the same. Choosing `files` for the conflict view stands on its own
+reasoning above, not on a registry limit.
+
+## Archive and restore get their own kill switch (SPEC-246)
+
+`archive` is the eighth key and the second kill switch, over the one surface where a mistake cannot
+be undone: an archive copies files into a Glacier vault and deletes the originals. It earns a key for
+the reason `asyncFileOperations` did — the only other way to withdraw either gesture was
+`files: false`, which removes the whole file browser — and publishing it needs no app build. Default
+**on**, so an unreadable document never withdraws it.
+
+**One key covers both directions.** Archive and restore run on one state machine, so a defect found
+in it can reach either, and hiding Restore delays data that already takes hours to return rather
+than losing any. Two keys would ask an operator to diagnose which half is at fault before throwing
+either.
+
+**Presentation only.** Off, the Archive and Restore controls leave the file browser — the selection
+toolbar, both details panels, the primary toolbar and the mobile action bar — and the archive guide
+leaves Help. The `archive.archive` and `archive.restore` routes stay live and ungated, and a
+hand-built request still enqueues: a flag never authorizes (identity-and-access Fences), and
+stopping the plane itself is an operator action on the infrastructure. An execution in flight
+finishes, and an open session keeps the controls until it next reads the document —
+`apps/portal/info/runtime-configuration.md` says when.
+
+**What it leaves alone.** Archive and restore notifications and their `/files` links are not gated:
+the record of what happened outlives the surface that started it. That has one visible consequence,
+accepted rather than engineered around — an archive notification tells its reader to choose
+**Restore Archived Data** and enter the id, and while the switch is thrown that control is absent.
+The switch is an incident measure, and the id stays in the receipt folder, `system_settings/archive/`,
+which stays listed and write-locked. The "Rename, move, copy, or delete" guide names Archive in
+passing and stays visible.
+
+**One surface, two flags, two rows.** The `files` gate in `FileBrowser.tsx` stays, so each entry
+point is registered under both flags — one row per (surface, flag), because either gate can be
+deleted alone, on the precedent of `Explore data`. A registry name keys the walking test's recipes
+and must be unique, so the `archive` rows carry descriptions (`Archive in the selection toolbar`)
+whose recipes query the accessible names the `files` rows carry, and `GatedSurface.name` now says a
+name may be either. The folder details panel and the mobile action bar are not rows; they are
+asserted in `archiveJourney.test.tsx` and `FileBrowser.test.tsx`.
 
 ## A flag can be neither an area nor a kill switch (SPEC-223)
 
@@ -1120,8 +1162,10 @@ route is live and ungated either way, so it hides three options and takes nobody
 with a case behind it:** off, the format is always CSV, and a CSV save still goes to the plane
 when the grid is hiding or reordering columns, because a copy cannot produce that file. The
 alternative — reading the flag as a second answer to what a save should WRITE — hands a user who
-hid a column a file that still has it, which is the bug the spec exists to close. The taxonomy above is therefore five areas, one kill switch and one
-presentation flag, and the sentence naming the first two is not a complete account of the set.
+hid a column a file that still has it, which is the bug the spec exists to close. The taxonomy above is therefore ~~five areas, one kill switch and one
+presentation flag~~ **— since SPEC-246, five areas, two kill switches (`asyncFileOperations` and
+`archive`) and one presentation flag —** and the sentence naming the first two is not a complete
+account of the set.
 
 Its two registry rows are the same control on two routes, and the completion notification's link
 gets **none**: that link is a `/files` one, already covered by the notification row's link gate (derived from the

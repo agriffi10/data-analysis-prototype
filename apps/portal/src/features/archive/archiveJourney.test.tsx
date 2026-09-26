@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, within} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
@@ -44,6 +44,7 @@ import {listFiles} from '../file-browser/fileBrowser.service';
 import {apiRequest} from '../../lib/apiClient';
 import {apiFailure, mockApi} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
+import type {FeatureFlags} from '../feature-flags';
 
 const ARCHIVE_ID = '3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93';
 
@@ -133,7 +134,7 @@ async function openSystemSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', {name: 'Open folder system_settings'}));
 }
 
-function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
+function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}, featureFlags?: Partial<FeatureFlags>) {
   return renderWithProviders(
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
@@ -148,7 +149,7 @@ function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
         />
       </FileOpsInFlightProvider>
     </UploadQueueProvider>,
-    {auth: authenticated('alice')}
+    {auth: authenticated('alice'), featureFlags}
   );
 }
 
@@ -402,5 +403,60 @@ describe('the archive folder is read-only in the browser', () => {
     await browseIntoArchive(user);
 
     expect(screen.getByRole('button', {name: `Details for ${ARCHIVE_ID}`})).toBeInTheDocument();
+  });
+});
+
+describe('the archive switch', () => {
+  /** A folder's details panel, open, with the presence check answered so Rename can anchor it. */
+  async function openFolderPanel(user: ReturnType<typeof userEvent.setup>, flags?: Partial<FeatureFlags>) {
+    programmedApi().on('objects.exists', {success: true, data: {exists: true}});
+    renderBrowser({}, flags);
+    await user.click(await screen.findByRole('button', {name: 'Details for reports'}));
+    const panel = await screen.findByRole('dialog', {name: 'Details for reports'});
+    expect(await within(panel).findByRole('button', {name: /^Rename/})).toBeInTheDocument();
+    return panel;
+  }
+
+  it("offers Archive in a folder's details panel while the switch is on", async () => {
+    const panel = await openFolderPanel(userEvent.setup());
+
+    expect(within(panel).getByRole('button', {name: 'Archive this item'})).toBeInTheDocument();
+  });
+
+  it("removes Archive from a folder's details panel, leaving the rest of the panel", async () => {
+    // The folder panel is not a registry row — the file panel is, and this is the same button
+    // behind the same gate on a different component, so it is asserted here instead.
+    const panel = await openFolderPanel(userEvent.setup(), {archive: false});
+
+    expect(within(panel).queryByRole('button', {name: 'Archive this item'})).not.toBeInTheDocument();
+  });
+
+  it('leaves every other action on a one-file selection', async () => {
+    const user = userEvent.setup();
+    programmedApi();
+    renderBrowser({}, {archive: false});
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+
+    for (const name of [
+      'Copy selected items',
+      'Move selected items',
+      'Delete selected items',
+      'Send to another user'
+    ]) {
+      expect(screen.getByRole('button', {name})).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', {name: 'Archive selected items'})).not.toBeInTheDocument();
+  });
+
+  it('keeps the receipt folder listed, because the receipts hold the ids a later restore needs', async () => {
+    const user = userEvent.setup();
+    programmedApi();
+    renderBrowser({}, {archive: false});
+    await openSystemSettings(user);
+    // The root has a depth-one `archive` folder of its own, so the listing must have moved before
+    // an `archive` row can be taken for the one inside `system_settings`.
+    await waitFor(() => expect(screen.queryByRole('button', {name: 'Open folder reports'})).not.toBeInTheDocument());
+
+    expect(screen.getByRole('button', {name: 'Open folder archive'})).toBeInTheDocument();
   });
 });

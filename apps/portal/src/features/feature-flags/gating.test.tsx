@@ -58,7 +58,8 @@ const ALL_ON: FeatureFlags = {
   dataQuality: true,
   dataExplorer: true,
   asyncFileOperations: true,
-  resultsConversion: true
+  resultsConversion: true,
+  archive: true
 };
 const opts = {auth: authenticated('alice'), seedFeatureFlags: false} as const;
 
