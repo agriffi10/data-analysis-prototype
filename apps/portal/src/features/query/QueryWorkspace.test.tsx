@@ -1001,6 +1001,41 @@ describe('QueryWorkspace', () => {
       expect(mockStopQuery.mock.calls).toEqual([['q-1'], ['q-2']]);
     });
 
+    // Closing the tab drops its run, so nothing would ever watch — or stop — the statement that
+    // had just started: it ran to the end, billed, for a tab that no longer exists.
+    it('cancels the next statement when its tab is closed while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-2'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend
+        .mockResolvedValueOnce(ok({version: 1, entries: []}))
+        .mockReturnValueOnce(new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []})))));
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT 1; SELECT 2;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-2'}))
+      );
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-2'));
+      expect(mockStopQuery.mock.calls).toEqual([['q-2']]);
+    });
+
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
       queueRuns('q-1', 'q-2', 'q-3');
       seedScript();

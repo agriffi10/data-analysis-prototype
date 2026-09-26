@@ -251,6 +251,13 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             savedQueryName: run.savedQuery.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
+        // The same check as before the append, because the append is a round trip too: a tab
+        // closed or a run replaced meanwhile leaves nothing to install this statement into, and
+        // uninstalled it would run to the end with nothing watching or able to stop it.
+        if (runsRef.current[tabId]?.executionId !== executionId) {
+          cancelExecution(nextId);
+          return;
+        }
         patchRun((cur) => ({
           ...cur,
           executionId: nextId,
