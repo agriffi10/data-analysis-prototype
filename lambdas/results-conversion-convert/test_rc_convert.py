@@ -1005,6 +1005,27 @@ def test_a_csv_conversions_row_count_is_right_on_a_file_the_reader_splits(s3):
     assert result["rows"] == 100_000
 
 
+@pytest.mark.parametrize("rows", [5, 50_000])
+def test_a_csv_conversion_named_like_the_downloaded_result_still_converts_every_row(s3, rows):
+    """The downloaded result and the written file share the scratch disk, and the file is named
+    by the user. Named ``results.csv``, the two were one path: the writer opened it for writing
+    while the lazy reader was still scanning it, and what went up was the header alone, reported
+    as converted — over the user's own ``results.csv`` when they had answered overwrite.
+    """
+    pairs = (("c_varchar", "varchar", '"hello"'), ("c_bigint", "bigint", '"4"'))
+    s3.payload = _csv(pairs, rows=rows, decimal=False)
+    s3.size = len(s3.payload)
+    event = _event(
+        "csv", on_conflict="overwrite", columns=_columns(pairs, decimal=False), filename="results.csv"
+    )
+    event["resultsBytes"] = s3.size
+
+    result = c.handler(event, None)
+
+    assert result["outcome"] == "converted" and result["rows"] == rows
+    assert s3.written[0].count(b"\n") == rows + 1
+
+
 def test_an_occupied_destination_refuses_a_csv_conversion_as_it_refuses_a_parquet_one(s3):
     s3.occupied = True
 

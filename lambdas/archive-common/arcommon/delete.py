@@ -22,11 +22,24 @@ make, and the field rule binds what a call site chooses to emit. How many of the
 folder placeholders is counted apart, because the sentence delete-source raises names files and
 counts a placeholder only when it is one of the things left behind.
 
+**The source deletion is also conditional on the original being UNCHANGED, and the rollback and
+the vault sweep are not.** What the vault holds is what the copy read, so an original written over
+after the plan listed it is newer than its archived copy, and with versioning off deleting it
+destroys the only copy of what the user last wrote. ``changed_keys`` heads each original and
+compares the plan's tag, the same HEAD-compare the file-operations move runs; a conditional
+``DeleteObjects`` is not used because whether S3 enforces its ETag on these buckets is unproven,
+and a condition serialized and ignored would delete silently. The residual is the gap between a
+head and its batch's delete, which is milliseconds against the minutes a copy takes.
+
 Attributes:
   MAX_KEYS_PER_BATCH: S3's own limit on one ``DeleteObjects`` request.
+  _ABSENT_CODES: What a head of an object that is not there answers. Absent is not a change: a
+    Retry re-heads keys its first attempt already removed, and the deletion treats them the same
+    way.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from cpcommon import clients, errors
 from cpcommon.errors import TerminalError, TransientError
@@ -36,11 +49,13 @@ from . import (
     counts,
     messages,  # noqa: F401
 )
-from .config import PROTECTED_MARKER_BASENAME
+from .config import PROTECTED_MARKER_BASENAME, SOURCE_HEAD_CONCURRENCY
 
 logger = logging.getLogger(__name__)
 
 MAX_KEYS_PER_BATCH = 1000
+
+_ABSENT_CODES = frozenset({"NoSuchKey", "NotFound", "404"})
 
 
 def assert_deletable(keys: list, allowed_prefix: str) -> None:
@@ -150,3 +165,49 @@ def delete_keys(bucket: str, keys: list, allowed_prefix: str) -> dict:
     if transient is not None:
         raise transient
     return {"deleted": len(keys) - failed, "failed": failed, "failedFolders": failed_folders}
+
+
+def changed_keys(bucket: str, expected: dict) -> set:
+    """Heads every original and returns the ones that are not what the plan recorded.
+
+    A key whose plan entry carries no tag is returned without being headed. A plan written before
+    the tag was recorded, or edited since, cannot say which bytes the vault holds, and a missing
+    tag read as "unchanged" would delete on a guess.
+
+    Args:
+      bucket: The source bucket.
+      expected: Absolute key to the ETag the plan recorded for it, or None when it recorded none.
+
+    Returns:
+      The keys that must not be deleted: present with a different tag, headed with a fault that is
+      not absence, or planned with no tag at all.
+
+    Raises:
+      TransientError: On a throttle or 5xx from any head, after the sweep has settled — a sweep
+        that cannot see an original retries rather than concluding it is unchanged.
+    """
+    def changed(key: str) -> bool:
+        """Reports whether one original differs from the plan's record of it.
+
+        Args:
+          key: The absolute source key.
+
+        Returns:
+          True when the original must be kept.
+
+        Raises:
+          TransientError: On a throttle or 5xx.
+        """
+        planned = expected[key]
+        if not planned:
+            return True
+        try:
+            head = clients.s3().head_object(Bucket=bucket, Key=key)
+        except Exception as err:  # noqa: BLE001 - classified below
+            errors.raise_if_transient(err, f"head {bucket}/{key}")
+            return errors.error_code(err) not in _ABSENT_CODES
+        return bool(head.get("ETag") != planned)
+
+    keys = list(expected)
+    with ThreadPoolExecutor(max_workers=SOURCE_HEAD_CONCURRENCY) as pool:
+        return {key for key, kept in zip(keys, pool.map(changed, keys), strict=True) if kept}

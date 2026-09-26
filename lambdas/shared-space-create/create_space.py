@@ -28,6 +28,7 @@ import cache
 import membership
 import membership_index
 import registry as reg
+import teardown
 from cpcommon import clients, errors, observability
 from cpcommon import config as cpconfig
 from notify import emit_notification
@@ -84,11 +85,18 @@ def _ensure_marker(name):
 
 
 def _ensure_database(name):
-    """Creates the space's Glue database if it is absent.
+    """Creates the space's Glue database, marked as the space's, or confirms the existing one is.
 
     A routine Glue transient would otherwise propagate as a bare client error the state machine's
     Retry does not name, permanently failing a create that would very likely have succeeded on
     the next attempt.
+
+    **An existing database is this create's own only when it carries the space's marker.** A
+    space's database and a user's personal one share one Glue namespace under the bare name, so a
+    space named after a user finds that user's database already there. Read as a retry of this
+    create, it was adopted — tagged, granted on, and then dropped with every table in it by the
+    teardown of the space's failed or still-provisioning record. A database without the marker
+    is somebody else's, and the name is refused as taken.
 
     Args:
       name: The space name, which is also its database name.
@@ -97,17 +105,23 @@ def _ensure_database(name):
       None.
 
     Raises:
+      ProvisioningError: When a database of that name exists and is not this space's.
       TransientError: On a retryable Glue fault.
       ClientError: On any deterministic Glue fault other than the database already existing.
     """
     glue = clients.glue()
     try:
-        glue.create_database(DatabaseInput={"Name": name})
+        glue.create_database(
+            DatabaseInput={"Name": name, "Parameters": {config.DATABASE_MARKER_KEY: name}}
+        )
+        return
     except glue.exceptions.AlreadyExistsException:
         pass
     except Exception as err:
         errors.raise_if_transient(err, f"glue create_database {name}")
         raise
+    if teardown.owns_database(name) is not True:
+        raise reg.ProvisioningError("name already taken")
 
 
 def _tag_database(name):

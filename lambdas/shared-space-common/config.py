@@ -47,6 +47,11 @@ Attributes:
     IAM membership tag, not this grant; Lake Formation just lets the role use the database
     under enforcement.
   TABLE_PERMISSIONS: The same, at table level.
+  DATABASE_MARKER_KEY: The Glue database parameter the create verb stamps on a space's database,
+    naming the space. A space's database and a user's personal one share ONE Glue namespace
+    under the bare name, and nothing stops a space being named after a user, so the name alone
+    cannot say whose a database is: this is what lets the create refuse to adopt a database it
+    did not make, and the teardown refuse to revoke on or drop one.
 """
 
 import os
@@ -78,3 +83,5 @@ MAX_SHARED_MEMBERSHIPS = int(os.environ.get("MAX_SHARED_MEMBERSHIPS", "10"))
 
 DATABASE_PERMISSIONS = ["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]
 TABLE_PERMISSIONS = ["SELECT", "INSERT", "DESCRIBE", "ALTER", "DROP"]
+
+DATABASE_MARKER_KEY = "dataquarry.shared-space"

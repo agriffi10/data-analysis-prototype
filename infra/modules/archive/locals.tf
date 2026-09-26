@@ -51,8 +51,10 @@ locals {
     "copy-objects" = { handler = "archive_copy_objects.handler", timeout = 900, memory = 1024 }
     # Bounded by ARCHIVE_MAX_OBJECTS the same way delete-source is.
     "rollback" = { handler = "archive_rollback.handler", timeout = 300, memory = 1024 }
-    # Holds the same list inspect-source built and is sized for it.
-    "delete-source" = { handler = "archive_delete_source.handler", timeout = 300, memory = 1024 }
+    # Holds the same list inspect-source built and is sized for it. Heads every original before
+    # deleting, to keep one rewritten since the plan — the guard's work over the same plan, so the
+    # guard's 600s; test_delete_source_can_head_every_original_inside_its_timeout READS THIS NUMBER.
+    "delete-source" = { handler = "archive_delete_source.handler", timeout = 600, memory = 1024 }
     # One PutObject each, from values already on the state. Neither reads the plan, so
     # neither is sized by the caps.
     "write-manifest" = { handler = "archive_write_manifest.handler", timeout = 30, memory = 256 }

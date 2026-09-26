@@ -25,6 +25,14 @@ like the storage class**: ``CopyObject`` takes it directly, and on the multipart
 ``CompleteMultipartUpload`` alone, because S3 accepts it on neither the create nor the part copies.
 A refusal is then resolved rather than reported — ``_already_copied`` says why.
 
+**A multipart copy is PINNED to one version of the source.** ``CopyObject`` is atomic: it copies
+whichever version is current, whole. A multipart copy is a series of ranged reads over minutes, and
+it used to read the ranges the plan measured with nothing tying them together — so a source
+rewritten while it ran came out spliced from two versions, or, grown, truncated at the plan's
+length, and was counted copied either way. The head the multipart path already makes supplies the
+length it copies and the ETag every part copy is conditioned on, so a source that changes part way
+fails its item instead.
+
 **A copy carries the source object's metadata, and the two paths do that DIFFERENTLY**
 . ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
 now passed explicitly. A multipart copy has no such directive: ``UploadPartCopy`` moves bytes
@@ -204,11 +212,13 @@ def _settle_refused_copy(
     ) from exc
 
 
-def _source_headers(s3, src_bucket: str, src_key: str) -> dict:
-    """Reads the headers a multipart copy has to re-state, for the destination's create call.
+def _source_head(s3, src_bucket: str, src_key: str) -> tuple[dict, int, str | None]:
+    """Reads the source a multipart copy is about to make, once, for everything the copy needs.
 
-    Only the multipart path needs this: ``CopyObject`` has ``MetadataDirective``, and a single
-    HEAD per object over 5 GiB is negligible beside the part copies that follow it.
+    Only the multipart path needs this: ``CopyObject`` has ``MetadataDirective`` and is atomic, and
+    a single HEAD per object over 5 GiB is negligible beside the part copies that follow it. The
+    one response supplies the headers the destination's create call re-states, the length the
+    parts cover, and the ETag they are pinned to.
 
     Args:
       s3: The S3 client.
@@ -216,8 +226,9 @@ def _source_headers(s3, src_bucket: str, src_key: str) -> dict:
       src_key: Source key.
 
     Returns:
-      The ``CreateMultipartUpload`` arguments the source's own headers imply, with anything the
-      source does not carry left out entirely.
+      ``(create_arguments, length, etag)`` — the ``CreateMultipartUpload`` arguments the source's
+      own headers imply, with anything it does not carry left out entirely; its length now; and its
+      ETag now, None when the response carried none.
 
     Raises:
       TransientError: On a retryable fault.
@@ -230,11 +241,12 @@ def _source_headers(s3, src_bucket: str, src_key: str) -> dict:
     except Exception as exc:
         errors.raise_if_transient(exc, f"head {src_bucket}/{src_key}")
         raise
-    return {
+    carried = {
         argument: head[field]
         for field, argument in _CARRIED_HEADERS.items()
         if head.get(field)
     }
+    return carried, int(head.get("ContentLength") or 0), head.get("ETag")
 
 
 def copy_one(
@@ -271,14 +283,24 @@ def copy_one(
     Without that, every object over 5 GiB came back from an archive as
     ``binary/octet-stream`` with its user metadata gone.
 
+    **THE PARTS COVER THE SOURCE AS IT IS NOW, pinned to its ETag**, not the size the plan
+    measured. A plan's length used as the range copied a grown source's first bytes and called it
+    done, and ranges read unpinned across a rewrite joined two versions into a file that never
+    existed; each part copy now carries ``CopySourceIfMatch``, so a source that changes mid-copy
+    fails the item. The completion is the only call a ``412`` is settled on, because on a part copy
+    it means the SOURCE moved, not that the destination is taken. A source grown past the plane's
+    per-object cap costs more time than the verb's timeout was sized for; if it runs out, the
+    batch fails whole and every item in it is reported uncopied, which is the safe direction.
+
     Args:
       s3: The S3 client.
       src_bucket: Source bucket.
       src_key: Source key.
       dest_bucket: Destination bucket.
       dest_key: Destination key.
-      size: The object's byte size, deciding the copy strategy. A missing or zero size takes
-        the single-copy path, which is correct for every object S3 will accept there.
+      size: The object's byte size as the plan measured it, deciding the copy strategy. A missing
+        or zero size takes the single-copy path, which is correct for every object S3 will accept
+        there. The multipart path copies the length its own head reports instead.
       storage_class: The destination storage class. **Empty means the argument is not passed at
         all**, which is S3's own default (``STANDARD``) — deliberately not the literal
         ``"STANDARD"``, so the two existing callers' requests are byte-identical to what they
@@ -318,7 +340,9 @@ def copy_one(
             raise
         return
 
-    extra.update(_source_headers(s3, src_bucket, src_key))
+    carried, length, pinned = _source_head(s3, src_bucket, src_key)
+    extra.update(carried)
+    pin = {"CopySourceIfMatch": pinned} if pinned else {}
     try:
         upload_id = s3.create_multipart_upload(Bucket=dest_bucket, Key=dest_key, **extra)[
             "UploadId"
@@ -326,12 +350,13 @@ def copy_one(
     except Exception as exc:
         errors.raise_if_transient(exc, detail)
         raise
+    completing = False
     try:
         parts = []
         offset = 0
         part_number = 1
-        while offset < size:
-            end = min(offset + MULTIPART_PART_SIZE, size) - 1
+        while offset < length:
+            end = min(offset + MULTIPART_PART_SIZE, length) - 1
             resp = s3.upload_part_copy(
                 Bucket=dest_bucket,
                 Key=dest_key,
@@ -339,10 +364,12 @@ def copy_one(
                 PartNumber=part_number,
                 CopySource=source,
                 CopySourceRange=f"bytes={offset}-{end}",
+                **pin,
             )
             parts.append({"ETag": resp["CopyPartResult"]["ETag"], "PartNumber": part_number})
             offset = end + 1
             part_number += 1
+        completing = True
         s3.complete_multipart_upload(
             Bucket=dest_bucket,
             Key=dest_key,
@@ -355,7 +382,7 @@ def copy_one(
             s3.abort_multipart_upload(Bucket=dest_bucket, Key=dest_key, UploadId=upload_id)
         except Exception:  # noqa: BLE001
             logger.warning("abort_multipart_upload failed for %s/%s", dest_bucket, dest_key)
-        if if_absent and cas.is_precondition(exc):
+        if completing and if_absent and cas.is_precondition(exc):
             _settle_refused_copy(s3, exc, src_bucket, src_key, dest_bucket, dest_key)
             return
         errors.raise_if_transient(exc, detail)

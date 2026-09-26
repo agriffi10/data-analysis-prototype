@@ -38,8 +38,11 @@ class _S3Error(Exception):
 class _FakeS3:
     """An S3 that pages at a configurable size, so the paginator is genuinely exercised."""
 
-    def __init__(self, objects, page_size=1000, put_error=None, get_body=None, get_error=None):
+    def __init__(
+        self, objects, page_size=1000, put_error=None, get_body=None, get_error=None, etags=None
+    ):
         self._objects = objects
+        self._etags = etags or {}
         self._page_size = page_size
         self._put_error = put_error
         self._get_body = get_body
@@ -57,7 +60,7 @@ class _FakeS3:
                     fake.pages_served += 1
                     yield {
                         "Contents": [
-                            {"Key": k, "Size": s}
+                            {"Key": k, "Size": s, **({"ETag": fake._etags[k]} if k in fake._etags else {})}
                             for k, s in matching[start : start + fake._page_size]
                         ]
                     }
@@ -67,7 +70,7 @@ class _FakeS3:
     def head_object(self, Bucket, Key):
         if Key not in self._objects:
             raise _S3Error("NoSuchKey")
-        return {"ContentLength": self._objects[Key]}
+        return {"ContentLength": self._objects[Key], **({"ETag": self._etags[Key]} if Key in self._etags else {})}
 
     def put_object(self, Bucket, Key, Body, ContentType):
         if self._put_error:
@@ -284,6 +287,28 @@ def test_a_folder_placeholder_is_carried_and_counts_but_weighs_nothing():
 
     assert {entry["relKey"] for entry in objects} == {"reports/empty/", "reports/a.csv"}
     assert total == 5
+
+
+def test_every_planned_object_carries_the_tag_it_was_listed_or_headed_with():
+    """What delete-source compares before it removes an original, and the only moment it can be
+    had cheaply: the listing and the file head already returned it. A folder's objects take the
+    listing's tag and a selected file takes its head's, so both paths are driven."""
+    _install(
+        {"alice/reports/a.csv": 5, "alice/notes.txt": 2},
+        etags={"alice/reports/a.csv": '"listed"', "alice/notes.txt": '"headed"'},
+    )
+
+    objects, _ = plan.expand(
+        _source([
+            {"kind": "folder", "key": "alice/reports/"},
+            {"kind": "file", "key": "alice/notes.txt"},
+        ])
+    )
+
+    assert objects == [
+        {"relKey": "reports/a.csv", "bytes": 5, "etag": '"listed"'},
+        {"relKey": "notes.txt", "bytes": 2, "etag": '"headed"'},
+    ]
 
 
 def test_a_hidden_or_underscore_folder_is_the_users_own_and_is_archived():

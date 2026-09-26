@@ -119,9 +119,10 @@ def _plan_entry_bytes() -> int:
 
     Pessimistic in a way real entries cannot be: the relative key is a SUFFIX of a 1024-byte
     absolute key, so it can never itself be 1024 bytes once the space root is taken off.
-    Over-counting is the safe direction for a bound.
+    Over-counting is the safe direction for a bound. The tag is a multipart upload's at S3's
+    10,000-part ceiling, the longest an ETag gets, and it is serialised with its quotes escaped.
     """
-    entry = {"relKey": "r" * _MAX_S3_KEY, "bytes": 10 * 1024**3}
+    entry = {"relKey": "r" * _MAX_S3_KEY, "bytes": 10 * 1024**3, "etag": '"' + "f" * 32 + '-10000"'}
     return len(json.dumps(entry, separators=(",", ":")).encode())
 
 
@@ -328,6 +329,21 @@ def test_the_guard_can_head_every_destination_inside_its_timeout():
     )
 
 
+def test_delete_source_can_head_every_original_inside_its_timeout():
+    """WHAT SIZES delete-source's timeout. Before it deletes anything it heads every original to
+    confirm it still carries the tag the plan recorded, which is the guard's work over the same
+    plan at the same pool — so it is the guard's arithmetic, read against delete-source's own row.
+    """
+    timeout = _verb_row("delete-source")[0]
+    rounds = math.ceil(config.ARCHIVE_MAX_OBJECTS / config.SOURCE_HEAD_CONCURRENCY)
+    seconds = rounds * _HEAD_LATENCY_SECONDS
+
+    assert seconds < timeout / 2, (
+        f"a worst-case check of the originals is ~{seconds:,.0f}s against delete-source's "
+        f"{timeout}s — raise the timeout in infra/modules/archive/locals.tf"
+    )
+
+
 def test_the_guards_pool_fits_inside_the_clients_connection_pool():
     """THE TERM THE OBVIOUS MODEL SKIPS, and the one that made the first version of this constant
     wrong. "Workers x timeout / latency" says to widen the pool until the arithmetic fits — but
@@ -342,6 +358,7 @@ def test_the_guards_pool_fits_inside_the_clients_connection_pool():
     so this cannot quietly become a restatement of a number that has since moved.
     """
     assert _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS >= config.RESTORE_HEAD_CONCURRENCY
+    assert _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS >= config.SOURCE_HEAD_CONCURRENCY
 
     try:
         from botocore.config import Config

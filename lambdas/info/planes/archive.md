@@ -107,7 +107,9 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   unconditional on the storage class. **Do not "harden" the verb by removing them.**
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a *state*:
   the rollback arm cannot reach `DeleteSource`. That is asserted by walking the ASL graph, and an
-  unrecognisable verdict fails closed.
+  unrecognisable verdict fails closed. **And only while each original still carries the ETag the
+  plan recorded** — `delete-source` heads every one first, and keeps and counts short any that
+  was rewritten after it was copied.
 - `archive-delete-archived` is the one deletion allowed to fail quietly — it sweeps the vault after
   a successful restore, and a leftover object costs storage, not data. **The vault sweep may fail
   quietly and the source deletion may not**, on the same algorithm with opposite consequences: a

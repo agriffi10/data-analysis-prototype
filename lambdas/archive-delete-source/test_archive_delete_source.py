@@ -28,11 +28,28 @@ from cpcommon.errors import TerminalError
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 
 
+class _S3Error(Exception):
+    def __init__(self, code, status):
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        super().__init__(code)
+
+
 class _FakeS3:
-    def __init__(self, plan_body, errors_on=()):
+    def __init__(self, plan_body, errors_on=(), current=None):
         self._plan_body = plan_body
         self._errors_on = set(errors_on)
+        self._current = current
         self.deletes = []
+        self.heads = []
+
+    def head_object(self, Bucket, Key):
+        self.heads.append(Key)
+        etags = self._current if self._current is not None else _PLANNED_ETAGS
+        if Key not in etags:
+            raise _S3Error("404", 404)
+        if isinstance(etags[Key], Exception):
+            raise etags[Key]
+        return {"ETag": etags[Key]}
 
     def get_object(self, Bucket, Key):
         class _Body:
@@ -53,10 +70,16 @@ class _FakeS3:
         }
 
 
+_PLANNED_ETAGS = {
+    "alice/reports/a.csv": '"a1"',
+    "alice/reports/empty/": '"d41d8cd98f00b204e9800998ecf8427e"',
+}
+
+
 def _plan(objects=None):
     objects = objects or [
-        {"relKey": "reports/a.csv", "bytes": 5},
-        {"relKey": "reports/empty/", "bytes": 0},
+        {"relKey": "reports/a.csv", "bytes": 5, "etag": '"a1"'},
+        {"relKey": "reports/empty/", "bytes": 0, "etag": '"d41d8cd98f00b204e9800998ecf8427e"'},
     ]
     return json.dumps({
         "requestId": _REQUEST_ID,
@@ -69,8 +92,8 @@ def _plan(objects=None):
     }).encode()
 
 
-def _install(plan_body=None, errors_on=()):
-    fake = _FakeS3(plan_body or _plan(), errors_on)
+def _install(plan_body=None, errors_on=(), current=None):
+    fake = _FakeS3(plan_body or _plan(), errors_on, current)
     clients._s3 = fake
     return fake
 
@@ -171,3 +194,52 @@ def test_a_plan_that_does_not_describe_this_run_deletes_nothing(field, value):
 
     assert err.value.reason == "plan_superseded"
     assert fake.deletes == []
+
+
+def test_a_source_changed_since_the_plan_is_kept_and_fails_the_run(_no_real_notifications):
+    """The vault holds the bytes the copy read, so an original written over after the plan listed
+    it is NEWER than its archived copy — and versioning is off, so deleting it destroys the only
+    copy of what the user last wrote. The file-ops plane's move has the same shape and compares
+    ETags before deleting; this verb deleted by key alone. The changed file stays where it is, the
+    unchanged one goes, and the run fails the way any partial deletion does, keeping the archive.
+    """
+    fake = _install(
+        current={**_PLANNED_ETAGS, "alice/reports/a.csv": '"rewritten-after-the-copy"'}
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "source_delete_incomplete"
+    assert fake.deletes == [{"Bucket": "user-bkt", "Keys": ["alice/reports/empty/"]}]
+    assert err.value.tokens == {"failed": "1", "total": "1"}
+
+
+def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
+    """Fail-closed, because a missing tag is not evidence the object is unchanged: a plan written
+    before the tag was recorded, or one hand-edited, cannot say what was copied. Keeping the file
+    costs a partial-deletion message; deleting it on a guess can cost the file."""
+    fake = _install(
+        _plan([{"relKey": "reports/a.csv", "bytes": 5}, {"relKey": "reports/b.csv", "bytes": 1, "etag": '"b1"'}]),
+        current={"alice/reports/a.csv": '"a1"', "alice/reports/b.csv": '"b1"'},
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "source_delete_incomplete"
+    assert fake.deletes == [{"Bucket": "user-bkt", "Keys": ["alice/reports/b.csv"]}]
+
+
+def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():
+    """A Retry after a lost response re-runs the verb over keys its first attempt removed. Those
+    head as 404, and reading that as "changed" would fail an archive that finished — so absence is
+    the outcome asked for, exactly as the deletion itself treats it."""
+    fake = _install(current={"alice/reports/empty/": _PLANNED_ETAGS["alice/reports/empty/"]})
+
+    result = m.handler(_event(), None)
+
+    assert result["deletedCount"] == 2
+    assert fake.deletes == [
+        {"Bucket": "user-bkt", "Keys": ["alice/reports/a.csv", "alice/reports/empty/"]}
+    ]

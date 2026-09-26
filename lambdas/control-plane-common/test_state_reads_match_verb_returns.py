@@ -392,7 +392,6 @@ _PRODUCER_COUNT = 49
 #: It is a demand that somebody look, which is the honest thing a shape check can offer.
 _RESHAPES_A_MAPPING = frozenset({
     "api",
-    "control-plane-common",
     "data-quality-start-profile-query",
     "file-ops-collect-transfer-results",
     "file-ops-finalise-outcomes",

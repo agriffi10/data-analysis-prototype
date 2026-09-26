@@ -568,6 +568,9 @@ class FakeGlue:
     Attributes:
       created: Database names in creation order.
       databases: The live database names.
+      parameters: Each database's parameters as it was created with them — what a shared-space
+        database's marker is read from. A database added straight to ``databases`` carries none,
+        which is what a user's personal database looks like.
       tables: Table names by database.
       undroppable: Tables the batch drop reports as failed instead of dropping.
       page_size: Tables per listing page, tiny for the same reason as the S3 fake's.
@@ -588,6 +591,7 @@ class FakeGlue:
         """
         self.created = []
         self.databases = set()
+        self.parameters = {}
         self.tables = {}
         self.definitions = {}
         self.archived = {}
@@ -599,10 +603,31 @@ class FakeGlue:
         )
 
     def create_database(self, DatabaseInput):
-        """Creates a database.
+        """Creates a database, refusing a name that exists the way the real API does.
 
         Args:
-          DatabaseInput: The input, carrying the name.
+          DatabaseInput: The input, carrying the name and optionally its parameters.
+
+        Returns:
+          None.
+
+        Raises:
+          FakeAlreadyExists: When a database of that name exists, whoever made it.
+        """
+        name = DatabaseInput["Name"]
+        if name in self.databases:
+            raise FakeAlreadyExists(f"database {name} already exists")
+        self.created.append(name)
+        self.databases.add(name)
+        self.parameters[name] = dict(DatabaseInput.get("Parameters") or {})
+        self.tables.setdefault(name, [])
+
+    def seed_space_database(self, name, tables=()):
+        """Puts a database there as the create verb makes one, marker and all.
+
+        Args:
+          name: The space name, which is also the database name.
+          tables: The tables it already holds.
 
         Returns:
           None.
@@ -610,10 +635,9 @@ class FakeGlue:
         Raises:
           None.
         """
-        name = DatabaseInput["Name"]
-        self.created.append(name)
         self.databases.add(name)
-        self.tables.setdefault(name, [])
+        self.parameters[name] = {config.DATABASE_MARKER_KEY: name}
+        self.tables[name] = list(tables)
 
     def get_database(self, Name):
         """Reports whether a database exists, raising the way the real client does.
@@ -622,7 +646,7 @@ class FakeGlue:
           Name: The database name.
 
         Returns:
-          The database description, carrying only the name.
+          The database description, carrying its name and parameters.
 
         Raises:
           FakeEntityNotFound: When no such database exists, which is how the real API answers
@@ -630,7 +654,7 @@ class FakeGlue:
         """
         if Name not in self.databases:
             raise FakeEntityNotFound(f"no such database {Name}")
-        return {"Database": {"Name": Name}}
+        return {"Database": {"Name": Name, "Parameters": dict(self.parameters.get(Name) or {})}}
 
     def get_tables(self, DatabaseName, NextToken=None):
         """Lists a database's tables one page at a time.

@@ -50,6 +50,7 @@ entry you need, not the file.**
 - [The restore's FIFO group id hashes the archive ROOT, not the bucket and the root](#the-restores-fifo-group-id-hashes-the-archive-root-not-the-bucket-and-the-root)
 - [The group id orders the STARTS, not the runs, and the restore guard is not absolute at the write](#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
 - [A folder placeholder is not a file to the person reading the count](#a-folder-placeholder-is-not-a-file-to-the-person-reading-the-count)
+- [The source is deleted only while it is UNCHANGED since the plan listed it](#the-source-is-deleted-only-while-it-is-unchanged-since-the-plan-listed-it)
 
 ## Fences
 
@@ -95,7 +96,10 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   them.**
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
   the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
-  unrecognisable verdict fails closed. **It, not the queue, is what makes two overlapping archives of
+  unrecognisable verdict fails closed. **And only an original still carrying the ETag the plan
+  recorded**: the gate proves a copy was made, not that the original stood still since, and one
+  rewritten while the Map ran is newer than its archived copy — kept, and counted short
+  ([entry](#the-source-is-deleted-only-while-it-is-unchanged-since-the-plan-listed-it)). **It, not the queue, is what makes two overlapping archives of
   one space safe when their ids differ** — the group id orders their starts and nothing else. **One
   id sent twice is closed by a CLAIM**, not by the queue and not by the prefix listing, which two
   runs reaching it together both pass: inspect-source takes a create-only write on
@@ -1160,4 +1164,29 @@ counts it replaced read "3 of 2" there.
 `/` (`fscommon/expand.py`), so its "(N files)" was already files. File-ops keeps placeholders, but
 every number it renders counts selected items. Table-share renders no count, and its default listing
 drops them anyway.
+
+## The source is deleted only while it is UNCHANGED since the plan listed it
+
+**Found by a data-loss audit of the control planes on 2026-09-26.** `delete-source` deleted the
+plan's keys by name alone. The commit gate proves every object was copied; it says nothing about
+whether the original stood still afterwards, and an archive at the caps copies for minutes to over
+an hour. A file written over in that window — re-uploaded by its owner, or by any member of a
+shared space — was deleted, leaving the vault's older copy as the only one, with versioning off.
+The file-operations move had already closed the same shape with a HEAD-compare before its
+deletion; this plane had not.
+
+**The plan now records each object's ETag**, from the listing or the file head that already
+returned it, and `delete-source` heads every original before deleting anything and keeps the ones
+that differ. A kept original counts short exactly as one S3 refused to delete, so the run fails
+`source_delete_incomplete` and the archive copy stays beside it — both versions survive, and the
+existing sentence ("safe in both places") is true of each file, if not of which version each place
+holds. An entry with **no** recorded tag is kept rather than headed: a plan written before the tag
+existed, or edited since, cannot say what the vault holds, and "unchanged" would be a guess. An
+original that heads as **absent** is not a change, because a Retry re-heads what its first attempt
+removed. The heads cost the guard's arithmetic over the same plan, so `delete-source` took the
+guard's 600s and a test reads it back.
+
+**Not a conditional `DeleteObjects`,** for `focommon.delete`'s reason: whether S3 enforces the ETag
+on these buckets is unproven, and a condition serialized and ignored deletes silently. The residual
+is the gap between a head and its batch's delete — milliseconds, against the copy's minutes.
 

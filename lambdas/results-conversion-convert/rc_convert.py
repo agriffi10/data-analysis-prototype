@@ -757,6 +757,12 @@ def _convert(event) -> dict:
     a suite whose fixtures were all personal could not tell the two apart, and why the fake in
     this verb's tests refuses a read aimed anywhere else.
 
+    **The download and the written file live in directories of their own**, because the file is
+    named by the user and the download is not, and no name can then be the other's path or its
+    directory. Sharing one, a CSV named ``results.csv`` was the download: the writer opened it for writing while the lazy reader was still scanning it, and
+    uploaded the header alone as a successful conversion — over the user's own file of that name
+    when the answer was overwrite.
+
     **``columnIndexes`` is read with ``get`` and never with ``events.require``**, which refuses
     a ``None`` value as well as an absent key. It is null whenever the request named no columns,
     and it is absent altogether from a state built by the previous ASL, which named no such key
@@ -790,7 +796,8 @@ def _convert(event) -> dict:
             read_schema, write_schema = _schemas(columns, chosen, carried["format"])
         except TerminalError as err:
             raise _Refusal(err.reason, err.detail, err.tokens) from err
-        source = scratch / "results.csv"
+        source = scratch / "download" / "results.csv"
+        source.parent.mkdir()
         _download(
             config.USER_SPACE_BUCKET,
             carried["resultsKey"],
@@ -798,7 +805,8 @@ def _convert(event) -> dict:
             carried["format"],
             described_bytes,
         )
-        target = scratch / destination["key"].rsplit("/", 1)[-1]
+        target = scratch / "output" / destination["key"].rsplit("/", 1)[-1]
+        target.parent.mkdir()
         frame = _frame(source, read_schema)
         if chosen is not None:
             frame = frame.select(list(write_schema))

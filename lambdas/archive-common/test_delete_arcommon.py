@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from arcommon import delete
 from cpcommon import clients
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 
 
 class _FakeS3:
@@ -99,3 +99,58 @@ def test_a_failure_counts_its_folder_placeholders_from_the_keys_that_failed():
         "failed": delete.MAX_KEYS_PER_BATCH + 1,
         "failedFolders": 2,
     }
+
+
+class _HeadError(Exception):
+    def __init__(self, code, status):
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        super().__init__(code)
+
+
+class _HeadingS3:
+    """Answers each head from a table: a tag, or an exception to raise."""
+
+    def __init__(self, answers):
+        self._answers = answers
+        self.heads = []
+
+    def head_object(self, Bucket, Key):
+        self.heads.append(Key)
+        answer = self._answers[Key]
+        if isinstance(answer, Exception):
+            raise answer
+        return {"ETag": answer}
+
+
+def test_only_an_original_still_carrying_its_planned_tag_may_be_deleted():
+    """Kept: a rewritten original, one that could not be read, and one the plan recorded no tag
+    for, which is never headed. Absence is not a change — a replay re-heads what it removed."""
+    fake = _HeadingS3({
+        "alice/same.csv": '"a"',
+        "alice/rewritten.csv": '"new"',
+        "alice/unreadable.csv": _HeadError("AccessDenied", 403),
+        "alice/gone.csv": _HeadError("404", 404),
+    })
+    clients._s3 = fake
+
+    kept = delete.changed_keys(
+        "user-bkt",
+        {
+            "alice/same.csv": '"a"',
+            "alice/rewritten.csv": '"old"',
+            "alice/unreadable.csv": '"u"',
+            "alice/gone.csv": '"g"',
+            "alice/untagged.csv": None,
+        },
+    )
+
+    assert kept == {"alice/rewritten.csv", "alice/unreadable.csv", "alice/untagged.csv"}
+    assert "alice/untagged.csv" not in fake.heads
+
+
+def test_a_throttled_head_retries_rather_than_reading_as_unchanged():
+    """A sweep that cannot see an original must not conclude it stood still."""
+    clients._s3 = _HeadingS3({"alice/a.csv": _HeadError("SlowDown", 503)})
+
+    with pytest.raises(TransientError):
+        delete.changed_keys("user-bkt", {"alice/a.csv": '"a"'})

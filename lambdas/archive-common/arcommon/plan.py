@@ -714,7 +714,8 @@ def _expand_item(bucket: str, root: str, entry: dict):
       entry: One normalised selection item.
 
     Yields:
-      ``(rel_key, size)`` per resolved object.
+      ``(rel_key, size, etag)`` per resolved object — the tag the object carried when it was
+      planned, which is what delete-source compares before it removes the original.
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, or ``forbidden`` for a listed key
@@ -729,16 +730,17 @@ def _expand_item(bucket: str, root: str, entry: dict):
     if entry["kind"] == "file":
         assert_inside_root(root, key)
         _assert_deletable_folder(root, key)
-        size = s3_listing.object_size(bucket, key, missing_reason="source_missing")
-        if not exclude(key, size, key):
-            yield _assert_not_the_record(key[len(root):]), size
+        head = s3_listing.object_record(bucket, key, missing_reason="source_missing")
+        if not exclude(key, head["size"], key):
+            yield _assert_not_the_record(key[len(root):]), head["size"], head["etag"]
         return
-    for object_key, size in s3_listing.list_data_objects(bucket, key, ignore=exclude):
+    for record in s3_listing.list_data_records(bucket, key, ignore=exclude):
+        object_key = record["key"]
         assert_inside_root(root, object_key)
         _assert_deletable_folder(root, object_key)
         relative = object_key[len(root):]
         if relative:
-            yield _assert_not_the_record(relative), size
+            yield _assert_not_the_record(relative), record["size"], record["etag"]
 
 
 def expand(source: dict) -> tuple[list, int]:
@@ -762,9 +764,10 @@ def expand(source: dict) -> tuple[list, int]:
       source: The authorized source, carrying the bucket, root and normalised items.
 
     Returns:
-      ``(objects, total_bytes)``, each object carrying its key relative to the space root and its
-      size. Folder placeholders are CARRIED (so an archived empty folder is restorable) and
-      counted, and contribute zero bytes because that is what they hold.
+      ``(objects, total_bytes)``, each object carrying its key relative to the space root, its
+      size and the ETag the listing or head reported. Folder placeholders are CARRIED (so an
+      archived empty folder is restorable) and counted, and contribute zero bytes because that is
+      what they hold.
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, ``object_too_large``,
@@ -778,7 +781,7 @@ def expand(source: dict) -> tuple[list, int]:
     objects: list = []
     total_bytes = 0
     for entry in source["items"]:
-        for rel_key, size in _expand_item(bucket, root, entry):
+        for rel_key, size, etag in _expand_item(bucket, root, entry):
             if rel_key in seen:
                 continue
             if size > ARCHIVE_MAX_OBJECT_BYTES:
@@ -788,7 +791,7 @@ def expand(source: dict) -> tuple[list, int]:
                     f"{ARCHIVE_MAX_OBJECT_BYTES}",
                 )
             seen.add(rel_key)
-            objects.append({"relKey": rel_key, "bytes": size})
+            objects.append({"relKey": rel_key, "bytes": size, "etag": etag})
             total_bytes += size
             if len(objects) > ARCHIVE_MAX_OBJECTS:
                 raise TerminalError(
@@ -922,7 +925,7 @@ def write(request: dict, source: dict, actor: str, objects: list, total_bytes: i
         destination.
       source: The authorized source, carrying the bucket and root.
       actor: The verified actor, recorded for diagnosis.
-      objects: The expanded objects, each carrying its relative key and size.
+      objects: The expanded objects, each carrying its relative key, size and planned ETag.
       total_bytes: How many bytes those objects hold.
 
     Returns:

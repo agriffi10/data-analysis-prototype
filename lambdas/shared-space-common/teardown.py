@@ -4,6 +4,14 @@ The idempotent S3 and Glue teardown steps used by both the delete cascade and th
 cleanup of an owner's failed create. Every helper tolerates partial prior progress and
 already-absent resources, so a re-run completes a half-done teardown. Kept in the shared layer
 so the two verbs share one implementation.
+
+**A teardown touches only a database the space made.** A space's database and a user's personal
+one share one Glue namespace under the bare name, and a space may be named after a user, so a
+space called ``alice`` finds alice's personal database under its own name. ``owns_database`` is
+the one test — the create reads it before adopting a database that already exists, and the
+revoke and the drop read it before touching one — and a database without the space's marker is
+left exactly as it is. A space created before the marker existed is unmarked too, so tearing one
+of those down leaves its database behind: residue, where the alternative is guessing.
 """
 
 import logging
@@ -77,12 +85,38 @@ def delete_shared_prefix(name):
         raise TeardownIncompleteError(f"{failed} object(s) under {name}/ could not be deleted")
 
 
+def owns_database(name):
+    """Reports whether the Glue database under a space's name is one the create verb made for it.
+
+    Args:
+      name: The space name, which is also its database name.
+
+    Returns:
+      True when the database carries this space's marker, False when it exists without it, and
+      None when there is no such database.
+
+    Raises:
+      TransientError: On a retryable Glue fault — whose a database is must not be guessed.
+      ClientError: On any other Glue fault.
+    """
+    glue = clients.glue()
+    try:
+        database = glue.get_database(Name=name)["Database"]
+    except glue.exceptions.EntityNotFoundException:
+        return None
+    except Exception as err:
+        errors.raise_if_transient(err, f"glue get_database {name}")
+        raise
+    return (database.get("Parameters") or {}).get(config.DATABASE_MARKER_KEY) == name
+
+
 def revoke_portal_role(name):
     """Best-effort revoke of the portal role's Lake Formation grants on a space.
 
     Cleanup only — per-user isolation is the IAM membership tag, not this grant — so a failure,
     such as the database already having been dropped on a retry, is logged and tolerated rather
-    than fatal to the cascade.
+    than fatal to the cascade. A database the space did not make is not revoked on at all: the
+    grants on it are its owner's.
 
     Args:
       name: The space name, which is also its database name.
@@ -93,6 +127,14 @@ def revoke_portal_role(name):
     Raises:
       None.
     """
+    try:
+        owned = owns_database(name)
+    except Exception:  # noqa: BLE001 - best-effort: an unreadable owner is never revoked on
+        logger.warning("could not tell whose database %s is; its grants were left alone", name)
+        return
+    if owned is False:
+        logger.warning("database %s is not this space's; its grants were left alone", name)
+        return
     lf = clients.lf()
     for resource, permissions in (
         ({"Database": {"Name": name}}, config.DATABASE_PERMISSIONS),
@@ -111,7 +153,8 @@ def revoke_portal_role(name):
 def drop_database(name):
     """Drops every table in a space's Glue database, then the database itself.
 
-    Idempotent — a missing database or table is a no-op, already dropped.
+    Idempotent — a missing database or table is a no-op, already dropped. A database the space
+    did not make is a no-op too, and it is left whole: it is somebody else's catalog.
 
     The batch table delete has the same shape as the object delete: it succeeds while reporting
     per-table failures, so discarding the response let a database that still holds tables read
@@ -134,6 +177,9 @@ def drop_database(name):
         would have absorbed.
       ClientError: On any deterministic Glue fault.
     """
+    if owns_database(name) is not True:
+        logger.warning("database %s is absent or not this space's; nothing was dropped", name)
+        return
     glue = clients.glue()
     try:
         tables = []

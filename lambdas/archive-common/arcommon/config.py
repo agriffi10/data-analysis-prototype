@@ -132,6 +132,11 @@ Attributes:
     fails the build rather than the invocation — and
     ``test_the_guards_pool_fits_inside_the_clients_connection_pool`` pins the ceiling that sizes
     this number, because that is the term a later "just raise the concurrency" would skip.
+  SOURCE_HEAD_CONCURRENCY: Bounded worker pool for delete-source's check that each original is
+    unchanged since the plan listed it. The same botocore connection pool bounds it, so it is
+    the guard's number rather than a second one, and the same ~250s worst case is why
+    ``locals.tf`` gives delete-source 600s —
+    ``test_delete_source_can_head_every_original_inside_its_timeout`` reads that back.
   RESTORE_STORAGE_CLASS: The class the copy-back writes at, and **it is stated rather than
     omitted**. ``cpcommon.transfer`` treats an empty storage class as "do not pass the argument",
     which is S3's own default and is what table-share and file-send rely on — but here the
@@ -255,6 +260,8 @@ ARCHIVE_MAX_BYTES = 3 * 1024**4
 ARCHIVE_MAX_OBJECT_BYTES = 10 * 1024**3
 
 RESTORE_HEAD_CONCURRENCY = 8
+
+SOURCE_HEAD_CONCURRENCY = RESTORE_HEAD_CONCURRENCY
 
 RESTORE_CONFLICT_SAMPLE = 5
 

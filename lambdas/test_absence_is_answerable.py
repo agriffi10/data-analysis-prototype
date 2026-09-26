@@ -128,6 +128,7 @@ DISPOSITIONS = {
     "lambdas/data-quality-inspect-source/dq_inspect_source.py::_resolve_listing_prefix": LIST_GRANT,
     "lambdas/file-ops-check-destinations/file_ops_check_destinations.py::_occupied": LIST_GRANT,
     "lambdas/file-ops-common/focommon/delete.py::compare": LIST_GRANT,
+    "lambdas/archive-common/arcommon/delete.py::changed": LIST_GRANT,
     "lambdas/file-ops-inspect-source/file_ops_inspect_source.py::_head": LIST_GRANT,
     # A denial and an absence take the same branch, and the branch is safe either way: the write
     # that follows is create-only, so a present-but-unreadable object fails its precondition
