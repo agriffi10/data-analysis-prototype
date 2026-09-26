@@ -14,6 +14,12 @@ archived and their files are where they were. Keeping only the changed ones was 
 and was rejected: it deleted the rest into a vault the user could not find, because the receipt
 that names an archive is written only after this state succeeds.
 
+**No original is deleted unless the vault holds every planned object at that moment**, counted by
+the restore's own fail-closed ``archive_is_intact``. The refusal above removes the vault copy, and
+a Retry after that removal was interrupted re-heads the originals — which can now all look
+unchanged, for instance when the first attempt's "change" was a head it could not read. Without
+the count, that re-run would delete every original with the copy already half gone.
+
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array**, and a response inspected
 only by its status code is a defect this repo has already had once. Here that defect
 would report a completed archive over a source that is still half there, and the user would be
@@ -35,7 +41,7 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 import logging
 
-from arcommon import counts, delete, notify, plan
+from arcommon import counts, delete, notify, plan, restore
 from cpcommon import observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
@@ -67,8 +73,9 @@ def handler(event, context) -> dict:
         back or is not this run's — the second is what stops a run deleting a DIFFERENT
         selection after another execution overwrote the plan under a reused request id —
         ``source_changed_during_archive`` when any original changed since the plan, before
-        anything is deleted, ``source_delete_incomplete`` when any object survived a deletion
-        that was attempted, or ``forbidden`` /
+        anything is deleted, ``archive_copy_unconfirmed`` when the vault no longer holds every
+        planned object, ``source_delete_incomplete`` when any object survived a deletion that
+        was attempted, or ``forbidden`` /
         ``protected_marker`` from the pre-delete assertion, which fails the run BEFORE issuing
         a delete the bucket policy would refuse mid-batch.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
@@ -99,7 +106,8 @@ def _delete_source(event) -> dict:
 
     Raises:
       TerminalError: ``plan_unreadable``, ``plan_superseded``, ``source_changed_during_archive``,
-        ``source_delete_incomplete``, ``forbidden`` or ``protected_marker``.
+        ``archive_copy_unconfirmed``, ``source_delete_incomplete``, ``forbidden`` or
+        ``protected_marker``.
       TransientError: On a retryable S3 fault.
     """
     loaded = plan.load(event.get("copyPlanKey"), event)
@@ -112,6 +120,10 @@ def _delete_source(event) -> dict:
     changed = delete.changed_keys(source["bucket"], planned)
     if changed:
         _refuse_changed(event, loaded["archive"], changed, len(keys))
+    if not restore.archive_is_intact(
+        loaded["archive"]["bucket"], loaded["archive"]["root"], len(keys)
+    ):
+        _refuse_unconfirmed(event, loaded["archive"], len(keys))
 
     removed = delete.delete_keys(source["bucket"], keys, root)
 
@@ -183,3 +195,46 @@ def _refuse_changed(event, archive: dict, changed: set, planned: int) -> None:
         f"and the archive copy was removed ({removed['failed']} object(s) could not be)",
         tokens={"changed": str(len(changed))},
     )
+
+
+def _refuse_unconfirmed(event, archive: dict, planned: int) -> None:
+    """Removes what is left of the vault copy and refuses, because it no longer holds the archive.
+
+    Reached when the vault counts short with no original changed — most plausibly a Retry of this
+    verb after a refusal that had begun removing the copy. Finishing the removal leaves the user
+    exactly where a refusal leaves them, and deleting no original is the whole point.
+
+    Args:
+      event: The request, for the actor the record names.
+      archive: The plan's archive location, whose prefix is removed.
+      planned: How many originals the plan named.
+
+    Returns:
+      Never.
+
+    Raises:
+      TerminalError: ``archive_copy_unconfirmed``, always. Also ``forbidden`` or
+        ``protected_marker`` from the vault removal's pre-check.
+      TransientError: When a vault delete batch failed retryably.
+      ClientError: Propagated raw from the vault listing.
+    """
+    removed = delete.delete_prefix(archive["bucket"], archive["root"])
+    logger.warning(
+        "the vault no longer holds all %d planned object(s); deleted no original and removed %d "
+        "of %d archived object(s)",
+        planned,
+        removed["deleted"],
+        removed["listed"],
+    )
+    observability.warning(
+        "archive refused because the vault copy is incomplete",
+        actor=(event.get("actor") or {}).get("username"),
+        planned=planned,
+        vault_removed=removed["deleted"],
+        vault_residue=removed["failed"],
+    )
+    raise TerminalError(
+        "archive_copy_unconfirmed",
+        f"the vault no longer holds all {planned} planned object(s), so no original was deleted",
+    )
+

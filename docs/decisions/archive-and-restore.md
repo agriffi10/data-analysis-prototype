@@ -1188,6 +1188,14 @@ recorded tag refuses the same way without being headed: a plan written before th
 cannot say what the vault holds. An original that heads as **absent** is not a change, because a
 Retry re-heads what its first attempt removed.
 
+**And no original is deleted unless the vault holds every planned object at that moment**, counted
+by the restore's own fail-closed `archive_is_intact`; a short count removes what is left of the copy
+and fails `archive_copy_unconfirmed`, in the existing "we could not confirm that every file had been
+copied" sentence. The refusal above is what makes this needed: it removes the vault copy, and a
+Retry after that removal is interrupted re-heads the originals, which can all look unchanged —
+when the first attempt's "change" was a head it could not read — and would otherwise be deleted
+with the copy half gone.
+
 **All or nothing, and Andrew chose it over keeping per file.** The first shape kept only the
 changed originals, deleted the rest and failed `source_delete_incomplete`; a review found that this
 deletes into a vault the user cannot find — the receipt that names an archive is written only after

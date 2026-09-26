@@ -266,6 +266,21 @@ def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
     assert all(call["Bucket"] == "archive-bkt" for call in fake.deletes)
 
 
+def test_a_retry_after_an_interrupted_refusal_deletes_no_original_even_when_none_now_looks_changed():
+    """The refusal removes the vault copy, and a throttle part way through that removal re-runs the
+    verb. If the first attempt's "change" was a head it could not read, every original now looks
+    unchanged — and without counting the vault, the re-run would delete them all with the copy
+    already half gone. The vault is counted first, and a short one refuses."""
+    fake = _install()
+    fake.vault.discard(f"personal/alice/archive/{_REQUEST_ID}/reports/a.csv")
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "archive_copy_unconfirmed"
+    assert all(call["Bucket"] == "archive-bkt" for call in fake.deletes)
+
+
 def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():
     """A Retry after a lost response re-runs the verb over keys its first attempt removed. Those
     head as 404, and reading that as "changed" would fail an archive that finished — so absence is

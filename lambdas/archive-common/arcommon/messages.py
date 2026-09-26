@@ -185,6 +185,10 @@ _BODIES = {
         "{changed} file(s) changed while they were being archived, so nothing was archived and "
         "your files are exactly where they were. Please try again."
     ),
+    "archive_copy_unconfirmed": (
+        "we could not confirm that every file had been copied, so nothing was deleted and your "
+        "files are exactly where they were. Please try again."
+    ),
     "source_delete_incomplete": (
         "your files were archived, but {failed} of {total} could not be removed from your space. "
         "Nothing has been lost - they are safe in both places. Please contact an administrator."
@@ -286,6 +290,7 @@ ARCHIVE_ONLY = frozenset(
         "archive_incomplete",
         "archive_rollback_incomplete",
         "source_changed_during_archive",
+        "archive_copy_unconfirmed",
         "source_delete_incomplete",
         "receipt_write_failed",
         "archive_timed_out",
