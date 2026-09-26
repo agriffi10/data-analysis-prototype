@@ -253,7 +253,7 @@ Andrew's go-ahead to run two checks.
 |---|---|---|
 | **A clean CSV check's row has no tag** | [`e2e.md`](e2e.md) §4.6, *The runs list* | Check `dq_agree/`; its new row reads **Clean** with no **Partly checked** tag, and the link's accessible name ends *“— clean”*. |
 | **A JSON check's row carries the tag** | §4.6, *The runs list* | Check `dq_case_json/`; its row carries **Partly checked** and the name ends *“, partly checked”*. Its report's banner reads *“No issues found in what could be checked”* or *“Issues found”*, never a plain *“No issues found”*. |
-| **A row written before `ae297ed8` reads as partly checked, and nothing reads Sampled** | §4.6, *The runs list* | Any row that predates the merge carries **Partly checked**; no row anywhere on the page reads **Sampled**. Read-only: needs no new check. |
+| **A row written before `ae297ed8`'s Lambda deploy reads as partly checked, and nothing reads Sampled** | §4.6, *The runs list* | Any row that predates that deploy (the entry field changed there, not at the merge) carries **Partly checked**; no row anywhere on the page reads **Sampled**. Read-only: needs no new check. |
 
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
