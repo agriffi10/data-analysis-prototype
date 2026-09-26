@@ -231,6 +231,26 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
 
+  it('does not re-run a FAILED statement when only presentation changes while it is shown', async () => {
+    // A column resize reports on every pointermove, and each one is a fresh exploration
+    // object. If that identity reached the eviction's dependencies, every move would evict the
+    // live entry and start the statement again — a burst of executions for one drag.
+    vi.mocked(getQueryStatus).mockResolvedValue(status({state: 'FAILED', bytes: 0}));
+    const base = newExploration(TABLE);
+    const {result, rerender} = renderHookWithProviders(
+      ({exploration}: {exploration: Exploration}) => useExploration(exploration),
+      {initialProps: {exploration: base}}
+    );
+    await waitFor(() => expect(result.current.state).toBe('FAILED'));
+
+    for (const width of [120, 140, 160]) {
+      rerender({exploration: {...base, presentation: {...base.presentation, columnWidths: {id: width}}}});
+    }
+    await waitFor(() => expect(result.current.state).toBe('FAILED'));
+
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a SUCCEEDED execution cached across an unmount — only failures are evicted', async () => {
     // The pair that makes the eviction meaningful: an unconditional one would make every
     // remount a fresh bill, and the failure test above would still pass.

@@ -96,6 +96,16 @@ describe('useColumnWidths', () => {
       expect(result.current.widths[0]).toBe(320);
     });
 
+    it('keeps widths while the results reload and report no columns for a beat (a new page size)', () => {
+      const {result, rerender} = renderWidths({id: 'exec-1', count: 2});
+      act(() => result.current.setWidth(0, 320));
+
+      rerender({id: 'exec-1', count: 0});
+      rerender({id: 'exec-1', count: 2});
+
+      expect(result.current.widths[0]).toBe(320);
+    });
+
     it('resets to defaults for a new execution id (a new query)', () => {
       const {result, rerender} = renderWidths({id: 'exec-1', count: 2});
       act(() => result.current.setWidth(0, 320));

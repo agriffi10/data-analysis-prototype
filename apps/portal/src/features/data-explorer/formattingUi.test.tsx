@@ -149,7 +149,7 @@ describe('nothing in the formatting surfaces runs a query (FR-001)', () => {
     const withGradient = await openColours(user);
     await user.click(within(withGradient).getByRole('button', {name: 'Add rule'}));
     await user.selectOptions(within(withGradient).getByRole('combobox', {name: 'Rule 2 column'}), 'qty');
-    await user.click(within(withGradient).getByRole('checkbox', {name: 'Rule 2 shades a number range'}));
+    await user.click(within(withGradient).getByRole('checkbox', {name: 'Shade a number range, rule 2'}));
     await user.click(within(withGradient).getByRole('button', {name: 'Apply'}));
     await waitFor(() => expect(storedFormatting().rules).toHaveLength(2));
 
@@ -383,7 +383,7 @@ describe('the fixes review found', () => {
     const dialog = await openColours(user);
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 column'}), 'qty');
-    await user.click(within(dialog).getByRole('checkbox', {name: 'Rule 1 shades a number range'}));
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Shade a number range, rule 1'}));
 
     const start = within(dialog).getByRole('textbox', {name: 'Rule 1 range start'});
     const end = within(dialog).getByRole('textbox', {name: 'Rule 1 range end'});

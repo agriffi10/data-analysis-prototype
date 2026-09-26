@@ -81,18 +81,22 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   // an aid to history navigation, and a failure that only ever happened in a previous
   // session should not stop this one from trying.
   const failedSql = useRef(new Map<string, Set<string>>());
-  const [suspended, setSuspended] = useState(false);
 
-  // Suspension belongs to the tab that was suspended, and the hook is shared by all of
-  // them — so switching tabs clears it. Left standing, a held-back history step in one tab
-  // handed `useExploration` nothing for EVERY tab: the next tab ran nothing and said a set
-  // of filters had failed that never had (found in review). Reset during render, the same
-  // pattern `useCellSelection` uses for a page change.
-  const [previousTabId, setPreviousTabId] = useState(tabId);
-  if (previousTabId !== tabId) {
-    setPreviousTabId(tabId);
-    setSuspended(false);
-  }
+  // Suspension belongs to the tab that was suspended, and the hook is shared by all of them —
+  // so it is held per tab id. A single flag had to be cleared on every switch (held, it
+  // suspended the NEXT tab too), and clearing it meant a round trip back to the suspended tab
+  // ran the known-failed statement without being asked.
+  const [suspendedTabs, setSuspendedTabs] = useState<ReadonlySet<string>>(() => new Set());
+  const suspended = suspendedTabs.has(tabId);
+  const setSuspended = useCallback((id: string, value: boolean) => {
+    setSuspendedTabs((prev) => {
+      if (prev.has(id) === value) return prev;
+      const next = new Set(prev);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   const noteFailure = useCallback(
     (sql: string) => {
@@ -109,8 +113,8 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   // A statement that fails again is re-recorded by `noteFailure` on the spot.
   const retry = useCallback(() => {
     failedSql.current.delete(tabId);
-    setSuspended(false);
-  }, [tabId]);
+    setSuspended(tabId, false);
+  }, [setSuspended, tabId]);
 
   // Whether restoring this description would re-run a statement that already failed. The
   // render is attempted rather than assumed: a description that cannot render at all is
@@ -129,7 +133,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   const apply = useCallback(
     (next: Partial<ExplorationQuery>) => {
       if (!tab) return;
-      setSuspended(false);
+      setSuspended(tab.id, false);
       // The proposed description is built INSIDE the updater, from the tab as the updater
       // finds it — not from this render's copy. Two applies batched into one commit would
       // otherwise both merge onto the same stale description: the first change would be
@@ -153,7 +157,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
         return changed;
       });
     },
-    [tab, updateTab]
+    [setSuspended, tab, updateTab]
   );
 
   const clearAll = useCallback(() => {
@@ -170,7 +174,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
       const from = direction === 'back' ? tab.history.past : tab.history.future;
       const restored = from[from.length - 1];
       if (!restored) return;
-      setSuspended(wouldReplayFailure(restored, tab));
+      setSuspended(tab.id, wouldReplayFailure(restored, tab));
       updateTab(tab.id, (t) => {
         const source = direction === 'back' ? t.history.past : t.history.future;
         const target = source[source.length - 1];
@@ -187,7 +191,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
         };
       });
     },
-    [tab, updateTab, wouldReplayFailure]
+    [setSuspended, tab, updateTab, wouldReplayFailure]
   );
 
   const back = useCallback(() => step('back'), [step]);

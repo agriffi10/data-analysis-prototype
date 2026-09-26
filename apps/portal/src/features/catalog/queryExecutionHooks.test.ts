@@ -50,6 +50,28 @@ describe('useQueryExecution', () => {
       expect(mockGetStatus).toHaveBeenCalledWith('q-1');
     });
 
+    it('never reads a settled execution again, so a reconnect cannot turn a success into an error', async () => {
+      // A terminal state never changes. Stopped only by the interval, a reconnect or a remount
+      // re-read it — and a failed re-read left SUCCEEDED data under an error.
+      mockGetStatus.mockResolvedValue(ok(status({state: 'SUCCEEDED'})));
+      const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
+      await waitFor(() => expect(result.current.status?.state).toBe('SUCCEEDED'));
+      mockGetStatus.mockResolvedValue({success: false, error: {message: 'offline'}});
+
+      try {
+        await act(async () => {
+          onlineManager.setOnline(false);
+          onlineManager.setOnline(true);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+      } finally {
+        onlineManager.setOnline(true);
+      }
+
+      expect(mockGetStatus).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBeNull();
+    });
+
     it('surfaces a service failure as an error state after its one retry (queryFn throws)', async () => {
       mockGetStatus.mockResolvedValue({success: false, error: {message: 'boom'}});
       const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));

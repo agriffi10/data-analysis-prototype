@@ -152,7 +152,7 @@ export function TransformersDialog({columns, transformers, onApply, onCancel}: T
                   <label className="flex items-center gap-1.5 text-xs text-text-2">
                     <input
                       type="checkbox"
-                      aria-label={`Leave unreadable ${column} values as they are`}
+                      aria-label={`Leave non-numbers alone in ${column}`}
                       checked={transformer.lenient}
                       onChange={(e) => set(column, {...transformer, lenient: e.target.checked})}
                     />

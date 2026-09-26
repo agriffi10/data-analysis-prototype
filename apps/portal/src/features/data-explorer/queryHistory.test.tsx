@@ -7,7 +7,7 @@ import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
 import {emptyExplorationQuery, newExploration} from './exploration';
-import {CACHE_HIT_TEXT} from './CostIndicator';
+import {CACHE_HIT_ELSEWHERE_TEXT, CACHE_HIT_TEXT} from './CostIndicator';
 import {NO_HISTORY_BACK, NO_HISTORY_FORWARD} from './FilterHistoryControls';
 import {SUSPENDED_TEXT} from './ExplorationResultsRegion';
 import {filterValueKind, isEmptyQuery, moveSortPriority, sameQuery, setSort, sortOf} from './explorationQueryOps';
@@ -71,6 +71,23 @@ function seedTab(history: {past: ExplorationQuery[]; future: ExplorationQuery[]}
 function storedHistory() {
   const raw = sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? '{}';
   return (JSON.parse(raw) as ExplorationTabsState).tabs[0].history;
+}
+
+function seedTwinTabs() {
+  const orders = {kind: 'table' as const, spaceId: 'personal', database: 'alice', table: 'orders'};
+  const tab = (id: string, label: string) => ({
+    id,
+    label,
+    exploration: newExploration(orders, id),
+    scannedByExecution: {},
+    history: {past: [], future: []}
+  });
+  const state: ExplorationTabsState = {
+    version: 1,
+    tabs: [tab('t1', 'orders'), tab('t2', 'orders again')],
+    activeTabId: 't1'
+  };
+  sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
 }
 
 async function chooseFromMenu(user: ReturnType<typeof userEvent.setup>, column: string, item: string) {
@@ -317,6 +334,60 @@ describe('cost reporting', () => {
     expect(screen.getByText(/4.0 KB scanned by this exploration/)).toBeInTheDocument();
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
+
+  it('never shows another tab’s figure while this tab’s own run has not reported', async () => {
+    seedTwoTabs();
+    vi.mocked(listTables).mockResolvedValue(
+      ok([
+        {name: 'orders', tableType: 'EXTERNAL_TABLE', columns: []},
+        {name: 'invoices', tableType: 'EXTERNAL_TABLE', columns: []}
+      ]) as never
+    );
+    const sqlById = new Map<string, string>();
+    let seq = 0;
+    vi.mocked(runQuery).mockImplementation((async ({sql}: {sql: string}) => {
+      seq += 1;
+      sqlById.set(`exec-${seq}`, sql);
+      return ok({queryExecutionId: `exec-${seq}`});
+    }) as never);
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+      (sqlById.get(queryExecutionId) ?? '').includes('invoices')
+        ? ok({queryExecutionId, state: 'RUNNING'})
+        : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+    const {user} = render();
+    await screen.findByText(/This query scanned 2.0 KB/);
+
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+
+    expect(await screen.findByText(/^0 B scanned by this exploration$/)).toBeInTheDocument();
+    expect(screen.queryByText(/This query scanned 2.0 KB/)).not.toBeInTheDocument();
+  });
+
+  it('says an execution another tab already ran is a cache hit, and adds nothing here', async () => {
+    seedTwinTabs();
+    const {user} = render();
+    await screen.findByText(/This query scanned 2.0 KB · 2.0 KB scanned by this exploration/);
+
+    await user.click(screen.getByRole('tab', {name: /orders again/}));
+
+    // One description, one execution, one bill — the second tab scanned nothing.
+    expect(
+      await screen.findByText(new RegExp(`${CACHE_HIT_ELSEWHERE_TEXT} · 0 B scanned by this exploration`))
+    ).toBeInTheDocument();
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes nothing away from the tab that ran it when a twin tab is visited', async () => {
+    seedTwinTabs();
+    const {user} = render();
+    await screen.findByText(/This query scanned 2.0 KB/);
+    await user.click(screen.getByRole('tab', {name: /orders again/}));
+    await screen.findByText(new RegExp(CACHE_HIT_ELSEWHERE_TEXT));
+
+    await user.click(screen.getByRole('tab', {name: /^orders$/}));
+
+    expect(await screen.findByText(/· 2.0 KB scanned by this exploration/)).toBeInTheDocument();
+  });
 });
 
 // ─── The pure edits underneath all of it ─────────────────────────────────────
@@ -416,6 +487,29 @@ describe('across tabs', () => {
     await user.click(screen.getByRole('tab', {name: /invoices/}));
     await waitFor(() => expect(screen.queryByText(SUSPENDED_TEXT)).not.toBeInTheDocument());
     expect(await screen.findByText('paid')).toBeInTheDocument();
+  });
+
+  it('keeps a suspended tab suspended when the user comes back to it', async () => {
+    seedTwoTabs();
+    mockTwoTables();
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+    await screen.findByText('open');
+    await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
+    await screen.findByText(/syntax error in your query/i);
+    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await screen.findByText(SUSPENDED_TEXT);
+    const badStarts = () => vi.mocked(runQuery).mock.calls.filter(([{sql}]) => sql.includes('bad')).length;
+    const before = badStarts();
+
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+    await screen.findByText('paid');
+    await user.click(screen.getByRole('tab', {name: /orders/}));
+
+    // The round trip is not the user asking for the failed statement again.
+    expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
+    expect(badStarts()).toBe(before);
   });
 
   it('never falls back to ANOTHER tab’s rows', async () => {

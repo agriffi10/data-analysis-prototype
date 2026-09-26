@@ -1,4 +1,4 @@
-import {useState, type RefObject} from 'react';
+import {useEffect, useRef, useState, type RefObject} from 'react';
 import {Button} from '../../components/Button';
 import {IconButton} from '../../components/IconButton';
 import {useEscapeKey} from '../../hooks/useEscapeKey';
@@ -33,6 +33,9 @@ export type GroupingPanelProps = {
   onApply: (grouping: Grouping | null) => void;
   onClose: () => void;
 };
+
+/** One namespace for both lists' remove buttons: a column and an aggregate alias can share a name. */
+const removeKey = (list: 'column' | 'aggregate', name: string) => `${list}:${name}`;
 
 /**
  * Grouping columns and aggregates, staged and applied as `GROUP BY`.
@@ -77,6 +80,41 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
 
   const names = columns.map((column) => column.name);
   const ungrouped = names.filter((name) => !draft.columns.includes(name));
+
+  // A removed row takes its focused ✕ with it. Focus goes to the ✕ that took its place (or
+  // the one before it), and to the list's add control once the list is empty — never back to
+  // the top of the page (WCAG 2.4.3).
+  const removeRefs = useRef(new Map<string, HTMLButtonElement>());
+  const addColumnRef = useRef<HTMLSelectElement>(null);
+  const addAggregateRef = useRef<HTMLSelectElement>(null);
+  const focusAfterRemove = useRef<{key: string | null; fallback: RefObject<HTMLSelectElement | null>} | null>(null);
+  useEffect(() => {
+    const pending = focusAfterRemove.current;
+    if (!pending) return;
+    focusAfterRemove.current = null;
+    ((pending.key !== null ? removeRefs.current.get(pending.key) : undefined) ?? pending.fallback.current)?.focus();
+  }, [draft]);
+  const registerRemove = (key: string) => (node: HTMLButtonElement | null) => {
+    if (node) removeRefs.current.set(key, node);
+    else removeRefs.current.delete(key);
+  };
+  const neighbour = (list: 'column' | 'aggregate', names: string[], at: number) => {
+    const name = names[at + 1] ?? names[at - 1];
+    return name === undefined ? null : removeKey(list, name);
+  };
+
+  const removeColumn = (name: string, position: number) => {
+    focusAfterRemove.current = {key: neighbour('column', draft.columns, position), fallback: addColumnRef};
+    setDraft((d) => ({...d, columns: d.columns.filter((c) => c !== name)}));
+  };
+
+  const removeAggregate = (alias: string, position: number) => {
+    focusAfterRemove.current = {
+      key: neighbour('aggregate', draft.aggregates.map(aggregateAlias), position),
+      fallback: addAggregateRef
+    };
+    setDraft((d) => ({...d, aggregates: d.aggregates.filter((a) => aggregateAlias(a) !== alias)}));
+  };
 
   const addColumn = (name: string) => {
     // A name the result does not have cannot be grouped by, and a duplicate would render
@@ -180,10 +218,11 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
                   ↓
                 </Button>
                 <Button
+                  ref={registerRemove(removeKey('column', name))}
                   size="sm"
                   variant="ghost"
                   aria-label={`Remove ${name} from grouping`}
-                  onClick={() => setDraft((d) => ({...d, columns: d.columns.filter((c) => c !== name)}))}>
+                  onClick={() => removeColumn(name, position)}>
                   ✕
                 </Button>
               </li>
@@ -192,6 +231,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
         )}
         <div className="mt-2 flex items-center gap-1">
           <select
+            ref={addColumnRef}
             aria-label="Column to group by"
             className={`${SELECT_CLASS} min-w-0 flex-1`}
             value=""
@@ -212,7 +252,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
         aria-label="Aggregates"
         className="flex flex-col gap-1">
         <ul className="flex flex-col gap-1">
-          {draft.aggregates.map((aggregate) => (
+          {draft.aggregates.map((aggregate, position) => (
             <li
               key={aggregateAlias(aggregate)}
               className="flex items-center gap-1 rounded-md border border-border px-2 py-1">
@@ -220,15 +260,11 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
                 {aggregate.fn}({aggregate.column})
               </span>
               <Button
+                ref={registerRemove(removeKey('aggregate', aggregateAlias(aggregate)))}
                 size="sm"
                 variant="ghost"
                 aria-label={`Remove ${aggregate.fn} of ${aggregate.column}`}
-                onClick={() =>
-                  setDraft((d) => ({
-                    ...d,
-                    aggregates: d.aggregates.filter((a) => aggregateAlias(a) !== aggregateAlias(aggregate))
-                  }))
-                }>
+                onClick={() => removeAggregate(aggregateAlias(aggregate), position)}>
                 ✕
               </Button>
             </li>
@@ -236,6 +272,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
         </ul>
         <div className="flex flex-wrap items-center gap-1">
           <select
+            ref={addAggregateRef}
             aria-label="Aggregate function"
             className={`${SELECT_CLASS} flex-none`}
             value={pendingFn}

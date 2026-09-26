@@ -14,7 +14,7 @@ import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {buildOpenSqlHandoff, readExploreSqlHandoff} from '../../lib/routeHandoff';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
-import {CostIndicator} from './CostIndicator';
+import {CostIndicator, type CostIndicatorProps} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsRegion, NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
 import {ExportExplorationDialog} from './ExportExplorationDialog';
@@ -220,15 +220,29 @@ export function DataExplorerWorkspace() {
   // Read during render rather than in the effect below, and that ordering is the whole
   // point — `recordScan` puts the id in the ledger, after which every execution looks
   // known and every apply would report itself a cache hit.
-  const [lastApply, setLastApply] = useState<{key: string; bytesScanned: number; fromCache: boolean} | null>(null);
+  const [lastApply, setLastApply] = useState<{
+    key: string;
+    bytesScanned: number;
+    cacheHit: CostIndicatorProps['cacheHit'];
+  } | null>(null);
   const costKey =
     tabs.activeTab && exploration.queryExecutionId && exploration.cost
       ? `${tabs.activeTab.id}:${exploration.queryExecutionId}`
       : null;
   if (costKey !== null && lastApply?.key !== costKey && tabs.activeTab && exploration.cost) {
-    const known = tabs.activeTab.scannedByExecution[exploration.queryExecutionId as string];
-    setLastApply({key: costKey, bytesScanned: known ?? exploration.cost.bytesScanned, fromCache: known !== undefined});
+    const executionId = exploration.queryExecutionId as string;
+    const activeId = tabs.activeTab.id;
+    const known = tabs.activeTab.scannedByExecution[executionId];
+    const ranElsewhere = tabs.tabs.some((t) => t.id !== activeId && t.scannedByExecution[executionId] !== undefined);
+    setLastApply({
+      key: costKey,
+      bytesScanned: known ?? exploration.cost.bytesScanned,
+      cacheHit: known !== undefined ? 'this-tab' : ranElsewhere ? 'another-tab' : 'none'
+    });
   }
+  // Keyed by tab, and read back by tab: a tab whose own run has not reported yet shows no
+  // per-apply figure, rather than the one the previous tab left behind.
+  const shownApply = tabs.activeTab && lastApply?.key.startsWith(`${tabs.activeTab.id}:`) ? lastApply : null;
 
   // The tab's cost ledger, keyed by execution id upstream — recording the same execution
   // twice changes nothing, which is what makes a cache hit free by construction.
@@ -299,6 +313,7 @@ export function DataExplorerWorkspace() {
           // count. What this buys is the refusal arriving at the gesture that
           // asked for it, rather than one table-click later.
           onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
+          panelShown={!showPicker}
         />
       )}
 
@@ -375,8 +390,8 @@ export function DataExplorerWorkspace() {
             onSourceColumns={tabs.setTabSourceColumns}
           />
           <CostIndicator
-            bytesScanned={lastApply?.bytesScanned ?? null}
-            fromCache={lastApply?.fromCache ?? false}
+            bytesScanned={shownApply?.bytesScanned ?? null}
+            cacheHit={shownApply?.cacheHit ?? 'none'}
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>

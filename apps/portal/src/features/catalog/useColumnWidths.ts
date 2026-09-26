@@ -32,9 +32,11 @@ export function useColumnWidths(executionId: string | null, columnCount: number)
 
   // Lazily seed (or re-seed on a column-count change) the current execution's
   // widths during render — React's "adjust state when a prop changes" pattern,
-  // no effect / extra paint. Bails out once the entry matches columnCount.
+  // no effect / extra paint. Bails out once the entry matches columnCount. A count of
+  // zero is results still loading (a new page size, an evicted page), not a result with
+  // no columns, so it keeps what the user sized.
   const stored = executionId !== null ? byExec[executionId] : undefined;
-  if (executionId !== null && (stored === undefined || stored.length !== columnCount)) {
+  if (executionId !== null && columnCount > 0 && (stored === undefined || stored.length !== columnCount)) {
     setByExec((prev) => ({...prev, [executionId]: defaults(columnCount)}));
   }
 
