@@ -691,7 +691,9 @@ describe('QueryWorkspace', () => {
 
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
 
-      expect(await screen.findByText(/This statement is too long to run — Athena takes at most 256 KB/)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/This statement is too long to run — Athena takes at most 256 KB/)
+      ).toBeInTheDocument();
       expect(mockRunQuery).not.toHaveBeenCalled();
     });
 

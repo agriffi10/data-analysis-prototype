@@ -842,7 +842,9 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
     await user.type(within(dialog).getByRole('textbox'), 'notes');
     await user.click(within(dialog).getByRole('button', {name: /create/i}));
 
-    expect(await within(await screen.findByRole('alertdialog')).findByRole('button', {name: 'Rename'})).toBeInTheDocument();
+    expect(
+      await within(await screen.findByRole('alertdialog')).findByRole('button', {name: 'Rename'})
+    ).toBeInTheDocument();
     expect(within(folderPrompt()).queryByRole('button', {name: /overwrite/i})).not.toBeInTheDocument();
   });
 

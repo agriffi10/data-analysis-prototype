@@ -308,7 +308,11 @@ export async function writeSavedQuery(params: {
     if (written.error.code === 'PayloadTooLarge') {
       return {
         success: false,
-        error: {message: 'Saved query too large to write', code: 'SavedQueryTooLargeToSave', params: written.error.params}
+        error: {
+          message: 'Saved query too large to write',
+          code: 'SavedQueryTooLargeToSave',
+          params: written.error.params
+        }
       };
     }
     return fromApiFailure(written.error, 'Failed to save query');

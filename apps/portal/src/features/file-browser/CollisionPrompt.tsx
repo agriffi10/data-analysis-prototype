@@ -31,7 +31,15 @@ type Props = {
  * @example
  * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
  */
-export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, allowOverwrite = true, onRename, onCancel}: Props) {
+export function CollisionPrompt({
+  kind,
+  name,
+  parentPrefix,
+  onOverwrite,
+  allowOverwrite = true,
+  onRename,
+  onCancel
+}: Props) {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
   const [touched, setTouched] = useState(false);

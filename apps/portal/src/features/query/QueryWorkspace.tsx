@@ -569,7 +569,9 @@ export function QueryWorkspace() {
   // Athena writes plain text there, not a result set: a CSV copy would be text under a .csv name
   // and a conversion is refused. So those rows are refused here, on the statement the run holds.
   const saveResultsRefusal =
-    displayedStatement !== undefined && !isExplorableSql(displayedStatement.sql) ? SAVE_RESULTS_STATEMENT_REFUSAL : null;
+    displayedStatement !== undefined && !isExplorableSql(displayedStatement.sql)
+      ? SAVE_RESULTS_STATEMENT_REFUSAL
+      : null;
   const explore =
     queryEnabled &&
     explorerEnabled &&

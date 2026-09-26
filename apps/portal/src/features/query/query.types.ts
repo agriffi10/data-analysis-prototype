@@ -67,8 +67,7 @@ export type ResultTab = {
 export type MobileSavedRef = {key: string; name: string};
 
 export type MobileQueryView =
-  | {kind: 'home'}
-  | {kind: 'results'; sql: string; title: string; savedQuery?: MobileSavedRef};
+  {kind: 'home'} | {kind: 'results'; sql: string; title: string; savedQuery?: MobileSavedRef};
 
 /** Which list the mobile home is showing; kept beside the view so Back returns to it. */
 export type MobileHomeTab = 'saved' | 'history';

@@ -338,7 +338,10 @@ describe('readSavedQuery (FR-004)', () => {
 
 describe('writeSavedQuery (FR-004)', () => {
   it('answers SQL over the writable cap as the query being too large, naming the cap', async () => {
-    mockSend.mockResolvedValue({success: false, error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}});
+    mockSend.mockResolvedValue({
+      success: false,
+      error: {message: '', code: 'PayloadTooLarge', params: {limit: 3145728}}
+    });
 
     const result = await writeSavedQuery({space: PERSONAL, name: 'report', sql: 'SELECT 1'});
 

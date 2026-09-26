@@ -84,8 +84,8 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
           : overCap
             ? `${members.length} usernames — you can add up to ${ADD_MEMBERS_MAX} at a time. Remove some and add them in a second request.`
             : // The names themselves are no longer repeated here — the chips above carry them,
-            // and reading the same list twice is noise.
-            `${members.length} username${members.length === 1 ? '' : 's'} to add.`}
+              // and reading the same list twice is noise.
+              `${members.length} username${members.length === 1 ? '' : 's'} to add.`}
       </p>
     </FormDialog>
   );

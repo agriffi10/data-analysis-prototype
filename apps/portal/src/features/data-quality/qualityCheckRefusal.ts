@@ -1,3 +1,10 @@
+import {
+  ATHENA_RESULTS_FOLDER,
+  DATA_QUALITY_REPORTS_FOLDER,
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+} from '../../lib/appManagedPaths';
+
 /**
  * The first segments below a space root that the data-quality plane refuses to check.
  *
@@ -6,13 +13,13 @@
  * which is false of a folder the user can plainly open — so the browser refuses first, in words.
  */
 export const QUALITY_CHECK_RESERVED_ROOTS = [
-  'athenaresults',
+  ATHENA_RESULTS_FOLDER,
   'user_settings',
-  'shared_tables',
-  '_data-quality-reports',
+  SHARED_TABLES_FOLDER,
+  DATA_QUALITY_REPORTS_FOLDER,
   '_fc-work',
   '_directory',
-  'system_settings'
+  SYSTEM_SETTINGS_FOLDER
 ] as const;
 
 /** Why a check of that item is refused, shown on the disabled control. */

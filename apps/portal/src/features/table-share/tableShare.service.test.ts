@@ -54,7 +54,10 @@ describe('enqueueTableShare', () => {
   });
 
   it('refuses more recipients than the plane accepts, now and in words, without calling the API', async () => {
-    const everyone = Array.from({length: SHARE_MAX_RECIPIENTS + 1}, (_, i) => ({kind: 'user' as const, name: `user_${i}`}));
+    const everyone = Array.from({length: SHARE_MAX_RECIPIENTS + 1}, (_, i) => ({
+      kind: 'user' as const,
+      name: `user_${i}`
+    }));
 
     const result = await enqueueTableShare({...req, recipients: everyone});
 

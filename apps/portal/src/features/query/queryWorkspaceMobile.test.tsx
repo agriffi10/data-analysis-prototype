@@ -169,7 +169,12 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
           id: 'a',
           label: 'Monthly',
           sql: 'SELECT 1',
-          savedQuery: {spaceId: 'personal', bucket: 'user-bucket', key: 'alice/saved_queries/Monthly.sql', name: 'Monthly'}
+          savedQuery: {
+            spaceId: 'personal',
+            bucket: 'user-bucket',
+            key: 'alice/saved_queries/Monthly.sql',
+            name: 'Monthly'
+          }
         }
       ],
       activeTabId: 'a',
