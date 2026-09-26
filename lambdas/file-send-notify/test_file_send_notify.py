@@ -223,7 +223,9 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         gate,
     ), "the gate no longer reads a /files link's space from ?space= — re-derive what a space link carries"
     guard = (_PORTAL / "features" / "notifications" / "notificationLink.ts").read_text()
-    assert "link[0] !== '/'" in guard and "link[1] !== '/'" in guard, "isSafeInAppPath's accept rule changed"
+    assert "link[0] !== '/'" in guard and "link[1] === '/'" in guard and "charCodeAt(0) < 0x20" in guard, (
+        "isSafeInAppPath's accept rule changed"
+    )
 
     expected = {"bob": ([], "bob/"), "finance-owner": (["finance"], "finance/")}
     received = [(user, link) for user, _m, link in sent if user != "alice"]
@@ -244,3 +246,4 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
             f"{prefix!r} has a segment that is empty or a dot, so the route discards it"
         )
         assert link[0] == "/" and link[1] not in ("/", "\\"), f"{link!r} is not a path isSafeInAppPath accepts"
+        assert not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in link), f"{link!r} carries a control character"
