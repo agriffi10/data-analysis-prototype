@@ -12,7 +12,7 @@ Public barrel: `features/query/index.ts`. The Athena query **workspace** — its
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `getQueryHistory(username)` / `appendQueryHistory(username, entry)` / `updateQueryHistoryEntry(username, id, patch)` | `queryHistory.service.ts` | Per-user history JSON at `{username}/user_settings/query-history.json` — read (missing/corrupt → empty), prepend+cap, in-place update. PutObject-only (no delete); read-only to the user. |
+| `getQueryHistory(username)` / `appendQueryHistory(username, entry)` / `updateQueryHistoryEntry(username, id, patch)` | `queryHistory.service.ts` | Per-user history JSON at `{username}/user_settings/query-history.json` — read (missing/corrupt → empty), prepend+cap, in-place update; a user's writes run one at a time, in call order. PutObject-only (no delete); read-only to the user. |
 
 ### Hooks, keys, types, constants
 

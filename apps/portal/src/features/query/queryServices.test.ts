@@ -205,6 +205,38 @@ describe('queryHistory.service', () => {
     });
   });
 
+  describe('a batch crossing from one statement to the next', () => {
+    // The batch finalises statement 1 without waiting and appends statement 2 at once. Here the
+    // update's read is held until the append has started, which is the order that lost an entry.
+    it('keeps both entries, each finalised, when the update lands after the next append starts', async () => {
+      const fake = fakeBucket(JSON.stringify({version: 1, entries: [entry('q1')]} as QueryHistory));
+      const answer = fake.send.getMockImplementation()!;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let reads = 0;
+      fake.send.mockImplementation((async (route: string, options?: unknown) => {
+        // Answered from the document as it is NOW, then delivered late: a read that happened
+        // before the append wrote, and landed after it.
+        const response = answer(route as never, options as never);
+        if (route === 'objects.readContent' && reads++ === 0) await held;
+        return response;
+      }) as never);
+
+      const finalised = updateQueryHistoryEntry('alice', 'q1', {status: 'SUCCEEDED'});
+      const appended = appendQueryHistory('alice', entry('q2'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      release();
+      await Promise.all([finalised, appended]);
+      await updateQueryHistoryEntry('alice', 'q2', {status: 'SUCCEEDED'});
+
+      const stored = JSON.parse(fake.stored()!) as QueryHistory;
+      expect(stored.entries.map((e) => [e.queryExecutionId, e.status])).toEqual([
+        ['q2', 'SUCCEEDED'],
+        ['q1', 'SUCCEEDED']
+      ]);
+    });
+  });
+
   // ── The write path refuses a body it cannot read ─────────────────────────────
   // Same hazard as savedQueries, and worse to lose: this file is the only record
   // of a query beyond Athena's ~45-day retention, and the user cannot re-create it

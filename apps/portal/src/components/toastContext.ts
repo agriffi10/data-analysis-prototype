@@ -11,8 +11,13 @@ export type ToastInput = ToastState & {
 };
 
 export type ToastApi = {
-  push: (toast: ToastInput) => void;
-  dismiss: () => void;
+  /** Shows a toast in place of the current one, and returns the id that names this push. */
+  push: (toast: ToastInput) => number;
+  /**
+   * Clears the toast on screen. Given a push id, clears it only while that push is still the one
+   * showing, so a caller that outlives its own toast cannot take a later one down with it.
+   */
+  dismiss: (pushId?: number) => void;
 };
 
 /** The app-level toast host's API; provided by `ToastProvider`. */

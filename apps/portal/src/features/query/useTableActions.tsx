@@ -112,7 +112,7 @@ export function useTableActions({
     },
     // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
     onViewDdl: (database: string, table: GlueTableSummary) => {
-      toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
+      const loading = toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
       void (async () => {
         const result = await getTableDdl({
           database,
@@ -127,7 +127,7 @@ export function useTableActions({
           });
           return;
         }
-        toast.dismiss();
+        toast.dismiss(loading);
         // The drawer puts these actions on a phone too, where there is
         // no editor to open a tab into — show the DDL in the read-only view.
         if (isMobile) {

@@ -1,5 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
-import {identifierNeedsQuoting, sqlDdlIdentifier} from '../../lib/sql';
+import {identifierNeedsQuoting, quoteIdentifierIfNeeded, sqlDdlIdentifier} from '../../lib/sql';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
@@ -215,10 +215,11 @@ function ddlTablePart(name: string): string {
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
  *
- * A table name that parses only when quoted — the builder accepts a reserved word such as
- * `order` — is backtick-quoted, `SHOW CREATE TABLE` being Hive DDL; every other name goes bare,
- * as it always has. A view's names stay bare: which engine parses `SHOW CREATE VIEW`, and so
- * which quote it takes, is not something a test here can settle.
+ * A name that parses only when quoted — the builder accepts a reserved word such as `order` — is
+ * quoted in the dialect of the engine that parses the statement; every other name goes bare, as it
+ * always has. `SHOW CREATE TABLE` is Hive DDL and takes backticks. `SHOW CREATE VIEW` is parsed by
+ * Trino and takes double quotes: Athena returns a view's DDL for `db."v"` and refuses `` db.`v` ``
+ * as a syntax error.
  */
 export async function getTableDdl(p: {
   database: string;
@@ -228,7 +229,9 @@ export async function getTableDdl(p: {
 }): Promise<ServiceResult<string>> {
   const verb = p.isView ? 'SHOW CREATE VIEW' : 'SHOW CREATE TABLE';
   const done = await runStatementToCompletion({
-    sql: p.isView ? `${verb} ${p.database}.${p.table}` : `${verb} ${ddlTablePart(p.database)}.${ddlTablePart(p.table)}`,
+    sql: p.isView
+      ? `${verb} ${quoteIdentifierIfNeeded(p.database)}.${quoteIdentifierIfNeeded(p.table)}`
+      : `${verb} ${ddlTablePart(p.database)}.${ddlTablePart(p.table)}`,
     database: p.database,
     username: p.username
   });

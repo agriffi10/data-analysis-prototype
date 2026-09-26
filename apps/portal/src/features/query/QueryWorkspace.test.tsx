@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {DEFAULT_RESULTS_PAGE_SIZE, SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
+import {DEFAULT_RESULTS_PAGE_SIZE, QUERY_TABS_MAX, SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {withFakeTimers} from '../../test/fakeTimers';
 import {
@@ -17,6 +17,7 @@ import {
   mockGetResults,
   mockGetRowCount,
   mockGetStatus,
+  mockGetTableDdl,
   mockListFiles,
   mockListSaved,
   mockReadCache,
@@ -361,6 +362,44 @@ describe('QueryWorkspace', () => {
       await user.click(newTab);
       expect(screen.getByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
       expect(screen.getAllByRole('tab')).toHaveLength(10);
+    });
+
+    it('opens a View DDL tab and clears its own loading notice', async () => {
+      mockGetTableDdl.mockResolvedValueOnce(ok('CREATE EXTERNAL TABLE sales_2026 (region string)'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await openTableMenu(user, 'sales_2026');
+      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'View DDL'}));
+
+      expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByText('Loading DDL for sales_2026…')).not.toBeInTheDocument();
+    });
+
+    // Both requests leave from renders that counted one tab fewer than the cap, so only a count
+    // that is current when each one lands can tell the second there is no room.
+    it('raises the tab limit for the second of two View DDLs started one below the cap', async () => {
+      seedTabs({
+        version: 1,
+        tabs: Array.from({length: QUERY_TABS_MAX - 1}, (_, i) => ({id: `t${i}`, label: `Query ${i + 1}`, sql: ''})),
+        activeTabId: 't0',
+        nextQueryNumber: QUERY_TABS_MAX
+      });
+      let land = () => {};
+      mockGetTableDdl.mockReturnValue(
+        new Promise((resolve) => (land = () => resolve(ok('CREATE EXTERNAL TABLE t (region string)'))))
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      for (const table of ['sales_2026', 'revenue_view']) {
+        await openTableMenu(user, table);
+        await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'View DDL'}));
+      }
+
+      await act(async () => land());
+
+      expect(await screen.findByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
+      expect(screen.getAllByRole('tab')).toHaveLength(QUERY_TABS_MAX);
     });
 
     // --- saved queries (SPEC-173: files, not a JSON store) ---
@@ -1876,6 +1915,30 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByText(/cannot cancel/)).not.toBeInTheDocument();
       expect(mockStopQuery).toHaveBeenCalledWith('q-1');
       expect(screen.getByText('Running…')).toBeInTheDocument();
+    });
+
+    it('keeps a refused Stop’s toast when a View DDL started before it lands', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      mockStopQuery.mockResolvedValueOnce(fail('raw: cannot cancel q-1', 'NetworkError'));
+      let land = () => {};
+      mockGetTableDdl.mockReturnValueOnce(
+        new Promise((resolve) => (land = () => resolve(ok('CREATE EXTERNAL TABLE sales_2026 (region string)'))))
+      );
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await openTableMenu(user, 'sales_2026');
+      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'View DDL'}));
+      await user.click(await screen.findByRole('button', {name: 'Stop the running query'}));
+      const refusal = 'Couldn’t stop the query. Can’t reach the server. Check your connection and try again.';
+      await screen.findByText(refusal);
+
+      await act(async () => land());
+
+      expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toBeInTheDocument();
+      expect(screen.getByText(refusal)).toBeInTheDocument();
     });
 
     it('says nothing when a Stop goes through', async () => {
