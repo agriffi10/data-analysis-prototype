@@ -45,6 +45,7 @@ entry you need, not the file.**
 - [A statement handed to the Data Explorer runs again, and a result it cannot name is not explorable (SPEC-242)](#a-statement-handed-to-the-data-explorer-runs-again-and-a-result-it-cannot-name-is-not-explorable-spec-242)
 - [A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)](#a-column-filter-shows-as-a-chip-and-the-generated-sql-is-edited-in-query-on-a-copy-spec-243)
 - [A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)](#a-saved-exploration-carries-its-view-on-one-comment-line-and-a-shared-spaces-is-held-spec-247)
+- [A tab's scan total is what that tab has shown, so twin tabs each count a shared execution (2026-09-26)](#a-tabs-scan-total-is-what-that-tab-has-shown-so-twin-tabs-each-count-a-shared-execution-2026-09-26)
 
 ## Fences
 
@@ -1760,3 +1761,25 @@ read had not been asked for. The open settles one render later, once the wait is
 a linear-time LIKE matcher, which is the real fix for that pathology and a larger one than this
 spec; listing only files that carry a view, which reads every body; a signature, which the
 personal/shared split makes unnecessary.
+
+## A tab's scan total is what that tab has shown, so twin tabs each count a shared execution (2026-09-26)
+
+Two Explorer tabs showing one description share one execution — the cache is keyed by source and
+SQL, not by tab — but each tab keeps its own cost ledger (`useExplorationTabs`' `scannedByExecution`),
+so the second tab to reach it records its bytes too, and its line reads *"This query scanned X"*.
+Summed across tabs, the figures exceed what Athena billed.
+
+**Accepted, not pending (Andrew, 2026-09-26): a tab's total means "what this tab has shown", not
+"what this tab caused".** The cost line answers a question about the tab in front of the user, and
+*"Loaded from an earlier run in this tab"* is the one cache hit it names; a hit on another tab's
+run is reported as the scan it is.
+
+**The trap, from an attempt that was built and reverted (UI audit, #887's review):** recording a
+twin's execution at zero, and calling it a hit from another tab, bills whichever tab is SHOWING when
+the run finishes. Start in tab A, switch to its twin B before the run ends, and B records the full
+scan while A records nothing and then claims to have loaded B's run. Getting attribution right needs
+the tab that STARTED each execution, which is new state kept beside the cache for a figure whose
+meaning this entry settles the other way.
+
+**Rejected.** Filing a shared execution at zero on whichever tab reaches it second; a session-wide
+seen-executions set; tracking the starting tab.
