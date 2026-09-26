@@ -213,7 +213,8 @@ _ONE_FILE_IN_A_NEW_FOLDER = [{"relKey": _PLACEHOLDER, "bytes": 0}, {"relKey": _F
             _ONE_FILE_IN_A_NEW_FOLDER,
             (
                 f"Archived 1 file (38 B). It has been removed from your space. Archive id: "
-                f"{_ARCHIVE_ID} - you'll need it to restore it."
+                f"{_ARCHIVE_ID} - to restore it, open the livecheck_186 space in Files, choose "
+                "Restore Archived Data and enter this id."
             ),
             "Files archived:    1",
         ),
@@ -221,7 +222,8 @@ _ONE_FILE_IN_A_NEW_FOLDER = [{"relKey": _PLACEHOLDER, "bytes": 0}, {"relKey": _F
             [{"relKey": _PLACEHOLDER, "bytes": 0}],
             (
                 f"Archived 1 empty folder (0 B). It has been removed from your space. Archive "
-                f"id: {_ARCHIVE_ID} - you'll need it to restore it."
+                f"id: {_ARCHIVE_ID} - to restore it, open the livecheck_186 space in Files, "
+                "choose Restore Archived Data and enter this id."
             ),
             "Files archived:    0",
         ),

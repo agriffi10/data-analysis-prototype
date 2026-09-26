@@ -192,7 +192,8 @@ export function QueryWorkspace() {
     handleStop,
     dropRunState,
     dismissError,
-    selectResultTab
+    selectResultTab,
+    closeResultTab
   } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry, toast});
 
   // Create view and Drop table were the same forty lines twice.
@@ -743,6 +744,7 @@ export function QueryWorkspace() {
                     {...errorBanner}
                     onDismissError={() => dismissError(activeTabId)}
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
+                    onCloseResultTab={(index) => closeResultTab(activeTabId, index)}
                     canSaveResults={canSaveResults}
                     onSaveResults={saveResults.openDialog}
                     explore={explore}

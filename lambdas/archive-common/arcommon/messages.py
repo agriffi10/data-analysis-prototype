@@ -300,13 +300,18 @@ restore_resolver = _cpmessages.register(
 )
 
 
-def archived_message(request_id: str, files: int, folders: int, total_bytes: int) -> str:
+def archived_message(
+    request_id: str, files: int, folders: int, total_bytes: int, shared_space: str | None = None
+) -> str:
     """Composes the text for a completed ARCHIVE.
 
     **It names the archive id, and that is the whole reason this message cannot be generic.** The
     archived objects live in a bucket the browser has no relationship with, so the id is the
     user's only route back to them — the receipt carries it too, but the receipt is inside the
-    folder the id names, and a user who never opens it has nowhere else to read it.
+    folder the id names, and a user who never opens it has nowhere else to read it. It also says
+    where the id goes: an id with no instruction beside it left a user holding it and not knowing
+    what to do with it. A shared space's archive names that space, because Files opens the
+    personal one and a restore only finds an archive in the space being browsed.
 
     The size renders through ``receipt.human_bytes``, so one archive reads the same in its receipt,
     in this message and in the file browser (the shared TB ceiling).
@@ -317,6 +322,7 @@ def archived_message(request_id: str, files: int, folders: int, total_bytes: int
       folders: How many folder placeholders were archived, which the sentence names only when
         there are no files.
       total_bytes: Their total size.
+      shared_space: The shared space's name when the archive came from one, else None.
 
     Returns:
       The sentence.
@@ -325,11 +331,12 @@ def archived_message(request_id: str, files: int, folders: int, total_bytes: int
       None.
     """
     phrase, one = _contents_phrase(files, folders)
+    where = f"open the {shared_space} space in Files, choose" if shared_space else "choose"
     return (
         f"Archived {phrase} ({receipt.human_bytes(total_bytes)}). "
         f"{'It has' if one else 'They have'} been removed from your space. "
-        f"Archive id: {request_id} - you'll need it to restore "
-        f"{'it' if one else 'them'}."
+        f"Archive id: {request_id} - to restore {'it' if one else 'them'}, {where} "
+        "Restore Archived Data" + ("" if shared_space else " in Files") + " and enter this id."
     )
 
 

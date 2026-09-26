@@ -832,7 +832,9 @@ Confirm. Expect:
 
 - A toast saying the archive **started** — never that it finished.
 - Within minutes: `Archived N files (X MB). They have been removed from your space. Archive id:
-  {uuid} - you'll need it to restore them.`
+  {uuid} - to restore them, choose Restore Archived Data in Files and enter this id.` From a
+  shared space it reads `…, open the {space} space in Files, choose Restore Archived Data and
+  enter this id.`
 - **N counts files, not folders.** The zero-byte key **New folder** writes is carried and restored,
   but it adds nothing to N, and the receipt's `Files archived` line agrees. One file inside a
   New-folder folder reads `Archived 1 file`. A folder holding no files reads `Archived 1 empty
@@ -1067,7 +1069,7 @@ deep folder: the trail must wrap onto a second row with the current folder fully
 page must not scroll sideways — drag horizontally and confirm nothing moves. **Confirm `innerWidth` actually changed before believing any of this** — §1's stale-viewport trap is exactly this shape, and a resize that silently did nothing leaves a desktop-width trail that wraps at no width and passes. At 320px with nine
 segments it takes three rows and pushes the file list down about 47px, which is the accepted cost.
 The refresh button beside the trail is centred against the whole block, so it sits lower than the
-first crumb row once wrapped; that is expected, not a bug. The two tab strips' ✕ closes are `h-[24px]
+first crumb row once wrapped; that is expected, not a bug. The tab strips' ✕ closes (Query's editor and result tabs, and the Data Explorer's) are `h-[24px]
 w-[24px]` inside a tab whose own `h-7` did **not** change. That was tried and reverted, and the
 reasoning is worth keeping: `h-7` is a 24.5px BORDER box over a 22.5px CONTENT box, so a 24px ✕
 stays inside the tab's outer bounds (measured: 0.25px to spare) but overhangs the content box by

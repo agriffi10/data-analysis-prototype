@@ -181,12 +181,13 @@ describe('ResultTabs', () => {
     {statementIndex: 3, executionId: 'q-4', label: '4 · SHOW TABLES', status: status('q-4')}
   ];
 
-  function renderTabs(activeIndex = 0, onSelect = vi.fn()) {
+  function renderTabs(activeIndex = 0, onSelect = vi.fn(), onClose = vi.fn(), shown = tabs) {
     render(
       <ResultTabs
-        tabs={tabs}
+        tabs={shown}
         activeIndex={activeIndex}
         onSelect={onSelect}
+        onClose={onClose}
       />
     );
     return onSelect;
@@ -229,6 +230,35 @@ describe('ResultTabs', () => {
       expect(onSelect).toHaveBeenLastCalledWith(0);
       await press(rendered[1], 'End');
       expect(onSelect).toHaveBeenLastCalledWith(2);
+    });
+
+    // Backspace too: it is the key a Mac keyboard labels "delete", and both other tab strips take it.
+    it.each(['Delete', 'Backspace'])(
+      'closes the focused tab on %s and hands focus to the tab after it',
+      async (key) => {
+        const user = userEvent.setup(USER_EVENT_OPTIONS);
+        const onClose = vi.fn();
+        renderTabs(1, vi.fn(), onClose);
+        const rendered = screen.getAllByRole('tab');
+
+        rendered[1].focus();
+        await user.keyboard(`{${key}}`);
+
+        expect(onClose).toHaveBeenCalledWith(1);
+        expect(rendered[2]).toHaveFocus();
+      }
+    );
+
+    it('offers no way to close the last remaining tab', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      const onClose = vi.fn();
+      renderTabs(0, vi.fn(), onClose, tabs.slice(0, 1));
+
+      screen.getByRole('tab').focus();
+      await user.keyboard('{Delete}');
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.queryByTitle(/^Close /)).not.toBeInTheDocument();
     });
   });
 });
