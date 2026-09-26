@@ -74,8 +74,10 @@ export function QueryTabStrip({
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && !solo) {
       // Keyboard close (WAI-ARIA tabs-with-close pattern): the visible ✕ button is
       // a sibling of the tab — not a focusable descendant (nested-interactive) — so
-      // Delete is how keyboard users close the focused tab.
+      // Delete is how keyboard users close the focused tab. A held key's repeats are ignored:
+      // focus moves to the next tab after a close, so each repeat would close another.
       e.preventDefault();
+      if (e.repeat) return;
       requestClose(tabs[index].id);
       return;
     }

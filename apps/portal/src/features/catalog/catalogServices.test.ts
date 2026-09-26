@@ -356,9 +356,9 @@ describe('the catalog services over the API', () => {
         success: true,
         data: 'CREATE EXTERNAL TABLE db.t (\n  id int\n)'
       });
-      // Hive DDL, so backticks: the names themselves go through untouched.
+      // Ordinary names go bare, exactly as before; only a name that needs quoting is quoted.
       expect(api.bodyFor('athena.start')).toEqual({
-        sql: 'SHOW CREATE TABLE `db`.`t`',
+        sql: 'SHOW CREATE TABLE db.t',
         database: 'db'
       });
       expect(api.queryFor('athena.results')).toEqual({maxRows: '999'});
@@ -374,7 +374,7 @@ describe('the catalog services over the API', () => {
 
       await getTableDdl({database: 'alice', table: 'order', username: 'alice'});
 
-      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE TABLE `alice`.`order`', database: 'alice'});
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE TABLE alice.`order`', database: 'alice'});
     });
 
     it('runs SHOW CREATE VIEW for a view', async () => {
@@ -387,7 +387,7 @@ describe('the catalog services over the API', () => {
 
       await getTableDdl({database: 'db', table: 'v', username: 'alice', isView: true});
 
-      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW `db`.`v`', database: 'db'});
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW db.v', database: 'db'});
     });
 
     it('returns an error when the statement does not succeed', async () => {

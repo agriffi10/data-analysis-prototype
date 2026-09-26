@@ -48,6 +48,12 @@ export function QueryToolbar({
 }: Props) {
   const {copied, copy} = useCopyToClipboard();
   const runStopRef = useRef<HTMLButtonElement>(null);
+  // A key still held from one press repeats onto this same element after it swaps — Run into
+  // Stop, or Stop back into Run once the batch settles — and would stop the query that press
+  // started, or run it again. Only a fresh press acts.
+  const ignoreHeldKey = (e: React.KeyboardEvent) => {
+    if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
+  };
   // The run scopes in the menu hand focus to Run, which becomes Stop: the menu's trigger, where
   // focus would otherwise return, leaves the page with the rest of the split button.
   const runScript = (scope: 'script-single' | 'script-tabs') => {
@@ -106,11 +112,7 @@ export function QueryToolbar({
             ref={runStopRef}
             variant="ghost"
             onClick={onStop}
-            // A key still held from pressing Run repeats onto this same element once it is Stop;
-            // only a fresh press may stop the query that press started.
-            onKeyDown={(e) => {
-              if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
-            }}
+            onKeyDown={ignoreHeldKey}
             aria-label="Stop the running query"
             className="text-danger hover:bg-danger-soft hover:text-danger">
             <svg
@@ -139,6 +141,7 @@ export function QueryToolbar({
             ref={runStopRef}
             variant="primary"
             onClick={onRunStatement}
+            onKeyDown={ignoreHeldKey}
             disabled={!canRun}
             title="Run the selection or the statement under the cursor (⌘⏎)"
             aria-label="Run statement"

@@ -142,9 +142,10 @@ export function QueryStatusBar({
           </span>
           <span className="text-text-2">
             {batch && `Statement ${batch.current} of ${batch.total} · `}
-            {/* Out of the live region's hearing: the clock ticks every second and the bytes every
-                poll, and each change would be announced again. */}
-            <span aria-hidden="true">
+            {/* Out of the live region's hearing, not out of the page: the clock ticks every second
+                and the bytes every poll, and each change would be announced again. `off` rather
+                than hidden, so a screen reader can still read the figures on request. */}
+            <span aria-live="off">
               elapsed {formatDurationMs(elapsedMs)}
               {status?.dataScannedBytes !== undefined && ` · ${formatBytes(status.dataScannedBytes)} scanned`}
             </span>

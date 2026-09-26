@@ -305,6 +305,28 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByRole('tab', {name: /Query 3/})).not.toBeInTheDocument();
     });
 
+    // Focus moves to the next tab after a close, so a held Delete's repeats would close tab after tab.
+    it('closes one tab for one held Delete', async () => {
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: ''},
+          {id: 'b', label: 'Query 2', sql: ''},
+          {id: 'c', label: 'Query 3', sql: ''},
+          {id: 'd', label: 'Query 4', sql: ''}
+        ],
+        activeTabId: 'd',
+        nextQueryNumber: 5
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      screen.getByRole('tab', {name: /Query 4/}).focus();
+
+      await user.keyboard('{Delete>6/}');
+
+      expect(screen.getAllByRole('tab')).toHaveLength(3);
+    });
+
     // The dialog hands focus back to what opened it, and that is the tab it just removed.
     it('puts focus on the tab that becomes active when Delete closes the focused one', async () => {
       seedTabs({
@@ -2035,9 +2057,10 @@ describe('QueryWorkspace', () => {
     });
 
     // A failed RE-read keeps the page it already has, so an empty result that loaded is still
-    // an empty result — only a read that never loaded anything stands in for the answer.
+    // an empty result — only a read that never loaded anything stands in for the answer. A DDL
+    // statement's result is the hard case: it has no columns either.
     it('still says a loaded empty result returned no rows when a later re-read fails', async () => {
-      mockGetResults.mockResolvedValue(ok({columns: [{name: 'region', type: 'varchar'}], rows: []}));
+      mockGetResults.mockResolvedValue(ok({columns: [], rows: []}));
       seedSingle('SELECT 1');
       const {user, queryClient} = renderWorkspace();
       await runOnce(user);

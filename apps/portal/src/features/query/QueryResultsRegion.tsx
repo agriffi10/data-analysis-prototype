@@ -10,7 +10,6 @@ import type {TabRun} from './useTabRuns';
 import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 import type {UseResultsPageSizeResult} from './useResultsPageSize';
 import type {UseColumnWidthsResult} from '../catalog/useColumnWidths';
-import {resultsReadFailed} from './resultsReadFailed';
 
 type Props = {
   /** The active tab's run, if it has one. */
@@ -170,7 +169,7 @@ export function QueryResultsRegion({
               hasNext={results.hasNext}
               isFetchingNext={results.isFetchingNext}
               isLoading={results.isPending}
-              loadError={resultsReadFailed(results) ? results.error : null}
+              loadError={results.isLoadError ? results.error : null}
               widths={colWidths.widths}
               onResize={colWidths.setWidth}
               onResetColumn={colWidths.resetColumn}

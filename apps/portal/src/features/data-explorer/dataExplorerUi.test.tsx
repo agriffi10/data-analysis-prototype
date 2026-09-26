@@ -529,6 +529,23 @@ describe('the exploration tabs', () => {
     expect(screen.getByRole('tab', {name: 'refunds'})).toHaveFocus();
   });
 
+  it('closes one tab for one held Delete', async () => {
+    // Focus moves to the next tab after a close and an exploration closes without asking, so a
+    // held Delete's repeats would close them all.
+    seedTabs([
+      {id: 't1', table: 'orders'},
+      {id: 't2', table: 'refunds'},
+      {id: 't3', table: 'invoices'}
+    ]);
+    const {user} = render();
+    const tab = await screen.findByRole('tab', {name: 'orders'});
+    tab.focus();
+
+    await user.keyboard('{Delete>5/}');
+
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+  });
+
   it('hands focus to the picker when Delete closes the last tab', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     const {user} = render();

@@ -160,6 +160,7 @@ describe('QueryResultsMobile', () => {
     isPending: false,
     isFetchingNext: false,
     isError: false,
+    isLoadError: false,
     error: null,
     goPrev: vi.fn(),
     goNext: vi.fn(),
@@ -260,6 +261,7 @@ describe('QueryResultsMobile', () => {
           rows: [],
           loadedRowCount: 0,
           isError: true,
+          isLoadError: true,
           error: Object.assign(new Error('raw: results read refused for alice'), {code: 'NetworkError'})
         })
       });
@@ -452,7 +454,7 @@ describe('QueryStatusBar', () => {
       expect(screen.getByText('Running…')).toBeInTheDocument();
       expect(screen.getByText(/elapsed/)).toBeInTheDocument();
       // The bar is a live region, and a clock inside one is re-announced every second.
-      expect(screen.getByText(/elapsed/)).toHaveAttribute('aria-hidden', 'true');
+      expect(screen.getByText(/elapsed/)).toHaveAttribute('aria-live', 'off');
     });
 
     it('never counts a new run’s elapsed time from the previous run’s last tick', async () => {

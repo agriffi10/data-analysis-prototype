@@ -1,5 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
-import {sqlDdlIdentifier} from '../../lib/sql';
+import {identifierNeedsQuoting, sqlDdlIdentifier} from '../../lib/sql';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
@@ -204,14 +204,21 @@ export async function runStatementToCompletion(p: {
   return {success: false, error: {message: 'Polling ended unexpectedly', code: 'Timeout'}};
 }
 
+/** One part of a `SHOW CREATE TABLE` name: bare where it parses bare, backticked where it does not. */
+function ddlTablePart(name: string): string {
+  return identifierNeedsQuoting(name) ? sqlDdlIdentifier(name) : name;
+}
+
 /**
  * Fetch a table's (or view's) authoritative DDL via Athena
  * — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
  *
- * Both verbs are DDL, so the names are backtick-quoted: a table the builder named with a
- * reserved word (`order`) is otherwise a parse error.
+ * A table name that parses only when quoted — the builder accepts a reserved word such as
+ * `order` — is backtick-quoted, `SHOW CREATE TABLE` being Hive DDL; every other name goes bare,
+ * as it always has. A view's names stay bare: which engine parses `SHOW CREATE VIEW`, and so
+ * which quote it takes, is not something a test here can settle.
  */
 export async function getTableDdl(p: {
   database: string;
@@ -221,7 +228,7 @@ export async function getTableDdl(p: {
 }): Promise<ServiceResult<string>> {
   const verb = p.isView ? 'SHOW CREATE VIEW' : 'SHOW CREATE TABLE';
   const done = await runStatementToCompletion({
-    sql: `${verb} ${sqlDdlIdentifier(p.database)}.${sqlDdlIdentifier(p.table)}`,
+    sql: p.isView ? `${verb} ${p.database}.${p.table}` : `${verb} ${ddlTablePart(p.database)}.${ddlTablePart(p.table)}`,
     database: p.database,
     username: p.username
   });
