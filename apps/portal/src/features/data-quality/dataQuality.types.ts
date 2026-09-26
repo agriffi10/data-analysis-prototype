@@ -169,7 +169,7 @@ export type DataQualityReport = {
    * would fire on a spotless CSV and be learned as noise.
    */
   hasApproximateFigures: boolean;
-  /** The flag that actually varies: something was skipped or failed. This one warns. */
+  /** The flag that actually varies: something was skipped or failed, or the encoding scan only sampled. This one warns. */
   hasIncompleteFigures: boolean;
   /** ISO-8601. The only field a replay changes — the key is a pure function of requestId. */
   completedAt: string;
