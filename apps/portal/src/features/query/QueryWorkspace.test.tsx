@@ -365,12 +365,17 @@ describe('QueryWorkspace', () => {
     });
 
     it('opens a View DDL tab and clears its own loading notice', async () => {
-      mockGetTableDdl.mockResolvedValueOnce(ok('CREATE EXTERNAL TABLE sales_2026 (region string)'));
+      let land = () => {};
+      mockGetTableDdl.mockReturnValueOnce(
+        new Promise((resolve) => (land = () => resolve(ok('CREATE EXTERNAL TABLE sales_2026 (region string)'))))
+      );
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
-
       await openTableMenu(user, 'sales_2026');
       await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'View DDL'}));
+      await screen.findByText('Loading DDL for sales_2026…');
+
+      await act(async () => land());
 
       expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toHaveAttribute('aria-selected', 'true');
       expect(screen.queryByText('Loading DDL for sales_2026…')).not.toBeInTheDocument();

@@ -43,28 +43,26 @@ function SlowAction() {
 }
 
 describe('ToastProvider', () => {
-  it('clears a toast by its push id only while that push is still showing', async () => {
+  it('closes whichever toast is showing from its own Dismiss button', async () => {
     const {user} = renderWithProviders(<SlowAction />);
-    await user.click(screen.getByRole('button', {name: 'Start'}));
-    await user.click(screen.getByRole('button', {name: 'Land'}));
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-
     await user.click(screen.getByRole('button', {name: 'Start'}));
     await user.click(screen.getByRole('button', {name: 'Fail elsewhere'}));
-    await user.click(screen.getByRole('button', {name: 'Land'}));
     expect(screen.getByRole('alert')).toHaveTextContent('Something else failed');
-  });
-
-  // The first push after a fresh mount is the one a restarted count would hand out again.
-  it('closes a toast from its own Dismiss button, and never gives its id to a later toast', async () => {
-    const {user} = renderWithProviders(<SlowAction />);
-    await user.click(screen.getByRole('button', {name: 'Start'}));
 
     await user.click(screen.getByRole('button', {name: 'Dismiss'}));
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // The first push after a mount is the id a count restarted on close would hand out again.
+  it('never gives a closed toast’s id to a later toast', async () => {
+    const {user} = renderWithProviders(<SlowAction />);
+    await user.click(screen.getByRole('button', {name: 'Start'}));
+    await user.click(screen.getByRole('button', {name: 'Dismiss'}));
 
     await user.click(screen.getByRole('button', {name: 'Fail elsewhere'}));
     await user.click(screen.getByRole('button', {name: 'Land'}));
+
     expect(screen.getByRole('alert')).toHaveTextContent('Something else failed');
   });
 

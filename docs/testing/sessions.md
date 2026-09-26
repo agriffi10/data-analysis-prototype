@@ -23,14 +23,15 @@ cookie. Width 1512.
 
 **Instruments.** `document.visibilityState` overridden to `visible` (the window was hidden). SQL was
 typed into Monaco and read back from the tab's persisted state before each run. Buttons and menu
-items were pressed with `element.click()`. The three editor runs each wrote an entry to
-**agriffith**'s query history.
+items were pressed with `element.click()`. The two double-quoted editor runs each wrote an entry
+to **agriffith**'s query history; the backticked one was refused at start and wrote none.
 
 **Results.**
 - In the editor, `SHOW CREATE VIEW agriffith."single_employee"` returned the view's DDL, five rows
   under a `create view` column. `SHOW CREATE VIEW "agriffith"."single_employee"` returned the same.
   ``SHOW CREATE VIEW agriffith.`single_employee` `` was refused at start with *"There’s a syntax
-  error in your query."* So `SHOW CREATE VIEW` is Trino's, and takes double quotes on both parts.
+  error in your query."* The status bar kept the previous run's verdict, which only a start that
+  fails leaves; a statement that started and failed would have shown its own. So `SHOW CREATE VIEW` is Trino's, and takes double quotes on both parts.
 - Table-row menu → View DDL on the table `employees` opened *DDL: employees*, selected, holding its
   `CREATE EXTERNAL TABLE`. On the view `single_employee` it opened *DDL: single_employee*, selected,
   holding its `CREATE VIEW`. No toast was showing after either, so the loading notice had cleared.

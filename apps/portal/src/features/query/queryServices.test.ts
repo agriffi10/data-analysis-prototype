@@ -207,8 +207,8 @@ describe('queryHistory.service', () => {
 
   describe('a batch crossing from one statement to the next', () => {
     // The batch finalises statement 1 without waiting and appends statement 2 at once. Here the
-    // update's read is held until the append has started, which is the order that lost an entry.
-    it('keeps both entries, each finalised, when the update lands after the next append starts', async () => {
+    // update's read is held until the append has been called, the order that lost an entry.
+    it('keeps both entries, each finalised, when the next append is called before the update’s read returns', async () => {
       const fake = fakeBucket(JSON.stringify({version: 1, entries: [entry('q1')]} as QueryHistory));
       const answer = fake.send.getMockImplementation()!;
       let release = () => {};
