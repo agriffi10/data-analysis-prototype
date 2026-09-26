@@ -78,19 +78,25 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
             These columns aren&rsquo;t in the first file in the table&rsquo;s folder, so refreshing would remove them
             from the table:
           </p>
-          <ul
+          {/* A scrolling list must be reachable by keyboard, or the columns past its fold
+              cannot be read before confirming a removal. */}
+          <div
+            role="region"
             aria-label="Columns that would be removed"
-            className="mt-2 max-h-32 overflow-y-auto rounded-md bg-surface px-2.5 py-1.5">
-            {/* Keyed by position: a hand-edited URL can repeat a name, and the list
-                is display-only. */}
-            {pending.columns.map((column, i) => (
-              <li
-                key={`${i}-${column}`}
-                className="break-all py-0.5 font-mono text-sm text-text">
-                {column}
-              </li>
-            ))}
-          </ul>
+            tabIndex={0}
+            className="mt-2 max-h-32 overflow-y-auto rounded-md bg-surface px-2.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <ul aria-label="Columns that would be removed">
+              {/* Keyed by position: a hand-edited URL can repeat a name, and the list
+                  is display-only. */}
+              {pending.columns.map((column, i) => (
+                <li
+                  key={`${i}-${column}`}
+                  className="break-all py-0.5 font-mono text-sm text-text">
+                  {column}
+                </li>
+              ))}
+            </ul>
+          </div>
           <p className="mt-2 text-sm leading-relaxed text-text-2">
             To keep them, cancel, add them to the first file in the table&rsquo;s folder — in a CSV, in the same
             position they have in the table — and refresh again.

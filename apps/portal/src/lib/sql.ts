@@ -214,6 +214,16 @@ const BARE_IDENTIFIER_RE = /^[a-z_][a-z0-9_]*$/;
  * @returns The part unchanged, or double-quoted through {@link sqlIdentifier}.
  */
 export function quoteIdentifierIfNeeded(part: string): string {
-  if (BARE_IDENTIFIER_RE.test(part) && !ATHENA_RESERVED_KEYWORDS.has(part.toUpperCase())) return part;
-  return sqlIdentifier(part);
+  return identifierNeedsQuoting(part) ? sqlIdentifier(part) : part;
+}
+
+/**
+ * Whether an identifier part parses only when quoted: an uppercase or otherwise non-bare name,
+ * or a reserved word. The quote character is the caller's, because it depends on the dialect.
+ *
+ * @param part - One identifier part, unquoted.
+ * @returns True when the part must be quoted to name what it says.
+ */
+export function identifierNeedsQuoting(part: string): boolean {
+  return !BARE_IDENTIFIER_RE.test(part) || ATHENA_RESERVED_KEYWORDS.has(part.toUpperCase());
 }

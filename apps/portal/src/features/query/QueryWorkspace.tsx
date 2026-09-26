@@ -706,6 +706,8 @@ export function QueryWorkspace() {
                     }>
                     <SqlEditor
                       ref={editorRef}
+                      tabId={activeTab.id}
+                      tabIds={tabs.tabs.map((t) => t.id)}
                       value={activeTab.sql}
                       onChange={tabs.setActiveSql}
                       onRun={handleRunStatement}

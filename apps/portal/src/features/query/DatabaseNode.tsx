@@ -295,14 +295,16 @@ export function DatabaseNode({
       );
     } else if (isError) {
       // getDatabase NotFound = the per-user DB isn't provisioned yet (the post-confirmation Lambda creates it
-      // backfill window) — present it as "setting up", not an error.
-      const message = (error as Error)?.message ?? '';
-      body = /does not exist/i.test(message) ? (
+      // backfill window) — present it as "setting up", not an error. The API's failure carries only its
+      // code; the message is empty by design. Personal only: a shared space's database exists before
+      // anyone is a member, so a missing one is a fault, and "right after sign-up" would be untrue.
+      const notProvisioned = connection.kind === 'personal' && (error as {code?: unknown} | null)?.code === 'NotFound';
+      body = notProvisioned ? (
         <p
           role="status"
           className="px-3 py-2 text-sm leading-relaxed text-text-3">
-          Setting up your database&hellip; This is automatic right after sign-up. If it persists, contact an
-          administrator.
+          Setting up your database&hellip; This is automatic right after sign-up. If it persists, contact the
+          Administrator.
         </p>
       ) : (
         <p

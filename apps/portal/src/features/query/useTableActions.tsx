@@ -5,6 +5,7 @@ import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';
 import {toUserText} from '../../lib/errorMessages';
 import {splitSqlStatements} from './query.sql';
+import {quoteIdentifierIfNeeded} from '../../lib/sql';
 import {SchemaTree, type TableActions} from './SchemaBrowser';
 import {useProvideNavRail} from '../../components/navRailContext';
 import type {ToastApi} from '../../components/toastContext';
@@ -142,7 +143,8 @@ export function useTableActions({
     // + auto-run — the results pager (at the user's page size) walks the whole
     // table; the workgroup bytes-scanned cutoff is the cost guard.
     onViewData: (database: string, table: GlueTableSummary) => {
-      const sql = `SELECT * FROM ${database}.${table.name}`;
+      // Quoted only where needed, so an ordinary name reads in the tab as the user would type it.
+      const sql = `SELECT * FROM ${quoteIdentifierIfNeeded(database)}.${quoteIdentifierIfNeeded(table.name)}`;
       // on a phone the run goes to the mobile results view; opening a
       // tab there would run a query with nothing able to display it.
       if (isMobile) {

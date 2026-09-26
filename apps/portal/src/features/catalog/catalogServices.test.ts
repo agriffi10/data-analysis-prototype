@@ -356,11 +356,25 @@ describe('the catalog services over the API', () => {
         success: true,
         data: 'CREATE EXTERNAL TABLE db.t (\n  id int\n)'
       });
+      // Ordinary names go bare, exactly as before; only a name that needs quoting is quoted.
       expect(api.bodyFor('athena.start')).toEqual({
         sql: 'SHOW CREATE TABLE db.t',
         database: 'db'
       });
       expect(api.queryFor('athena.results')).toEqual({maxRows: '999'});
+    });
+
+    it('quotes a table named with a reserved word, which bare is a parse error', async () => {
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('SUCCEEDED')});
+      api.on('athena.results', {
+        success: true,
+        data: {columns: [{name: 'createtab_stmt', type: 'varchar'}], rows: [['CREATE TABLE']], nextToken: null}
+      });
+
+      await getTableDdl({database: 'alice', table: 'order', username: 'alice'});
+
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE TABLE alice.`order`', database: 'alice'});
     });
 
     it('runs SHOW CREATE VIEW for a view', async () => {

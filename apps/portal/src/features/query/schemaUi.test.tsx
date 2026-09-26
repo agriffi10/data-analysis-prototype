@@ -236,12 +236,32 @@ describe('DatabaseNode', () => {
     });
 
     it('renders a per-node "setting up" state on a NotFound error', async () => {
-      mock.getDatabase.mockResolvedValue({
-        success: false,
-        error: {message: 'Database "alice" does not exist yet.', code: 'NotFound'}
-      });
+      // The shape getDatabase actually returns: the API's failures carry a code and no message.
+      mock.getDatabase.mockResolvedValue({success: false, error: {message: '', code: 'NotFound'}});
+
       renderNode();
+
       expect(await screen.findByText(/Setting up your database/)).toBeInTheDocument();
+      expect(screen.queryByText(/Couldn.t load this schema/)).not.toBeInTheDocument();
+    });
+
+    it('reports a shared space’s missing database as a failure, not as setting up', async () => {
+      // A shared space's database exists before anyone joins it; "right after sign-up" would be untrue.
+      mock.getDatabase.mockResolvedValue({success: false, error: {message: '', code: 'NotFound'}});
+
+      renderNode({
+        connection: {
+          id: 's1',
+          label: 'Project Alpha',
+          database: 'project_alpha',
+          kind: 'shared',
+          status: 'active',
+          role: 'member'
+        }
+      });
+
+      expect(await screen.findByText(/Couldn.t load this schema/)).toBeInTheDocument();
+      expect(screen.queryByText(/Setting up your database/)).not.toBeInTheDocument();
     });
 
     // SPEC-086: per-database Refresh re-reads only this node's schema.

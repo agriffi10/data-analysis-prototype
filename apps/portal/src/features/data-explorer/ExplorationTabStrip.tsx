@@ -66,6 +66,9 @@ export function ExplorationTabStrip({
       return;
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
+      // A held key's repeats are ignored: focus moves to the next tab after a close, so each
+      // repeat would close another, and an exploration closes without asking.
+      if (e.repeat) return;
       refocusAfterClose.current = true;
       onClose(tabs[index].id);
       return;

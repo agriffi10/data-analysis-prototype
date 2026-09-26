@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
@@ -302,6 +303,51 @@ describe('QueryWorkspace', () => {
       const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
       await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
       expect(screen.queryByRole('tab', {name: /Query 3/})).not.toBeInTheDocument();
+    });
+
+    // Focus moves to the next tab after a close, so a held Delete's repeats would close tab after tab.
+    it('closes one tab for one held Delete', async () => {
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: ''},
+          {id: 'b', label: 'Query 2', sql: ''},
+          {id: 'c', label: 'Query 3', sql: ''},
+          {id: 'd', label: 'Query 4', sql: ''}
+        ],
+        activeTabId: 'd',
+        nextQueryNumber: 5
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      screen.getByRole('tab', {name: /Query 4/}).focus();
+
+      await user.keyboard('{Delete>6/}');
+
+      expect(screen.getAllByRole('tab')).toHaveLength(3);
+    });
+
+    // The dialog hands focus back to what opened it, and that is the tab it just removed.
+    it('puts focus on the tab that becomes active when Delete closes the focused one', async () => {
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT bye;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await waitFor(() => expect(screen.getByRole('tab', {name: /Query 1/})).toHaveFocus());
+      expect(screen.getByRole('tab', {name: /Query 1/})).toHaveAttribute('aria-selected', 'true');
     });
 
     it('shows the tab-limit dialog at the cap and opens no further tab', async () => {
@@ -722,6 +768,19 @@ describe('QueryWorkspace', () => {
       expect(mockRunQuery.mock.calls.at(-1)?.[0].sql).not.toMatch(/limit/i);
     });
 
+    // The table builder accepts a reserved word as a name, and bare it is a keyword, not a table.
+    it('View data quotes a table named with a reserved word, and only that part', async () => {
+      vi.mocked(listTables).mockResolvedValue(ok([{...salesTable, name: 'order'}]));
+      const {user} = renderWorkspace();
+
+      await openTableMenu(user, 'order');
+      await user.click(await screen.findByRole('menuitem', {name: 'View data'}));
+
+      await waitFor(() =>
+        expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT * FROM alice."order"'}))
+      );
+    });
+
     it('Drop table confirms, runs DROP TABLE in the background (history + toast); a failure shows an error toast', async () => {
       const {user} = renderWorkspace();
 
@@ -939,6 +998,119 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText(/Statement 2 of 2 failed\. The service is busy/)).toBeInTheDocument();
       expect(screen.getByText('Failed')).toBeInTheDocument();
       expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    });
+
+    // While the next statement's history entry is being written, the run still names the statement
+    // before it — so a Stop there cancelled a finished query and the started one ran on, billed.
+    it('cancels the next statement when Stop lands while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-2'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend
+        .mockResolvedValueOnce(ok({version: 1, entries: []}))
+        .mockReturnValueOnce(new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []})))));
+      seedScript('SELECT 1; SELECT 2;');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-2'}))
+      );
+      await user.click(screen.getByRole('button', {name: 'Stop the running query'}));
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-2'));
+      expect(mockStopQuery.mock.calls).toEqual([['q-1'], ['q-2']]);
+    });
+
+    // Closing the tab drops its run, so nothing would ever watch — or stop — the statement that
+    // had just started: it ran to the end, billed, for a tab that no longer exists.
+    it('cancels the next statement when its tab is closed while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-2'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend
+        .mockResolvedValueOnce(ok({version: 1, entries: []}))
+        .mockReturnValueOnce(new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []})))));
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT 1; SELECT 2;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-2'}))
+      );
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-2'));
+      expect(mockStopQuery.mock.calls).toEqual([['q-2']]);
+    });
+
+    // Run and Stop are one control, so focus stays on it across the swap — and so a held Enter's
+    // repeats land on Stop, which would cancel the query that same keypress started.
+    it('keeps focus on the run control as it becomes Stop, and a held Enter does not stop the run', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      seedScript('SELECT 1;');
+      renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      screen.getByRole('button', {name: 'Run statement'}).focus();
+      // Spaced like a real auto-repeat, so the repeats straddle the moment Run becomes Stop.
+      const held = userEvent.setup({delay: 5});
+
+      await held.keyboard('{Enter>12/}');
+
+      expect(await screen.findByRole('button', {name: 'Stop the running query'})).toHaveFocus();
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
+      expect(mockStopQuery).not.toHaveBeenCalled();
+    });
+
+    // The first statement is recorded before its run exists, so there is no run for the close to
+    // drop yet: installed afterwards, it would carry the whole batch on for a tab nobody can see.
+    it('cancels the first statement, and starts no other, when its tab is closed while it is being recorded', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      let landAppend = () => {};
+      mockAppend.mockReturnValueOnce(
+        new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []}))))
+      );
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT keep;'},
+          {id: 'b', label: 'Query 2', sql: 'SELECT 1; SELECT 2;'}
+        ],
+        activeTabId: 'b',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptSingle(user);
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-1'}))
+      );
+      screen.getByRole('tab', {name: /Query 2/}).focus();
+      await user.keyboard('{Delete}');
+      const dialog = await screen.findByRole('alertdialog', {name: /confirm close tab/i});
+      await user.click(within(dialog).getByRole('button', {name: 'Close tab'}));
+
+      await act(async () => landAppend());
+
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-1'));
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
     });
 
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
@@ -1869,6 +2041,43 @@ describe('QueryWorkspace', () => {
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
       await screen.findByText('Succeeded');
     }
+
+    it('says the results could not be read, rather than that the query returned no rows', async () => {
+      mockGetResults.mockResolvedValue(fail('raw: results read refused for alice', 'NetworkError'));
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+
+      await runOnce(user);
+
+      expect(
+        await screen.findByText('Can’t reach the server. Check your connection and try again.')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
+      expect(screen.queryByText(/results read refused/)).not.toBeInTheDocument();
+    });
+
+    // A failed RE-read keeps the page it already has, so an empty result that loaded is still
+    // an empty result — only a read that never loaded anything stands in for the answer. A DDL
+    // statement's result is the hard case: it has no columns either.
+    it('still says a loaded empty result returned no rows when a later re-read fails', async () => {
+      mockGetResults.mockResolvedValue(ok({columns: [], rows: []}));
+      seedSingle('SELECT 1');
+      const {user, queryClient} = renderWorkspace();
+      await runOnce(user);
+      await screen.findByText('No rows returned.');
+      mockGetResults.mockResolvedValue(fail('raw: results read refused for alice', 'NetworkError'));
+
+      await act(async () => {
+        await queryClient.refetchQueries({predicate: (q) => q.queryKey.includes('results')});
+        // TanStack notifies observers on a later tick; the page must have re-rendered on the error.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(screen.getByText('No rows returned.')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Can’t reach the server. Check your connection and try again.')
+      ).not.toBeInTheDocument();
+    });
 
     it('fetches page 2 with the NextToken and renders it', async () => {
       seedTwoPages();

@@ -19,7 +19,7 @@ import {invalidateSchema} from '../catalog/useSchema';
 const owed = new Map<string, {database: string; table: string}>();
 
 /**
- * Records that a table build was enqueued, so its catalog is re-read when the answer is wanted.
+ * Records that a table build or refresh was enqueued, so its catalog is re-read when the answer is wanted.
  *
  * **THE ENQUEUE IS NOT THE EVENT.** The browser puts a request on a queue and the table appears
  * later, announced by a notification nothing in the tab hears. So every cache keyed on that
@@ -34,8 +34,8 @@ const owed = new Map<string, {database: string; table: string}>();
  * every other exploration of that database, which for a mounted one is a billed execution for
  * rows a brand-new table cannot have changed.
  *
- * @param database - The database the build targets.
- * @param table - The table name the build was asked for.
+ * @param database - The database the build or refresh targets.
+ * @param table - The table name the build or refresh was asked for.
  * @returns Nothing.
  */
 export function armCatalogCatchUp(database: string, table: string): void {

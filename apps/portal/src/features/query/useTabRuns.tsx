@@ -124,6 +124,24 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
+  // The submit each tab has in flight, by a token of its own. A close drops a tab's run at once,
+  // but a submit still recording its first statement has no run yet to drop — so the close
+  // drops the token, and the submit, finding its token gone, knows the tab is. A token and not
+  // the id: a tab id can come round again, and a set of closed ids would outlive the tab.
+  const submitTokensRef = useRef(new Map<string, object>());
+
+  // Sends a cancel and says so when it is refused: the statement then settles on its own verdict,
+  // which would otherwise look like a Stop that worked.
+  const cancelExecution = useCallback(
+    (executionId: string) => {
+      void stopQuery(executionId).then((result) => {
+        if (!result.success) {
+          toast.push({variant: 'danger', message: `Couldn’t stop the query. ${toUserText(result.error)}`});
+        }
+      });
+    },
+    [toast]
+  );
 
   // Stable callbacks for the per-tab pollers.
   const handleStatus = useCallback((tabId: string, status: QueryStatus | undefined) => {
@@ -219,7 +237,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         // entry would never finalize).
         const latest = runsRef.current[tabId];
         if (!latest || latest.halted || latest.executionId !== executionId) {
-          void stopQuery(nextId);
+          cancelExecution(nextId);
           patchRun((cur) => ({...cur, done: true}));
           return;
         }
@@ -238,15 +256,27 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             savedQueryName: run.savedQuery.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
+        // The same check as before the append, because the append is a round trip too: a tab
+        // closed or a run replaced meanwhile leaves nothing to install this statement into, and
+        // uninstalled it would run to the end with nothing watching or able to stop it.
+        if (runsRef.current[tabId]?.executionId !== executionId) {
+          cancelExecution(nextId);
+          return;
+        }
         patchRun((cur) => ({
           ...cur,
           executionId: nextId,
           currentIndex: cur.currentIndex + 1,
           submittedSql: next.sql
         }));
+        // A Stop pressed while the entry was being recorded cancelled the statement before this
+        // one, which had already finished. The run carries the halt, so the poller records the
+        // cancel and the batch ends there.
+        const installed = runsRef.current[tabId];
+        if (installed?.executionId === nextId && installed.halted) cancelExecution(nextId);
       })();
     },
-    [updateEntry, queryClient, username, appendEntry, updateRuns]
+    [updateEntry, queryClient, username, appendEntry, updateRuns, cancelExecution]
   );
 
   // The statement's status could not be read, so the batch ends there, as it would on
@@ -311,6 +341,8 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     const existing = runsRef.current[tabId];
     if (existing && !existing.done) return false;
     submittingTabsRef.current.add(tabId);
+    const submitToken = {};
+    submitTokensRef.current.set(tabId, submitToken);
 
     // a run from a tab linked to a saved query records that query in
     // history. Read off the TAB at submit time — the whole link lives there, so
@@ -360,6 +392,12 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             savedQueryName: linkedSaved.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
+        // Closed while the entry was being recorded: installing the run now would mount a poller
+        // and carry the batch on, statement by statement, for a tab nobody can see or stop.
+        if (submitTokensRef.current.get(tabId) !== submitToken) {
+          cancelExecution(id);
+          return;
+        }
         updateRuns((r) => ({
           ...r,
           [tabId]: {
@@ -390,6 +428,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         // Hand off to the state-based guard: once `runs[tabId]` commits (success) or
         // the run errored (retryable), the ref no longer needs to block.
         submittingTabsRef.current.delete(tabId);
+        if (submitTokensRef.current.get(tabId) === submitToken) submitTokensRef.current.delete(tabId);
       }
     })();
     return true;
@@ -408,16 +447,13 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       if (!cur || cur.done) return r;
       return {...r, [activeTabId]: {...cur, halted: true}};
     });
-    void stopQuery(run.executionId).then((result) => {
-      if (!result.success) {
-        toast.push({variant: 'danger', message: `Couldn’t stop the query. ${toUserText(result.error)}`});
-      }
-    });
+    cancelExecution(run.executionId);
   };
 
   // Drop the closed tab's in-memory run state (its execution keeps running
   // server-side; history is the durable record).
   const dropRunState = (id: string) => {
+    submitTokensRef.current.delete(id);
     const without = <T,>(m: Record<string, T>) => {
       const next = {...m};
       delete next[id];

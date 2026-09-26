@@ -31,6 +31,11 @@ export type UseQueryResultsResult = {
   isPending: boolean;
   isFetchingNext: boolean;
   isError: boolean;
+  /**
+   * The read failed before any page loaded — the one error that stands in for the answer. A failed
+   * RE-read keeps the pages it had (an empty result included), and `isError` is true for it too.
+   */
+  isLoadError: boolean;
   /** The raw fetch error (or null); render via `toUserMessage`/`ErrorBanner`. */
   error: unknown;
   goPrev: () => void;
@@ -150,6 +155,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
     isPending: query.isPending,
     isFetchingNext: query.isFetchingNextPage,
     isError: query.isError,
+    isLoadError: query.isLoadingError,
     error: query.error ?? null,
     goPrev,
     goNext: () => {

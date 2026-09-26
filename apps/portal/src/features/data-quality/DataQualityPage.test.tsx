@@ -155,6 +155,8 @@ describe('DataQualityPage', () => {
       const row = (await screen.findAllByRole('listitem'))[0];
       expect(within(row).getByText('Clean')).toBeInTheDocument();
       expect(within(row).getByText('Sampled')).toBeInTheDocument();
+      // The link's name replaces what the row shows, so it must not drop the qualifier either.
+      expect(within(row).getByRole('link')).toHaveAccessibleName(/— clean, sampled$/);
     });
 
     it('omits the sampled chip when nothing was estimated', async () => {
