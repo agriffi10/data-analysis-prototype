@@ -310,6 +310,18 @@ describe('readSavedQuery (FR-004)', () => {
     expect(result.error.code).toBe('SavedQueryNotFound');
   });
 
+  it('answers a file that is not UTF-8 with how to fix it, naming the file, not the Administrator', async () => {
+    mockSend.mockResolvedValue({success: false, error: {message: '', code: 'InvalidRequest'}});
+
+    const result = await readSavedQuery({bucket: 'user-space', key: 'alice/saved_queries/Q1 revenue.sql'});
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(toUserText(result.error)).toBe(
+      '“Q1 revenue” isn’t saved as UTF-8 text, so it can’t be opened here. Download it from its space’s saved_queries folder in Files, save it as UTF-8, and upload it again.'
+    );
+  });
+
   it('answers a query too large to read with its own code, not the one that asks for less', async () => {
     mockSend.mockResolvedValue({
       success: false,

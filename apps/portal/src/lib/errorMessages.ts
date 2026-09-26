@@ -162,6 +162,10 @@ const CODE_RULES: readonly ErrorRule[] = [
   // twenty-five queries needs to know which one vanished, not that "that item" did.
   {code: 'SavedQueryNotFound', userFixable: true, passthrough: true},
 
+  // Trigger: a saved query's bytes are not UTF-8, which the content route refuses rather than
+  // guessing at. Passthrough because the sentence names the file; the user re-saves it as UTF-8.
+  {code: 'SavedQueryNotText', userFixable: true, passthrough: true},
+
   // Trigger: the API refused to READ a stored document as too large — over the document cap, or
   // too large to send back once escaped. The document reader re-codes the API's `PayloadTooLarge`
   // as this, because that code's sentence asks for less in a request, and a person opening their
