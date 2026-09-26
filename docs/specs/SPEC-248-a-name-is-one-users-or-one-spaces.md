@@ -296,14 +296,20 @@ prefix.
 
 #### Description:
 
-The marker key moves to `cpcommon.config` and is declared there once. The audit's `teardown` and
-`create_space`, and `post_confirmation`, all read it from there.
+The marker key moves to a new `cpcommon.markers` module, and is declared there once. The audit's
+`teardown` and `create_space`, and `post_confirmation`, all read it from there. The module holds
+constants only: it imports nothing and reads no environment.
 
-Reading it is safe for post-confirmation, which sets none of the environment variables `config`
-governs. `config` reads the environment only when a variable it governs is accessed, and
-`DATABASE_MARKER_KEY` is a plain constant. Post-confirmation's entry in the import-safety allowlist
-widens from `observability` to `observability` and `config`, with that reason written beside it. The
-subprocess import probe is what proves it.
+**Why not `cpcommon.config`.** Post-confirmation sets none of the environment variables `config`
+governs, and the singleton import-safety guard has two halves:
+- The AST half checks which `cpcommon` **modules** a singleton names, not which attributes it
+  reads. Allowlisting `config` would let a later `config.ADMIN_BUCKET` on some branch through,
+  which is the exact failure the guard's docstring describes. It would do so for `backfill.py`
+  too, since the guard globs the whole directory.
+- The subprocess half runs only the import, and cannot see a deferred read.
+
+So post-confirmation's allowlist widens from `observability` to `observability` and `markers`, with
+that reason written beside it, and `config` stays forbidden.
 
 When `provision_user` meets `AlreadyExistsException`, it reads the database before granting or
 tagging anything. What it does next depends on what it finds:
@@ -317,22 +323,29 @@ tagging anything. What it does next depends on what it finds:
 - **Unreadable.** It grants nothing and tags nothing, and fails closed for the same reason.
   - In the trigger it also disables the user, and records reason `database-unreadable`.
   - In the backfill it exits non-zero for that user.
-  - A legitimate user reaches this branch only if a Cognito retry of their own confirmation fails
-    the read as well. An operator re-enables them after checking the database. That rare double
-    fault is the accepted cost of not guessing.
+  - A legitimate user reaches this branch only through a Cognito retry of their own confirmation
+    whose read also fails. The retry exists because the first attempt was slow, so the two faults
+    are **correlated**, not independent: a Glue slowdown during sign-up will disable some
+    legitimate new users. An operator re-enables each one after checking the database. That is the
+    accepted cost of failing closed, in an account with few sign-ups.
 - **Unmarked.** It carries on exactly as today. This is either an earlier attempt of the same
   confirmation (Cognito retries triggers) or, in the backfill, a user database that predates the
   marker. Once FR-002 is live it refuses any database that exists at sign-up. Pool usernames are
   unique, so between sign-up and confirmation the only thing that can create a database under this
   name is a space create, and a space create marks what it makes.
 
-If `AdminDisableUser` fails, it is retried once. If it fails again, the record's reason is
-`collision-uncontained`, at error level, and the trigger still returns the event. FR-006 lists (a),
-(b) and (f) will then name the user.
+The collision record (`username-is-a-space` or `database-unreadable`) is written **before** the
+first `AdminDisableUser` call. So a function timeout part-way through containment still leaves the
+collision on record, and a Cognito retry of the trigger re-enters the same branch and tries again.
+If `AdminDisableUser` fails, it is retried once. If it fails again, a second record with reason
+`collision-uncontained`, at error level, follows, and the trigger still returns the event. FR-006
+lists (a), (b) and (f) will then name the user.
 
-The Cognito client is built with `boto3` directly, and the pool id comes from the trigger event.
-Post-confirmation's timeout rises from 3 to 5 seconds, since the path now makes up to two more
-calls. The role gains `cognito-idp:AdminDisableUser` on the pool.
+The Glue, Lake Formation and Cognito clients are built with `boto3` directly, and each allows
+1 second to connect and 1 to read, with one attempt and no retries. Botocore's defaults (60 seconds
+each, with retries) would let one slow call outlast the trigger. The pool id comes from the trigger
+event. Post-confirmation's timeout rises from 3 to 5 seconds. The role gains
+`cognito-idp:AdminDisableUser` on the pool.
 
 #### Acceptance Criteria:
 
@@ -341,16 +354,21 @@ calls. The role gains `cognito-idp:AdminDisableUser` on the pool.
   that username. It records reason `username-is-a-space`, and it returns the event.
 - [ ] Unit: when reading the existing database fails, the trigger makes no grant and no tag, makes
   one `AdminDisableUser`, and records reason `database-unreadable`.
-- [ ] Unit: when `AdminDisableUser` fails twice, the reason recorded is `collision-uncontained`,
-  exactly two disable attempts were made, and the event is returned.
+- [ ] Unit: when `AdminDisableUser` fails twice, exactly two disable attempts were made, a
+  `collision-uncontained` record follows the collision record, and the event is returned.
+- [ ] Unit: the fakes' call order shows the collision record written before the first
+  `AdminDisableUser` call.
+- [ ] Unit: the Glue, Lake Formation and Cognito clients post-confirmation builds carry a 1-second
+  connect limit, a 1-second read limit and a single attempt.
 - [ ] Unit: when the existing database is unmarked, the trigger grants and tags exactly as it does
   today, and disables nobody.
 - [ ] Unit: the backfill exits non-zero for a username whose database is space-marked or unreadable,
   its output names the collision, and another username in the same run is still provisioned.
 - [ ] Unit: `teardown`, `create_space` and `post_confirmation` all resolve the marker key to the
-  one `cpcommon.config` constant, and no module declares a second literal of it.
-- [ ] The singleton import-safety test passes with post-confirmation's widened allowlist, including
-  its subprocess import with no environment set.
+  one `cpcommon.markers` constant, and no module declares a second literal of it.
+- [ ] The singleton import-safety test passes with post-confirmation's allowlist widened to
+  `markers`, including its subprocess import with no environment set, and still fails if
+  post-confirmation names `config`. That last case is planted once and reverted.
 - [ ] Deleting the marker read in `provision_user` turns the first criterion red, and the deletion
   is then reverted.
 
@@ -374,8 +392,17 @@ inside the guard whose failure path records a failed create.
 Why after the reservation: the state machine retries the create verb (`MaxAttempts` 3). A retry
 that found a new user and refused **before** reserving would go through the reserve-collision
 branch, which writes no registry record. The reservation would then stay `provisioning` for good.
-Refusing after it leaves a `failed` record, which the owner can retry or forget, and forgetting it
-drops nothing, because `owns_database` is `None`.
+Refusing after it leaves a `failed` record, which the owner can retry or forget. Forgetting it
+drops a database only if an earlier attempt of the same create already made and marked one, and that
+database is the space's own.
+
+**The teardown revokes only on a database that is the space's own.** The audit's
+`revoke_portal_role` stops when `owns_database` is `False`, but carries on when it is `None`, meaning
+there is no database. A refused create for `x` leaves no database, and forgetting it while an
+unconfirmed user `x` confirms would race post-confirmation and could revoke the portal-role grant it
+had just made on `x`'s new database. That costs `x` availability, not access. The condition becomes
+"stop unless `owns_database` is `True`". A missing database has no grants of this space's to
+revoke.
 
 An unconfirmed sign-up holds a name against spaces just as it already holds it against other
 sign-ups. That is accepted.
@@ -398,6 +425,8 @@ the user ever signs in, so the audit's marker check is what covers the forward d
 - [ ] Unit: an `AdminGetUser` fault other than `UserNotFoundException` fails the create as a
   retryable fault, and makes no slot write and no Glue call.
 - [ ] Unit: a name with no pool user goes on to provision as it does today.
+- [ ] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
+  and none when it is `False`. It revokes both grants when it is `True`.
 
 ### FR-005: The creator holds no slot until the database is the space's own
 
@@ -436,7 +465,11 @@ reads the registry, lists and reads pool users, and lists and reads Glue databas
 `lakeformation:ListLakeFormationOptIns`. A `workflow_dispatch` workflow shaped like
 `backfill-ever-active.yml` invokes it. It writes nothing, and it reports these lists:
 
-- **(a) Usernames equal to the name of a space in the registry**, in any status.
+- **(a) Usernames equal to the name of a real space.** A real space is a registry record that is
+  active, or ever-active, or whose database `owns_database` says is its own. A refused
+  reservation, meaning a `failed` record that was never active and owns no database, is what
+  FR-004 leaves behind on every refusal, so it is not a collision.
+- **(a′) Refused reservations whose name is a username.** For information only.
 - **(b) Users whose personal database carries a space's marker.**
 - **(c) Slots no registry record backs.** That is, every non-empty `custom:shared_space_k` that is
   not backed by a registry record whose roster includes that user. This covers a slot naming a
@@ -454,7 +487,7 @@ reads the registry, lists and reads pool users, and lists and reads Glue databas
   (f) reached data as well.
 
 The workflow fails when (a), (b), (c) or (f) has entries, or when any read failed. A read failure is
-never reported as an empty list. Lists (d), (e) and (g) on their own pass.
+never reported as an empty list. Lists (a′), (d), (e) and (g) on their own pass.
 
 The report runs under the orchestrator role, which can write. So "writes nothing" rests on the unit
 test below and on review. A dedicated read-only role for a one-shot report was weighed and not
@@ -477,6 +510,8 @@ built.
 
 - [ ] Unit, with fakes: each of (a) to (f) lists exactly the planted entries, and each has a case
   with nothing planted that produces an empty list.
+- [ ] Unit: a refused reservation whose name is a username (a `failed`, never-active record with no
+  owned database) appears in (a′) and not in (a), and on its own the run passes.
 - [ ] Unit: (c) lists a slot naming a space that does not exist, and a slot naming a deleted space.
   It does not list a slot backed by a roster that includes the user.
 - [ ] Unit: a failed registry, pool, Glue or Lake Formation read makes the run fail and names the
@@ -484,8 +519,8 @@ built.
 - [ ] Unit: the function makes no write call to S3, Cognito, Glue or Lake Formation. The fakes
   record every call and the test asserts that none was a write.
 - [ ] The workflow's exit status is non-zero when any of (a), (b), (c) or (f) has entries, and zero
-  when only (d), (e) or (g) do. A test over the function's result asserts both cases.
-- [ ] The report is run once against the deployed account. The counts of all seven lists are
+  when only (a′), (d), (e) or (g) do. A test over the function's result asserts both cases.
+- [ ] The report is run once against the deployed account. The count of every list is
   recorded in the delivery doc, along with the opt-ins in (g). Any entry in (a), (b), (c) or (f)
   is handled by hand and recorded there before this spec closes.
 
@@ -494,7 +529,7 @@ built.
 ## Data Model
 
 ```python
-# lambdas/control-plane-common/cpcommon/config.py
+# lambdas/control-plane-common/cpcommon/markers.py  (new; constants only, no imports, no env)
 DATABASE_MARKER_KEY: str = "dataquarry.shared-space"  # moved here; one declaration
 
 # lambdas/post-confirmation/post_confirmation.py
@@ -507,6 +542,7 @@ class ExistingDatabase(enum.Enum):
 # shared-space name-collision report result
 class CollisionReport(TypedDict):
     usernames_that_are_spaces: list[str]             # (a) fails the run
+    refused_reservations_named_for_users: list[str]  # (a') informational
     user_databases_marked_as_spaces: list[str]       # (b) fails the run
     unbacked_slots: list[dict[str, str]]             # (c) {"username", "slot", "value"}; fails
     unmarked_space_databases: list[str]              # (d) informational
@@ -543,11 +579,11 @@ infra/modules/auth/
     └── post-confirmation-permissions.json.tftpl  # FR-003 cognito-idp:AdminDisableUser
 infra/modules/shared-spaces/                      # FR-006 one-shot function; ListLakeFormationOptIns
 lambdas/
-├── control-plane-common/cpcommon/config.py       # FR-003 marker key, one declaration
+├── control-plane-common/cpcommon/markers.py      # FR-003 marker key, one declaration (new)
 ├── control-plane-common/test_layer_import_safety.py   # FR-003 post-confirmation allowlist
 ├── pre-signup/pre_signup.py                      # FR-001 custom: refusal, FR-002 Glue read
 ├── post-confirmation/{post_confirmation,backfill}.py   # FR-003
-├── shared-space-common/{config,teardown}.py      # FR-003 read the moved key
+├── shared-space-common/{config,teardown}.py      # FR-003 read the moved key; FR-004 revoke only on own
 ├── shared-space-create/create_space.py           # FR-004, FR-005
 └── shared-space-name-collisions/                 # FR-006 (new, report only)
 .github/workflows/report-name-collisions.yml      # FR-006
@@ -587,7 +623,8 @@ lambdas/
 
 ### Phase 5: The create verb and provisioning (FR-003, FR-004, FR-005)
 
-- Move the marker key into `cpcommon.config`, and widen post-confirmation's import allowlist.
+- Move the marker key into `cpcommon.markers`, and widen post-confirmation's import allowlist to it.
+- Make the teardown revoke only on a database that is the space's own.
 - Put the pool check after the reservation, and the database step in front of the slot.
 - Classify the existing database in `provision_user`, disabling the user in the trigger.
 
