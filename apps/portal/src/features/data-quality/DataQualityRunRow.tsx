@@ -3,7 +3,7 @@ import {Badge} from '../../components/Badge';
 import {StatusPill} from '../../components/StatusPill';
 import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
-import {splitLocation} from './dataQuality.format';
+import {reportPath, splitLocation} from './dataQuality.format';
 import type {DataQualityRunSummary} from './dataQuality.types';
 
 /**
@@ -21,7 +21,7 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
   return (
     <li>
       <Link
-        to={`/data-quality/${space}/${requestId}`}
+        to={reportPath(space, requestId)}
         aria-label={`Data quality check on ${location} — ${clean ? 'clean' : 'issues found'}`}
         className={cx(
           'flex items-start gap-3 rounded-md border border-border bg-surface p-4',

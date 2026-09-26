@@ -1298,10 +1298,13 @@ was just removed, an empty listing where a folder used to be. Taking parents fir
 one-item and many-item cases the same computation. A common prefix is also cut back to its last
 slash: two siblings named `report-a` and `report-b` share `report-`, which names no folder.
 
-**`?space=` is minted FIRST, and that is not cosmetic.** `NotificationRow` gates the shared-space
+~~**`?space=` is minted FIRST, and that is not cosmetic.** `NotificationRow` gates the shared-space
 variant on the literal `?space=`; the other parameter order slips the gate, the route never reads
 the space, resolves the personal one, discards a prefix that does not start with it, and lands the
-user in their own files with no banner while the message names a shared space.
+user in their own files with no banner while the message names a shared space.~~ **— superseded
+2026-09-25 by the derived link gate (`browser.md`, *A link is gated by its destination's flags*):**
+the row now parses the link, so parameter order no longer decides whether the gate sees the space.
+The failure described is still what an ungated space link does; `?space=` still comes first.
 
 **This is the fleet's first link built from an arbitrary KEY**, so the prefix is **percent-encoded**
 at mint — every other plane interpolates catalog-constrained names. An unencoded `?`, `#` or `&`

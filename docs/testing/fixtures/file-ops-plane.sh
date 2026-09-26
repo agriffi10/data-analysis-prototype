@@ -420,12 +420,13 @@ echo "   without it a re-submit built from this notification cannot name where t
 echo
 echo "== 19. A shared-space destination puts ?space= in the link, FIRST =="
 echo "   NEEDS SHARED_SPACE. DO: copy a file from your personal space into the shared one."
-echo "   EXPECT: the notification's link is /files?space=<name>&prefix=<name>/... — space BEFORE"
-echo "   prefix. Click it: you land in the SHARED space, with its name in the header."
+echo "   EXPECT: the notification's link is /files?space=<name>&prefix=<name>/... — space first,"
+echo "   as every plane's link puts it. Click it: you land in the SHARED space, with its name in"
+echo "   the header."
 echo "   FAIL, and it is a silent one: landing in your OWN files with no banner. That is what a"
-echo "   link with the prefix first does — the row's feature gate reads the literal \"?space=\", so"
-echo "   the other order slips the gate, the route never reads the space, and it then discards a"
-echo "   prefix that does not start with your personal root."
+echo "   link that does not name the space does — the route resolves the personal space and then"
+echo "   discards a prefix that does not start with your personal root. (The order of the two"
+echo "   parameters no longer matters to the row's feature gate, which parses the link.)"
 
 echo
 echo "== 20. A DELETE links to the folder its items shared, not to what was deleted =="

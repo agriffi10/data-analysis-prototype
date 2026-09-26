@@ -3,6 +3,7 @@ import {useNavigate} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {copyObject, objectExists} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';
+import {useCanFollowLink} from '../feature-flags';
 import {parseS3Url} from '../../lib/s3Url';
 import {spaceFor} from '../../lib/objectSpace';
 import {toUserText} from '../../lib/errorMessages';
@@ -167,6 +168,7 @@ export function useSaveResults({
 }: Params): UseSaveResultsResult {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const canFollow = useCanFollowLink();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [overwritePrompt, setOverwritePrompt] = useState<OverwritePrompt | null>(null);
@@ -223,22 +225,24 @@ export function useSaveResults({
       // save's link would open the user's own files at their root. The id is the one `?space=`
       // takes — 'personal', or the shared-space name — and the prefix picks between spaces that
       // share a bucket. A destination no longer in `spaces` gets no link, because Files would
-      // fall back to the personal space for it too.
+      // fall back to the personal space for it too — and nor does one whose flags are off.
       const destSpace = spaces.find((s) => s.bucket === args.destBucket && args.destPrefix.startsWith(s.rootPrefix));
+      const filesHref = destSpace
+        ? `/files?space=${encodeURIComponent(destSpace.id)}&prefix=${encodeURIComponent(args.destPrefix)}`
+        : undefined;
       toast.push({
         variant: 'success',
         message: `Saved to ${args.destPrefix}${args.filename}`,
-        ...(destSpace && {
-          action: {
-            label: 'View in Files',
-            onClick: () => {
-              toast.dismiss();
-              navigate(
-                `/files?space=${encodeURIComponent(destSpace.id)}&prefix=${encodeURIComponent(args.destPrefix)}`
-              );
+        ...(filesHref &&
+          canFollow(filesHref) && {
+            action: {
+              label: 'View in Files',
+              onClick: () => {
+                toast.dismiss();
+                navigate(filesHref);
+              }
             }
-          }
-        })
+          })
       });
     })();
   };

@@ -5,6 +5,8 @@ export {featureFlagKeys} from './featureFlagKeys';
 export {FEATURE_FLAG_DEFAULTS, FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 export {useFeature} from './useFeature';
 export {useFeatureSet} from './useFeatureSet';
+export {useCanFollowLink} from './useCanFollowLink';
+export {linkFlags} from './linkFlags';
 export type {UseFeatureSetResult} from './useFeatureSet';
 export {FeatureGate} from './FeatureGate';
 export type {FeatureGateProps} from './FeatureGate';

@@ -11,6 +11,7 @@ import {cx} from '../../lib/cx';
 import {formatCount} from '../../lib/format';
 import {useDataQualityReport} from './useDataQualityReport';
 import {useDataQualityCheck} from './useDataQualityCheck';
+import {useCanFollowLink} from '../feature-flags';
 import {
   asSentence,
   dominantTypeLabel,
@@ -762,15 +763,14 @@ export function DataQualityReportPage() {
     await start({space, location: report.location});
   };
 
-  const handleOpenFolder = () => {
-    if (!report || !space) return;
-    // `?space=` takes the CONNECTION id, which is the literal 'personal' for a personal
-    // space — not the username, which is what `:space` in this route is.
-    const spaceParam = space.kind === 'personal' ? 'personal' : spaceName;
-    navigate(
-      `/files?space=${encodeURIComponent(spaceParam)}&prefix=${encodeURIComponent(sourceFolderPrefix(report.location))}`
-    );
-  };
+  // `?space=` takes the CONNECTION id, which is the literal 'personal' for a personal
+  // space — not the username, which is what `:space` in this route is.
+  const folderHref =
+    report && space
+      ? `/files?space=${encodeURIComponent(space.kind === 'personal' ? 'personal' : spaceName)}&prefix=${encodeURIComponent(sourceFolderPrefix(report.location))}`
+      : undefined;
+  // Leaves for the file browser, so it follows the destination's flags.
+  const canOpenFolder = useCanFollowLink()(folderHref ?? '/files');
 
   const actions = report ? (
     <>
@@ -781,11 +781,13 @@ export function DataQualityReportPage() {
         disabledReason={space ? (rerunRefusal(report.location, space.prefix) ?? undefined) : undefined}>
         {isPending ? 'Starting…' : 'Re-run check'}
       </Button>
-      <Button
-        variant="default"
-        onClick={handleOpenFolder}>
-        Open folder
-      </Button>
+      {folderHref && canOpenFolder && (
+        <Button
+          variant="default"
+          onClick={() => navigate(folderHref)}>
+          Open folder
+        </Button>
+      )}
     </>
   ) : undefined;
 

@@ -100,8 +100,8 @@ def test_a_shared_space_link_names_the_space_first(sent):
     )
 
     assert sent[0][2]["link"] == "/files?space=finance&prefix=finance/reports/", (
-        "the row's own feature gate tests for the literal '?space=', so a link with the prefix "
-        "first lands the reader in their personal space while the message names a shared one"
+        "a shared-space link names its space in ?space= and puts it first, as every plane's link does; "
+        "without it the reader lands in their personal space while the message names a shared one"
     )
 
 

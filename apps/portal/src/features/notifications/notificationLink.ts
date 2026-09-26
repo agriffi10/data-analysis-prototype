@@ -57,7 +57,7 @@ export function reviewHref(base: string | undefined, requestId: string): string 
  * because a bucket name is deployment detail a control plane has no business minting into a URL.
  *
  * The presence of `space` is what decides which bucket: the link producer writes it only for a
- * shared destination, which is the same signal the row's own feature gate reads.
+ * shared destination.
  *
  * Returns undefined rather than guessing when the link is not a `/files` one, carries no usable
  * prefix, or names a bucket this deployment has not configured — each of which is a reason to

@@ -172,18 +172,20 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     ends in ``/`` and has no segment that is empty, ``.`` or ``..``; any other prefix is discarded
     and the recipient lands at their space root, a link that looks as if it worked. The route's
     path, its ``?prefix=`` and ``?space=`` parameters, its whole gate and the segment rule
-    ``isNamedPath`` applies, what ``rootPrefix`` is, the literal ``NotificationRow`` gates a space
-    link on, and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated:
+    ``isNamedPath`` applies, what ``rootPrefix`` is, how the row's derived gate reads a ``/files``
+    link's space, and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated:
     pinning only the gate leaves a rename of ``rootPrefix`` green while every link lands at a root.
     The file-ops plane's ``test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why`` reads
     the route's path, its ``?prefix=`` and ``?space=`` parameters, its gate, the segment rule and
     ``rootPrefix`` with the same patterns, so a change to any of them is re-derived for both links.
     Each addressee's space and root come from who they are — ``bob`` is a user and
     ``finance-owner`` receives for the space ``finance`` — never from the link, which would check
-    the link against itself. ``?space=`` must come first, because the row tests for that literal
-    and a space link that slips the shared-workspaces gate lands its owner in their own files. And
-    the prefix must be the inbox the copy writes to, since a link to the space root also survives
-    the route and shows the recipient nothing they were sent.
+    the link against itself. A space link must name its space in ``space``, because the row's gate
+    reads it from there and counts only ``personal`` as the viewer's own; a space link the gate did
+    not see as shared would slip the shared-workspaces gate and land its owner in their own files.
+    ``space`` still comes first, as every plane's link puts it. And the prefix must be the inbox the
+    copy writes to, since a link to the space root also survives the route and shows the recipient
+    nothing they were sent.
     """
     summary = _summary([_ok(), _ok(kind="space", name="finance")])
 
@@ -213,7 +215,13 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
     assert "rootPrefix: `${conn.database}/`" in space, "a shared space's root is no longer {name}/"
     row = (_PORTAL / "features" / "notifications" / "NotificationRow.tsx").read_text()
-    assert "'?space='" in row, "the row no longer gates a space link on that literal — re-derive the mint order"
+    assert "useCanFollowLink()" in row, "the row no longer derives its gate from the link — re-derive the link"
+    gate = (_PORTAL / "features" / "feature-flags" / "linkFlags.ts").read_text()
+    assert re.search(
+        r"pattern: '/files',\s*read: \(url\) => url\.searchParams\.get\('space'\),"
+        r"\s*isPersonal: \(name\) => name === 'personal'",
+        gate,
+    ), "the gate no longer reads a /files link's space from ?space= — re-derive what a space link carries"
     guard = (_PORTAL / "features" / "notifications" / "notificationLink.ts").read_text()
     assert "link[0] !== '/'" in guard and "link[1] !== '/'" in guard, "isSafeInAppPath's accept rule changed"
 
@@ -228,7 +236,7 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         prefix = query.get("prefix", [""])[0]
         assert url.path == "/files", f"{link!r} does not open the file browser"
         assert query.get("space", []) == spaces, f"{link!r} does not name the space whose root is {root!r}"
-        assert ("?space=" in link) == bool(spaces), f"{link!r} slips the row's shared-workspaces gate"
+        assert ("?space=" in link) == bool(spaces), f"{link!r} no longer puts space first, as every plane's link does"
         assert prefix == paths.inbox_prefix(root, "alice"), f"{prefix!r} is not the inbox the copy writes to"
         assert prefix.startswith(root), f"{prefix!r} does not start with the root the route resolves, {root!r}"
         assert prefix.endswith("/"), f"{prefix!r} does not end at a folder boundary, so the route discards it"

@@ -80,7 +80,10 @@ parents make the one-item and many-item cases the same computation.
 
 **`?space=` is minted FIRST, and that is not cosmetic.** `NotificationRow` gates the shared variant
 on the literal `?space=`; the other parameter order slips the gate, the route never reads the space,
-and the user lands in their own files with no banner while the message names a shared one.
+and the user lands in their own files with no banner while the message names a shared one. **—
+Superseded 2026-09-25:** the row now parses the link (`browser.md`, *A link is gated by its
+destination's flags*), so the order no longer decides whether the gate sees the space; `?space=`
+still comes first as a convention.
 
 **This plane's link is the first built from an arbitrary KEY**, so the prefix is percent-encoded at
 mint — every other plane interpolates catalog-constrained names. `isSafeInAppPath` cannot help: it

@@ -4,10 +4,11 @@ import type {FeatureFlagKey} from './featureFlags.types';
 /**
  * Is this feature on for this build?
  *
- * **The only way app code asks.** Everything else — nav, routes, cross-feature entry points,
- * the Help list — goes through this or {@link FeatureGate}, so the answer is computed one way
- * and the registry test has one thing to walk. Reaching for `useFeatureFlags` directly is how
- * a fifth surface ends up gated on a slightly different condition.
+ * **The only way app code asks about ONE feature.** Nav, routes, entry points and the Help list
+ * go through this or {@link FeatureGate}, so the answer is computed one way and the registry test
+ * has one thing to walk. A control that LEAVES for another feature asks about its destination
+ * instead, through {@link useCanFollowLink}. Reaching for `useFeatureFlags` directly is how
+ * a surface ends up gated on a slightly different condition.
  *
  * **A flag is presentation, never authorization**. This hides a control; it
  * revokes nothing, and a user with a feature hidden still holds every IAM grant they did
