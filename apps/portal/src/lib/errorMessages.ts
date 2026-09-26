@@ -10,6 +10,7 @@
 // `logOriginal`) so developers can still debug.
 
 import {ATHENA_QUERY_STRING_MAX} from './athenaLimit';
+import {formatBytes} from './format';
 
 /** What a surface renders: an optional bold title, one short sentence, and sometimes the engine's own words. */
 export type UserFacingMessage = {
@@ -173,6 +174,16 @@ const CODE_RULES: readonly ErrorRule[] = [
     code: 'SavedQueryTooLarge',
     message:
       'This saved query is too large to open here. Download it from its space’s saved_queries folder in Files to read it.',
+    userFixable: true
+  },
+
+  // Trigger: a saved query's SQL is over the API's writable document cap. Re-coded by the save
+  // service from `PayloadTooLarge`, whose "one field" sentence would point at the Name field.
+  {
+    code: 'SavedQueryTooLargeToSave',
+    message: 'This query is too large to save. Shorten it, or split it into smaller saved queries.',
+    withParams: ({limit}) =>
+      `This query is too large to save — a saved query can be at most ${formatBytes(limit)}. Shorten it, or split it into smaller saved queries.`,
     userFixable: true
   },
 

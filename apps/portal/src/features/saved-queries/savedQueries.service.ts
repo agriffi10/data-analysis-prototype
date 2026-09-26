@@ -290,6 +290,14 @@ export async function writeSavedQuery(params: {
         error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
       };
     }
+    // Over the writable cap, the API's generic sentence would read as the NAME being too long in a
+    // dialog whose only field is the name, so the refusal is re-coded to say it is the query.
+    if (written.error.code === 'PayloadTooLarge') {
+      return {
+        success: false,
+        error: {message: 'Saved query too large to write', code: 'SavedQueryTooLargeToSave', params: written.error.params}
+      };
+    }
     return fromApiFailure(written.error, 'Failed to save query');
   }
 
