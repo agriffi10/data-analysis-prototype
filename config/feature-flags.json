@@ -11,6 +11,8 @@
     "archive": true
   },
   "environments": {
-    "prod": {}
+    "prod": {
+      "archive": false
+    }
   }
 }
