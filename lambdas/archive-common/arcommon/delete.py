@@ -170,50 +170,79 @@ def delete_keys(bucket: str, keys: list, allowed_prefix: str) -> dict:
     return {"deleted": len(keys) - failed, "failed": failed, "failedFolders": failed_folders}
 
 
-def changed_keys(bucket: str, expected: dict) -> set:
-    """Heads every original and returns the ones that are not what the plan recorded.
+def head_originals(bucket: str, expected: dict) -> tuple[set, set]:
+    """Heads every original and sorts out the ones that are not what the plan recorded.
 
-    A key whose plan entry carries no tag is returned without being headed. A plan written before
-    the tag was recorded, or edited since, cannot say which bytes the vault holds, and a missing
-    tag read as "unchanged" would delete on a guess.
+    A key whose plan entry carries no tag is counted changed whenever it is there: a plan written
+    before the tag was recorded, or edited since, cannot say which bytes the vault holds, and a
+    missing tag read as "unchanged" would delete on a guess. It is still HEADED, because whether
+    it is there at all is the other half of the answer — an old plan is exactly the one whose
+    originals an earlier deployment may already have deleted.
+
+    **Absent is reported apart from changed**, because the two ask opposite things of the caller.
+    An absent original is not a change — a Retry re-heads keys its first attempt already removed —
+    but it IS a sign the vault may hold the only copy of it, which is what forbids removing the
+    vault.
 
     Args:
       bucket: The source bucket.
       expected: Absolute key to the ETag the plan recorded for it, or None when it recorded none.
 
     Returns:
-      The keys that must not be deleted: present with a different tag, headed with a fault that is
-      not absence, or planned with no tag at all.
+      ``(changed, absent)`` — the keys that must not be deleted (present with a different tag,
+      headed with a fault that is not absence, or planned with no tag), and the keys that head as
+      not there.
 
     Raises:
       TransientError: On a throttle or 5xx from any head, after the sweep has settled — a sweep
         that cannot see an original retries rather than concluding it is unchanged.
     """
-    def changed(key: str) -> bool:
-        """Reports whether one original differs from the plan's record of it.
+    def verdict(key: str) -> str:
+        """Heads one original and names what it is against the plan's record of it.
 
         Args:
           key: The absolute source key.
 
         Returns:
-          True when the original must be kept.
+          ``"changed"``, ``"absent"`` or ``"same"``.
 
         Raises:
           TransientError: On a throttle or 5xx.
         """
         planned = expected[key]
-        if not planned:
-            return True
         try:
             head = clients.s3().head_object(Bucket=bucket, Key=key)
         except Exception as err:  # noqa: BLE001 - classified below
             errors.raise_if_transient(err, f"head {bucket}/{key}")
-            return errors.error_code(err) not in _ABSENT_CODES
-        return bool(head.get("ETag") != planned)
+            return "absent" if errors.error_code(err) in _ABSENT_CODES else "changed"
+        return "same" if planned and head.get("ETag") == planned else "changed"
 
     keys = list(expected)
     with ThreadPoolExecutor(max_workers=SOURCE_HEAD_CONCURRENCY) as pool:
-        return {key for key, kept in zip(keys, pool.map(changed, keys), strict=True) if kept}
+        verdicts = dict(zip(keys, pool.map(verdict, keys), strict=True))
+    return (
+        {key for key, found in verdicts.items() if found == "changed"},
+        {key for key, found in verdicts.items() if found == "absent"},
+    )
+
+
+def changed_keys(bucket: str, expected: dict) -> set:
+    """Heads every original and returns the ones that must not be deleted.
+
+    ``head_originals`` narrowed to its first half, for a caller that deletes and does not decide.
+
+    Args:
+      bucket: The source bucket.
+      expected: Absolute key to the ETag the plan recorded for it, or None when it recorded none.
+
+    Returns:
+      The keys present with a different tag, headed with a fault that is not absence, or planned
+      with no tag.
+
+    Raises:
+      TransientError: On a throttle or 5xx from any head.
+    """
+    return head_originals(bucket, expected)[0]
 
 
 def _everything(key: str, size: int, prefix: str) -> bool:

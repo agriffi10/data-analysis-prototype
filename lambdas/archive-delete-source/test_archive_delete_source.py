@@ -274,8 +274,8 @@ def test_an_original_changed_since_the_plan_refuses_the_whole_deletion_and_remov
 
 def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
     """Fail-closed, because a missing tag is not evidence the object is unchanged: a plan written
-    before the tag was recorded, or edited since, cannot say what the vault holds. It is never
-    headed, and it refuses the deletion like a changed original."""
+    before the tag was recorded, or edited since, cannot say what the vault holds, so it refuses
+    the deletion like a changed original."""
     fake = _install(
         _plan([{"relKey": "reports/a.csv", "bytes": 5}, {"relKey": "reports/b.csv", "bytes": 1, "etag": '"b1"'}]),
         current={"alice/reports/a.csv": '"a1"', "alice/reports/b.csv": '"b1"'},
@@ -285,7 +285,6 @@ def test_an_entry_the_plan_recorded_no_etag_for_is_never_deleted():
         m.handler(_event(), None)
 
     assert err.value.reason == "source_changed_during_archive"
-    assert "alice/reports/a.csv" not in fake.heads
     assert all(call["Bucket"] == "archive-bkt" for call in fake.deletes)
 
 
@@ -364,6 +363,40 @@ def test_a_retry_after_a_partial_refusal_never_turns_into_a_deletion(monkeypatch
     assert set(fake.source) == {"alice/r/b.csv", "alice/r/c.csv"}
     assert fake.vault == set()
     assert not any(call["Bucket"] == "user-bkt" for call in fake.deletes)
+
+
+def test_an_old_plans_run_already_part_deleted_never_has_its_vault_removed(monkeypatch):
+    """A run in flight at a deploy: its plan predates the recorded tags, and the old delete-source
+    — which headed nothing and recorded nothing — deleted one original before throttling, so its
+    Retry lands here. Every untagged original counts as changed, which alone would refuse and
+    remove the vault: the only copy of the one already deleted. An original already gone forbids
+    that, so the rest are kept and the copy stays whole."""
+    fake, event = _three_file_run(monkeypatch)
+    fake.admin[f"archive/{_REQUEST_ID}/copy-plan.json"] = _plan([
+        {"relKey": key.removeprefix("alice/"), "bytes": 1} for key in _THREE
+    ])
+    del fake.source["alice/r/a.csv"]
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(event, None)
+
+    assert err.value.reason == "source_delete_incomplete"
+    assert set(fake.source) == {"alice/r/b.csv", "alice/r/c.csv"}
+    assert len(fake.vault) == 4
+
+
+def test_an_original_gone_with_a_vault_that_cannot_be_counted_whole_touches_nothing(monkeypatch):
+    """Neither copy can be trusted to be the whole one, so nothing is decided: no record, no
+    deletion on either side, and a retryable fault the state's Catch ends the run on."""
+    fake, event = _three_file_run(monkeypatch)
+    del fake.source["alice/r/a.csv"]
+    fake.vault.discard(f"personal/alice/archive/{_REQUEST_ID}/r/b.csv")
+
+    with pytest.raises(TransientError):
+        m.handler(event, None)
+
+    assert fake.deletes == []
+    assert f"archive/{_REQUEST_ID}/source-decision.json" not in fake.admin
 
 
 def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():

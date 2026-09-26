@@ -1203,7 +1203,12 @@ file deleted in between, or a head that failed once — deleted originals whose 
 and reported success. So `delete-source` writes `source-decision.json` create-only beside the claim
 before acting, and a Retry, a lost response or a redrive follows it: a recorded refusal finishes
 removing the copy, and a recorded deletion never touches the vault — an original changed since the
-verdict is kept, and the run fails `source_delete_incomplete` with the copy intact.
+verdict is kept, and the run fails `source_delete_incomplete` with the copy intact. **An original
+already gone when the verdict is taken forbids a refusal**, since the vault may then hold its only
+copy: the verdict is a deletion that keeps whatever changed, and if the vault cannot be counted
+whole as well, nothing is decided or touched. The case is a run in flight at the deploy that brought
+this in — its plan carries no tags and the old `delete-source` may have deleted part of it before
+its Retry landed on the new one — found by a third review in the replay frame.
 
 **All or nothing, and Andrew chose it over keeping per file.** The first shape kept only the
 changed originals, deleted the rest and failed `source_delete_incomplete`; a review found that this

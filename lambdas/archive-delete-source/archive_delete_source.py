@@ -50,7 +50,7 @@ import logging
 
 from arcommon import counts, delete, notify, plan, restore
 from cpcommon import observability
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import normalize_root
 
 logger = logging.getLogger()
@@ -125,15 +125,15 @@ def _delete_source(event) -> dict:
 
     delete.assert_deletable(keys, root)
     record = plan.read_source_decision(event)
-    written = False
+    written, decided_changed = False, set()
     if record is None:
-        record, written = _decide(event, loaded, planned)
+        record, written, decided_changed = _decide(event, loaded, planned)
     if record["decision"] == "refuse":
         _refuse_changed(event, loaded["archive"], record["changed"], len(keys))
     if record["decision"] == "unconfirmed":
         _refuse_unconfirmed(event, loaded["archive"], len(keys))
 
-    kept = set() if written else delete.changed_keys(source["bucket"], planned)
+    kept = decided_changed if written else delete.changed_keys(source["bucket"], planned)
     removed = delete.delete_keys(source["bucket"], [key for key in keys if key not in kept], root)
     failed = removed["failed"] + len(kept)
 
@@ -169,8 +169,16 @@ def _delete_source(event) -> dict:
     return {**event, "deletedCount": removed["deleted"]}
 
 
-def _decide(event, loaded: dict, planned: dict) -> tuple[dict, bool]:
+def _decide(event, loaded: dict, planned: dict) -> tuple[dict, bool, set]:
     """Heads every original, counts the vault, and records the verdict before anything acts on it.
+
+    **An original already gone forbids removing the vault**, because the vault may then hold its
+    only copy — an earlier deployment's delete-source, which headed nothing and recorded nothing,
+    can have deleted it before a Retry landed here, and a user can delete one mid-archive. So with
+    anything absent the verdict is a deletion that keeps whatever changed, never a refusal; and if
+    the vault cannot be counted whole either, nothing is decided at all — nothing is touched, the
+    fault is retryable, and the state's Catch ends the run with the originals and the copy as they
+    were.
 
     Args:
       event: The request, carrying the stamped execution the record names.
@@ -178,23 +186,34 @@ def _decide(event, loaded: dict, planned: dict) -> tuple[dict, bool]:
       planned: Absolute source key to the ETag the plan recorded.
 
     Returns:
-      ``plan.record_source_decision``'s ``(record, written)`` — this attempt's verdict, or an
-      earlier one's when that was recorded first.
+      ``(record, written, changed)`` — ``plan.record_source_decision``'s pair, this attempt's
+      verdict or an earlier one's, and the originals this attempt found changed, which a deletion
+      it recorded itself keeps without heading them again.
 
     Raises:
-      TransientError: On a retryable S3 fault heading, counting or recording.
+      TransientError: On a retryable S3 fault heading, counting or recording, and when originals
+        are already gone and the vault cannot be counted whole.
       TerminalError: ``malformed_event`` from the decision key.
     """
-    changed = delete.changed_keys(loaded["source"]["bucket"], planned)
-    if changed:
-        decision = "refuse"
-    elif not restore.archive_is_intact(
+    changed, absent = delete.head_originals(loaded["source"]["bucket"], planned)
+    intact = restore.archive_is_intact(
         loaded["archive"]["bucket"], loaded["archive"]["root"], len(planned)
-    ):
+    )
+    if absent and not intact:
+        raise TransientError(
+            f"{len(absent)} original(s) are already gone and the vault cannot be counted whole, "
+            "so nothing was decided or touched"
+        )
+    if absent:
+        decision = "delete"
+    elif changed:
+        decision = "refuse"
+    elif not intact:
         decision = "unconfirmed"
     else:
         decision = "delete"
-    return plan.record_source_decision(event, decision, len(changed))
+    record, written = plan.record_source_decision(event, decision, len(changed))
+    return record, written, changed
 
 
 def _refuse_changed(event, archive: dict, changed: int, planned: int) -> None:

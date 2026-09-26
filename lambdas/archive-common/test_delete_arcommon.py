@@ -124,16 +124,18 @@ class _HeadingS3:
 
 def test_only_an_original_still_carrying_its_planned_tag_may_be_deleted():
     """Kept: a rewritten original, one that could not be read, and one the plan recorded no tag
-    for, which is never headed. Absence is not a change — a replay re-heads what it removed."""
+    for. Absence is not a change — a replay re-heads what it removed — but it is reported, because
+    the vault may then hold the only copy."""
     fake = _HeadingS3({
         "alice/same.csv": '"a"',
         "alice/rewritten.csv": '"new"',
         "alice/unreadable.csv": _HeadError("AccessDenied", 403),
         "alice/gone.csv": _HeadError("404", 404),
+        "alice/untagged.csv": '"u"',
     })
     clients._s3 = fake
 
-    kept = delete.changed_keys(
+    kept, absent = delete.head_originals(
         "user-bkt",
         {
             "alice/same.csv": '"a"',
@@ -145,7 +147,7 @@ def test_only_an_original_still_carrying_its_planned_tag_may_be_deleted():
     )
 
     assert kept == {"alice/rewritten.csv", "alice/unreadable.csv", "alice/untagged.csv"}
-    assert "alice/untagged.csv" not in fake.heads
+    assert absent == {"alice/gone.csv"}
 
 
 def test_a_throttled_head_retries_rather_than_reading_as_unchanged():
