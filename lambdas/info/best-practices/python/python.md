@@ -2,17 +2,17 @@
 
 > Token-efficient rulebook for LLM coding agents writing/refactoring Python in this repo (runtime **Python 3.12**; the only Python here is AWS Lambda source under `lambdas/` + shared layers). Distilled from **PEP 8** (+ PEP 257 docstrings, PEP 484/526 typing) and the **[Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)**, adapted to this repo. Each section is self-contained; load only what the task needs. Rules are imperative; ✅ = do, 🔴 = don't.
 >
-> **Run the formatter/linter — don't hand-format.** Mechanics (§2, §3) are owned by `ruff`/`black`; this doc is for the choices a tool can't make (naming, interfaces, idioms) and for review. Style is *guidance*: the repo's configured tools win (line length, quote style), and "a foolish consistency is the hobgoblin of little minds" — when a rule hurts readability in a specific case, deviate and flag it (§1).
+> **Lint and type-check; don't hand-argue style.** The linter is a required gate and the formatter is not enforced (§1); this doc is for the choices a tool can't make (naming, interfaces, idioms) and for review. Style is *guidance*: the repo's configured tools win (line length, quote style), and "a foolish consistency is the hobgoblin of little minds" — when a rule hurts readability in a specific case, deviate and flag it (§1).
 >
 > **Lambda shape vs Python style:** this doc governs *language* style. The *Lambda* shape (single responsibility, handler shape, idempotency, IAM, orchestration) lives in `lambdas/lambdas.md` — that doc's §13 routes here. When both apply, follow both.
 
 ## How to use this doc
 - Find the relevant section ID(s) in the Index below; read only those. Sections are cross-linked by ID (e.g. "see §7").
 - Defer to the repo's configured tools (line length, formatter, import order, typing strictness) over the defaults here; when a rule conflicts with existing code, follow the rule and **flag the conflict** unless the user says otherwise.
-- Repo defaults: format/lint with **`ruff` (format + lint)**, type-check with **`mypy`**, test with **`pytest`** + AWS stubs (`moto`/botocore stubbers). Runtime = 3.12; pin + minimize `requirements.txt`.
+- Repo defaults: lint with **`ruff check`** (a required gate; `ruff format` is not enforced), type-check with **`mypy`**, test with **`pytest`** + AWS stubs (`moto`/botocore stubbers). Runtime = 3.12; pin + minimize `requirements.txt`.
 
 ## Index
-- **§1 Tooling & the "foolish consistency" rule** — formatter/linter/type-checker own the mechanics; when to deviate; don't churn diffs.
+- **§1 Tooling & the "foolish consistency" rule** — the linter and type-checker are required gates, the formatter is not enforced; when to deviate; don't churn diffs.
 - **§2 Layout & formatting** — indentation, line length, continuation, operator breaks, blank lines, one statement per line.
 - **§3 Whitespace** — in expressions and statements; slices; the `=` rule.
 - **§4 Imports** — module-level, absolute, one per line, grouped stdlib→third-party→local; no wildcards; `typing`/`collections.abc` exempt.
@@ -31,9 +31,10 @@
 ---
 
 ## §1 Tooling & the "foolish consistency" rule
-Every file is auto-formatted, linted, and type-checked — style is not hand-argued.
+Every file is linted, and the packages mypy is configured for are type-checked — style is not hand-argued.
 
-- ✅ Run the **formatter** (`ruff format`, Black-compatible) and **linter** (`ruff`) on every file; let them own the §2/§3 mechanics. Keep both green before a PR (mirrors the repo's pre-push formatter gate). ✅ Run **`mypy`** where configured (§8).
+- ✅ Run the **linter**, `ruff check lambdas/ scripts/ .github/scripts/`, and keep it green by exit code before a PR. It is a required gate, run locally because CI's lint step is disabled (`docs/process/ci-and-deploy-traps.md`). ✅ Run **`mypy`** where configured (§8); it is a required gate too.
+- 🔴 The **formatter** (`ruff format`) is **not enforced**: nothing runs it, and most of the tree is not in its layout (at 533d0f0c, `ruff format --check lambdas/` would reformat 445 files and leave 93 as they are). Don't treat its output as the rule, and don't reformat unrelated code to satisfy it (the bullet below).
 - ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>`, with a short reason after it when the rule name isn't self-explanatory, or a line-level `# type: ignore[<code>]`, which takes no text after it: mypy rejects the whole directive when free text follows, and the second comment it would accept is an inline comment, which a production module may not carry. Its reason goes in the docstring (§14 has the exact shape). Searchable suppressions can be revisited.
 - 🔴 Don't blanket-disable rules for a whole file to dodge one line, and don't leave an unexplained `# noqa`. ✅ Fix the issue or justify the exception.
 - ✅ For an unused-but-required argument (callback/interface signature), delete it at the top (`del unused_arg`, with the reason in its `Args:` entry rather than a comment — §14) or prefix `unused_`.
@@ -41,7 +42,7 @@ Every file is auto-formatted, linted, and type-checked — style is not hand-arg
 - 🔴 Don't reformat unrelated code to satisfy style inside a feature PR — it buries the real change in diff noise. **Be consistent** with the surrounding file; prefer converging on the newer style over perpetuating an old one.
 
 ## §2 Layout & formatting
-Formatter-driven; the rules below are what the formatter enforces — know them for hand-edits.
+The rules below are PEP 8 and Google layout, not `ruff format`'s, which differs on several of them. Nothing enforces them on this tree, so know them for hand-edits and stay consistent with the surrounding file.
 
 - ✅ **4-space indent**, never tabs; never mix tabs and spaces. One statement per line (a single `if foo: bar()` with no `else` is the only same-line allowance; never for `try`/`except`). 🔴 No `;`-joined statements.
 - ✅ **Line length:** use the project's configured limit; PEP 8 default is 79 (72 for docstrings/comments), Google caps at 80, many teams raise to 99/100. Don't argue with the configured value. Long imports, URLs/paths in comments, and `# noqa`-style directives may exceed.
