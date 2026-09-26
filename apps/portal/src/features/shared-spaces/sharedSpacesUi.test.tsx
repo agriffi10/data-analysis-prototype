@@ -29,12 +29,12 @@ describe('CreateSharedConnectionDialog', () => {
       const create = screen.getByRole('button', {name: 'Create'});
       expect(create).toBeDisabled();
 
-      await user.type(screen.getByLabelText('Connection name'), '9bad'); // leading digit
+      await user.type(screen.getByLabelText('Space name'), '9bad'); // leading digit
       expect(create).toBeDisabled();
       expect(screen.getByText(/3–63 characters/)).toBeInTheDocument();
 
-      await user.clear(screen.getByLabelText('Connection name'));
-      await user.type(screen.getByLabelText('Connection name'), 'sales_data');
+      await user.clear(screen.getByLabelText('Space name'));
+      await user.type(screen.getByLabelText('Space name'), 'sales_data');
       expect(create).toBeEnabled();
     });
 
@@ -47,7 +47,7 @@ describe('CreateSharedConnectionDialog', () => {
           onCancel={vi.fn()}
         />
       );
-      await user.type(screen.getByLabelText('Connection name'), '  marketing_q2  ');
+      await user.type(screen.getByLabelText('Space name'), '  marketing_q2  ');
       await user.click(screen.getByRole('button', {name: 'Create'}));
       expect(onCreate).toHaveBeenCalledWith('marketing_q2');
     });
@@ -182,19 +182,19 @@ describe('MemberRosterDrawer', () => {
     it('offers a Refresh control that re-reads connection state', async () => {
       const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onRefresh} = setup();
-      await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+      await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
     // ── SPEC-186 FR-008 ────────────────────────────────────────────────────
     // The app asserted both things at once: this drawer said `bob | Pending` under a sentence
-    // saying a Pending member "hasn't signed in yet", while the connections row one click away
+    // explaining what Pending means (then "hasn't signed in yet"), while the row one click away
     // said Active — read by bob, who plainly had. The acknowledge verb now fans the roster out
     // (`cache.write_roster_to_all`); this closes the window before that lands.
     it('never tells the reader they have not signed in', () => {
       setup({viewer: 'bob'});
       expect(within(screen.getByText('bob').closest('li')!).getByText('Active')).toBeInTheDocument();
-      expect(screen.queryByText(/hasn.t signed in yet/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/hasn.t opened this space in Files yet/i)).not.toBeInTheDocument();
     });
 
     it('has no axe violations', async () => {

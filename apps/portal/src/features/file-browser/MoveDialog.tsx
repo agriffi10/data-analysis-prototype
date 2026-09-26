@@ -57,7 +57,7 @@ export function MoveDialog({
         autoFocus
         confirmLabel="Move here"
         busyLabel="Moving…"
-        selfMessage="You can't move a folder into itself."
+        selfMessage="You can’t move a folder into itself."
         onConfirm={onMove}
         onCancel={onCancel}
       />

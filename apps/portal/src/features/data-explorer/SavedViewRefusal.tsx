@@ -16,8 +16,8 @@ type Props = {
 export function SavedViewRefusal({refusal, onOpenInQuery, onClose}: Props) {
   return (
     <ConfirmDialog
-      title="This view can’t be opened here"
-      ariaLabel="Saved view can’t be opened"
+      title="This can’t be opened as a view"
+      ariaLabel="Can’t be opened as a view"
       confirmLabel="Open in Query"
       cancelLabel="Close"
       confirmVariant="primary"

@@ -113,13 +113,13 @@ describe('filter history', () => {
     await chooseFromMenu(user, 'status', 'Filter: is not null');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
 
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     // The unfiltered statement has already run, and the rendered SQL is the cache key —
     // so stepping back is free (AC2).
     await waitFor(() => expect(screen.getByRole('button', {name: /^Column options: status$/})).toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
 
-    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
     await waitFor(() =>
       expect(screen.getByRole('button', {name: 'Column options: status, filtered'})).toBeInTheDocument()
     );
@@ -132,8 +132,14 @@ describe('filter history', () => {
 
     // `aria-disabled`, not `disabled` (SPEC-172): the control keeps its place in the tab
     // order and the reason is reachable.
-    expect(screen.getByRole('button', {name: 'Back to previous filters'})).toHaveAttribute('title', NO_HISTORY_BACK);
-    expect(screen.getByRole('button', {name: 'Forward to next filters'})).toHaveAttribute('title', NO_HISTORY_FORWARD);
+    expect(screen.getByRole('button', {name: 'Back to the previous version of this query'})).toHaveAttribute(
+      'title',
+      NO_HISTORY_BACK
+    );
+    expect(screen.getByRole('button', {name: 'Forward to the next version of this query'})).toHaveAttribute(
+      'title',
+      NO_HISTORY_FORWARD
+    );
   });
 
   it('holds descriptions with the tab, capped, oldest first out', async () => {
@@ -186,7 +192,7 @@ describe('filter history', () => {
         await screen.findAllByRole('gridcell');
         const beforeReturning = requestsFor('exec-1');
 
-        await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+        await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
         await act(async () => {
           await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
         });
@@ -214,10 +220,10 @@ describe('filter history', () => {
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     await screen.findByText(/syntax error in your query/i);
 
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
 
-    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
     // The description is restored — the text is back in the bar — and nothing has run.
     expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
     expect(screen.getByLabelText('Filter expression')).toHaveValue('not sql at all');
@@ -243,7 +249,7 @@ describe('remove all', () => {
     await user.type(screen.getByLabelText('Filter expression'), "id = '1'{Enter}");
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(4));
 
-    await chooseExplorationOption(user, 'Remove all filters');
+    await chooseExplorationOption(user, 'Remove all filters and sorts');
 
     await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
     expect(screen.getByRole('button', {name: 'Column options: status'})).toBeInTheDocument();
@@ -257,7 +263,7 @@ describe('remove all', () => {
     await screen.findAllByRole('gridcell');
 
     // The grouping is named too, from SPEC-182: it is one of the things this clears.
-    expect(await explorationOption(user, 'Remove all filters')).toHaveAttribute(
+    expect(await explorationOption(user, 'Remove all filters and sorts')).toHaveAttribute(
       'title',
       'There are no filters, expressions, sorts or grouping to clear.'
     );
@@ -309,7 +315,7 @@ describe('cost reporting', () => {
     await chooseFromMenu(user, 'status', 'Filter: is null');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
 
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
 
     // The stale figure would be TRUE about the execution and false about the gesture:
     // this one scanned nothing at all.
@@ -435,8 +441,8 @@ describe('across tabs', () => {
 
     await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
     await screen.findByText(/syntax error in your query/i);
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
-    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
     expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
 
     // The suspension belongs to the tab that was suspended. Held across the switch, this

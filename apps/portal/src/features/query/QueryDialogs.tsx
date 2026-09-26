@@ -28,6 +28,8 @@ type Props = {
   };
   drop: {
     target: {database: string; table: GlueTableSummary} | null;
+    /** The target's database is a shared space's. */
+    shared: boolean;
     busy: boolean;
     onConfirm: () => void;
     onCancel: () => void;
@@ -121,6 +123,8 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       {drop.target && (
         <DropTableDialog
           table={drop.target.table.name}
+          database={drop.target.database}
+          shared={drop.shared}
           isDropping={drop.busy}
           isView={drop.target.table.tableType === 'VIRTUAL_VIEW'}
           onConfirm={drop.onConfirm}

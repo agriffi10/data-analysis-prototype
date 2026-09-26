@@ -416,7 +416,7 @@ const RECIPES: Record<string, Recipe> = {
   // ── nav ──
   Files: {render: renderHeader, anchor: navReady, find: byRole('link', 'Files')},
   Query: {render: renderHeader, anchor: navReady, find: byRole('link', 'Query')},
-  Connections: {render: renderHeader, anchor: navReady, find: byRole('link', 'Connections')},
+  'Shared spaces': {render: renderHeader, anchor: navReady, find: byRole('link', 'Shared spaces')},
   'Data quality': {render: renderHeader, anchor: navReady, find: byRole('link', 'Data quality')},
   'Data Explorer': {render: renderHeader, anchor: navReady, find: byRole('link', 'Data Explorer')},
 
@@ -429,7 +429,7 @@ const RECIPES: Record<string, Recipe> = {
   '/explore': routeRecipe('dataExplorer'),
 
   // ── controls ──
-  'Go to Dashboard': {
+  'Go to Files': {
     render: async () => {
       const {default: LandingPage} = await import('../../routes/LandingPage');
       renderWithProviders(<LandingPage />, {auth: authenticated('alice'), seedFeatureFlags: false});
@@ -437,7 +437,7 @@ const RECIPES: Record<string, Recipe> = {
     // EXACT, not `/^Go to /`: with Files off the page correctly renders "Go to Query", and a
     // prefix match would have found that and called the gate broken — or, worse, found
     // nothing yet and called it working.
-    find: byRole('button', 'Go to Dashboard')
+    find: byRole('button', 'Go to Files')
   },
   'Create table': {render: renderFileBrowser, anchor: fileBrowserReady, find: byRole('button', 'Create table')},
   // The REAL /files page against a listing that contains the folder — a recipe that
@@ -608,12 +608,11 @@ const RECIPES: Record<string, Recipe> = {
       // the row would read as correctly hidden in both states. Re-fetched on each pass rather
       // than held, because `waitFor` outlives the menu's own open state.
       await waitFor(async () =>
-        expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+        expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
       );
-      await chooseExplorationOption(user, 'Save results to my files');
+      await chooseExplorationOption(user, 'Save results…');
     },
-    anchor: async () =>
-      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
   // SPEC-185. The TWIN, in the Query workspace — ungated since SPEC-055 because
@@ -635,10 +634,9 @@ const RECIPES: Record<string, Recipe> = {
       // The button is offered only for a SUCCEEDED execution with a results location, so
       // the run is part of reaching it rather than scaffolding around it.
       await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
     },
-    anchor: async () =>
-      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
   // SPEC-223. The SAME two recipes as the two save-results rows above — the dialog is reached
@@ -651,12 +649,11 @@ const RECIPES: Record<string, Recipe> = {
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
       await waitFor(async () =>
-        expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+        expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
       );
-      await chooseExplorationOption(user, 'Save results to my files');
+      await chooseExplorationOption(user, 'Save results…');
     },
-    anchor: async () =>
-      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByLabelText('Format')
   },
   'Format in the save-results dialog': {
@@ -674,10 +671,9 @@ const RECIPES: Record<string, Recipe> = {
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
       await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
     },
-    anchor: async () =>
-      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByLabelText('Format')
   },
   'Shared spaces in the Data Explorer save dialog': {
@@ -750,7 +746,7 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('button', 'Add members')
   },
-  'Shared spaces': {
+  'Shared spaces recipient kind in the share dialog': {
     render: () => {
       renderWithProviders(
         <TableShareDialog
@@ -776,7 +772,7 @@ const RECIPES: Record<string, Recipe> = {
       await user.click(await screen.findByRole('button', {name: 'Copy selected items'}));
     },
     anchor: async () => screen.findByRole('dialog'),
-    find: async () => screen.queryByRole('combobox', {name: 'Destination connection'})
+    find: async () => screen.queryByRole('combobox', {name: 'Destination space'})
   },
 
   'Data quality link on a notification': {
@@ -1000,8 +996,8 @@ const RECIPES: Record<string, Recipe> = {
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
       await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
     },
     // The toast itself is not gated — only its way into the file browser is.
@@ -1159,7 +1155,7 @@ function exploreResultRecipe(): Recipe {
       const {default: userEvent} = await import('@testing-library/user-event');
       await userEvent.setup({delay: null}).click(await screen.findByRole('button', {name: 'Run statement'}));
     },
-    anchor: async () => screen.findByRole('button', {name: 'Save results to my files'}),
+    anchor: async () => screen.findByRole('button', {name: 'Save results…'}),
     find: async () => screen.queryByRole('button', {name: 'Explore in Data Explorer'})
   };
 }
@@ -1266,7 +1262,7 @@ describe('the registry itself', () => {
       files: [
         'Files',
         '/files',
-        'Go to Dashboard',
+        'Go to Files',
         'Files help section',
         // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
         'Received files link on a notification',
@@ -1326,11 +1322,11 @@ describe('the registry itself', () => {
         'Refresh table link on a notification'
       ],
       sharedWorkspaces: [
-        'Connections',
+        'Shared spaces',
         '/connections',
         'Your spaces navigation',
         'Add members',
-        'Shared spaces',
+        'Shared spaces recipient kind in the share dialog',
         // NOT in the spec's table — a deliberate extension, recorded in the delivery doc.
         'Shared databases in the schema rail',
         // SPEC-174: likewise an extension. Its spec offers "exactly the spaces

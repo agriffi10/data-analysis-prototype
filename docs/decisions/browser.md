@@ -468,7 +468,7 @@ duplicates of one description. `clearAll` deliberately **preserves `grouping`**:
 and un-grouping a view from a control labelled "Remove all filters" is a change nobody asked for.
 
 > **SUPERSEDED by SPEC-182 (FR-006 AC3): `clearAll` clears the grouping too, and the control's LABEL
-> changes with it** — `Remove all filters` becomes `Remove all filters and grouping` while a grouping
+> changes with it** — `Remove all filters and sorts` becomes `Remove all filters, sorts and grouping` while a grouping (both name sorts, which the clear always removed)
 > is in force. The concern above was never the clearing, it was the silence; naming the action is the
 > other way to keep the same promise. `isEmptyQuery` counts grouping from the same spec, so its
 > refusal wording changed with it.
@@ -886,7 +886,7 @@ was designed around. And it is why copy's formats are clipboard-only: the result
 CSV, and converting it would mean reading it back through the browser.
 
 Both surfaces say the asymmetry out loud, because it is not inferable. The advanced copy dialog
-states that only the loaded page is copied and points at Save results to my files for the rest; the grid's status line
+states that only the loaded page is copied and points at Save results… for the rest; the grid's status line
 says `N cells selected on this page` every time it says anything, which is SPEC-182's rule for Calc
 applied to the same fact.
 

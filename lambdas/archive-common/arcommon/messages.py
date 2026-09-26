@@ -149,8 +149,8 @@ _BODIES = {
     ),
     "undeletable_folder": (
         'what you selected contains a folder named "{folderName}", which Data Quarry manages and '
-        "can't remove from your space, so nothing was archived. Please rename it or select "
-        "something else."
+        "can't remove from your space, so nothing was archived. Please select the files and "
+        "folders around it instead."
     ),
     "plan_unreadable": (
         "the list of files to archive could not be read back, so nothing was archived."
@@ -186,7 +186,8 @@ _BODIES = {
     ),
     "receipt_write_failed": (
         "your files were archived, but the receipt could not be written. Nothing has been lost. "
-        "Please contact an administrator and quote request {requestId}."
+        "Your archive id is {requestId} - keep it, because restoring these files needs it and "
+        "there is no receipt to find it in."
     ),
     "archive_timed_out": (
         "that archive ran for too long and was stopped. Nothing was deleted and your files are "
@@ -198,7 +199,7 @@ _BODIES = {
     ),
     "archive_not_found": (
         'no archive with the id "{archiveId}" was found in "{spaceName}". Please check the id '
-        'against the receipt in that space\'s "archive" folder and try again.'
+        'against the receipt under "system_settings/archive" in that space and try again.'
     ),
     "restore_archive_incomplete": (
         "that archive holds {found} file(s) but its record says {expected}, so it should not be "

@@ -102,7 +102,7 @@ def test_add_member_notifies_added_user():
     _seed_reg(s3, reg)
 
     a.add_members("sales", ["bob"], "req-2", reg)
-    assert _sent(sqs) == [("bob", 'You\'ve been added to the shared workspace "sales".')]
+    assert _sent(sqs) == [("bob", 'You\'ve been added to the shared space "sales".')]
 
 
 def test_added_members_get_an_index_entry_and_skipped_ones_do_not():
@@ -303,7 +303,7 @@ def test_an_operator_add_of_an_unknown_user_still_names_them_TO_THE_OWNER():
     assert out["ignoredUnknown"] == ["nosuchuser"] and out["skippedAtLimit"] == ["bob"]
     messages = [message for who, message in _sent(sqs) if who == "alice"]
     assert any("nosuchuser" in m and "no such user" in m for m in messages), messages
-    assert any("bob" in m and "workspace limit" in m for m in messages), messages
+    assert any("bob" in m and "shared-space limit" in m for m in messages), messages
 
 
 def test_the_add_emits_a_child_span_for_the_roster_fan_out_and_the_notifications(

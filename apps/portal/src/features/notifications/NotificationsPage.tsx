@@ -119,9 +119,7 @@ export function NotificationsPage() {
           <div className="rounded-lg border border-dashed border-border bg-surface-2 px-5 py-12 text-center">
             <p className="text-sm font-medium text-text">You’re all caught up</p>
             <p className="mt-1 text-sm text-text-3">
-              {filter === 'unread'
-                ? 'No unread notifications.'
-                : 'New notifications about your shared spaces will appear here.'}
+              {filter === 'unread' ? 'No unread notifications.' : 'New notifications will appear here.'}
             </p>
           </div>
         )

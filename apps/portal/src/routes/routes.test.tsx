@@ -42,8 +42,8 @@ describe('ConnectionsPage', () => {
     it('renders the connections view and sets the document title', async () => {
       vi.mocked(readSharedConnectionsCache).mockResolvedValue({success: true, data: {version: 1, connections: []}});
       renderWithProviders(<ConnectionsPage />, {auth: authenticated('alice')});
-      expect(await screen.findByRole('heading', {level: 1, name: 'Shared connections'})).toBeInTheDocument();
-      expect(document.title).toContain('Connections');
+      expect(await screen.findByRole('heading', {level: 1, name: 'Shared spaces'})).toBeInTheDocument();
+      expect(document.title).toContain('Shared spaces');
     });
   });
 });

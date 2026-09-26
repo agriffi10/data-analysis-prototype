@@ -1,8 +1,8 @@
 import {ConnectionsPage as ConnectionsView} from '../features/shared-spaces';
 import {usePageTitle} from '../hooks/usePageTitle';
 
-/** The Connections tab (`/connections`) — manage shared spaces. */
+/** The Shared spaces tab (`/connections`) — manage shared spaces. The path kept its old name. */
 export default function ConnectionsPage() {
-  usePageTitle('Connections');
+  usePageTitle('Shared spaces');
   return <ConnectionsView />;
 }

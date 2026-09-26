@@ -339,7 +339,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
           checked={draft.showPercentage}
           onChange={() => setDraft((d) => ({...d, showPercentage: !d.showPercentage}))}
         />
-        Show percentage of the rows on this page
+        Show percentage of the total on this page
       </label>
 
       <div className="flex flex-wrap items-center gap-2">

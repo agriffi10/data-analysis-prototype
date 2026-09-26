@@ -59,12 +59,12 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
             mild for what this does. There is no version history and no trash on these buckets, so
             the thing already at the destination is simply gone. */}
         <p className="mt-2 text-sm text-text-2">
-          Whatever is already at the destination will be replaced. There is no version history and no trash here, so the
-          replaced files <b>cannot be recovered</b>.
+          Whatever is in the way of these items at the destination will be replaced. There is no version history and no
+          trash here, so the replaced files <b>cannot be recovered</b>.
         </p>
         <p className="mt-2 text-sm text-text-2">
-          Anything created at the destination since you first asked is left alone — Data Quarry only overwrites what was
-          already there.
+          Anything that arrives at the destination after you press Overwrite is left alone — Data Quarry only overwrites
+          what is there now.
         </p>
       </ConfirmDialog>
     );
@@ -92,7 +92,8 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
       onConfirm={() => (renameTarget === undefined ? setConfirmingOverwrite(true) : setRenaming(true))}
       onCancel={onClose}>
       <p className="mt-2 text-sm text-text-2">
-        Something was in the way, so Data Quarry left it alone. Everything else in that request went ahead.
+        Something was in the way of these, so Data Quarry left them alone. Your notification says what happened to the
+        rest of that request.
       </p>
       <OperationOutcomeBanner
         title={`${results.length} ${results.length === 1 ? 'item needs' : 'items need'} your attention`}

@@ -108,7 +108,7 @@ describe('a held tab', () => {
     const {user} = renderExplorer();
     await screen.findByRole('button', {name: 'Run'});
 
-    await chooseExplorationOption(user, 'Remove all filters and grouping');
+    await chooseExplorationOption(user, 'Remove all filters, sorts and grouping');
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('button', {name: 'Run'})).not.toBeInTheDocument();

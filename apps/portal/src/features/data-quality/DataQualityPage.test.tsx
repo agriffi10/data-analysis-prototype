@@ -333,7 +333,7 @@ describe('DataQualityPage', () => {
       await user.click(await screen.findByRole('button', {name: 'Check this folder'}));
 
       // Failure is announced by the hook (SPEC-106 wording), never by echoing AWS.
-      await waitFor(() => expect(screen.getByText(/don't have permission/i)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/don’t have permission/i)).toBeInTheDocument());
       expect(screen.queryByText('raw aws text')).not.toBeInTheDocument();
       // The dialog survives, still browsed to the folder the user picked.
       expect(screen.getByRole('dialog', {name: 'Start a quality check'})).toBeInTheDocument();

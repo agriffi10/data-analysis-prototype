@@ -46,7 +46,7 @@ export function DeleteSharedSpaceDialog({space, busy = false, onConfirm, onCance
       onCancel={onCancel}>
       <p className="mt-2 text-sm text-text-2">
         This removes <span className="font-mono">{space}</span> for everyone: every member loses access, including you,
-        and it disappears from everyone&apos;s list. Its files and tables are kept by administrators rather than
+        and it disappears from everyone&rsquo;s list. Its files and tables are kept by administrators rather than
         destroyed. The name can never be used again.
       </p>
       <div className="mt-3">

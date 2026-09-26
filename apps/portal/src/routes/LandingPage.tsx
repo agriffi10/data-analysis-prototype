@@ -354,7 +354,7 @@ const FEATURES = [
       />
     ),
     title: 'Files & uploads',
-    body: 'Drag-and-drop uploads, folders, and bulk move / copy / rename — then turn any folder into a queryable table.'
+    body: 'Drag-and-drop uploads, folders, rename, and bulk move / copy / delete — then turn any folder into a queryable table.'
   },
   {
     icon: <DatabaseIcon className="h-5 w-5" />,
@@ -364,7 +364,7 @@ const FEATURES = [
   {
     icon: <ConnectionsIcon className="h-5 w-5" />,
     title: 'Shared spaces',
-    body: 'Create shared connections, invite members, and share tables — with notifications when a space is ready.'
+    body: 'Create shared spaces, invite members, and share tables — with notifications when a space is ready.'
   }
 ] as const;
 
@@ -383,22 +383,18 @@ export default function LandingPage() {
   // fetch itself on a signed-in user — so a visitor who is not signed in would wait forever.
   // Everything below is therefore scoped to `isAuthed`.
   //
-  // "Go to Dashboard" points at /files, so it is a `files` surface. With Files off it becomes
+  // "Go to Files" points at /files, so it is a `files` surface. With Files off it becomes
   // the first ENABLED feature rather than disappearing — a signed-in visitor still needs a
   // way in. While the flags resolve it renders NOTHING, which is why each site below is
   // `dashboard && …` rather than defaulting to /files.
   const {isEnabled, status: flagsStatus} = useFeatureSet();
   const dashboardKey = FEATURE_FLAG_KEYS.find((key) => isEnabled(key) && navDestination(key));
-  const dashboard = dashboardKey
-    ? // Keep the established wording for the ordinary case; name the destination otherwise.
-      dashboardKey === 'files'
-      ? {to: '/files', label: 'Dashboard'}
-      : navDestination(dashboardKey)
-    : undefined;
+  // Named after the destination it opens, always — no page is called Dashboard.
+  const dashboard = dashboardKey ? navDestination(dashboardKey) : undefined;
 
   // A visitor who just completed an auth round-trip is sent on to their pending
   // return path. An already-signed-in visitor has none — they stay here and see
-  // "Go to Dashboard" instead of the sign-in/sign-up buttons.
+  // "Go to Files" instead of the sign-in/sign-up buttons.
   // Signed in with every feature off: there is nowhere to send them, so the landing page
   // becomes the same "not available" state a gated route renders, naming no feature.
   if (isAuthed && flagsStatus !== 'loading' && !dashboardKey) return <FeatureUnavailablePage />;
@@ -479,14 +475,14 @@ export default function LandingPage() {
           <div className="mx-auto max-w-[1080px] px-6">
             <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-accent-border bg-accent-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-accent-text">
               <ShieldIcon />
-              Private storage · SQL query · shared spaces — on your own AWS
+              Private storage · SQL query · shared spaces — on AWS
             </span>
             <h1 className="mx-auto mb-5 max-w-[760px] text-[32px] font-bold leading-tight tracking-[-0.02em] tablet:text-[40px] desktop:text-[46px]">
               Your data, <span className="text-accent">scoped to you</span>.
             </h1>
             <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
               Upload files to a private space, turn folders into queryable tables, run SQL right in the browser, and
-              share spaces with your team — all backed by your own AWS account.
+              share spaces with your team — all running in your organisation’s own AWS account.
             </p>
             <div className="flex flex-col gap-3 tablet:flex-row tablet:flex-wrap tablet:justify-center">
               {isAuthed ? (
@@ -636,19 +632,7 @@ export default function LandingPage() {
             <BrandMark size="sm" />
           </a>
           <div className="flex-1" />
-          <p className="text-sm text-text-3">
-            © 2026 Data Quarry ·{' '}
-            <a
-              href="#"
-              className="text-text-2 hover:text-text">
-              Privacy
-            </a>{' '}
-            <a
-              href="#"
-              className="text-text-2 hover:text-text">
-              Terms
-            </a>
-          </p>
+          <p className="text-sm text-text-3">© 2026 Data Quarry</p>
         </div>
       </footer>
     </div>

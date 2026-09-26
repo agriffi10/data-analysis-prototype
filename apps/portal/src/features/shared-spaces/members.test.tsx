@@ -338,7 +338,7 @@ describe('ManageMembersDrawer', () => {
 
     it('offers a Refresh control that re-reads member state (SPEC-073 FR-006)', async () => {
       const {onRefresh, user} = setup();
-      await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+      await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
   });

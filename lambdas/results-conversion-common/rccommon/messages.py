@@ -58,7 +58,10 @@ _BODIES = {
     reasons.EXECUTION_FAILED: (
         "that query didn't complete successfully, so there are no results to save."
     ),
-    reasons.NO_RESULT_SET: "that statement produced no rows, so there is nothing to save.",
+    reasons.NO_RESULT_SET: (
+        "only the results of a query can be converted, and that statement (such as SHOW or "
+        "DESCRIBE) is not one."
+    ),
     reasons.RESULTS_TOO_LARGE: (
         "the results are larger than {maxBytes} and can't be converted. Please narrow the query "
         "and try again."

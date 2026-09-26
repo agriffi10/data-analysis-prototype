@@ -43,8 +43,8 @@ const NOTHING_TO_CLEAR = 'There are no filters, expressions, sorts or grouping t
  * un-groups the result, and a control that says "filters" while removing a grouping is
  * lying about what the click will do.
  */
-export const CLEAR_ALL_LABEL = 'Remove all filters';
-export const CLEAR_ALL_WITH_GROUPING_LABEL = 'Remove all filters and grouping';
+export const CLEAR_ALL_LABEL = 'Remove all filters and sorts';
+export const CLEAR_ALL_WITH_GROUPING_LABEL = 'Remove all filters, sorts and grouping';
 
 function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
   return entries.length > EXPLORER_FILTER_HISTORY_MAX
@@ -163,7 +163,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   const clearAll = useCallback(() => {
     if (isEmptyQuery(query)) return;
     // Grouping goes too, superseding the preservation — and
-    // the control SAYS so, because "Remove all filters" silently un-grouping a view would
+    // the control SAYS so, because a label naming only filters silently un-grouping a view would
     // be the change nobody asked for that the earlier decision was protecting against.
     apply(emptyExplorationQuery());
   }, [apply, query]);

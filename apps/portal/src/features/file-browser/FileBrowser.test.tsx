@@ -436,7 +436,7 @@ describe('FileBrowser — selection + delete', () => {
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     // The reason is the mapped message, not raw S3 text.
-    expect(await screen.findByText(/report\.csv — You don't have permission/)).toBeInTheDocument();
+    expect(await screen.findByText(/report\.csv — You don’t have permission/)).toBeInTheDocument();
     expect(screen.queryByText(/report\.csv — Access Denied/)).not.toBeInTheDocument();
   });
 
@@ -788,7 +788,7 @@ describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)
     await user.type(field, 'sub/notes.txt{Enter}');
 
     // The prompt still being there is what proves Enter did not rename: a rename re-queues the row.
-    expect(within(collisionPrompt()).getByText("File name cannot contain '/'.")).toBeInTheDocument();
+    expect(within(collisionPrompt()).getByText('File name cannot contain “/”.')).toBeInTheDocument();
     expect(within(collisionPrompt()).getByRole('button', {name: 'Save as new name'})).toBeDisabled();
     expect(mock.uploadFile).toHaveBeenCalledTimes(1);
   });
@@ -814,7 +814,7 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
     const {user} = renderBrowser();
     await createAndRenameTo(user, 'sub/notes');
 
-    expect(within(folderPrompt()).getByText("Folder name cannot contain '/'.")).toBeInTheDocument();
+    expect(within(folderPrompt()).getByText('Folder name cannot contain “/”.')).toBeInTheDocument();
     expect(mock.createFolder).toHaveBeenCalledTimes(1);
   });
 
@@ -1205,7 +1205,7 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).not.toBeChecked();
-    expect(await screen.findByText(/you'll get a notification/i)).toBeInTheDocument();
+    expect(await screen.findByText(/you’ll get a notification with the outcome/i)).toBeInTheDocument();
   });
 
   it('sends from a SHARED space as that space, not as the signed-in user', async () => {

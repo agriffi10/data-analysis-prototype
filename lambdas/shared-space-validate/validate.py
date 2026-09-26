@@ -56,8 +56,8 @@ observability.init(service="shared-space")
 
 
 _INTENT = {
-    "create": (cache.write_owner_pending, 'Creating shared workspace "{space}"…', "create-pending"),
-    "delete": (cache.write_owner_deleting, 'Deleting shared workspace "{space}"…', "delete-pending"),
+    "create": (cache.write_owner_pending, 'Creating shared space "{space}"…', "create-pending"),
+    "delete": (cache.write_owner_deleting, 'Deleting shared space "{space}"…', "delete-pending"),
 }
 
 

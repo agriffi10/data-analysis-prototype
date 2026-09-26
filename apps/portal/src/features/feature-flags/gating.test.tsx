@@ -298,7 +298,7 @@ describe('FR-007 — the landing page', () => {
     renderWithProviders(<LandingPage />, opts);
 
     expect(await screen.findAllByRole('button', {name: 'Go to Query'})).not.toHaveLength(0);
-    expect(screen.queryByRole('button', {name: 'Go to Dashboard'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Go to Files'})).not.toBeInTheDocument();
   });
 
   it('renders the unavailable state when a signed-in visitor has no feature at all', async () => {
@@ -308,12 +308,12 @@ describe('FR-007 — the landing page', () => {
     expect(await screen.findByRole('heading', {name: 'Nothing to show'})).toBeInTheDocument();
   });
 
-  it('shows Go to Dashboard for a signed-in visitor with Files on', async () => {
+  it('shows Go to Files for a signed-in visitor with Files on', async () => {
     // The surface exists ONLY for an authenticated visitor, so an unauthenticated-only test
     // would pass while shipping it visible.
     renderWithProviders(<LandingPage />, opts);
 
-    expect(await screen.findAllByRole('button', {name: 'Go to Dashboard'})).not.toHaveLength(0);
+    expect(await screen.findAllByRole('button', {name: 'Go to Files'})).not.toHaveLength(0);
   });
 });
 
@@ -408,7 +408,7 @@ describe("a shared space's report with shared workspaces off", () => {
     withFlags({sharedWorkspaces: false});
     renderReportRoute('/data-quality/teamspace/req-1');
 
-    expect(await screen.findByRole('heading', {name: /^Connections isn.t available$/})).toBeInTheDocument();
+    expect(await screen.findByRole('heading', {name: /^Shared spaces isn.t available$/})).toBeInTheDocument();
     // A shared space's read waits on the connections list, so it would not have happened yet when
     // the heading lands. Give it the time the control below takes to see one, THEN assert none.
     await act(async () => {

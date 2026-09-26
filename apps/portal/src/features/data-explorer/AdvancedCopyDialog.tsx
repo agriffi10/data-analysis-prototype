@@ -30,13 +30,14 @@ export const COPY_RECTANGLE_NOTE =
  * export is the tool that covers every ROW of the result — its columns are the grid's.
  */
 export const COPY_LOADED_ROWS_NOTE =
-  'Only the rows loaded on this page are copied — selecting a column header selects that page, not the whole result. To take every row, use Save results to my files, which saves the result columns this grid is showing.';
+  'Only the rows loaded on this page are copied — selecting a column header selects that page, not the whole result. To take every row, use Save results…, which saves the result columns this grid is showing.';
 
 /** Why quoting is unavailable in the formats that already delimit their values. */
-export const COPY_QUOTING_INERT = 'This format already keeps text and numbers apart, so quoting adds nothing.';
+export const COPY_QUOTING_INERT =
+  'This format already marks where each value starts and ends, and writes NULL its own way, so quoting adds nothing.';
 
 /** Why quoting is worth turning on where it does apply. */
-export const COPY_QUOTING_NOTE = 'Quoting also keeps a value whose text is “NULL” apart from an actual empty cell.';
+export const COPY_QUOTING_NOTE = 'Quoting also keeps a value whose text is “NULL” apart from an actual NULL.';
 
 /**
  * The copy formats, in the order the dialog offers them.

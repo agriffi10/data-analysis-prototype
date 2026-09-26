@@ -9,7 +9,7 @@ import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {readExplorationTabsState} from './explorationTabs';
 import {parseViewLine} from '../../lib/savedViewLine';
 import {newExploration} from './exploration';
-import {FAILED_NOT_SAVEABLE} from './ExplorationResultsRegion';
+import {FAILED_NO_VIEW, FAILED_NOT_SAVEABLE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
@@ -418,6 +418,8 @@ describe('nothing to save (FR-002)', () => {
     // A render refusal is an ERROR as well as an absent statement, so it takes the same
     // wording a failed execution does: nothing ran, and the way out is to change something.
     expect(button).toHaveAttribute('title', FAILED_NOT_SAVEABLE);
+    // Create view is refused for the same reason, in its own words: it makes a view, not a file.
+    expect(await explorationOption(user, 'Create view…')).toHaveAttribute('title', FAILED_NO_VIEW);
     expect(runQuery).not.toHaveBeenCalled();
     expect(screen.queryByText(/neither grouped nor aggregated/)).not.toBeInTheDocument();
   });

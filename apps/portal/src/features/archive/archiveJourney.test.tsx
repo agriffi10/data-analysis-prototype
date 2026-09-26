@@ -317,7 +317,7 @@ describe('the restore journey', () => {
       archiveId: ARCHIVE_ID
     });
     expect(screen.queryByRole('dialog', {name: 'Restore archived data'})).not.toBeInTheDocument();
-    expect(await screen.findByText(/Restore started/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Restore requested/i)).toBeInTheDocument();
   });
 
   it('names the space it will restore into', async () => {

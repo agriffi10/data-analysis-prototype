@@ -19,7 +19,7 @@ const NOOP = () => {};
 function props(over: Partial<React.ComponentProps<typeof ExplorationOptionsMenu>> = {}) {
   return {
     onOrderAndFilter: NOOP,
-    clearAllLabel: 'Remove all filters',
+    clearAllLabel: 'Remove all filters and sorts',
     onClearAll: NOOP,
     onFilterByCell: NOOP,
     onColumns: NOOP,
@@ -58,7 +58,7 @@ describe('the Data Explorer options menu', () => {
     ).toEqual([
       // The query-changing group leads: these are what the screen is for.
       'Order and filter',
-      'Remove all filters',
+      'Remove all filters and sorts',
       'Filter by this value',
       'Columns',
       'Colors',
@@ -67,7 +67,7 @@ describe('the Data Explorer options menu', () => {
       'Calc',
       'Grouping',
       'Copy…',
-      'Save results to my files',
+      'Save results…',
       'Save as query',
       // The sibling of the one above it: `Save as query` writes a `.sql` file into a space,
       // `Create view…` writes a view into the catalog. It sits here rather than in the source
@@ -84,7 +84,7 @@ describe('the Data Explorer options menu', () => {
     const onExport = vi.fn();
     const {user, menu} = await open({onExport, exportRefusal: 'Nothing to export yet.'});
 
-    const item = within(menu).getByRole('menuitem', {name: 'Save results to my files'});
+    const item = within(menu).getByRole('menuitem', {name: 'Save results…'});
     expect(item).toHaveAttribute('aria-disabled', 'true');
     // `aria-disabled`, never `disabled` — a `disabled` item leaves the roving focus order and
     // takes its `title` out of reach of everyone not using a mouse.

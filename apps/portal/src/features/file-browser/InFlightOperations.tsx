@@ -17,7 +17,7 @@ function status(operation: InFlightOperation): string {
     case 'settled':
       return 'Finished — see your notifications for what happened.';
     case 'refused':
-      return 'Refused — see your notifications for why.';
+      return 'Didn’t finish — see your notifications for what happened.';
     case 'expired':
       return 'No result arrived. Check your notifications, or refresh the folder to see where things stand.';
     default:

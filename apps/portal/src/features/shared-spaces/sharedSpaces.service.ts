@@ -128,6 +128,6 @@ export async function readSharedConnectionsCache(username: string): Promise<Serv
     key: cacheKey(username),
     parse: (body) => ok(parseCache(body)),
     onMissing: () => ({success: true, data: emptyCache()}),
-    fallbackMessage: 'Failed to load shared connections'
+    fallbackMessage: 'Failed to load shared spaces'
   });
 }

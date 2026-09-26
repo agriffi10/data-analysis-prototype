@@ -22,8 +22,8 @@ why a downstream table came out wrong.
 Attributes:
   SKIP_TYPE_PARQUET: Why type consistency cannot find anything in a format that enforces types.
   SKIP_TYPE_TYPED_COLUMN: Why it cannot find anything in one already-typed column.
-  SKIP_RAGGED_NOT_LINE_DELIMITED: Why ragged rows only mean something for a line-delimited text
-    format.
+  SKIP_RAGGED_NOT_POSITIONAL: Why ragged rows only mean something for CSV. JSON Lines is
+    line-delimited too, so the reason is that only CSV reads its fields by position.
   NOTE_RAGGED: Both approximation caveats, never one. Splitting over-reports a quoted delimiter
     and over-reports a newline inside a quoted field, where one logical row arrives as two
     physical lines. Stating only the first would leave a user hunting for malformed rows that are
@@ -94,7 +94,7 @@ SKIP_TYPE_TYPED_COLUMN = (
     "the file format defines this column's type, so it cannot hold a value that fails to parse."
 )
 
-SKIP_RAGGED_NOT_LINE_DELIMITED = "not a line-delimited text format."
+SKIP_RAGGED_NOT_POSITIONAL = "this format doesn't read its fields by position, so it can't have ragged rows."
 
 NOTE_RAGGED = (
     "Approximate — over-counts rows with commas inside quotes, and rows with newlines "
@@ -635,7 +635,7 @@ def _ragged(block, rows: list[dict]) -> dict:
       ValueError: If a result cell is non-empty and not a number.
     """
     if block is None:
-        return {"status": "skipped", "reason": SKIP_RAGGED_NOT_LINE_DELIMITED}
+        return {"status": "skipped", "reason": SKIP_RAGGED_NOT_POSITIONAL}
     if block.get("status") == "not_computed":
         if block.get("reasonCode") == sql.RAGGED_QUERY_TOO_LARGE:
             reason = NOT_COMPUTED_RAGGED_QUERY_TOO_LARGE
@@ -933,10 +933,14 @@ def top_issues(exact: dict, approximate: dict, file_count: int) -> list[str]:
             "values are counted under the wrong columns"
         )
 
-    for disagreement in exact["crossFile"]["disagreements"]:
+    disagreements = exact["crossFile"]["disagreements"]
+    for disagreement in disagreements:
         name = _basename(disagreement["file"])
         others = file_count - 1
-        rest = f"the other {others} {_plural(others, 'file')} {'has' if others == 1 else 'have'}"
+        if len(disagreements) == 1:
+            rest = f"the other {others} {_plural(others, 'file')} {'has' if others == 1 else 'have'}"
+        else:
+            rest = "the most common set of columns in this folder has"
         if disagreement["missing"]:
             columns = ", ".join(f"`{c}`" for c in disagreement["missing"])
             issues.append(

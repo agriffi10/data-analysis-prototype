@@ -29,10 +29,10 @@ export function TransferOwnershipDialog({space, newOwner, busy = false, onConfir
       onCancel={onCancel}>
       <p className="mt-2 text-sm text-text-2">
         Make <span className="font-mono">{newOwner}</span> the owner of <span className="font-mono">{space}</span>?
-        They&apos;ll be able to add and remove members and delete the space.
+        They&rsquo;ll be able to add and remove members and delete the space.
       </p>
       <p className="mt-2 text-sm text-text-2">
-        You&apos;ll stay a member and keep access to all its files and tables, but you won&apos;t be able to manage it
+        You&rsquo;ll stay a member and keep access to all its files and tables, but you won&rsquo;t be able to manage it
         any more — only {newOwner} can transfer it back.
       </p>
     </ConfirmDialog>

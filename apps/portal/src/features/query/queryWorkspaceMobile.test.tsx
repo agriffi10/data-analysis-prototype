@@ -224,7 +224,7 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
 
     await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
     expect(await screen.findByText('Succeeded')).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Save results…'})).not.toBeInTheDocument();
   });
 
   it('never shows one query’s results under another query’s name', async () => {

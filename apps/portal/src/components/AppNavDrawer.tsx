@@ -77,7 +77,7 @@ const DESTS: NavDest[] = [
   },
   {
     to: '/connections',
-    label: 'Connections',
+    label: 'Shared spaces',
     icon: (
       <DestinationIcon
         destination="connections"
@@ -101,7 +101,7 @@ const DESTS: NavDest[] = [
 
 /**
  * Mobile off-canvas navigation: a 300px left sheet over a scrim listing the primary
- * destinations (Files / Query / Data Explorer / Connections / Data quality / Notifications / Help) with
+ * destinations (Files / Query / Data Explorer / Shared spaces / Data quality / Notifications / Help) with
  * active state, then any header actions that do not fit a phone's top bar, then a divider and a
  * page-supplied contextual rail. Reuses the
  * `Drawer` mechanics (focus trap + Escape/scrim dismiss) plus a background

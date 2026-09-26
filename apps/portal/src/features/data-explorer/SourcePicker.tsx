@@ -82,8 +82,8 @@ export function SourcePicker({
         className="mx-auto flex max-w-lg flex-col gap-3 p-8 text-center focus:outline-none">
         <h2 className="text-lg font-semibold text-text">Nothing to explore yet</h2>
         <p className="text-sm leading-relaxed text-text-2">
-          The Data Explorer reads tables from your own space and from shared spaces you are a member of. Sign in, or ask
-          an administrator to add you to a space, and its tables will appear here.
+          The Data Explorer reads tables from your own space and from shared spaces you are a member of, and it couldn’t
+          find your space. Contact the Administrator.
         </p>
       </section>
     );
@@ -153,7 +153,7 @@ export function SourcePicker({
           <p
             role="status"
             className="px-2 py-2 text-sm leading-relaxed text-text-3">
-            This space&rsquo;s tables aren&rsquo;t available right now. Try another space, or contact an administrator.
+            This space&rsquo;s tables aren&rsquo;t available right now. Try another space, or contact the Administrator.
           </p>
         )}
         {data && data.tables.length === 0 && (

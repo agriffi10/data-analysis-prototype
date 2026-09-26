@@ -8,7 +8,7 @@ export type ExportExplorationDialogProps = {
 };
 
 /**
- * Save this exploration's rows into a space — the Explorer's "Save results to my files".
+ * Save this exploration's rows into a space — the Explorer's "Save results…".
  *
  * **Nothing here is new.** It is the Query workspace's own destination picker, overwrite
  * warn-and-confirm and cross-bucket copy, mounted on the other workspace — which is why

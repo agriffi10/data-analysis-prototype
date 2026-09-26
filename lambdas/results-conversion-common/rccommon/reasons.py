@@ -14,7 +14,8 @@ Attributes:
     exists.
   EXECUTION_NOT_FINISHED: The execution is still queued or running.
   EXECUTION_FAILED: The execution failed or was cancelled.
-  NO_RESULT_SET: The execution was not a DML statement, so it wrote no rows.
+  NO_RESULT_SET: The execution was not a DML statement, so what it wrote is not a result set this
+    plane can read, whatever rows the grid showed for it.
   RESULTS_TOO_LARGE: The result object is over the converter's cap.
   DUPLICATE_COLUMN: Two result columns share a name once case-folded.
   INVALID_COLUMN_NAME: A result column has an empty name.

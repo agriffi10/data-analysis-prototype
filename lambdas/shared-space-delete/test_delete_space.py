@@ -156,9 +156,9 @@ def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message()
     sent = _sent(sqs)
     # One per member, owner ∈ members; the deleter (alice) gets the distinct message.
     assert set(sent) == {"alice", "bob", "carol"}
-    assert sent["alice"] == 'You deleted the shared workspace "sales".'
-    assert sent["bob"] == 'The shared workspace "sales" was deleted.'
-    assert sent["carol"] == 'The shared workspace "sales" was deleted.'
+    assert sent["alice"] == 'You deleted the shared space "sales".'
+    assert sent["bob"] == 'The shared space "sales" was deleted.'
+    assert sent["carol"] == 'The shared space "sales" was deleted.'
     # Deduplicated: exactly one message per member.
     assert len(sqs.sent) == 3
     assert {m["MessageDeduplicationId"] for m in sqs.sent} == {
@@ -277,7 +277,7 @@ def test_a_member_added_while_the_verb_runs_is_revoked_by_the_union_pass_and_tol
     assert carol_cache["connections"] == []
     # Told the same thing as everyone else — either choice compiles, and the silent one revokes
     # a user's access without a word.
-    assert _sent(sqs)["carol"] == 'The shared workspace "sales" was deleted.'
+    assert _sent(sqs)["carol"] == 'The shared space "sales" was deleted.'
     assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == []
 
 
@@ -428,7 +428,7 @@ def test_a_latecomer_the_fault_never_reached_is_put_BACK_on_the_roster():
 
     assert "carol" in out["revokedMembers"]
     assert cognito.users["carol"]["custom:shared_space_1"] == ""
-    assert _sent(sqs)["carol"] == 'The shared workspace "sales" was deleted.'
+    assert _sent(sqs)["carol"] == 'The shared space "sales" was deleted.'
 
 
 def test_an_unstamped_active_record_is_stamped_before_it_is_emptied():

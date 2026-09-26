@@ -71,7 +71,7 @@ export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendT
         // "Requested", never "sent": the plane copies in the background, and the outcome per
         // recipient arrives as a notification. Claiming delivery here would be a lie for the
         // several minutes a large send takes, and simply wrong for one that conflicts.
-        message: `Send requested to ${recipients.length === 1 ? '1 recipient' : `${recipients.length} recipients`} — you'll get a notification for each one.`
+        message: `Send requested to ${recipients.length === 1 ? '1 recipient' : `${recipients.length} recipients`} — you’ll get a notification with the outcome.`
       });
       return true;
     } catch (err) {

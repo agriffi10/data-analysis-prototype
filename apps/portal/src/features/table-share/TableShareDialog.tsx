@@ -142,7 +142,8 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
       {/* `mt-1` reproduces the gap the old markup got from an `mb-1` on the heading. */}
       <p className="mb-3 mt-1 text-sm text-text-2">
         Copies the table&rsquo;s data into each recipient&rsquo;s space and creates the table in their database. It runs
-        in the background — recipients are notified, and outcomes appear in your notifications.
+        in the background — each user you share with is notified when their copy is ready (for a shared space, its owner
+        is), and outcomes appear in your notifications.
       </p>
 
       <div className="mb-4">

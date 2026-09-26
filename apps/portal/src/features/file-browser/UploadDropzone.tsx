@@ -1,4 +1,6 @@
 import {useRef, useState} from 'react';
+import {formatBytes} from '../../lib/format';
+import {maxUploadBytes} from './uploadLimits';
 
 type Props = {
   onFiles: (files: File[]) => void; // enqueue all selected/dropped files
@@ -70,7 +72,9 @@ export function UploadDropzone({onFiles, disabled}: Props) {
           choose files
         </button>
       </p>
-      <p className="mt-2 text-xs text-text-3">Up to 5 GB per file · multipart handled automatically</p>
+      <p className="mt-2 text-xs text-text-3">
+        Up to {formatBytes(maxUploadBytes())} per file · multipart handled automatically
+      </p>
       <input
         ref={inputRef}
         type="file"

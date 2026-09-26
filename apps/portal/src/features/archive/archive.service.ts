@@ -40,7 +40,10 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
   if (selectionTooLarge(req.items)) {
     return {
       success: false,
-      error: {message: 'That selection is too large to archive in one go', code: 'SelectionTooLarge'}
+      error: {
+        message: 'That selection is too large to archive in one go. Select fewer items and try again.',
+        code: 'SelectionTooLarge'
+      }
     };
   }
 

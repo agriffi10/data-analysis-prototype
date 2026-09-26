@@ -237,7 +237,7 @@ describe('DataQualityReportPage', () => {
       // than reading as an unqualified pass.
       expect(await screen.findByText('No issues found in what could be checked')).toBeInTheDocument();
       expect(screen.queryByText('No issues found')).not.toBeInTheDocument();
-      expect(screen.getByText(/some checks couldn’t be completed/i)).toBeInTheDocument();
+      expect(screen.getByText(/some checks weren’t run in full/i)).toBeInTheDocument();
 
       // Every skipped figure carries its reason and a Skipped chip. Matched on the
       // SUBSTANCE of each reason, not the exact string: the view sentence-cases these

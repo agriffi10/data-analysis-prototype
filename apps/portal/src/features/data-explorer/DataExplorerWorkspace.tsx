@@ -405,7 +405,7 @@ export function DataExplorerWorkspace() {
               // The view is the only thing that changed, so the exploration it was built FROM
               // is not evicted and does not re-run.
               table: name,
-              describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+              describe: {success: `Saved view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
               onSettled: () => setCreatingView(null)
             })
           }

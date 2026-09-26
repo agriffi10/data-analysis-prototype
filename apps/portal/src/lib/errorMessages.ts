@@ -92,7 +92,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   {
     code: 'PlaneRequired',
     message:
-      "Folders are handled by the file operations service, which couldn't take this request. Reload the page and try again.",
+      'Folders are handled by the file operations service, which couldn’t take this request. Reload the page and try again.',
     userFixable: true
   },
 
@@ -325,10 +325,10 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
-  {code: 'AccessDenied', message: `You don't have permission to do that. ${CONTACT_ADMIN}`, userFixable: false},
+  {code: 'AccessDenied', message: `You don’t have permission to do that. ${CONTACT_ADMIN}`, userFixable: false},
   {
     code: 'AccessDeniedException',
-    message: `You don't have permission to do that. ${CONTACT_ADMIN}`,
+    message: `You don’t have permission to do that. ${CONTACT_ADMIN}`,
     userFixable: false
   },
 
@@ -343,11 +343,13 @@ const CODE_RULES: readonly ErrorRule[] = [
   // AccessDenied above, which is the case where signing in again cannot help. ──
   {code: 'SessionExpired', message: 'Your session expired. Sign in again.', userFixable: true},
 
-  // Trigger: the API could not be reached, answered a 5xx, or is not configured in this
-  // build. Not a credential problem, so the wording must not tell the user to sign in. ──
+  // Trigger: the API answered a 5xx or a body that is not JSON, or is not configured in this
+  // build. A response ARRIVED, so the wording must not blame the user's connection, and it is
+  // not a credential problem, so it must not tell the user to sign in either. ──
   {
     code: 'ApiUnavailable',
-    message: `Can’t reach the server. Check your connection and try again.`,
+    message:
+      'The server couldn’t complete that request. Try again in a moment. If it keeps happening, contact the Administrator.',
     userFixable: true
   },
 

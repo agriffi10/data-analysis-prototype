@@ -23,8 +23,9 @@ export const SKIP_BINARY = 'binary format — encoding is defined by the file fo
 /** `dq_byte_scan.py::SKIP_COMPRESSED`, verbatim. */
 export const SKIP_COMPRESSED = 'compressed source — raw bytes are DEFLATE output';
 
-/** `report.py::SKIP_RAGGED_NOT_LINE_DELIMITED`, verbatim. */
-export const SKIP_RAGGED_NOT_LINE_DELIMITED = 'not a line-delimited text format.';
+/** `report.py::SKIP_RAGGED_NOT_POSITIONAL`, verbatim. */
+export const SKIP_RAGGED_NOT_POSITIONAL =
+  "this format doesn't read its fields by position, so it can't have ragged rows.";
 
 /** `report.py::NOT_COMPUTED_DUPLICATES`, verbatim. */
 export const NOT_COMPUTED_DUPLICATES =
@@ -141,7 +142,7 @@ export function parquetReport(over: Partial<DataQualityReport> = {}): DataQualit
       crossFile: {columnsAgree: true, disagreements: []}
     },
     approximate: {
-      raggedRows: {status: 'skipped', reason: SKIP_RAGGED_NOT_LINE_DELIMITED},
+      raggedRows: {status: 'skipped', reason: SKIP_RAGGED_NOT_POSITIONAL},
       encoding: {status: 'skipped', reason: SKIP_BINARY}
     },
     topIssues: [],

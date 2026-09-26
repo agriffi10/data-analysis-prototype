@@ -375,7 +375,7 @@ describe('in-flight state', () => {
       ])
     );
     await pollNotifications(queryClient);
-    await waitFor(() => expect(screen.getByText(/Refused — see your notifications/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Didn’t finish — see your notifications/)).toBeInTheDocument());
   });
 
   it('gates a SECOND submit in the same space, and says why on the control', async () => {
@@ -417,7 +417,10 @@ describe('in-flight state', () => {
     // paths always had. A refusal would otherwise cost the user every tick they made.
     mockSubmit.mockResolvedValue({
       success: false,
-      error: {message: 'That selection is too large to do in one go', code: 'SelectionTooLarge'}
+      error: {
+        message: 'That selection is too large to move in one go. Select fewer items and try again.',
+        code: 'SelectionTooLarge'
+      }
     });
     const {user} = render();
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
@@ -426,7 +429,9 @@ describe('in-flight state', () => {
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
     await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
-    expect(await screen.findByText('That selection is too large to do in one go')).toBeInTheDocument();
+    expect(
+      await screen.findByText('That selection is too large to move in one go. Select fewer items and try again.')
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 

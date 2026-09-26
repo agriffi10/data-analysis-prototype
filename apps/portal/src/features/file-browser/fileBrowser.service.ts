@@ -429,7 +429,7 @@ export function uploadPercent(loaded: number, total: number): number {
 export function validateLeafName(name: string, label: string): string | null {
   if (name.trim().length === 0) return `${label} cannot be empty.`;
   if (name !== name.trim()) return `${label} cannot start or end with spaces.`;
-  if (name.includes('/')) return `${label} cannot contain '/'.`;
+  if (name.includes('/')) return `${label} cannot contain “/”.`;
   // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f]/.test(name)) return `${label} cannot contain control characters.`;
   if (name === '.' || name === '..') return `${label} cannot be “.” or “..”.`;

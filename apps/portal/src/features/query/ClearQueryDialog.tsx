@@ -5,7 +5,12 @@ type Props = {
   onCancel: () => void;
 };
 
-/** Warn-and-confirm before Clear wipes the editor (no undo, so focus defaults to Cancel). */
+/**
+ * Warn-and-confirm before Clear wipes the editor, focus defaulting to Cancel.
+ *
+ * Not `irreversible`: the editor takes the cleared value as an undoable edit, so Ctrl/Cmd+Z brings
+ * the SQL straight back, and "This can’t be undone" would be the one false sentence here.
+ */
 export function ClearQueryDialog({onConfirm, onCancel}: Props) {
   return (
     <ConfirmDialog
@@ -14,7 +19,6 @@ export function ClearQueryDialog({onConfirm, onCancel}: Props) {
       confirmLabel="Clear"
       confirmVariant="danger"
       tone="danger"
-      irreversible
       onConfirm={onConfirm}
       onCancel={onCancel}>
       <p className="mt-3 text-sm text-text-2">This empties the editor and discards the draft saved for this session.</p>

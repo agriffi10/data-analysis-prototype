@@ -603,7 +603,7 @@ def test_a_json_source_skips_ragged_rather_than_reporting_zero():
     clean bill of health for a check that never ran."""
     figure = _build(request=_request(ragged=None), ragged=[])["approximate"]["raggedRows"]
 
-    assert figure == {"status": "skipped", "reason": report.SKIP_RAGGED_NOT_LINE_DELIMITED}
+    assert figure == {"status": "skipped", "reason": report.SKIP_RAGGED_NOT_POSITIONAL}
 
 
 def test_a_degraded_ragged_query_is_not_computed_with_a_friendly_reason():
@@ -1015,6 +1015,34 @@ def test_an_extra_column_reads_grammatically_too():
 
     assert document["topIssues"] == [
         "c.csv has the extra column `surprise`, which the other 2 files do not"
+    ]
+
+
+def test_several_disagreeing_files_are_compared_with_the_common_set_not_the_other_files():
+    """Two files share an extra column, so "which the other 4 files do not" would be false of each.
+
+    The baseline is the folder's most common column set, and with more than one file off it the
+    sentence names that set rather than a count of files some of which have the column too.
+    """
+    files = [
+        _file("alice/s/a.csv", ["id"]),
+        _file("alice/s/b.csv", ["id"]),
+        _file("alice/s/c.csv", ["id"]),
+        _file("alice/s/d.csv", ["id", "surprise"]),
+        _file("alice/s/e.csv", ["id", "surprise"]),
+    ]
+
+    document = _build(manifest=_manifest(files), profile=[_profile_row(10, [{}, {}])])
+
+    assert document["topIssues"] == [
+        (
+            "d.csv has the extra column `surprise`, which the most common set of columns in this "
+            "folder does not"
+        ),
+        (
+            "e.csv has the extra column `surprise`, which the most common set of columns in this "
+            "folder does not"
+        ),
     ]
 
 

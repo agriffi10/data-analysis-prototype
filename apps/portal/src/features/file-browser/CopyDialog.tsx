@@ -123,7 +123,7 @@ export function CopyDialog({
         autoFocus
         confirmLabel="Copy here"
         busyLabel="Copying…"
-        selfMessage="You can't copy a folder into itself."
+        selfMessage="You can’t copy a folder into itself."
         onConfirm={onCopy}
         onCancel={onCancel}
       />

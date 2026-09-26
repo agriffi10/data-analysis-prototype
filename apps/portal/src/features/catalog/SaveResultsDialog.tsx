@@ -88,7 +88,7 @@ export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCa
 
   return (
     <Modal
-      ariaLabel="Save results to my files"
+      ariaLabel="Save results"
       dismissible={!isBusy}
       onDismiss={onCancel}
       className={DIALOG_PANEL}>

@@ -43,7 +43,10 @@ export async function submitFileOperation(request: FileOpRequest): Promise<Servi
   if (request.source.items.length > FILE_OPS_MAX_ITEMS || selectionBytes > FILE_OPS_MAX_SELECTION_BYTES) {
     return {
       success: false,
-      error: {message: 'That selection is too large to do in one go', code: 'SelectionTooLarge'}
+      error: {
+        message: `That selection is too large to ${request.operation} in one go. Select fewer items and try again.`,
+        code: 'SelectionTooLarge'
+      }
     };
   }
 

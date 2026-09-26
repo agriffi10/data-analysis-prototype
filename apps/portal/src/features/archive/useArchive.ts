@@ -145,7 +145,8 @@ export function useRestoreArchive(space: ArchiveSpace | null, notify: (toast: Ar
       setOpen(false);
       notify({
         variant: 'success',
-        message: 'Restore started — this takes several hours, and you’ll get a notification when it finishes.'
+        message:
+          'Restore requested — it takes several hours, and you’ll get a notification when it starts and another when it finishes.'
       });
       return true;
     } catch (err) {
