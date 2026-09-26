@@ -31,7 +31,7 @@ export type UseMobileQuerySurfaceResult = {
    */
   runSql: (sql: string, title: string, savedQuery?: MobileSavedRef) => void;
   /** Show SQL read-only, without running it. */
-  viewSql: (sql: string, title: string) => void;
+  viewSql: (sql: string, title: string, savedQuery?: MobileSavedRef) => void;
   back: () => void;
   /** Forgets a failed submit, so its error stops being rendered. */
   clearRun: () => void;
@@ -99,9 +99,10 @@ export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}
     setView({kind: 'results', sql, title, savedQuery});
   };
 
-  const viewSql = (sql: string, title: string) => {
+  const viewSql = (sql: string, title: string, savedQuery?: MobileSavedRef) => {
     setRun(null);
-    setView({kind: 'results', sql, title});
+    // Carried so the view's own Run records the saved query, as a run from its card does.
+    setView({kind: 'results', sql, title, savedQuery});
   };
 
   const back = () => {

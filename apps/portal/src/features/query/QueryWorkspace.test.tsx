@@ -722,9 +722,14 @@ describe('QueryWorkspace', () => {
       expect(mockRunQuery).toHaveBeenCalledTimes(1);
       expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 42', username: 'alice'});
       expect(editor()).toHaveValue('SELECT 42');
-      // The first tab still holds the draft, which loading into the active tab used to replace.
+      // The run belongs to the NEW tab — the id is passed explicitly because the switch to it has
+      // not committed when the run is submitted, and without it the run lands in the draft's tab.
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      // The first tab still holds the draft, which loading into the active tab used to replace,
+      // and no run.
       await user.click(screen.getAllByRole('tab')[0]);
       expect(editor()).toHaveValue('SELECT draft_i_have_not_saved');
+      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
     });
 
     // --- table actions (driven through the REAL rail menu) ---

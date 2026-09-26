@@ -190,6 +190,18 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(mockAppend.mock.calls[0][1]).toEqual(expect.objectContaining({savedQueryName: 'Revenue'}));
   });
 
+  it('records the saved query when it is viewed first and run from its results view', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'View saved query Revenue'}));
+    await user.click(await screen.findByRole('button', {name: 'Run'}));
+
+    await waitFor(() => expect(mockAppend).toHaveBeenCalled());
+    expect(mockAppend.mock.calls[0][1]).toEqual(expect.objectContaining({savedQueryName: 'Revenue'}));
+  });
+
   it('says the total is still being counted on a phone too', async () => {
     mockListSaved.mockResolvedValue(savedListing('Revenue'));
     mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));

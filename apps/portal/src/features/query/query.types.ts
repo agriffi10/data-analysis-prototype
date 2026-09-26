@@ -59,13 +59,13 @@ export type ResultTab = {
   status: QueryStatus;
 };
 
+/** The saved query a mobile run IS, by its key and name — recorded in history in place of the tab's link. */
+export type MobileSavedRef = {key: string; name: string};
+
 /**
  * Which surface the mobile (`< tablet`) browse-first workspace is showing —
  * local UI state, never persisted.
  */
-/** The saved query a mobile run IS, by its key and name — recorded in history in place of the tab's link. */
-export type MobileSavedRef = {key: string; name: string};
-
 export type MobileQueryView =
   {kind: 'home'} | {kind: 'results'; sql: string; title: string; savedQuery?: MobileSavedRef};
 
