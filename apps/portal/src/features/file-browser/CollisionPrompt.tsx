@@ -9,6 +9,11 @@ type Props = {
   /** Where a renamed folder lands, when the caller knows it. Ignored for a file. */
   parentPrefix?: string;
   onOverwrite: () => void;
+  /**
+   * False where replacing what is there does nothing a user could want: a new folder colliding
+   * with an existing one would only rewrite its empty marker and leave every file in it. Default true.
+   */
+  allowOverwrite?: boolean;
   onRename: (newName: string) => void;
   onCancel: () => void;
 };
@@ -26,7 +31,7 @@ type Props = {
  * @example
  * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
  */
-export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, onRename, onCancel}: Props) {
+export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, allowOverwrite = true, onRename, onCancel}: Props) {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
   const [touched, setTouched] = useState(false);
@@ -122,13 +127,15 @@ export function CollisionPrompt({kind, name, parentPrefix, onOverwrite, onRename
             onClick={onCancel}>
             Cancel
           </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={onOverwrite}
-            aria-label={`Overwrite the existing ${name}`}>
-            Overwrite
-          </Button>
+          {allowOverwrite && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={onOverwrite}
+              aria-label={`Overwrite the existing ${name}`}>
+              Overwrite
+            </Button>
+          )}
         </div>
       )}
     </div>

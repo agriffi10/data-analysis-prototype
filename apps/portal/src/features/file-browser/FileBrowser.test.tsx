@@ -822,6 +822,18 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
     await user.type(field, `${newName}{Enter}`);
   }
 
+  it('offers no Overwrite for a new folder, which would only rewrite the existing one’s empty marker', async () => {
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    expect(await within(await screen.findByRole('alertdialog')).findByRole('button', {name: 'Rename'})).toBeInTheDocument();
+    expect(within(folderPrompt()).queryByRole('button', {name: /overwrite/i})).not.toBeInTheDocument();
+  });
+
   it('refuses a new folder name containing a slash, in the folder wording, and creates nothing more', async () => {
     mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
 

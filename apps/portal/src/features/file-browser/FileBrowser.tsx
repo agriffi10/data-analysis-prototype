@@ -425,12 +425,14 @@ function FileBrowserContent({
             />
           )}
 
-          {/* Folder-name collision — Overwrite or pick a new name */}
+          {/* New-folder collision — pick a new name. No Overwrite: the folder is already there, and
+              replacing it would only rewrite its empty marker. */}
           {pendingCollision && (
             <CollisionPrompt
               kind={pendingCollision.kind}
               name={pendingCollision.label}
               parentPrefix={pendingCollision.prefix}
+              allowOverwrite={false}
               onOverwrite={() => pendingCollision.retry({overwrite: true})}
               onRename={(newName) => pendingCollision.retry({rename: newName})}
               onCancel={cancelCollision}
