@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {QUERY_TABS_MAX} from './query.constants';
 import type {QueryTab, QueryTabsState} from './query.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
@@ -34,11 +34,20 @@ export type UseQueryTabsResult = {
  * Owns the QueryTabsState + sessionStorage persistence. Seed order: restore
  * persisted tabs → else migrate a legacy single draft → else a fresh single
  * "Query 1". State is read once at mount and persisted on every change.
+ *
+ * `stateRef` is the synchronous source of truth — every write goes through `update`, from event
+ * handlers and effects only, never render — so an open that lands after an await, from a closure
+ * a later render has replaced, still counts the tabs opened since.
  */
 export function useQueryTabs(username: string): UseQueryTabsResult {
   const [state, setState] = useState<QueryTabsState>(
     () => readTabsState(username) ?? migrateDraftToTabs(username) ?? initialTabsState()
   );
+  const stateRef = useRef(state);
+  const update = useCallback((updater: (prev: QueryTabsState) => QueryTabsState) => {
+    stateRef.current = updater(stateRef.current);
+    setState(stateRef.current);
+  }, []);
 
   // Persist on change (writeTabsState no-ops for an empty/dev-unauth username).
   useEffect(() => {
@@ -51,42 +60,40 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
   );
 
   const setActiveSql = (sql: string) =>
-    setState((s) => ({
+    update((s) => ({
       ...s,
       tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, sql} : t))
     }));
 
-  const setActiveTab = (id: string) => setState((s) => (s.tabs.some((t) => t.id === id) ? {...s, activeTabId: id} : s));
+  const setActiveTab = (id: string) => update((s) => (s.tabs.some((t) => t.id === id) ? {...s, activeTabId: id} : s));
 
   const setActiveSavedQuery = (link: SavedQueryLink | undefined) =>
-    setState((s) => ({
+    update((s) => ({
       ...s,
       tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, savedQuery: link} : t))
     }));
 
   const setActiveTabMeta = (meta: {label?: string; savedQuery?: SavedQueryLink}) =>
-    setState((s) => ({
+    update((s) => ({
       ...s,
       tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, ...meta} : t))
     }));
 
   // Keyed by the OBJECT KEY, which is a saved query's identity now that there is no id.
   const unlinkSavedQuery = (key: string) =>
-    setState((s) => ({
+    update((s) => ({
       ...s,
       tabs: s.tabs.map((t) => (t.savedQuery?.key === key ? {...t, savedQuery: undefined} : t))
     }));
 
   const openTab = (opts: OpenTabOpts = {}): string | null => {
-    // Cap guard against the current render's state; the updater re-checks so a
-    // double-open can never exceed the cap.
-    if (state.tabs.length >= QUERY_TABS_MAX) return null;
+    const current = stateRef.current;
+    if (current.tabs.length >= QUERY_TABS_MAX) return null;
     const id =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
-        : `tab-${state.nextQueryNumber}-${state.tabs.length}`;
-    setState((s) => {
-      if (s.tabs.length >= QUERY_TABS_MAX) return s;
+        : `tab-${current.nextQueryNumber}-${current.tabs.length}`;
+    update((s) => {
       const named = opts.label !== undefined;
       const tab: QueryTab = {
         id,
@@ -106,7 +113,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
   };
 
   const closeTab = (id: string) =>
-    setState((s) => {
+    update((s) => {
       if (s.tabs.length <= 1) return s; // always >= 1 tab
       const idx = s.tabs.findIndex((t) => t.id === id);
       if (idx === -1) return s;
@@ -124,7 +131,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
   // a fresh blank "Query N" — drop any saved-query link and relabel
   // (consuming a query number, like a brand-new tab). Other tabs untouched.
   const clearActive = () =>
-    setState((s) => ({
+    update((s) => ({
       ...s,
       tabs: s.tabs.map((t) =>
         t.id === s.activeTabId

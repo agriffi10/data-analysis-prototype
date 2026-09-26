@@ -390,6 +390,22 @@ describe('the catalog services over the API', () => {
       expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW db.v', database: 'db'});
     });
 
+    it('double-quotes a view name that bare is a parse error, SHOW CREATE VIEW being Trino', async () => {
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('SUCCEEDED')});
+      api.on('athena.results', {
+        success: true,
+        data: {columns: [{name: 'create view', type: 'varchar'}], rows: [['CREATE VIEW']], nextToken: null}
+      });
+
+      await getTableDdl({database: 'team space', table: 'values', username: 'alice', isView: true});
+
+      expect(api.bodyFor('athena.start')).toEqual({
+        sql: 'SHOW CREATE VIEW "team space"."values"',
+        database: 'team space'
+      });
+    });
+
     it('returns an error when the statement does not succeed', async () => {
       api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
       api.on('athena.status', {

@@ -116,8 +116,9 @@ export async function getQueryHistory(username: string): Promise<ServiceResult<Q
   });
 }
 
-// Overwrite the history file (PutObject — never a delete). Concurrent writes
-// are last-writer-wins on a single user's own file, which is acceptable here.
+// Overwrite the history file (PutObject — never a delete). Writes from two
+// browser tabs or devices are last-writer-wins on a user's own file, which is
+// acceptable here; this tab's own writes are queued by `serialised`.
 async function writeHistory(username: string, history: QueryHistory): Promise<ServiceResult<void>> {
   return writeJsonDocument({
     bucket: userSpaceBucket(),
@@ -125,6 +126,31 @@ async function writeHistory(username: string, history: QueryHistory): Promise<Se
     value: history,
     fallbackMessage: 'Failed to save query history'
   });
+}
+
+/** The tail of each user's queued history writes, so a write can start after the one before it. */
+const pendingWrites = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs one read-modify-write of a user's history after every earlier one has landed.
+ *
+ * Every write reads the whole file and puts it back, so two in flight at once lose whichever lands
+ * first. A batch makes two on every statement boundary — the update that finalises one statement
+ * and the append that records the next — and nothing else orders them.
+ *
+ * @param username - Whose history file the write touches; users do not wait on each other.
+ * @param write - The read-modify-write to run.
+ * @returns The write's own result, once it has run.
+ */
+function serialised<T>(username: string, write: () => Promise<T>): Promise<T> {
+  const previous = pendingWrites.get(username) ?? Promise.resolve();
+  const next = previous.then(write, write);
+  pendingWrites.set(username, next);
+  const forget = () => {
+    if (pendingWrites.get(username) === next) pendingWrites.delete(username);
+  };
+  next.then(forget, forget);
+  return next;
 }
 
 /**
@@ -137,19 +163,21 @@ export async function appendQueryHistory(
   username: string,
   entry: QueryHistoryEntry
 ): Promise<WriteOutcome<QueryHistory>> {
-  const current = await historyForWrite(username);
-  if (!current.success) return current;
-  const {history, recovered} = current.data;
+  return serialised(username, async () => {
+    const current = await historyForWrite(username);
+    if (!current.success) return current;
+    const {history, recovered} = current.data;
 
-  let entries = [entry, ...history.entries].slice(0, QUERY_HISTORY_MAX);
-  while (entries.length > 1 && wireBytes({version: HISTORY_VERSION, entries}) > QUERY_HISTORY_MAX_BYTES) {
-    entries = entries.slice(0, -1);
-  }
-  const next: QueryHistory = {version: HISTORY_VERSION, entries};
+    let entries = [entry, ...history.entries].slice(0, QUERY_HISTORY_MAX);
+    while (entries.length > 1 && wireBytes({version: HISTORY_VERSION, entries}) > QUERY_HISTORY_MAX_BYTES) {
+      entries = entries.slice(0, -1);
+    }
+    const next: QueryHistory = {version: HISTORY_VERSION, entries};
 
-  const written = await writeHistory(username, next);
-  if (!written.success) return written;
-  return {success: true, data: next, recovered};
+    const written = await writeHistory(username, next);
+    if (!written.success) return written;
+    return {success: true, data: next, recovered};
+  });
 }
 
 /**
@@ -161,24 +189,26 @@ export async function updateQueryHistoryEntry(
   queryExecutionId: string,
   patch: Partial<QueryHistoryEntry>
 ): Promise<WriteOutcome<QueryHistory>> {
-  const current = await historyForWrite(username);
-  if (!current.success) return current;
-  const {history, recovered} = current.data;
+  return serialised(username, async () => {
+    const current = await historyForWrite(username);
+    if (!current.success) return current;
+    const {history, recovered} = current.data;
 
-  let found = false;
-  const entries = history.entries.map((e) => {
-    if (e.queryExecutionId === queryExecutionId) {
-      found = true;
-      return {...e, ...patch};
-    }
-    return e;
+    let found = false;
+    const entries = history.entries.map((e) => {
+      if (e.queryExecutionId === queryExecutionId) {
+        found = true;
+        return {...e, ...patch};
+      }
+      return e;
+    });
+    // After a recovery the write is no longer optional, or the
+    // unreadable document survives its own quarantine and stays broken.
+    if (!found && !recovered) return {success: true, data: history, recovered};
+
+    const next: QueryHistory = {version: HISTORY_VERSION, entries};
+    const written = await writeHistory(username, next);
+    if (!written.success) return written;
+    return {success: true, data: next, recovered};
   });
-  // After a recovery the write is no longer optional, or the
-  // unreadable document survives its own quarantine and stays broken.
-  if (!found && !recovered) return {success: true, data: history, recovered};
-
-  const next: QueryHistory = {version: HISTORY_VERSION, entries};
-  const written = await writeHistory(username, next);
-  if (!written.success) return written;
-  return {success: true, data: next, recovered};
 }
