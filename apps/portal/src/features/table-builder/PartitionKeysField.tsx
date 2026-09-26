@@ -20,10 +20,11 @@ const selectClass =
  * and edits them and manages focus on add/remove (labelled dynamic rows). An empty list means a
  * flat, unpartitioned table — no keys are sent.
  *
- * A field's error is SHOWN only once that field has been left. `Input` announces an error as an
- * alert, so an unfiltered `errors` would interrupt with "Enter a key name." the moment a blank
- * row appears and focus lands in it, and again for every field a type switch brings in. Confirm
- * is disabled while any row is invalid whether or not its error is showing.
+ * A field's error is SHOWN only once that field has been left, and a type switch forgets the
+ * fields it brings in. `Input` announces an error as an alert, so an unfiltered `errors` would
+ * interrupt with "Enter a key name." the moment a blank row appears and focus lands in it, and
+ * again for every field a type switch brings in. The dialog's Create table button stays disabled
+ * while any row is invalid, whether or not its error is showing.
  *
  * @example
  * <PartitionKeysField value={keys} errors={keyErrors} onChange={setKeys} />
@@ -39,6 +40,9 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
 
   const leave = (id: string, field: keyof PartitionKeyErrors) =>
     setLeft((prev) => (prev.has(`${id}:${field}`) ? prev : new Set(prev).add(`${id}:${field}`)));
+
+  const forgetTypeFields = (id: string) =>
+    setLeft((prev) => new Set([...prev].filter((key) => !key.startsWith(`${id}:`) || key === `${id}:name`)));
 
   const shown = (id: string, err: PartitionKeyErrors, field: keyof PartitionKeyErrors) =>
     left.has(`${id}:${field}`) ? err[field] : undefined;
@@ -183,7 +187,10 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                       value={row.type}
                       disabled={disabled}
                       className={selectClass}
-                      onChange={(e) => update(row.id, {type: e.target.value as PartitionType})}>
+                      onChange={(e) => {
+                        forgetTypeFields(row.id);
+                        update(row.id, {type: e.target.value as PartitionType});
+                      }}>
                       <option value="integer">Integer</option>
                       <option value="date">Date</option>
                       <option value="string">String</option>

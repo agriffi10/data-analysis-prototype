@@ -259,6 +259,9 @@ describe('the Order and filter dialog', () => {
     expect(last).toBeChecked();
     expect(last).toHaveAttribute('aria-disabled', 'true');
     expect(last).toHaveAccessibleDescription(LAST_COLUMN_REFUSAL);
+    // Only the last VISIBLE column is refused: a hidden one can still come back.
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Show id'}));
+    expect(within(dialog).getByRole('checkbox', {name: 'Show id'})).toBeChecked();
   });
 
   it('reorders sort priority inside the dialog', async () => {

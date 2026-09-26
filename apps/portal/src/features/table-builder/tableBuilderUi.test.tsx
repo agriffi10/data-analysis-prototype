@@ -155,13 +155,27 @@ describe('CreateTableDialog', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
 
-      // Leaving the name for the type select, as a real pointer or Tab does.
+      // Leaving each field for the next, as a real pointer or Tab does.
       fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
+      fireEvent.blur(screen.getByLabelText('Partition key 1 values'));
       fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'integer'}});
+      fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'string'}});
 
       expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual(['Enter a key name.']);
       expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
-      expect(screen.getByLabelText('Partition key 1 minimum')).not.toHaveAccessibleDescription();
+      expect(screen.getByLabelText('Partition key 1 values')).not.toHaveAccessibleDescription();
+    });
+
+    it('keeps a left field’s error with its own row when an earlier row is removed', () => {
+      renderDialog();
+      fireEvent.click(addKeysBtn());
+      fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
+      fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
+
+      fireEvent.click(screen.getByRole('button', {name: 'Remove partition key 1'}));
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 
