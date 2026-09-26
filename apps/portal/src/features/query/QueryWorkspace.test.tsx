@@ -965,6 +965,53 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
     });
 
+    it('closing the shown result tab shows the one beside it, and the last tab cannot be closed', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptTabs(user);
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      expect(await screen.findByText(/\b1 rows?\b/)).toBeInTheDocument();
+
+      await user.click(within(strip).getByTitle('Close 3 · SELECT 2'));
+
+      const left = within(strip).getAllByRole('tab');
+      expect(left.map((t) => t.textContent)).toEqual(['1 · SELECT 1']);
+      expect(left[0]).toHaveAttribute('aria-selected', 'true');
+      await waitFor(() => expect(screen.getByText(/\b2 rows\b/)).toBeInTheDocument());
+      expect(within(strip).queryByTitle(/^Close /)).not.toBeInTheDocument();
+    });
+
+    it('closing a tab before the shown one keeps the shown one', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptTabs(user);
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      expect(await screen.findByText(/\b1 rows?\b/)).toBeInTheDocument();
+
+      await user.click(within(strip).getByTitle('Close 1 · SELECT 1'));
+
+      const left = within(strip).getAllByRole('tab');
+      expect(left.map((t) => t.textContent)).toEqual(['3 · SELECT 2']);
+      expect(left[0]).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByText(/\b1 rows?\b/)).toBeInTheDocument();
+    });
+
     // The count follows the SELECTED statement, not the last one that ran. Each execution
     // returns a different number of rows, so reading the wrong one is a wrong number rather
     // than a coincidence — an equal-sized fixture would pass whichever was read.

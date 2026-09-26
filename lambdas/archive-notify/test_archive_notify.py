@@ -71,6 +71,17 @@ def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     assert _ARCHIVE_ID in message
 
 
+def test_a_shared_space_archive_says_which_space_to_restore_it_from(sent):
+    """Files opens the personal space, and a restore finds an archive only in the space being
+    browsed, so the instruction names the shared space the archive came from."""
+    m._notify(_event("archived", space={"kind": "shared", "name": "finance"}))
+
+    assert sent[0][1].endswith(
+        "to restore them, open the finance space in Files, choose Restore Archived Data and "
+        "enter this id."
+    )
+
+
 # ── restored ─────────────────────────────────────────────────────────────────
 
 

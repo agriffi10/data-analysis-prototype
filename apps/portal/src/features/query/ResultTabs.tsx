@@ -7,6 +7,8 @@ type Props = {
   tabs: ResultTab[];
   activeIndex: number;
   onSelect: (index: number) => void;
+  /** Drops one result tab. Never offered for the last one. */
+  onClose: (index: number) => void;
 };
 
 /**
@@ -15,11 +17,25 @@ type Props = {
  * 1-based statement position and a short statement hint. Same WAI-ARIA tabs
  * keyboard model as QueryTabStrip (roving tabindex; Left/Right/Home/End move
  * focus + selection); the active tab is never indicated by color alone.
+ *
+ * A tab closes the way an editor tab does: a pointer-only ✕, and Delete or Backspace on the focused
+ * tab for keyboard and assistive-technology users. The last tab has neither, so the region always has a
+ * result to show.
  */
-export function ResultTabs({tabs, activeIndex, onSelect}: Props) {
+export function ResultTabs({tabs, activeIndex, onSelect, onClose}: Props) {
   const tabRefs = useRef(new Map<number, HTMLButtonElement>());
+  const solo = tabs.length <= 1;
 
   const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !solo) {
+      e.preventDefault();
+      // Tabs are keyed by execution, so the neighbour's element survives the close and focus can
+      // be handed to it now rather than after the re-render.
+      const heir = tabRefs.current.get(index < tabs.length - 1 ? index + 1 : index - 1);
+      onClose(index);
+      heir?.focus();
+      return;
+    }
     let next: number | null = null;
     if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
     else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
@@ -55,7 +71,8 @@ export function ResultTabs({tabs, activeIndex, onSelect}: Props) {
             onKeyDown={(e) => onTabKeyDown(e, index)}
             title={tab.label}
             className={cx(
-              'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border px-3 font-mono text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+              'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 font-mono text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+              solo ? 'pr-3' : 'pr-1',
               active
                 ? 'border-border bg-surface text-text shadow-sm'
                 : 'border-transparent text-text-2 hover:bg-surface hover:text-text'
@@ -65,6 +82,29 @@ export function ResultTabs({tabs, activeIndex, onSelect}: Props) {
               aria-hidden="true"
             />
             <span className="max-w-56 truncate">{tab.label}</span>
+            {/* Decorative and unfocusable rather than a nested button, which axe refuses inside a
+                role="tab"; Delete or Backspace on the focused tab is the same action from the keyboard.
+                24 CSS px square, the WCAG 2.5.8 minimum pointer target. */}
+            {!solo && (
+              <span
+                role="presentation"
+                title={`Close ${tab.label}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(index);
+                }}
+                className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-3 w-3"
+                  aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </span>
+            )}
           </button>
         );
       })}

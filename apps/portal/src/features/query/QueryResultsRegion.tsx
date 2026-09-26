@@ -47,6 +47,7 @@ type Props = {
   errorVariant?: BannerVariant;
   onDismissError: () => void;
   onSelectResultTab: (index: number) => void;
+  onCloseResultTab: (index: number) => void;
   canSaveResults: boolean;
   onSaveResults: () => void;
   /** *Explore in Data Explorer* for the displayed result, or null where it is not offered. */
@@ -81,6 +82,7 @@ export function QueryResultsRegion({
   errorVariant = 'danger',
   onDismissError,
   onSelectResultTab,
+  onCloseResultTab,
   canSaveResults,
   onSaveResults,
   explore
@@ -129,6 +131,7 @@ export function QueryResultsRegion({
             tabs={run.resultTabs}
             activeIndex={run.activeResultTabIndex}
             onSelect={onSelectResultTab}
+            onClose={onCloseResultTab}
           />
         )}
         {/* the Results header row carries the "Rows per

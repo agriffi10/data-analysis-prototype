@@ -78,6 +78,11 @@ export type UseTabRunsResult = {
   dismissError: (tabId: string) => void;
   /** switch which result-producing statement the results region shows. */
   selectResultTab: (tabId: string, index: number) => void;
+  /**
+   * Drops one result tab from a settled batch. The last one stays, as the editor's last tab does,
+   * so the results region never loses the result it is showing.
+   */
+  closeResultTab: (tabId: string, index: number) => void;
 };
 
 type Params = {
@@ -435,6 +440,21 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     [updateRuns]
   );
 
+  // The next tab takes the closed one's place, or the previous when it was the last, which is
+  // what keeping the index does once the array has shrunk under it.
+  const closeResultTab = useCallback(
+    (tabId: string, index: number) =>
+      updateRuns((r) => {
+        const cur = r[tabId];
+        if (!cur || cur.resultTabs.length <= 1 || index < 0 || index >= cur.resultTabs.length) return r;
+        const resultTabs = cur.resultTabs.filter((_, i) => i !== index);
+        const active = cur.activeResultTabIndex;
+        const activeResultTabIndex = index < active ? active - 1 : Math.min(active, resultTabs.length - 1);
+        return {...r, [tabId]: {...cur, resultTabs, activeResultTabIndex}};
+      }),
+    [updateRuns]
+  );
+
   // Background pollers — one per tab with an execution, so backgrounded
   // queries finalize concurrently. They render nothing.
   const pollers = Object.entries(runs).map(([tabId, run]) => (
@@ -460,6 +480,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     handleStop,
     dropRunState,
     dismissError,
-    selectResultTab
+    selectResultTab,
+    closeResultTab
   };
 }

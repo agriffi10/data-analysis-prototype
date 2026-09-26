@@ -306,7 +306,13 @@ def emit_archived(
     """
     emit_notification(
         actor,
-        archived_message(request_id, files, folders, total_bytes),
+        archived_message(
+            request_id,
+            files,
+            folders,
+            total_bytes,
+            shared_space=space.get("name") if space.get("kind") == "shared" else None,
+        ),
         dedup_id=dedup_id(request_id, "archived"),
         link=archive_folder_link(space.get("kind") or "", space.get("name") or "", request_id),
     )
