@@ -188,11 +188,10 @@ export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has r
  * write one query while the grid showed another's rows — and the file would fail to open in
  * the Query workspace, which is the surface a saved exploration promises it opens in.
  */
-export const FAILED_NOT_SAVEABLE = 'This query didn’t succeed, so there’s nothing to save. Change it, or run it again.';
+export const FAILED_NOT_SAVEABLE = 'This query didn’t succeed, so there’s nothing to save yet.';
 /** The two reasons above, for Create view, which makes a view rather than saving a file. */
 export const NOTHING_TO_VIEW = 'There’s no query to make a view from yet — nothing has run.';
-export const FAILED_NO_VIEW =
-  'This query didn’t succeed, so there’s nothing to make a view from. Change it, or run it again.';
+export const FAILED_NO_VIEW = 'This query didn’t succeed, so there’s nothing to make a view from yet.';
 /** Copy takes a SELECTION, and an empty one has no rectangle to take. */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**

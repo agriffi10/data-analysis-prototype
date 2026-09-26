@@ -115,17 +115,17 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'When a move or copy is refused',
         subtitle: 'Something was in the way — here is how to finish the job.',
         intro:
-          'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request goes ahead. The notification tells you which ones, and you can settle them from there.',
+          'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request carries on without it. The notification says what happened, and you can settle the conflicts from there.',
         steps: [
           'In <b>Notifications</b>, find the message about the operation. Below it there is a <b>Review conflicts</b> link.',
           'The review lists the items that could not be placed, with a sample of what is in the way.',
           'For a rename, choose <b>Use a different name…</b>, type a name that is free, and click <b>Request again</b>. Nothing is written over, and the request is sent again for that item only.',
-          'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm with <b>Overwrite</b>. Only the items that were refused are sent again — the rest already happened.',
+          'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm with <b>Overwrite</b>. Only the items that were in the way are sent again; your notification says what became of the rest.',
           'You get a fresh notification for the second request, the same as the first.'
         ],
         callout: {
           kind: 'warning',
-          text: 'Overwriting <b>cannot be undone</b>: there is no version history and no trash here, so whatever was at the destination is replaced for good. Renaming is the safe way out, and it is what most people want. Anything created at the destination after you first asked is left alone either way.'
+          text: 'Overwriting <b>cannot be undone</b>: there is no version history and no trash here, so whatever was at the destination is replaced for good. Renaming is the safe way out, and it is what most people want. Anything that arrives at the destination after you press <b>Overwrite</b> is left alone.'
         }
       },
       {
@@ -717,7 +717,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the <b>Files</b> tab. The <b>Spaces</b> list on the left shows your own space, under your username, and every shared space you belong to. On a phone or in a narrow window, it’s in the <b>☰</b> menu.',
           'Click a space to open its files. Uploading, folders, moving, copying and deleting all work the same way there as in your own space.',
           'If you were only just added, the space may say <b>Applying your access…</b>. Click <b>Refresh access</b> to pick it up without signing out.',
-          'Opening the space is also what turns you from <b>Pending</b> to <b>Active</b> on its member list.',
+          'Opening the space is also what turns you from <b>Pending</b> to <b>Active</b> on the owner’s member list.',
           'A space that is still being set up is listed but can’t be opened until it’s ready.'
         ]
       },

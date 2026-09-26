@@ -47,7 +47,7 @@ from cpcommon import actor as cpactor
 from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from cpcommon.notify import dedup_id
-from tbcommon import messages, notify
+from tbcommon import messages, notify, table_lock
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -59,6 +59,29 @@ TIMEOUT_STEP = "timeout"
 
 _TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
 _TIMEOUT_REASON = "build_timed_out"
+
+
+def _refresh_lock_note(mode) -> str:
+    """Says how long a timed-out refresh keeps its table locked, and says nothing for a create.
+
+    A refresh holds the per-table lock, and an execution the machine timed out never releases it,
+    so it is stolen only once it is older than the steal threshold, which sits a margin past the
+    machine's ceiling. A retry inside that margin is refused as a refresh already running, so the
+    notice names the margin rather than "a few minutes". A create takes no lock.
+
+    Args:
+      mode: The request's mode, ``create`` or ``refresh``.
+
+    Returns:
+      The sentence, opening with a space so it sits after the body's full stop, or an empty string.
+
+    Raises:
+      None.
+    """
+    if mode != "refresh":
+        return ""
+    minutes = (table_lock.STALE_LOCK_SECONDS - table_lock.MACHINE_TIMEOUT_SECONDS) // 60
+    return f" That table stays locked for about {minutes} minutes afterwards, so give it that long first."
 
 
 def _is_execution_timeout(event) -> bool:
@@ -235,6 +258,7 @@ def _on_execution_timed_out(event) -> dict:
             request.get("tableName") or "",
             request.get("database") or "",
             request.get("mode") or "create",
+            tokens={"refreshLock": _refresh_lock_note(request.get("mode"))},
         ),
         dedup_id=dedup_id(request.get("requestId"), TIMEOUT_STEP),
     )

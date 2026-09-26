@@ -27,7 +27,7 @@ type MembersListProps = {
    * Their own row renders `Active` whatever the projection says: `Pending` is the owner's signal
    * that a member has not yet opened the space in Files, and shown to the member themselves it
    * contradicted the connections list one click away (see `displayedMemberStatus`). The acknowledge now fans the roster out (`cache.write_roster_to_all`), so
-   * every copy converges; this closes the window between that sign-in and the fan-out landing,
+   * every copy converges; this closes the window between the acknowledge and the fan-out landing,
    * which is exactly the moment a member is most likely to open the roster.
    */
   viewer?: string;

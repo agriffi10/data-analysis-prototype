@@ -9,7 +9,7 @@ import type {Member} from './sharedSpaces.types';
  * their own name contradicted it. That is a display choice for the reader alone: the owner still
  * sees them `Pending` until they open the space in Files.
  * the acknowledge now fans the roster out (`cache.write_roster_to_all`) so every copy
- * converges — this closes the window between that sign-in and the fan-out landing, which is
+ * converges — this closes the window between the acknowledge and the fan-out landing, which is
  * exactly when a member is most likely to open the roster.
  *
  * Lives outside `MembersList.tsx` because a component file may export only components

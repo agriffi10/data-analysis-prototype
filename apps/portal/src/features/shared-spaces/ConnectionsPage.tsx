@@ -540,7 +540,7 @@ function ConnectionRowItem({
         {row.status === 'failed' && (
           <div className="mt-1 text-xs text-danger">
             {row.reason ??
-              (row.failedAction === 'delete' ? 'Removing this shared space failed.' : 'Provisioning failed.')}
+              (row.failedAction === 'delete' ? 'Deleting this shared space failed.' : 'Provisioning failed.')}
           </div>
         )}
       </div>

@@ -643,8 +643,8 @@ as honestly as a succeeding one.
 7. **Open the saved CSV and count its rows.** It holds the **whole** result — 151 lines for the
    150-row fixture — while the page held 100. Download it through the portal.
 8. **The columns the grid hides stay out of the file** (SPEC-239). On `explorer150`, open
-   **Options → Columns**, hide `qty`, and **Pin** `owner` so it leads. Reopen **Save results to my
-   files**: the button now reads **Convert and save** — there is no object to copy that looks like
+   **Options → Columns**, hide `qty`, and **Pin** `owner` so it leads. Reopen **Save results…**: the
+   button now reads **Convert and save** — there is no object to copy that looks like
    that — and the dialog says *"The file holds N result columns, in the order shown."* with N the
    number still shown. Save as `explorer-hidden`, CSV. A **notification** arrives; the file's header
    is the visible columns with `owner` first and no `qty`, and its row count is the pager's total,
@@ -654,7 +654,7 @@ as honestly as a succeeding one.
    the format.
 9. **A grouped exploration showing only its percentage column refuses the save** (SPEC-239). Group
    by `region` with `COUNT(*)` and **Show percentage**, then hide `region` and `count_all`. **Save
-   results to my files** is refused with *"Show at least one of the result’s columns to save it."*
+   results…** is refused with *"Show at least one of the result’s columns to save it."*
    The percentage column is computed in the browser and is in no result, so there is nothing to
    write — and the refusal is the only thing standing between that and an empty file. **Leave
    grouping and Show all before going on** — the steps below save again, and this state refuses.
@@ -984,7 +984,7 @@ archive or restore already running finishes and notifies as usual, and its notif
   right-hand sheet with the page still visible beside it, and the close control is reachable at both
   widths without scrolling.
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
-  `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
+  `/help#delete-space` opens the Help page at Shared spaces with that one card expanded and
   scrolled to.
 - **Open three or four guides at once** on `/files`, where the section has ten. The panel must
   SCROLL; no card may lose height to the ones you opened. The cards are `shrink-0` for this, and
