@@ -52,7 +52,9 @@ import {
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn, QueryState} from '../catalog/catalog.types';
+import {heldText, leftOutNote} from './savedView';
 import type {
+  AwaitingRun,
   CalcPanelState,
   ColumnFilter,
   CopyOptions,
@@ -96,6 +98,13 @@ export type ExplorationResultsRegionProps = {
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
   /** The query description and every operation over it. */
   queryControls: UseExplorationQueryResult;
+  /**
+   * Set while the tab is held: reopened from a shared space's saved view and not yet run. The
+   * statement is rendered and on screen, and nothing has started.
+   */
+  held?: AwaitingRun | null;
+  /** Runs a held tab's statement. */
+  onRun?: () => void;
   /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
   /**
@@ -168,6 +177,7 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+
 /** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
 /**
@@ -226,6 +236,8 @@ export function ExplorationResultsRegion({
   presentation,
   onPresentationChange,
   queryControls,
+  held = null,
+  onRun,
   onSaveQuery,
   onOpenInQuery,
   onCreateView,
@@ -523,11 +535,13 @@ export function ExplorationResultsRegion({
   // all, and either one as a predicate matches nothing.
   const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
-  // Suspended is not loading: nothing is in flight, deliberately. Without this the status
-  // line announced "Running…" directly above the panel saying nothing had been run. A banner
-  // with no earlier result to show is not loading either — it said "Running…" under a failure.
+  // Suspended is not loading, and neither is held: nothing is in flight, deliberately. Without
+  // this the status line announced "Running…" directly above the panel saying nothing had been
+  // run. A banner with no earlier result to show is not loading either — it said "Running…"
+  // under a failure.
   const loading =
     !queryControls.suspended &&
+    !held &&
     (failed ? shownExecutionId !== null && results.isPending : isPending || !shownExecutionId || results.isPending);
 
   // `failed` is checked FIRST and is the one that is easy to miss: a failed
@@ -598,6 +612,24 @@ export function ExplorationResultsRegion({
   };
 
   const body = () => {
+    if (held) {
+      const note = leftOutNote(held.leftOut);
+      return (
+        <div className="flex flex-col items-start gap-2 p-4">
+          <p className="text-sm text-text-2">{heldText(held.space)}</p>
+          {note && <p className="text-sm text-text-2">{note}</p>}
+          <Button
+            onClick={() => {
+              onRun?.();
+              // The button leaves with the hold; focus goes to the filter expression, where the
+              // user carries on, rather than to the page body.
+              expressionInputRef.current?.focus();
+            }}>
+            Run
+          </Button>
+        </div>
+      );
+    }
     if (queryControls.suspended) {
       return (
         <div className="flex flex-col items-start gap-2 p-4">
@@ -798,13 +830,15 @@ export function ExplorationResultsRegion({
         <p
           role="status"
           className="text-xs text-text-3">
-          {loading
-            ? shownExecutionId
-              ? 'Loading rows…'
-              : 'Running…'
-            : selection.selectedCount > 0
-              ? `${selection.selectedCount} ${selection.selectedCount === 1 ? 'cell' : 'cells'} selected on this page`
-              : ''}
+          {held
+            ? 'Not run yet.'
+            : loading
+              ? shownExecutionId
+                ? 'Loading rows…'
+                : 'Running…'
+              : selection.selectedCount > 0
+                ? `${selection.selectedCount} ${selection.selectedCount === 1 ? 'cell' : 'cells'} selected on this page`
+                : ''}
         </p>
       </div>
 

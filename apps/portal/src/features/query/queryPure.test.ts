@@ -1,4 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {appendViewLine} from '../../lib/savedViewLine';
 import {
   CLAUSE_WORDS,
   deriveViewTargetDatabase,
@@ -1187,5 +1188,19 @@ describe('useResultsPageSize', () => {
       sessionStorage.setItem(KEY, '2.5');
       expect(renderHook(() => useResultsPageSize(USER)).result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
     });
+  });
+});
+
+describe('a saved query carrying a Data Explorer view line', () => {
+  it('is still one statement, ending in that comment, and still explorable', () => {
+    const body = appendViewLine('SELECT *\nFROM "alice"."orders"', {
+      source: {database: 'alice', table: 'orders'}
+    }) as string;
+
+    const statements = splitSqlStatements(body);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0].sql.trimEnd().split('\n').at(-1)).toMatch(/^-- dataquarry-view:v1:/);
+    expect(isExplorableSql(statements[0].sql)).toBe(true);
   });
 });

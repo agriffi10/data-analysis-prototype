@@ -1545,6 +1545,11 @@ edit or delete from the file browser.
 > `features/query/`, which this feature may not import, and the wrapped-subquery refusals are built
 > on it. It moves down to `lib/sql.ts` — the same move 176 and 177 made, one layer lower.
 
+> **Superseded in part by SPEC-247.** The union argument above stands, but the view state now rides
+> on one comment line inside the same `.sql` file, so the filters come back as chips with no
+> sidecar; the entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one
+> comment line, and a shared space's is held*.
+
 **The flag is independent, and the expression bar is not gated on `query`.** `dataExplorer` stands
 alone, so an environment can ship the grid while keeping the SQL editor hidden — arguably the main
 reason to want the feature. The tempting corollary is that the free-text `WHERE` box should then

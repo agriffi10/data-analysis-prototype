@@ -47,9 +47,17 @@ export type UseExplorationResult = {
  * @param exploration - The exploration to run, or null to run nothing.
  * @param tabId - The Explorer tab showing it. Two tabs with one description share an execution,
  * so switching between them is what tells the status watch to look again.
+ * @param options.hold - Render the statement but start nothing, and show no execution — not even
+ *   one already cached for it. A held tab's SQL is on screen to be checked before it runs, and a
+ *   cached run of the same text would put rows under a tab that says nothing has run.
  * @returns The rendered SQL, the execution, its state, its cost, and any failure.
  */
-export function useExploration(exploration: Exploration | null, tabId?: string): UseExplorationResult {
+export function useExploration(
+  exploration: Exploration | null,
+  tabId?: string,
+  options: {hold?: boolean} = {}
+): UseExplorationResult {
+  const hold = options.hold === true;
   const {user} = useAuth();
   const username = user?.username ?? '';
   const queryClient = useQueryClient();
@@ -80,7 +88,7 @@ export function useExploration(exploration: Exploration | null, tabId?: string):
     [exploration]
   );
 
-  const enabled = sql !== null && username !== '';
+  const enabled = sql !== null && username !== '' && !hold;
 
   const start = useQuery({
     // A stable placeholder keeps the hook order constant while disabled.
@@ -108,7 +116,7 @@ export function useExploration(exploration: Exploration | null, tabId?: string):
     }
   });
 
-  const queryExecutionId = start.data ?? null;
+  const queryExecutionId = hold ? null : (start.data ?? null);
   const poll = useQueryExecution(queryExecutionId, {watchKey: tabId});
   const status = poll.status ?? null;
   const state = status?.state ?? null;
@@ -186,6 +194,7 @@ export function useExploration(exploration: Exploration | null, tabId?: string):
       (start.isPending ||
         start.isFetching ||
         (state !== null && !isTerminalState(state) && poll.stillRunning === null)),
-    error: rendered.error ?? start.error ?? poll.error ?? executionFailure ?? poll.stillRunning ?? null
+    error:
+      rendered.error ?? (hold ? null : (start.error ?? poll.error ?? executionFailure ?? poll.stillRunning)) ?? null
   };
 }

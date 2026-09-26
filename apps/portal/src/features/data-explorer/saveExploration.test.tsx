@@ -7,6 +7,7 @@ import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../t
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {readExplorationTabsState} from './explorationTabs';
+import {parseViewLine} from '../../lib/savedViewLine';
 import {newExploration} from './exploration';
 import {FAILED_NOT_SAVEABLE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
@@ -179,12 +180,52 @@ describe('what a save writes (FR-001)', () => {
     await saveAs(user, 'Open orders');
 
     await waitFor(() => expect(stored).toHaveLength(1));
-    const put = stored[0];
-    expect(put.body).toBe(executed);
+    const parsed = parseViewLine(stored[0].body as string);
+    expect(parsed.sql).toBe(executed);
     // Not merely equal to the execution's string — it carries the description, which is what
     // makes "saving the bare source would save something the user did not see" a real risk.
-    expect(put.body).toContain('WHERE "status" = \'open\'');
-    expect(put.body).toContain('ORDER BY "id" DESC');
+    expect(parsed.sql).toContain('WHERE "status" = \'open\'');
+    expect(parsed.sql).toContain('ORDER BY "id" DESC');
+    // And the view it came from, on the one line under it, so the Data Explorer can reopen it.
+    expect(stored[0].body).toBe(`${executed}\n${(stored[0].body as string).split('\n').at(-2)}\n`);
+    expect(parsed.kind === 'ok' && parsed.payload).toMatchObject({
+      source: {database: 'alice', table: 'orders'},
+      query: {filters: [{column: 'status', operator: '=', value: 'open'}]}
+    });
+  });
+
+  it('writes a statement source’s SQL alone, and a view too large to keep with a toast that says so', async () => {
+    seedTab({
+      exploration: newExploration({kind: 'sql', body: 'SELECT 1 AS n', label: 'SELECT 1'}, 't1')
+    });
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await saveAs(user, 'One');
+
+    await waitFor(() => expect(stored).toHaveLength(1));
+    expect(stored[0].body).toBe(vi.mocked(runQuery).mock.calls[0][0].sql);
+  });
+
+  it('keeps the SQL and tells the user when the view would take the file past Athena’s limit', async () => {
+    seedTab({
+      exploration: {
+        ...newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1'),
+        query: {filters: [], expression: `note = '${'x'.repeat(120_000)}'`, ordering: [], grouping: null}
+      }
+    });
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await saveAs(user, 'Long');
+
+    await waitFor(() => expect(stored).toHaveLength(1));
+    expect(parseViewLine(stored[0].body as string).kind).toBe('none');
+    expect(
+      await screen.findByText('Saved “Long” to alice. The view was too large to keep, so it opens in Query only.', {
+        exact: false
+      })
+    ).toBeInTheDocument();
   });
 
   it('writes exactly one object, at the store’s own key, and starts no execution (FR-004)', async () => {

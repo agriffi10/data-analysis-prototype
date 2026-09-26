@@ -1,7 +1,13 @@
+import {useMemo} from 'react';
+import {useQueryClient} from '@tanstack/react-query';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {useToast} from '../../components/toastContext';
 import {SaveQueryDialog} from '../saved-queries/SaveQueryDialog';
 import {useSaveQuery} from '../saved-queries/useSaveQuery';
+import {savedQueryKeys} from '../saved-queries/savedQueryKeys';
+import {appendViewLine} from '../../lib/savedViewLine';
+import {buildSavedView} from './savedView';
+import type {Exploration} from './dataExplorer.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 import type {SavedQuery, SavedQueryLink} from '../saved-queries/savedQueries.types';
 
@@ -15,6 +21,11 @@ export type SaveExplorationDialogProps = {
    * save. The parent mounts this component only when there IS one.
    */
   sql: string;
+  /**
+   * The exploration as it was at the gesture, recorded in the file's view line so the Data
+   * Explorer can reopen it. A statement source records none.
+   */
+  exploration: Exploration;
   /** Writable destinations, personal first — ALREADY view-gated by the caller. */
   spaces: QuerySpace[];
   /** The space remembered by `useSavedQuerySpace`, for a tab with no link. */
@@ -40,14 +51,38 @@ export type SaveExplorationDialogProps = {
  * collision pending and the confirm shows when there is. Reading the hook's flag as well
  * would give one dialog two sources of truth about whether it is on screen.
  */
-export function SaveExplorationDialog({sql, spaces, defaultSpace, link, onSaved, onClose}: SaveExplorationDialogProps) {
+export function SaveExplorationDialog({
+  sql,
+  exploration,
+  spaces,
+  defaultSpace,
+  link,
+  onSaved,
+  onClose
+}: SaveExplorationDialogProps) {
   const toast = useToast();
+  const queryClient = useQueryClient();
+  // Encoded once per statement and exploration, not on every keystroke in the name field.
+  const {view, withView} = useMemo(() => {
+    const built = buildSavedView(exploration);
+    return {view: built, withView: built ? appendViewLine(sql, built) : null};
+  }, [sql, exploration]);
   const save = useSaveQuery({
     spaces,
     defaultSpace,
-    payload: {sql, link},
+    payload: {
+      sql: withView ?? sql,
+      link,
+      // Only a view that was there to keep and did not fit: a statement source never has one.
+      successNote: view && !withView ? 'The view was too large to keep, so it opens in Query only.' : undefined
+    },
     toast,
-    onSaved: (query) => onSaved(query)
+    onSaved: (query) => {
+      // The listing is cached for a while, and the drawer that reopens views reads it: without
+      // this, a view saved a moment ago would be missing from it.
+      void queryClient.invalidateQueries({queryKey: savedQueryKeys.list(query.spaceId)});
+      onSaved(query);
+    }
   });
 
   if (save.collision) {

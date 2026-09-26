@@ -314,12 +314,12 @@ export type ExplorationTab = {
   label: string;
   exploration: Exploration;
   /**
-   * The `.sql` file this tab was last saved to.
+   * The `.sql` file this tab was last saved to, or reopened from.
    *
    * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
-   * here — nothing else in this feature mints a link, because loading a `.sql` file as a
-   * source is deferred. Optional because a tab that has never been saved has none, and
-   * because a document written before these fields existed carries none either.
+   * here. A save mints it, and so does reopening a saved view from the user's own folder; a
+   * view from a shared space's folder opens unlinked. Optional because a tab that has never been
+   * saved has none, and because a document written before these fields existed carries none.
    *
    * It does NOT rename the tab. A Query workspace tab IS its buffer, so a save renames it;
    * an exploration tab is named for the source it is exploring, which a save does not change.
@@ -345,6 +345,22 @@ export type ExplorationTab = {
    * source's columns while a grouping is in force, and survive a reload.
    */
   sqlSourceColumns?: QueryColumn[];
+  /**
+   * Set on a tab reopened from a shared space's saved queries, until the user runs it or
+   * changes its query.
+   *
+   * Any member of that space can write the file, and a view's expression is raw SQL, so the tab
+   * holds its statement until asked. Stored on the tab rather than in memory so a reload does not
+   * run it either. `leftOut` counts what was not restored, for the note that says so.
+   */
+  awaitingRun?: AwaitingRun;
+};
+
+/** A held tab: the space its file came from, and what was left out of it. */
+export type AwaitingRun = {
+  /** The shared space's label; empty when a stored value was malformed. */
+  space: string;
+  leftOut: {links: number; patterns: number};
 };
 
 export type ExplorationTabsState = {

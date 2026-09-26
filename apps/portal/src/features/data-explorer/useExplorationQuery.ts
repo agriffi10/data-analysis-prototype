@@ -140,13 +140,17 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
         // An apply that changes nothing is not history — it would fill Back with duplicates
         // of one description, and it renders the same SQL either way.
         if (sameQuery(proposed, t.exploration.query)) return t;
-        return {
+        const changed: ExplorationTab = {
           ...t,
           exploration: {...t.exploration, query: proposed},
           // A new branch discards the forward entries, as every undo stack does: they
           // describe a future that no longer follows from where the user now is.
           history: {past: cap([...t.history.past, t.exploration.query]), future: []}
         };
+        // A held tab's hold ends here too: changing its query is the user asking for a run.
+        // Dropped, not blanked, because a blank reads back as held.
+        delete changed.awaitingRun;
+        return changed;
       });
     },
     [tab, updateTab]

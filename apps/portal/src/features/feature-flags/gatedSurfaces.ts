@@ -130,6 +130,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Opening the generated statement in a Query tab lands the user on the Query workspace, so it
     // follows `query` for the reason `Save as query` does: without the flag it leads nowhere.
     {name: 'Open in Query', kind: 'control', path: '/explore'},
+    // Reopening a saved view reads the saved-query store, which is hidden with Query off, so the
+    // control follows `query` for the reason `Save as query` does.
+    {name: 'Open saved view', kind: 'control', path: '/explore'},
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
     // its guides follow the `query` flag rather than `files`.
@@ -175,6 +178,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // the rows above render other surfaces, and an ungated picker would go on naming a
     // colleague's space after every other shared-workspace surface had gone.
     {name: 'Shared spaces in the Data Explorer source picker', kind: 'control', path: '/explore'},
+    // The saved-view drawer's space select, a second reader of the same list on the same page:
+    // the picker row renders the picker, so nothing would notice this one losing its gate.
+    {name: 'Shared spaces in the saved-view drawer', kind: 'control', path: '/explore'},
     // A THIRD instance of the destination choice, and it needs its own row for the
     // reason the save-query one did: the rows above render other surfaces, so nothing would
     // notice if this one stopped being gated — and this is the WRITE-target variant, which

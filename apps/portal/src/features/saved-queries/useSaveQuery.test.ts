@@ -92,6 +92,18 @@ describe('useSaveQuery (SPEC-175)', () => {
     expect(writeSavedQuery).toHaveBeenCalledTimes(1);
   });
 
+  it('writes the buffer it was given, adding nothing, and says only where it went', async () => {
+    // The Query page saves through here. A Data Explorer view line is its own caller's to add,
+    // so nothing here may add one to a buffer from Query.
+    const {result, toast} = setup();
+    act(() => result.current.save({space: PERSONAL, name: 'Quarterly'}));
+
+    await waitFor(() =>
+      expect(toast.push).toHaveBeenCalledWith({variant: 'success', message: 'Saved “Quarterly” to alice.'})
+    );
+    expect(vi.mocked(writeSavedQuery).mock.calls[0][0].sql).toBe('SELECT 1;');
+  });
+
   it('survives the folder call REJECTING, not just returning a failed result', async () => {
     // The service does not throw by contract; a breach of it must not take the save down
     // with an unhandled rejection (the SPEC-173 lesson, one layer up).

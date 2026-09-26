@@ -8,8 +8,10 @@ import {
   NUMERIC_TRANSFORMER_MAX_PRECISION
 } from './dataExplorer.constants';
 import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
+import {MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import {isFilterOperator} from './explorationQueryOps';
 import type {
+  AwaitingRun,
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationSource,
@@ -383,6 +385,149 @@ function normalizePresentation(value: unknown): ExplorationPresentation {
 // Structural validation — a corrupt, old or foreign blob must never crash the page, and
 // must never be PARTIALLY applied. A half-restored exploration is worse than none: it
 // renders SQL from a description the user never built.
+/**
+ * Reads a stored hold, failing CLOSED.
+ *
+ * Absent is no hold. Present but malformed is a hold with no note: dropping it, as the
+ * saved-query link beside it is dropped, would run a statement the tab was holding back — the one
+ * direction this field exists to prevent.
+ *
+ * @param value - The stored `awaitingRun`, or anything at all.
+ * @returns The hold, or undefined when there is none.
+ */
+function normalizeAwaitingRun(value: unknown): AwaitingRun | undefined {
+  if (value === undefined) return undefined;
+  const stored = value as Record<string, unknown> | null;
+  const leftOut = (stored?.leftOut ?? null) as Record<string, unknown> | null;
+  const count = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  if (typeof stored?.space === 'string' && leftOut && count(leftOut.links) && count(leftOut.patterns)) {
+    return {space: stored.space, leftOut: {links: leftOut.links as number, patterns: leftOut.patterns as number}};
+  }
+  return {space: '', leftOut: {links: 0, patterns: 0}};
+}
+
+/**
+ * Order-insensitive structural equality over JSON-shaped values.
+ *
+ * What "unchanged by the normalisers" means for a saved view: key order is how a document was
+ * written, not what it says.
+ */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((k) => Object.hasOwn(right, k) && sameJson(left[k], right[k]))
+  );
+}
+
+/**
+ * Whether a value is a plain object holding no key outside `allowed`.
+ *
+ * The store's normalisers pass unknown keys through by reference, so comparing their output with
+ * their input cannot see one. A saved view is a file another member may have written, so every
+ * level of it is held to the keys this build declares.
+ */
+function onlyKeys(value: unknown, allowed: readonly string[]): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+const QUERY_KEYS = ['filters', 'expression', 'ordering', 'grouping'] as const;
+const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'valueKind'] as const;
+const SORT_KEYS = ['column', 'direction', 'priority'] as const;
+const GROUPING_KEYS = ['columns', 'aggregates', 'duplicatesOnly', 'showPercentage'] as const;
+const AGGREGATE_KEYS = ['fn', 'column'] as const;
+const VIEW_PRESENTATION_KEYS = [
+  'hiddenColumns',
+  'columnOrder',
+  'pinnedColumns',
+  'columnWidths',
+  'presentation',
+  'formatting'
+] as const;
+const FORMATTING_KEYS = ['rules', 'colourByType', 'stripeColumns', 'transformers'] as const;
+const RULE_KEYS = ['id', 'column', 'scope', 'operator', 'value', 'foreground', 'background', 'gradient'] as const;
+const GRADIENT_KEYS = ['min', 'max', 'from', 'to'] as const;
+const TRANSFORMER_KEYS: Record<string, readonly string[]> = {
+  numeric: ['kind', 'precision', 'lenient'],
+  binary: ['kind', 'encoding', 'maxLength'],
+  url: ['kind', 'template']
+};
+
+function queryHasOnlyDeclaredKeys(query: ExplorationQuery): boolean {
+  const grouping = query.grouping;
+  return (
+    onlyKeys(query, QUERY_KEYS) &&
+    query.filters.every((filter) => onlyKeys(filter, FILTER_KEYS)) &&
+    query.ordering.every((entry) => onlyKeys(entry, SORT_KEYS)) &&
+    (grouping === null ||
+      (onlyKeys(grouping, GROUPING_KEYS) &&
+        grouping.aggregates.every((aggregate) => onlyKeys(aggregate, AGGREGATE_KEYS))))
+  );
+}
+
+function presentationHasOnlyDeclaredShape(value: Record<string, unknown>, formatting: FormattingState): boolean {
+  const widths = Object.values((value.columnWidths ?? {}) as Record<string, unknown>);
+  return (
+    onlyKeys(value, VIEW_PRESENTATION_KEYS) &&
+    // The resize handle stores whole pixels inside these bounds; anything else is not a width this
+    // build could have written, and a zero one hides a column the Columns panel says is shown.
+    widths.every(
+      (px) => Number.isInteger(px) && (px as number) >= MIN_COLUMN_WIDTH && (px as number) <= MAX_COLUMN_WIDTH
+    ) &&
+    onlyKeys(value.formatting, FORMATTING_KEYS) &&
+    formatting.rules.every(
+      (rule) => onlyKeys(rule, RULE_KEYS) && (rule.gradient === undefined || onlyKeys(rule.gradient, GRADIENT_KEYS))
+    ) &&
+    Object.values(formatting.transformers).every((transformer) =>
+      onlyKeys(transformer, TRANSFORMER_KEYS[transformer.kind] ?? [])
+    )
+  );
+}
+
+/**
+ * Reads a saved view's query STRICTLY: valid, and already in the form the store keeps.
+ *
+ * The store's own read repairs what it can, because a session's tabs are worth keeping. A saved
+ * view is a file anyone with access could have changed, so one this build would have to repair
+ * is refused instead.
+ *
+ * @param value - The payload's `query`.
+ * @returns The query, or null.
+ */
+export function readStrictQuery(value: unknown): ExplorationQuery | null {
+  if (!isValidQuery(value)) return null;
+  const normalized = normalizeQuery(value as ExplorationQuery);
+  return sameJson(normalized, value) && queryHasOnlyDeclaredKeys(normalized) ? normalized : null;
+}
+
+/**
+ * Reads a saved view's presentation STRICTLY, without the two fields a view does not carry.
+ *
+ * @param value - The payload's `presentation`.
+ * @returns The presentation minus `valuePanelOpen` and `recordRowIndex`, or null when the store's
+ *   normaliser would default, drop or repair anything in it.
+ */
+export function readStrictPresentation(
+  value: unknown
+): Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const normalized: Partial<ExplorationPresentation> = normalizePresentation(value);
+  delete normalized.valuePanelOpen;
+  delete normalized.recordRowIndex;
+  const full = normalized as Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>;
+  return sameJson(normalized, value) &&
+    presentationHasOnlyDeclaredShape(value as Record<string, unknown>, full.formatting)
+    ? full
+    : null;
+}
+
 function isValidTabsState(value: unknown): value is ExplorationTabsState {
   if (typeof value !== 'object' || value === null) return false;
   const state = value as Record<string, unknown>;
@@ -420,19 +565,25 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
     if (!isValidTabsState(parsed)) return null;
     return {
       ...parsed,
-      tabs: parsed.tabs.map((tab) => ({
-        ...tab,
-        // A document written before these fields existed carries no history at all, which is the
-        // ordinary case for the first session after a deploy — not a fault.
-        history: normalizeHistory(tab.history),
-        savedQuery: normalizeSavedQueryLink(tab.savedQuery),
-        sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
-        exploration: {
-          ...tab.exploration,
-          query: normalizeQuery(tab.exploration.query),
-          presentation: normalizePresentation(tab.exploration.presentation)
-        }
-      }))
+      tabs: parsed.tabs.map((tab) => {
+        const restored: ExplorationTab = {
+          ...tab,
+          // A document written before these fields existed carries no history at all, which is the
+          // ordinary case for the first session after a deploy — not a fault.
+          history: normalizeHistory(tab.history),
+          savedQuery: normalizeSavedQueryLink(tab.savedQuery),
+          sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
+          exploration: {
+            ...tab.exploration,
+            query: normalizeQuery(tab.exploration.query),
+            presentation: normalizePresentation(tab.exploration.presentation)
+          }
+        };
+        const held = normalizeAwaitingRun(tab.awaitingRun);
+        if (held) restored.awaitingRun = held;
+        else delete restored.awaitingRun;
+        return restored;
+      })
     };
   } catch {
     return null;
