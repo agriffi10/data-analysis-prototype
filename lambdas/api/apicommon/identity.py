@@ -628,6 +628,19 @@ class _RetryingClient:
             return attribute
 
         def _call(*args: Any, **kwargs: Any) -> Any:
+            """Calls the proxied operation, re-assuming the caller's role once on an expiry.
+
+            Args:
+              *args: The operation's positional arguments, passed through.
+              **kwargs: The operation's keyword arguments, passed through.
+
+            Returns:
+              Whatever the operation returns.
+
+            Raises:
+              IdentityUnavailableError: When the session has expired again after one refresh.
+              Exception: Any other fault the operation raises, unchanged.
+            """
             try:
                 return attribute(*args, **kwargs)
             except Exception as first:

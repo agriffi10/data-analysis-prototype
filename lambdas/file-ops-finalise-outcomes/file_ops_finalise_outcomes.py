@@ -30,6 +30,11 @@ unbuildable without them.
 
 The service name is the control plane, not the function, so one operation's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
+
+Attributes:
+  _DUPLICATE_REASONS: The reasons a copied item's source can survive, each producing a duplicate on
+    an operation that copies. Anything else the deletion reports is a failure of the deletion
+    itself.
 """
 
 import logging
@@ -42,8 +47,6 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="file-ops")
 
-#: The reasons a copied item's source can survive, mapped to the outcome each produces on an
-#: operation that copies. Anything else the deletion reports is a failure of the deletion itself.
 _DUPLICATE_REASONS = (delete.SOURCE_CHANGED, delete.SOURCE_DELETE_FAILED, delete.DELETE_REFUSED)
 
 

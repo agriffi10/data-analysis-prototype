@@ -87,6 +87,10 @@ def read_content(context: RequestContext) -> dict[str, Any]:
 def write_content(context: RequestContext) -> dict[str, Any]:
     """Writes a body byte for byte.
 
+    A replacement and a creation are judged by different rules. CREATING a marker is how a space's
+    prefix is held open, and both bucket policies permit it — they Deny only its deletion — so a
+    replacement is refused where a creation is not, and that is the whole difference.
+
     Args:
       context: The authenticated request.
 
@@ -106,8 +110,6 @@ def write_content(context: RequestContext) -> dict[str, Any]:
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
     overwrite = bool(body.get("overwrite", False))
-    # CREATING a marker is how a space's prefix is held open, and both bucket policies permit it —
-    # they Deny only its deletion. Replacing one is refused, and that is the whole difference.
     if overwrite:
         protected.assert_replaceable(space, key)
     else:

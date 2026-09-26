@@ -22,6 +22,18 @@ What content dedup does NOT collapse is two different requests, because the dedu
 body and every failure row carries its own request id in the payload. A user refused for the same
 protected folder twice in a row sees both refusals; only a request with no usable id, whose row
 carries no payload, can still merge with an identical one inside the queue's five-minute window.
+
+Attributes:
+  _FILES_ROUTE: The file browser's route. The link is a PATH, never a URL — ``isSafeInAppPath`` in
+    the browser rejects anything that could resolve off this origin, and this producer is the
+    first of the two gates.
+  _SEGMENT: What a SPACE NAME may contain to be interpolated into a link. Usernames and space
+    names are already constrained to this by the catalog rule, so it refuses nothing the pipeline
+    legitimately produces. A key is not checked against it — keys are arbitrary and are
+    percent-encoded instead.
+  _LANDED: The outcomes that mean something reached the destination. A ``duplicate`` is here on
+    purpose — its objects DID land, and the destination is where the user has to look to decide
+    which copy to keep.
 """
 
 import json
@@ -58,19 +70,10 @@ __all__ = [
     "request_payload",
 ]
 
-#: The file browser's route. The link is a PATH, never a URL — ``isSafeInAppPath`` in the browser
-#: rejects anything that could resolve off this origin, and this producer is the first of the two
-#: gates.
 _FILES_ROUTE = "/files"
 
-#: What a SPACE NAME may contain to be interpolated into a link. Usernames and space names are
-#: already constrained to this by the catalog rule, so it refuses nothing the pipeline legitimately
-#: produces. A key is not checked against it — keys are arbitrary and are percent-encoded instead.
 _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
-#: The outcomes that mean something reached the destination. A ``duplicate`` is here on purpose —
-#: its objects DID land, and the destination is where the user has to look to decide which copy to
-#: keep.
 _LANDED = frozenset({outcomes.MOVED, outcomes.COPIED, outcomes.DUPLICATE})
 
 
@@ -349,7 +352,9 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
 
     **The conflicted items are added while they FIT, not while they are few.** One is ~200 bytes
     at ordinary key lengths and ~12,000 at this plane's caps, so a count alone bounds nothing;
-    ``more`` says plainly that some were dropped, for either reason.
+    ``more`` says plainly that some were dropped, for either reason. Each candidate is measured
+    WITH the ``more`` flag set, because the flag is set once the loop stops and would otherwise
+    push the emitted payload past the budget the loop had just checked it against.
 
     **The head is mandatory and rides whatever it costs, so its one unbounded term is capped
     here.** Dropping conflicts cannot help when the head alone is over budget, and nothing
@@ -399,8 +404,6 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
             entry["sample"] = record["sample"]
         if record.get("more"):
             entry["more"] = True
-        # Probed WITH the ``more`` flag, because it is set below and would otherwise push the
-        # emitted payload past the budget the loop just checked it against.
         candidate = {**payload, "conflicts": [*carried, entry], "more": True}
         if _serialised(candidate) > config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES:
             dropped = True

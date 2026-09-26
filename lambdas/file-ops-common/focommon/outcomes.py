@@ -57,6 +57,9 @@ Attributes:
     producer that words the notification.
   MEMBERS: Every outcome this plane may carry. Closed and asserted, because an outcome nothing can
     word is a notification the user never gets.
+  TERMINAL_SUCCESS: What a still-``cleared`` item becomes when its operation committed. The
+    finaliser reads this rather than branching, so "every operation has a terminal success" is a
+    property of the table.
 
 **A WHOLE-REQUEST TERMINAL IS REACHABLE ONLY FROM A CAUSE THAT IS A PROPERTY OF THE REQUEST, NEVER
 OF AN ITEM.** Stated as the rule rather than as a list of causes: they are spread across the
@@ -104,8 +107,6 @@ TERMINALS = frozenset(
 
 MEMBERS = GATE_VERDICTS | TERMINALS
 
-#: What a still-``cleared`` item becomes when its operation committed. The finaliser reads this
-#: rather than branching, so "every operation has a terminal success" is a property of the table.
 TERMINAL_SUCCESS = {"move": MOVED, "copy": COPIED, "delete": DELETED}
 
 __all__ = [
