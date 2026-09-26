@@ -400,7 +400,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Results don’t have to stay in the Query tab. Save a query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from. If a multi-statement script failed or you stopped it part-way, the earlier statement’s full result can still be saved, so you don’t have to re-run to get it.',
         steps: [
-          'Click <b>Save results…</b> in the status bar, beside the run’s status.',
+          'Click <b>Save results…</b> in the status bar, beside the run’s status. It saves a query’s rows; for a <b>SHOW</b>, <b>DESCRIBE</b> or <b>EXPLAIN</b> it is greyed out and says why.',
           'Type a <b>File name</b> — the extension is added for you — then choose where it goes: a space under <b>Save to</b> if you belong to more than one, and a folder under <b>Destination folder</b>.',
           'Click <b>Save here</b>. The results are saved as a CSV file straight away, and a message confirms where it landed.',
           'The whole result set is saved — every row, not just the page on screen.'

@@ -1031,7 +1031,7 @@ archive or restore already running finishes and notifies as usual, and its notif
   to `h-7` would leave. On `/files` no other control's accessible name begins with "Remove", so the
   bare selector is unambiguous there and nowhere else — on `/connections` it would hit the roster.
   Then on `/query` with history showing, at ≥900px:
-  `[...document.querySelectorAll('[aria-label="Open this query in the editor"],[aria-label="Re-run this query"]')].map(e => e.getBoundingClientRect().height)`
+  `[...document.querySelectorAll('[aria-label="Open this query in a new tab"],[aria-label="Re-run this query in a new tab"]')].map(e => e.getBoundingClientRect().height)`
   — both **24**. (Below 900px the same row renders View / Run at 38.5px, which is the mobile floor,
   not this check.) Both sites also passed SC 2.5.8 via the spacing exception *before* they were
   pinned, so a regression here restores conformance-by-luck rather than breaking it — which is
