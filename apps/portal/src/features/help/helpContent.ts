@@ -320,7 +320,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
           'Expand a database to inspect its tables and columns.',
           'Created a table elsewhere, or a teammate did? Click the <b>Refresh</b> icon beside an expanded database to re-read its tables and views without reloading the page.',
-          'Hover over a table and open its <b>⋮</b> menu for more. <b>View data</b> opens a new tab and runs a query over the whole table, <b>View DDL</b> opens how the table was defined, and <b>Drop table</b> — <b>Drop view</b> on a view — removes it after you confirm. Dropping a table leaves its files where they are.',
+          'Hover over a table and open its <b>⋮</b> menu for more. <b>View data</b> opens a new tab and runs a query over the whole table, <b>View DDL</b> opens how the table was defined, and <b>Drop table</b> — <b>Drop view</b> on a view — removes it after you confirm. Dropping a table built from a folder leaves its files where they are, but an Iceberg table you created in a query is dropped together with its data.',
           'Short on space? <b>Collapse the side panel</b> with the chevron in its header; a small handle at the edge brings it back. Your choice is remembered in this browser.',
           'Reference each table by its full name, <b>database.table</b> (for example <b>mydb.orders</b>), and you can join freely across databases in one query.'
         ],
@@ -435,7 +435,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Write the query in the editor, naming every table in full as <b>database.table</b>, all from the same database. That is the database the view is created in.',
           'Click <b>Create view</b> in the toolbar above the editor — in a narrower window it shows only its eye icon. If the query names no database, or more than one, a message says so and nothing is created.',
-          'The dialog names the database the view goes into. Type a <b>View name</b> — 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter — and click <b>Create</b>.',
+          'The dialog names the database the view goes into. Type a <b>View name</b> — 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter — and click <b>Create</b>. If that database already has a view of that name, it is replaced.',
           'A message confirms the view was created, and it appears under that database in the schema rail, for anyone who can see that database.',
           'To remove it, open its <b>⋮</b> menu in the schema rail and choose <b>Drop view</b>.'
         ]
@@ -675,7 +675,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file. Exploring a table, the file also records your filters, sorting, grouping, column layout, colors and transformers.',
           'To pick up where you left off, click <b>+</b> on the tab strip, choose <b>Open saved view</b>, then <b>Open</b> the file. Everything comes back as you left it, ready to change.',
           'A view saved in a shared space opens without running, because anyone in that space can change the file. Check its <b>Generated SQL</b>, then choose <b>Run</b>. Its link columns and pattern color rules are left out, and the tab says so.',
-          'Or pick <b>Create view…</b> from <b>Options</b> to keep it as a <b>view</b> in that space instead. A view behaves like a table — it turns up in the <b>Data Explorer</b> and the <b>Query</b> tab for anyone who can see that space, and it re-runs your query each time it is read.'
+          'Or pick <b>Create view…</b> from <b>Options</b> to keep it as a <b>view</b> in that space instead — a view already there under that name is replaced. A view behaves like a table — it turns up in the <b>Data Explorer</b> and the <b>Query</b> tab for anyone who can see that space, and it re-runs your query each time it is read.'
         ],
         callout: {
           kind: 'tip',
