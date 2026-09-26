@@ -55,14 +55,17 @@ describe('ToastProvider', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Something else failed');
   });
 
-  it('closes whichever toast is showing from its own Dismiss button', async () => {
+  // The first push after a fresh mount is the one a restarted count would hand out again.
+  it('closes a toast from its own Dismiss button, and never gives its id to a later toast', async () => {
     const {user} = renderWithProviders(<SlowAction />);
     await user.click(screen.getByRole('button', {name: 'Start'}));
-    await user.click(screen.getByRole('button', {name: 'Fail elsewhere'}));
 
     await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Fail elsewhere'}));
+    await user.click(screen.getByRole('button', {name: 'Land'}));
+    expect(screen.getByRole('alert')).toHaveTextContent('Something else failed');
   });
 
   it('gives a repeated message its own full display time', async () => {

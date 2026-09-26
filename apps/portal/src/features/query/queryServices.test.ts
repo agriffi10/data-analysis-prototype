@@ -235,6 +235,18 @@ describe('queryHistory.service', () => {
         ['q1', 'SUCCEEDED']
       ]);
     });
+
+    it('still runs a write queued behind one that threw', async () => {
+      const fake = fakeBucket(null);
+      fake.send.mockRejectedValueOnce(new Error('network stack threw'));
+
+      const thrown = appendQueryHistory('alice', entry('q1'));
+      const queued = appendQueryHistory('alice', entry('q2'));
+
+      await expect(thrown).rejects.toThrow('network stack threw');
+      expect((await queued).success).toBe(true);
+      expect((JSON.parse(fake.stored()!) as QueryHistory).entries.map((e) => e.queryExecutionId)).toEqual(['q2']);
+    });
   });
 
   // ── The write path refuses a body it cannot read ─────────────────────────────
