@@ -399,7 +399,6 @@ def test_an_original_gone_with_a_vault_that_cannot_be_counted_whole_touches_noth
     assert f"archive/{_REQUEST_ID}/source-decision.json" not in fake.admin
 
 
-
 @pytest.mark.parametrize("when", ["before it started", "while it headed the originals"])
 def test_a_verdict_the_timeout_door_claimed_first_deletes_nothing_and_keeps_the_vault(
     monkeypatch, _no_real_notifications, when
@@ -429,6 +428,7 @@ def test_a_verdict_the_timeout_door_claimed_first_deletes_nothing_and_keeps_the_
     assert fake.deletes == []
     assert _decision(fake)["decision"] == "stopped"
     assert "Nothing was deleted" in _no_real_notifications[0][1]
+
 
 def test_a_source_already_gone_is_not_a_change_so_a_replay_completes():
     """A Retry after a lost response re-runs the verb over keys its first attempt removed. Those

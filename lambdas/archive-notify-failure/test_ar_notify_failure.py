@@ -42,6 +42,8 @@ class _AdminBucket:
     def __init__(self):
         self.objects = {}
         self.fault = None
+        self.put_fault = None
+        self.before_put = None
 
     def get_object(self, Bucket, Key):
         if self.fault is not None:
@@ -51,8 +53,10 @@ class _AdminBucket:
         return {"Body": io.BytesIO(self.objects[Key])}
 
     def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
-        if self.fault is not None:
-            raise self.fault
+        if self.before_put is not None:
+            self.before_put()
+        if self.fault is not None or self.put_fault is not None:
+            raise self.fault or self.put_fault
         if IfNoneMatch == "*" and Key in self.objects:
             raise _S3Error("PreconditionFailed", 412)
         self.objects[Key] = Body
@@ -199,17 +203,31 @@ def test_a_timed_out_execution_with_an_unhashable_mode_still_notifies(monkeypatc
 
 
 @pytest.mark.parametrize(
-    "state", ["a verdict to delete", "an unreadable verdict", "a verdict to delete, id in capitals"]
+    "state",
+    [
+        "a verdict to delete",
+        "a verdict to delete, recorded as the door claims",
+        "a verdict to delete, id in capitals",
+        "an unreadable verdict",
+        "a claim the bucket refuses",
+    ],
 )
 def test_a_timeout_that_may_have_deleted_does_not_say_nothing_was_deleted(admin, sent, state):
     """The ceiling can land while delete-source runs, or while the receipt is written after it —
-    originals partly or wholly gone, no receipt, and a message saying nothing was deleted. A
-    verdict that cannot be read is told the same way, because only that sentence is true either
-    way. The id in the input is the browser's own, and delete-source keys its verdict on the id
-    validate-authorize lowercased — reading the raw spelling would find nothing and promise."""
+    originals partly or wholly gone, no receipt, and a message saying nothing was deleted.
+
+    A delete-source still running can record its verdict between any read the door might make and
+    the door's own write, so the door answers from what its create-only write finds. The id in the
+    input is the browser's own, and delete-source keys its verdict on the id validate-authorize
+    lowercased — the raw spelling would find nothing and promise. A fault, or a refusal such as a
+    lost grant, is told the same hedged way, because only that sentence is true either way."""
     body = json.loads(_raw()[0]["body"])
     if state == "an unreadable verdict":
         admin.fault = _S3Error("SlowDown", 503)
+    elif state == "a claim the bucket refuses":
+        admin.put_fault = _S3Error("AccessDenied", 403)
+    elif state.endswith("as the door claims"):
+        admin.before_put = lambda: admin.objects.setdefault(_DECISION, _verdict("delete"))
     else:
         admin.objects[_DECISION] = _verdict("delete")
     if state.endswith("capitals"):
@@ -247,6 +265,15 @@ def test_a_timeout_nobody_can_be_told_about_still_stops_a_late_deletion(admin, s
 
     assert sent == []
     assert json.loads(admin.objects[_DECISION])["decision"] == "stopped"
+
+
+def test_a_timed_out_event_with_a_detail_of_the_wrong_type_neither_raises_nor_claims(admin, sent):
+    """A raise here is an async Lambda failure EventBridge retries, and with no input there is no
+    id to key a claim on."""
+    verb.handler({"detail-type": "Step Functions Execution Status Change", "detail": "x"}, None)
+
+    assert sent == []
+    assert admin.objects == {}
 
 
 def test_a_timed_out_restore_claims_no_deletion_verdict(admin, sent):

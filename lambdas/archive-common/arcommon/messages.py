@@ -33,9 +33,10 @@ Attributes:
     has been lost.
 
     **``archive_timed_out`` makes that promise from outside the run**, so it is earned by a
-    record rather than by the commit gate: the timeout door sends it only when delete-source's
-    verdict is not a deletion, having claimed the verdict as ``stopped`` if there was none.
-    A verdict to delete, or one that cannot be read, gets
+    record rather than by the commit gate. The timeout door sends it when delete-source's verdict
+    is not a deletion, having claimed the verdict as ``stopped`` if there was none, or when the
+    run carried no valid id and so never reached a verb; delete-source sends it too, on meeting
+    that claim. A verdict to delete, or one that cannot be claimed or read, gets
     ``archive_timed_out_may_have_deleted`` instead, which says only what is true either way.
 
     There is no ``request_id_reused`` body, because that refusal is told to nobody. It is the

@@ -255,9 +255,9 @@ def _on_execution_timed_out(event) -> dict:
     """Notifies the actor that the whole run was stopped by the machine's own timeout.
 
     The wording is this plane's own rather than the generic failure sentence, and for an archive
-    what it can promise is decided by delete-source's verdict record, which this claims before
-    anything else — before the actor is known, because the claim protects the originals whether
-    or not anyone can be told.
+    what it can promise is decided by delete-source's verdict record. The claim is taken before
+    the no-recipient return, because it protects the originals whether or not anyone can be told
+    — though only when the execution's input, and so its id, could be read.
 
     The request id for the payload comes from the same raw input as the actor, because the event
     carries no state and there is no recorded failure to read it from.
