@@ -77,6 +77,13 @@ describe('query.sql', () => {
       expect(deriveViewTargetDatabase('SELECT * FROM mydb.a JOIN mydb.b ON a.id = b.id')).toEqual({database: 'mydb'});
     });
 
+    it('reads a quoted database and table, which is how the Data Explorer writes them', () => {
+      expect(deriveViewTargetDatabase('SELECT "id" FROM "mydb"."Orders ""2026""" AS t')).toEqual({database: 'mydb'});
+      expect(deriveViewTargetDatabase('SELECT * FROM mydb."orders" JOIN "other"."t" ON 1 = 1')).toEqual({
+        error: expect.stringMatching(/more than one database/i)
+      });
+    });
+
     it('errors (never picks) when the body spans more than one database', () => {
       const target = deriveViewTargetDatabase('SELECT * FROM db_a.t JOIN db_b.u ON t.id = u.id');
       expect('error' in target && target.error).toMatch(/more than one database/i);
