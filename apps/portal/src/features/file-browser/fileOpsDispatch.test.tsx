@@ -375,7 +375,7 @@ describe('in-flight state', () => {
       ])
     );
     await pollNotifications(queryClient);
-    await waitFor(() => expect(screen.getByText(/Refused — see your notifications/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Didn’t finish — see your notifications/)).toBeInTheDocument());
   });
 
   it('gates a SECOND submit in the same space, and says why on the control', async () => {
@@ -417,7 +417,10 @@ describe('in-flight state', () => {
     // paths always had. A refusal would otherwise cost the user every tick they made.
     mockSubmit.mockResolvedValue({
       success: false,
-      error: {message: 'That selection is too large to do in one go', code: 'SelectionTooLarge'}
+      error: {
+        message: 'That selection is too large to move in one go. Select fewer items and try again.',
+        code: 'SelectionTooLarge'
+      }
     });
     const {user} = render();
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
@@ -426,7 +429,9 @@ describe('in-flight state', () => {
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
     await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
-    expect(await screen.findByText('That selection is too large to do in one go')).toBeInTheDocument();
+    expect(
+      await screen.findByText('That selection is too large to move in one go. Select fewer items and try again.')
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 
@@ -516,6 +521,10 @@ describe('the conflict round trip', () => {
     const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
     expect(dialog).toHaveTextContent('q1.csv');
     expect(dialog).toHaveTextContent('q2.csv');
+    // Two items, spoken of as two, and the rest of the run pointed at rather than vouched for.
+    expect(dialog).toHaveTextContent(
+      'Something was in the way of these items, so Data Quarry left them alone. Your notification says what happened to the rest of that request.'
+    );
     // The sample is bounded at the producer, so a shortened one must never read as complete.
     expect(within(dialog).getByText(/and more/)).toBeInTheDocument();
   });
@@ -527,6 +536,10 @@ describe('the conflict round trip', () => {
     const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
     // The wording reaches the user, not merely a reason code.
     expect(within(confirm).getByText(/cannot be recovered/)).toBeInTheDocument();
+    // What is protected is what arrives AFTER this click: the re-send carries a fresh timestamp.
+    expect(confirm).toHaveTextContent(
+      'Anything that arrives at the destination after you press Overwrite is left alone'
+    );
     await user.click(within(confirm).getByRole('button', {name: 'Overwrite'}));
 
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
@@ -555,6 +568,7 @@ describe('the conflict round trip', () => {
     );
     const {user} = render({requestId: 'run-1'});
     const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    expect(dialog).toHaveTextContent('Something was in the way of this item, so Data Quarry left it alone.');
     await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
     const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
     const input = within(form).getByRole('textbox');

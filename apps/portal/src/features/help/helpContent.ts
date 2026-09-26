@@ -4,7 +4,7 @@ import type {HelpSection} from './help.types';
 // This content describes only the portal behavior that is shipped and reachable
 // by users: Files (incl. background file operations and their conflict round trip,
 // sending, archiving, and running a data-quality check and reading its report),
-// Query, Tables, the Data Explorer, Shared connections, Notifications, getting
+// Query, Tables, the Data Explorer, Shared spaces, Notifications, getting
 // around the app, and feedback. Every step below maps to a real, wired affordance
 // in the code, named by the text the user sees.
 //
@@ -115,17 +115,17 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'When a move or copy is refused',
         subtitle: 'Something was in the way — here is how to finish the job.',
         intro:
-          'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request goes ahead. The notification tells you which ones, and you can settle them from there.',
+          'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request carries on without it. The notification says what happened, and you can settle the conflicts from there.',
         steps: [
           'In <b>Notifications</b>, find the message about the operation. Below it there is a <b>Review conflicts</b> link.',
           'The review lists the items that could not be placed, with a sample of what is in the way.',
           'For a rename, choose <b>Use a different name…</b>, type a name that is free, and click <b>Request again</b>. Nothing is written over, and the request is sent again for that item only.',
-          'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm with <b>Overwrite</b>. Only the items that were refused are sent again — the rest already happened.',
+          'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm with <b>Overwrite</b>. Only the items that were in the way are sent again; your notification says what became of the rest.',
           'You get a fresh notification for the second request, the same as the first.'
         ],
         callout: {
           kind: 'warning',
-          text: 'Overwriting <b>cannot be undone</b>: there is no version history and no trash here, so whatever was at the destination is replaced for good. Renaming is the safe way out, and it is what most people want. Anything created at the destination after you first asked is left alone either way.'
+          text: 'Overwriting <b>cannot be undone</b>: there is no version history and no trash here, so whatever was at the destination is replaced for good. Renaming is the safe way out, and it is what most people want. Anything that arrives at the destination after you press <b>Overwrite</b> is left alone.'
         }
       },
       {
@@ -400,7 +400,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Results don’t have to stay in the Query tab. Save a query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from. If a multi-statement script failed or you stopped it part-way, the earlier statement’s full result can still be saved, so you don’t have to re-run to get it.',
         steps: [
-          'Click <b>Save results to my files</b> in the status bar, beside the run’s status.',
+          'Click <b>Save results…</b> in the status bar, beside the run’s status.',
           'Type a <b>File name</b> — the extension is added for you — then choose where it goes: a space under <b>Save to</b> if you belong to more than one, and a folder under <b>Destination folder</b>.',
           'Click <b>Save here</b>. The results are saved as a CSV file straight away, and a message confirms where it landed.',
           'The whole result set is saved — every row, not just the page on screen.'
@@ -417,7 +417,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'The save dialog can convert your results as it saves them. CSV is saved straight away; the other formats are converted first, in the background.',
         steps: [
-          'Click <b>Save results to my files</b>, and pick a <b>Format</b>: <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b>. The file extension follows the format you pick.',
+          'Click <b>Save results…</b>, and pick a <b>Format</b>: <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b>. The file extension follows the format you pick.',
           'For any format but CSV the button reads <b>Convert and save</b>. Click it, and you get a <b>notification</b> when the file is ready — you can close the tab and carry on working.',
           'Every row is converted, not just the page on screen.'
         ],
@@ -558,7 +558,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'Open the <b>Data Explorer</b> tab. Pick a <b>Space</b> — your own is listed under your username, and any shared space you belong to follows it — then choose a table or view from the list.',
           'Already in the <b>Query</b> tab? Hover over a table in the schema rail, open its <b>⋮</b> menu and choose <b>Explore data</b> to open it here.',
-          'Got a query result you want to filter, group or color? Choose <b>Explore in Data Explorer</b> beside <b>Save results to my files</b> to open that statement here. It runs the statement again, and every column needs its own name — give an expression or a repeated column one with <b>AS</b>.',
+          'Got a query result you want to filter, group or color? Choose <b>Explore in Data Explorer</b> beside <b>Save results…</b> to open that statement here. It runs the statement again, and every column needs its own name — give an expression or a repeated column one with <b>AS</b>.',
           'Use <b>+</b> on the tab strip to explore another table alongside this one, and <b>✕</b> to close one.',
           'Switch between <b>Grid</b>, <b>Record</b> and <b>Text</b> with the three buttons above the rows — <b>Record</b> shows one row at a time, which is the easier read on a phone.'
         ],
@@ -580,7 +580,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open <b>Options</b> and choose <b>Columns</b> to hide, show, pin or reorder columns. <b>Show all</b> brings back every hidden column and <b>Unpin all</b> unpins every pinned one; a column you moved stays where you put it.',
           "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it — two columns compared with each other, an <b>OR</b> between conditions, or a list that should keep the <b>NULL</b> rows too, such as <code>state IN ('NY', 'NJ') OR state IS NULL</code>. Leave out the word <b>WHERE</b>.",
           'Every column filter, whether you set it from a column’s menu or in <b>Order and filter</b>, shows as a chip under the <b>Filter expression</b> box. The chips and the expression all apply together, and a chip’s <b>×</b> removes just that filter.',
-          'Use <b>‹ Back</b> and <b>Forward ›</b> on the bar to step through the filters you have already tried, or choose <b>Remove all filters</b> from <b>Options</b> to start over. It clears the sorting and the filter expression too, and while you are grouping it reads <b>Remove all filters and grouping</b>.',
+          'Use <b>‹ Back</b> and <b>Forward ›</b> on the bar to step back and forward through earlier versions of this query, or choose <b>Remove all filters and sorts</b> from <b>Options</b> to start over. It clears the filter expression too, and while you are grouping it reads <b>Remove all filters, sorts and grouping</b>.',
           'In a table built from CSV files a blank cell is empty text, shown as <b>(empty)</b>, and it is not the same as <b>NULL</b>. <b>Is empty</b> finds both; <b>is null</b> finds only the NULLs, so it is the one that comes back with nothing on a table like that.',
           'In a table built from CSV files every column is text, so <b>greater than</b>, <b>less than</b> and sorting compare the values as text: <b>9</b> comes after <b>10</b>. To compare them as numbers, use a <b>Filter expression</b> such as <code>TRY_CAST(amount AS double) > 100</code>.'
         ],
@@ -597,7 +597,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'These two panels look alike and work very differently, and it is worth knowing which is which. <b>Grouping</b> asks the database a new question. <b>Calc</b> adds up the cells you have highlighted, right here in your browser.',
         steps: [
           'Open <b>Options</b> and click <b>Grouping</b>, then choose the columns to group by and what to work out for each group — a count, a sum, an average, a minimum or a maximum. You can also drag a column header onto the panel.',
-          'Tick <b>Show percentage of the rows on this page</b> to add a share-of-total column beside the first figure. It is worked out from the rows on the page, and the column header says so.',
+          'Tick <b>Show percentage of the total on this page</b> to add a share-of-total column beside the first figure. It is worked out from the rows on the page, and the column header says so.',
           'Click <b>Apply grouping</b>. Grouping is a query like any other — it runs, and it scans. <b>Stop grouping</b> takes you back to the rows.',
           'For a quick total instead, drag across some cells and pick <b>Calc</b> from <b>Options</b>. It shows <b>Count</b> and <b>Count distinct</b> for exactly what you selected; tick others under <b>Functions</b> — <b>Sum</b>, <b>Average</b>, <b>Minimum</b>, <b>Maximum</b>, <b>Median</b>, <b>Mode</b> or <b>Count nulls</b>.',
           'Pick <b>Value</b> from <b>Options</b> to open a panel showing the full contents of the cell you are on — useful when a value is too long for its column.'
@@ -625,7 +625,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'A transformer changes only how a value looks. Filters, colors, <b>Calc</b> and copying all still use the value itself, and so does <b>Save results to my files</b> — so a color rule on a <b>Number</b> column tests the value before it was rounded.'
+          text: 'A transformer changes only how a value looks. Filters, colors, <b>Calc</b> and copying all still use the value itself, and so does <b>Save results…</b> — so a color rule on a <b>Number</b> column tests the value before it was rounded.'
         }
       },
       {
@@ -633,18 +633,18 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Copy or save what you found',
         subtitle: 'Take a selection to the clipboard, or every row to a file.',
         intro:
-          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results to my files</b> saves every row the query returned as a file in your files — and neither one runs another query.',
+          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results…</b> saves every row the query returned as a file in your files — and neither one runs another query.',
         steps: [
           'Select some cells and press <kbd>Ctrl/Cmd + C</kbd> to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>Tab-separated (for spreadsheets)</b>, <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to <b>Include column names</b>, <b>Include row numbers</b> or <b>Quote values</b>.',
-          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save every row the query returned. Type a <b>File name</b>, then choose where it goes under <b>Save to</b> and <b>Destination folder</b>.',
+          'Click <b>Save results…</b> beside the pager (it is in <b>Options</b> too) to save every row the query returned. Type a <b>File name</b>, then choose where it goes under <b>Save to</b> and <b>Destination folder</b>.',
           '<b>The file holds the result columns the grid is showing, in the order it shows them.</b> Hide a column, or move one, and it is saved that way — the dialog says how many columns it is about to write. Showing everything again, in the original order, saves the whole result as before. A column worked out in your browser, such as the <b>percentage</b> a grouping adds, is not part of the results and is never in the file.',
           'With every column of the results shown in its original order, the file is saved as CSV straight away — the button reads <b>Save here</b>. Hide or move one of those and there is no file to copy, so it is converted instead: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. Hiding a column worked out in your browser changes nothing, because it was never going into the file.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {
           kind: 'warning',
-          text: 'Copy only takes the rows loaded on the page you are looking at — selecting a column header selects that page, not the whole table. <b>Save results to my files</b> is the one that saves every row. And if your selection has gaps in it, the copy comes out as one rectangle with the cells in between left blank.'
+          text: 'Copy only takes the rows loaded on the page you are looking at — selecting a column header selects that page, not the whole table. <b>Save results…</b> is the one that saves every row. And if your selection has gaps in it, the copy comes out as one rectangle with the cells in between left blank.'
         }
       },
       {
@@ -652,9 +652,9 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Save an exploration as Parquet, JSON or Excel',
         subtitle: 'Choose the file format when you save every row.',
         intro:
-          '<b>Save results to my files</b> can write more than CSV. The other formats are converted in the background and arrive as a notification.',
+          '<b>Save results…</b> can write more than CSV. The other formats are converted in the background and arrive as a notification.',
         steps: [
-          'In <b>Save results to my files</b>, pick a <b>Format</b>: <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b>. The file extension follows the format you pick.',
+          'In <b>Save results…</b>, pick a <b>Format</b>: <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b>. The file extension follows the format you pick.',
           '<b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are always converted: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready.',
           'Whichever format you pick, the file holds the result columns the grid is showing, in the order it shows them.'
         ],
@@ -686,19 +686,19 @@ export const HELP_SECTIONS: HelpSection[] = [
   },
   {
     id: 'shared-connections',
-    label: 'Shared connections',
+    label: 'Shared spaces',
     subtitle: 'Spaces you share with teammates — files and tables, together.',
     icon: 'connections',
     guides: [
       {
         id: 'create-shared-connection',
-        title: 'Create a shared connection',
+        title: 'Create a shared space',
         subtitle: 'Make a space several people can share.',
         intro:
-          'A shared connection is a space that more than one person can work in — the same files and the same tables, visible to everyone you invite. It’s how you collaborate here. You always start out as the owner and the only member; you bring others in afterwards.',
+          'A shared space is one that more than one person can work in — the same files and the same tables, visible to everyone you invite. It’s how you collaborate here. You always start out as the owner and the only member; you bring others in afterwards.',
         steps: [
-          'On the <b>Connections</b> tab, click <b>New shared connection</b> — just <b>New</b> in a narrower window.',
-          'Enter a <b>Connection name</b>: 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter.',
+          'On the <b>Shared spaces</b> tab, click <b>New shared space</b> — just <b>New</b> in a narrower window.',
+          'Enter a <b>Space name</b>: 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter.',
           'Click <b>Create</b>. It appears in your list straight away as <b>Provisioning…</b>, turns <b>Active</b> once it’s set up in the background, and you get a notification when it’s ready.',
           'If it can’t be set up, the row says why, with <b>Retry</b> to try again.'
         ],
@@ -717,7 +717,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the <b>Files</b> tab. The <b>Spaces</b> list on the left shows your own space, under your username, and every shared space you belong to. On a phone or in a narrow window, it’s in the <b>☰</b> menu.',
           'Click a space to open its files. Uploading, folders, moving, copying and deleting all work the same way there as in your own space.',
           'If you were only just added, the space may say <b>Applying your access…</b>. Click <b>Refresh access</b> to pick it up without signing out.',
-          'Opening the space is also what turns you from <b>Pending</b> to <b>Active</b> on its member list.',
+          'Opening the space is also what turns you from <b>Pending</b> to <b>Active</b> on the owner’s member list.',
           'A space that is still being set up is listed but can’t be opened until it’s ready.'
         ]
       },
@@ -731,7 +731,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open <b>Manage</b> on a space you own, then click <b>Add members</b>.',
           'Start typing in <b>Usernames</b> — existing usernames are offered as you type. Pick one, or press <kbd>Enter</kbd> to add the name you typed. You can also paste several at once, separated by spaces, commas, or new lines.',
           'Click <b>Add</b> once you have everyone. They all get access to the same shared files and tables, and each of them gets a notification.',
-          'Someone who is already signed in may not see the space straight away. Clicking the refresh button on their <b>Connections</b> tab, or <b>Refresh access</b> when they open the space in <b>Files</b>, brings it in without signing out.',
+          'Someone who is already signed in may not see the space straight away. Clicking the refresh button on their <b>Shared spaces</b> tab, or <b>Refresh access</b> when they open the space in <b>Files</b>, brings it in without signing out.',
           'If the change can’t go ahead, you’ll get a notification telling you it didn’t go through.'
         ],
         callout: {

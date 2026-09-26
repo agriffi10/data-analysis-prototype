@@ -14,7 +14,8 @@ import type {UseSaveResultsResult} from '../catalog/useSaveResults';
 import type {UseSaveQueryResult} from '../saved-queries/useSaveQuery';
 
 type Props = {
-  clear: {open: boolean; onConfirm: () => void; onCancel: () => void};
+  /** `linkedName` is the saved query the active tab is linked to, which Clear unlinks. */
+  clear: {open: boolean; linkedName?: string; onConfirm: () => void; onCancel: () => void};
   save: UseSaveQueryResult;
   /** The tab awaiting a close confirm (non-empty buffer), or null. */
   closing: {tab: QueryTab | null; onConfirm: () => void; onCancel: () => void};
@@ -28,6 +29,8 @@ type Props = {
   };
   drop: {
     target: {database: string; table: GlueTableSummary} | null;
+    /** The target's database is a shared space's. */
+    shared: boolean;
     busy: boolean;
     onConfirm: () => void;
     onCancel: () => void;
@@ -47,6 +50,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
     <>
       {clear.open && (
         <ClearQueryDialog
+          linkedName={clear.linkedName}
           onConfirm={clear.onConfirm}
           onCancel={clear.onCancel}
         />
@@ -121,6 +125,8 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       {drop.target && (
         <DropTableDialog
           table={drop.target.table.name}
+          database={drop.target.database}
+          shared={drop.shared}
           isDropping={drop.busy}
           isView={drop.target.table.tableType === 'VIRTUAL_VIEW'}
           onConfirm={drop.onConfirm}

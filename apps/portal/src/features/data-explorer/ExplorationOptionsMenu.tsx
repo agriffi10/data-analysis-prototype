@@ -122,7 +122,7 @@ export function ExplorationOptionsMenu({
     {kind: 'action', label: groupingOpen ? 'Hide Grouping' : 'Grouping', onSelect: onToggleGrouping},
     {kind: 'separator'},
     {kind: 'action', label: 'Copy…', onSelect: onCopy, disabledReason: copyRefusal},
-    {kind: 'action', label: 'Save results to my files', onSelect: onExport, disabledReason: exportRefusal},
+    {kind: 'action', label: 'Save results…', onSelect: onExport, disabledReason: exportRefusal},
     // REMOVED rather than refused with the flag off, because a reason cannot explain a state
     // the user has no way to change. Gated by `query`, not `dataExplorer`: the store is the
     // Query workspace's. See `gatedSurfaces.ts`.

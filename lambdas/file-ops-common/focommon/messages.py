@@ -109,8 +109,8 @@ _BODIES = {
     "invalid_conflict": "the request did not say what to do about files that already exist.",
     "invalid_submitted_at": "the request carried a submission time that cannot be right.",
     "invalid_target_name": (
-        "one of those names cannot be used. A name cannot be empty, contain a slash, or start or "
-        "end with a space."
+        "one of those names cannot be used. A name cannot be empty, contain a slash, start or "
+        "end with a space, or be longer than {maxNameLength} characters."
     ),
     "colliding_item_names": (
         'two of the things you selected would both end up called "{itemName}" in the same place. '
@@ -164,8 +164,8 @@ _BODIES = {
         "those folders hold too much data to do in one go. Please work on fewer folders at a time."
     ),
     "object_too_large": (
-        "one of those files is larger than this can handle in one go. Please move or copy it on "
-        "its own."
+        "one of those files is too large for this to handle, so nothing was changed. Please "
+        "leave it out of the selection."
     ),
     "source_missing": "one of those files is no longer there. Please refresh and try again.",
     "source_empty": "there was nothing inside it.",
@@ -208,8 +208,8 @@ _BODIES = {
     ),
     "operation_timed_out": (
         "it took too long and was stopped part-way, so some of it may have happened and some may "
-        "not. Please look at the folder before trying again, and give it a few minutes - that "
-        "space stays busy for a short while afterwards."
+        "not. Please look at the folder before trying again, and give it about "
+        "{lockGraceMinutes} minutes - that space stays busy for that long afterwards."
     ),
     "lock_wait_exhausted": (
         "something else was already working in that space and had not finished. Nothing was "
@@ -237,6 +237,10 @@ def _markers() -> dict:
     return {
         "maxItems": str(config.FILE_OPS_MAX_ITEMS),
         "maxObjects": f"{config.FILE_OPS_MAX_OBJECTS:,}",
+        "maxNameLength": str(config.MAX_TARGET_NAME),
+        "lockGraceMinutes": str(
+            (config.STALE_LOCK_SECONDS - config.MACHINE_TIMEOUT_SECONDS) // 60
+        ),
     }
 
 

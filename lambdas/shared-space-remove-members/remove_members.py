@@ -51,7 +51,7 @@ def _notify_members(removed, space, request_id):
     for member in removed:
         emit_notification(
             member,
-            f'You\'ve been removed from the shared workspace "{space}".',
+            f'You\'ve been removed from the shared space "{space}".',
             dedup_id=f"{request_id}:remove-member:{member}",
         )
 

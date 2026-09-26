@@ -120,10 +120,10 @@ describe('LandingPage', () => {
   });
 
   describe('LandingPage when authenticated', () => {
-    it('shows Go to Dashboard (not sign-in/up) and navigates to /files on click', async () => {
+    it('shows Go to Files (not sign-in/up) and navigates to /files on click', async () => {
       const {user} = renderApp(authenticated('alice'));
 
-      const cta = screen.getAllByRole('button', {name: /go to dashboard/i});
+      const cta = screen.getAllByRole('button', {name: /go to files/i});
       expect(cta.length).toBeGreaterThan(0);
       expect(screen.queryByRole('button', {name: /^sign in$/i})).not.toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /create account/i})).not.toBeInTheDocument();
@@ -137,7 +137,7 @@ describe('LandingPage', () => {
       renderApp(authenticated('alice'));
 
       expect(screen.getByText('files-page')).toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: /go to dashboard/i})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: /go to files/i})).not.toBeInTheDocument();
     });
   });
 
@@ -147,7 +147,7 @@ describe('LandingPage', () => {
 
       expect(screen.getAllByRole('button', {name: /^sign in$/i}).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', {name: /create( your)? account/i}).length).toBeGreaterThan(0);
-      expect(screen.queryByRole('button', {name: /go to dashboard/i})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: /go to files/i})).not.toBeInTheDocument();
     });
 
     it('runs the sign-in action when Sign in is clicked (SPEC-154 FR-002)', async () => {
@@ -197,7 +197,7 @@ describe('LandingPage', () => {
 
       // Hero + CTA-strip buttons are full-width on mobile, auto from tablet.
       const fullWidth = screen
-        .getAllByRole('button', {name: /go to dashboard/i})
+        .getAllByRole('button', {name: /go to files/i})
         .filter((b) => b.className.includes('w-full'));
       expect(fullWidth.length).toBeGreaterThan(0);
       for (const btn of fullWidth) {

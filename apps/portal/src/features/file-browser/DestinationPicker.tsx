@@ -116,7 +116,7 @@ export function DestinationPicker({
   confirmDisabled = false,
   confirmLabel,
   busyLabel,
-  selfMessage = "You can't copy a folder into itself.",
+  selfMessage = 'You can’t copy a folder into itself.',
   currentParentMessage = 'These items are already here.',
   listLabel = 'Destination folders',
   autoFocus = false,
@@ -229,7 +229,7 @@ export function DestinationPicker({
     : intoOwnSubtree
       ? selfMessage
       : emptyFolderBlocked
-        ? "There's nothing here to check. Open a folder that has files in it."
+        ? 'There’s nothing here to check. Open a folder that has files in it.'
         : undefined;
 
   const crumbs = buildBreadcrumbs(browsePrefix, active.rootPrefix, active.label);
@@ -241,7 +241,7 @@ export function DestinationPicker({
           <label
             htmlFor="dest-connection"
             className="mb-1 block text-sm font-medium text-text-2">
-            Destination connection
+            Destination space
           </label>
           <select
             ref={selectRef}

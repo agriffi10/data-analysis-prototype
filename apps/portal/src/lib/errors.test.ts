@@ -71,7 +71,7 @@ describe('errorMessages', () => {
 
     it('maps a recognized AWS error name to friendly non-fixable text, ignoring the raw message', () => {
       const {message} = toUserMessage({code: 'AccessDenied', message: RAW_AWS});
-      expect(message).toBe("You don't have permission to do that. Contact the Administrator.");
+      expect(message).toBe('You don’t have permission to do that. Contact the Administrator.');
       expect(message).not.toContain('arn:aws');
     });
 
@@ -347,7 +347,7 @@ describe('errorMessages', () => {
       const {message} = toUserMessage({code: 'AccessDenied', message: RAW_AWS});
       expect(warn).not.toHaveBeenCalled();
       expect(message).not.toContain('arn:aws');
-      expect(message).toBe("You don't have permission to do that. Contact the Administrator.");
+      expect(message).toBe('You don’t have permission to do that. Contact the Administrator.');
     });
   });
 

@@ -64,7 +64,7 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
 
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-text-2">
         <li>Your files are not modified — only the table&rsquo;s list of columns changes.</li>
-        <li>Partition keys are not changed. To change those, create the table again.</li>
+        <li>Partition keys are not changed. To change those, drop the table and create it again.</li>
         {/* The apply is one in-place Update, not a drop-and-recreate UpdateTable, so
             there is no window in which the table does not exist. */}
         <li>The table stays queryable throughout — its definition is replaced in one step.</li>

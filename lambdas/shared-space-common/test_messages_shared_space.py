@@ -11,7 +11,7 @@ def test_every_action_the_authorizer_accepts_has_a_phrase():
     rather than silently mistranslated", and until this test nothing enforced it.
 
     Nothing does go wrong loudly: the fallback renders, so every fault-path notification for the
-    new action reads "We couldn't complete that shared workspace request" instead of naming what
+    new action reads "We couldn't complete that shared space request" instead of naming what
     the user was trying to do. It is a finding that is an instance of a RULE, so the fix is the
     enumeration rather than the one line — the next verb added to this plane arrives here without
     anyone remembering to.

@@ -176,7 +176,7 @@ export const NO_RESULT_COLUMN_TO_SAVE = 'Show at least one of the result’s col
 export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
-export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+export const SUSPENDED_TEXT = 'This version of the query failed last time it ran. Nothing has been run.';
 
 /** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
@@ -188,7 +188,10 @@ export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has r
  * write one query while the grid showed another's rows — and the file would fail to open in
  * the Query workspace, which is the surface a saved exploration promises it opens in.
  */
-export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
+export const FAILED_NOT_SAVEABLE = 'This query didn’t succeed, so there’s nothing to save yet.';
+/** The two reasons above, for Create view, which makes a view rather than saving a file. */
+export const NOTHING_TO_VIEW = 'There’s no query to make a view from yet — nothing has run.';
+export const FAILED_NO_VIEW = 'This query didn’t succeed, so there’s nothing to make a view from yet.';
 /** Copy takes a SELECTION, and an empty one has no rectangle to take. */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**
@@ -205,9 +208,10 @@ export const COPY_FAILED = 'Your browser wouldn’t let the app write to the cli
  *
  * Export copies the object Athena wrote, which exists only once an execution has SUCCEEDED
  * — so this covers a first run still in flight, a failed one, and a suspended description
- * alike. Copy is offered throughout, because the rows on screen are real either way.
+ * alike. Copy is offered throughout, because the rows on screen are real either way. It never
+ * says there are no results, because a failed apply leaves the last good rows on screen.
  */
-export const NOTHING_TO_EXPORT = 'Run a query first — there are no results to save yet.';
+export const NOTHING_TO_EXPORT = 'There’s nothing to save until this query finishes successfully.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are.
@@ -552,6 +556,7 @@ export function ExplorationResultsRegion({
   // nothing while suspended, so `sql` is already null.
   // A statement still running when the watch ended is a statement Athena accepted, so it saves.
   const saveRefusal = failed && !stillRunning ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
+  const viewRefusal = failed && !stillRunning ? FAILED_NO_VIEW : sql === null ? NOTHING_TO_VIEW : null;
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
@@ -757,7 +762,7 @@ export function ExplorationResultsRegion({
                 <path d="M9 4v5h6" />
                 <path d="M8 21v-7h8v7" />
               </svg>
-              Save results to my files
+              Save results…
             </button>
           )}
         </div>
@@ -821,9 +826,9 @@ export function ExplorationResultsRegion({
           saveRefusal={saveRefusal ?? undefined}
           createViewEnabled={queryEnabled}
           onCreateView={onCreateView}
-          // A view is made FROM a statement, so this region's own reasons are a save's: there is
+          // A view is made FROM a statement, so this region's own reasons mirror a save's: there is
           // nothing to build one out of. The host's reason is about the SOURCE and comes second.
-          createViewRefusal={saveRefusal ?? createViewRefusal ?? undefined}
+          createViewRefusal={viewRefusal ?? createViewRefusal ?? undefined}
         />
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included. */}

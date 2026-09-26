@@ -88,6 +88,6 @@ export const QUERY_EDITOR_SPLIT_STORAGE_PREFIX = 's3portal.query.editorSplit.';
  * The boilerplate a brand-new first tab opens with (a `+` blank tab opens
  * empty). Shared by the workspace and the tabs-state factory.
  */
-export const DEFAULT_SQL = `-- Reference tables as database.table (e.g. mydb.orders). Run with ⌘⏎.
+export const DEFAULT_SQL = `-- Reference tables as database.table (e.g. mydb.orders). Run with ⌘⏎ or Ctrl+Enter.
 SELECT 1;
 `;

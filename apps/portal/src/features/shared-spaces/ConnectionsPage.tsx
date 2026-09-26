@@ -262,7 +262,7 @@ export function ConnectionsPage() {
       {/* Content is left-aligned (no mx-auto) and capped at 920px so the cards
           don't stretch across very wide viewports. */}
       <PageLayout
-        title="Shared connections"
+        title="Shared spaces"
         subtitle={
           <>
             Spaces you own or belong to.
@@ -282,19 +282,19 @@ export function ConnectionsPage() {
             />
             <Button
               variant="primary"
-              aria-label="New shared connection"
+              aria-label="New shared space"
               className="w-full tablet:w-auto"
               onClick={() => setDialogOpen(true)}>
               {/* "New" below desktop, full label at desktop; aria-label carries
                   the full intent at every width. */}
               <span className="desktop:hidden">New</span>
-              <span className="hidden desktop:inline">New shared connection</span>
+              <span className="hidden desktop:inline">New shared space</span>
             </Button>
           </>
         }>
         {!!error && (
           <Banner variant="danger">
-            Couldn&apos;t load your shared connections. Try Refresh, or contact the Administrator.
+            Couldn&rsquo;t load your shared spaces. Try Refresh, or contact the Administrator.
           </Banner>
         )}
 
@@ -302,11 +302,11 @@ export function ConnectionsPage() {
           <p
             role="status"
             className="px-1 py-10 text-center text-sm text-text-3">
-            Loading your connections…
+            Loading your shared spaces…
           </p>
         ) : rows.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-surface-2 px-5 py-10 text-center text-sm text-text-2">
-            No shared connections yet — create one or ask an owner to add you.
+            No shared spaces yet — create one or ask an owner to add you.
           </div>
         ) : (
           <ul className="flex flex-col gap-3">
@@ -539,7 +539,8 @@ function ConnectionRowItem({
         {meta && <div className="mt-1 text-xs text-text-3">{meta}</div>}
         {row.status === 'failed' && (
           <div className="mt-1 text-xs text-danger">
-            {row.reason ?? (row.failedAction === 'delete' ? 'Removing this workspace failed.' : 'Provisioning failed.')}
+            {row.reason ??
+              (row.failedAction === 'delete' ? 'Deleting this shared space failed.' : 'Provisioning failed.')}
           </div>
         )}
       </div>

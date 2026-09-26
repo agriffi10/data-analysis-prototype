@@ -857,7 +857,7 @@ export function DataQualityReportPage() {
                 a warning keyed to it would fire on a spotless CSV and be learned as
                 noise. hasIncompleteFigures is the one that varies, so it warns. */}
             {report.hasIncompleteFigures && (
-              <p>Some checks couldn’t be completed on this data — the details below say which, and why.</p>
+              <p>Some checks weren’t run in full on this data — the details below say which, and why.</p>
             )}
             {report.hasApproximateFigures && (
               <p className={report.hasIncompleteFigures ? 'mt-1' : undefined}>

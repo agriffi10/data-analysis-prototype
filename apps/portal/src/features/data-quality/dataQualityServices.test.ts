@@ -38,8 +38,10 @@ describe('dataQuality.format', () => {
     it('makes a lower-case Lambda fragment read as a standalone sentence', () => {
       // dqcommon writes reasons as fragments that complete "Couldn't check data quality:
       // {reason}". This view shows them alone after a bold lead, where the raw fragment
-      // reads as a typo — "Not applicable. not a line-delimited text format."
-      expect(asSentence('not a line-delimited text format.')).toBe('Not a line-delimited text format.');
+      // reads as a typo — "Not applicable. this format doesn't read its fields by position."
+      expect(asSentence("this format doesn't read its fields by position.")).toBe(
+        "This format doesn't read its fields by position."
+      );
       expect(asSentence('binary format — encoding is defined by the file format')).toBe(
         'Binary format — encoding is defined by the file format.'
       );

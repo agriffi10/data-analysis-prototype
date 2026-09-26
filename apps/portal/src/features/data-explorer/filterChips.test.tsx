@@ -140,7 +140,7 @@ describe('the column filter chips', () => {
     await user.click(screen.getByRole('button', {name: REMOVE_STATE}));
     await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(1));
 
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
 
     const chips = within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem');
     expect(chips.map((chip) => chip.textContent)).toEqual(['state equals “NY”', 'qty greater than 5']);

@@ -26,7 +26,7 @@ export function LeaveSharedSpaceDialog({space, busy = false, onConfirm, onCancel
       onConfirm={onConfirm}
       onCancel={onCancel}>
       <p className="mt-2 text-sm text-text-2">
-        Leave <span className="font-mono">{space}</span>? You&apos;ll lose access to its files and tables. They are not
+        Leave <span className="font-mono">{space}</span>? You&rsquo;ll lose access to its files and tables. They are not
         deleted — everyone else keeps access.
       </p>
     </ConfirmDialog>

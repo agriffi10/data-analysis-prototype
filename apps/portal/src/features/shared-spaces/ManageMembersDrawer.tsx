@@ -103,7 +103,8 @@ export function ManageMembersDrawer({
     >
       {unavailable && (
         <Banner variant="info">
-          Member details aren&apos;t available yet — add or remove a member, then Refresh connections to load the list.
+          Member details aren&rsquo;t available yet — add or remove a member, then Refresh shared spaces to load the
+          list.
         </Banner>
       )}
 
@@ -116,9 +117,9 @@ export function ManageMembersDrawer({
       />
 
       <p className="text-xs text-text-3">
-        A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed in
-        yet; they become <span className="font-medium text-text-2">Active</span> once they do. Use Refresh to check for
-        updates.
+        A <span className="font-medium text-text-2">Pending</span> member has been added but hasn&rsquo;t opened this
+        space in Files yet; they become <span className="font-medium text-text-2">Active</span> once they do. Use
+        Refresh to check for updates.
       </p>
 
       {addOpen && (
@@ -151,7 +152,7 @@ export function ManageMembersDrawer({
           onCancel={() => setRemoving(null)}>
           <p>
             Remove <span className="font-mono">{removing}</span> from <span className="font-mono">{space}</span>? They
-            lose access to its files and tables. The shared data isn&apos;t deleted.
+            lose access to its files and tables. The shared data isn&rsquo;t deleted.
           </p>
         </ConfirmDialog>
       )}

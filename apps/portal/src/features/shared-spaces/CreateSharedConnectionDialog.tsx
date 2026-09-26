@@ -33,8 +33,8 @@ export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}:
 
   return (
     <FormDialog
-      title="New shared connection"
-      ariaLabel="Create shared connection"
+      title="New shared space"
+      ariaLabel="Create shared space"
       submitLabel="Create"
       busy={busy}
       busyLabel="Creating…"
@@ -44,15 +44,15 @@ export function CreateSharedConnectionDialog({busy = false, onCreate, onCancel}:
       onCancel={onCancel}>
       {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
       <p className="mb-3 mt-3 text-sm text-text-2">
-        You&apos;ll be the owner and can add members. The name is{' '}
-        <strong className="font-semibold text-text">permanent</strong> — it can&apos;t be renamed, and it can&apos;t be
-        reused later even if the space is deleted — and must be{' '}
+        You&rsquo;ll be the owner and can add members. The name is{' '}
+        <strong className="font-semibold text-text">permanent</strong> — it can&rsquo;t be renamed, and it can&rsquo;t
+        be reused later even if the space is deleted — and must be{' '}
         <strong className="font-semibold text-text">globally unique</strong> across all spaces.
       </p>
       <Input
         ref={inputRef}
         id="shared-connection-name"
-        label="Connection name"
+        label="Space name"
         required
         aria-required="true"
         value={name}

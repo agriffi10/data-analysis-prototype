@@ -260,7 +260,7 @@ export function QueryStatusBar({
             <path d="M9 4v5h6" />
             <path d="M8 21v-7h8v7" />
           </svg>
-          Save results to my files
+          Save results…
         </button>
       )}
     </div>

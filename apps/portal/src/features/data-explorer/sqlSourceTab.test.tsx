@@ -251,10 +251,10 @@ describe('a tab whose source is a statement', () => {
     await user.keyboard('{Escape}');
 
     await waitFor(async () =>
-      expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+      expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
     );
-    await chooseExplorationOption(user, 'Save results to my files');
-    const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+    await chooseExplorationOption(user, 'Save results…');
+    const dialog = await screen.findByRole('dialog', {name: 'Save results'});
     const name = within(dialog).getByLabelText('File name');
     await user.clear(name);
     await user.type(name, 'out');

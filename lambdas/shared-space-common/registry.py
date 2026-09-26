@@ -578,8 +578,8 @@ def save_members(
           OwnerChanged: When an addition was given an expected owner and the record names
             another. It sits INSIDE the addition branch and LAST within it, and both halves are
             load-bearing. Last, because an emptied record has no owner at all, so a check ahead
-            of the three above would answer every delete race with "that workspace changed hands"
-            in place of "that workspace has been deleted" — two quite different situations
+            of the three above would answer every delete race with "that space changed hands"
+            in place of "that space has been deleted" — two quite different situations
             collapsed into the wrong one of the two sentences. Inside, because a delta that adds
             NOBODY grants nothing and so needs no re-authorization: checked outside, a request
             whose names were all already members, unknown or at their slot limit would turn an

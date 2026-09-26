@@ -129,7 +129,7 @@ async function runStatement(user: ReturnType<typeof render>['user']) {
 
 /** Waits for Save, which shares the explore control's gate on the result, so an absence is judged after it. */
 async function saveOffered() {
-  return screen.findByRole('button', {name: 'Save results to my files'});
+  return screen.findByRole('button', {name: 'Save results…'});
 }
 
 /**
@@ -230,9 +230,7 @@ describe('Explore in Data Explorer', () => {
     await user.clear(editor());
     await user.type(editor(), 'SELEC 3;');
     await runStatement(user);
-    await waitFor(() =>
-      expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.queryByRole('button', {name: 'Save results…'})).not.toBeInTheDocument());
     await expectExploreNeverAppears();
 
     queueRuns('q-4');

@@ -460,7 +460,7 @@ export function QueryWorkspace() {
       sql: buildCreateViewSql(database, name, activeTab.sql),
       database,
       table: name,
-      describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+      describe: {success: `Saved view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
       onSettled: () => setCreateViewOpen(false)
     });
   };
@@ -793,7 +793,12 @@ export function QueryWorkspace() {
       )}
 
       <QueryDialogs
-        clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
+        clear={{
+          open: clearOpen,
+          linkedName: activeTab.savedQuery?.name,
+          onConfirm: handleClearConfirm,
+          onCancel: () => setClearOpen(false)
+        }}
         save={saveQuery}
         closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
         tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}
@@ -804,7 +809,13 @@ export function QueryWorkspace() {
           onCreate: handleCreateView,
           onCancel: () => setCreateViewOpen(false)
         }}
-        drop={{target: dropping, busy: ddl.busy, onConfirm: handleDropConfirm, onCancel: () => setDropping(null)}}
+        drop={{
+          target: dropping,
+          shared: connections.some((c) => c.kind === 'shared' && c.database === dropping?.database),
+          busy: ddl.busy,
+          onConfirm: handleDropConfirm,
+          onCancel: () => setDropping(null)
+        }}
         share={share}
         refresh={refresh}
         saveResults={saveResults}

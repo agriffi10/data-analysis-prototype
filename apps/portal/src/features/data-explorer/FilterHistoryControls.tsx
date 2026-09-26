@@ -7,8 +7,8 @@ export type FilterHistoryControlsProps = {
   onForward: () => void;
 };
 
-export const NO_HISTORY_BACK = 'This is the earliest set of filters in this tab.';
-export const NO_HISTORY_FORWARD = 'This is the latest set of filters in this tab.';
+export const NO_HISTORY_BACK = 'This tab remembers no earlier version of this query.';
+export const NO_HISTORY_FORWARD = 'This is the latest version of this query in this tab.';
 
 /**
  * Back and forward through this tab's recent query descriptions.
@@ -25,14 +25,14 @@ export function FilterHistoryControls({canGoBack, canGoForward, onBack, onForwar
     <>
       <Button
         size="sm"
-        aria-label="Back to previous filters"
+        aria-label="Back to the previous version of this query"
         disabledReason={canGoBack ? undefined : NO_HISTORY_BACK}
         onClick={onBack}>
         ‹ Back
       </Button>
       <Button
         size="sm"
-        aria-label="Forward to next filters"
+        aria-label="Forward to the next version of this query"
         disabledReason={canGoForward ? undefined : NO_HISTORY_FORWARD}
         onClick={onForward}>
         Forward ›

@@ -55,3 +55,17 @@ def test_the_key_cannot_escape_its_prefix_whatever_the_space_is_called():
 
     assert key.startswith(f"{config.LOCK_PREFIX}/")
     assert re.fullmatch(rf"{re.escape(config.LOCK_PREFIX)}/[0-9a-f]{{64}}\.json", key)
+
+
+def test_a_timed_out_run_names_the_wait_the_stale_lock_actually_costs():
+    """The notice says how long the space stays busy, computed from the two thresholds.
+
+    A run the machine timed out never releases its lock, so it is stolen only once it is older
+    than the steal threshold, which sits a margin past the machine's ceiling. "A few minutes"
+    undersold that margin, and a retry inside it waits out every lock attempt and is refused.
+    """
+    from focommon import messages
+
+    minutes = (config.STALE_LOCK_SECONDS - config.MACHINE_TIMEOUT_SECONDS) // 60
+
+    assert f"about {minutes} minutes" in messages.failure_message("copy", "operation_timed_out")

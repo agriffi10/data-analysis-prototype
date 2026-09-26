@@ -175,9 +175,9 @@ def _notify_members(members, space, actor, request_id):
     """
     for recipient in dict.fromkeys(members):
         message = (
-            f'You deleted the shared workspace "{space}".'
+            f'You deleted the shared space "{space}".'
             if recipient == actor
-            else f'The shared workspace "{space}" was deleted.'
+            else f'The shared space "{space}" was deleted.'
         )
         emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
 
@@ -333,7 +333,7 @@ def delete_space(space, actor, request_id, registry):
                 logger.exception("failed to record cache delete failure for %s", space)
             emit_notification(
                 owner,
-                f'We couldn\'t delete the shared workspace "{space}": {friendly}.',
+                f'We couldn\'t delete the shared space "{space}": {friendly}.',
                 dedup_id=f"{request_id}:delete-failed:{owner}",
             )
         raise

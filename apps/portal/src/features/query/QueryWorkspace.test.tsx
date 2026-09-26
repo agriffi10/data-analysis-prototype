@@ -436,7 +436,7 @@ describe('QueryWorkspace', () => {
       await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
 
       const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-      expect(await within(dialog).findByText(/don't have permission/i)).toBeInTheDocument();
+      expect(await within(dialog).findByText(/don’t have permission/i)).toBeInTheDocument();
       expect(within(dialog).getByLabelText('Name')).toHaveValue('My report');
       expect(within(dialog).getByLabelText('Space')).toBeEnabled();
       expect(screen.queryByText('nope')).not.toBeInTheDocument();
@@ -813,6 +813,47 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByText(/table locked/)).not.toBeInTheDocument();
     });
 
+    it('Drop table in a shared space says the drop is everyone’s', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      vi.mocked(listTables).mockImplementation(async (database: string) =>
+        database === 'teamspace'
+          ? ok([{name: 'team_sales', location: 's3://shared-bucket/teamspace/sales/', columns: []}])
+          : ok([salesTable])
+      );
+      const {user} = renderWorkspace();
+
+      await user.click(await screen.findByRole('button', {name: /teamspace/}));
+      await openTableMenu(user, 'team_sales');
+      await user.click(await screen.findByRole('menuitem', {name: 'Drop table'}));
+
+      expect(
+        within(screen.getByRole('alertdialog', {name: /confirm drop table/i})).getByText(
+          /from teamspace, for everyone in this shared space\./
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('Drop table that outlasts the wait says it may still finish, never that it failed', async () => {
+      const {user} = renderWorkspace();
+      mockRunToCompletion.mockResolvedValueOnce({
+        success: false,
+        error: {message: 'Timed out waiting for the query', code: 'Timeout'}
+      });
+      await openTableMenu(user, 'sales_2026');
+      await user.click(await screen.findByRole('menuitem', {name: 'Drop table'}));
+      const dialog = screen.getByRole('alertdialog', {name: /confirm drop table/i});
+      // The database is named, and the data claim hedges on the one kind of table whose drop deletes it.
+      expect(within(dialog).getByText(/from alice\. A standard table’s data files in S3 are kept/)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', {name: 'Drop table'}));
+
+      expect(
+        await screen.findByText(/stopped waiting on “sales_2026”, but Athena may still finish/)
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Couldn’t drop sales_2026/)).not.toBeInTheDocument();
+    });
+
     it('Create view composes CREATE OR REPLACE VIEW (target db derived from the body), records history + success toast', async () => {
       seedSingle('SELECT region FROM alice.sales;');
       mockRunToCompletion.mockResolvedValue(ok(succeeded('q-view')));
@@ -824,7 +865,7 @@ describe('QueryWorkspace', () => {
       await user.type(within(dialog).getByLabelText('View name'), 'region_view');
       await user.click(within(dialog).getByRole('button', {name: 'Create'}));
 
-      expect(await screen.findByText('Created view region_view')).toBeInTheDocument();
+      expect(await screen.findByText('Saved view region_view')).toBeInTheDocument();
       expect(mockRunToCompletion).toHaveBeenCalledWith(
         expect.objectContaining({
           // Both identifiers are QUOTED, with the Trino escaper — Athena parses CREATE VIEW
@@ -840,7 +881,7 @@ describe('QueryWorkspace', () => {
       expect(editor()).toHaveValue('SELECT region FROM alice.sales;'); // editor keeps the user's SELECT
     });
 
-    // --- Save results to my files (real SaveResultsDialog + DestinationPicker) ---
+    // --- Save results… (real SaveResultsDialog + DestinationPicker) ---
 
     async function runToSucceeded(user: ReturnType<typeof renderWorkspace>['user']) {
       await screen.findByLabelText('SQL editor');
@@ -848,8 +889,8 @@ describe('QueryWorkspace', () => {
       await screen.findByText('Succeeded');
     }
     async function saveInto(user: ReturnType<typeof renderWorkspace>['user'], filename: string) {
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       const nameInput = within(dialog).getByLabelText('File name');
       await user.clear(nameInput);
       await user.type(nameInput, filename);
@@ -924,7 +965,7 @@ describe('QueryWorkspace', () => {
         })
       );
 
-      const reopened = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const reopened = await screen.findByRole('dialog', {name: 'Save results'});
       expect(within(reopened).getByLabelText('File name')).toHaveValue('out.parquet');
       expect(within(reopened).getByLabelText('Format')).toHaveValue('parquet');
       await user.click(within(reopened).getByRole('button', {name: 'Convert and save'}));
@@ -1321,8 +1362,8 @@ describe('QueryWorkspace', () => {
       await runScriptTabs(user);
       expect(await screen.findByText('Failed')).toBeInTheDocument();
 
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       const nameInput = within(dialog).getByLabelText('File name');
       await user.clear(nameInput);
       await user.type(nameInput, 'out');
@@ -1339,7 +1380,7 @@ describe('QueryWorkspace', () => {
      * the SUCCEEDED gate deleted the button does appear, and a `queryBy` sitting here missed it.
      */
     async function expectSaveNeverAppears() {
-      await expect(screen.findByRole('button', {name: 'Save results to my files'}, {timeout: 400})).rejects.toThrow(
+      await expect(screen.findByRole('button', {name: 'Save results…'}, {timeout: 400})).rejects.toThrow(
         /Unable to find/
       );
     }
@@ -1429,8 +1470,8 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText('rows of q-1')).toBeInTheDocument();
       expect(screen.queryByText('rows of q-2')).not.toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(screen.getByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       const nameInput = within(dialog).getByLabelText('File name');
       await user.clear(nameInput);
       await user.type(nameInput, 'out');
@@ -1537,8 +1578,8 @@ describe('QueryWorkspace', () => {
       await runScriptTabs(user);
       expect(await screen.findByText('Failed')).toBeInTheDocument();
 
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       const nameInput = within(dialog).getByLabelText('File name');
       await user.clear(nameInput);
       await user.type(nameInput, 'out');
@@ -1709,8 +1750,8 @@ describe('QueryWorkspace', () => {
         await outliveTheCeiling();
         await screen.findByText(new RegExp(`Statement 2 of 2 is still running`));
 
-        await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-        const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+        await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+        const dialog = await screen.findByRole('dialog', {name: 'Save results'});
         const nameInput = within(dialog).getByLabelText('File name');
         await user.clear(nameInput);
         await user.type(nameInput, 'out');
@@ -1842,8 +1883,8 @@ describe('QueryWorkspace', () => {
       expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
       expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
 
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       const spaceSelect = within(dialog).getByLabelText('Save to');
       expect(within(spaceSelect).getByRole('option', {name: 'alice'})).toBeInTheDocument();
       expect(within(spaceSelect).getByRole('option', {name: 'salesdata'})).toBeInTheDocument();
@@ -1899,8 +1940,8 @@ describe('QueryWorkspace', () => {
           })
         );
 
-      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       await user.selectOptions(within(dialog).getByLabelText('Save to'), 'salesdata');
       await user.clear(within(dialog).getByLabelText('File name'));
       await user.type(within(dialog).getByLabelText('File name'), 'out');
@@ -1908,7 +1949,7 @@ describe('QueryWorkspace', () => {
       await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
       await cancelOverwrite();
 
-      const reopened = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const reopened = await screen.findByRole('dialog', {name: 'Save results'});
       expect(within(reopened).getByLabelText('Save to')).toHaveValue('salesdata');
       await user.click(within(reopened).getByRole('button', {name: 'Save here'}));
       expect(mockCopyObject).toHaveBeenLastCalledWith(
@@ -1916,10 +1957,10 @@ describe('QueryWorkspace', () => {
       );
 
       await cancelOverwrite();
-      const again = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const again = await screen.findByRole('dialog', {name: 'Save results'});
       await user.click(within(again).getByRole('button', {name: 'Cancel'}));
-      await user.click(screen.getByRole('button', {name: 'Save results to my files'}));
-      const fresh = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(screen.getByRole('button', {name: 'Save results…'}));
+      const fresh = await screen.findByRole('dialog', {name: 'Save results'});
       expect(within(fresh).getByLabelText('Save to')).toHaveValue('personal');
       expect((within(fresh).getByLabelText('File name') as HTMLInputElement).value).toMatch(/^query-results-/);
     });

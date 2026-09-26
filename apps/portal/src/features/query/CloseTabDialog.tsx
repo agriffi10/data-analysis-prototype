@@ -19,9 +19,7 @@ export function CloseTabDialog({label, onConfirm, onCancel}: Props) {
       irreversible
       onConfirm={onConfirm}
       onCancel={onCancel}>
-      <p className="mt-3 text-sm text-text-2">
-        This tab has unsaved SQL. Closing it discards that text for this session.
-      </p>
+      <p className="mt-3 text-sm text-text-2">Closing it discards the SQL in this tab for this session.</p>
     </ConfirmDialog>
   );
 }

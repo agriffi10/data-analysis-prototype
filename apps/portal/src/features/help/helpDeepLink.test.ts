@@ -13,7 +13,7 @@ describe('resolveHelpHash', () => {
   });
 
   it('resolves a guide hash to its OWNING section, not the first one', () => {
-    // `delete-space` lives in Shared connections, which is not `HELP_SECTIONS[0]` — so a
+    // `delete-space` lives in Shared spaces, which is not `HELP_SECTIONS[0]` — so a
     // resolver that only ever answered "the first section" passes the section cases above and
     // fails here.
     expect(resolveHelpHash('#delete-space', ALL_ON)).toEqual({

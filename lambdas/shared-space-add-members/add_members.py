@@ -152,7 +152,7 @@ def add_members(space, members, request_id, registry):
     so they report a real outcome rather than a step that may roll back or retry.
 
     Requested, applied and ignored counts are all recorded, because the three diverge silently:
-    an unknown username and a user at their workspace limit are both "not added" to a caller
+    an unknown username and a user at their shared-space limit are both "not added" to a caller
     reading a count, and they need completely different answers. Member names are recorded too,
     not just counts — a username is permitted metadata here, and which member is the whole
     question when a roster disagrees with a registry. The membership grant is live at that point,
@@ -200,13 +200,13 @@ def add_members(space, members, request_id, registry):
         except ProvisioningError:
             summary["skippedAtLimit"].append(member)
             pending_notifications.append(
-                (owner, f'Couldn\'t add "{member}" to "{space}": they\'ve reached their workspace limit.', f"add-limit:{member}")
+                (owner, f'Couldn\'t add "{member}" to "{space}": they\'ve reached their shared-space limit.', f"add-limit:{member}")
             )
             continue
         current_set.add(member)
         summary["added"].append(member)
         pending_notifications.append(
-            (member, f'You\'ve been added to the shared workspace "{space}".', f"add-member:{member}")
+            (member, f'You\'ve been added to the shared space "{space}".', f"add-member:{member}")
         )
 
     if summary["added"]:

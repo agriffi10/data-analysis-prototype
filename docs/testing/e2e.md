@@ -485,8 +485,8 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | Open the schema rail | Your own database plus every shared space; expand shows columns; the per-table **⋮** offers source files, DDL, refresh, share, drop, **Explore data**. |
 | History | Records and re-runs. |
 | **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **the personal space only** (listed under your username) — a colleague's space must never be a write target. |
-| **Save results after a script FAILS part-way** — run three statements with **Run Multiple Queries** where the first is a `SELECT` and the third has a syntax error | The bar shows **Failed** and, beside it, "N rows from an earlier statement" plus **Save results to my files**. Saving writes the FIRST statement's full CSV — check the row count against that statement run alone, not the batch. The point is that no re-run is needed to get it, so an absent button is the regression. |
-| **Save results in each format** — run `SELECT * FROM explorer150`, then **Save results to my files** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you’ll get a notification when {name}.parquet is ready."* (a curly apostrophe — this is the portal's own authored wording, not the plane's). Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
+| **Save results after a script FAILS part-way** — run three statements with **Run Multiple Queries** where the first is a `SELECT` and the third has a syntax error | The bar shows **Failed** and, beside it, "N rows from an earlier statement" plus **Save results…**. Saving writes the FIRST statement's full CSV — check the row count against that statement run alone, not the batch. The point is that no re-run is needed to get it, so an absent button is the regression. |
+| **Save results in each format** — run `SELECT * FROM explorer150`, then **Save results…** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you’ll get a notification when {name}.parquet is ready."* (a curly apostrophe — this is the portal's own authored wording, not the plane's). Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
 | **Read each converted file back** | Parquet and JSON through **Create table** on their folder — each table builds and `SELECT count(*)` returns **150**, the fixture's full row count, not the page's 100. Excel opens in a spreadsheet with 150 data rows plus a header. JSON is **one object per line**, not a JSON array — open it and check the first two lines each parse alone. |
 | **The notification, and its link** | One notification per conversion: *"Saved 150 rows as Parquet to "{name}.parquet"."* The **message itself** is the link — there is no separate "Open folder" control, deliberately. Following it lands on the destination folder **with the file already listed**; that is the check, since the listing is invalidated on the way. Neither the notification nor the toast names a column or any SQL. |
 | **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog with the name editable, holding the file name the question showed (`{name}.parquet`, extension included), and the format, space and folder as the user left them. The plane still decides: it writes conditionally, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
@@ -517,7 +517,7 @@ central claim.
 | Do | Expect |
 |---|---|
 | **Run a real `SELECT` against your own database, and rows render** | This is the check the whole arc rests on: Lake Formation grants attach to a **principal**, and that principal is now the same portal role assumed by the API rather than vended to the browser. **Record the result against SPEC-196 as well — it discharges that spec's Phase 5 item 4.** No CloudTrail step exists to corroborate it: the account's only trail records S3 data events for the archive bucket. |
-| Expand a rail node for a database you have no `DESCRIBE` on | **403**, envelope-shaped, `code: "AccessDenied"`, **no** AWS text in `detail`, the screen says *"You don't have permission to do that."* — and **no re-login**. |
+| Expand a rail node for a database you have no `DESCRIBE` on | **403**, envelope-shaped, `code: "AccessDenied"`, **no** AWS text in `detail`, the screen says *"You don’t have permission to do that."* — and **no re-login**. |
 | Run a `SELECT` against a table you have no `SELECT` on | **200** on `GET /v1/queries/{id}`, the execution reaches **FAILED**, and the banner reads *"You don't have permission to run that query."* Record both status codes: recording only the 403 above proves nothing about the shape that matters more. |
 | `GET /v1/catalog/databases/{a stranger's username}` and `…/{a name nobody has}` | **Record what each actually returns.** This is the no-existence-oracle question and the answer is Lake Formation's, not this API's. If they differ, that is a finding for SPEC-202's sweep, not a failure here. |
 | `SELECT NULL AS a, '' AS b` | Read the **raw response body** in the network panel — `"rows": [[null, ""]]`. The rendered grid shows the Value panel's rendering of both and cannot tell them apart. |
@@ -616,7 +616,7 @@ as honestly as a succeeding one.
 | 6 | Clear the filter, then apply the **same** one again | **Zero** new executions, and the line reads *"Loaded from an earlier run in this tab — nothing more scanned"*. Total unchanged. |
 | 7 | Click an `O'Brien` cell → **Filter by this value** | **Rows come back** — count them in the unfiltered grid first. **An empty grid here is a FAILURE.** **Generated SQL** reads `WHERE "owner" = 'O''Brien'`. The wrong escaper fails *silently*, as a predicate that matches nothing. |
 | 8 | Type `qty >>> 5` into **Filter expression** → **Apply** | Error banner, the **previous** rows still beneath it, toolbar and expression bar still there. |
-| 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This set of filters failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
+| 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This version of the query failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
 | 10 | **Grouping** → group by `region`, `COUNT(*)`, tick **Show percentage**, Apply | **1** execution, changed figure. **Generated SQL** is a real `GROUP BY` and the percentage column is **not in it** — it is computed in the browser and its header says `(this page)`. |
 | 11 | Copy the disclosed SQL, then `aws athena get-query-execution --query-execution-id <id>` and compare `QueryString` | **Byte-identical.** The only check that proves the disclosure and the executed string have not drifted — and a JSON hop now sits in the middle, so the comparison is against Athena's own read-back, not against the request body. |
 | 12 | Leave grouping | Any sort on `count_all` is **dropped**, not carried onto the raw table. |
@@ -635,16 +635,16 @@ as honestly as a succeeding one.
 2. ⌘-click two non-adjacent cells, copy → the **bounding rectangle**, cells between blank.
 3. Click a **column header**, copy → the loaded page's rows only.
 4. **Copy…** → **JSON** → `null` for the NULL and `""` for the empty cell. Distinguishable is the point.
-5. **Save results to my files** (Options) before anything has run → refused, `aria-disabled`, `disabled`
-   false, `tabIndex 0`, *"Run a query first — there are no results to save yet."*, and no such button
+5. **Save results…** (Options) before anything has run → refused, `aria-disabled`, `disabled`
+   false, `tabIndex 0`, *"There’s nothing to save until this query finishes successfully."*, and no such button
    beside the pager. No need to be quick: "nothing has run" and "still running" are one state.
-6. **Save results to my files** beside the pager → `explorer-export` → **My files** → **Save here** →
+6. **Save results…** beside the pager → `explorer-export` → **My files** → **Save here** →
    success toast, and the file in **Files**.
 7. **Open the saved CSV and count its rows.** It holds the **whole** result — 151 lines for the
    150-row fixture — while the page held 100. Download it through the portal.
 8. **The columns the grid hides stay out of the file** (SPEC-239). On `explorer150`, open
-   **Options → Columns**, hide `qty`, and **Pin** `owner` so it leads. Reopen **Save results to my
-   files**: the button now reads **Convert and save** — there is no object to copy that looks like
+   **Options → Columns**, hide `qty`, and **Pin** `owner` so it leads. Reopen **Save results…**: the
+   button now reads **Convert and save** — there is no object to copy that looks like
    that — and the dialog says *"The file holds N result columns, in the order shown."* with N the
    number still shown. Save as `explorer-hidden`, CSV. A **notification** arrives; the file's header
    is the visible columns with `owner` first and no `qty`, and its row count is the pager's total,
@@ -654,7 +654,7 @@ as honestly as a succeeding one.
    the format.
 9. **A grouped exploration showing only its percentage column refuses the save** (SPEC-239). Group
    by `region` with `COUNT(*)` and **Show percentage**, then hide `region` and `count_all`. **Save
-   results to my files** is refused with *"Show at least one of the result’s columns to save it."*
+   results…** is refused with *"Show at least one of the result’s columns to save it."*
    The percentage column is computed in the browser and is in no result, so there is nothing to
    write — and the refusal is the only thing standing between that and an empty file. **Leave
    grouping and Show all before going on** — the steps below save again, and this state refuses.
@@ -662,7 +662,7 @@ as honestly as a succeeding one.
     exception, since it re-runs the query.
 11. Save again, same name → the **Overwrite** confirm.
 12. Save into a **shared space** → the cross-bucket copy succeeds.
-13. **The format choice, on this surface too.** Re-open **Save results to my files** → **Format** now
+13. **The format choice, on this surface too.** Re-open **Save results…** → **Format** now
     offers **CSV**, **Parquet**, **JSON**, **Excel**, defaulting to **CSV**. Choose **Parquet**: the
     button changes to **Convert and save**, the dialog closes on submit, and the toast names the
     format and the file. Still **zero** `StartQueryExecution` — a conversion reads the execution's
@@ -698,7 +698,7 @@ as honestly as a succeeding one.
 | Do | Expect |
 |---|---|
 | Open the picker with no tabs | The space rail, then the object list headed **Tables (n)**, and **Views (n)** — either heading is omitted when that group is empty, which is symmetric, so a space with tables and no views correctly shows one heading. No title over the list, and NO create control anywhere on the picker. |
-| **Options** on an open exploration | One menu holding Order and filter, Remove all filters, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Save results to my files, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
+| **Options** on an open exploration | One menu holding Order and filter, Remove all filters and sorts, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Save results…, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
 | **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |
@@ -770,7 +770,7 @@ it is CLI-only — see `owed.md`.
 | Do | Expect |
 |---|---|
 | Create a space | Creator-only. It appears in the rail with its own Glue database. |
-| Add a member | The member sees it on their Connections page without signing out, and their own roster row reads Active. Opening the space's Files page acknowledges it, and after a Refresh the owner's roster flips from Pending to Active. The Files page asks for **Refresh access** until the member's token carries the space. |
+| Add a member | The member sees it on their Shared spaces page without signing out, and their own roster row reads Active. Opening the space's Files page acknowledges it, and after a Refresh the owner's roster flips from Pending to Active. The Files page asks for **Refresh access** until the member's token carries the space. |
 | Add a member who does not exist | Silently ignored — the others are still added, and the execution still SUCCEEDS. |
 | Add the same member twice | Idempotent. The owner can never be added as a member. |
 | **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
@@ -778,7 +778,7 @@ it is CLI-only — see `owed.md`.
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
 | Query the space's database | It runs, and its results go to **your own** `system_settings/athenaresults/`, not the space's. That is by design: the API writes every query under the caller's own prefix, because that prefix is how every query route proves an execution is the caller's (`cpcommon/results.py`). |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
-| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Connections page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
+| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Shared spaces page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
 | **[approval gate]** Re-create a space with the just-deleted name | **Refused** by name. The record is never released, so the name is spent forever — the opposite of what this row asserted before, and the reason the create dialog now warns before the name is chosen. |
 | **Transfer ownership** to a member (Manage → **Make owner**) | The dialog names the space and the member, says you stay a member, and says only they can transfer it back. After it lands: their card reads **Owner**, yours reads **Member** and names them as owner, and **both of you still read `Active` in the roster** — the outgoing owner rendering as `Pending` is the defect this is here to catch. |
 | Transfer, then Refresh, then reopen Manage | You no longer have Manage on that space at all. The two of you get one notification each, naming the other; nobody else does. |
@@ -984,7 +984,7 @@ archive or restore already running finishes and notifies as usual, and its notif
   right-hand sheet with the page still visible beside it, and the close control is reachable at both
   widths without scrolling.
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
-  `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
+  `/help#delete-space` opens the Help page at Shared spaces with that one card expanded and
   scrolled to.
 - **Open three or four guides at once** on `/files`, where the section has ten. The panel must
   SCROLL; no card may lose height to the ones you opened. The cards are `shrink-0` for this, and
@@ -1126,7 +1126,7 @@ is not a pass.
 
    | Where | Expect |
    |---|---|
-   | Topbar | **Files** and **Connections** only — Query and Data quality *absent*, not greyed |
+   | Topbar | **Files** and **Shared spaces** only — Query and Data quality *absent*, not greyed |
    | `/query` typed in | The **"Query isn't available"** page with a working **Go to Files** link — **not** "Page not found" |
    | Files, in a folder | **No "Create table"** on the toolbar |
    | Files, one item selected | **No "Check data quality"** in the selection toolbar |
@@ -1168,7 +1168,7 @@ but a **presentation** flag over one control, so what it hides is three options 
 and nothing else. It takes nobody's access away: the enqueue route is live and ungated either way.
 
 1. Set `environments.prod` to `{"resultsConversion": false}`; publish; hard-reload.
-2. **Save results to my files**, on **both** the Query workspace and the Data Explorer: the
+2. **Save results…**, on **both** the Query workspace and the Data Explorer: the
    **Format** select is **absent** — not present-and-disabled — and the button reads **Save here**.
    Saving writes a CSV exactly as it did before this key existed.
 3. **A notification from a conversion run while the flag was on still links**, and following it still

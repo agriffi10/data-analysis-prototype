@@ -349,10 +349,10 @@ describe('export (FR-002)', () => {
   // detached from the document.
   async function openExport(user: ReturnType<typeof render>['user']) {
     await waitFor(async () =>
-      expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+      expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
     );
-    await chooseExplorationOption(user, 'Save results to my files');
-    return screen.findByRole('dialog', {name: 'Save results to my files'});
+    await chooseExplorationOption(user, 'Save results…');
+    return screen.findByRole('dialog', {name: 'Save results'});
   }
 
   it('offers Save results beside the pager once a result exists, opening the same dialog', async () => {
@@ -361,8 +361,8 @@ describe('export (FR-002)', () => {
     const {user} = render();
     await grid();
 
-    await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-    expect(await screen.findByRole('dialog', {name: 'Save results to my files'})).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+    expect(await screen.findByRole('dialog', {name: 'Save results'})).toBeInTheDocument();
   });
 
   it('copies the EXECUTION’s own results object, and starts no second query', async () => {
@@ -425,14 +425,14 @@ describe('export (FR-002)', () => {
     // Asserted on the MENU ITEM. `aria-disabled`, not `disabled` — the reason has to be
     // reachable, which is exactly why the item was given `MenuItem.disabledReason` rather
     // than being dropped from the menu when it moved off the toolbar.
-    const item = await explorationOption(user, 'Save results to my files');
+    const item = await explorationOption(user, 'Save results…');
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).not.toHaveAttribute('disabled');
     expect(item).toHaveAttribute('title', NOTHING_TO_EXPORT);
     // The grid is on screen (the menu just opened over it), so this absence is not a race
     // with the load: the button beside the pager is withheld, and the menu item is where
     // the refusal is read.
-    expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Save results…'})).not.toBeInTheDocument();
   });
 });
 
@@ -457,10 +457,10 @@ describe('exporting what the grid shows (SPEC-239 FR-005)', () => {
 
   async function saveAs(user: ReturnType<typeof render>['user'], name: string) {
     await waitFor(async () =>
-      expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+      expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
     );
-    await chooseExplorationOption(user, 'Save results to my files');
-    const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+    await chooseExplorationOption(user, 'Save results…');
+    const dialog = await screen.findByRole('dialog', {name: 'Save results'});
     await user.clear(within(dialog).getByLabelText('File name'));
     await user.type(within(dialog).getByLabelText('File name'), name);
     return dialog;
@@ -563,8 +563,8 @@ describe('exporting what the grid shows (SPEC-239 FR-005)', () => {
     const {user} = render();
     await grid();
 
-    await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
-    const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+    await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Save results'});
     expect(within(dialog).getByText('The file holds 2 result columns, in the order shown.')).toBeInTheDocument();
     await user.clear(within(dialog).getByLabelText('File name'));
     await user.type(within(dialog).getByLabelText('File name'), 'out');
@@ -622,7 +622,7 @@ describe('exporting what the grid shows (SPEC-239 FR-005)', () => {
     const {user} = render();
     await grid();
 
-    const item = await explorationOption(user, 'Save results to my files');
+    const item = await explorationOption(user, 'Save results…');
 
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveAttribute('title', NOTHING_TO_EXPORT);
@@ -660,12 +660,12 @@ describe('exporting what the grid shows (SPEC-239 FR-005)', () => {
     await grid();
 
     const item = await waitFor(async () => {
-      const found = await explorationOption(user, 'Save results to my files');
+      const found = await explorationOption(user, 'Save results…');
       expect(found).toHaveAttribute('aria-disabled', 'true');
       return found;
     });
 
     expect(item).toHaveAccessibleDescription(NO_RESULT_COLUMN_TO_SAVE);
-    expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Save results…'})).not.toBeInTheDocument();
   });
 });

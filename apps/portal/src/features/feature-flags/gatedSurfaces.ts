@@ -52,7 +52,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Files', kind: 'nav', path: '/files'},
     {name: '/files', kind: 'route', path: '/files'},
     // Signed-in visitors only — the signed-out page gates nothing.
-    {name: 'Go to Dashboard', kind: 'control', path: '/'},
+    {name: 'Go to Files', kind: 'control', path: '/'},
     {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'},
     // A received-files notification deep-links into /files, and with this flag off
     // that route swaps its element — so an ungated link is a live anchor into the unavailable
@@ -158,13 +158,13 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Refresh table link on a notification', kind: 'control', path: '/notifications'}
   ],
   sharedWorkspaces: [
-    {name: 'Connections', kind: 'nav', path: '/connections'},
+    {name: 'Shared spaces', kind: 'nav', path: '/connections'},
     {name: '/connections', kind: 'route', path: '/connections'},
     {name: 'Your spaces navigation', kind: 'control', path: '/files'},
     {name: 'Add members', kind: 'control', path: '/connections'},
     // The recipient-KIND choice, not the dialog: it drops the toggle rather than rendering a
     // one-option control.
-    {name: 'Shared spaces', kind: 'control', path: '/query'},
+    {name: 'Shared spaces recipient kind in the share dialog', kind: 'control', path: '/query'},
     // The last two are beyond the spec's contract table — see the delivery doc. Hiding the
     // rail alone left both the schema rail and the move/copy WRITE path open.
     {name: 'Shared databases in the schema rail', kind: 'control', path: '/query'},
@@ -190,7 +190,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // banner, while the message tells them where to look.
     {name: 'Received files link to a space on a notification', kind: 'control', path: '/notifications'},
     // A SECOND instance of the recipient-kind choice, and it needs its own row: the
-    // `Shared spaces` row above renders the share dialog, so nothing would notice if this one
+    // share-dialog row above renders the share dialog, so nothing would notice if this one
     // stopped being gated. One surface per row is what makes the walking test mean anything.
     {name: 'Shared spaces recipient kind in the send dialog', kind: 'control', path: '/files'},
     // The Data Explorer's source picker reads `useQuerySpaces` exactly as the

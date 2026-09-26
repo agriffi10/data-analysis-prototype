@@ -473,9 +473,12 @@ describe('the list operators from the menu', () => {
     // Same query, so no second execution and no history entry to step back through: Back
     // reaches the UNFILTERED statement, which it could not if the re-apply had pushed one.
     expect(runQuery).toHaveBeenCalledTimes(2);
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     await waitFor(() =>
-      expect(screen.getByRole('button', {name: 'Back to previous filters'})).toHaveAttribute('title', NO_HISTORY_BACK)
+      expect(screen.getByRole('button', {name: 'Back to the previous version of this query'})).toHaveAttribute(
+        'title',
+        NO_HISTORY_BACK
+      )
     );
   });
 

@@ -143,7 +143,7 @@ export function QueryToolbar({
             onClick={onRunStatement}
             onKeyDown={ignoreHeldKey}
             disabled={!canRun}
-            title="Run the selection or the statement under the cursor (⌘⏎)"
+            title="Run the selection or the statement under the cursor (⌘⏎ or Ctrl+Enter)"
             aria-label="Run statement"
             className="rounded-r-none">
             <PlayIcon />

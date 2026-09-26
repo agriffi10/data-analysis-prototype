@@ -155,7 +155,7 @@ def test_a_timed_out_execution_notifies_the_actor_from_the_identity_block():
     assert "ran for too long" in message
     assert "Nothing was changed" not in message
     assert "may or may not" in message
-    assert "few minutes" in message
+    assert "locked" not in message, "a create takes no lock, so it has none to wait out"
 
 
 def test_a_timed_out_refresh_says_refresh():
@@ -195,9 +195,10 @@ def test_the_timeout_sentence_repairs_its_own_prefix_and_names_the_wait():
     and RecordSuccess still to run — so a timeout in that tail window sends "ready to query" and this
     message for one run, and only "may or may not" keeps the pair coherent.
 
-    And a top-level timeout runs neither lock release, so the lock is stranded until
+    And a top-level timeout of a REFRESH runs no lock release, so its lock is stranded until
     STALE_LOCK_SECONDS. Without the wait clause the advice earns a refresh_already_running refusal
-    claiming a refresh "is already running" when nothing is.
+    claiming a refresh "is already running" when nothing is, and the clause names the margin
+    rather than "a few minutes". A create takes no lock, so it is told of none.
     """
     from tbcommon import messages as m
     from tbcommon.table_lock import MACHINE_TIMEOUT_SECONDS, STALE_LOCK_SECONDS
@@ -205,11 +206,17 @@ def test_the_timeout_sentence_repairs_its_own_prefix_and_names_the_wait():
     assert STALE_LOCK_SECONDS > MACHINE_TIMEOUT_SECONDS, (
         "the wait clause is only honest while the lock outlives the machine timeout"
     )
+    minutes = (STALE_LOCK_SECONDS - MACHINE_TIMEOUT_SECONDS) // 60
     for mode, verb in (("create", "create"), ("refresh", "refresh")):
-        text = m.failure_message("build_timed_out", "sales", "alice", mode)
+        text = m.failure_message(
+            "build_timed_out", "sales", "alice", mode, tokens={"refreshLock": nf._refresh_lock_note(mode)}
+        )
         assert f'Couldn\'t {verb} table "sales"' in text
         assert "may or may not" in text, "the prefix asserts the build did not happen; repair it"
-        assert "few minutes" in text, "a stranded lock makes an immediate retry fail"
+        if mode == "refresh":
+            assert f"locked for about {minutes} minutes" in text, "a stranded lock makes an immediate retry fail"
+        else:
+            assert "locked" not in text
 
 
 def test_an_omitted_input_notifies_nobody():

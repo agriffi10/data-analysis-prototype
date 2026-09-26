@@ -19,7 +19,7 @@ export type RunDdlArgs = {
   table?: string;
   /** The two toast wordings, in the user's terms. */
   describe: {
-    /** Shown verbatim on success — e.g. `Created view sales_2024`. */
+    /** Shown verbatim on success — e.g. `Saved view sales_2024`. */
     success: string;
     /** The lead sentence a failure prefixes to the mapped reason — e.g. `Couldn’t drop sales.` */
     failure: string;
@@ -110,7 +110,14 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
         setBusy(false);
         onSettled();
         if (!result.success) {
-          toast.push({variant: 'danger', message: `${describe.failure} ${toUserText(result.error)}`});
+          // A statement we stopped waiting for has not failed: it carries on in Athena and usually
+          // lands, so "Couldn't … try again" would send the user into a retried DROP that is then
+          // refused as not found.
+          const message =
+            result.error.code === 'Timeout'
+              ? `Data Quarry stopped waiting on ${table ? `“${table}”` : 'that statement'}, but Athena may still finish the change. Check again in a minute to see whether it did.`
+              : `${describe.failure} ${toUserText(result.error)}`;
+          toast.push({variant: 'danger', message});
           return;
         }
         const status = result.data;

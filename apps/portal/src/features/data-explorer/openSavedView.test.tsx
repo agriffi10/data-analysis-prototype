@@ -127,7 +127,7 @@ describe('a view reopened from the personal folder', () => {
     await waitFor(() =>
       expect(storedTab()?.exploration.source).toMatchObject({spaceId: 'teamspace', database: 'teamspace'})
     );
-    expect(screen.queryByRole('alertdialog', {name: 'Saved view can’t be opened'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog', {name: 'Can’t be opened as a view'})).not.toBeInTheDocument();
   });
 });
 

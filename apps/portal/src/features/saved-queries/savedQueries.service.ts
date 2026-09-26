@@ -97,7 +97,8 @@ export function validateSavedQueryName(name: string): string | null {
   const leaf = validateLeafName(name, 'Query name');
   if (leaf) return leaf;
   if (basenameFor(name).length > MAX_NAME_LENGTH) {
-    return `Query name cannot be longer than ${MAX_NAME_LENGTH} characters.`;
+    // The cap is on the stored basename, `.sql` included, so the number a user can type is smaller.
+    return `Query name cannot be longer than ${MAX_NAME_LENGTH - SQL_EXTENSION.length} characters.`;
   }
   return null;
 }

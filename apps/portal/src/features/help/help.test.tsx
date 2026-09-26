@@ -285,7 +285,7 @@ describe('HelpSectionChips', () => {
     },
     {
       id: 'shared-connections',
-      label: 'Shared connections',
+      label: 'Shared spaces',
       subtitle: '',
       icon: 'connections',
       guides: [{id: 'd', title: 'D', subtitle: '', steps: ['x']}]
@@ -305,7 +305,7 @@ describe('HelpSectionChips', () => {
       expect(nav).toBeInTheDocument();
       expect(nav).toHaveClass('overflow-x-auto');
       expect(screen.getAllByRole('button')).toHaveLength(3);
-      expect(screen.getByRole('button', {name: 'Shared connections'})).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Shared spaces'})).toBeInTheDocument();
     });
 
     it('highlights exactly the active section chip', () => {
@@ -330,7 +330,7 @@ describe('HelpSectionChips', () => {
           onSelect={onSelect}
         />
       );
-      fireEvent.click(screen.getByRole('button', {name: 'Shared connections'}));
+      fireEvent.click(screen.getByRole('button', {name: 'Shared spaces'}));
       expect(onSelect).toHaveBeenCalledWith('shared-connections');
     });
 
@@ -386,7 +386,7 @@ describe('HelpSidebar', () => {
   const sharedSection: HelpSection[] = [
     {
       id: 'shared-connections',
-      label: 'Shared connections',
+      label: 'Shared spaces',
       subtitle: 'shared sub',
       icon: 'connections',
       guides: [{id: 'd', title: 'D', subtitle: '', steps: ['x']}]
@@ -453,7 +453,7 @@ describe('HelpSidebar', () => {
         />
       );
       expect(screen.getByText('Shared')).toBeInTheDocument();
-      expect(screen.queryByText('Shared connections')).not.toBeInTheDocument();
+      expect(screen.queryByText('Shared spaces')).not.toBeInTheDocument();
     });
 
     it('renders the full section label at desktop width', () => {
@@ -465,7 +465,7 @@ describe('HelpSidebar', () => {
           onSelect={vi.fn()}
         />
       );
-      expect(screen.getByText('Shared connections')).toBeInTheDocument();
+      expect(screen.getByText('Shared spaces')).toBeInTheDocument();
     });
   });
 });
@@ -659,11 +659,11 @@ describe('HelpPage guide deep links', () => {
   });
 
   it('opens the guide a guide hash names, in that guide’s own section, and scrolls to it', () => {
-    // `delete-space` lives in Shared connections, not the first section — so this fails for a
+    // `delete-space` lives in Shared spaces, not the first section — so this fails for a
     // resolver that only ever answers "the first visible section".
     renderAt('/help#delete-space');
 
-    expect(screen.getByRole('heading', {level: 1})).toHaveTextContent('Shared connections');
+    expect(screen.getByRole('heading', {level: 1})).toHaveTextContent('Shared spaces');
     expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'true');
     const shared = HELP_SECTIONS.find((s) => s.id === 'shared-connections')!;
     expect(screen.getByRole('button', byTitle(shared.guides[0].title))).toHaveAttribute('aria-expanded', 'false');

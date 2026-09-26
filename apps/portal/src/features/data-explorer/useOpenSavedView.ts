@@ -138,7 +138,7 @@ export function useOpenSavedView({username, spaces, openTab, toast}: Params) {
     };
     // This build never writes a file Athena would not run, so a larger one was written by hand,
     // and its size alone — tens of thousands of Colors rules — is enough to stall the page.
-    if (exceedsAthenaQueryLimit(read.data)) return refuse(SAVED_VIEW_REFUSALS.unreadable(query.name));
+    if (exceedsAthenaQueryLimit(read.data)) return refuse(SAVED_VIEW_REFUSALS.tooLarge(query.name));
     if (parsed.kind === 'none') return refuse(SAVED_VIEW_REFUSALS.none(query.name));
     if (parsed.kind === 'edited') return refuse(SAVED_VIEW_REFUSALS.edited(query.name));
     if (parsed.kind === 'newer') return refuse(SAVED_VIEW_REFUSALS.newer(query.name));

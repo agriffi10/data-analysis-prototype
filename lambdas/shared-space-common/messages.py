@@ -11,7 +11,7 @@ The reason was deliberately not a lookup table for as long as every code reachin
 a raw engine name that may not be shown to a user, so what varied was the action rather than the
 reason. **The table has entries now**, and they arrived exactly as that note anticipated: a
 shared-space code registered later renders through the same path. What each one buys is a
-sentence a user can act on in place of the generic clause — "that workspace has been deleted"
+sentence a user can act on in place of the generic clause — "that space has been deleted"
 answers a member's question, where "please try again or contact the Administrator" invites them
 to retry something that will never succeed.
 
@@ -65,46 +65,46 @@ from cpcommon.config import CATALOG_IDENTIFIER_RULE
 __all__ = ["failure_message", "refusal_message", "transfer_notifications"]
 
 _ACTION_PHRASES = {
-    "create": "create shared workspace",
-    "add_members": "add members to the shared workspace",
-    "remove_members": "remove members from the shared workspace",
-    "leave": "leave the shared workspace",
-    "delete": "delete the shared workspace",
-    "forget": "dismiss the shared workspace",
-    "acknowledge_membership": "confirm your membership of the shared workspace",
-    "transfer_ownership": "transfer the shared workspace",
+    "create": "create shared space",
+    "add_members": "add members to the shared space",
+    "remove_members": "remove members from the shared space",
+    "leave": "leave the shared space",
+    "delete": "delete the shared space",
+    "forget": "dismiss the shared space",
+    "acknowledge_membership": "confirm your membership of the shared space",
+    "transfer_ownership": "transfer the shared space",
 }
 
-_UNKNOWN_ACTION = "complete that shared workspace request"
+_UNKNOWN_ACTION = "complete that shared space request"
 
 _DOMAIN_REASONS = {
-    "SpaceHasNoOwner": "that workspace has been deleted",
-    "SpaceAlreadyEmptied": "that workspace has been deleted",
-    "SpaceNeverActive": "that workspace hasn't finished being set up",
-    "RegistryRecordMissing": "we couldn't find that workspace",
+    "SpaceHasNoOwner": "that space has been deleted",
+    "SpaceAlreadyEmptied": "that space has been deleted",
+    "SpaceNeverActive": "that space hasn't finished being set up",
+    "RegistryRecordMissing": "we couldn't find that space",
     "MembersRemainAfterEmpty": "some members' access could not be removed, so please try again",
-    "RegistryRecordResurrected": "someone changed that workspace while it was being removed, so please try again",
-    "OwnerChanged": "that workspace changed hands while your request was being processed",
+    "RegistryRecordResurrected": "someone changed that space while it was being removed, so please try again",
+    "OwnerChanged": "that space changed hands while your request was being processed",
     "TransferTargetNoLongerMember": (
-        "the person you named is no longer a member of that workspace, so add them to it again "
+        "the person you named is no longer a member of that space, so add them to it again "
         "before transferring it"
     ),
 }
 
 _REFUSALS = {
     "CreateNameUnusable": (
-        'We couldn\'t create a shared workspace called "{space}". ' + CATALOG_IDENTIFIER_RULE
+        'We couldn\'t create a shared space called "{space}". ' + CATALOG_IDENTIFIER_RULE
     ),
-    "TransferSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
+    "TransferSpaceUnknown": 'We couldn\'t find a shared space called "{space}".',
     "TransferTargetMissing": 'That request to transfer "{space}" named nobody to transfer it to.',
     "TransferNotOwner": 'Only the owner of "{space}" can transfer it.',
     "TransferTargetNotMember": (
         '{target} is not a member of "{space}", so it cannot be transferred to them. '
-        "Add them to the workspace first."
+        "Add them to the space first."
     ),
     "TransferTargetIsOwner": '{target} already owns "{space}", so there is nothing to transfer.',
-    "TransferSpaceNotActive": 'The shared workspace "{space}" is still being set up, so it cannot be transferred yet.',
-    "TransferSpaceEmptied": 'The shared workspace "{space}" has been deleted, so it cannot be transferred.',
+    "TransferSpaceNotActive": 'The shared space "{space}" is still being set up, so it cannot be transferred yet.',
+    "TransferSpaceEmptied": 'The shared space "{space}" has been deleted, so it cannot be transferred.',
     "TransferOriginUntrusted": 'That request against "{space}" did not come from a trusted sender, so it was refused.',
     "TransferOriginNotConfigured": (
         'That request against "{space}" could not be checked, so it was refused. '
@@ -117,21 +117,21 @@ _REFUSALS = {
         'That request against "{space}" is not one an operator may make, so it was refused.'
     ),
     "TransferOriginUnknown": 'That request against "{space}" declared an origin this service does not accept.',
-    "MemberSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
+    "MemberSpaceUnknown": 'We couldn\'t find a shared space called "{space}".',
     "MemberSpaceEmptied": (
-        'The shared workspace "{space}" has been deleted, so its members cannot be changed.'
+        'The shared space "{space}" has been deleted, so its members cannot be changed.'
     ),
     "MemberSpaceNotActive": (
-        'The shared workspace "{space}" is still being set up, so its members cannot be changed yet.'
+        'The shared space "{space}" is still being set up, so its members cannot be changed yet.'
     ),
     "MemberNotOwner": 'Only the owner of "{space}" can change who belongs to it.',
     "MemberTargetsMissing": 'That request against "{space}" named nobody to add or remove.',
     "MemberRemoveOwner": (
         '{target} owns "{space}", so they cannot be removed from it. '
-        "Transfer the workspace to someone else first."
+        "Transfer the space to someone else first."
     ),
     "MemberRequestRefused": (
-        'We couldn\'t change who belongs to the shared workspace "{space}".'
+        'We couldn\'t change who belongs to the shared space "{space}".'
     ),
 }
 
@@ -167,7 +167,7 @@ def refusal_message(code: str, space: str = "", target: str = "") -> str:
     target = target or ""
     template = _REFUSALS.get(code)
     if template is None:
-        return f'We couldn\'t transfer the shared workspace "{space}".'
+        return f'We couldn\'t transfer the shared space "{space}".'
     return template.format(space=space, target=target)
 
 
@@ -191,8 +191,8 @@ def transfer_notifications(space: str, outgoing: str, incoming: str) -> tuple[st
       None.
     """
     return (
-        f'You transferred the shared workspace "{space}" to {incoming}. You are still a member of it.',
-        f'{outgoing} transferred the shared workspace "{space}" to you. You are now its owner.',
+        f'You transferred the shared space "{space}" to {incoming}. You are still a member of it.',
+        f'{outgoing} transferred the shared space "{space}" to you. You are now its owner.',
     )
 
 

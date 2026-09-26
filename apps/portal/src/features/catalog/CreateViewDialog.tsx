@@ -46,7 +46,8 @@ export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCanc
       {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
       <p className="mb-3 mt-3 text-sm text-text-2">
         Save the current query as a reusable view in{' '}
-        <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text">{targetDatabase}</code>.
+        <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text">{targetDatabase}</code>. A view
+        already there with the same name is replaced.
       </p>
       <Input
         ref={inputRef}

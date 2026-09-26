@@ -52,7 +52,7 @@ export function useTableShare(notify: (toast: ShareToast) => void) {
       setTarget(null);
       notify({
         variant: 'success',
-        message: `Sharing “${target.database}.${target.table}” — recipients are notified, and the outcome will appear in your notifications.`
+        message: `Sharing “${target.database}.${target.table}” — the outcome will appear in your notifications, and each recipient (or a shared space’s owner) is told when their copy is ready.`
       });
     } finally {
       // Cleared on every exit — success, failure and a throw — so one dropped click

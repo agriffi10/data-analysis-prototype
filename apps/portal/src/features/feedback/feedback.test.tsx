@@ -245,7 +245,7 @@ describe('Give feedback', () => {
         'Files',
         'Query',
         'Data Explorer',
-        'Connections',
+        'Shared spaces',
         'Data quality',
         'Help for this page',
         'Notifications, none unread',

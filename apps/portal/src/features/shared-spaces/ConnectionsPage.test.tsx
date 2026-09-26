@@ -45,7 +45,7 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
   it('shows the empty state when the cache has no shared connections', async () => {
     mockRead.mockResolvedValue(cache([]));
     renderPage();
-    expect(await screen.findByText(/No shared connections yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No shared spaces yet/)).toBeInTheDocument();
   });
 
   it('lists shared connections with their role + status from the cache', async () => {
@@ -70,18 +70,18 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
     mockRead.mockResolvedValue({success: false, error: {message: 'boom'}});
     renderPage();
     // Friendly, actionable text — never the raw service message (SPEC-106).
-    const banner = await screen.findByText(/Couldn.t load your shared connections/);
+    const banner = await screen.findByText(/Couldn’t load your shared spaces/);
     expect(banner).not.toHaveTextContent('boom');
-    expect(screen.getByRole('button', {name: 'New shared connection'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'New shared space'})).toBeInTheDocument();
   });
 
   it('Refresh forces a credential refresh then re-reads, picking up a now-active connection', async () => {
     mockRead.mockResolvedValueOnce(cache([]));
     const {user} = renderPage();
-    expect(await screen.findByText(/No shared connections yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No shared spaces yet/)).toBeInTheDocument();
 
     mockRead.mockResolvedValueOnce(cache([{name: 'team', role: 'owner', status: 'active'}]));
-    await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+    await user.click(screen.getByRole('button', {name: 'Refresh shared spaces'}));
 
     expect(mockForceRefresh).toHaveBeenCalledWith(true);
     expect(await screen.findByText('team')).toBeInTheDocument();
@@ -91,11 +91,11 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
   it('create enqueues one request and shows an optimistic pending entry + toast', async () => {
     mockRead.mockResolvedValue(cache([]));
     const {user} = renderPage();
-    await screen.findByText(/No shared connections yet/);
+    await screen.findByText(/No shared spaces yet/);
 
-    await user.click(screen.getByRole('button', {name: 'New shared connection'}));
-    const dialog = await screen.findByRole('dialog', {name: 'Create shared connection'});
-    await user.type(within(dialog).getByLabelText('Connection name'), 'sales_data');
+    await user.click(screen.getByRole('button', {name: 'New shared space'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Create shared space'});
+    await user.type(within(dialog).getByLabelText('Space name'), 'sales_data');
     await user.click(within(dialog).getByRole('button', {name: 'Create'}));
 
     await waitFor(() => expect(screen.getByText(/Creating .*sales_data/)).toBeInTheDocument());
@@ -398,7 +398,7 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
   it('stacks the page header and the New button on mobile while keeping the full accessible name', async () => {
     mockRead.mockResolvedValue(cache([]));
     renderPage();
-    await screen.findByText(/No shared connections yet/);
+    await screen.findByText(/No shared spaces yet/);
 
     // RESTORED after review, and the reasoning that removed it was wrong: `PageLayout.test.tsx`
     // asserts this stacking only in a render that passes `stackActionsOnMobile` ITSELF, and the
@@ -410,13 +410,13 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
     // The DOM chain stays, which is FR-009 AC3 yielding to AC5 (no coverage decrease): the node
     // is a layout `<div>` with no role, label or landmark, so there is nothing to query it by,
     // and a worse test is not an improvement on a slightly ugly one.
-    const header = screen.getByRole('heading', {level: 1, name: 'Shared connections'}).closest('div')!.parentElement!;
+    const header = screen.getByRole('heading', {level: 1, name: 'Shared spaces'}).closest('div')!.parentElement!;
     expect(header).toHaveClass('flex-col', 'tablet:flex-row');
 
-    const newBtn = screen.getByRole('button', {name: 'New shared connection'});
+    const newBtn = screen.getByRole('button', {name: 'New shared space'});
     expect(newBtn).toHaveClass('w-full', 'tablet:w-auto');
     expect(within(newBtn).getByText('New')).toHaveClass('desktop:hidden');
-    expect(within(newBtn).getByText('New shared connection')).toHaveClass('hidden', 'desktop:inline');
+    expect(within(newBtn).getByText('New shared space')).toHaveClass('hidden', 'desktop:inline');
   });
 });
 

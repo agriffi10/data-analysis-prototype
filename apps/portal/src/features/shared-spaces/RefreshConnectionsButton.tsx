@@ -12,7 +12,7 @@ import {RefreshIconButton} from '../../components/RefreshIconButton';
 export function RefreshConnectionsButton({refreshing, onRefresh}: {refreshing: boolean; onRefresh: () => void}) {
   return (
     <RefreshIconButton
-      label="Refresh connections"
+      label="Refresh shared spaces"
       busy={refreshing}
       size="md"
       onClick={onRefresh}

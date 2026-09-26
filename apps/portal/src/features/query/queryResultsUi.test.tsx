@@ -496,7 +496,7 @@ describe('QueryStatusBar', () => {
 
       expect(screen.getByText('Succeeded')).toBeInTheDocument();
       expect(screen.getByText(/4 rows · 1\.2 MB scanned · 800 ms/)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', {name: /Save results to my files/}));
+      fireEvent.click(screen.getByRole('button', {name: /Save results…/}));
       expect(onSaveResults).toHaveBeenCalledTimes(1);
     });
 
@@ -530,7 +530,7 @@ describe('QueryStatusBar', () => {
       );
 
       expect(screen.getByText(state === 'FAILED' ? 'Failed' : 'Cancelled')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', {name: /Save results to my files/}));
+      fireEvent.click(screen.getByRole('button', {name: /Save results…/}));
       expect(onSaveResults).toHaveBeenCalledTimes(1);
     });
 

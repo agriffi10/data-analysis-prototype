@@ -126,5 +126,6 @@ export const SAVED_VIEW_REFUSALS = {
     `“${name}” has been edited since it was saved from the Data Explorer, so its view no longer describes it.`,
   newer: (name: string) => `“${name}” was saved by a newer version of Data Quarry.`,
   unreadable: (name: string) => `“${name}” carries a view that can’t be read.`,
+  tooLarge: (name: string) => `“${name}” is too large to open as a view.`,
   noAccess: (database: string) => `You don’t have access to ${database}, the database this view explores.`
 } as const;

@@ -113,13 +113,18 @@ describe('validateSavedQueryName (FR-004)', () => {
     ['   ', /empty/i],
     [' leading', /spaces/i],
     ['trailing ', /spaces/i],
-    ['a/b', /'\/'/],
+    ['a/b', /“\/”/],
     ['tab\there', /control characters/i],
-    // 126 characters + `.sql` = 130, over the 128 ceiling — measured on the RESULTING
-    // basename, because the extension the user did not type still counts toward the key.
-    ['x'.repeat(126), /128 characters/]
+    // 125 characters + `.sql` = 129, over the 128 ceiling — measured on the RESULTING
+    // basename, because the extension the user did not type still counts toward the key, so
+    // the sentence names the 124 a user can type rather than the ceiling.
+    ['x'.repeat(125), /longer than 124 characters/]
   ])('refuses %j', (name, expected) => {
     expect(validateSavedQueryName(name)).toMatch(expected);
+  });
+
+  it('accepts exactly the length the refusal names', () => {
+    expect(validateSavedQueryName('x'.repeat(124))).toBeNull();
   });
 });
 

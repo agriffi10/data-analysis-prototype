@@ -110,7 +110,10 @@ _BODIES = {
         "run it there."
     ),
     NO_DATA_FILES: "no supported data files were found there.",
-    UNSUPPORTED_FORMAT: "that file format isn't supported. Please use CSV, JSON, or Parquet.",
+    UNSUPPORTED_FORMAT: (
+        "that folder holds a file this check can't read. Please check a folder holding only "
+        "CSV, JSON, or Parquet files."
+    ),
     MIXED_FORMATS: "that folder mixes file formats ({formats}). Please check a folder that uses a single format.",
     TOO_MANY_FILES: (
         f"that folder has more than the {config.DQ_MAX_OBJECTS} files this check supports "

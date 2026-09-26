@@ -223,7 +223,7 @@ def create_space(name, actor, request_id):
             logger.exception("failed to mark reserve-collision failure in cache for %s", name)
         emit_notification(
             actor,
-            f'We couldn\'t create shared workspace "{name}": {friendly}.',
+            f'We couldn\'t create shared space "{name}": {friendly}.',
             dedup_id=f"{request_id}:create-failed:{actor}",
         )
         raise
@@ -274,13 +274,13 @@ def create_space(name, actor, request_id):
             logger.exception("failed to record cache failure for %s", name)
         emit_notification(
             actor,
-            f'We couldn\'t create shared workspace "{name}": {friendly}.',
+            f'We couldn\'t create shared space "{name}": {friendly}.',
             dedup_id=f"{request_id}:create-failed:{actor}",
         )
         raise
     emit_notification(
         actor,
-        f'Your shared workspace "{name}" is ready.',
+        f'Your shared space "{name}" is ready.',
         dedup_id=f"{request_id}:create-active:{actor}",
     )
     return {"status": "active", "space": name, "owner": actor}

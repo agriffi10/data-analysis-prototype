@@ -32,7 +32,10 @@ export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResu
   if (req.items.length > SEND_MAX_ITEMS || selectionBytes > SEND_MAX_ITEM_BYTES) {
     return {
       success: false,
-      error: {message: 'That selection is too large to send in one go', code: 'SelectionTooLarge'}
+      error: {
+        message: 'That selection is too large to send in one go. Select fewer items and try again.',
+        code: 'SelectionTooLarge'
+      }
     };
   }
 

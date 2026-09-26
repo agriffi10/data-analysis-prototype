@@ -18,7 +18,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 
 from cpcommon.errors import TerminalError
-from focommon import messages, paths  # noqa: F401
+from focommon import messages, paths
 
 
 def _folder(key, target=None):
@@ -338,3 +338,17 @@ def test_the_sweep_would_catch_a_hand_built_key(offender):
     """The rule is a negative over code nobody has written yet, so it is worth proving it can fail.
     Each of these is a plausible way a later verb would compose its own destination."""
     assert _hand_built_destinations(offender)
+
+
+def test_the_name_refusal_states_the_length_cap_the_plane_enforces():
+    """A long rename is refused by the length cap alone, so the sentence has to name it.
+
+    The browser checks no length, which makes this sentence the only place a user learns the
+    rule, and the number is read from the constant the refusal is raised against.
+    """
+    with pytest.raises(TerminalError) as caught:
+        paths.validate_target_name("x" * (paths.MAX_TARGET_NAME + 1))
+
+    sentence = messages.failure_message("move", caught.value.reason)
+
+    assert f"longer than {paths.MAX_TARGET_NAME} characters" in sentence

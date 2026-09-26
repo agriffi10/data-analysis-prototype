@@ -386,7 +386,7 @@ describe('useCreateFolder', () => {
 
       // Mapped to friendly text (SPEC-106), not the raw 'Access Denied'.
       await waitFor(() =>
-        expect(result.current.error).toBe("You don't have permission to do that. Contact the Administrator.")
+        expect(result.current.error).toBe('You don’t have permission to do that. Contact the Administrator.')
       );
       expect(result.current.isBusy).toBe(false);
       expect(mockInvalidate).not.toHaveBeenCalled();

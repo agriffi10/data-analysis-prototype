@@ -84,7 +84,7 @@ def test_a_cold_start_import_failure_reaches_the_user():
     message = fake.messages()[0]
     assert len(fake.calls) == 1
     assert "create_space" not in message and "registry" not in message
-    assert 'We couldn\'t create shared workspace "sales"' in message
+    assert 'We couldn\'t create shared space "sales"' in message
 
 
 def test_every_routed_action_has_its_own_vocabulary():

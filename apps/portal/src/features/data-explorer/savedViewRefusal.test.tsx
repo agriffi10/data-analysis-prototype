@@ -83,7 +83,7 @@ describe('a saved query that cannot reopen as a view', () => {
           .replace(/=+$/, '');
         return `${big}\n${VIEW_LINE_MARKER}v1:${viewChecksum(big)}:${payload}\n`;
       })(),
-      '“Orders view” carries a view that can’t be read.'
+      '“Orders view” is too large to open as a view.'
     ],
     [
       'over a database the user cannot reach',
@@ -95,7 +95,7 @@ describe('a saved query that cannot reopen as a view', () => {
 
     await openTheFile();
 
-    const dialog = await screen.findByRole('alertdialog', {name: 'Saved view can’t be opened'});
+    const dialog = await screen.findByRole('alertdialog', {name: 'Can’t be opened as a view'});
     expect(within(dialog).getByText(message)).toBeInTheDocument();
     expect(readExplorationTabsState('alice')?.tabs ?? []).toHaveLength(0);
     expect(runQuery).not.toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe('a saved query that cannot reopen as a view', () => {
     const text = saved.replace("'void'", "'paid'");
     vi.mocked(readSavedQuery).mockResolvedValue(ok(text));
     const {user} = await openTheFile();
-    await screen.findByRole('alertdialog', {name: 'Saved view can’t be opened'});
+    await screen.findByRole('alertdialog', {name: 'Can’t be opened as a view'});
     await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
 
     await user.click(screen.getByRole('button', {name: 'Open in Query'}));
@@ -131,7 +131,7 @@ describe('a saved query that cannot reopen as a view', () => {
         'false'
       )
     );
-    expect(screen.queryByRole('alertdialog', {name: 'Saved view can’t be opened'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog', {name: 'Can’t be opened as a view'})).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('gone');
   });
 });

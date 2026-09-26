@@ -640,7 +640,7 @@ describe('createFolder', () => {
 
     expect(result).toEqual({
       success: false,
-      error: {message: "Folder name cannot contain '/'.", code: 'InvalidName'}
+      error: {message: 'Folder name cannot contain “/”.', code: 'InvalidName'}
     });
     expect(api.calls).toEqual([]);
   });

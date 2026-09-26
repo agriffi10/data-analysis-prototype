@@ -471,7 +471,9 @@ and un-grouping a view from a control labelled "Remove all filters" is a change 
 > changes with it** — `Remove all filters` becomes `Remove all filters and grouping` while a grouping
 > is in force. The concern above was never the clearing, it was the silence; naming the action is the
 > other way to keep the same promise. `isEmptyQuery` counts grouping from the same spec, so its
-> refusal wording changed with it.
+> refusal wording changed with it. The UI copy audit later named sorts in both labels —
+> `Remove all filters and sorts`, `Remove all filters, sorts and grouping` — because the clear had
+> always removed them too, and a label naming only filters was the same silence.
 
 **The hook takes the tabs result rather than reading its own** — a deviation from the spec's
 `useExplorationQuery(tabId)`. The history lives with the tab in `sessionStorage` (FR-006 AC3) and
@@ -886,7 +888,7 @@ was designed around. And it is why copy's formats are clipboard-only: the result
 CSV, and converting it would mean reading it back through the browser.
 
 Both surfaces say the asymmetry out loud, because it is not inferable. The advanced copy dialog
-states that only the loaded page is copied and points at Save results to my files for the rest; the grid's status line
+states that only the loaded page is copied and points at Save results… for the rest; the grid's status line
 says `N cells selected on this page` every time it says anything, which is SPEC-182's rule for Calc
 applied to the same fact.
 

@@ -44,7 +44,10 @@ _BODIES = {
     "table_exists": 'a table with that name already exists in "{database}".',
     "no_data_files": "no supported data files were found in that folder.",
     "mixed_formats": "the folder mixes file formats - use a single format.",
-    "unsupported_format": "that file format isn't supported (use Parquet, CSV, or JSON).",
+    "unsupported_format": (
+        "that folder holds a file that isn't Parquet, CSV, or JSON, and a table reads every file "
+        "in its folder - move it out, or build from a folder holding only data files."
+    ),
     "unexpected_partitioning": "the folder is partitioned but no partition keys were provided.",
     "partition_layout_mismatch": "the partition keys don't match the folder layout (check names and order).",
     "invalid_column_names": (
@@ -90,8 +93,7 @@ _BODIES = {
     "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
     "build_timed_out": (
         "it ran for too long and was stopped part-way, so the table may or may not have been "
-        "built - check it before trying again. Give it a few minutes first: that table stays "
-        "locked for a short while afterwards."
+        "built - check it before trying again.{refreshLock}"
     ),
 }
 

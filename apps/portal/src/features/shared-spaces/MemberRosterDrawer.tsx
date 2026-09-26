@@ -66,8 +66,8 @@ export function MemberRosterDrawer({
       }>
       {unavailable ? (
         <Banner variant="info">
-          The member list isn&apos;t available yet — it loads after the next membership change on this space. Use
-          Refresh connections to check again.
+          The member list isn&rsquo;t available yet — it loads after the next membership change on this space. Use
+          Refresh shared spaces to check again.
         </Banner>
       ) : (
         <>
@@ -78,8 +78,8 @@ export function MemberRosterDrawer({
           />
           {anyPending && (
             <p className="text-xs text-text-3">
-              A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed
-              in yet; they become <span className="font-medium text-text-2">Active</span> once they do.
+              A <span className="font-medium text-text-2">Pending</span> member has been added but hasn&rsquo;t opened
+              this space in Files yet; they become <span className="font-medium text-text-2">Active</span> once they do.
             </p>
           )}
         </>

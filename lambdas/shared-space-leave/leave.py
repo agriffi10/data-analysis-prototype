@@ -80,7 +80,7 @@ def leave_space(space, actor, request_id, registry):
     told = committed.get("owner") or owner
     emit_notification(
         told,
-        f'"{actor}" left the shared workspace "{space}".',
+        f'"{actor}" left the shared space "{space}".',
         dedup_id=f"{request_id}:leave:{actor}",
     )
     logger.info("leave %s: %s left (%d remaining)", space, actor, len(remaining))

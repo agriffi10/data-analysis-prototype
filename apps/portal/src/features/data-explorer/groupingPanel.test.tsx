@@ -429,7 +429,7 @@ describe('the generated SQL, and what grouping composes with', () => {
     await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'count_all'})).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     // Back to the ungrouped description — a cached statement, so no third execution
     // (FR-006 AC4).
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());

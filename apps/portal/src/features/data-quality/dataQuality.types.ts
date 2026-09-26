@@ -101,7 +101,7 @@ export type DominantType = 'BIGINT' | 'DOUBLE' | 'TIMESTAMP' | 'DATE' | 'text';
 export type RaggedRowsFigure =
   | {count: number; note: string}
   | NotComputedFigure // a degraded query, or a line over Athena's 200 MB limit
-  | SkippedFigure; // non-CSV — not a line-delimited text format
+  | SkippedFigure; // non-CSV — fields are not read by position
 
 /**
  * One example of invalid text encoding: which object it is in, and how far into that object.

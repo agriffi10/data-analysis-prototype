@@ -236,11 +236,11 @@ describe('DestinationPicker', () => {
       ];
       // No selector with a single (implicit) destination.
       const {unmount} = renderPicker();
-      expect(screen.queryByLabelText(/destination connection/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/destination space/i)).not.toBeInTheDocument();
       unmount();
 
       const {user, onConfirm} = renderPicker({destinations, currentPrefix: 'alice/docs/'});
-      const selector = screen.getByLabelText(/destination connection/i);
+      const selector = screen.getByLabelText(/destination space/i);
       // Default selection is the source space (us / alice/).
       await waitFor(() =>
         expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/', undefined, expect.any(AbortSignal))
@@ -343,7 +343,7 @@ describe('DestinationPicker', () => {
       });
       renderPicker({...selectable, currentPrefix: 'alice/'});
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(/don't have permission/i);
+      expect(await screen.findByRole('alert')).toHaveTextContent(/don’t have permission/i);
       expect(screen.queryByText(/assumed-role/)).not.toBeInTheDocument();
     });
   });
