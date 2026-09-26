@@ -400,10 +400,15 @@ inside the guard whose failure path records a failed create.
   - The one holder that does give way is the same owner's own create still in flight, which
     `reserve` refuses as taken. It needs no Retry either: every cache write replaces the entry by
     name, so that create's own result, active or failed, replaces the collision card when it ends.
-  - So all three write `retryable: false` on the actor's cache entry, and the card drops Retry
-    when it reads that. Dismiss stays, since forgetting is what frees the owner's own failed
-    reservation. It is a flag, not a match on the sentence, so the browser never keys on wording,
-    and an entry without the flag keeps Retry.
+  - So all three raise one type, `NameTaken`, a subclass of `ProvisioningError` in
+    `registry.py`, at `registry.py`'s collision, `_ensure_database`'s refusal and the pool check.
+    Both failure branches of `create_space` write `retryable: false` on the actor's cache entry
+    when, and only when, the caught exception is a `NameTaken`. The reserve branch catches every
+    exception, including an S3 fault and a compare-and-swap that runs out of attempts, and those
+    keep Retry. So does the membership limit, which is also a `ProvisioningError`.
+  - The card drops Retry when it reads the flag. Dismiss stays, since forgetting is what frees the
+    owner's own failed reservation. It is a flag, not a match on the sentence, so the browser never
+    keys on wording, and an entry without the flag keeps Retry.
 
 Why after the reservation: the state machine retries the create verb (`MaxAttempts` 3). A retry
 that found a new user and refused **before** reserving would go through the reserve-collision
@@ -442,10 +447,12 @@ the user ever signs in, so the audit's marker check is what covers the forward d
   retryable fault, and makes no slot write and no Glue call.
 - [ ] Unit: a name with no pool user goes on to provision as it does today.
 - [ ] Unit: the reserve collision, the database refusal and the pool refusal each write the reason
-  `name already taken` and `retryable: false` on the actor's cache entry. A failure that is not a
-  taken name, such as a reached membership limit, writes the entry without the flag.
+  `name already taken` and `retryable: false` on the actor's cache entry.
+- [ ] Unit: none of these writes the flag: a reserve that fails with an S3 fault, a reserve whose
+  compare-and-swap runs out of attempts, and a reached membership limit.
 - [ ] Component: a failed create card whose entry carries `retryable: false` offers Dismiss and no
-  Retry, and one without the flag still offers both.
+  Retry. One whose reason is `name already taken`, word for word, but which carries no flag still
+  offers both, so a build that matches on the sentence fails.
 - [ ] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
   and none when it is `False`. It revokes both grants when it is `True`.
 
@@ -607,12 +614,14 @@ lambdas/
 ├── pre-signup/pre_signup.py                      # FR-001 custom: refusal, FR-002 Glue read
 ├── post-confirmation/{post_confirmation,backfill}.py   # FR-003
 ├── shared-space-common/{config,teardown}.py      # FR-003 read the moved key; FR-004 revoke only on own
+├── shared-space-common/registry.py               # FR-004 NameTaken, raised at the collision
 ├── shared-space-create/create_space.py           # FR-004, FR-005
 └── shared-space-name-collisions/                 # FR-006 (new, report only)
 apps/portal/src/features/
 ├── shared-spaces/sharedSpaces.{service,types}.ts # FR-004 read the entry's retryable flag
 ├── connections/{useConnections,connection.types}.ts  # FR-004 carry it; fields are copied by name
-└── shared-spaces/ConnectionsPage.tsx             # FR-004 carry it to the row; no Retry when false
+├── shared-spaces/ConnectionsPage.tsx             # FR-004 carry it to the row; no Retry when false
+└── help/helpContent.ts                           # FR-004 the create steps' "Retry to try again"
 .github/workflows/report-name-collisions.yml      # FR-006
 ```
 
@@ -653,8 +662,10 @@ apps/portal/src/features/
 - Move the marker key into `cpcommon.markers`, and widen post-confirmation's import allowlist to it.
 - Make the teardown revoke only on a database that is the space's own.
 - Put the pool check after the reservation, and the database step in front of the slot.
-- Write `retryable: false` on all three taken-name refusals, carry it through the connection
-  mapping, and drop Retry from the card that reads it.
+- Raise `NameTaken` at all three taken-name refusals and write `retryable: false` on it alone,
+  carry the flag through the connection mapping, and drop Retry from the card that reads it.
+- In Help, the create steps' last step stops promising Retry for every failure: a taken name
+  offers Dismiss only.
 - Classify the existing database in `provision_user`, disabling the user in the trigger.
 
 ### Phase 6: Where the decisions are written down
