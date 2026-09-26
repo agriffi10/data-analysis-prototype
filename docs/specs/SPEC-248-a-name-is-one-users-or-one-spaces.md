@@ -388,11 +388,27 @@ inside the guard whose failure path records a failed create.
     does not say whether the name belongs to a user or to a space.
 - **Any pool answer other than `UserNotFoundException`:** the create fails as a retryable fault. It
   never reads the error as "no such user".
+- **A taken name refused after the reservation offers Dismiss and no Retry.** There are three
+  taken-name refusals: the reserve collision in `registry.reserve`, the database that is not this
+  space's in `_ensure_database`, and this one.
+  - All three say the one sentence `name already taken`, byte for byte, so none tells a user from a
+    space from an orphaned database.
+  - Today the failed card offers Retry beside Dismiss for every failed create
+    (`ConnectionsPage.tsx`, the failed create branch). The two refusals made after the reservation,
+    the database one and this one, are refused again at the same step on every Retry for as long
+    as the name's holder exists, so Retry there is a control that can never work.
+  - For those two, the failure path writes `retryable: false` on the actor's cache entry, and the
+    card drops Retry when it reads that. Dismiss stays, since forgetting is what frees the owner's
+    own failed reservation. It is a flag, not a match on the sentence, so the browser never keys
+    on wording, and an entry without the flag keeps Retry.
+  - The reserve collision keeps Retry. Its holder can be the same owner's own create still in
+    flight (`reserve` refuses an owner's `provisioning` record), and once that one fails a Retry
+    re-reserves the name and succeeds.
 
 Why after the reservation: the state machine retries the create verb (`MaxAttempts` 3). A retry
 that found a new user and refused **before** reserving would go through the reserve-collision
 branch, which writes no registry record. The reservation would then stay `provisioning` for good.
-Refusing after it leaves a `failed` record, which the owner can retry or forget. Forgetting it
+Refusing after it leaves a `failed` record, which the owner can forget. Forgetting it
 drops a database only if an earlier attempt of the same create already made and marked one, and that
 database is the space's own.
 
@@ -425,6 +441,11 @@ the user ever signs in, so the audit's marker check is what covers the forward d
 - [ ] Unit: an `AdminGetUser` fault other than `UserNotFoundException` fails the create as a
   retryable fault, and makes no slot write and no Glue call.
 - [ ] Unit: a name with no pool user goes on to provision as it does today.
+- [ ] Unit: the pool refusal and the database refusal each write the reason `name already taken`
+  and `retryable: false` on the actor's cache entry. The reserve collision writes the same reason
+  and no flag, and so does a failure that is not a taken name, such as a reached membership limit.
+- [ ] Component: a failed create card whose entry carries `retryable: false` offers Dismiss and no
+  Retry, and one without the flag still offers both.
 - [ ] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
   and none when it is `False`. It revokes both grants when it is `True`.
 
@@ -554,15 +575,17 @@ class CollisionReport(TypedDict):
 
 ## API / Interface Contract
 
-No route changes. The browser changes nothing either: the create refusal arrives through the
-existing failed card and notification, and the sign-up refusal is the trigger's message on the
-managed-login page.
+No route changes. The browser changes in one place: a failed create card whose cache entry carries
+`retryable: false` offers Dismiss without Retry (FR-004). Otherwise the create refusal arrives
+through the existing failed card and notification, and the sign-up refusal is the trigger's message
+on the managed-login page.
 
 ```text
 pre-signup, name exists or unreadable:   "That username is not available."
 pre-signup, Glue throttled or timed out: "Sign-up is briefly unavailable. Please try again in a minute."
 pre-signup, a custom: attribute sent:    refused before the Glue read
-create, user or space already holds it:  "name already taken"   (unchanged sentence)
+create, user, space or foreign db holds it: "name already taken"   (unchanged sentence)
+create, refused after the reservation:     cache entry retryable: false
 post-confirmation, space-marked db:      reason="username-is-a-space", user disabled
 post-confirmation, db unreadable:        reason="database-unreadable", user disabled
 post-confirmation, disable failed twice: reason="collision-uncontained"
@@ -586,6 +609,9 @@ lambdas/
 ├── shared-space-common/{config,teardown}.py      # FR-003 read the moved key; FR-004 revoke only on own
 ├── shared-space-create/create_space.py           # FR-004, FR-005
 └── shared-space-name-collisions/                 # FR-006 (new, report only)
+apps/portal/src/features/shared-spaces/
+├── sharedSpaces.service.ts                       # FR-004 read the entry's retryable flag
+└── ConnectionsPage.tsx                           # FR-004 no Retry where the entry says so
 .github/workflows/report-name-collisions.yml      # FR-006
 ```
 
@@ -626,6 +652,8 @@ lambdas/
 - Move the marker key into `cpcommon.markers`, and widen post-confirmation's import allowlist to it.
 - Make the teardown revoke only on a database that is the space's own.
 - Put the pool check after the reservation, and the database step in front of the slot.
+- Write `retryable: false` on the two taken-name refusals made after the reservation, and drop Retry
+  from the card that reads it.
 - Classify the existing database in `provision_user`, disabling the user in the trigger.
 
 ### Phase 6: Where the decisions are written down
