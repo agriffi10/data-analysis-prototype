@@ -3,6 +3,9 @@ import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableShareRequest} from './tableShare.types';
 
+/** The plane's recipient cap, mirrored so a longer list is refused now rather than by notification later. */
+export const SHARE_MAX_RECIPIENTS = 50;
+
 /**
  * Enqueue a share-table request onto the table-share FIFO queue — the browser's
  * only table-share write. The async control plane copies the data and creates
@@ -13,6 +16,15 @@ import type {TableShareRequest} from './tableShare.types';
  * minute apart with a token refresh between them used to be two shares.
  */
 export async function enqueueTableShare(req: TableShareRequest): Promise<ServiceResult<void>> {
+  if (req.recipients.length > SHARE_MAX_RECIPIENTS) {
+    return {
+      success: false,
+      error: {
+        message: `You can share with at most ${SHARE_MAX_RECIPIENTS} recipients at a time. Share with the rest in a second request.`,
+        code: 'TooManyRecipients'
+      }
+    };
+  }
   return discardPayload(
     await apiRequest('tableShare.enqueue', {
       body: {source: req.source, tableName: req.tableName, recipients: req.recipients}
