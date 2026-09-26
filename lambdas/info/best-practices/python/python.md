@@ -25,7 +25,7 @@
 - **§11 Strings, logging & errors** — f-strings/`%`/`.format`, never `+` in loops; lazy `%`-logging; precise, greppable error messages.
 - **§12 Truthiness & conditionals** — implicit falsiness with caveats; `is None`; `isinstance`; `startswith`/`endswith`; simple ternaries.
 - **§13 Resources & global state** — `with` for files/clients/closeables; avoid mutable global state; module-level constants OK.
-- **§14 Docstrings & comments** — docstrings are the primary source of context; triple-quoted summary line; `Args`/`Returns`/`Raises`; no verbose comments, comment *why* not *what*; `TODO:` + tracked ref.
+- **§14 Docstrings & comments** — docstrings are the primary source of context; triple-quoted summary line; `Args`/`Returns`/`Raises`; no verbose comments, comment *why* not *what*; a known gap is tracked outside the file, not in a `TODO`.
 - **§15 Modules, main & power features** — module docstring; `main()` behind `if __name__ == '__main__'`; avoid metaclasses/reflection/`__del__` cleanup.
 
 ---
@@ -34,7 +34,7 @@
 Every file is auto-formatted, linted, and type-checked — style is not hand-argued.
 
 - ✅ Run the **formatter** (`ruff format`, Black-compatible) and **linter** (`ruff`) on every file; let them own the §2/§3 mechanics. Keep both green before a PR (mirrors the repo's pre-push formatter gate). ✅ Run **`mypy`** where configured (§8).
-- ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>`, with a short reason after it when the rule name isn't self-explanatory, or a line-level `# type: ignore[<code>]`, which takes nothing after it because mypy then rejects the whole directive; its reason goes in the docstring (§14 has the exact shape). Searchable suppressions can be revisited.
+- ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>`, with a short reason after it when the rule name isn't self-explanatory, or a line-level `# type: ignore[<code>]`, which takes no text after it: mypy rejects the whole directive when free text follows, and the second comment it would accept is an inline comment, which a production module may not carry. Its reason goes in the docstring (§14 has the exact shape). Searchable suppressions can be revisited.
 - 🔴 Don't blanket-disable rules for a whole file to dodge one line, and don't leave an unexplained `# noqa`. ✅ Fix the issue or justify the exception.
 - ✅ For an unused-but-required argument (callback/interface signature), delete it at the top (`del unused_arg`, with the reason in its `Args:` entry rather than a comment — §14) or prefix `unused_`.
 - ✅ **Style is guidance, not law:** when a rule would *reduce* readability, or clash with surrounding code or an existing (style-violating) API, **deviate and flag it** rather than churn the codebase.
@@ -164,7 +164,7 @@ Docstrings describe the interface and are the **primary source of context**; com
 > 2026-09-26).** No inline comments at all — the only `#` permitted is a lint directive on a line of
 > code: `# noqa: <rule>[, <rule>]`, optionally followed by ` - ` and ONE short clause saying why (at
 > most 80 characters, none of `.` `;` `?` `!` `#`), or `# type: ignore[<code>]` with nothing after it,
-> because mypy rejects a reason there. Test modules, `conftest.py` and `fakes.py` are outside it.
+> because mypy rejects the whole directive when free text follows it and a second comment is an inline one. Test modules, `conftest.py` and `fakes.py` are outside it.
 > **Every** module, class, method and function, `_private` ones included, carries a docstring; a
 > function or method's writes out **all three sections**, using `None.` where a section is empty,
 > and a module or class carries its summary (and a module its `Attributes:`).
@@ -206,7 +206,7 @@ Docstrings describe the interface and are the **primary source of context**; com
   `docs/decisions/`, findable by what it says rather than by when it happened, and a comment that
   cannot be written without citing a spec is a sign the reasoning never made it there. Enforced by
   `scripts/validate_docs.py`.
-- ✅ `TODO:` in caps + colon + a **tracked reference** (issue link preferred) + `-` explanation: `# TODO: <issue-url> - Investigate X`. Don't attribute TODOs to a person/team as the context.
+- ✅ **A known gap is recorded where its reasoning lives** — an issue, or the plane's page under `lambdas/info/` — not in a `# TODO:` comment: a production module carries no comments at all (the block above), and no comment names an issue number (the bullet above). Don't attribute a gap to a person or team as its context.
 
 ## §15 Modules, main & power features
 Modules stay importable; avoid Python's fancy machinery.

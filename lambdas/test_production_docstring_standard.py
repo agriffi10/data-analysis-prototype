@@ -23,8 +23,9 @@ Attributes:
   DIRECTIVE: The whole of a comment that is a lint directive. A ``noqa`` names its codes and may
     add `` - `` and one clause of at most ``REASON_CHARS`` characters holding none of ``. ; ? ! #``,
     so a reason cannot grow into a paragraph or smuggle a second comment behind a directive. A
-    ``type: ignore`` takes nothing after its codes, because mypy refuses the whole comment then
-    and reports the error it was meant to suppress.
+    ``type: ignore`` takes nothing after its codes: mypy refuses the whole comment when free text
+    follows them and reports the error it was meant to suppress, and a second comment is an inline
+    one.
   REASON_CHARS: The longest reason a directive may carry.
 """
 
