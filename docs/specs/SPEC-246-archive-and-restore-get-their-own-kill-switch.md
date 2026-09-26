@@ -1,7 +1,7 @@
 # Spec: Archive and Restore Get Their Own Kill Switch
 
 **ID:** SPEC-246
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-26
 **Depends On:** SPEC-162/163 (the flag document and the gated-surfaces registry), SPEC-172 (the archive and restore entry points), SPEC-190 (the first kill switch, `asyncFileOperations`)
 

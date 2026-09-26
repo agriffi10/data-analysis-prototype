@@ -10,6 +10,51 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-26 (SPEC-246: the `archive` switch read on, thrown off and set back on one image)
+
+**What was under test.** The SPA image **`a6a03e09`** (#881), read from the service — task
+definition `dat-prod-spa:237`, rollout COMPLETED — at 13:40:07Z, before the switch was thrown, and
+again at 13:55:50Z, after it was set back. The two publishes were config-only merges: **`bfd64329`**
+(#882, `environments.prod` set to `{"archive": false}`) and **`cf5593df`** (#883, back to `{}`),
+each with Publish Config green. FR-005 AC2 is the runs on `a6a03e09` itself: Publish Config green at
+13:29:55Z and Deploy SPA image at 13:33:31Z, both push runs. The only Deploy SPA image runs in the
+sitting's window were the push runs on the two config merges, and each skipped the build. The PR queue lock was held from #882's acquire through #883's merge, so no other
+merge could land between them. Times are UTC.
+
+**Browser.** Andrew's Chrome, in the portal tab that was already signed in, as **agriffith**, driven
+through `Control_Chrome` (AppleScript JavaScript). The window was minimized throughout. The tab was
+loaded afresh before the first read, after an ECS read had shown `:237`'s rollout COMPLETED, so every
+row ran on the `a6a03e09` bundle. Width 1512; the narrow checks ran at 420 rather than §4.14's 400,
+set through the window's AppleScript bounds — the same band, below the 900px breakpoint, and the
+mobile bar rendered — and the bounds were then restored to `{0, 33, 1512, 917}`.
+
+**Instruments, each a way this run differed from a user's.**
+- The document was read with an in-page `fetch` of `GET /v1/feature-flags` on the tab's own
+  idToken, returning only the status and the body. Every other read was a DOM query by accessible
+  name, and every click an `element.click()`. A control read as **present** was also neither
+  `disabled` nor `aria-disabled="true"`; one that was either would have read as disabled.
+- A same-origin iframe harness for the narrow width could not be used: the portal sends
+  `frame-ancestors 'none'` and `X-Frame-Options: DENY`, and reading the frame threw a cross-origin
+  error. It was removed, in favour of resizing the window itself.
+
+| Row | Result |
+|---|---|
+| **FR-005 AC3 — the read, switch on** (13:36Z) | **PASS.** 200. The `body` is byte-identical to `config/feature-flags.json` at `a6a03e09`, which the validator accepts: `defaults.archive: true`, `environments.prod: {}`. |
+| **AC4 — the controls, switch on** | **PASS.** Restore Archived Data on the toolbar. With `cors_check_20260910.csv` selected, Archive, Copy, Move, Delete and Send to another user are present and enabled. |
+| **Sitting step 1 — the off document** | 13:46:37Z, after #882's Publish Config: 200, `environments.prod: {"archive": false}`. |
+| **Step 2 — switch off, after a reload** | **PASS.** With a file selected there is no Archive, and Copy, Move, Delete, Send to another user and Check data quality are present. There is no Restore Archived Data. The file's details panel holds Close details, Download and Rename; the folder `arcb_files`'s holds Close details, Rename, Copy path and Copy full cloud path — no Archive in either. Reloaded at 420 wide, the bottom bar holds New folder and Upload, and no Restore. Absent, never disabled. |
+| **Step 3 — the receipt folder** | **PASS.** `system_settings` is listed at the root (page 4 of 4), and `archive` and `athenaresults` inside it. |
+| **Step 3 — Copy, Move and Delete still work on a file** | **Not attempted.** Clicking a confirm or a delete in the live app needs Andrew's approval for that action, and he was not at the keyboard while the switch was off in prod. What was observed is all three present and not
+disabled on a selected file with the switch off (step 2), as with it on (AC4). Owed: [`owed.md`](owed.md), *SPEC-246's `archive` sitting*. |
+| **Step 4 — Help** | **PASS.** `/help#files` holds "Rename, move, copy, or delete" and "Upload files", and not "Archive and restore files". |
+| **Step 5 — back on**, after #883's Publish Config | **PASS.** 13:55:16Z: 200, `environments.prod: {}`. At 420 wide the bottom bar holds Restore (named Restore Archived Data), New folder and Upload. At 1512: Restore Archived Data on the toolbar, Archive on a selected file, Archive this item in the file's and the folder's details panels, and "Archive and restore files" back in Help. |
+| **One image throughout** | **PASS.** `a6a03e09` on task definition `:237` at 13:40:07Z and at 13:55:50Z. Hidden and back on one image is what proves the `prod` block is read for the new key. |
+
+**Left behind.** Nothing. Each selection was cleared after it was read, and the window's bounds were
+restored.
+
+---
+
 ## Live-check session — 2026-09-22 (the restore's completion, and the rows the 2026-09-21 sitting never reached)
 
 **What was under test.** The SPA image **`aecc93fd`** (task definition `dat-prod-spa:230`, read from
