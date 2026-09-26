@@ -56,7 +56,15 @@ export type TabRun = {
  * results view). One object so a token can't be passed without the outcome
  * callback that settles it, or vice versa.
  */
-export type RunOwner = {token: number; onOutcome: (started: boolean, error?: string) => void};
+/**
+ * A caller that tracks its own run. `savedQuery` is what an owned run records in history as its
+ * saved query — in place of the tab's link, which belongs to the editor, not to the owner.
+ */
+export type RunOwner = {
+  token: number;
+  onOutcome: (started: boolean, error?: string) => void;
+  savedQuery?: {key: string; name: string};
+};
 
 export type UseTabRunsResult = {
   /** Per-tab run state, keyed by tab id. Render-time snapshot of `runsRef`. */
@@ -348,7 +356,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     // a run from a tab linked to a saved query records that query in
     // history. Read off the TAB at submit time — the whole link lives there, so
     // there is no list to look the query up in.
-    const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
+    const linkedSaved = owner ? owner.savedQuery : tabs.find((t) => t.id === tabId)?.savedQuery;
 
     setRunErrors((e) => ({...e, [tabId]: null}));
     // A start that fails installs no run, so the tab keeps the previous one — whose banner the

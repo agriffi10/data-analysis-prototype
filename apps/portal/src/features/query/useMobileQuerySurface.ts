@@ -1,6 +1,6 @@
 import {useRef, useState} from 'react';
 import {splitSqlStatements} from './query.sql';
-import type {MobileHomeTab, MobileQueryView} from './query.types';
+import type {MobileHomeTab, MobileQueryView, MobileSavedRef} from './query.types';
 import type {TabRun, UseTabRunsResult} from './useTabRuns';
 
 /** What the mobile results view submitted, and where. */
@@ -25,8 +25,11 @@ export type UseMobileQuerySurfaceResult = {
   pending: boolean;
   /** The submit never started; the error is this surface's, not the tab's. */
   failedToStart: boolean;
-  /** Run SQL through the same path the editor uses, then show the results view. */
-  runSql: (sql: string, title: string) => void;
+  /**
+   * Run SQL through the same path the editor uses, then show the results view. `savedQuery` is
+   * the saved query being run, if it is one; the tab's own link is never the mobile run's.
+   */
+  runSql: (sql: string, title: string, savedQuery?: MobileSavedRef) => void;
   /** Show SQL read-only, without running it. */
   viewSql: (sql: string, title: string) => void;
   back: () => void;
@@ -79,7 +82,7 @@ export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}
   // The tab's SQL is deliberately NOT set here: submitBatch takes the statements
   // explicitly, and writing the editor buffer would overwrite (and persist over)
   // a draft the user left on a wider screen.
-  const runSql = (sql: string, title: string) => {
+  const runSql = (sql: string, title: string, savedQuery?: MobileSavedRef) => {
     const token = tokenRef.current + 1;
     const tabId = activeTabId;
     // Navigate only if the submit is actually accepted, so a refused tap never
@@ -87,12 +90,13 @@ export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}
     const started = submitBatch(splitSqlStatements(sql), 'script-single', tabId, {
       token,
       onOutcome: (ok, error) =>
-        setRun((cur) => (cur?.token === token ? {...cur, phase: ok ? 'started' : 'failed', error} : cur))
+        setRun((cur) => (cur?.token === token ? {...cur, phase: ok ? 'started' : 'failed', error} : cur)),
+      savedQuery
     });
     if (!started) return;
     tokenRef.current = token;
     setRun({token, tabId, phase: 'submitting'});
-    setView({kind: 'results', sql, title});
+    setView({kind: 'results', sql, title, savedQuery});
   };
 
   const viewSql = (sql: string, title: string) => {

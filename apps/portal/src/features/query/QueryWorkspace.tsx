@@ -628,7 +628,9 @@ export function QueryWorkspace() {
               historyError={historyError}
               onRun={mobile.runSql}
               onView={mobile.viewSql}
-              onRunSaved={(q) => savedFlow.withSavedSql(q, mobile.runSql)}
+              onRunSaved={(q) =>
+                savedFlow.withSavedSql(q, (sql, title) => mobile.runSql(sql, title, {key: q.key, name: q.name}))
+              }
               onViewSaved={(q) => savedFlow.withSavedSql(q, mobile.viewSql)}
               runDisabled={activeIsInFlight || mobile.pending}
             />
@@ -637,7 +639,7 @@ export function QueryWorkspace() {
               title={mobileView.title}
               sql={mobileView.sql}
               onBack={mobile.back}
-              onRun={() => mobile.runSql(mobileView.sql, mobileView.title)}
+              onRun={() => mobile.runSql(mobileView.sql, mobileView.title, mobileView.savedQuery)}
               runDisabled={activeIsInFlight || mobile.pending}
               status={mobile.ownsRun ? displayStatus : undefined}
               isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
