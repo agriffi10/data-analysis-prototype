@@ -509,7 +509,7 @@ handler still ran the function.
 **The link is feature-gated, and that was a review finding.** With `files` off it was a live anchor
 into the unavailable page; with `sharedWorkspaces` off the space link resolved the personal space
 and dropped the prefix — the exact failure the full-key rule exists to prevent, reachable from flag
-state alone. `NotificationRow` now gates a MAP of flag→match rather than one hard-coded prefix, with registry rows for both — and the space arm matches on `?space=`, because that variant differs in its query rather than its path.
+state alone. ~~`NotificationRow` now gates a MAP of flag→match rather than one hard-coded prefix, with registry rows for both — and the space arm matches on `?space=`, because that variant differs in its query rather than its path.~~ **— superseded 2026-09-25:** the map missed a `/query` producer, and the row now derives its gate from the destination (`browser.md`, *A link is gated by its destination's flags*); the two registry rows stand.
 
 **The double-submit guard is the in-flight ref, NOT the queue's dedup id.** FR-003 AC5 said
 otherwise and was amended in build: the `requestId` is minted per SUBMIT, because it is also what

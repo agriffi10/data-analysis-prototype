@@ -33,9 +33,9 @@ export function visibleHelpSections(isEnabled: (key: FeatureFlagKey) => boolean)
  * {@link visibleHelpSections} against the live flags — the one surface both the Help page and
  * the contextual panel read.
  *
- * Seven single-question `useFeature` calls rather than the whole-set hook, which names its
- * sanctioned consumers and is swept for a fourth. They share one cached answer, so the extra
- * calls cost nothing.
+ * Seven single-question `useFeature` calls rather than the whole-set hook, which is for the few
+ * places that cannot ask one question. They share one cached answer, so the extra calls cost
+ * nothing.
  *
  * @returns The sections this user may see; referentially stable while the flags are.
  *

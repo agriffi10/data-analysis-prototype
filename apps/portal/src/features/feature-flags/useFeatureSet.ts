@@ -11,16 +11,17 @@ export type UseFeatureSetResult = {
 /**
  * The whole flag set at once, for the few consumers that cannot ask one question.
  *
- * {@link useFeature} answers "is this on?" and is what nearly everything should use. Three
- * places genuinely need more and would otherwise reach past it into `useFeatureFlags`:
+ * {@link useFeature} answers "is this on?" and is what nearly everything should use. A few
+ * places genuinely need more and would otherwise reach past it into `useFeatureFlags` — for
+ * example:
  *
  *   * `Header` builds one path→enabled predicate for two nav components at once.
  *   * `FeatureRoute` must tell "off" from "not known yet" — a page that mounts before the
  *     answer arrives has already fetched — and then name the first OTHER enabled feature.
- *   * `LandingPage` picks the first enabled destination for its signed-in call to action.
+ *   * `useCanFollowLink` asks about every flag a destination needs at once.
  *
  * Exposing this deliberately keeps `useFeatureFlags` internal to the feature, which is what
- * the rule asks for: one sanctioned surface, so a fifth consumer cannot quietly gate on a
+ * the rule asks for: one sanctioned surface, so another consumer cannot quietly gate on a
  * slightly different condition. A tripwire test enforces it.
  *
  * `isEnabled` is stable across renders and reports `false` while loading, so a caller that

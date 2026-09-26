@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import {Route, Routes} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../../test/authFixtures';
@@ -74,7 +74,7 @@ function withFlags(overrides: Partial<FeatureFlags>) {
  * assertion below pass for the wrong reason. The positive control at the end of the group is
  * what caught exactly that.
  */
-function renderReportRoute() {
+function renderReportRoute(route = '/data-quality/alice/req-1') {
   return renderWithProviders(
     <Routes>
       <Route
@@ -86,7 +86,7 @@ function renderReportRoute() {
         }
       />
     </Routes>,
-    {...opts, route: '/data-quality/alice/req-1'}
+    {...opts, route}
   );
 }
 
@@ -355,6 +355,38 @@ describe('FR-001 — one sanctioned door', () => {
     const offenders = outside.filter(([, source]) => /\buseFeatureFlags\b/.test(source)).map(([path]) => path);
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("a shared space's report with shared workspaces off", () => {
+  // The route names its space in the PATH, so the route's own flag is not the whole answer: the
+  // space's flag gates it too, and it must not read — the same existence-oracle reasoning as the
+  // report deep link above, for a space the rest of the app has stopped showing.
+  beforeEach(() => {
+    vi.mocked(readSharedConnectionsCache).mockResolvedValue({
+      success: true,
+      data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
+    } as never);
+  });
+
+  it('renders the unavailable page naming shared workspaces, and makes no report read', async () => {
+    withFlags({sharedWorkspaces: false});
+    renderReportRoute('/data-quality/teamspace/req-1');
+
+    expect(await screen.findByRole('heading', {name: /^Connections isn.t available$/})).toBeInTheDocument();
+    // A shared space's read waits on the connections list, so it would not have happened yet when
+    // the heading lands. Give it the time the control below takes to see one, THEN assert none.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(getQualityReport).not.toHaveBeenCalled();
+  });
+
+  it('DOES read the report with the flag on — the control for the assertion above', async () => {
+    withFlags({});
+    renderReportRoute('/data-quality/teamspace/req-1');
+
+    await waitFor(() => expect(getQualityReport).toHaveBeenCalledWith(expect.anything(), 'teamspace', 'req-1'));
   });
 });
 

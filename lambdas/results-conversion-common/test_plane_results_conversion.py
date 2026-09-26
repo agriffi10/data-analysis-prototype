@@ -525,8 +525,8 @@ def test_the_link_encodes_every_component_and_puts_the_space_first():
 
     The prefix is the FULL key including the space root, because the file browser discards a
     `?prefix=` that does not start with the resolved space's root and lands the user at their
-    space root with no idea why. And `space` comes FIRST, because the notification row's own
-    feature gate tests for the literal `?space=`.
+    space root with no idea why. And `space` comes FIRST, as every plane's link puts it — a
+    convention the browser no longer depends on, since its gate parses the link.
 
     Encoding the space NAME as well is a deliberate divergence from file-ops' notifier, which
     interpolates it raw behind a shape check. The shape check is kept too: a name the browser

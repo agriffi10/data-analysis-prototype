@@ -61,6 +61,7 @@ entry you need, not the file.**
 - [A long query settles at the ceiling, judged on a read after it, and says where its results go (SPEC-234)](#a-long-query-settles-at-the-ceiling-judged-on-a-read-after-it-and-says-where-its-results-go-spec-234)
 - [A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)](#a-space-the-cached-list-lacks-is-refused-only-on-a-read-after-the-link-2026-09-15)
 - [Sibling features hand off through router state, read once per history entry (SPEC-242)](#sibling-features-hand-off-through-router-state-read-once-per-history-entry-spec-242)
+- [A link is gated by its destination's flags, derived rather than listed (2026-09-25)](#a-link-is-gated-by-its-destinations-flags-derived-rather-than-listed-2026-09-25)
 
 ## Fences
 
@@ -1119,8 +1120,8 @@ hid a column a file that still has it, which is the bug the spec exists to close
 presentation flag, and the sentence naming the first two is not a complete account of the set.
 
 Its two registry rows are the same control on two routes, and the completion notification's link
-gets **none**: that link is a `/files` one, already covered by the `files` and `sharedWorkspaces`
-link clauses, on the precedent the archive plane's link set.
+gets **none**: that link is a `/files` one, already covered by the notification row's link gate (derived from the
+destination since 2026-09-25), on the precedent the archive plane's link set.
 
 ## Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)
 
@@ -1594,3 +1595,41 @@ reason rather than a reshaping written to slip past the analysis.
 **Rejected.** A shared module both features import — the lint fence exists so that neither feature
 grows a dependency on the other, and a shared hand-off *shape* in `lib/` gives the crossing without
 it. `sessionStorage` — it outlives the navigation, so a stale hand-off would open on the next visit.
+
+## A link is gated by its destination's flags, derived rather than listed (2026-09-25)
+
+**A control that navigates into ANOTHER feature asks about the destination, not its own screen.**
+`linkFlags(link, username)` returns every flag a destination needs — the route's own, read from the
+registry's nav rows through `NAV_PATH_FLAGS`, and `sharedWorkspaces` when the URL names a space that
+is not the viewer's personal one — and `useCanFollowLink()` answers whether all of them are on. The
+notification row, "View source files" on the Query rail, the save-results toast's "View in Files",
+the report's "Open folder" and the data-quality runs list all ask it.
+
+**Why derived.** The notification row used to gate on a hand-written list of prefixes, and it
+missed a producer twice: first a file-send link into `/files`, then the table builder's
+`/query?refreshTable=…`, which stayed a live anchor into the unavailable page with `query` off. The
+registry walk could not see either, because it only walks rows someone registered. Three in-app
+controls had the same gap, found by an audit rather than a test. Deriving the route half from the
+registry means a new producer or a new route is covered without anyone remembering it.
+
+**A space is named four ways, and each route spells "personal" its own way.** `?space=` on
+`/files` is a connection id (`personal`); on `/explore` it is `personal` or the username; the
+refresh link names a database, where the personal one is the username; the report route's path
+segment is the username. `linkFlags` holds one reader per route, each mirroring the reader that
+route already uses, because a single rule would be right for one and quietly wrong for the others.
+Parsing the link also retired a rule the producers carried: `?space=` no longer has to come first
+for the gate to see it.
+
+**A shared space's report is gated at the route too.** With `sharedWorkspaces` off,
+`/data-quality/<shared>/<id>` renders the unavailable page and mounts nothing that reads, rather
+than the report's own "not available" banner, which would say the report may have been deleted —
+false about a report that returns the moment the flag does.
+
+**Not built: a sweep for new literal paths.** Considered as a tripwire for the next control that
+navigates without asking. A plain matcher over path literals hits comments, route declarations and
+the registry itself far more than navigations, and narrowing it to call sites misses every link
+built into a variable first — so it would have caught three of the six instances found and none of
+the notification ones, which is where the class kept recurring. The derived notification gate
+closes that half; the in-app half rests on the registry walk, and on registering a control when
+it is added.
+

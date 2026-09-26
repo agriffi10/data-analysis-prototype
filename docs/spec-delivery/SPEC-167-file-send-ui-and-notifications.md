@@ -55,7 +55,9 @@ space-owner link silently resolved the personal space and dropped the prefix —
 exists to prevent, reachable from flag state alone. `NotificationRow`'s single hard-coded
 prefix test is now a map of flag→match, with registry rows for both. (One arm is a substring test
 on `?space=`, not a prefix: the space variant differs from the user one in its query, not its
-path.)
+path.) **— Superseded 2026-09-25:** the map missed a `/query` producer, and the row now derives its
+gate from the destination (`browser.md`, *A link is gated by its destination's flags*); both
+registry rows stand.
 
 ## What the reviews caught that the tests did not
 
@@ -101,7 +103,8 @@ Every one of these was live, and none was visible to the suite as written:
 
 ## What changed from earlier specs?
 
-- **`NotificationRow`** gates a MAP of link prefixes rather than one hard-coded `/data-quality`.
+- **`NotificationRow`** gates a MAP of link prefixes rather than one hard-coded `/data-quality`
+  (since 2026-09-25, a gate derived from the destination instead — see above).
 - **`SelectionToolbar`** takes an optional `onRequestSend`.
 - **Five registry rows**: the toolbar control, the guide, the two notification links, and the
   dialog's own `Shared spaces` toggle — a SECOND instance of a surface whose only existing row

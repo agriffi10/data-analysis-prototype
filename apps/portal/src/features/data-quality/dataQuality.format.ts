@@ -155,3 +155,14 @@ export function isApproximateIssue(issue: string): boolean {
   const lowered = issue.toLowerCase();
   return APPROXIMATE_ISSUE_MARKERS.some((marker) => lowered.includes(marker));
 }
+
+/**
+ * The in-app path of one check's report — the route names the space in the path, as the
+ * username for a personal space and the space name for a shared one.
+ *
+ * @example
+ * reportPath('alice', 'req-1'); // '/data-quality/alice/req-1'
+ */
+export function reportPath(space: string, requestId: string): string {
+  return `/data-quality/${space}/${requestId}`;
+}

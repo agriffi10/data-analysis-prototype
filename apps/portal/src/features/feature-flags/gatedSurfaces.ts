@@ -53,11 +53,15 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // page. The notification itself is never gated: the record of what happened outlives the
     // surface that would show it.
     {name: 'Received files link on a notification', kind: 'control', path: '/notifications'},
-    // A SECOND, SEPARATELY NAMED control on a notification row — not the link clause above, which
+    // A SECOND, SEPARATELY NAMED control on a notification row — not the link gate above, which
     // is a mechanism already registered twice. This one appears only on a notification whose
     // producer named items it could not do, and it goes to a view that lives behind this flag, so
     // it is a surface in its own right and gets a row like any other.
     {name: 'Review conflicts on a notification', kind: 'control', path: '/notifications'},
+    // The same control on a notification that carries no usable link, where it falls back to the
+    // file browser's root. The message link above is gated first, so only this case reaches the
+    // control's own check.
+    {name: 'Review conflicts on a notification that carries no link', kind: 'control', path: '/notifications'},
     // The entry point itself. In the FILE BROWSER, like "Check data quality" and
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send to another user', kind: 'control', path: '/files'},
@@ -82,7 +86,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // not strand a conflict raised before it was thrown, and resolving one finishes work the
     // plane already started rather than beginning a new gesture. It is also what keeps that
     // control from becoming a link to nothing.
-    {name: 'Review conflicts for a file operation', kind: 'control', path: '/files'}
+    {name: 'Review conflicts for a file operation', kind: 'control', path: '/files'},
+    // Three controls on OTHER features' screens that navigate into the file browser. Each asks
+    // `useCanFollowLink` about its destination, so it follows this flag without naming it.
+    {name: 'View source files', kind: 'control', path: '/query'},
+    {name: 'View in Files after saving results', kind: 'control', path: '/query'},
+    {name: 'Open folder on a data quality report', kind: 'control', path: '/data-quality/:space/:requestId'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},
@@ -124,7 +133,10 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
     // its guides follow the `query` flag rather than `files`.
-    {name: 'Tables help section', kind: 'guide', path: '/help', helpId: 'tables'}
+    {name: 'Tables help section', kind: 'guide', path: '/help', helpId: 'tables'},
+    // The table builder's "columns removed" notification deep-links into `/query`, and the row's
+    // gate is derived from that destination.
+    {name: 'Refresh table link on a notification', kind: 'control', path: '/notifications'}
   ],
   sharedWorkspaces: [
     {name: 'Connections', kind: 'nav', path: '/connections'},
@@ -174,7 +186,20 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // a write target with this flag off, unregistered and unnoticed for a long time. The hook
     // now takes its destinations as a parameter and both views gate them.
     {name: 'Shared spaces in the Data Explorer export dialog', kind: 'control', path: '/explore'},
-    {name: 'Shared spaces in the save-results dialog', kind: 'control', path: '/query'}
+    {name: 'Shared spaces in the save-results dialog', kind: 'control', path: '/query'},
+    // Links that name a shared space some other way than `?space=`: the refresh link's database,
+    // and the report route's path segment. With this flag off Query cannot see the database and
+    // the report route renders the unavailable page, so both links would be dead ends.
+    {name: 'Refresh table link to a shared space on a notification', kind: 'control', path: '/notifications'},
+    {name: 'Data quality link to a shared space on a notification', kind: 'control', path: '/notifications'},
+    // The runs list aggregates every space's checks and linked each to its report, so it went on
+    // naming a colleague's space after every other shared-workspace surface had gone.
+    {name: 'Shared-space runs in the data quality list', kind: 'control', path: '/data-quality'},
+    {
+      name: 'Shared-space data quality report',
+      kind: 'route',
+      path: '/data-quality/:space/:requestId'
+    }
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},
@@ -252,7 +277,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   // other surfaces, so nothing would notice if one of the two stopped being gated.
   //
   // The completion notification's link gets NO row. Its destination is `/files`, already gated
-  // by the `files` and `sharedWorkspaces` link clauses — a mechanism registered twice over,
+  // by the notification row's link gate — a mechanism registered twice over,
   // which the archive plane's link is the precedent for leaving alone.
   resultsConversion: [
     {name: 'Format in the save-results dialog', kind: 'control', path: '/query'},

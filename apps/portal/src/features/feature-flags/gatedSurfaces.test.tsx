@@ -1,4 +1,5 @@
 import {useEffect} from 'react';
+import {Route, Routes} from 'react-router';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
@@ -37,7 +38,9 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   // reddened the whole run from a recipe that has nothing to do with it.
   objectExists: vi.fn().mockResolvedValue({success: true, data: true}),
   uploadFile: vi.fn(),
-  createFolder: vi.fn()
+  createFolder: vi.fn(),
+  // Resolved so a save-results run reaches its success toast, whose action is a gated surface.
+  copyObject: vi.fn().mockResolvedValue({success: true, data: {destKey: 'alice/results.csv'}})
 }));
 vi.mock('../file-browser/fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
 // The sanctioned heavy-child exception (react.md §21): Monaco needs a real DOM editor and
@@ -105,6 +108,14 @@ vi.mock('../catalog/glue.service', () => ({
     data: [{name: 'sales', tableType: 'EXTERNAL_TABLE', location: 's3://b/alice/sales/', columns: []}]
   })
 }));
+vi.mock('../data-quality/dataQualityReport.service', async (importActual) => ({
+  ...(await importActual<typeof import('../data-quality/dataQualityReport.service')>()),
+  getQualityReport: vi.fn()
+}));
+vi.mock('../data-quality/dataQualityRuns.service', async (importActual) => ({
+  ...(await importActual<typeof import('../data-quality/dataQualityRuns.service')>()),
+  getRunsIndex: vi.fn()
+}));
 vi.mock('../user-directory/userDirectory.service', () => ({
   DIRECTORY_KEY: '_directory/usernames.json',
   getUserDirectory: vi.fn().mockResolvedValue({success: true, data: {usernames: [], generatedAt: null}})
@@ -124,6 +135,12 @@ import {HelpPage} from '../help/HelpPage';
 import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
 import {DataExplorerWorkspace} from '../data-explorer';
+import {DataQualityPage} from '../data-quality';
+import DataQualityReportPage from '../../routes/DataQualityReportPage';
+import {getQualityReport} from '../data-quality/dataQualityReport.service';
+import {getRunsIndex} from '../data-quality/dataQualityRuns.service';
+import {csvReport} from '../data-quality/reportFixtures';
+import type {DataQualityRunSummary} from '../data-quality/dataQuality.types';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {FileOpsInFlightProvider} from '../file-browser/FileOpsInFlightProvider';
 import {InFlightOperations} from '../file-browser/InFlightOperations';
@@ -837,6 +854,28 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'Review conflicts')
   },
+  'Review conflicts on a notification that carries no link': {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{
+            id: 'n6',
+            message: 'Moved 1 of 2 items. 1 was not moved: "q1.csv" - something is already in the way there.',
+            read: false,
+            timestamp: '2026-08-23T00:00:00Z',
+            payload: {
+              requestId: '11111111-2222-3333-4444-555555555555',
+              operation: 'move',
+              conflicts: [{itemKey: 'alice/q1.csv', kind: 'file'}]
+            }
+          }}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', 'Review conflicts')
+  },
   'Received files link to a space on a notification': {
     render: () => {
       renderWithProviders(
@@ -899,6 +938,77 @@ const RECIPES: Record<string, Recipe> = {
   },
 
   // ── guides ──
+  'View source files': {
+    render: async () => {
+      renderWithProviders(
+        <DatabaseNode
+          connection={PERSONAL}
+          defaultExpanded
+          actions={tableActionsStub()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+      await openTableMenu();
+    },
+    anchor: async () => screen.findByRole('menuitem', {name: 'View DDL'}),
+    find: byRole('menuitem', 'View source files')
+  },
+  'View in Files after saving results': {
+    render: async () => {
+      sessionStorage.setItem(
+        's3portal.query.tabs.alice',
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+      renderQueryWorkspace();
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+    },
+    // The toast itself is not gated — only its way into the file browser is.
+    anchor: async () => screen.findByText(/^Saved to /),
+    find: byRole('button', 'View in Files')
+  },
+  'Open folder on a data quality report': {
+    render: () => {
+      vi.mocked(getQualityReport).mockResolvedValue({success: true, data: csvReport()});
+      renderReportRoute('/data-quality/alice/req-1');
+    },
+    anchor: async () => screen.findByRole('button', {name: 'Re-run check'}),
+    find: byRole('button', 'Open folder')
+  },
+  'Shared-space data quality report': {
+    render: () => {
+      vi.mocked(getQualityReport).mockResolvedValue({success: true, data: csvReport()});
+      renderReportRoute('/data-quality/teamspace/req-1');
+    },
+    // A level-one heading renders either way: the report's, or the unavailable page's.
+    anchor: async () => screen.findByRole('heading', {level: 1}),
+    find: async () => screen.queryByRole('heading', {level: 1, name: 'Data quality report'})
+  },
+  'Shared-space runs in the data quality list': {
+    render: () => {
+      vi.mocked(getRunsIndex).mockImplementation(async (_bucket, space) => ({
+        success: true,
+        data: [runSummary(space)]
+      }));
+      renderWithProviders(<DataQualityPage />, {auth: authenticated('alice'), seedFeatureFlags: false});
+    },
+    anchor: async () => screen.findByRole('link', {name: /on alice\/data\.csv/}),
+    find: byRole('link', /on teamspace\/data\.csv/)
+  },
+  'Refresh table link on a notification': notificationRecipe('/query?refreshTable=alice.sales&removed=id'),
+  'Refresh table link to a shared space on a notification': notificationRecipe(
+    '/query?refreshTable=teamspace.sales&removed=id'
+  ),
+  'Data quality link to a shared space on a notification': notificationRecipe('/data-quality/teamspace/req-1'),
   'Files help section': helpRecipe('files'),
   'Query help section': helpRecipe('query'),
   'Tables help section': helpRecipe('tables'),
@@ -934,6 +1044,50 @@ function renderFilesPage() {
     </UploadQueueProvider>,
     {auth: authenticated('alice'), seedFeatureFlags: false}
   );
+}
+
+/** The report route inside a real `Routes` tree, so the page's `useParams()` has its space. */
+function renderReportRoute(path: string) {
+  renderWithProviders(
+    <Routes>
+      <Route
+        path="/data-quality/:space/:requestId"
+        element={<DataQualityReportPage />}
+      />
+    </Routes>,
+    {route: path, auth: authenticated('alice'), seedFeatureFlags: false}
+  );
+}
+
+/** One completed check in `space`, named for its space so a query can tell the rows apart. */
+function runSummary(space: string): DataQualityRunSummary {
+  return {
+    requestId: `req-${space}`,
+    space,
+    location: `${space}/data.csv`,
+    format: 'csv',
+    verdict: 'clean',
+    fileCount: 1,
+    hasApproximateFigures: false,
+    timestamp: '2026-09-01T00:00:00Z'
+  };
+}
+
+/** A notification row whose message is a link to `link`, found by that message. */
+function notificationRecipe(link: string): Recipe {
+  const message = `Notification linking to ${link}`;
+  return {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{id: link, message, read: false, timestamp: '2026-08-11T00:00:00Z', link}}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', message)
+  };
 }
 
 /** Likewise the real workspace. Mobile, so Monaco never mounts (SPEC-100). */
@@ -1074,9 +1228,10 @@ describe('the registry itself', () => {
         // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
         'Received files link on a notification',
         // NOT in SPEC-163's table either — the file-operations plane's own, recorded in its
-        // delivery doc. A named control rather than a link clause, so the link exemption above
+        // delivery doc. A named control rather than a link gate, so the link exemption above
         // does not reach it.
         'Review conflicts on a notification',
+        'Review conflicts on a notification that carries no link',
         'Send to another user',
         'Send files guide',
         // NOT in SPEC-163's table — SPEC-172's own, recorded in its delivery doc. Archive is a
@@ -1088,7 +1243,11 @@ describe('the registry itself', () => {
         // SPEC-190: the VIEW the control above opens. Under THIS flag rather than the async
         // switchover, so throwing that kill switch never turns a shipped notification's control
         // into a link to nothing.
-        'Review conflicts for a file operation'
+        'Review conflicts for a file operation',
+        // Three ways into the file browser from other features' screens.
+        'View source files',
+        'View in Files after saving results',
+        'Open folder on a data quality report'
       ],
       query: [
         'Query',
@@ -1116,7 +1275,8 @@ describe('the registry itself', () => {
         // control, on the same terms as the two above it.
         'Open in Query',
         'Query help section',
-        'Tables help section'
+        'Tables help section',
+        'Refresh table link on a notification'
       ],
       sharedWorkspaces: [
         'Connections',
@@ -1143,7 +1303,13 @@ describe('the registry itself', () => {
         // SPEC-185: the export destination, and the Query workspace's Save-results twin,
         // which had been ungated since SPEC-055 because the hook built its own list.
         'Shared spaces in the Data Explorer export dialog',
-        'Shared spaces in the save-results dialog'
+        'Shared spaces in the save-results dialog',
+        // Links naming a shared space other than by `?space=`, and the data-quality surfaces that
+        // listed or rendered a shared space's checks with this flag off.
+        'Refresh table link to a shared space on a notification',
+        'Data quality link to a shared space on a notification',
+        'Shared-space runs in the data quality list',
+        'Shared-space data quality report'
       ],
       dataQuality: [
         'Data quality',
@@ -1174,7 +1340,7 @@ describe('the registry itself', () => {
       // and a registry row can only assert presence or absence.
       asyncFileOperations: ['File operations in progress', 'Background file operations guide'],
       // SPEC-223: one control, two dialogs. The completion notification's link is deliberately
-      // not here — it is a `/files` link, already covered by that flag's link clause.
+      // not here — it is a `/files` link, already covered by the row's link gate.
       resultsConversion: ['Format in the save-results dialog', 'Format in the Data Explorer export dialog']
     };
     for (const key of FEATURE_FLAG_KEYS) {

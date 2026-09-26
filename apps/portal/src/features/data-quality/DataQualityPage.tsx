@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useMemo, useState} from 'react';
 import {Link} from 'react-router';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
@@ -11,12 +11,13 @@ import {usePageTitle} from '../../hooks/usePageTitle';
 import {useClientPager} from '../../hooks/useClientPager';
 import {useAuth} from '../auth';
 import {useConnections} from '../connections/useConnections';
-import {useFeature} from '../feature-flags';
+import {useCanFollowLink, useFeature} from '../feature-flags';
 import {usableSpaceTargets} from '../file-browser';
 import {useDataQualityRuns} from './useDataQualityRuns';
 import {useDataQualityCheck, type DataQualityTarget} from './useDataQualityCheck';
 import {StartQualityCheckDialog} from './StartQualityCheckDialog';
 import {DataQualityRunRow} from './DataQualityRunRow';
+import {reportPath} from './dataQuality.format';
 
 const PAGE_SIZE = 10;
 
@@ -37,7 +38,15 @@ const FILTERS: {value: Filter; label: string}[] = [
  */
 export function DataQualityPage() {
   usePageTitle('Data quality');
-  const {runs, isLoading, error, refresh} = useDataQualityRuns();
+  const {runs: readableRuns, isLoading, error, refresh} = useDataQualityRuns();
+  // A run is listed only while its report can be opened: a shared space's run leaves with shared
+  // workspaces, as every other shared-workspace surface does, rather than linking to a report
+  // the rest of the app no longer shows.
+  const canFollow = useCanFollowLink();
+  const runs = useMemo(
+    () => readableRuns.filter((run) => canFollow(reportPath(run.space, run.requestId))),
+    [readableRuns, canFollow]
+  );
 
   // The second entry point into a check. Spaces are REUSED from
   // `usableSpaceTargets`, not re-derived: `useConnections` carries no bucket and no root

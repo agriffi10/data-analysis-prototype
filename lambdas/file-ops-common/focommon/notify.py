@@ -276,9 +276,9 @@ def outcome_link(summary: dict, records: list) -> str | None:
     prefix is an arbitrary user-controlled key rather than a constrained name — an unencoded
     ``?``, ``#`` or ``&`` in it truncates the link into one that resolves somewhere else entirely.
 
-    **``space`` comes FIRST in the query string**, which is not cosmetic: the row's own feature
-    gate tests for the literal ``?space=``, and a link that put the prefix first would slip that
-    gate and land a user in their personal space while the message names a shared one.
+    **``space`` comes FIRST in the query string**, as every plane's link puts it. It is a
+    convention rather than a guard: the notification row's feature gate parses the link, so the
+    order does not decide whether a shared-space link is gated.
 
     Args:
       summary: The terminal summary — the operation, both spaces and the destination prefix.

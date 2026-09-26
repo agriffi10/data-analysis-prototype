@@ -2,7 +2,7 @@ import {Link} from 'react-router';
 import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';
-import {useFeature} from '../feature-flags';
+import {useCanFollowLink} from '../feature-flags';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from '../file-browser';
 import {filesLinkListing, isSafeInAppPath, reviewHref} from './notificationLink';
@@ -24,33 +24,19 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   const {id, message, read, timestamp, link} = notification;
   // The MESSAGE is the link — never a trailing "here". That gives the anchor an
   // accessible name that says where it goes, and keeps the row a single target.
-  // A link that could leave this origin is dropped entirely (open-redirect guard),
-  // leaving exactly the plain-text row a producer supplying no link would produce.
-  // a link into a disabled feature is dropped, leaving the plain-text row a producer
+  // A link that could leave this origin is dropped entirely (open-redirect guard), and so is a
+  // link into a feature this user cannot see, leaving exactly the plain-text row a producer
   // supplying no link would have produced. The route gate already refuses the destination, so
   // this is not a disclosure — it is the difference between an inbox that offers a dead end and
   // one that does not. Notifications themselves are never gated: the record of what happened
   // outlives the surface that would show it.
   //
-  // A map rather than one hard-coded prefix, because a second producer
-  // arrived and the single-prefix form silently did nothing for it. A file-send notification
-  // deep-links into `/files`, and with `files` off that route swaps its element — so the link was
-  // a live anchor into the unavailable page. The space-owner variant is worse than a dead end:
-  // with `sharedWorkspaces` off the route does not READ `?space=`, resolves the personal space,
-  // and then discards a prefix that does not start with it — landing the owner in their own
-  // files with no banner, while the message says where to look. That is the "link that silently
-  // lands someone at their space root" this rule exists to prevent.
-  const flags = {
-    files: useFeature('files'),
-    dataQuality: useFeature('dataQuality'),
-    sharedWorkspaces: useFeature('sharedWorkspaces')
-  };
-  const gated =
-    (link?.startsWith('/data-quality') && !flags.dataQuality) ||
-    (link?.startsWith('/files') && !flags.files) ||
-    // Only the SPACE variant needs the workspaces flag: a personal-space link is a `/files` link
-    // like any other, and gating it on a flag it does not depend on would drop a working link.
-    (link?.includes('?space=') && !flags.sharedWorkspaces);
+  // The gate is DERIVED from the destination, so a new producer or route is covered without a
+  // clause here. The space variant is worse than a dead end: with `sharedWorkspaces` off `/files`
+  // does not READ `?space=`, resolves the personal space and discards a prefix that does not start
+  // with it, landing the owner in their own files with no banner while the message says where to look.
+  const canFollow = useCanFollowLink();
+  const gated = !!link && !canFollow(link);
   const to = !gated && isSafeInAppPath(link) ? link : undefined;
   // A notification whose producer named the items it could not do gets a second, SEPARATE
   // control into the view that can act on them. It is a SIBLING of the message anchor and never
@@ -68,7 +54,8 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   // id the view actually needs — a user who closed the submitting tab has nowhere else to go.
   const {payload} = notification;
   const hasConflicts = (payload?.conflicts?.length ?? 0) > 0;
-  const review = payload && hasConflicts && !gated && flags.files ? reviewHref(to, payload.requestId) : undefined;
+  const reviewTarget = payload && hasConflicts && !gated ? reviewHref(to, payload.requestId) : undefined;
+  const review = reviewTarget && canFollow(reviewTarget) ? reviewTarget : undefined;
   // Mark-read is a compact trailing control at ≥ tablet; below the message as a
   // full-width touch target on mobile. Mount-gated so exactly
   // one button exists (a CSS swap would duplicate it in the DOM).
@@ -79,8 +66,8 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   //
   // A MECHANISM over the link, not a clause for one producer: results conversion, file send and
   // archive all deep-link into a folder they have just written to, and a per-producer version
-  // would silently do nothing for the next one — which is the failure the flag map above was
-  // widened to fix. BOTH anchors carry it, for the same reason: `reviewHref` is this same path
+  // would silently do nothing for the next one — which is the failure the derived gate above
+  // exists to fix. BOTH anchors carry it, for the same reason: `reviewHref` is this same path
   // with a request id attached, so it lands on the same listing and a user who arrived that way
   // would be the one person the refresh missed.
   //

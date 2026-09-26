@@ -1,14 +1,14 @@
 """The in-app path a conversion's notification deep-links to: the folder the file landed in.
 
-Three rules, all of them learned somewhere else and each with a failure that is silent:
+Two rules, each learned somewhere else and each with a failure that is silent, and one convention:
 
 **The prefix is the FULL key, including the space root.** The file browser keeps a ``?prefix=``
 only when it starts with the resolved space's root prefix, so a root-relative one is discarded
 and the user lands at their space root with no idea why.
 
-**``space`` comes first in the query string**, because the notification row's own feature gate
-tests for the literal ``?space=``; a link with the prefix first slips that gate and lands the
-reader in their personal space while the message names a shared one.
+**``space`` comes first in the query string**, as every plane's link puts it. It is a convention
+rather than a guard: the notification row's feature gate parses the link, so the order does not
+decide whether a shared-space link is gated.
 
 **Every component is percent-encoded.** The prefix is arbitrary user-controlled text, and an
 unencoded ``?``, ``#`` or ``&`` truncates the link into one that resolves somewhere else. The

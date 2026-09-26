@@ -230,18 +230,28 @@ def test_the_prefix_is_PERCENT_ENCODED_because_a_key_is_not_a_constrained_name()
     assert unquote(sent_prefix) == "finance/we ird?&#/", "the browser cannot recover the real key"
 
 
-def test_SPACE_comes_first_in_the_query_string_because_the_rows_own_gate_reads_that_literal():
+def test_a_shared_space_link_names_its_space_where_the_rows_derived_gate_reads_it():
     """FR-004 AC4's gating is verified and cited rather than built, and this is the half that
-    verification has to cover. ``NotificationRow`` tests for the LITERAL ``?space=`` — mint the
-    prefix first and the shared-workspaces gate silently never fires, which is the failure the
-    comment above that clause documents: the route does not read ``?space=``, resolves the personal
-    space, discards a prefix that does not start with it, and lands the user in their own files.
+    verification has to cover. ``NotificationRow`` derives its gate from the link, and for a
+    ``/files`` link the gate reads the space from the ``space`` parameter and counts only
+    ``personal`` as the viewer's own. A shared-space link that did not name its space there would
+    pass as personal, and the shared-workspaces gate would never fire: the route would not read the
+    space, resolve the personal one, discard a prefix that does not start with it, and land the user
+    in their own files. ``space`` still comes first, as every plane's link puts it.
     """
     row = (_PORTAL / "features" / "notifications" / "NotificationRow.tsx").read_text()
-    assert "'?space='" in row, "the row no longer gates on that literal — re-derive the mint order"
+    assert "useCanFollowLink()" in row, "the row no longer derives its gate from the link — re-derive the link"
+    gate = (_PORTAL / "features" / "feature-flags" / "linkFlags.ts").read_text()
+    assert re.search(
+        r"pattern: '/files',\s*read: \(url\) => url\.searchParams\.get\('space'\),"
+        r"\s*isPersonal: \(name\) => name === 'personal'",
+        gate,
+    ), "the gate no longer reads a /files link's space from ?space= — re-derive what a space link carries"
 
     link = notify.outcome_link(_summary(), _records(("alice/reports/", "moved", {})))
-    assert "?space=" in link, "a shared-space link that slips its own feature gate"
+    query = parse_qs(urlsplit(link).query)
+    assert query.get("space", [""])[0] not in ("", "personal"), "a shared-space link the gate would read as personal"
+    assert "?space=" in link, "a shared-space link that no longer puts space first, as every plane's link does"
 
 
 def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
@@ -311,14 +321,17 @@ def test_the_link_is_a_path_the_browsers_own_gate_accepts():
 
 
 def test_a_planes_notification_link_gets_NO_registry_row_and_the_registry_says_so():
-    """FR-004 AC4 again: the flag gating is verified and CITED, not built. The row already carries
-    the map, already covers ``/files`` and ``?space=``, and the registry records the decision that a
-    row per producer would grow one row per future plane."""
+    """FR-004 AC4 again: the flag gating is verified and CITED, not built. The row derives its gate
+    from the link — the route's flag from the registry's nav rows, which carry ``/files`` — and the
+    registry records the decision that a row per producer would grow one row per future plane."""
     registry = (_PORTAL / "features" / "feature-flags" / "gatedSurfaces.ts").read_text()
 
     assert "a row per producer would grow one row per" in registry
+    assert "{name: 'Files', kind: 'nav', path: '/files'}" in registry
     row = (_PORTAL / "features" / "notifications" / "NotificationRow.tsx").read_text()
-    assert "'/files'" in row and "flags.files" in row
+    assert "useCanFollowLink()" in row
+    gate = (_PORTAL / "features" / "feature-flags" / "linkFlags.ts").read_text()
+    assert "for (const [path, flag] of NAV_PATH_FLAGS)" in gate
 
 
 # ── The payload ───────────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import {partitionSchema} from '../catalog/schema.partition';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {Connection} from '../connections/connection.types';
 import type {TableActions} from './SchemaBrowser';
-import {useFeature} from '../feature-flags';
+import {useCanFollowLink, useFeature} from '../feature-flags';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 // a single database in the schema rail — a disclosure node that, when
@@ -52,6 +52,9 @@ function TableRow({
   // somewhere else — which is precisely the class of miss the registry exists to catch.
   const queryEnabled = useFeature('query');
   const explorerEnabled = useFeature('dataExplorer');
+  // Leaves the Query workspace for the file browser, so it follows the destination's flag. The
+  // rail lists a shared database only while shared workspaces are on, so the route is the question.
+  const sourceFilesReachable = useCanFollowLink()('/files');
   return (
     <div>
       <div className="group flex items-center gap-1 rounded-md pr-1 hover:bg-surface-2">
@@ -88,12 +91,16 @@ function TableRow({
           <TableActionsMenu
             tableName={table.name}
             items={[
-              {
-                key: 'view-source',
-                label: 'View source files',
-                onSelect: () => actions.onViewSourceFiles(database, table),
-                disabled: !actions.canViewSourceFiles(database, table)
-              },
+              ...(sourceFilesReachable
+                ? [
+                    {
+                      key: 'view-source',
+                      label: 'View source files',
+                      onSelect: () => actions.onViewSourceFiles(database, table),
+                      disabled: !actions.canViewSourceFiles(database, table)
+                    }
+                  ]
+                : []),
               {
                 key: 'view-ddl',
                 label: 'View DDL',
