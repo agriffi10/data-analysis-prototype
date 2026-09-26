@@ -25,6 +25,7 @@ Attributes:
 """
 
 import hashlib
+import io
 import json
 import pathlib
 import sys
@@ -96,9 +97,91 @@ class _Sqs:
         return {"MessageId": "m"}
 
 
+class _AdminBucket:
+    """The admin bucket the archive's timeout door claims delete-source's verdict in.
+
+    It starts empty, so the door claims ``stopped`` and sends its ordinary sentence, and a second
+    call for the same run meets that claim — the retry this file's second test is about.
+    """
+
+    def __init__(self):
+        """Starts with no verdict recorded.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self.objects = {}
+
+    def get_object(self, Bucket, Key):
+        """Returns a recorded verdict.
+
+        Args:
+          Bucket: Unused.
+          Key: The verdict's key.
+
+        Returns:
+          The object, with a readable body.
+
+        Raises:
+          KeyError: When nothing was recorded, which the reader treats as absent.
+        """
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
+        """Records a verdict create-only.
+
+        Args:
+          Bucket: Unused.
+          Key: The verdict's key.
+          Body: The verdict.
+          ContentType: Unused.
+          IfNoneMatch: ``*`` for a create-only write.
+
+        Returns:
+          None.
+
+        Raises:
+          _PreconditionFailed: When a create-only write finds the key taken.
+        """
+        if IfNoneMatch == "*" and Key in self.objects:
+            raise _PreconditionFailed()
+        self.objects[Key] = Body
+
+
+class _PreconditionFailed(Exception):
+    """S3's refusal of a create-only write whose key is taken."""
+
+    def __init__(self):
+        """Carries the response shape the conditional-write classifier reads.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        super().__init__("PreconditionFailed")
+        self.response = {
+            "Error": {"Code": "PreconditionFailed"},
+            "ResponseMetadata": {"HTTPStatusCode": 412},
+        }
+
+
 @pytest.fixture
 def sent(monkeypatch):
     """Routes the real sender to a recording client and returns what it records.
+
+    The admin bucket is faked beside it, because the archive's timeout door claims a verdict there
+    before it sends, and an unfaked client would reach real S3.
 
     Args:
       monkeypatch: The pytest fixture.
@@ -111,6 +194,7 @@ def sent(monkeypatch):
     """
     fake = _Sqs()
     monkeypatch.setattr(clients, "_sqs", fake)
+    monkeypatch.setattr(clients, "_s3", _AdminBucket())
     monkeypatch.setattr(
         config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/notifications.fifo", raising=False
     )

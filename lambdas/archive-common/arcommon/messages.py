@@ -28,8 +28,16 @@ Attributes:
     editorial rule here. Archiving is the only operation in this portal that deletes a user's
     data, so the question a failure has to answer first is whether the user still has their
     files — "nothing was deleted and your files are exactly where they were" is the commit gate
-    speaking, and the two bodies that cannot say it (``source_delete_incomplete``,
-    ``receipt_write_failed``) say instead that nothing has been lost.
+    speaking, and the three bodies that cannot say it (``source_delete_incomplete``,
+    ``receipt_write_failed``, ``archive_timed_out_may_have_deleted``) say instead that nothing
+    has been lost.
+
+    **``archive_timed_out`` makes that promise from outside the run**, so it is earned by a
+    record rather than by the commit gate. The timeout door sends it when delete-source's verdict
+    is not a deletion, having claimed the verdict as ``stopped`` if there was none, or when the
+    run carried no valid id and so never reached a verb; delete-source sends it too, on meeting
+    that claim. A verdict to delete, or one that cannot be claimed or read, gets
+    ``archive_timed_out_may_have_deleted`` instead, which says only what is true either way.
 
     There is no ``request_id_reused`` body, because that refusal is told to nobody. It is the
     shared layer's code, one of ``cpcommon.messages.SILENT_REASONS``: the prefix it finds occupied
@@ -202,6 +210,12 @@ _BODIES = {
         "that archive ran for too long and was stopped. Nothing was deleted and your files are "
         "exactly where they were. Please try again with a smaller selection."
     ),
+    "archive_timed_out_may_have_deleted": (
+        "that archive ran for too long and was stopped while your files were being moved into "
+        "it, so some or all of them may already be archived and no longer in your space. "
+        "Nothing has been lost. Your archive id is {requestId} - please contact an "
+        "administrator and quote it."
+    ),
     "restore_timed_out": (
         "that restore ran for too long and was stopped, and some files may already be back in "
         "your space. Please contact an administrator before requesting this restore again."
@@ -294,6 +308,7 @@ ARCHIVE_ONLY = frozenset(
         "source_delete_incomplete",
         "receipt_write_failed",
         "archive_timed_out",
+        "archive_timed_out_may_have_deleted",
     }
 )
 

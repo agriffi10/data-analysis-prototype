@@ -5,6 +5,7 @@ not be invoked — where the decorator never ran and the actor would otherwise b
 at all.
 """
 
+import io
 import json
 import logging
 import os
@@ -18,9 +19,47 @@ for _p in ("control-plane-common", "archive-common"):
 
 import ar_notify_failure as verb
 from arcommon import notify
+from cpcommon import clients
 from token_shapes import JWT_SHAPED
 
 UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
+
+_DECISION = f"archive/{UUID}/source-decision.json"
+
+
+class _S3Error(Exception):
+    def __init__(self, code, status):
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        super().__init__(code)
+
+
+class _AdminBucket:
+    """The admin bucket, holding whatever verdict delete-source recorded; ``fault`` fails every call.
+
+    A missing key is a 403, as it is for a role that holds GetObject without ListBucket.
+    """
+
+    def __init__(self):
+        self.objects = {}
+        self.fault = None
+        self.put_fault = None
+        self.before_put = None
+
+    def get_object(self, Bucket, Key):
+        if self.fault is not None:
+            raise self.fault
+        if Key not in self.objects:
+            raise _S3Error("AccessDenied", 403)
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfNoneMatch=None):
+        if self.before_put is not None:
+            self.before_put()
+        if self.fault is not None or self.put_fault is not None:
+            raise self.fault or self.put_fault
+        if IfNoneMatch == "*" and Key in self.objects:
+            raise _S3Error("PreconditionFailed", 412)
+        self.objects[Key] = Body
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +68,17 @@ def sent(monkeypatch):
     monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: out.append((user, text)))
     monkeypatch.setattr(verb.notify, "emit_notification", lambda user, text, **kw: out.append((user, text)))
     return out
+
+
+@pytest.fixture(autouse=True)
+def admin(monkeypatch):
+    bucket = _AdminBucket()
+    monkeypatch.setattr(clients, "_s3", bucket)
+    return bucket
+
+
+def _verdict(decision):
+    return json.dumps({"decision": decision, "changed": 0, "execution": "e"}).encode()
 
 
 _JWT = JWT_SHAPED
@@ -147,3 +197,91 @@ def test_a_timed_out_execution_with_an_unhashable_mode_still_notifies(monkeypatc
 
     assert [user for user, _ in sent] == ["alice"]
     assert "ran for too long" in sent[0][1]
+
+
+# ── What a timed-out archive may promise depends on delete-source's recorded verdict ────────
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "a verdict to delete",
+        "a verdict to delete, recorded as the door claims",
+        "a verdict to delete, id in capitals",
+        "an unreadable verdict",
+        "a claim the bucket refuses",
+    ],
+)
+def test_a_timeout_that_may_have_deleted_does_not_say_nothing_was_deleted(admin, sent, state):
+    """The ceiling can land while delete-source runs, or while the receipt is written after it —
+    originals partly or wholly gone, no receipt, and a message saying nothing was deleted.
+
+    A delete-source still running can record its verdict between any read the door might make and
+    the door's own write, so the door answers from what its create-only write finds. The id in the
+    input is the browser's own, and delete-source keys its verdict on the id validate-authorize
+    lowercased — the raw spelling would find nothing and promise. A fault, or a refusal such as a
+    lost grant, is told the same hedged way, because only that sentence is true either way."""
+    body = json.loads(_raw()[0]["body"])
+    if state == "an unreadable verdict":
+        admin.fault = _S3Error("SlowDown", 503)
+    elif state == "a claim the bucket refuses":
+        admin.put_fault = _S3Error("AccessDenied", 403)
+    elif state.endswith("as the door claims"):
+        admin.before_put = lambda: admin.objects.setdefault(_DECISION, _verdict("delete"))
+    else:
+        admin.objects[_DECISION] = _verdict("delete")
+    if state.endswith("capitals"):
+        body["requestId"] = UUID.upper()
+
+    verb.handler(_timed_out(input_body=[{"messageId": "m-1", "body": json.dumps(body)}]), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+    assert "Nothing was deleted" not in sent[0][1]
+    assert "may already be archived" in sent[0][1]
+    assert f"Your archive id is {UUID}" in sent[0][1]
+
+
+@pytest.mark.parametrize("earlier", [None, "refuse", "unconfirmed"])
+def test_a_timeout_before_any_deletion_claims_the_verdict_that_keeps_its_promise(
+    admin, sent, earlier
+):
+    """A delete-source invocation outlives the ceiling by up to its own timeout, so a verdict
+    merely READ as absent could still be written as "delete" a minute later. The door claims it
+    create-only instead, and a late delete-source meets "stopped" and deletes nothing. A refusal
+    recorded first is left alone: it deletes no original either."""
+    if earlier:
+        admin.objects[_DECISION] = _verdict(earlier)
+
+    verb.handler(_timed_out(), None)
+
+    assert "Nothing was deleted and your files are exactly where they were" in sent[0][1]
+    assert json.loads(admin.objects[_DECISION])["decision"] == (earlier or "stopped")
+
+
+def test_a_timeout_nobody_can_be_told_about_still_stops_a_late_deletion(admin, sent):
+    """The claim guards the originals, not the message, so a run with no verified actor takes
+    it too."""
+    verb.handler(_timed_out(input_body=_raw(identity=False)), None)
+
+    assert sent == []
+    assert json.loads(admin.objects[_DECISION])["decision"] == "stopped"
+
+
+def test_a_timed_out_event_with_a_detail_of_the_wrong_type_neither_raises_nor_claims(admin, sent):
+    """A raise here is an async Lambda failure EventBridge retries, and with no input there is no
+    id to key a claim on."""
+    verb.handler({"detail-type": "Step Functions Execution Status Change", "detail": "x"}, None)
+
+    assert sent == []
+    assert admin.objects == {}
+
+
+def test_a_timed_out_restore_claims_no_deletion_verdict(admin, sent):
+    """A restore deletes no original, and its request id names no delete-source verdict."""
+    body = json.loads(_raw()[0]["body"])
+    body["mode"] = "restore"
+
+    verb.handler(_timed_out(input_body=[{"messageId": "m-1", "body": json.dumps(body)}]), None)
+
+    assert admin.objects == {}
+    assert "that restore ran for too long" in sent[0][1]

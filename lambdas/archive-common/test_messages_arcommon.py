@@ -70,11 +70,17 @@ def test_every_marker_in_every_body_can_be_filled_by_somebody():
 #:                                about the rest.
 #:   restore_timed_out            the wait loop hit its ceiling. Files may already be back, which
 #:                                is why its body no longer says nothing was changed.
+#:
+#: And one ARCHIVE outcome, the only one the commit gate cannot make whole:
+#:   archive_timed_out_may_have_deleted  the machine's ceiling landed after delete-source's
+#:                                verdict to delete, so originals may be partly gone and nothing
+#:                                that runs afterwards can put them back or finish the job.
 _DELIBERATELY_PARTIAL = {
     "restore_incomplete",
     "restore_incomplete_occupied",
     "restore_archive_cleared",
     "restore_timed_out",
+    "archive_timed_out_may_have_deleted",
 }
 
 
@@ -104,6 +110,7 @@ _PARTIAL_PHRASES = (
     "were restored",
     "may already be back",
     "came back",
+    "may already be archived",
 )
 
 

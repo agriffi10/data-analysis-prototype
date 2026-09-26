@@ -112,7 +112,11 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   that changed since the plan refuses the whole deletion, removes the vault copy and fails
   `source_changed_during_archive`, with the user's files where they were. **The verdict is written
   create-only before it is acted on, and a Retry follows it** rather than deciding again — the two
-  paths undo each other if an attempt that began one re-decides into the other.
+  paths undo each other if an attempt that began one re-decides into the other. **The timeout door
+  is its second writer**: a running `delete-source` outlives the machine's ceiling, so the door
+  claims the verdict as `stopped` where there is none — which `delete-source` follows by deleting
+  nothing — and says nothing was deleted only when the record makes that true
+  ([the decision](../../../docs/decisions/archive-and-restore.md#a-timeout-does-not-stop-a-running-verb-so-the-timeout-door-claims-the-deletion-verdict)).
 - `archive-delete-archived` is the one deletion allowed to fail quietly — it sweeps the vault after
   a successful restore, and a leftover object costs storage, not data. **The vault sweep may fail
   quietly and the source deletion may not**, on the same algorithm with opposite consequences: a

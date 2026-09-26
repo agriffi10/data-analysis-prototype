@@ -27,6 +27,12 @@ decision record), and a Retry, a lost response or a redrive finishes whatever th
 a refusal finishes removing the vault copy, and a deletion never touches it — an original that
 changed since the verdict is kept, and the run fails as a partial deletion with the copy intact.
 
+**The record has a second writer, and it can get there first.** The machine's ceiling does not stop
+an invocation already running, so this verb can outlive its own execution by up to its timeout —
+and by then the timeout door has told the user nothing was deleted. That door claims the record as
+``stopped`` when it finds none, and a ``stopped`` verdict deletes no original and removes nothing
+from the vault, whichever of this verb's reads meets it.
+
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array**, and a response inspected
 only by its status code is a defect this repo has already had once. Here that defect
 would report a completed archive over a source that is still half there, and the user would be
@@ -82,7 +88,8 @@ def handler(event, context) -> dict:
         ``source_changed_during_archive`` when any original changed since the plan, before
         anything is deleted, ``archive_copy_unconfirmed`` when the vault no longer holds every
         planned object, ``source_delete_incomplete`` when any object survived a deletion that
-        was attempted, or ``forbidden`` /
+        was attempted, ``archive_timed_out`` when the timeout door recorded the verdict first, or
+        ``forbidden`` /
         ``protected_marker`` from the pre-delete assertion, which fails the run BEFORE issuing
         a delete the bucket policy would refuse mid-batch.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
@@ -113,8 +120,8 @@ def _delete_source(event) -> dict:
 
     Raises:
       TerminalError: ``plan_unreadable``, ``plan_superseded``, ``source_changed_during_archive``,
-        ``archive_copy_unconfirmed``, ``source_delete_incomplete``, ``forbidden`` or
-        ``protected_marker``.
+        ``archive_copy_unconfirmed``, ``archive_timed_out``, ``source_delete_incomplete``,
+        ``forbidden`` or ``protected_marker``.
       TransientError: On a retryable S3 fault.
     """
     loaded = plan.load(event.get("copyPlanKey"), event)
@@ -132,6 +139,8 @@ def _delete_source(event) -> dict:
         _refuse_changed(event, loaded["archive"], record["changed"], len(keys))
     if record["decision"] == "unconfirmed":
         _refuse_unconfirmed(event, loaded["archive"], len(keys))
+    if record["decision"] == "stopped":
+        _refuse_stopped(event, len(keys))
 
     kept = decided_changed if written else delete.changed_keys(source["bucket"], planned)
     removed = delete.delete_keys(source["bucket"], [key for key in keys if key not in kept], root)
@@ -301,3 +310,32 @@ def _refuse_unconfirmed(event, archive: dict, planned: int) -> None:
         f"the vault no longer holds all {planned} planned object(s), so no original was deleted",
     )
 
+
+def _refuse_stopped(event, planned: int) -> None:
+    """Refuses the deletion because the execution's own ceiling stopped it before any verdict.
+
+    The timeout door recorded ``stopped`` and told the user nothing was deleted, so this deletes
+    no original and removes nothing: the vault copy stays where it is, as it does after a timeout
+    anywhere else in the run. The reason is the door's own, so a user who hears from this
+    invocation too reads the same sentence.
+
+    Args:
+      event: The request, for the actor the record names.
+      planned: How many originals the plan named.
+
+    Returns:
+      Never.
+
+    Raises:
+      TerminalError: ``archive_timed_out``, always.
+    """
+    logger.warning("the timeout door recorded the verdict first; deleted none of %d original(s)", planned)
+    observability.warning(
+        "archive refused because the execution had already timed out",
+        actor=(event.get("actor") or {}).get("username"),
+        planned=planned,
+    )
+    raise TerminalError(
+        "archive_timed_out",
+        f"the execution timed out before a verdict, so none of {planned} original(s) was deleted",
+    )

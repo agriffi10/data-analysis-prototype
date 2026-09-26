@@ -81,7 +81,14 @@ Attributes:
     undo each other's premise: a refusal that follows a partial deletion removes the only copy of
     what was deleted, and a deletion that follows a partial refusal deletes originals whose copy
     is half gone. Beside the claim, so the grant and the expiry that cover it cover this too.
-  DECISIONS: The three verdicts a decision record may carry.
+    **delete-source is not its only writer.** The archive's timeout door claims it as
+    ``stopped`` when it finds none, because an invocation the machine's ceiling interrupted keeps
+    running to its own timeout and could otherwise record a deletion after the user was told
+    nothing was deleted. Create-only is what lets S3 decide which of the two came first.
+  DECISIONS: The four verdicts a decision record may carry. ``stopped`` is the timeout door's:
+    delete no original and remove nothing, because the user has already been told nothing was
+    deleted. A reader that does not know a verdict treats the record as unreadable, which refuses
+    to decide rather than deleting.
   RESTORE_RESULTS_FOLDER: The copy-back Map's export folder, which the collector DOES read.
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
@@ -124,7 +131,7 @@ PREFIX = "archive"
 BASENAME = "copy-plan.json"
 CLAIM_BASENAME = "claim.json"
 DECISION_BASENAME = "source-decision.json"
-DECISIONS = frozenset({"delete", "refuse", "unconfirmed"})
+DECISIONS = frozenset({"delete", "refuse", "unconfirmed", "stopped"})
 RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESTORE_MANIFEST_BASENAME = "restore-manifest.jsonl"

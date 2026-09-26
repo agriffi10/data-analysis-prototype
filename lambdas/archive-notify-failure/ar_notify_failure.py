@@ -42,25 +42,33 @@ allows to approach 200 KB, while EventBridge caps an event at 256 KB and drops t
 than exceed it. So the archives most likely to time out — the big ones — are exactly the ones whose
 actor the event alone cannot name, and ``states:DescribeExecution`` reads it back.
 
-**What the timeout message may say is constrained by what a timeout leaves behind.** The copy may
-have run and the commit gate may not have, so a timed-out archive can leave a partial copy in the
-vault — but never a deleted source, because deletion is downstream of the gate. That is why the
-wording promises the source and says nothing about the vault, which the user cannot see anyway.
+**What the timeout message may say is constrained by what a timeout leaves behind, and the
+commit gate does not settle it.** A timed-out archive can leave a partial copy in the vault, which
+the wording ignores because the user cannot see it. What it cannot ignore is the source: deletion
+is downstream of the gate, but the ceiling can land while delete-source runs, or while the receipt
+is written after it — and the ceiling does not stop an invocation already running, so delete-source
+can go on to decide and delete up to its own timeout after the door has spoken. So the door does
+not merely read delete-source's recorded verdict, it claims it: a create-only ``stopped`` where
+there was none, which a late delete-source then follows by deleting nothing. "Nothing was deleted"
+is sent only when that claim — or an earlier refusal — makes it true; a verdict to delete, or one
+that cannot be read, gets a sentence that is true either way. ``arcommon.plan`` owns the record.
 
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
-  _TIMEOUT_REASON: Reason code for an ARCHIVE the state machine's own timeout stopped.
-  _RESTORE_TIMEOUT_REASON: The same for a RESTORE. Two codes rather than one worded generically,
-    because what a timeout may PROMISE differs by arm: an archive's deletion is downstream of the
-    commit gate, so a timed-out archive has never deleted anything — a sentence that is true, load
-    bearing, and meaningless about a restore. Unreachable until the retrieval wait exists,
-    and shipped now because that is the spec that makes the timeout predominantly a restore event.
+  _TIMEOUT_REASON: Reason code for an ARCHIVE the state machine's own timeout stopped with no
+    original deleted, which the source verdict proves rather than the commit gate.
+  _MAY_HAVE_DELETED_REASON: The same for an archive whose verdict was to delete, or could not be
+    read — originals may be partly or wholly gone and the receipt may never have been written, so
+    the sentence names the archive id and sends the user to an administrator.
+  _RESTORE_TIMEOUT_REASON: The same for a RESTORE, which deletes no original and so has no verdict
+    to consult. What a timeout may PROMISE differs by arm, and "nothing was deleted and your files
+    are exactly where they were" says nothing true or useful about a restore.
 """
 
 import json
 import logging
 
-from arcommon import messages, notify
+from arcommon import messages, notify, paths, plan
 from arcommon.config import ARCHIVE_MODES
 from cpcommon import actor as cpactor
 from cpcommon import events, observability
@@ -75,6 +83,8 @@ observability.init(service="archive")
 _TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
 
 _TIMEOUT_REASON = "archive_timed_out"
+
+_MAY_HAVE_DELETED_REASON = "archive_timed_out_may_have_deleted"
 
 _RESTORE_TIMEOUT_REASON = "restore_timed_out"
 
@@ -188,12 +198,66 @@ def _is_execution_timeout(event) -> bool:
     return isinstance(event, dict) and event.get("detail-type") == _TIMEOUT_DETAIL_TYPE
 
 
+def _execution_name(detail: dict) -> str | None:
+    """Reads the timed-out execution's name off its ARN, for the verdict record's diagnosis.
+
+    Args:
+      detail: The EventBridge event's detail.
+
+    Returns:
+      The name, or None when the ARN is absent or not a string.
+
+    Raises:
+      None.
+    """
+    arn = detail.get("executionArn")
+    return arn.rsplit(":", 1)[-1] if isinstance(arn, str) else None
+
+
+def _archive_timeout_reason(request_id, execution: str | None) -> tuple[str, str | None]:
+    """Claims delete-source's verdict as ``stopped`` where it has none, and picks what it allows.
+
+    Keyed on the id validate-authorize produced — a lowercased UUID v4 — and not on the raw
+    spelling, which is the browser's and would find no verdict under the other. An id that is
+    not a UUID v4 was refused before any verb ran, so no original can have been deleted under it.
+
+    Args:
+      request_id: The run's id as the Pipe forwarded it, or None.
+      execution: The timed-out execution's name, recorded beside the claim.
+
+    Returns:
+      ``(reason, archive_id)`` — the archive id is the validated request id, or None when the
+      input carried no valid one.
+
+    Raises:
+      None. A claim or read that fails is told as a possible deletion, because "nothing was
+      deleted" is the one sentence that can then be false.
+    """
+    try:
+        archive_id = paths.validated_request_id(request_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("no valid request id on the timed-out execution: %s", exc)
+        return _TIMEOUT_REASON, None
+    try:
+        record, _ = plan.record_source_decision(
+            {"requestId": archive_id, "execution": {"name": execution}}, "stopped", 0
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not claim or read the source verdict for %s: %s", archive_id, exc)
+        return _MAY_HAVE_DELETED_REASON, archive_id
+    logger.info("source verdict for %s on timeout: %s", archive_id, record["decision"])
+    if record["decision"] == "delete":
+        return _MAY_HAVE_DELETED_REASON, archive_id
+    return _TIMEOUT_REASON, archive_id
+
+
 def _on_execution_timed_out(event) -> dict:
     """Notifies the actor that the whole run was stopped by the machine's own timeout.
 
-    The wording is this plane's own rather than the generic failure sentence, and what it can
-    promise is decided by where the timeout can land: the source deletion sits downstream of the
-    commit gate, so a timed-out archive has never deleted anything — whatever else it did.
+    The wording is this plane's own rather than the generic failure sentence, and for an archive
+    what it can promise is decided by delete-source's verdict record. The claim is taken before
+    the no-recipient return, because it protects the originals whether or not anyone can be told
+    — though only when the execution's input, and so its id, could be read.
 
     The request id for the payload comes from the same raw input as the actor, because the event
     carries no state and there is no recorded failure to read it from.
@@ -215,6 +279,7 @@ def _on_execution_timed_out(event) -> dict:
     payload = None
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
+        detail = {}
     else:
         raw = events.timed_out_execution_input(detail)
         if not raw:
@@ -228,18 +293,26 @@ def _on_execution_timed_out(event) -> dict:
             except ValueError as exc:
                 logger.info("could not attribute the timed-out execution: %s", exc)
 
+    archive_id = None
+    if mode == "restore":
+        reason = _RESTORE_TIMEOUT_REASON
+    else:
+        reason, archive_id = _archive_timeout_reason(
+            (payload or {}).get("requestId"), _execution_name(detail)
+        )
+
     if not username:
         observability.warning(
             "no verified actor on a timed-out execution; nothing to notify",
             outcome="no-recipient",
-            reason=_TIMEOUT_REASON,
+            reason=reason,
             notified=False,
         )
         return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
 
-    reason = _RESTORE_TIMEOUT_REASON if mode == "restore" else _TIMEOUT_REASON
+    tokens = {"requestId": archive_id} if archive_id else None
     notify.emit_notification(
-        username, messages.failure_message(reason, mode=mode), payload=payload
+        username, messages.failure_message(reason, tokens=tokens, mode=mode), payload=payload
     )
     logger.info("notified %s that their %s timed out", username, mode or "archive")
     observability.info(
