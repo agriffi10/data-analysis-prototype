@@ -20,11 +20,12 @@ intact, and whose SQL has not been edited since, opens a tab with every filter, 
 grouping and the column layout back, all still editable. Anything else is refused with the reason
 and an offer to open the file in Query. The Data Explorer never reads filters back out of SQL.
 
-A file in a shared space can be written by any member, and a view's filter expression is raw SQL.
-So a view opened from a **shared** space does not run until the opener chooses **Run**, and it
-comes back without the two presentation features that act on what a view's author typed: URL-link
-transformers and pattern Colors rules. A view from the opener's personal space, which only they
-can write, restores whole and runs.
+Any member of a shared space can write the files in its `saved_queries/` folder, and a view's filter
+expression is raw SQL. So a view whose **file** was listed from a shared space's folder does not
+run until the opener chooses **Run**, comes back without the two presentation features that act
+on what its author typed (URL-link transformers and pattern Colors rules), and is not linked to
+its file, so saving it never silently overwrites the author's version. A view from the opener's
+personal folder, which only they can write, restores whole, runs, and stays linked.
 
 ## Scope
 
@@ -35,7 +36,8 @@ can write, restores whole and runs.
 - The line format, in `lib/` so both features' tests can reach it.
 - An **Open saved view** entry beside the table picker, listing a space's saved queries.
 - Restoring a view, strictly validated and rendered before any tab opens.
-- The shared-space guard: the tab opens paused, without URL-link transformers or pattern rules.
+- The shared-folder guard: the tab opens held, unlinked, and without URL-link transformers or
+  pattern rules.
 - Refusing every file that cannot be restored, with the reason and **Open in Query**.
 - Help, the flag registry and the decision records that currently promise the opposite.
 
@@ -58,8 +60,10 @@ can write, restores whole and runs.
   view's row. A restored tab starts with empty history.
 - **Keeping tabs across browser sessions.** Tabs still live in `sessionStorage`.
 - **Upgrading files saved before this spec.** They carry no view line and are refused.
-- **Guarding the personal space.** Only its owner can write its `saved_queries/`; file sends
+- **Guarding the personal folder.** Only its owner can write its `saved_queries/`; file sends
   land in a separate inbox folder.
+- **Signing the payload.** The checksum covers the SQL and detects an edit made in good faith. A
+  hand-crafted payload that validates opens; in a shared folder the hold shows what it will run.
 
 ---
 
@@ -74,23 +78,25 @@ line, then `\n`. The line (Data Model) holds a checksum of that SQL and the view
 database and table, the exploration's query, and its presentation without `valuePanelOpen` and
 `recordRowIndex`. If adding the line would take the file over Athena's 262,144-byte
 `QueryString` limit, the file is written without it, and the toast says so. A successful save
-refreshes that space's saved-query listing, so the drawer shows the file at once.
+invalidates that space's saved-query listing (`savedQueryKeys.list(spaceId)`), so the drawer
+shows the file at once.
 
 #### Acceptance Criteria:
 
-- [ ] A save from a table tab issues exactly one write, whose body is `{sql}\n{line}\n`.
-- [ ] `parseViewLine` of that body returns the SQL, version 1, and a payload equal to the tab's
-      database, table, query and presentation minus the two excluded fields.
+- [ ] A save from a table tab calls `writeSavedQuery` once, with the body `{sql}\n{line}\n`.
+- [ ] `parseViewLine` of that body returns kind `ok`, version 1, the SQL, and a payload equal to
+      the tab's database, table, query and presentation minus the two excluded fields.
 - [ ] A save from a `sql`-source tab writes the SQL only, byte-identical to today.
 - [ ] A save that would exceed 262,144 UTF-8 bytes with the line is written without it, and the
       toast reads `Saved “{name}” to {space}. The view was too large to keep, so it opens in
-      Query only.`
+      Query only.` (`appendViewLine` is unit-tested at 262,144 and 262,145 bytes.)
 - [ ] A save from the Query page adds no line.
-- [ ] After a Data Explorer save, the drawer's listing for that space includes the file without
-      waiting for the listing's stale time.
+- [ ] With a query client whose stale time is the app's and whose `gcTime` is unbounded: list the
+      drawer once, close it, save from the Data Explorer, reopen it, and the listing is fetched
+      again and shows the new file. Deleting the invalidation turns this test red.
 - [ ] Query's `splitSqlStatements` reads a body carrying a view line as ONE statement ending in
-      that comment, and `isExplorableSql` accepts it (tested in `features/query`, with the body
-      built by `lib/savedViewLine.appendViewLine`).
+      that comment, and `isExplorableSql` accepts it (in `features/query/queryPure.test.ts`, with
+      the body built by `lib/savedViewLine.appendViewLine`).
 - [ ] Live, in `docs/testing/e2e.md`: a saved view opened in Query and run returns the same rows
       as the tab it was saved from.
 
@@ -110,103 +116,134 @@ space appears only with `sharedWorkspaces` on. The control exists only with `que
 - [ ] The drawer lists the space's files ten per page, each with **Open**, and remembers the
       space through the shared saved-query space key.
 - [ ] With `sharedWorkspaces` off, the space select offers no shared space, and the registry
-      carries a `sharedWorkspaces` row for shared spaces in the drawer.
+      carries a `sharedWorkspaces` row, "Shared spaces in the saved-view drawer".
 - [ ] An empty folder shows `No saved queries in {space} yet.`; a failed listing shows a danger
-      `Banner` with **Try again**, which refetches.
+      `Banner` with **Try again**, which fetches the listing again.
 - [ ] The drawer closes on Escape and on its close control, and has no axe violations as driven.
 
 ### FR-003: An intact, unedited view reopens whole
 
 #### Description:
 
-Opening a file whose view line parses, whose checksum matches the SQL above it, whose payload
-passes the tab store's validators **strictly**, and whose SQL renders, opens a **new** tab
-labelled with the table name. The tab holds the recorded query and presentation and is linked
-to the file, so **Save as query** from it offers to replace that file. The source's space is found
-by **database** among the spaces the picker offers; when a shared space and the personal space
-share the name, the personal space wins, as it does in the picker. Strict means the payload
-must round-trip through the store's normalisers unchanged: a presentation the normaliser would
-default or drop is refused, not quietly repaired.
+Opening a file whose view line parses as `ok`, whose payload passes the **strict** reads, and
+whose SQL renders within Athena's limit, opens a **new** tab labelled with the table name, holding
+the recorded query and presentation, with empty history. A file listed from the opener's
+**personal** folder opens linked to that file, so **Save as query** from it offers to replace it.
+
+The source's space is found by **database** among the spaces the picker offers, once the
+connections read has settled (the rule `useSpaceLinkPending` applies to a deep link); when a
+shared space and the personal space share a name, the personal space wins, as in the picker.
+
+**Strict** means the payload must equal, by order-insensitive deep equality, what the tab store's
+own normalisers make of it, with `valuePanelOpen` and `recordRowIndex` left out of the comparison.
+`readStrictQuery` and `readStrictPresentation` are new functions built on the store's validators;
+the store's lenient read of `sessionStorage` is unchanged.
 
 #### Acceptance Criteria:
 
-- [ ] From the personal space, a view saved with two column filters, an expression, a sort, a
-      grouping, a hidden column, a pinned column and a Colors rule opens with all seven back, the
-      filters shown as chips, and the tab runs its query.
-- [ ] The new tab's **Save as query** dialog opens with the file's name and space, and saving
-      replaces that file.
-- [ ] The restored tab's history is empty, and the drawer closes.
-- [ ] A view whose database is a shared space's opens for another member of that space.
+- [ ] A view saved by this build, with two column filters, an expression, a sort, a grouping, a
+      hidden column, a pinned column, a column width, a Colors rule, a transformer and a
+      non-grid presentation, reopens from the personal folder; the new tab's stored exploration
+      equals the saved one, the filters show as chips, and the tab runs its query once.
+- [ ] That tab's **Save as query** dialog opens with the file's name and space, and saving
+      replaces the file with no confirm.
+- [ ] The restored tab's **Back** is disabled, and the drawer closes.
+- [ ] A view from a shared space's folder over that space's database opens for another member.
 - [ ] CRLF line endings, a byte-order mark, and trailing whitespace after the SQL or on the view
       line do not count as edits.
-- [ ] A view whose presentation holds a Colors rule with an operator this build does not know is
-      refused under FR-005's unreadable reason, with no tab.
+- [ ] A presentation holding a Colors rule with an operator this build does not know is refused
+      under FR-005's unreadable reason, with no tab.
+- [ ] Opened while the connections read is still pending, a view over a shared database waits
+      for it and then opens, rather than being refused.
 
-### FR-004: A view from a shared space opens paused and without two features
+### FR-004: A view from a shared space's folder opens held, unlinked, and without two features
 
 #### Description:
 
-A view opened from a **shared** space opens as FR-003 describes, with three differences. It does
-not run: the results area says `This view was saved in {space}, where any member can change it.
-Check its Generated SQL, then run it.` with a **Run** button. It holds no URL-link transformers
-and no pattern (regex) Colors rules; a note under that text lists how many of each were left
-out. The paused state is stored on the tab, so a reload does not run it either. **Run**, or any
-change to the filters, expression, sort or grouping, ends the pause.
+A file listed from a **shared** space's folder, whatever database its view names, opens as FR-003
+describes with four differences.
+
+- **Held.** `useExploration` gains a hold: the SQL renders, and the Generated SQL panel, **Save as
+  query**, **Create view…** and **Open in Query** all work from it, but no execution starts, cached
+  results for that statement are not shown, and the status line does not say it is running. The
+  results area says `This view was saved in {space}, where any member can change it. Check its
+  Generated SQL, then run it.` with a **Run** button.
+- **Stripped.** It holds no URL-link transformers and no Colors rules whose operator is `regex`.
+  Under the held text, a note names what was left out, pluralised, omitting a zero part:
+  `Left out: 1 link column, 2 pattern color rules.` No note when nothing was.
+- **Unlinked.** The tab has no saved-query link, so **Save as query** asks for a name, and a
+  same-name save meets the existing replace confirm.
+- **Remembered.** The hold is stored on the tab as `awaitingRun`. **Run** clears it with a tab
+  update; an `apply` that changes the query clears it in the same update; a no-op apply does not.
+  The stored-document read treats a present but malformed `awaitingRun` as held with no note,
+  never as absent.
 
 #### Acceptance Criteria:
 
-- [ ] Opening a view from a shared space starts no query execution; the Generated SQL panel shows
-      the statement; **Run** starts exactly one.
-- [ ] A shared-space view saved with one URL-link transformer and one pattern Colors rule opens
-      without either, and the note reads `Left out: 1 link column, 1 pattern color rule.`
-- [ ] Reloading the page on a paused tab starts no execution and still shows **Run**.
-- [ ] Adding a filter to a paused tab runs the new statement and removes the pause.
-- [ ] The same view opened from the personal space runs at once and keeps both features.
+- [ ] Opening a shared-folder view starts no execution, the Generated SQL panel shows the rendered
+      statement, the status line is not "Running", and **Run** starts one execution against a
+      cold cache.
+- [ ] A shared-folder file whose view names the **opener's personal** database is held too.
+- [ ] A shared-folder view saved with one URL-link transformer and two `regex` Colors rules opens
+      without them, and the note reads `Left out: 1 link column, 2 pattern color rules.`
+- [ ] Its **Save as query** dialog opens with an empty name.
+- [ ] Reloading on a held tab starts no execution and still shows **Run**; a stored
+      `awaitingRun` of `"garbage"` reads back as held.
+- [ ] Adding a filter through **Order and filter…** on a held tab runs the new statement once and
+      ends the hold.
+- [ ] The same file listed from the personal folder runs at once, keeps both features, and is
+      linked.
 
 ### FR-005: Anything that cannot be restored is refused, with a way to Query
 
 #### Description:
 
 A file that cannot be restored opens no tab. A dialog says why and offers **Open in Query**, which
-hands the file's SQL, without any view line, to a new Query tab through `buildOpenSqlHandoff`.
-A line is recognised by its marker whatever its version, so one from a newer build is both named
-as newer and stripped.
+hands the file's SQL, without its view line, to a new Query tab through `buildOpenSqlHandoff`.
+
+Only the **last non-blank line** is read as the view line. The checks run in this order and the
+first that fails decides: the last line carries the marker (else, if an earlier line starts with
+the marker, **edited**, since text was added after it; otherwise **none**); the line splits into a
+version, a checksum and a payload (else **unreadable**); its version is 1 (else **newer**); its checksum matches (else **edited**); the payload decodes, reads strictly and
+renders within Athena's limit (else **unreadable**); its database is among the picker's spaces
+once they have settled (else **no access**).
 
 #### Acceptance Criteria:
 
-- [ ] No view line: `“{name}” has no Data Explorer view saved in it.`
-- [ ] Checksum mismatch: `“{name}” has been edited since it was saved from the Data Explorer, so
-      its view no longer describes it.`
-- [ ] A version above 1: `“{name}” was saved by a newer version of Data Quarry.`
-- [ ] A line that does not decode, fails strict validation, or whose SQL does not render:
-      `“{name}” carries a view that can’t be read.` No part of it is applied.
-- [ ] A database that is not among the picker's spaces: `You don’t have access to {database},
-      the database this view explores.`
-- [ ] A read failure shows the store's read error and opens no tab.
-- [ ] **Open in Query** lands on `/query` with a new tab holding the SQL without the view line, and
-      nothing runs.
+- [ ] None: `“{name}” has no Data Explorer view saved in it.`
+- [ ] Edited, including SQL added after the line: `“{name}” has been edited since it was saved
+      from the Data Explorer, so its view no longer describes it.`
+- [ ] Newer: `“{name}” was saved by a newer version of Data Quarry.`
+- [ ] Unreadable: `“{name}” carries a view that can’t be read.` No part of it is applied.
+- [ ] No access: `You don’t have access to {database}, the database this view explores.`
+- [ ] A marker-shaped line INSIDE the SQL (a multi-line literal) above a valid view line does not
+      disturb the parse.
+- [ ] A read failure shows a danger toast with the store's read error, leaves the drawer open,
+      and offers no **Open in Query**.
+- [ ] **Open in Query** lands on `/query` with a new tab holding the SQL without the view line,
+      and nothing runs.
 
 ### FR-006: Help and the records say it
 
 #### Description:
 
 The Data Explorer's saving guide says a saved exploration reopens through **Open saved view**,
-that a shared-space view opens paused, and that an edited file opens only in Query. The decision
+that a shared-space view opens held and unlinked, and that an edited file opens only in Query. The
 records that say otherwise are marked superseded, and a new analytics.md entry records the line
-format, the shared-space guard, and that `ExplorationQuery` and `ExplorationPresentation` are now
+format, the shared-folder guard, and that `ExplorationQuery` and `ExplorationPresentation` are now
 a file format: a change to either type needs a reader for the old shape or a new line version.
 
 #### Acceptance Criteria:
 
-- [ ] The guide's steps name **Open saved view** and the paused shared-space view; the warning
+- [ ] The guide's steps name **Open saved view** and the held shared-space view; the warning
       callout no longer says a saved exploration cannot reopen here.
 - [ ] Supersede markers naming this spec sit at: browser.md's "reopens in the Query workspace as
       SQL" paragraph, analytics.md's "SPEC-183's loaded file is a **source**, not a view state",
-      analytics.md's "the *user's own SQL* and passes through verbatim", ARCS.md's "a saved
-      exploration reloads as a query", and SPEC-183's Overview and its Out of Scope bullet on
-      metadata.
+      analytics.md's "the *user's own SQL* and passes through verbatim" (it wraps a line),
+      ARCS.md's "a saved exploration reloads as a query", and SPEC-183's Overview and its Out of
+      Scope bullet on metadata.
 - [ ] analytics.md carries the new entry, and its Fences gain one clause: a view read from a
-      shared space never runs or renders author-typed links or patterns unasked.
+      shared folder never runs, links or matches author-typed patterns unasked.
 
 ---
 
@@ -227,9 +264,10 @@ export function viewChecksum(sql: string): string;
 export type ParsedViewLine =
   | {kind: 'none'; sql: string}
   | {kind: 'newer'; sql: string; version: number}
-  | {kind: 'damaged'; sql: string}
   | {kind: 'edited'; sql: string}
-  | {kind: 'ok'; sql: string; payload: unknown};
+  | {kind: 'damaged'; sql: string} // the marker line does not split into version, checksum, payload
+  | {kind: 'ok'; sql: string; version: 1; payload: unknown};
+// A payload that will not decode is `ok` here with `payload: undefined`; meaning is the feature's.
 ```
 
 ```ts
@@ -242,7 +280,7 @@ export type SavedView = {
 };
 
 // dataExplorer.types.ts — ExplorationTab gains
-/** Set on a tab restored from a shared space until the user runs it or changes its query. */
+/** Set on a tab restored from a shared folder until the user runs it or changes its query. */
 awaitingRun?: {space: string; leftOut: {links: number; patterns: number}};
 ```
 
@@ -255,19 +293,19 @@ awaitingRun?: {space: string; leftOut: {links: number; patterns: number}};
 export function appendViewLine(sql: string, payload: unknown): string | null; // null over the limit
 export function parseViewLine(text: string): ParsedViewLine;
 
-// features/data-explorer/explorationTabs.ts — the store's own validators, exported and reused
-export function readStoredQuery(value: unknown): ExplorationQuery | null;
-export function readStoredPresentation(value: unknown): ExplorationPresentation | null; // strict: null when normalising would change it
+// features/data-explorer/explorationTabs.ts — strict reads on the store's own validators
+export function readStrictQuery(value: unknown): ExplorationQuery | null;
+export function readStrictPresentation(value: unknown): SavedView['presentation'] | null;
 
 // features/data-explorer/useExplorationTabs.ts — openTab gains a seed
 openTab(
   source: ExplorationSource,
   options?: {label?: string; seed?: Pick<Exploration, 'query' | 'presentation'>; awaitingRun?: ExplorationTab['awaitingRun']}
 ): string | null;
-```
 
-`readStoredPresentation`'s strictness applies to the saved-view path only; the tab store keeps
-its lenient read of `sessionStorage`, so this spec changes nothing about restoring a session.
+// features/data-explorer/useExploration.ts — renders the SQL, starts nothing, shows no cached rows
+useExploration(exploration: Exploration | null, options?: {hold?: boolean});
+```
 
 ---
 
@@ -276,23 +314,26 @@ its lenient read of `sessionStorage`, so this spec changes nothing about restori
 ```
 apps/portal/src/
 ├── lib/
-│   ├── savedViewLine.ts            (new)
-│   └── savedViewLine.test.ts       (new)
+│   ├── savedViewLine.ts             (new)
+│   └── savedViewLine.test.ts        (new)
 ├── features/data-explorer/
-│   ├── savedView.ts                (new: build, validate, render-check, shared-space strip)
-│   ├── savedView.test.ts           (new)
-│   ├── OpenSavedViewDrawer.tsx     (new)
-│   ├── SavedViewRefusal.tsx        (new)
-│   ├── openSavedView.test.tsx      (new: the journeys)
-│   ├── SaveExplorationDialog.tsx   (the line, the toast)
-│   ├── SourcePicker.tsx            (the control)
-│   ├── ExplorationResultsRegion.tsx (the paused body)
-│   ├── explorationTabs.ts          (validators exported; awaitingRun persisted)
-│   ├── useExplorationTabs.ts       (seed)
-│   └── DataExplorerWorkspace.tsx   (wiring; a paused tab runs nothing)
-├── features/saved-queries/useSaveQuery.ts   (success text and listing refresh)
-├── features/query/queryPure.test.ts          (the splitter criterion)
-└── features/feature-flags/gatedSurfaces.ts (+ test)
+│   ├── savedView.ts                 (new: build, strict read, render check, shared-folder strip)
+│   ├── savedView.test.ts            (new)
+│   ├── OpenSavedViewDrawer.tsx      (new)
+│   ├── SavedViewRefusal.tsx         (new)
+│   ├── openSavedView.test.tsx       (new: the journeys)
+│   ├── SaveExplorationDialog.tsx    (the line, the toast, the invalidation)
+│   ├── SourcePicker.tsx             (the control)
+│   ├── useExploration.ts            (the hold)
+│   ├── ExplorationResultsRegion.tsx (the held body, the note, the status line)
+│   ├── dataExplorer.types.ts        (awaitingRun)
+│   ├── explorationTabs.ts           (strict reads; awaitingRun normalised fail-closed)
+│   ├── useExplorationTabs.ts        (seed)
+│   ├── useExplorationQuery.ts       (apply clears the hold)
+│   └── DataExplorerWorkspace.tsx    (wiring)
+├── features/saved-queries/useSaveQuery.ts   (success text)
+├── features/query/queryPure.test.ts         (the splitter criterion)
+└── features/feature-flags/gatedSurfaces.ts  (+ test)
 ```
 
 ## Implementation Phases
@@ -301,15 +342,15 @@ Phases 1 and 2 land together: the format must not ship before a reader exists.
 
 ### Phase 1: The line and the save
 
-- `lib/savedViewLine.ts` and its tests, including every `ParsedViewLine` kind.
-- Export the store's validators; add the strict presentation read.
-- The Data Explorer save appends the line for table sources, with the size fallback, the toast
-  and the listing refresh; the splitter test in Query.
+- `lib/savedViewLine.ts` and its tests, including every `ParsedViewLine` kind and the check order.
+- The strict reads; the Data Explorer save appends the line for table sources, with the size
+  fallback, the toast and the invalidation; the splitter test in Query.
 
 ### Phase 2: Opening
 
-- `openTab` seed and `awaitingRun`; the drawer; the refusal dialog; space resolution; the
-  shared-space strip and pause; the hand-off to Query; the registry rows.
+- `openTab` seed and `awaitingRun`; the hold in `useExploration`; the drawer; the refusal dialog;
+  space resolution after the connections read settles; the shared-folder strip, hold and unlink;
+  the hand-off to Query; the registry rows.
 - The journeys from save to reopen, personal and shared, and the axe checks.
 
 ### Phase 3: Words
