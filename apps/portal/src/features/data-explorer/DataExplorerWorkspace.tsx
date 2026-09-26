@@ -29,7 +29,7 @@ import {evictSqlSource} from './useExplorationEviction';
 import {useSourceColumns} from './useSourceColumns';
 import {emptyExplorationPresentation} from './exploration';
 import type {ExploreTarget} from './exploreSources';
-import type {ExplorationSource} from './dataExplorer.types';
+import type {Exploration, ExplorationSource} from './dataExplorer.types';
 
 const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
@@ -68,7 +68,7 @@ export function DataExplorerWorkspace() {
   // Which tab, and the statement on screen, both taken at the gesture rather than read live
   // while the dialog is up. The dialog is modal, so nothing can change the active tab behind
   // it today — capturing is what keeps that a property of THIS code rather than of `Modal`.
-  const [saving, setSaving] = useState<{tabId: string; sql: string} | null>(null);
+  const [saving, setSaving] = useState<{tabId: string; sql: string; exploration: Exploration} | null>(null);
   // The statement the view will wrap and the database it lands in, both CAPTURED at the
   // gesture rather than read live while the dialog is up — the same reason `saving` is.
   const [creatingView, setCreatingView] = useState<{sql: string; database: string} | null>(null);
@@ -326,7 +326,7 @@ export function DataExplorerWorkspace() {
             queryControls={queryControls}
             onSaveQuery={() => {
               if (tabs.activeTab && exploration.sql !== null) {
-                setSaving({tabId: tabs.activeTab.id, sql: exploration.sql});
+                setSaving({tabId: tabs.activeTab.id, sql: exploration.sql, exploration: tabs.activeTab.exploration});
               }
             }}
             // A copy of the statement goes to Query in router state, never the URL, and this tab is
@@ -389,6 +389,7 @@ export function DataExplorerWorkspace() {
       {saving && (
         <SaveExplorationDialog
           sql={saving.sql}
+          exploration={saving.exploration}
           spaces={spaces}
           defaultSpace={savedSpace.space}
           link={tabs.tabs.find((tab) => tab.id === saving.tabId)?.savedQuery}

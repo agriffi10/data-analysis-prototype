@@ -10,6 +10,7 @@ import {
 import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
 import {isFilterOperator} from './explorationQueryOps';
 import type {
+  AwaitingRun,
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationSource,
@@ -383,6 +384,83 @@ function normalizePresentation(value: unknown): ExplorationPresentation {
 // Structural validation — a corrupt, old or foreign blob must never crash the page, and
 // must never be PARTIALLY applied. A half-restored exploration is worse than none: it
 // renders SQL from a description the user never built.
+/**
+ * Reads a stored hold, failing CLOSED.
+ *
+ * Absent is no hold. Present but malformed is a hold with no note: dropping it, as the
+ * saved-query link beside it is dropped, would run a statement the tab was holding back — the one
+ * direction this field exists to prevent.
+ *
+ * @param value - The stored `awaitingRun`, or anything at all.
+ * @returns The hold, or undefined when there is none.
+ */
+function normalizeAwaitingRun(value: unknown): AwaitingRun | undefined {
+  if (value === undefined) return undefined;
+  const stored = value as Record<string, unknown> | null;
+  const leftOut = (stored?.leftOut ?? null) as Record<string, unknown> | null;
+  const count = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  if (typeof stored?.space === 'string' && leftOut && count(leftOut.links) && count(leftOut.patterns)) {
+    return {space: stored.space, leftOut: {links: leftOut.links as number, patterns: leftOut.patterns as number}};
+  }
+  return {space: '', leftOut: {links: 0, patterns: 0}};
+}
+
+/**
+ * Order-insensitive structural equality over JSON-shaped values.
+ *
+ * What "unchanged by the normalisers" means for a saved view: key order is how a document was
+ * written, not what it says.
+ */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((k) => Object.hasOwn(right, k) && sameJson(left[k], right[k]))
+  );
+}
+
+/**
+ * Reads a saved view's query STRICTLY: valid, and already in the form the store keeps.
+ *
+ * The store's own read repairs what it can, because a session's tabs are worth keeping. A saved
+ * view is a file anyone with access could have changed, so one this build would have to repair
+ * is refused instead.
+ *
+ * @param value - The payload's `query`.
+ * @returns The query, or null.
+ */
+export function readStrictQuery(value: unknown): ExplorationQuery | null {
+  if (!isValidQuery(value)) return null;
+  const normalized = normalizeQuery(value as ExplorationQuery);
+  return sameJson(normalized, value) ? normalized : null;
+}
+
+/**
+ * Reads a saved view's presentation STRICTLY, without the two fields a view does not carry.
+ *
+ * @param value - The payload's `presentation`.
+ * @returns The presentation minus `valuePanelOpen` and `recordRowIndex`, or null when the store's
+ *   normaliser would default, drop or repair anything in it.
+ */
+export function readStrictPresentation(
+  value: unknown
+): Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  if (Object.hasOwn(value, 'valuePanelOpen') || Object.hasOwn(value, 'recordRowIndex')) return null;
+  const normalized: Partial<ExplorationPresentation> = normalizePresentation(value);
+  delete normalized.valuePanelOpen;
+  delete normalized.recordRowIndex;
+  return sameJson(normalized, value)
+    ? (normalized as Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>)
+    : null;
+}
+
 function isValidTabsState(value: unknown): value is ExplorationTabsState {
   if (typeof value !== 'object' || value === null) return false;
   const state = value as Record<string, unknown>;
@@ -427,6 +505,7 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
         history: normalizeHistory(tab.history),
         savedQuery: normalizeSavedQueryLink(tab.savedQuery),
         sqlSourceColumns: normalizeSqlSourceColumns(tab.sqlSourceColumns, tab.exploration.source),
+        awaitingRun: normalizeAwaitingRun(tab.awaitingRun),
         exploration: {
           ...tab.exploration,
           query: normalizeQuery(tab.exploration.query),

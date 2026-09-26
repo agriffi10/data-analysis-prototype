@@ -24,6 +24,8 @@ export type SaveQueryPayload = {
   sql: string;
   /** Set when the buffer came from a saved query — what an unchanged re-save replaces. */
   link?: SavedQueryLink;
+  /** A sentence the success toast adds after "Saved …", for something the caller left out. */
+  successNote?: string;
 };
 
 /** The pending Replace confirm: the key that already exists, and where. */
@@ -149,7 +151,8 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
       setCollision(null);
       setPending(null);
       setError(null);
-      toast.push({variant: 'success', message: `Saved “${query.name}” to ${space.label}.`});
+      const note = payload.successNote ? ` ${payload.successNote}` : '';
+      toast.push({variant: 'success', message: `Saved “${query.name}” to ${space.label}.${note}`});
     })();
   };
 

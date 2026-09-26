@@ -345,6 +345,22 @@ export type ExplorationTab = {
    * source's columns while a grouping is in force, and survive a reload.
    */
   sqlSourceColumns?: QueryColumn[];
+  /**
+   * Set on a tab reopened from a shared space's saved queries, until the user runs it or
+   * changes its query.
+   *
+   * Any member of that space can write the file, and a view's expression is raw SQL, so the tab
+   * holds its statement until asked. Stored on the tab rather than in memory so a reload does not
+   * run it either. `leftOut` counts what was not restored, for the note that says so.
+   */
+  awaitingRun?: AwaitingRun;
+};
+
+/** A held tab: the space its file came from, and what was left out of it. */
+export type AwaitingRun = {
+  /** The shared space's label; empty when a stored value was malformed. */
+  space: string;
+  leftOut: {links: number; patterns: number};
 };
 
 export type ExplorationTabsState = {
