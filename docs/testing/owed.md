@@ -239,6 +239,22 @@ need his approval, and §0's gate list does not name them.
 |---|---|---|
 | **Copy, Move and Delete still work on a file with `archive` off** | §4.14, the `archive` sitting's step 3 | With the switch thrown, copy a disposable file into a scratch folder, move the copy, and delete it, each reaching its success toast. What ran instead: all three controls present and not disabled on a selected file with the switch off. The offline pin is `archiveJourney.test.tsx`'s one-file-selection test. The premise that the switch's gate in `FileBrowser.tsx` reaches only the archive and restore booleans is a premise, not a run. |
 
+### The runs list's Partly checked tag (#889) — NOT RUN: no session could reach production
+
+#889 (merged 2026-09-26 as `ae297ed8`) keys the `/data-quality` row's tag to `hasIncompleteFigures`
+and labels it **Partly checked**; the index entry stores that flag, and an entry written before the
+merge lacks it and reads as partly checked. The unit suites and both reviews covered it, but the
+deployed page was never looked at. The in-app browser's navigation to `dataquarry.app` was refused,
+the session's auto-mode classifier refused the live-check path as a production read, and running a
+check is a submit in Andrew's account that needs his approval. So it needs a signed-in session with
+Andrew's go-ahead to run two checks.
+
+| Check | Where | What would settle it |
+|---|---|---|
+| **A clean CSV check's row has no tag** | [`e2e.md`](e2e.md) §4.6, *The runs list* | Check `dq_agree/`; its new row reads **Clean** with no **Partly checked** tag, and the link's accessible name ends *“— clean”*. |
+| **A JSON check's row carries the tag** | §4.6, *The runs list* | Check `dq_case_json/`; its row carries **Partly checked** and the name ends *“, partly checked”*. Its report's banner reads *“No issues found in what could be checked”* or *“Issues found”*, never a plain *“No issues found”*. |
+| **A row written before `ae297ed8` reads as partly checked, and nothing reads Sampled** | §4.6, *The runs list* | Any row that predates the merge carries **Partly checked**; no row anywhere on the page reads **Sampled**. Read-only: needs no new check. |
+
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
 | Check | Note |
