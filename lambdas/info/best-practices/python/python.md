@@ -34,9 +34,9 @@
 Every file is auto-formatted, linted, and type-checked — style is not hand-argued.
 
 - ✅ Run the **formatter** (`ruff format`, Black-compatible) and **linter** (`ruff`) on every file; let them own the §2/§3 mechanics. Keep both green before a PR (mirrors the repo's pre-push formatter gate). ✅ Run **`mypy`** where configured (§8).
-- ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>` / `# type: ignore[<code>]` with a short explanation when the rule name isn't self-explanatory. Searchable suppressions can be revisited.
+- ✅ Suppress a warning **narrowly and with a reason** — a line-level `# noqa: <rule>`, with a short reason after it when the rule name isn't self-explanatory, or a line-level `# type: ignore[<code>]`, which takes nothing after it because mypy then rejects the whole directive; its reason goes in the docstring (§14 has the exact shape). Searchable suppressions can be revisited.
 - 🔴 Don't blanket-disable rules for a whole file to dodge one line, and don't leave an unexplained `# noqa`. ✅ Fix the issue or justify the exception.
-- ✅ For an unused-but-required argument (callback/interface signature), delete it at the top (`del unused_arg  # Unused.`) or prefix `unused_`.
+- ✅ For an unused-but-required argument (callback/interface signature), delete it at the top (`del unused_arg`, with the reason in its `Args:` entry rather than a comment — §14) or prefix `unused_`.
 - ✅ **Style is guidance, not law:** when a rule would *reduce* readability, or clash with surrounding code or an existing (style-violating) API, **deviate and flag it** rather than churn the codebase.
 - 🔴 Don't reformat unrelated code to satisfy style inside a feature PR — it buries the real change in diff noise. **Be consistent** with the surrounding file; prefer converging on the newer style over perpetuating an old one.
 
