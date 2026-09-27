@@ -196,7 +196,7 @@ class FakeS3:
         return json.loads(self.objects[key][0])
 
 
-KEY = "feedback/2026/08/28.json"
+KEY = "feedback/year=2026/month=08/day=28/feedback_2026_08_28.json"
 
 
 def _submission(**overrides):
@@ -315,7 +315,7 @@ def test_the_day_comes_from_the_submission_not_from_this_functions_clock(s3):
 
     w.handler(_event(_submission(submittedAt="2025-01-02T23:59:59Z")), None)
 
-    assert "feedback/2025/01/02.json" in fake.objects
+    assert "feedback/year=2025/month=01/day=02/feedback_2025_01_02.json" in fake.objects
 
 
 def test_a_stamp_in_another_offset_is_resolved_to_the_utc_day(s3):

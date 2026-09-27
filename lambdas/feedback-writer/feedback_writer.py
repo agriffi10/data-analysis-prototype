@@ -165,7 +165,7 @@ def submitted_day(submitted_at):
 
 
 def day_key(day):
-    """Builds the key of one day's feedback object.
+    """Builds the key of one day's feedback object, partitioned Hive-style by year, month and day.
 
     Args:
       day: The submission's UTC date.
@@ -176,7 +176,10 @@ def day_key(day):
     Raises:
       None.
     """
-    return f"{FEEDBACK_PREFIX}/{day:%Y}/{day:%m}/{day:%d}.json"
+    return (
+        f"{FEEDBACK_PREFIX}/year={day:%Y}/month={day:%m}/day={day:%d}/"
+        f"feedback_{day:%Y}_{day:%m}_{day:%d}.json"
+    )
 
 
 def _entry(event):
