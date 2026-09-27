@@ -1,5 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
-import {identifierNeedsQuoting, quoteIdentifierIfNeeded, sqlDdlIdentifier} from '../../lib/sql';
+import {quoteIdentifierIfNeeded, sqlDdlIdentifier} from '../../lib/sql';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
@@ -204,22 +204,18 @@ export async function runStatementToCompletion(p: {
   return {success: false, error: {message: 'Polling ended unexpectedly', code: 'Timeout'}};
 }
 
-/** One part of a `SHOW CREATE TABLE` name: bare where it parses bare, backticked where it does not. */
-function ddlTablePart(name: string): string {
-  return identifierNeedsQuoting(name) ? sqlDdlIdentifier(name) : name;
-}
-
 /**
  * Fetch a table's (or view's) authoritative DDL via Athena
  * — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
  *
- * A name that parses only when quoted — the builder accepts a reserved word such as `order` — is
- * quoted in the dialect of the engine that parses the statement; every other name goes bare, as it
- * always has. `SHOW CREATE TABLE` is Hive DDL and takes backticks. `SHOW CREATE VIEW` is parsed by
- * Trino and takes double quotes: Athena returns a view's DDL for `db."v"` and refuses `` db.`v` ``
- * as a syntax error.
+ * Each statement quotes in the dialect of the engine that parses it. `SHOW CREATE TABLE` is Hive
+ * DDL, and every part is backticked, as `DROP` does: Hive reserves words the query list does not,
+ * and bare `db.exchange` is a syntax error where `` `db`.`exchange` `` is not. `SHOW CREATE VIEW` is
+ * parsed by Trino and takes double quotes: Athena returns a view's DDL for `db."v"` and refuses
+ * `` db.`v` `` as a syntax error. There a name is quoted only when it needs it, so an ordinary one
+ * goes bare.
  */
 export async function getTableDdl(p: {
   database: string;
@@ -231,7 +227,7 @@ export async function getTableDdl(p: {
   const done = await runStatementToCompletion({
     sql: p.isView
       ? `${verb} ${quoteIdentifierIfNeeded(p.database)}.${quoteIdentifierIfNeeded(p.table)}`
-      : `${verb} ${ddlTablePart(p.database)}.${ddlTablePart(p.table)}`,
+      : `${verb} ${sqlDdlIdentifier(p.database)}.${sqlDdlIdentifier(p.table)}`,
     database: p.database,
     username: p.username
   });

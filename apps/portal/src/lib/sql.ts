@@ -49,8 +49,8 @@ export function sqlIdentifier(name: string): string {
 }
 
 /**
- * Backtick-quotes an identifier for a **DDL** statement — `DROP TABLE`, `DROP VIEW` — with any
- * embedded backtick doubled.
+ * Backtick-quotes an identifier for a **DDL** statement — `DROP TABLE`, `DROP VIEW`,
+ * `SHOW CREATE TABLE` — with any embedded backtick doubled.
  *
  * The sibling of {@link sqlIdentifier} and never a substitute for it. Athena runs the two
  * halves of SQL through different parsers: DDL is Hive, where a backtick is the identifier
@@ -224,6 +224,6 @@ export function quoteIdentifierIfNeeded(part: string): string {
  * @param part - One identifier part, unquoted.
  * @returns True when the part must be quoted to name what it says.
  */
-export function identifierNeedsQuoting(part: string): boolean {
+function identifierNeedsQuoting(part: string): boolean {
   return !BARE_IDENTIFIER_RE.test(part) || ATHENA_RESERVED_KEYWORDS.has(part.toUpperCase());
 }
