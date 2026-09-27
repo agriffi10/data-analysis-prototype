@@ -437,6 +437,37 @@ export function validateLeafName(name: string, label: string): string | null {
 }
 
 /**
+ * The leaf rules under the caller's noun, then the name-only `system_settings` refusal, which
+ * `validateFolderName` and `validateFileName` share.
+ *
+ * @param name - The proposed leaf name.
+ * @param label - Sentence-initial noun for the leaf rules' message.
+ * @returns An error message, or null when the name is valid.
+ */
+function validateReservedLeaf(name: string, label: string): string | null {
+  const leaf = validateLeafName(name, label);
+  if (leaf !== null) return leaf;
+  if (name === SYSTEM_SETTINGS_FOLDER)
+    return `“${SYSTEM_SETTINGS_FOLDER}” is a folder the app manages. Pick another name.`;
+  return null;
+}
+
+/**
+ * Validates the name a FILE takes — a rename, a same-folder copy, a conflict's new name, saved
+ * results. Returns an error message, or null if valid.
+ *
+ * `validateFolderName`'s name rules, the leaf rules' message naming a file, and none of its parent checks:
+ * a file named like one of the app's folders is not that folder. The name-only `system_settings`
+ * refusal stays although the plane would accept that name for a file, so no path that refused it
+ * starts accepting it; the upload collision prompt, which calls `validateLeafName`, never refused it.
+ *
+ * @param name - The proposed leaf name.
+ */
+export function validateFileName(name: string): string | null {
+  return validateReservedLeaf(name, 'File name');
+}
+
+/**
  * Validates a new folder name before any request. Returns an error message, or null if valid.
  *
  * Refuses `system_settings` on top of the leaf rules, because that folder is the app's: it holds
@@ -470,24 +501,20 @@ export function validateLeafName(name: string, label: string): string | null {
  * **Only a caller that passes the parent gets either check, and that is worth stating plainly
  * rather than discovering.** Create-folder passes it twice: its dialog, for the inline reason, and
  * `createFolder`, which knows the exact prefix it writes into and so also covers a collision's
- * Rename. Rename, the same-folder copy name and a conflict's new name pass it for a FOLDER only —
- * a file named like one of these is not that folder, and nothing downstream refuses it. Those three
- * still call this for a file, so the name-only `system_settings` refusal reaches a file there, which
- * the plane would accept; that predates the parent checks and is left as it was. A caller
- * that validates the name alone does not get it, and neither does an upload, which creates folders
- * without calling this at all. This is a courtesy on the path a user actually takes, not a
- * boundary — read as a boundary it would be worse than absent, because someone downstream would
- * stop looking for the real one.
+ * Rename. Rename, the same-folder copy name and a conflict's new name pass it for a FOLDER, and
+ * call `validateFileName` for a file — a file named like one of these is not that folder, and
+ * nothing downstream refuses it. A caller that validates the name alone does not get it, and
+ * neither does an upload, which creates folders without calling this at all. This is a courtesy on
+ * the path a user actually takes, not a boundary — read as a boundary it would be worse than
+ * absent, because someone downstream would stop looking for the real one.
  *
  * @param name - The proposed leaf name.
  * @param parentPrefix - The prefix the folder would land in, when the caller knows it. Omitted,
  *   only the name rules apply.
  */
 export function validateFolderName(name: string, parentPrefix?: string): string | null {
-  const leaf = validateLeafName(name, 'Folder name');
-  if (leaf !== null) return leaf;
-  if (name === SYSTEM_SETTINGS_FOLDER)
-    return `“${SYSTEM_SETTINGS_FOLDER}” is a folder the app manages. Pick another name.`;
+  const rules = validateReservedLeaf(name, 'Folder name');
+  if (rules !== null) return rules;
   if (parentPrefix === undefined) return null;
   if (
     parentPrefix.replace(/\/$/, '').split('/').pop() === SYSTEM_SETTINGS_FOLDER &&
@@ -511,8 +538,8 @@ export function validateFolderName(name: string, parentPrefix?: string): string 
  * complaint.
  *
  * @param name - The proposed leaf name.
- * @param parentPrefix - Where the folder lands. Omitted — a file, or a destination the caller does
- *   not know — only `validateFolderName`'s name rules apply.
+ * @param parentPrefix - Where the folder lands. Omitted — a destination the caller does not know —
+ *   only `validateFolderName`'s name rules apply.
  */
 export function validateFolderNameForPlane(name: string, parentPrefix?: string): string | null {
   const rules = validateFolderName(name, parentPrefix);

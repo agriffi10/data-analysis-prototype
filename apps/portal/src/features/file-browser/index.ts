@@ -43,6 +43,7 @@ export {
   folderExists,
   uploadFile,
   createFolder,
+  validateFileName,
   validateFolderName,
   validateLeafName,
   uploadPercent,

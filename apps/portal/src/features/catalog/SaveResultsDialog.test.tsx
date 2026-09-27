@@ -122,7 +122,7 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     await user.clear(name);
     await user.type(name, 'bad/name');
     expect(screen.getByRole('button', {name: 'Save here'})).toBeDisabled();
-    expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
+    expect(name).toHaveAccessibleDescription('File name cannot contain “/”.');
   });
 
   it('re-extensions the name for the chosen format and announces the wait on the button', async () => {

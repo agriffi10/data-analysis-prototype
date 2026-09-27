@@ -3,7 +3,7 @@ import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {OperationOutcomeBanner} from './OperationSummaryBanner';
-import {validateFolderNameForPlane} from './fileBrowser.service';
+import {validateFileName, validateFolderNameForPlane} from './fileBrowser.service';
 import {conflictKind} from './fileOps.request';
 import type {FileOpConflicts} from './useFileOpConflicts';
 
@@ -39,10 +39,8 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
   const one = results.length === 1;
   // The rename shape: one item, carrying the name the user typed. `targetName` is the only
   // source for it — the plane sends it back precisely so this can be offered.
-  const renameTarget = results.length === 1 ? payload.conflicts?.[0]?.targetName : undefined;
-  // A renamed FOLDER lands in the destination, so its new name is checked there before it is re-sent.
-  const renamed = payload.conflicts?.[0];
-  const renameParent = renamed && conflictKind(renamed) === 'folder' ? payload.destination?.prefix : undefined;
+  const renamed = results.length === 1 ? payload.conflicts?.[0] : undefined;
+  const renameTarget = renamed?.targetName;
 
   if (confirmingOverwrite) {
     return (
@@ -71,11 +69,12 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
     );
   }
 
-  if (renaming && renameTarget !== undefined) {
+  if (renaming && renamed?.targetName !== undefined) {
     return (
       <RenameAwayDialog
-        current={renameTarget}
-        parentPrefix={renameParent}
+        current={renamed.targetName}
+        kind={conflictKind(renamed)}
+        parentPrefix={payload.destination?.prefix}
         busy={busy}
         onSubmit={onResolve}
         onCancel={() => setRenaming(false)}
@@ -132,13 +131,15 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
  */
 function RenameAwayDialog({
   current,
+  kind,
   parentPrefix,
   busy,
   onSubmit,
   onCancel
 }: {
   current: string;
-  /** Where a renamed folder lands; absent for a file, which the parent-dependent rules skip. */
+  kind: 'file' | 'folder';
+  /** Where the item lands, when the payload names it. A folder's new name is checked there before it is re-sent. */
   parentPrefix?: string;
   busy: boolean;
   onSubmit: (choice: ConflictResolution) => void;
@@ -146,7 +147,7 @@ function RenameAwayDialog({
 }) {
   const [name, setName] = useState(current);
   const inputRef = useRef<HTMLInputElement>(null);
-  const validationError = validateFolderNameForPlane(name, parentPrefix);
+  const validationError = kind === 'file' ? validateFileName(name) : validateFolderNameForPlane(name, parentPrefix);
 
   return (
     <FormDialog

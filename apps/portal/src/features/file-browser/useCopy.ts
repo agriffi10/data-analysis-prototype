@@ -2,7 +2,7 @@ import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
-import {copyObject, firstFreeName, validateFolderNameForPlane} from './fileBrowser.service';
+import {copyObject, firstFreeName, validateFileName, validateFolderNameForPlane} from './fileBrowser.service';
 import {leafName, folderParts} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
 import type {BulkOperationState} from './fileBrowser.types';
@@ -165,11 +165,10 @@ export function useCopy(bucket: string, username?: string): UseCopyResult {
     }
 
     // A folder's name is checked where it lands; a file's by the name rules alone.
-    const parent = isFile ? undefined : destPrefix;
     setSameFolderPrompt({
       kind: item.type,
       proposedName: proposed.data,
-      validate: (name) => validateFolderNameForPlane(name, parent)
+      validate: isFile ? validateFileName : (name) => validateFolderNameForPlane(name, destPrefix)
     });
   }
 

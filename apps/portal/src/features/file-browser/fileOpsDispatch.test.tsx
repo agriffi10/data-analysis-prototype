@@ -256,7 +256,8 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     expect(mock.copyObject.mock.calls[0][0]).toMatchObject({destKey: 'alice/notes (1).txt'});
   });
 
-  // A FILE named like the app's folder is not that folder, and nothing downstream refuses it.
+  // A FILE named like the app's folder is not that folder, and nothing downstream refuses it, but
+  // `system_settings` is refused by name alone, and a file's refusal names a file.
   it.each([
     {
       label: 'folder docs',
@@ -272,7 +273,15 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
       value: 'user_settings',
       refusal: '“user_settings” is a name the app keeps for its own folders. Pick another name.'
     },
-    {label: 'notes.txt', prefix: 'alice/', opens: [], value: 'shared_tables', refusal: null}
+    {label: 'notes.txt', prefix: 'alice/', opens: [], value: 'shared_tables', refusal: null},
+    {
+      label: 'notes.txt',
+      prefix: 'alice/',
+      opens: [],
+      value: 'system_settings',
+      refusal: '“system_settings” is a folder the app manages. Pick another name.'
+    },
+    {label: 'notes.txt', prefix: 'alice/', opens: [], value: 'a/b', refusal: 'File name cannot contain “/”.'}
   ])(
     'checks the name a copy of $label would land under as “$value” in $prefix',
     async ({label, prefix, opens, value, refusal}) => {
@@ -616,7 +625,8 @@ describe('the conflict round trip', () => {
   });
 
   // A renamed FOLDER lands in the payload's destination, so its new name is checked there first. The
-  // source sits below the top of its space, so only the destination can refuse the name.
+  // source sits below the top of its space, so only the destination can refuse the name. A FILE's
+  // new name takes the name rules alone, `system_settings` included, and its refusal names a file.
   it.each([
     {
       conflict: {itemKey: 'finance/reports/q1/', kind: 'folder', targetName: 'q1'},
@@ -635,6 +645,18 @@ describe('the conflict round trip', () => {
       prefix: 'alice/',
       value: 'shared_tables',
       refusal: null
+    },
+    {
+      conflict: {itemKey: 'finance/reports/q1', kind: 'file', targetName: 'q1'},
+      prefix: 'alice/',
+      value: 'system_settings',
+      refusal: '“system_settings” is a folder the app manages. Pick another name.'
+    },
+    {
+      conflict: {itemKey: 'finance/reports/q1', kind: 'file', targetName: 'q1'},
+      prefix: 'alice/',
+      value: 'a/b',
+      refusal: 'File name cannot contain “/”.'
     }
   ])(
     'checks a $conflict.kind’s new name “$value” where the destination $prefix would put it',

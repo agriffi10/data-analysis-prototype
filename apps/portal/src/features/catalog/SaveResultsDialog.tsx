@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
-import {DestinationPicker, validateFolderName} from '../file-browser';
+import {DestinationPicker, validateFileName} from '../file-browser';
 import {SpaceSelect} from '../../components/SpaceSelect';
 import {useFeature} from '../feature-flags';
 import {normalizeResultsName, RESULTS_FORMATS} from './catalog.format';
@@ -79,7 +79,7 @@ export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCa
   const space = spaces.find((s) => s.id === spaceId) ?? spaces[0];
 
   // Reuse the file-browser leaf-name validation (no '/', control chars, etc.).
-  const nameError = validateFolderName(name.trim());
+  const nameError = validateFileName(name.trim());
   const nameValid = nameError === null;
 
   if (!space) return null;

@@ -10,6 +10,7 @@ import {
   firstFreeName,
   uploadFile,
   createFolder,
+  validateFileName,
   validateFolderName,
   validateFolderNameForPlane,
   validateLeafName,
@@ -580,6 +581,15 @@ describe('uploadPercent', () => {
 describe('validateFolderName', () => {
   it('accepts a normal name', () => {
     expect(validateFolderName('reports')).toBeNull();
+  });
+});
+
+describe('validateFileName', () => {
+  it('names a file in its refusal and keeps the name-only system_settings refusal', () => {
+    expect(validateFileName('a/b')).toBe('File name cannot contain “/”.');
+    expect(validateFileName(SYSTEM_SETTINGS_FOLDER)).toBe(
+      '“system_settings” is a folder the app manages. Pick another name.'
+    );
   });
 });
 
