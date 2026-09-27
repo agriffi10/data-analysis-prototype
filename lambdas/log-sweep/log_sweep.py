@@ -55,7 +55,6 @@ Attributes:
   ADMIN_BUCKET: Destination bucket, set by Terraform.
   LOGS_QUEUE_URL: Source queue, set by Terraform.
   LOGS_PREFIX: Root prefix for the partitioned layout.
-  DAY_OBJECT: The per-day object's basename.
   SERVICE_RE: The service name rule. A service becomes part of an S3 key and arrives inside a
     message body, so it is untrusted input on a path — the same class of surface every
     validate-authorize verb exists to police.
@@ -144,7 +143,6 @@ logger.addFilter(_SweepIdFilter())
 ADMIN_BUCKET = os.environ.get("ADMIN_BUCKET", "")
 LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 LOGS_PREFIX = "logs"
-DAY_OBJECT = "data.jsonl"
 
 SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{2,62}$")
 
@@ -277,7 +275,10 @@ def _day_key(service, year, month, day):
 
     The service is a partition column like the date parts, so an Athena table over the log
     prefix can prune on it — the reason it is a partition assignment rather than a bare
-    directory.
+    directory. The basename repeats the service and the date, so an object copied out of its
+    prefix still says what it holds. It drops the unrouted partition's leading underscore,
+    because Athena treats a file whose name starts with one as hidden and would read nothing
+    there.
 
     Args:
       service: The service name.
@@ -291,7 +292,10 @@ def _day_key(service, year, month, day):
     Raises:
       None.
     """
-    return f"{LOGS_PREFIX}/service={service}/year={year}/month={month}/day={day}/{DAY_OBJECT}"
+    return (
+        f"{LOGS_PREFIX}/service={service}/year={year}/month={month}/day={day}/"
+        f"{service.lstrip('_')}_logs_{year}_{month}_{day}.jsonl"
+    )
 
 
 def _read_day(key):

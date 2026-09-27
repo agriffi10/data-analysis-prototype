@@ -551,7 +551,7 @@ recovered from the records' own `timestamp`/`log_id`, not from delivery.
 > runs.** The queue is now **FIFO** (`log-foundry` 0.5.0 removed the `MessageGroupId` constraint). SPEC-129 grouped it by
 > service, and **that grouping was itself reversed on 2026-09-11** — one group per event, because a group per service was the
 > sweep's ceiling (`decisions/control-planes.md`, *The logs queue is grouped per event*). The sweep is on a **10-minute** schedule, and the layout is **one appended object per service-day** at
-> `logs/service={s}/year=/month=/day=/data.jsonl` — so every write is an ETag-CAS read-modify-write. Read this paragraph as
+> `logs/service={s}/year=/month=/day=/{s}_logs_{y}_{m}_{d}.jsonl` (`data.jsonl` in partitions written before that rename) — so every write is an ETag-CAS read-modify-write. Read this paragraph as
 > history; `decisions/` and `spec-delivery/SPEC-129` carry the current shape. Delivery is a **pull, not a push**, for the reason
 #270/#271 already established: an event-source mapping or Pipe idle-long-polls a queue that is empty almost always, and that
 idle polling was the bulk of the account's SQS volume — so the sweep short-polls (`WaitTimeSeconds=0`) explicitly, since a

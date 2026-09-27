@@ -312,6 +312,18 @@ def _by_message(sink, message):
     return [e for e in sink.events if e["message"] == message]
 
 
+def _day(service):
+    """Spells one service's day-object key for the date `_event` stamps by default.
+
+    Args:
+      service: The service partition.
+
+    Returns:
+      The object key.
+    """
+    return f"logs/service={service}/year=2026/month=07/day=22/{service}_logs_2026_07_22.jsonl"
+
+
 # -- FR-005: routing, and the key-injection surface -------------------------------------
 
 
@@ -321,8 +333,9 @@ def test_well_formed_event_lands_under_its_service_and_the_events_own_hour(wired
     log_sweep.handler({}, None)
 
     assert len(s3.puts) == 1
-    assert s3.puts[0]["Key"] == "logs/service=data-quality/year=2026/month=07/day=22/data.jsonl"
-    assert s3.puts[0]["Key"].endswith("/data.jsonl")
+    assert s3.puts[0]["Key"] == (
+        "logs/service=data-quality/year=2026/month=07/day=22/data-quality_logs_2026_07_22.jsonl"
+    )
 
 
 def test_service_path_traversal_cannot_escape_the_logs_prefix(wired):
@@ -356,6 +369,8 @@ def test_unroutable_bodies_go_to_unrouted_and_are_deleted(wired, body, why):
     log_sweep.handler({}, None)
 
     assert s3.puts[0]["Key"].startswith("logs/service=_unrouted/"), why
+    basename = s3.puts[0]["Key"].rsplit("/", 1)[1]
+    assert basename.startswith("unrouted_logs_"), f"{why}: Athena hides a file named _…"
     assert sqs.deleted == ["r1"], f"{why}: must be deleted, or it poison-loops every 5 minutes"
 
 
@@ -380,7 +395,7 @@ def test_a_losing_cas_race_re_reads_and_keeps_both_writers_events(wired, monkeyp
     The fake fails the first conditional PUT the way S3 does (412), after mutating the object
     underneath — exactly the interleaving that makes a naive read-modify-write lose data.
     """
-    key = "logs/service=data-quality/year=2026/month=07/day=22/data.jsonl"
+    key = _day("data-quality")
     sqs, s3 = wired([[_message(_event(service="data-quality", ts="2026-07-22T10:00:00Z"), "a")]])
     s3.objects[key] = (b'{"log_id":"pre-existing"}\n', '"etag-0"')
 
@@ -615,8 +630,6 @@ def test_a_sweep_running_out_of_time_stops_on_the_reserve(fifo, captured, reject
 
 
 # -- The sweep's own volume: set by destinations, never by waves -------------------------
-
-DAY = "year=2026/month=07/day=22/data.jsonl"
 
 
 class DegradedS3(FakeS3):
@@ -877,8 +890,8 @@ def test_a_sweep_emits_the_same_events_however_many_waves_it_takes(monkeypatch, 
             exhausted={"table-share"},
             broken={"file-ops"},
         )
-        s3.objects[f"logs/service=data-quality/{DAY}"] = (b"x" * 64 * 1024 + b"\n", '"seed"')
-        s3.objects[f"logs/service=archive/{DAY}"] = (b"x" * 64 * 1024, '"seed"')
+        s3.objects[_day("data-quality")] = (b"x" * 64 * 1024 + b"\n", '"seed"')
+        s3.objects[_day("archive")] = (b"x" * 64 * 1024, '"seed"')
         monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
         monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
         result = log_sweep.handler({}, _Plenty())
@@ -969,7 +982,7 @@ def test_a_destination_that_failed_on_some_waves_and_landed_on_another_reports_b
 
     result = log_sweep.handler({}, None)
 
-    key = f"logs/service=data-quality/{DAY}"
+    key = _day("data-quality")
     assert result["waves"] == 3
     assert [
         (e["fields"]["key"], e["fields"]["events"], e["fields"]["writes"])
@@ -1017,7 +1030,7 @@ def test_a_receive_fault_after_a_wave_still_reports_what_that_wave_wrote(monkeyp
 
     assert sorted(
         (e["fields"]["key"], e["fields"]["events"]) for e in _by_message(captured, "appended")
-    ) == [(f"logs/service=archive/{DAY}", 5), (f"logs/service=data-quality/{DAY}", 5)]
+    ) == [(_day("archive"), 5), (_day("data-quality"), 5)]
     undeleted = _by_message(captured, "delete failed; events will be appended again next sweep")
     assert [e["fields"]["events"] for e in undeleted] == [10]
 

@@ -1131,7 +1131,7 @@ The scale reads:
 aws s3 ls --recursive --summarize "s3://dat-prod-user-space/$PORTAL_USER/<source-prefix>/" | tail -3
 
 # One event per run carries the recipient and item counts.
-aws s3 cp "s3://dat-prod-athena-admin/logs/service=table-share/year=<Y>/month=<M>/day=<D>/data.jsonl" - \
+aws s3 cp "s3://dat-prod-athena-admin/logs/service=table-share/year=<Y>/month=<M>/day=<D>/table-share_logs_<Y>_<M>_<D>.jsonl" - \
   | grep 'transfer manifest built'
 
 # The 100-column clone survived the pointer, comments and all.
