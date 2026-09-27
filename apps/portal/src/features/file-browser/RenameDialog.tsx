@@ -15,13 +15,16 @@ type Props = {
 };
 
 // Split a file name into its editable base and its locked extension. The
-// extension is everything from the LAST dot; a dotless name or a dotfile
-// (leading-dot "hidden" file, e.g. ".env") has no extension — the whole name is
-// editable. Folders never have an extension.
+// extension is everything from the LAST dot, less any trailing whitespace, which
+// no name may end in. A dotless name, a dotfile (leading-dot "hidden" file, e.g.
+// ".env"), or a suffix the file-name rules refuse on its own — a bare dot, which
+// is no file type, or one holding a control character, which no name can keep —
+// has no extension: the whole name is editable. Folders never have an extension.
 function splitFileName(name: string): {base: string; ext: string} {
   const dot = name.lastIndexOf('.');
-  if (dot <= 0) return {base: name, ext: ''};
-  return {base: name.slice(0, dot), ext: name.slice(dot)};
+  const ext = name.slice(dot).trimEnd();
+  if (dot <= 0 || validateFileName(ext) !== null) return {base: name, ext: ''};
+  return {base: name.slice(0, dot), ext};
 }
 
 /**
@@ -32,7 +35,8 @@ function splitFileName(name: string): {base: string; ext: string} {
  * is prefilled with the current name and the Rename action is disabled until the
  * name is valid and changed. For a file WITH an extension, only the base name is
  * editable — the extension is held fixed and re-appended on submit so a rename
- * can't accidentally change (or drop) the file type.
+ * can't accidentally change (or drop) the file type. A name ending in whitespace
+ * (`notes.txt `) keeps `.txt` and loses the whitespace, which no name may end in.
  *
  * @example
  * <RenameDialog kind="folder" currentName="reports" parentPrefix="alice/" isBusy={rename.isPending} onRename={submit} onCancel={close} />

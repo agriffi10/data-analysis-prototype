@@ -219,6 +219,25 @@ describe('RenameDialog', () => {
       expect(onRename).toHaveBeenCalledWith('final.pdf');
     });
 
+    // The locked extension drops trailing whitespace, which no name may end in; a bare dot is no
+    // file type and a control character no valid name can keep, so either leaves the name editable.
+    it.each([
+      {end: 'a space', currentName: 'notes.txt ', prefill: 'notes', submitted: 'final.txt'},
+      {end: 'a bare dot', currentName: 'notes.', prefill: 'notes.', submitted: 'final'},
+      {end: 'a control character', currentName: 'notes.txt\x07', prefill: 'notes.txt\x07', submitted: 'final'}
+    ])('renames a file whose name ends in $end', async ({currentName, prefill, submitted}) => {
+      const user = userEvent.setup();
+      const {onRename} = setup({currentName});
+      const field = screen.getByLabelText(/new name/i) as HTMLInputElement;
+      expect(field.value).toBe(prefill);
+      await user.clear(field);
+      await user.type(field, 'final');
+      const btn = screen.getByRole('button', {name: /^rename$/i});
+      expect(btn).toBeEnabled();
+      await user.click(btn);
+      expect(onRename).toHaveBeenCalledWith(submitted);
+    });
+
     it('lets a folder name be edited in full (no locked extension)', () => {
       const onRename = vi.fn();
       render(
