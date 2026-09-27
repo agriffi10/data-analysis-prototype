@@ -1678,9 +1678,10 @@ exists to notice a death is the writer's invocation-error metric and the message
 same reason: a guarantee that ends at the queue needs nothing more than that metric and the kept
 messages. An alarm would also tell nobody, because the fleet's one alarm carries no action by
 decision (`infra/modules/observability/alarm.tf`), so one here would be a console state and nothing
-else. And since the writer appends past a day-file line it cannot parse, a bad line dead-letters
-nothing; what still does is a CAS race lost on every attempt, an S3 fault, or a message the writer
-refuses.
+else. Since the writer appends past a day-file line it cannot parse, a bad line no longer
+dead-letters anything; a failed invocation still does, and a failure that repeats — an
+out-of-memory kill on a large day, sized against rather than watched
+(`infra/modules/feedback/lambda.tf`) — takes the rest of that day with it.
 
 **The writer holds no `s3:ListBucket`, which inverts the fleet's usual rule and is safe for one
 specific reason.** A role that cannot list a bucket cannot be told an object is absent — S3
