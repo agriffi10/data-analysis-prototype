@@ -10,6 +10,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {AuthContext} from '../auth/authContext';
 import {authValue} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 
 // ─── from UsernameChipsField.test.tsx ───
 vi.mock('./userDirectory.service', () => ({
@@ -96,7 +97,7 @@ describe('UsernameChipsField', () => {
       await user.keyboard('carol{Enter}');
 
       expect(chipNames()).toEqual(['carol']);
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(field()).not.toBeInvalid();
     });
 
     it('hides already-committed names from the suggestions', async () => {
@@ -200,7 +201,7 @@ describe('UsernameChipsField', () => {
 
       expect(chipNames()).toEqual(['bob', 'carol']);
       expect(field()).toHaveValue('alice@corp.com');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use 3–63 characters');
+      expect(field()).toHaveAccessibleDescription(/Use 3–63 characters/);
     });
 
     it('handles a paste mixing valid, invalid, duplicate and excluded names', async () => {
@@ -218,7 +219,18 @@ describe('UsernameChipsField', () => {
       // carol committed; bob a silent duplicate; alice refused; 9lives left to fix.
       expect(chipNames()).toEqual(['bob', 'carol']);
       expect(field()).toHaveValue('9lives');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use 3–63 characters');
+      expect(field()).toHaveAccessibleDescription(/Use 3–63 characters/);
+    });
+
+    it('speaks a paste’s refusal after typing, since the paste raised it, not the typing', async () => {
+      const {user} = renderWithProviders(<Harness />);
+      await user.click(field());
+      await user.keyboard('dave');
+
+      await user.paste(', alice@corp.com');
+
+      expect(chipNames()).toEqual(['dave']);
+      expect(politeAnnouncements()).toContainEqual(expect.stringMatching(/^Usernames: Use 3–63 characters/));
     });
 
     it('leaves a single-name paste in the input to be edited', async () => {
@@ -244,7 +256,7 @@ describe('UsernameChipsField', () => {
       await user.keyboard('alice{Enter}');
 
       expect(chipNames()).toEqual([]);
-      expect(screen.getByRole('alert')).toHaveTextContent('alice is already a member.');
+      expect(field()).toHaveAccessibleDescription(/alice is already a member\./);
     });
 
     it('keeps excluded names out of the suggestions', async () => {

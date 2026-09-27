@@ -8,6 +8,7 @@ import {QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {AuthContext} from '../auth/authContext';
 import {authValue} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {ManageMembersDrawer} from './ManageMembersDrawer';
 import type {ReactElement} from 'react';
 import userEvent from '@testing-library/user-event';
@@ -139,9 +140,11 @@ describe('AddMembersDialog', () => {
           .map((li) => li.textContent)
       ).toEqual(['bob', 'dave']);
       expect(field()).toHaveValue('1bad');
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveTextContent('Use 3–63 characters');
-      expect(alert).toHaveTextContent('cara is already a member of this space.');
+      expect(field()).toHaveAccessibleDescription(/Use 3–63 characters.*cara is already a member of this space\./);
+      // Spoken, though the commit rewrote the field's value in the same render as the refusal.
+      expect(politeAnnouncements()).toContainEqual(
+        expect.stringMatching(/^Usernames: Use 3–63 characters.*cara is already a member of this space\.$/)
+      );
     });
 
     it('no longer claims unknown usernames are ignored', async () => {

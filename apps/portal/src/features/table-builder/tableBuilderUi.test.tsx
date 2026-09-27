@@ -1,11 +1,13 @@
 import {describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {CreateTableDialog} from './CreateTableDialog';
 import {PartitionKeysField} from './PartitionKeysField';
 import {buildPartitionKey, buildPartitionKeys, emptyDraftKey, parseValues, validateDraftKey} from './partitionKeys';
 import type {DraftPartitionKey} from './partitionKeys';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {RefreshTableDialog} from './RefreshTableDialog';
 import {parseRefreshLink} from './tableRefresh.link';
 import {parseTableLocation} from './tableRefresh.location';
@@ -42,7 +44,7 @@ describe('CreateTableDialog', () => {
       renderDialog();
       fireEvent.change(nameInput(), {target: {value: 'Bad Name'}});
       expect(createBtn()).toBeDisabled();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(nameInput()).toBeInvalid();
     });
 
     it('submits a flat request (no partition keys) with the entered name', () => {
@@ -139,15 +141,17 @@ describe('CreateTableDialog', () => {
   });
 
   describe('CreateTableDialog — when a key’s errors are announced', () => {
-    it('shows a blank key’s errors without announcing them, and holds Create', () => {
+    it('shows a blank key’s errors without announcing them, and holds Create', async () => {
+      // A real click, so focus is on the button rather than still in the table name field.
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       renderDialog();
 
-      fireEvent.click(addKeysBtn());
+      await user.click(addKeysBtn());
 
       expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
       expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Enter a key name.');
       expect(screen.getByText('Enter at least one value.')).toBeVisible();
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(politeAnnouncements()).toEqual([]);
       expect(createBtn()).toBeDisabled();
     });
 
@@ -161,11 +165,11 @@ describe('CreateTableDialog', () => {
       fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'integer'}});
       fireEvent.change(screen.getByLabelText('Type'), {target: {value: 'string'}});
 
-      expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual(['Enter a key name.']);
+      expect(politeAnnouncements()).toEqual(['Partition key 1 name: Enter a key name.']);
       expect(screen.getByLabelText('Partition key 1 values')).toHaveAccessibleDescription('Enter at least one value.');
     });
 
-    it('does not hand a left field’s alert to the row that slides up when an earlier one is removed', () => {
+    it('moves focus to the row that slides up when an earlier one is removed, and says nothing', () => {
       renderDialog();
       fireEvent.click(addKeysBtn());
       fireEvent.blur(screen.getByLabelText('Partition key 1 name'));
@@ -174,7 +178,23 @@ describe('CreateTableDialog', () => {
       fireEvent.click(screen.getByRole('button', {name: 'Remove partition key 1'}));
 
       expect(screen.getByLabelText('Partition key 1 name')).toHaveFocus();
+      expect(politeAnnouncements()).toEqual([]);
+    });
+
+    it('keeps another row’s duplicate silent while the user types, and speaks their own on leaving', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      renderDialog();
+      await user.click(addKeysBtn());
+      await user.type(screen.getByLabelText('Partition key 1 name'), 'region');
+      await user.click(screen.getByRole('button', {name: 'Add another key'}));
+
+      await user.type(screen.getByLabelText('Partition key 2 name'), 'region');
+
+      expect(screen.getByLabelText('Partition key 1 name')).toHaveAccessibleDescription('Duplicate key name.');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(politeAnnouncements()).toEqual([]);
+      await user.tab();
+      expect(politeAnnouncements()).toEqual(['Partition key 2 name: Duplicate key name.']);
     });
   });
 

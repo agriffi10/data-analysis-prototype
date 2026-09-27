@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
 import {act, fireEvent, render, renderHook, screen} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {BatchOverwritePrompt} from './BatchOverwritePrompt';
 import {CollisionPrompt} from './CollisionPrompt';
 import {CreateFolderDialog} from './CreateFolderDialog';
@@ -110,7 +111,8 @@ describe('CreateFolderDialog', () => {
       fireEvent.click(screen.getByRole('button', {name: /^create$/i}));
 
       expect(onCreate).not.toHaveBeenCalled();
-      expect(screen.getByRole('alert')).toHaveTextContent(/\//);
+      expect(screen.getByLabelText(/folder name/i)).toHaveAccessibleDescription(/\//);
+      expect(politeAnnouncements()).toEqual(['Folder name cannot contain “/”.']);
     });
   });
 });
@@ -240,7 +242,7 @@ describe('RenameDialog', () => {
       fireEvent.change(screen.getByLabelText(/new name/i), {
         target: {value: 'a/b'}
       });
-      expect(screen.getByRole('alert')).toHaveTextContent('/');
+      expect(screen.getByLabelText(/new name/i)).toHaveAccessibleDescription(/\//);
       expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
     });
 
@@ -261,8 +263,10 @@ describe('RenameDialog', () => {
       {kind: 'file' as const, parentPrefix: 'alice/', value: 'shared_tables', refusal: null}
     ])('checks a $kind renamed to “$value” in $parentPrefix', ({kind, parentPrefix, value, refusal}) => {
       setup({kind, currentName: 'notes', parentPrefix});
-      fireEvent.change(screen.getByLabelText(/new name/i), {target: {value}});
-      expect(screen.queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      const field = screen.getByLabelText(/new name/i);
+      fireEvent.change(field, {target: {value}});
+      expect(field).toHaveAccessibleDescription(refusal ?? '');
+      expect(field.hasAttribute('aria-invalid')).toBe(refusal !== null);
       expect(screen.getByRole('button', {name: /^rename$/i})).toHaveProperty('disabled', refusal !== null);
     });
   });

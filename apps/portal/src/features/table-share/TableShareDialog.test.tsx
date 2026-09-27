@@ -128,7 +128,7 @@ describe('TableShareDialog', () => {
 
       expect(within(chipList()).getAllByRole('listitem')).toHaveLength(1);
       expect(entryInput()).toHaveValue('1bad -x');
-      expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
+      expect(entryInput()).toHaveAccessibleDescription(/Use 3–63 characters/);
     });
 
     it('returns focus to the entry after Add, for both kinds', async () => {
@@ -150,7 +150,7 @@ describe('TableShareDialog', () => {
       const nameInput = screen.getByLabelText('Table name for recipients');
       await user.clear(nameInput);
       await user.type(nameInput, 'Bad-Name');
-      expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
+      expect(nameInput).toHaveAccessibleDescription(/Use 3–63 characters/);
       expect(shareButton()).toBeDisabled();
 
       await user.clear(nameInput);
@@ -272,6 +272,7 @@ describe('TableShareDialog', () => {
       const note = await screen.findByText(/not one of your shared spaces/i);
       expect(note).toHaveTextContent(/you can still share to a space you are not a member of/i);
       expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
+      expect(entryInput()).not.toBeInvalid();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
       await user.click(shareButton());

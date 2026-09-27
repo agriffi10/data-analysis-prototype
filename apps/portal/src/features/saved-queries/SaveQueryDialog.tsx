@@ -125,6 +125,8 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
           aria-required="true"
           value={name}
           error={submitError ?? (hostErrorStale ? undefined : (error ?? undefined))}
+          // The dialog reopens with the failure when a Replace fails, and a fresh open clears it.
+          announceInitialError
           placeholder="e.g. Monthly revenue"
           onChange={(e) => {
             setName(e.target.value);

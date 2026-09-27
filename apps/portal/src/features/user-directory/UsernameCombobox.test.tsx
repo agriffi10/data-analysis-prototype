@@ -13,6 +13,7 @@ import {QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {AuthContext} from '../auth/authContext';
 import {authValue} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 import userEvent from '@testing-library/user-event';
 
 // ─── from UsernameCombobox.test.tsx ───
@@ -273,7 +274,8 @@ describe('UsernameCombobox', () => {
       await user.keyboard('alice{Enter}');
 
       expect(onCommit).not.toHaveBeenCalled();
-      expect(screen.getByRole('alert')).toHaveTextContent('alice is already a member.');
+      expect(field()).toHaveAccessibleDescription(/alice is already a member\./);
+      expect(politeAnnouncements()).toContainEqual('Usernames: alice is already a member.');
     });
   });
 
@@ -286,8 +288,8 @@ describe('UsernameCombobox', () => {
 
       expect(onCommit).toHaveBeenCalledWith('newperson');
       const note = await screen.findByText(/not in the directory/i);
-      // Neutral, not an error: `role="alert"` is the error channel and must stay empty here.
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      // Neutral, not an error: the field must not be marked invalid.
+      expect(field()).not.toBeInvalid();
       expect(note).toBeInTheDocument();
     });
 

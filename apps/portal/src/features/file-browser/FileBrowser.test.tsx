@@ -330,7 +330,7 @@ describe('FileBrowser — write controls', () => {
     await user.type(within(dialog).getByRole('textbox'), 'archive');
     await user.click(within(dialog).getByRole('button', {name: /create/i}));
 
-    expect(within(dialog).getByText(/the app manages inside/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('textbox')).toHaveAccessibleDescription(/the app manages inside/i);
     expect(mock.createFolder).not.toHaveBeenCalled();
   });
 
