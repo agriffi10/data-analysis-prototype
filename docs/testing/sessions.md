@@ -10,6 +10,31 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-27 (a word only Hive reserves, in `SHOW CREATE TABLE`)
+
+**What was under test.** Whether View DDL on a table breaks when the name is a lowercase word that
+Hive's DDL list reserves and the query list does not. `getTableDdl` backticked a `SHOW CREATE TABLE`
+part only when it was not bare-shaped or was on the query list, so such a word went out bare. Every
+probe but the last named a missing table: a syntax error means the bare word breaks the parse, and
+*"That table wasn’t found"* means it parsed. The last named an existing table, to show the
+backticked form returns DDL. Two sittings, about 00:15Z to 00:24Z and 00:45Z to 00:55Z (UTC).
+
+**Browser and instruments.** **agriffith**, width 1512, a new tab in the `claude-in-chrome` group
+for each sitting, each signed in by Andrew at the Cognito form. `visibilityState` overridden; SQL
+typed into Monaco and read back from the tab's persisted state before each run; Run pressed with
+`element.click()`. The statements went straight to Athena, so the SPA build does not bear on the
+result. Each run started, and wrote an entry to **agriffith**'s query history.
+
+**Results.**
+- Control, `SHOW CREATE TABLE agriffith.no_such_table_0926`: *"That table wasn’t found."*
+- `agriffith.date` and `agriffith.user`, bare: the same. `date.no_such_table_0926`: *"You don’t have
+  permission to run that query."*, so a bare `date` parsed as a database too.
+- `agriffith.exchange`, bare: *"There’s a syntax error in your query."* `exchange` is on Hive's
+  list and not on the query list, so View DDL on a table named `exchange` would fail. A defect.
+- `` `agriffith`.`exchange` ``: *"That table wasn’t found"*, so it parsed. `` `agriffith`.`employees` ``
+  returned its DDL, 16 rows. So backticking every part, as `DROP` does, fixes it; `getTableDdl` now does.
+- Why `date` and `user` parse bare and `exchange` does not was not established; only that they do.
+
 ## Live-check session — 2026-09-26 (View DDL, and which quote `SHOW CREATE VIEW` takes)
 
 **What was under test.** The View DDL row of `owed.md`'s UI-audit section, and the question that
