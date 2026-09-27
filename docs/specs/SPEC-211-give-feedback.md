@@ -51,6 +51,11 @@ somebody else.
 - **A CloudWatch alarm on DLQ depth.** There is no alarm anywhere in `infra/` today; it would be the
   first, a new resource type and its deploy-role IAM. Named here as the thing not built, so that the
   gap is a decision rather than an oversight.
+  > **Superseded in part (2026-09-27):** "no alarm anywhere" and "a new resource type" stopped
+  > holding when #724 added the logs backlog alarm (`infra/modules/observability/alarm.tf`); the
+  > deploy-role grant names only that alarm, so one here would still need its own. The DLQ still
+  > has no alarm, now by Andrew's decision and for the reason in the feedback entry of
+  > `docs/decisions/control-planes.md`.
 - **Rate limiting beyond what the route already has.** The route is non-idempotent so `apiRequest`
   never retries it, the modal disables its submit while in flight, and the message is capped
   server-side. A per-user quota is not built.
