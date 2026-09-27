@@ -1,9 +1,16 @@
-# `feedback` — the single-writer daily feedback document
+# `feedback` — the single-writer daily feedback file
 
 A FIFO request queue that triggers one writer Lambda directly. The writer is the **only** thing
-that appends to `feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.json` in the existing admin
-bucket. No new bucket, no EventBridge Pipe, no Step Function — a one-task append does not get a
-state machine (`lambdas/info/best-practices/lambdas/lambdas.md` §10), and there is one verb.
+that appends to `feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.jsonl` in the existing admin
+bucket, one submission per line. No new bucket, no EventBridge Pipe, no Step Function — a one-task
+append does not get a state machine (`lambdas/info/best-practices/lambdas/lambdas.md` §10), and
+there is one verb.
+
+**Two earlier layouts sit under the same prefix and were not moved, by user decision.** Both hold
+a `{version, date, entries}` JSON document per day: first at `feedback/YYYY/MM/DD.json`, then
+briefly at `feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.json`, so one day's partition
+can hold a `.json` beside its `.jsonl`. A reader of the whole history lists `feedback/` and handles
+both shapes.
 
 | File | Holds |
 |---|---|
@@ -76,13 +83,9 @@ exhausting the attempts raises so the message dead-letters. That is why there is
 scope, and why `test_absence_is_answerable.py` dispositions the read as `fail-safe-cas` rather
 than `list-grant`.
 
-There is **no `s3:DeleteObject` anywhere**. The document is only ever read-modify-rewritten, and
-an existing document that will not parse is raised over rather than replaced.
-
-> The writer's own code lands in the next change, and with it the `fail-safe-cas` disposition in
-> `lambdas/test_absence_is_answerable.py` that records this reasoning against the read site.
-> Until then this section describes what the writer is specified to do, not what a test holds it
-> to.
+There is **no `s3:DeleteObject` anywhere**. The day file is only ever rewritten as the bytes it
+held plus one more line, so nothing in it is replaced; a line that will not parse is written past
+and reported, not refused.
 
 ## What is not here
 
@@ -91,9 +94,9 @@ the first, a new resource type with its own deploy-role IAM. Named so the gap is
 than an oversight. No read surface of any kind: the records are read with the AWS CLI by whoever
 wants them, and that is the whole retrieval story.
 
-**The admin bucket has versioning off**, in common with every bucket here. For a document appended
-under compare-and-swap that matters, and the thing standing in for it is the refusal above: a
-document this writer cannot parse is left exactly where it is.
+**The admin bucket has versioning off**, in common with every bucket here. For a file appended
+under compare-and-swap that matters, and what stands in for it is that the append never rewrites a
+byte it read: every existing line, parseable or not, is kept exactly where it is.
 
 ## Related
 

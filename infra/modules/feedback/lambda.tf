@@ -20,8 +20,8 @@ module "writer" {
   # That writer's document is capped (NOTIFICATIONS_MAX, MAX_PAYLOAD_BYTES); this one's grows
   # all day with no cap, because the spec declines a per-user quota. The right analogue is
   # log-sweep, the fleet's other unbounded read-modify-write over a day object, which is 512 for
-  # exactly this reason: the whole object is read back, parsed, re-serialised and encoded before
-  # the PUT, so peak resident is several times the object's own size.
+  # exactly this reason: the whole object is read back and written out again in full with the
+  # new lines, so peak resident is several times the object's own size.
   #
   # An OOM here is worse than an ordinary failure and that is why it is sized rather than
   # watched: SIGKILL skips observability's flush, so the ONE durable operator signal is absent

@@ -1,4 +1,4 @@
-"""Feedback writer — the single writer of each day's feedback document.
+"""Feedback writer — the single writer of each day's feedback file, one JSON object per line.
 
 The feedback FIFO queue triggers this Lambda directly with a batch size of one, so each
 invocation carries exactly one submission. The handler read-modify-writes that day's object under
@@ -22,10 +22,10 @@ object a submission lands in is the one it was filed under. A writer that stampe
 would put a redelivered message in a different day from the one it was submitted on, which is
 precisely the day somebody would be reading.
 
-**An unreadable document is never overwritten.** The append parses what it read and raises on a
-document it does not recognise, leaving the day's records intact for an operator to recover — the
-same disposition an unreadable settings document has. Overwriting would turn one bad byte into a
-silent, total loss of a day nobody is watching.
+**A day file is never replaced, only extended.** The append keeps the bytes it read exactly and
+adds one line after them. A line it cannot parse — a hand edit gone wrong — is reported and
+written past rather than refused: refusing would protect nothing, since nothing here is replaced,
+and would dead-letter every later submission that day into a queue nobody drains.
 
 **The read is fail-safe rather than absence-discriminating.** Any read failure is reported as "no
 object, no tag", which makes the following write create-only: a transient fault or a denial then
@@ -45,10 +45,7 @@ place to find one.
 Attributes:
   ADMIN_BUCKET: Destination bucket, set by Terraform.
   FEEDBACK_PREFIX: Root prefix for the day-partitioned layout.
-  DOCUMENT_VERSION: The document shape this writer creates and understands. A document declaring
-    anything else is refused untouched rather than migrated in place by a function nobody is
-    watching.
-  SCHEMA_VERSION: The message shape the API sends. Recorded on each entry so a later reader can
+  SCHEMA_VERSION: The message shape the API sends. Recorded on each line so a later reader can
     tell which producer wrote it.
   CATEGORIES: The categories a submission may carry. The API refuses anything else before the
     send; this is the guard for a message that reached the queue another way.
@@ -60,12 +57,13 @@ Attributes:
   MAX_CAS_ATTEMPTS: Conditional-write attempts on one day object before giving up.
     ``cpcommon.cas.MAX_ATTEMPTS`` — this loop is not a fourth copy of it.
   LARGE_OBJECT_WARN_BYTES: The size at which rewriting the day in full is worth knowing about.
-    The document has no cap — the product declines a per-user quota — and the function reads it
-    back, parses it, appends, re-serialises and encodes, so peak memory is several multiples of
-    what is on the wire. Sized well under what the function's memory buys, because the failure it
-    warns about is an OOM: a SIGKILL skips the span flush, so the one durable operator signal is
-    absent for exactly that failure, and every later submission that day fails the same way into
-    a dead-letter queue nobody drains. Log-sweep carries the same warning over the same shape.
+    The file has no cap — the product declines a per-user quota — and the function reads it
+    back, splits and parses every line, and writes the bytes out again with one more, so peak
+    memory is several multiples of what is on the wire. Sized well under what the function's
+    memory buys, because the failure it warns about is an OOM: a SIGKILL skips the span flush,
+    so the one durable operator signal is absent for exactly that failure, and every later
+    submission that day fails the same way into a dead-letter queue nobody drains. Log-sweep
+    carries the same warning over the same shape.
 """
 
 import json
@@ -83,7 +81,6 @@ observability.init(service="feedback")
 ADMIN_BUCKET = os.environ.get("ADMIN_BUCKET", "")
 
 FEEDBACK_PREFIX = "feedback"
-DOCUMENT_VERSION = 1
 SCHEMA_VERSION = 1
 
 CATEGORIES = frozenset({"bug", "idea", "question", "other"})
@@ -98,15 +95,6 @@ LARGE_OBJECT_WARN_BYTES = 16 * 1024 * 1024
 
 class ValidationError(Exception):
     """A schema-invalid message. Raising retries the record into the DLQ with no write."""
-
-
-class CorruptDocumentError(Exception):
-    """The day's object will not parse, so it is left exactly as it is.
-
-    Its own type rather than a ``ValidationError``: one names a bad message and the other names a
-    document already in the bucket, and an operator needs to know which of the two they are
-    looking at before they touch anything.
-    """
 
 
 def _parse_record(record):
@@ -178,7 +166,7 @@ def day_key(day):
     """
     return (
         f"{FEEDBACK_PREFIX}/year={day:%Y}/month={day:%m}/day={day:%d}/"
-        f"feedback_{day:%Y}_{day:%m}_{day:%d}.json"
+        f"feedback_{day:%Y}_{day:%m}_{day:%d}.jsonl"
     )
 
 
@@ -231,37 +219,66 @@ def _read(key):
         return None, None
 
 
-def _document(raw, day):
-    """Parses a day object, or builds an empty one when there is nothing there.
+def _is_object(line):
+    """Tells whether one line of a day object parses as a JSON object.
+
+    Every failure to parse counts as "not an object", whatever its type: a line's content deciding
+    whether the append raises would dead-letter the rest of the day, which is what writing past a
+    bad line exists to prevent. ``RecursionError`` on deep nesting is one the parser raises that is
+    not a ``ValueError``.
+
+    Args:
+      line: The line's bytes, without its newline.
+
+    Returns:
+      True when the line is a JSON object.
+
+    Raises:
+      None.
+    """
+    try:
+        return isinstance(json.loads(line), dict)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _appendable(raw, key):
+    """Returns a day object's bytes ready for one more line, reporting any line that is not JSON.
+
+    The warning names how many lines and the first one's number, never a line's text: it may be a
+    user's message.
 
     Args:
       raw: The object's bytes, or None when it does not exist.
-      day: The submission's UTC date, for a freshly-created document.
+      key: The day object's key, for the warning.
 
     Returns:
-      The document to append to.
+      The bytes exactly as read, newline-terminated; empty when there is nothing there.
 
     Raises:
-      CorruptDocumentError: If the bytes are not a JSON object of the version and shape this
-        writer understands. Raised rather than replaced: the day's records are somebody's only
-        copy, and a writer that recovers by overwriting loses them all to fix one.
+      None.
     """
-    if raw is None:
-        return {"version": DOCUMENT_VERSION, "date": f"{day:%Y-%m-%d}", "entries": []}
-    try:
-        document = json.loads(raw)
-    except (TypeError, ValueError) as exc:
-        raise CorruptDocumentError(f"the day's object is not valid JSON: {exc}") from exc
-    if not isinstance(document, dict):
-        raise CorruptDocumentError("the day's object is not a JSON object")
-    if document.get("version") != DOCUMENT_VERSION:
-        raise CorruptDocumentError(
-            f"the day's object declares version {document.get('version')!r}, "
-            f"not {DOCUMENT_VERSION}"
+    if not raw:
+        return b""
+    lines = raw.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    unreadable = [number for number, line in enumerate(lines, start=1) if not _is_object(line)]
+    if unreadable:
+        observability.warning(
+            "day object has unreadable lines",
+            key=key,
+            lines=len(unreadable),
+            first_line=unreadable[0],
         )
-    if not isinstance(document.get("entries"), list):
-        raise CorruptDocumentError("the day's object carries no entries array")
-    return document
+        logger.warning(
+            "feedback-writer: %s has %d line(s) that are not JSON objects, the first at line %d; "
+            "appending after them",
+            key,
+            len(unreadable),
+            unreadable[0],
+        )
+    return raw if raw.endswith(b"\n") else raw + b"\n"
 
 
 def append(event):
@@ -272,20 +289,19 @@ def append(event):
     wrote. Exhaustion RAISES, so the message redelivers and eventually dead-letters — a submission
     dropped here would be gone with nothing recording that it ever arrived.
 
-    ``skip_no_op=False`` matches the two sibling callers rather than resting on inequality. It
-    changes nothing here — the loop compares the raw bytes it read against the dict this builds,
-    so they can never be equal — and that is exactly why it is set explicitly: a caller whose
-    read and apply types ever line up would otherwise stop writing silently.
+    ``skip_no_op=False`` matches the two sibling callers rather than resting on inequality. Under
+    the default the loop would compare the bytes read against the bytes built, and only the
+    appended line keeps those unequal, so a transform that ever returned what it read would stop
+    writing silently.
 
     Args:
       event: The parsed submission.
 
     Returns:
-      A ``(key, entry count)`` pair for the caller's log record.
+      A ``(key, line count)`` pair for the caller's log record.
 
     Raises:
       ValidationError: If the submission's timestamp cannot be resolved to a day.
-      CorruptDocumentError: If the day's existing object will not parse.
       CasExhausted: If every attempt lost to a concurrent writer.
       ClientError: On any write fault that is not a precondition failure.
     """
@@ -307,26 +323,27 @@ def append(event):
         return _read(key)
 
     def _apply(raw):
-        """Appends the entry to the freshly-read document.
+        """Appends the entry as one line to the freshly-read day file.
+
+        ``json.dumps`` escapes every newline and non-ASCII character in the message, so the
+        entry cannot span more than the one line it is given.
 
         Args:
           raw: The object's current bytes, or None when it does not exist.
 
         Returns:
-          The full document to write.
+          The full body to write.
 
         Raises:
-          CorruptDocumentError: If the existing object will not parse.
+          None.
         """
-        document = _document(raw, submitted_day(event["submittedAt"]))
-        document["entries"] = [*document["entries"], entry]
-        return document
+        return _appendable(raw, key) + json.dumps(entry).encode("utf-8") + b"\n"
 
-    def _write(document, etag):
+    def _write(body, etag):
         """Writes the day object conditionally on the tag it was read at.
 
         Args:
-          document: The full document.
+          body: The full object body.
           etag: The tag to match, or None to write only if the object is absent.
 
         Returns:
@@ -338,8 +355,8 @@ def append(event):
         kwargs = {
             "Bucket": ADMIN_BUCKET,
             "Key": key,
-            "Body": json.dumps(document).encode("utf-8"),
-            "ContentType": "application/json",
+            "Body": body,
+            "ContentType": "application/x-ndjson",
         }
         if etag is None:
             kwargs["IfNoneMatch"] = "*"
@@ -375,7 +392,7 @@ def append(event):
         on_conflict=_on_conflict,
         skip_no_op=False,
     )
-    return key, len(written["entries"])
+    return key, written.count(b"\n")
 
 
 @observability.traced("write")
@@ -387,22 +404,20 @@ def handler(event, context):
     rather than absorbed — taking the first record and discarding the rest would drop every
     submission but one, silently, and a submission has no other copy anywhere.
 
-    Nothing here is caught. Every failure this can meet — a malformed message, an unreadable day
-    object, a lost CAS race, an S3 fault — redelivers and then dead-letters, which is the only
-    honest outcome for a queue whose whole payload is something a person typed and expects to have
-    reached us.
+    Nothing here is caught. Every failure this can meet — a malformed message, a lost CAS race, an
+    S3 fault — redelivers and then dead-letters, which is the only honest outcome for a queue whose
+    whole payload is something a person typed and expects to have reached us.
 
     Args:
       event: The SQS event.
       context: The Lambda context, unused.
 
     Returns:
-      A small structured result: the key written and the resulting entry count.
+      A small structured result: the key written and the file's resulting line count.
 
     Raises:
       ValidationError: When the event carries no records, more than one record, or the record
         fails validation. No write occurs.
-      CorruptDocumentError: When the day's existing object will not parse.
       CasExhausted: When every conditional-write attempt lost.
       ClientError: On any S3 fault.
     """
@@ -426,8 +441,8 @@ def handler(event, context):
         message_chars=len(submission["message"]),
     )
 
-    key, entries = append(submission)
+    key, lines = append(submission)
 
-    observability.info("feedback written", key=key, entries=entries)
-    logger.info("feedback-writer: appended to %s (%d entries)", key, entries)
-    return {"key": key, "entries": entries}
+    observability.info("feedback written", key=key, lines=lines)
+    logger.info("feedback-writer: appended to %s (%d lines)", key, lines)
+    return {"key": key, "lines": lines}

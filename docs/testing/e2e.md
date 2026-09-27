@@ -1326,12 +1326,13 @@ split is why most of this is owed rather than run — see `owed.md`.
 browser's — see `owed.md`):
 
 ```bash
-aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +year=%Y/month=%m/day=%d/feedback_%Y_%m_%d).json" - | python3 -m json.tool
+aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +year=%Y/month=%m/day=%d/feedback_%Y_%m_%d).jsonl" -
 ```
 
-Expect one object for today, `version` 1, and your submission in `entries` with the username
-taken from your token, an `eventId`, and the `route` you were on. Submit twice more and confirm
-all three are present, in order — the append preserves what is there.
+Expect one object for today, holding one JSON object per line, with your submission on the last
+line: the username taken from your token, an `eventId`, and the `route` you were on. Submit twice
+more and confirm all three are present, one line each, in order — the append preserves what is
+there.
 
 ### 4.18 The front door, and the browser's network surface (SPEC-192 → 202)
 

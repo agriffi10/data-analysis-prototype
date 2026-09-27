@@ -165,6 +165,6 @@ def test_the_stamp_the_route_writes_is_one_the_writer_can_read() -> None:
         # those two agree.
         year, month, dom = stamped[:10].split("-")
         assert feedback_writer.day_key(day) == (
-            f"feedback/year={year}/month={month}/day={dom}/feedback_{year}_{month}_{dom}.json"
+            f"feedback/year={year}/month={month}/day={dom}/feedback_{year}_{month}_{dom}.jsonl"
         ), f"the group id {stamped[:10]!r} does not name the object the writer would write"
 

@@ -1687,10 +1687,16 @@ denial then loses its precondition, the loop re-reads, and exhausting the attemp
 message dead-letters. So there is no absence branch to authorize, and the read is dispositioned
 `fail-safe-cas` rather than `list-grant`.
 
-**An unreadable day document is raised over, never replaced.** The records are somebody's only
-copy and the admin bucket has versioning off, so a writer that "recovered" by overwriting would
-lose a whole day to fix one bad byte. The same reasoning SPEC-159 established for an unreadable
-settings document, applied where the stakes are a day of other people's words.
+**A day file is never replaced, only extended — and a line it cannot parse is reported, not
+refused.** The records are somebody's only copy and the admin bucket has versioning off, so a
+writer that "recovered" by overwriting would lose a whole day to fix one bad byte. The file is
+JSONL, and the writer keeps the bytes it read exactly and adds one line after them, so a line it
+cannot parse loses nothing by being written past; a warning names the key, how many lines and the
+first one's number, never the text. It was refused while the day was one JSON document the writer
+re-serialised whole, following SPEC-159's reasoning for an unreadable settings document. Once the
+append stopped rewriting anything, the refusal protected nothing and only dead-lettered every later
+submission that day into a queue nobody drains. The days written as documents, under the two
+earlier layouts, were not moved; the module README names both.
 
 **The day comes from the submission, never from the writer's clock.** `submittedAt` is stamped by
 the API, is what the `MessageGroupId` is derived from, and is what the key is built from — so the
