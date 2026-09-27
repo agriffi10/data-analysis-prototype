@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import cache
 import create_space as c
 import membership_index
-import pytest
 import registry as reg
 from cpcommon import clients
 from fakes import install, raises
