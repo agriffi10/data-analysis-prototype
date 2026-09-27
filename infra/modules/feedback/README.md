@@ -1,9 +1,9 @@
 # `feedback` — the single-writer daily feedback document
 
 A FIFO request queue that triggers one writer Lambda directly. The writer is the **only** thing
-that appends to `feedback/YYYY/MM/DD.json` in the existing admin bucket. No new bucket, no
-EventBridge Pipe, no Step Function — a one-task append does not get a state machine
-(`lambdas/info/best-practices/lambdas/lambdas.md` §10), and there is one verb.
+that appends to `feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.json` in the existing admin
+bucket. No new bucket, no EventBridge Pipe, no Step Function — a one-task append does not get a
+state machine (`lambdas/info/best-practices/lambdas/lambdas.md` §10), and there is one verb.
 
 | File | Holds |
 |---|---|

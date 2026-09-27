@@ -1326,7 +1326,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 browser's — see `owed.md`):
 
 ```bash
-aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +%Y/%m/%d).json" - | python3 -m json.tool
+aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +year=%Y/month=%m/day=%d/feedback_%Y_%m_%d).json" - | python3 -m json.tool
 ```
 
 Expect one object for today, `version` 1, and your submission in `entries` with the username

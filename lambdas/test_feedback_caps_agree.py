@@ -163,7 +163,8 @@ def test_the_stamp_the_route_writes_is_one_the_writer_can_read() -> None:
         # The group id the route sends is the stamp's first ten characters; the key the writer
         # builds comes from the parsed day. A submission is only serialized behind its own day if
         # those two agree.
+        year, month, dom = stamped[:10].split("-")
         assert feedback_writer.day_key(day) == (
-            f"feedback/{stamped[:10].replace('-', '/')}.json"
+            f"feedback/year={year}/month={month}/day={dom}/feedback_{year}_{month}_{dom}.json"
         ), f"the group id {stamped[:10]!r} does not name the object the writer would write"
 
