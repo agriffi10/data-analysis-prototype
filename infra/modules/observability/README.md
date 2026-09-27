@@ -1,7 +1,10 @@
 # `observability` — the structured-logging pipe
 
 A FIFO queue every service writes to, and a scheduled sweep that drains it into one NDJSON object
-per service per day in the admin bucket under `logs/`.
+per service per day in the admin bucket, at
+`logs/service={s}/year={y}/month={m}/day={d}/{s}_logs_{y}_{m}_{d}.jsonl`. Partitions written before
+that basename hold `data.jsonl`, were not renamed, and can hold both names for a late or
+redelivered event.
 
 | File | Holds |
 |---|---|

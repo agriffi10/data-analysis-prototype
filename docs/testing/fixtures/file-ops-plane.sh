@@ -230,7 +230,7 @@ echo "== Executions =="
 executions_since
 echo
 echo "== 9. Everything above appears in the structured log =="
-echo "   s3://$ADMIN_BUCKET/logs/service=file-ops/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/data.jsonl"
+echo "   s3://$ADMIN_BUCKET/logs/service=file-ops/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/file-ops_logs_$(date -u +%Y_%m_%d).jsonl"
 echo "   Every record must carry a populated \`env\` and \`version\`. An empty \`env\` means the"
 echo "   verbs shipped without ENV_NAME, which no offline test can see."
 
