@@ -46,6 +46,7 @@ import {MemoryRouter} from 'react-router';
 import {createTestQueryClient} from '../../test/renderWithProviders';
 import {QueryClient, QueryClientProvider, onlineManager} from '@tanstack/react-query';
 import {authValue} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {runQuery} from '../catalog/athena.service';
 import {getQueryHistory} from './queryHistory.service';
@@ -465,6 +466,27 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
     });
 
+    it('speaks a failed Replace, which reopens the dialog already carrying it', async () => {
+      seedSingle('SELECT r;');
+      mockWriteSaved.mockImplementation(async ({name, overwrite}) =>
+        overwrite ? fail('nope', 'AccessDenied') : fail(`“${name}” already exists.`, 'Collision')
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      await user.type(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name'), 'My report');
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+
+      const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
+      await user.click(within(confirm).getByRole('button', {name: 'Replace'}));
+
+      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
+      await waitFor(() =>
+        expect(politeAnnouncements()).toContainEqual(expect.stringMatching(/^Name: You don’t have permission/))
+      );
+      expect(within(dialog).getByLabelText('Name')).toHaveAccessibleDescription(/don’t have permission/i);
+    });
+
     it('keeps the dialog OPEN on a write failure, with the name, the space and a mapped message', async () => {
       // SPEC-175 FR-006: the realistic failure is a shared space whose membership was
       // revoked mid-session, so the dialog has to survive it — the buffer is still
@@ -480,7 +502,9 @@ describe('QueryWorkspace', () => {
       await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
 
       const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-      expect(await within(dialog).findByText(/don’t have permission/i)).toBeInTheDocument();
+      await waitFor(() =>
+        expect(within(dialog).getByLabelText('Name')).toHaveAccessibleDescription(/don’t have permission/i)
+      );
       expect(within(dialog).getByLabelText('Name')).toHaveValue('My report');
       expect(within(dialog).getByLabelText('Space')).toBeEnabled();
       expect(screen.queryByText('nope')).not.toBeInTheDocument();

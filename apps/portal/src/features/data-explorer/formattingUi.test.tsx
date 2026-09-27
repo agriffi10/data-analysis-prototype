@@ -3,6 +3,7 @@ import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {STRIPING_OFF_TEXT} from './StripingControl';
@@ -208,7 +209,8 @@ describe('conditional colouring (FR-002)', () => {
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 test'}), 'regex');
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(PATTERN_REFUSAL);
+    expect(within(dialog).getByRole('textbox', {name: 'Rule 1 value'})).toHaveAccessibleDescription(PATTERN_REFUSAL);
+    expect(politeAnnouncements()).toContainEqual(`Rule 1 value: ${PATTERN_REFUSAL}`);
     // Still open, with the draft intact — the user has somewhere to correct it.
     expect(screen.getByRole('dialog', {name: 'Colors'})).toBeInTheDocument();
     expect(storedFormatting().rules).toEqual([]);

@@ -292,7 +292,8 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
       await user.type(input, value);
 
       const form = screen.getByRole('dialog', {name: 'Copy to folder'});
-      expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      expect(input).toHaveAccessibleDescription(refusal ?? '');
+      expect(input.hasAttribute('aria-invalid')).toBe(refusal !== null);
       expect(within(form).getByRole('button', {name: 'Copy'})).toHaveProperty('disabled', refusal !== null);
     }
   );
@@ -658,7 +659,8 @@ describe('the conflict round trip', () => {
       await user.clear(input);
       await user.type(input, value);
 
-      expect(within(form).queryByRole('alert')?.textContent ?? null).toBe(refusal);
+      expect(input).toHaveAccessibleDescription(refusal ?? '');
+      expect(input.hasAttribute('aria-invalid')).toBe(refusal !== null);
       expect(within(form).getByRole('button', {name: 'Request again'})).toHaveProperty('disabled', refusal !== null);
     }
   );

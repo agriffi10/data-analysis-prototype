@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
@@ -504,8 +505,8 @@ describe('the list operators from the menu', () => {
 
     await chooseFromMenu(user, 'note', 'Filter: is one of…');
     await user.click(screen.getByRole('button', {name: 'Apply filter'}));
-    // Asserted with the refusal RENDERED: the message carries `role="alert"` and is wired
-    // by `aria-describedby`, and an empty field is the state that has neither.
+    // Asserted with the refusal RENDERED: the message is wired by `aria-describedby` and
+    // `aria-invalid`, and an empty field is the state that has neither.
     expect(await screen.findByText(NO_VALUES_REFUSAL)).toBeInTheDocument();
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
@@ -522,6 +523,8 @@ describe('the list operators from the menu', () => {
     await user.click(screen.getByRole('button', {name: 'Apply filter'}));
 
     expect(await screen.findByText(numericLineRefusal(2))).toBeInTheDocument();
+    // Raised by Apply, with focus on the button: spoken, or a screen reader hears nothing.
+    expect(politeAnnouncements()).toContainEqual(expect.stringContaining(numericLineRefusal(2)));
     expect(runQuery).toHaveBeenCalledTimes(1);
   });
 });

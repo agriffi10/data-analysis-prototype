@@ -122,7 +122,7 @@
 
 ### 4.1 Compatible
 - **4.1.2 Name, Role, Value (A)** — every UI component exposes a programmatic **name**, **role**, and settable **states/values**, with change notifications. ✅ native HTML controls satisfy this automatically; for custom widgets use ARIA `role`, `aria-label`/`aria-labelledby` (name), `aria-checked`/`aria-expanded`/`aria-selected` etc. (state). 🔴 `<div>`/`<span>` made interactive via script with no role (F59); custom control with no accessible name (F68); state not exposed/updated (F79).
-- **4.1.3 Status Messages (AA)** — status messages reach AT **without moving focus**. ✅ `role="status"`/`aria-live="polite"` for success/progress; `role="alert"`/`aria-live="assertive"` for errors/warnings; `role="log"` for sequential updates. 🔴 status only conveyed visually (F103); `role="alert"` on non-urgent content.
+- **4.1.3 Status Messages (AA)** — status messages reach AT **without moving focus**. ✅ `role="status"`/`aria-live="polite"` for success/progress; `role="alert"`/`aria-live="assertive"` for an urgent error or warning, such as a failed submit's banner; a **field's own validation error** is its description (`aria-invalid` + `aria-describedby`) and is spoken politely when the field is left or an action raises it (`useFieldErrorAnnouncement`); `role="log"` for sequential updates. 🔴 status only conveyed visually (F103); `role="alert"` on non-urgent content — including a field error that changes as the user types or is raised from another field, which then interrupts on every keystroke and for fields the user is not in.
 - *(4.1.1 Parsing was removed in WCAG 2.2 — obsolete; no action needed.)*
 
 ---

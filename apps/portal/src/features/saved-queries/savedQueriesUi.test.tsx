@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {createEvent, fireEvent, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {QuerySpace} from '../catalog/catalog.types';
 
@@ -107,14 +108,16 @@ describe('SaveQueryDialog', () => {
     expect(save()).toBeEnabled();
     await user.click(save());
 
-    expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAccessibleDescription(/cannot contain/i);
+    // Raised by the click, with focus on Save — so spoken, or no one using a screen reader hears it.
+    expect(politeAnnouncements()).toEqual([expect.stringMatching(/^Name: .*cannot contain/i)]);
     expect(onSave).not.toHaveBeenCalled();
   });
 
   it('refuses an EMPTY name on submit the same way', async () => {
     const {onSave, user} = setup();
     await user.click(save());
-    expect(screen.getByText(/cannot be empty/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAccessibleDescription(/cannot be empty/i);
     expect(onSave).not.toHaveBeenCalled();
   });
 

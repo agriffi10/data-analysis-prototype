@@ -298,6 +298,24 @@ menu action has not run on a real view, and nothing records it ever working sinc
 |---|---|---|
 | **The menu's Drop view drops a view** | §4.3 | On the deployed fix, create a disposable view (Create view, `SELECT 1 AS x`), then table-row menu → Drop view → confirm: *"Dropped …"*, and the view leaves the rail's Views group. Worth repeating in a shared space whose name needs quoting, such as `live0922 odd`. A *"Couldn’t drop <view>. Something went wrong. Contact the Administrator."* toast is the old defect. It needs a view to drop, so it is Andrew's to approve. |
 
+### Field errors spoken, not alerted — NOT RUN: needs a screen reader, and no session can hear one
+
+A field's validation error is no longer a `role="alert"`: it is the field's description, and
+`useFieldErrorAnnouncement` puts it in a polite live region when the field is left, when an action
+raises it, and on Enter. jsdom proves which text lands in which region and when; it cannot prove a
+reader speaks it. Two claims rest on timing no test reaches: that a Tab-away's announcement lands
+after the next control's focus announcement rather than being cut off by it, and that several
+regions filled by one Apply are all spoken — whether every reader queues several polite messages
+or some keep only the last is what the *Colors* row settles.
+
+| Check | Where | What would settle it |
+|---|---|---|
+| **Typing speaks nothing; leaving speaks once** | Create table from a folder | Replace the suggested name in *Table name* with `Bad Name`: no speech per keystroke. Tab away: after the next control is announced, the reader says *"Table name: Use 3–63 characters…"*. Shift+Tab back and Tab again: it is not repeated. |
+| **Another row's duplicate is silent** | Create table, two partition keys | Name row 1 `region` and Tab on; type `region` into row 2's name: nothing is spoken while typing. Tab away: *"Partition key 2 name: Duplicate key name."* |
+| **An action's error is spoken with focus on the button** | Save query, and *Colors* in the Explorer | Save a query named `a/b` by clicking Save: *"Name: Query name cannot contain…"*. In *Colors*, add two regex rules with the pattern `(` and click Apply: note whether both rules' errors are spoken, per reader. |
+| **Enter repeats the error on a disabled submit** | Rename a file | Type `a/b` and press Enter twice: the error is spoken each time. |
+| **A failed Replace is spoken when Save query reopens with it** | Save query over an existing name in a shared space; needs a second account | Save, and with the Replace prompt up, have the second account remove you from the space (a space you already cannot write refuses the first Save, before any prompt). Click Replace: the dialog reopens and the reader says *"Name: You don’t have permission…"* after the field's focus. Try VoiceOver with its hints turned off too, since it reads a description as a hint. |
+
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
 | Check | Note |

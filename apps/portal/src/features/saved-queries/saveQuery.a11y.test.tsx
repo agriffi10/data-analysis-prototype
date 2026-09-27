@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import type {QuerySpace} from '../catalog/catalog.types';
 
@@ -62,7 +63,9 @@ describe('Save-query dialog accessibility (SPEC-045 / SPEC-175)', () => {
         onCancel={noop}
       />
     );
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAccessibleDescription('You don’t have permission to do that.');
+    // Opened already carrying it, as after a failed Replace — so spoken at once.
+    expect(politeAnnouncements()).toEqual(['Name: You don’t have permission to do that.']);
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });

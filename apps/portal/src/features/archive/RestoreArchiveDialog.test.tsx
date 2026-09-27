@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {politeAnnouncements} from '../../test/liveRegions';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {RestoreArchiveDialog} from './RestoreArchiveDialog';
 
@@ -74,8 +75,10 @@ describe('RestoreArchiveDialog', () => {
     await user.click(screen.getByRole('button', {name: 'Restore'}));
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent(/doesn’t look like an archive id/i);
-    expect(screen.getByRole('alert')).toHaveTextContent(/3f8a1c2e/);
+    expect(screen.getByLabelText('Archive id')).toHaveAccessibleDescription(
+      /doesn’t look like an archive id.*3f8a1c2e/i
+    );
+    expect(politeAnnouncements()).toEqual([expect.stringMatching(/^Archive id: That doesn’t look like an archive id/)]);
   });
 
   it('says nothing about the id until the user has actually tried', async () => {
@@ -86,7 +89,7 @@ describe('RestoreArchiveDialog', () => {
 
     await user.type(screen.getByLabelText('Archive id'), 'not-an-id');
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Archive id')).not.toBeInvalid();
   });
 
   it('leaves the submit control REACHABLE rather than disabling it', async () => {

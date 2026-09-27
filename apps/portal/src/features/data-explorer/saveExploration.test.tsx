@@ -321,7 +321,7 @@ describe('SPEC-175’s rules hold here too (FR-001 AC3)', () => {
     await user.type(within(dialog).getByLabelText('Name'), 'a/b');
     await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
-    expect(await within(dialog).findByText(/cannot contain/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Name')).toHaveAccessibleDescription(/cannot contain/i);
     expect(callsTo('objects.writeContent')).toHaveLength(0);
   });
 });
