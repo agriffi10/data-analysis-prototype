@@ -22,10 +22,12 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "dat-prod-shared-space")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import datetime
+import json
 import pathlib
 
 import apply_refresh as m
 import pytest
+from botocore.exceptions import ClientError
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError
 
@@ -550,9 +552,8 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     table silently lost a column. Diff-schema refuses this header before the verb runs, so this
     is the backstop, pinned because nothing after the fold would notice it gone. The header also
     adds ``notes`` so that the definition differs from the live one for more than the collision.
-    The verb's other ``update_failed`` refusals come from the update call or the read-back
-    after it, so an untouched ``update_table`` and a detail naming the column are what pin this
-    one.
+    The verb's other ``update_failed`` refusal comes from the update call itself, so an
+    untouched ``update_table`` and a detail naming the column are what pin this one.
 
     Args:
       None.
@@ -591,6 +592,87 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     assert raised.value.reason == "update_failed"
     assert "amount" in raised.value.detail, raised.value.detail
     assert glue.update_calls == [], "the colliding definition was sent to Glue"
+
+
+@pytest.mark.parametrize(
+    "glue_kwargs",
+    [
+        {
+            "post_error": ClientError(
+                {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "GetTable"
+            )
+        },
+        {"drift": ["order_id"]},
+    ],
+    ids=["read-back-faults", "read-back-disagrees"],
+)
+def test_a_read_back_failing_after_the_update_committed_does_not_say_nothing_changed(glue_kwargs):
+    """Reports a post-commit verification failure as unconfirmed, never as a change that did not happen.
+
+    The update has landed by the time the read-back runs, so ``update_failed``'s "Nothing was
+    changed" would tell the user their table is as it was while its columns may already have
+    been retyped, removed or reordered. The fake applies the update before the read-back fails,
+    and the test checks that it did, so the message is judged against a table that really
+    changed.
+
+    Args:
+      glue_kwargs: How the read-back goes wrong — a Glue fault on the read, or a catalog
+        reporting different columns from the ones written.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, sqs = _install(**glue_kwargs)
+
+    with pytest.raises(TerminalError) as raised:
+        m.handler(_event(), None)
+
+    assert raised.value.reason == "update_unconfirmed"
+    assert len(glue.update_calls) == 1
+    assert [c["Name"] for c in glue.table["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
+    assert len(sqs.calls) == 1
+    message = json.loads(sqs.calls[0]["MessageBody"])["message"]
+    assert "nothing was changed" not in message.lower(), message
+    assert message == (
+        'Couldn\'t refresh table "sales_2026": the update was sent but couldn\'t be confirmed, so '
+        "the table's columns may already have changed - check the table before refreshing again, "
+        "and contact the Administrator if its columns aren't what you expect."
+    )
+
+
+def test_an_update_glue_refuses_still_says_nothing_was_changed():
+    """Reports a refused update as ``update_failed``, the half of the split where nothing changed.
+
+    Glue refusing the write leaves the table as it was, so "Nothing was changed" is true here and
+    ``update_unconfirmed``'s advice to check the table first would send the user looking for a
+    change that never happened.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    glue, sqs = _install(
+        update_error=ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "denied"}}, "UpdateTable"
+        )
+    )
+
+    with pytest.raises(TerminalError) as raised:
+        m.handler(_event(), None)
+
+    assert raised.value.reason == "update_failed"
+    assert len(glue.update_calls) == 1
+    assert [c["Name"] for c in glue.table["StorageDescriptor"]["Columns"]] == ["order_id"]
+    message = json.loads(sqs.calls[0]["MessageBody"])["message"]
+    assert "Nothing was changed." in message, message
 
 
 def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():

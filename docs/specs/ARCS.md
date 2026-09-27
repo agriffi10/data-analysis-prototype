@@ -763,6 +763,11 @@ assume nothing happened.
 > claimed under ETag CAS, serializes refresh outside Glue — the second run is refused with a notification rather
 > than racing. Glue still offers no compare-and-set, which is *why* the lock exists. See `decisions/` →
 > *A per-table lock serializes refresh, because the catalog cannot*.
+>
+> **Superseded in part (2026-09-26):** one `update_failed` no longer covers every failure. The read-back after the
+> update runs once it has committed, so "nothing was changed" was false there; that path raises `update_unconfirmed`,
+> which says the table may already have changed. See `decisions/` → *The refresh apply replaces the definition in
+> place*.
 
 **The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
 `tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`,

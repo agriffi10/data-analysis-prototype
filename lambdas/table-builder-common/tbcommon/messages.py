@@ -15,6 +15,8 @@ Attributes:
     DDL-failure reasons carry no raw Athena text — that stays in logs and the SFN record for
     operators, never in the actor's notification. The refresh reasons read correctly under
     either verb because the prefix template takes the verb from the request's mode.
+    ``update_failed`` and ``update_unconfirmed`` are split on whether the update had committed:
+    the first says nothing was changed, which is false once it has.
   resolver: The domain-scoped resolver, carrying this plane's prefix, access-denied clause
     and shorter unknown-reason fallback.
   _MARKERS: Every marker any body declares, discovered by the resolver rather than listed,
@@ -91,6 +93,11 @@ _BODIES = {
         "finish, then check whether you still need to refresh again."
     ),
     "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
+    "update_unconfirmed": (
+        "the update was sent but couldn't be confirmed, so the table's columns may already have "
+        "changed - check the table before refreshing again, and contact the Administrator if its "
+        "columns aren't what you expect."
+    ),
     "build_timed_out": (
         "it ran for too long and was stopped part-way, so the table may or may not have been "
         "built - check it before trying again.{refreshLock}"
