@@ -8,8 +8,11 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
+import cache
 import create_space as c
 import membership_index
 import registry as reg
@@ -62,6 +65,76 @@ def test_create_name_collision_fails():
     ).encode()
     raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, "name already taken")
 
+
+_ALICE_CACHE = ("user-bkt", "alice/user_settings/shared-connections.json")
+
+
+def _seed_sales(s3, **record):
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "lastRequestId": "req-1", **record}
+    ).encode()
+
+
+@pytest.mark.parametrize(
+    "record, held",
+    [
+        pytest.param(
+            {"owner": "alice", "status": "active", "everActive": True},
+            lambda: cache.write_owner_projection("alice", "sales", ["alice", "bob"], [], "t0"),
+            id="owned",
+        ),
+        pytest.param(
+            {"owner": "bob", "status": "active", "everActive": True},
+            lambda: cache.write_member_entry("alice", "sales", "bob", ["bob", "alice"], [], "t0"),
+            id="member",
+        ),
+        pytest.param(
+            {"owner": "alice", "status": "failed", "everActive": True},
+            lambda: cache.upsert_entry(
+                "alice",
+                {"name": "sales", "role": "owner", "status": "failed", "reason": "x", "failedAction": "delete"},
+            ),
+            id="failed-delete",
+        ),
+    ],
+)
+def test_a_refused_create_leaves_a_space_already_on_the_actors_list_alone(record, held):
+    """The reservation refuses a name alice already owns or belongs to, and that refusal used to
+    replace her card for the space by name — a working space shown as a failed create that Retry
+    collides on again and Dismiss cannot forget, or a failed delete whose Retry became a create.
+    """
+    s3, *_ = install()
+    _seed_sales(s3, **record)
+    held()
+    before = s3.store[_ALICE_CACHE]
+
+    raises(lambda: c.create_space("sales", "alice", "req-2"), reg.ProvisioningError, "name already taken")
+
+    assert s3.store[_ALICE_CACHE] == before
+
+
+@pytest.mark.parametrize(
+    "prior",
+    [
+        pytest.param(None, id="no-card"),
+        pytest.param({"name": "sales", "role": "owner", "status": "provisioning"}, id="pending"),
+        pytest.param(
+            {"name": "sales", "role": "owner", "status": "failed", "reason": "x", "failedAction": "create"},
+            id="failed-create",
+        ),
+    ],
+)
+def test_a_refused_create_still_marks_its_own_card_failed(prior):
+    s3, *_ = install()
+    _seed_sales(s3, owner="bob", status="active")
+    if prior is not None:
+        cache.upsert_entry("alice", prior)
+
+    raises(lambda: c.create_space("sales", "alice", "req-2"), reg.ProvisioningError, "name already taken")
+
+    assert json.loads(s3.store[_ALICE_CACHE])["connections"] == [
+        {"name": "sales", "role": "owner", "status": "failed", "reason": "name already taken", "failedAction": "create"}
+    ]
 
 def test_a_name_whose_database_is_not_this_spaces_is_refused_and_that_database_left_alone():
     """A user's personal database and a space's share one Glue namespace under the bare name, and

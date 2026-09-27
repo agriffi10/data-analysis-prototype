@@ -208,29 +208,94 @@ def remove_entry(username: str, name: str) -> None:
     _mutate(username, apply)
 
 
-def write_owner_pending(owner: str, name: str) -> None:
+def _is_create_card(entry: dict) -> bool:
+    """Reports whether a cache entry is a create's own card rather than a space the user holds.
+
+    A create's card is the provisioning seed or a failed create. Anything else under the name — a
+    space the user owns or belongs to, or one being deleted — is a space the create never made.
+
+    Args:
+      entry: One connection entry.
+
+    Returns:
+      True for a provisioning entry or a failed create.
+
+    Raises:
+      None.
+    """
+    status = entry.get("status")
+    return status == "provisioning" or (status == "failed" and entry.get("failedAction") == "create")
+
+
+def upsert_create_card(owner: str, entry: dict) -> bool:
+    """Writes a create's card by name, unless the user's list already holds a space by that name.
+
+    A create of a name the user already owns or belongs to is refused by the reservation, and
+    that refusal says nothing about the entry already there. Replacing it by name turned a
+    working space's card into a failed create that Retry collides on again and Dismiss cannot
+    forget, so the held entry is left as it is and the notification carries the refusal.
+
+    Args:
+      owner: The creator.
+      entry: The create's card, keyed by its name.
+
+    Returns:
+      True when the card was written, False when a held entry was left in place.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+    held = False
+
+    def apply(connections):
+        """Replaces a same-named create card, or returns the list unchanged over a held entry.
+
+        Args:
+          connections: The current list.
+
+        Returns:
+          The updated list, or the same list when the name is held.
+
+        Raises:
+          None.
+        """
+        nonlocal held
+        current = next((c for c in connections if c.get("name") == entry["name"]), None)
+        held = current is not None and not _is_create_card(current)
+        if held:
+            return connections
+        return [c for c in connections if c.get("name") != entry["name"]] + [entry]
+
+    _mutate(owner, apply)
+    return not held
+
+
+def write_owner_pending(owner: str, name: str) -> bool:
     """Seeds the creator's cache with a provisioning entry when a create is accepted.
 
     Written before any provisioning work, so the space survives a browser reload even if
     provisioning later fails — an unrecorded create vanishes from the UI. Superseded by the
     active projection or a failed upsert, both of which replace this entry by name. The creation
     date and roster are intentionally omitted and supplied by the authoritative active write.
+    Not written over a space already on the creator's list, for the reason ``upsert_create_card``
+    gives.
 
     Args:
       owner: The creator.
       name: The space name.
 
     Returns:
-      None.
+      True when the entry was written, False when the name was already held.
 
     Raises:
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
-    upsert_entry(owner, {"name": name, "role": "owner", "status": "provisioning"})
+    return upsert_create_card(owner, {"name": name, "role": "owner", "status": "provisioning"})
 
 
-def write_owner_deleting(owner: str, name: str) -> None:
+def write_owner_deleting(owner: str, name: str) -> bool:
     """Marks the owner's cache entry as deleting once a delete is accepted.
 
     Written after verification so the card shows a durable deleting state instead of reconciling
@@ -246,13 +311,15 @@ def write_owner_deleting(owner: str, name: str) -> None:
       name: The space name.
 
     Returns:
-      None.
+      True, since a delete's card always replaces the entry — the returned value matches the
+      create's seed, which the validator records as whether the intent was written.
 
     Raises:
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
     upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting", "failedAction": "delete"})
+    return True
 
 
 def _member_projection(members, owner, acknowledged):
