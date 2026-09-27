@@ -458,23 +458,26 @@ def _post_condition(database: str, table: str, expected: set) -> int:
       The number of columns the catalog now reports.
 
     Raises:
-      TerminalError: ``update_failed`` when the table cannot be read back or the names do not
-        match. Terminal even on a throttle: the update is already committed, so a Retry would
-        re-read a table that has already changed and write it again, and a verification failing
-        is not evidence that repeating the work it was verifying will help.
+      TerminalError: ``update_unconfirmed`` when the table cannot be read back or the names do
+        not match. Terminal even on a throttle: the update is already committed, so a Retry
+        would re-read a table that has already changed and write it again, and a verification
+        failing is not evidence that repeating the work it was verifying will help. Not
+        ``update_failed``, whose message tells the user nothing was changed: by now columns may
+        already have been retyped, removed or reordered, so the message has to send them to
+        look at the table before they refresh again.
     """
     client = clients.glue()
     try:
         table_def = client.get_table(DatabaseName=database, Name=table)["Table"]
     except Exception as err:
         raise TerminalError(
-            "update_failed", f"{database}.{table} is not readable after the update: {err}"
+            "update_unconfirmed", f"{database}.{table} is not readable after the update: {err}"
         ) from err
 
     actual = _folded_names(table_def)
     if actual != expected:
         raise TerminalError(
-            "update_failed",
+            "update_unconfirmed",
             f"{database}.{table} has {len(actual)} columns after the update, "
             f"expected {len(expected)} (missing {sorted(expected - actual)}, "
             f"unexpected {sorted(actual - expected)})",
@@ -499,9 +502,10 @@ def handler(event: dict, context) -> dict:
       The event with a refreshed status and the applied column count.
 
     Raises:
-      TerminalError: ``table_not_found`` or ``update_failed``. Every terminal outcome here
-        leaves the table exactly as it was, and the actor is notified before the SFN Catch
-        records it.
+      TerminalError: ``malformed_event``, ``table_not_found``, ``table_changed_during_refresh``
+        or ``update_failed``, each of which leaves the table exactly as it was; or
+        ``update_unconfirmed``, raised after the update committed, when the table may already
+        carry the new definition. The actor is notified of each before the SFN Catch records it.
       TransientError: On a retryable Glue fault.
       ValueError: If a reconstructed partition key cannot be rendered. Unlike the two above it
         is not a classified outcome — the decorator notifies it generically and the state
@@ -524,7 +528,8 @@ def _apply(event: dict) -> dict:
       The event with a refreshed status and the applied column count, after notifying the actor.
 
     Raises:
-      TerminalError: ``table_not_found`` or ``update_failed``.
+      TerminalError: ``malformed_event``, ``table_not_found``, ``table_changed_during_refresh``
+        or ``update_failed`` before the update commits; ``update_unconfirmed`` after it.
       TransientError: On a retryable Glue fault.
       ValueError: If a reconstructed partition key cannot be rendered — it escapes the terminal
         classification and reaches the state machine as its own name.

@@ -313,6 +313,13 @@ exposure: there is no committed destructive step left to be silent about. It als
 entrenching a pattern it would have to unpick for Iceberg, where drop-and-recreate destroys the
 snapshot history that is most of the reason to adopt it.
 
+**A read-back failing AFTER the update cannot say nothing changed.** The
+post-condition runs once the update has committed, so a Glue fault on that read, or a catalog
+reporting other columns than were written, leaves a table whose columns may already be retyped,
+removed or reordered. It raises `update_unconfirmed`, whose message sends the user to check the
+table before refreshing again — never `update_failed`, whose "Nothing was changed" would be false
+there.
+
 **The one thing to understand before touching this verb: it is a READ-MODIFY-WRITE on the live table,
 never a rebuild from SPEC-143's capture.** `UpdateTable` replaces the WHOLE definition — a
 `TableInput` omitting a field does not leave that field alone, it **clears it** — and
