@@ -65,7 +65,9 @@ def _record_intent(action, actor, space, request_id):
     """Records an authorized create or delete as in-flight in the actor's cache, and notifies.
 
     Best-effort: a cache-write failure is logged and swallowed, because it must never block the
-    action, and the verb writes the authoritative terminal state at the end.
+    action, and the verb writes the authoritative terminal state at the end. A create's seed is
+    not written over a space already on the actor's list, and the create goes on to be refused
+    by the reservation.
 
     Args:
       action: ``create`` or ``delete``.
@@ -74,17 +76,19 @@ def _record_intent(action, actor, space, request_id):
       request_id: The run's request id.
 
     Returns:
-      None.
+      Whether the in-flight entry was written.
 
     Raises:
       None.
     """
     write, template, tag = _INTENT[action]
+    written = False
     try:
-        write(actor, space)
+        written = write(actor, space)
     except Exception:
         logger.warning("intent cache write failed for %s %s/%s", action, actor, space, exc_info=True)
     emit_notification(actor, template.format(space=space), dedup_id=f"{request_id}:{tag}:{actor}")
+    return written
 
 
 def _record(event):
@@ -213,6 +217,7 @@ def handler(event, context):
         )
         requester = who.username
 
+    intent_written = False
     registry_doc = None if action == "create" else reg.load(space)
     if not isinstance(registry_doc, dict):
         registry_doc = None
@@ -234,7 +239,7 @@ def handler(event, context):
         if refusal is None:
             auth.authorize(action, space, actor, registry_doc)
             if events.in_vocabulary(action, _INTENT):
-                _record_intent(action, actor, space, req.get("requestId"))
+                intent_written = _record_intent(action, actor, space, req.get("requestId"))
 
     validated = {
         "traceparent": observability.run_traceparent(),
@@ -257,7 +262,7 @@ def handler(event, context):
         space=space,
         actor=actor,
         schema_version=(registry_doc or {}).get("schemaVersion"),
-        intent_written=events.in_vocabulary(action, _INTENT) and refusal is None,
+        intent_written=intent_written,
         known_space=registry_doc is not None,
         refused=refusal[0] if refusal is not None else None,
     )

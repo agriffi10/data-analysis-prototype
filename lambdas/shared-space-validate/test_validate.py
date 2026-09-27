@@ -842,3 +842,43 @@ def test_the_space_the_live_check_already_made_stays_deletable():
 
     assert "refusal" not in ctx
     assert ctx["space"] == _UNUSABLE
+
+
+def _intent_written(captured_events):
+    (event,) = [e for e in captured_events.events if "intent_written" in (e.get("fields") or {})]
+    return event["fields"]["intent_written"]
+
+
+@pytest.mark.parametrize(
+    "held",
+    [
+        pytest.param(lambda: cache.write_owner_projection("alice", "sales", ["alice"], [], "t0"), id="owned"),
+        pytest.param(lambda: cache.write_member_entry("alice", "sales", "bob", ["bob", "alice"], [], "t0"), id="member"),
+        pytest.param(lambda: cache.write_owner_deleting("alice", "sales"), id="deleting"),
+    ],
+)
+def test_a_create_of_a_name_already_on_the_actors_list_does_not_seed_a_pending_card_over_it(held, captured_events):
+    """The pending seed replaces by name, so a create of a name alice already holds turned her
+    working space's card into a provisioning one before the reservation had even refused it."""
+    s3, *_ = install()
+    held()
+    before = s3.store[_PENDING_KEY]
+
+    v.handler(_event("create", "sales", actor="alice"), None)
+
+    assert s3.store[_PENDING_KEY] == before
+    assert _intent_written(captured_events) is False
+
+
+def test_a_retried_create_replaces_its_own_failed_card_with_a_pending_one(captured_events):
+    s3, *_ = install()
+    cache.upsert_entry(
+        "alice", {"name": "sales", "role": "owner", "status": "failed", "reason": "x", "failedAction": "create"}
+    )
+
+    v.handler(_event("create", "sales", actor="alice"), None)
+
+    assert json.loads(s3.store[_PENDING_KEY])["connections"] == [
+        {"name": "sales", "role": "owner", "status": "provisioning"}
+    ]
+    assert _intent_written(captured_events) is True

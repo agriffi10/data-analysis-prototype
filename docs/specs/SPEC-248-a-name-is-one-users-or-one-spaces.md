@@ -398,14 +398,18 @@ inside the guard whose failure path records a failed create.
     same step on every Retry for as long as the name's holder exists, so Retry there is a control
     that can never work.
   - The one holder that does give way is the same owner's own create still in flight, which
-    `reserve` refuses as taken. It needs no Retry either: every cache write replaces the entry by
-    name, so that create's own result, active or failed, replaces the collision card when it ends.
+    `reserve` refuses as taken. It needs no Retry either: that create's own result, active or
+    failed, replaces the collision card by name when it ends.
   - So all three raise one type, `NameTaken`, a subclass of `ProvisioningError` in
     `registry.py`, at `registry.py`'s collision, `_ensure_database`'s refusal and the pool check.
     Both failure branches of `create_space` write `retryable: false` on the actor's cache entry
     when, and only when, the caught exception is a `NameTaken`. The reserve branch catches every
     exception, including an S3 fault and a compare-and-swap that runs out of attempts, and those
     keep Retry. So does the membership limit, which is also a `ProvisioningError`.
+  - The reserve branch writes through `cache.upsert_create_card`, which replaces only the create's
+    own card (none, the provisioning seed, or a failed create) and leaves a space the actor
+    already owns or belongs to as it is. So the flag goes on the entry that writer is handed, and
+    never lands on an active, member, deleting or failed-delete card.
   - The card drops Retry when it reads the flag. Dismiss stays, since forgetting is what frees the
     owner's own failed reservation. It is a flag, not a match on the sentence, so the browser never
     keys on wording, and an entry without the flag keeps Retry.
@@ -447,7 +451,7 @@ the user ever signs in, so the audit's marker check is what covers the forward d
   retryable fault, and makes no slot write and no Glue call.
 - [ ] Unit: a name with no pool user goes on to provision as it does today.
 - [ ] Unit: the reserve collision, the database refusal and the pool refusal each write the reason
-  `name already taken` and `retryable: false` on the actor's cache entry.
+  `name already taken` and `retryable: false` on the create's own cache entry.
 - [ ] Unit: none of these writes the flag: a reserve that fails with an S3 fault, a reserve whose
   compare-and-swap runs out of attempts, and a reached membership limit.
 - [ ] Component: a failed create card whose entry carries `retryable: false` offers Dismiss and no

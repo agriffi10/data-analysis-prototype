@@ -185,7 +185,10 @@ def create_space(name, actor, request_id):
     The reservation is handled outside the provisioning guard on purpose: a name collision must
     not rewrite the registry, because the name belongs to the space's real owner. The actor's own
     cache is theirs to correct — the validator wrote a provisioning entry, so it is marked failed
-    or the actor is left with a stuck phantom they cannot clear.
+    or the actor is left with a stuck phantom they cannot clear. That write replaces only a
+    create's own card, because the name may be one the actor already owns or belongs to, and
+    replacing that entry by name turns a working space into a failed create. The guard's failure
+    path replaces by name without asking, since past the reservation the name is this create's.
 
     **The membership index is written after the registry reaches active, and INSIDE the guard.**
     After, because ``reserve`` writes ``provisioning`` and only an active space yields a session
@@ -223,7 +226,7 @@ def create_space(name, actor, request_id):
         friendly = _user_reason(exc)
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
         try:
-            cache.upsert_entry(
+            cache.upsert_create_card(
                 actor,
                 {
                     "name": name,

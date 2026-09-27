@@ -48,8 +48,11 @@ machine and every verb.
   every mutator is ETag compare-and-swap. The admin bucket's expiry lifecycle excludes this prefix.
 - **The per-user UI cache** is `{username}/user_settings/shared-connections.json`, written by the
   pipeline into each member's own prefix, carrying a per-entry status of `provisioning`, `active`,
-  `failed` or `leaving`. A missing cache is an empty state, never an error.
-  `cache.write_roster_to_all` fans the roster out on add, remove and leave.
+  `deleting` or `failed` (`leaving` is the browser's own, and never written here). A missing cache
+  is an empty state, never an error.
+  `cache.write_roster_to_all` fans the roster out on add, remove and leave. Writes replace an entry
+  by name, except a create's pending seed and its refused-reservation card, which go through
+  `cache.upsert_create_card` and leave a space the user already owns or belongs to untouched.
 - **The per-user membership index** is `<admin-bucket>/memberships/{username}.json`, holding
   `{version, username, spaces: [{name, status}], updatedAt}`. It is the projection that answers
   *which spaces is this user in* in one `GetObject`, which the registry — one object per space,
