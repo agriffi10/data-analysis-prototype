@@ -248,6 +248,7 @@ def test_finalize_stamps_ever_active_only_when_the_outcome_is_active():
     reg.finalize("sales", "alice", "req-1", "failed", "boom")
     assert "everActive" not in _record(s3)
 
+    reg.reserve("sales", "alice", "req-2")
     reg.finalize("sales", "alice", "req-2", "active")
     assert _record(s3)["everActive"] is True
 
@@ -260,7 +261,7 @@ def test_finalize_carries_an_existing_ever_active_forward_onto_a_failed_outcome(
     reg.reserve("sales", "alice", "req-1")
     reg.finalize("sales", "alice", "req-1", "active")
 
-    reg.finalize("sales", "alice", "req-2", "failed", "boom")
+    reg.finalize("sales", "alice", "req-1", "failed", "boom")
 
     record = _record(s3)
     assert record["status"] == "failed" and record["everActive"] is True
@@ -323,3 +324,71 @@ def test_save_members_and_set_status_both_preserve_the_stamp():
 
     reg.set_status(record, "deleting", "req-3")
     assert _record(s3)["everActive"] is True
+
+
+@pytest.mark.parametrize(
+    ("status", "claim_id"),
+    [("deleting", "req-d"), ("failed", "req-d"), ("deleting", "req-1")],
+)
+def test_a_create_whose_record_a_delete_claimed_mid_provisioning_fails_and_leaves_the_claim(
+    monkeypatch, status, claim_id
+):
+    # finalize rebuilt the record from a literal, so it overwrote the deleting status and stamped
+    # the space ever-active while the delete that claimed it went on tearing it down: the owner
+    # was told the space was ready, and it then vanished. It now refuses a record this create no
+    # longer holds, and the failure path's own finalize refuses it too. A delete whose teardown
+    # faulted writes failed over its claim, so the status alone is not the test; a request id is
+    # the caller's, so neither is the id alone.
+    s3, *_ = install()
+    real_grant = c._grant_portal_role
+
+    def grant_then_delete_claims(name):
+        real_grant(name)
+        record = json.loads(s3.store[("admin-bkt", f"shared-spaces/{name}.json")])
+        s3.put_object(
+            Bucket="admin-bkt",
+            Key=f"shared-spaces/{name}.json",
+            Body=json.dumps(dict(record, status=status, lastRequestId=claim_id)),
+        )
+
+    monkeypatch.setattr(c, "_grant_portal_role", grant_then_delete_claims)
+
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, match="deleted")
+
+    saved = _record(s3)
+    assert saved["status"] == status and saved["lastRequestId"] == claim_id
+    assert "everActive" not in saved
+
+
+@pytest.mark.parametrize("reserved_by", [None, "bob"])
+def test_a_create_whose_record_was_deleted_mid_provisioning_neither_resurrects_nor_takes_it(
+    monkeypatch, reserved_by
+):
+    # The same literal rebuild on an absent record re-created the name the delete had just
+    # freed, as active, over resources the teardown had removed; and on a record another user
+    # had reserved since, it handed their name to this create's owner — even under a request id
+    # that happens to match, since the caller chooses it.
+    s3, *_ = install()
+    real_grant = c._grant_portal_role
+    bobs = {
+        "name": "sales",
+        "owner": "bob",
+        "members": ["bob"],
+        "status": "provisioning",
+        "lastRequestId": "req-1",
+    }
+
+    def grant_then_delete_frees(name):
+        real_grant(name)
+        del s3.store[("admin-bkt", f"shared-spaces/{name}.json")]
+        if reserved_by:
+            s3.put_object(Bucket="admin-bkt", Key=f"shared-spaces/{name}.json", Body=json.dumps(bobs))
+
+    monkeypatch.setattr(c, "_grant_portal_role", grant_then_delete_frees)
+
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, match="deleted")
+
+    if reserved_by:
+        assert _record(s3) == bobs
+    else:
+        assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store

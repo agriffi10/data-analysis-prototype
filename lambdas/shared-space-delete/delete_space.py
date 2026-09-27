@@ -84,9 +84,9 @@ def _hand_the_space_back(space, actor, registry, request_id):
     in the tidy-up must not replace the sentence the actor needs to read.
 
     **It runs before anything is revoked, which is what keeps it this small.** The only owner
-    check the cascade makes is on its first write, so reaching here means the run has written the
-    deleting status and nothing else. A check on the emptying rewrite would have caught a transfer
-    landing later, during the revocation loop; ``empty_space``'s docstring says why that was tried
+    check the cascade makes is on its first write, and a refusal there writes nothing, so the only
+    write of this request it can find is a deleting status an earlier attempt left. A check on the
+    emptying rewrite would have caught a transfer landing later, during the revocation loop; ``empty_space``'s docstring says why that was tried
     and abandoned rather than repaired from here.
 
     Two things are undone. The deleting status, when this run wrote it — the record belongs to
@@ -192,22 +192,16 @@ def delete_space(space, actor, request_id, registry):
     is destroyed exactly as before — it was reachable only by its creator, and this route is
     that creator discarding their own failed create.
 
-    The route is decided from a FRESH read, not from the record the validator loaded. Delivery
-    is ordered and executions are not, so an add, a leave or a competing delete can land in
-    between; and the verb has no status guard in the authorizer to lean on. A record that has
-    gone missing refuses rather than proceeding.
-
-    **A record that changed hands refuses, and refuses on the cascade's FIRST WRITE.** Deleting
-    is owner-only and is not an action an operator may ask for, so the actor is the owner the
-    validator verified; a transfer landing between that read and this run leaves the verb about
-    to empty a space belonging to somebody else. The check rides the deleting status rather than
-    a read of its own: a read can only be re-checked by the write that follows it, and putting it
-    on the first write means a refusal has written nothing to a record it may not touch. What it
-    still owes is the requester's own card, which the validator stamped before the verb ran. That is why the ever-active stamp is taken AFTER it and not before:
-    the stamp is a no-op only on a record that already carries the field, and the records the
-    backfill exists for do not — so stamping first would put this run's request id on a record
-    the very next line refuses to touch. An already-emptied record answers from ``previousOwner``,
-    so a retry of a delete that failed after the rewrite is not refused as a lost authorization.
+    **The route and the owner are both decided on the cascade's FIRST WRITE**, the
+    ``begin_delete`` claim, and not on the record the validator loaded or on a read of the verb's
+    own. Delivery is ordered and executions are not, so an add, a leave, a transfer, the owner's
+    create retry or a competing delete can land in between, and a read can only be re-checked by
+    the write that follows it. A route decided on a read tore down a space the create had turned
+    active after it; an owner checked on one emptied a space that had changed hands. Inside the
+    swap, a refusal has written nothing to a record it may not touch, and a space found
+    destroyable stays that way, because the claim is what ``finalize`` refuses. A record that has
+    gone missing refuses rather than proceeding. What a refusal still owes is the requester's own
+    card, which the validator stamped before the verb ran.
 
     **That is the ONLY owner check, and a transfer landing later is not caught.** The emptying
     rewrite could carry one, and for a while it did; ``empty_space``'s docstring records why it
@@ -227,7 +221,7 @@ def delete_space(space, actor, request_id, registry):
     leaves the record untouched and the retry idempotent, and one after the rewrite is repaired
     by ``restore_owner`` putting the unreached names back.
 
-    The roster it revokes is the union of the validator's copy and that fresh read, because both
+    The roster it revokes is the union of the validator's copy and the record the claim read, because both
     are snapshots and a member on either holds a live grant. On the emptying route the rewrite
     hands back the record it replaced, and anyone appearing only there is a latecomer whose slot
     is cleared afterwards and who is told the same thing as everyone else.
@@ -255,9 +249,8 @@ def delete_space(space, actor, request_id, registry):
       The verb result, carrying every member whose access was revoked.
 
     Raises:
-      RegistryRecordMissing: When the fresh read finds no record.
-      OwnerChanged: When the space changed hands between the validator's read and this one, or
-        between this one and the emptying rewrite.
+      RegistryRecordMissing: When the claim finds no record.
+      OwnerChanged: When the space changed hands before the claim.
       RegistryRecordResurrected: When a membership write re-created the record after the name
         was freed.
       MembersRemainAfterEmpty: When the roster is not empty after every revocation pass.
@@ -266,22 +259,16 @@ def delete_space(space, actor, request_id, registry):
       TransientError: On a retryable Glue fault during teardown.
       ClientError: On any other S3, Glue or Cognito fault.
     """
-    fresh = reg.load(space)
-    if fresh is None:
-        raise reg.RegistryRecordMissing(f"space {space!r} has no registry record")
-    destroying = reg.is_destroyable(fresh)
-    owner = fresh.get("owner") or registry.get("owner")
-    members = list(dict.fromkeys([*registry.get("members", []), *fresh.get("members", [])]))
     try:
-        reg.set_status(registry, "deleting", request_id, expected_owner=actor)
+        fresh, destroying = reg.begin_delete(registry, actor, request_id)
     except reg.OwnerChanged:
         _hand_the_space_back(space, actor, registry, request_id)
         raise
+    owner = fresh.get("owner") or registry.get("owner")
+    members = list(dict.fromkeys([*registry.get("members", []), *fresh.get("members", [])]))
     emptied = False
     unrevoked = []
     try:
-        if not destroying:
-            reg.mark_ever_active(space, request_id)
         if destroying:
             teardown.delete_shared_prefix(space)
             teardown.revoke_portal_role(space)

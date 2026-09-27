@@ -67,6 +67,7 @@ entry you need, not the file.**
 - [Not every success notice links, and the table planes' do not on purpose](#not-every-success-notice-links-and-the-table-planes-do-not-on-purpose)
 - [A space's NAME is held to the catalog rule where it is CHOSEN, and the refusal is create-only (2026-09-22)](#a-spaces-name-is-held-to-the-catalog-rule-where-it-is-chosen-and-the-refusal-is-create-only-2026-09-22)
 - [A space named after a user finds that user's database, and a teardown touches only its own (2026-09-26)](#a-space-named-after-a-user-finds-that-users-database-and-a-teardown-touches-only-its-own-2026-09-26)
+- [A delete decides its route on the record it claims, and a removal cannot take the owner off the roster (2026-09-26)](#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)
 
 ## Fences
 
@@ -190,7 +191,11 @@ inside the execution the Pipe starts.
   `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently
   both ways. Inert because the `owner` **field** is cleared, or for the member actions `emptiedAt` — so
   test it **as the original owner** AND on a live record.
-  A name is never reusable.
+  A name is never reusable. **The route and the owner are decided INSIDE the swap that claims the
+  record** (`begin_delete`, for delete and forget), never on a read before it: a route read first
+  tore down a space a create turned active in between. `finalize` refuses any record that is no
+  longer its own reservation, so a create cannot turn a claimed space usable after the claim
+  either ([entry](#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)).
 - **The planes do not verify — they read the API's `identity` block**, whose writers are
   enumerated: the API, and one reader by `SenderId`. Dropping a verification is NOT dropping an authorization:
   `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,
@@ -1439,7 +1444,8 @@ legitimate retry and refuses to tear it down. An AST sweep holds it monotonic: n
 anything but `True`, and `pop`/`del` count as writes.
 
 **`deleting` is NOT evidence that a space was ever usable, and a draft of this spec said it was.**
-The reasoning looked sound — only `delete_space` writes that status — but deleting is gated on
+The reasoning looked sound — only `delete_space` wrote that status then (forget's claim writes it too
+since 2026-09-26, on a never-usable space only) — but deleting is gated on
 ownership and nothing else, since neither the validator nor the authorizer inspects status. So an
 owner may delete their own failed or still-provisioning create, and the verb writes `deleting`
 *before* any teardown; an invocation that dies rather than raising leaves that status permanently,
@@ -2097,8 +2103,10 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   index re-read and write under ETag CAS, which keeps each document whole. What CAS does not
   re-check is what the verb was authorized on — **and a CAS on one document orders nothing against
   a write to another, which is the second half of this arm.** **Repaired 2026-09-15 (Andrew), in
-  the granting direction only:** `save_members`, `set_status` and `empty_space` now take an
-  `expected_owner` and refuse with `OwnerChanged` — passed by the add, and only for a delta that
+  the granting direction only:** `save_members` and `set_status` took an `expected_owner` and
+  refused with `OwnerChanged`; `save_members` still does, and `set_status`'s check moved into
+  `begin_delete` on 2026-09-26 (one on the emptying rewrite was tried and dropped, as below) —
+  passed by the add, and only for a delta that
   actually ADDS somebody, since one that grants nothing needs no re-authorization and refusing it
   would turn an idempotent no-op into a failure. The delete carries it on the cascade's FIRST
   WRITE, the deleting status, rather than on a read: a read can only be re-checked by the write
@@ -2120,11 +2128,14 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   only shrinks the stranded population to the latecomer pass, since the rewrite has blanked the
   roster by then and the replay reads it back empty.
   `set_owner` now also refuses a target who left the roster
-  (`TransferTargetNoLongerMember`), which closes an owner who is not a member: being the owner is
-  itself the access. **`remove_members` is deliberately NOT repaired** — a late remove revokes
-  rather than grants, and `MembershipRefused` already decides that refusing one strands a member
-  who slipped through; `expected_owner` is a general parameter, so it is one line if that reading
-  changes. The roster fan-out now runs under the owner the COMMIT carries, at all four sites that
+  (`TransferTargetNoLongerMember`), which closes an owner who is not a member **when the removal
+  lands first**: being the owner is itself the access. The other order, a transfer to the leaver
+  or the removed member landing first, was open until 2026-09-26, when `save_members` began
+  refusing a removal naming the record's current owner
+  ([entry](#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)). **`remove_members` is otherwise deliberately NOT repaired** — a
+  late remove revokes rather than grants, and `MembershipRefused` already decides that refusing
+  one strands a member who slipped through; `expected_owner` is a general parameter, so it is one
+  line if that reading changes. The roster fan-out now runs under the owner the COMMIT carries, at all four sites that
   passed the validator's, and writes nothing at all when the commit carries none — which also
   stops a late leave or remove re-creating every member's cache card for a space a delete has just
   emptied. Those cards are the browser's affordances, re-authorized at the validator, so that half
@@ -2139,7 +2150,7 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   the delete clears it. **Still live, and recorded rather than repaired:** CAS on an absent record
   writes create-only from the caller's snapshot, so an owner verb landing after a teardown's final
   delete recreates the record — `save_members` and `set_status` are the two that fall back that
-  way, and the new owner check evaluates against that snapshot, so it does not close this; member
+  way, and `save_members`' owner check evaluates against that snapshot, so it does not close this; member
   actions are refused on anything not active, so it reaches only a never-active space, such as an
   owner's retried create racing their own delete. `create-space` writes its own index entry AFTER
   `finalize`, and that one cannot take the ordering above: the record reads `provisioning` until
@@ -2148,9 +2159,10 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   no absent record to bite: a creator deleting their own space in the window after `finalize`
   has their entry re-created over an emptied record, permanently, because an emptied roster names
   them nowhere any verb will sweep. A self-grant over their own retained objects, which is what
-  caps it. `finalize` does **not** narrow this — it builds its record from a literal with no
-  absent branch, so on a freed name it re-creates the record rather than refusing, which is the
-  same create-only write as the two above and not a fence against it. The add's rollback is best-effort by design and skips anyone on the roster it reads, so
+  caps it. `finalize` used to widen this — it builds its record from a literal, so on a freed name
+  it re-created the record rather than refusing — and since 2026-09-26 it refuses an absent,
+  claimed or re-owned record ([entry](#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)), which leaves the two above as the
+  only create-only fallbacks. The add's rollback is best-effort by design and skips anyone on the roster it reads, so
   on the destroying route a read landing before the record is deleted keeps both grants over a
   name that is then freed. The narrowing second index write has a residual of its own, in the
   denying direction: a delete dropping the entry between the commit and that write re-creates it
@@ -2797,3 +2809,60 @@ and a username that is a space name, the second of which has post-confirmation a
 database and grant the new user on it), and whether a space tag naming a user's database reaches
 that catalog through the portal role's shared-space Glue statement. Those are a security spec's.
 
+## A delete decides its route on the record it claims, and a removal cannot take the owner off the roster (2026-09-26)
+
+**Found by the same data-loss audit.** Two races on the shared-spaces plane, neither losing file
+bytes, both apply-green. Each verb decided something on a read and acted after it, and what it
+decided was not re-checked on the record it then wrote to.
+
+**A removal could strip the owner.** The validator refuses a leave by the owner and a removal
+naming the owner, on the record it loaded. A transfer to that member committing after the load
+made the leave or removal complete against the new owner: owner bob, bob not on the roster, his
+Cognito slot cleared and his index entry dropped — and the add normalises an owner out, so no verb
+could give him either back. `TransferTargetNoLongerMember` closes only the other order. **One
+predicate, `registry.refuse_removing_owner`, now refuses such a removal twice:** on a fresh read
+the verb takes before it clears anything, which covers the ordinary window between the validator
+and the verb with nothing to repair; and inside `save_members`' swap, whoever calls it, which
+keeps the roster rule absolute for a transfer landing after that read. Refusing the whole removal
+mirrors the validator's own `MemberRemoveOwner`, and the user reads the existing `OwnerChanged`
+sentence, which is true of both verbs.
+
+**The second refusal comes after the slots are cleared**, because clearing first is what keeps a
+faulted leave or remove retryable. So `membership.reinstate_owner` gives back the NEW OWNER's slot
+and card, and no one else's; the other cleared names stay listed without a slot — a denial the
+owner mends by removing and re-adding them, reachable only when a transfer commits during the
+verb's clearing pass, a Cognito read and write plus a cache write per name. **Two reviews each
+reproduced this restore granting**, and the second instance is what made it structural rather than
+a third patch. A first draft granted on a roster read before the grant, and a delete emptied the
+space in between. The next granted first and confirmed with a read after, which still leaked: a
+removal that had cleared the member early committed after the space went to them and back. What
+holds now is an invariant, not a check: **every writer that ends someone's place on a roster
+revokes AFTER a write the confirming read can see** — a delete and a forget claim before they
+revoke, and a leave and a remove now clear the slot and card again after their own commit. So
+whatever ends the ownership is either seen by that read, which takes back the slot and the card
+(both written before it), or revokes after the grant.
+
+**The destroy decision was not bound to the record destroyed.** Delete read the record, chose its
+route with `is_destroyable`, then wrote `deleting` re-checking only the owner; forget wrote nothing
+before its teardown and never re-checked the owner at all. And `finalize` rebuilt the record from a
+literal, overwriting a `deleting` claim. So the owner's create retry going active either side of
+the delete's first write was torn down after reporting ready, and a second dismiss validated
+against a name its actor had already freed tore down the next user's reservation (the database
+marker already kept a user's personal catalog out of reach). **`registry.begin_delete` is now the
+first write of both verbs**: one swap that refuses an absent record, decides the route on the
+record it read, re-checks the owner, writes `deleting` and stamps `everActive` on the emptying route
+so the record reads as the route it took. A write landing after its read fails the swap, and the
+retry decides again. Forget passes `only_if_destroyable`, so a usable space is still left unwritten,
+and a record that changed hands takes its cache-only path. **`finalize` refuses a record that is
+absent, `deleting`, owned by someone else or last written by another request**, on both outcomes, so
+nothing can turn a claimed space usable while it is torn down, and a create racing a teardown fails
+and says so. The request-id clause is the one a review showed was needed: a delete whose teardown
+faults writes `failed` over its own claim, and without it the create's finalize then took the
+record back to active over a revoked grant and a deleted marker. Its one cost is a denial: a create
+whose index write fails after `finalize` succeeded cannot record `failed` if another writer landed
+in between, so the space stays active with the owner's slot rolled back. `set_status` lost
+its `expected_owner`, whose one caller was the delete's first write.
+
+**What it costs:** a forget whose teardown faults now leaves `deleting` rather than the status it
+found, as a killed delete does, so the owner's create retry is refused as taken until the forget is
+retried from the card it removes last.

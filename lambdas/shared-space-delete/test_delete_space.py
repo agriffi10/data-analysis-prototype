@@ -628,10 +628,10 @@ def test_a_refused_delete_clears_the_deleting_card_the_validator_stamped():
     assert card["connections"][0]["owner"] == "bob"
 
 
-def test_a_transfer_landing_between_the_fresh_read_and_the_first_write_is_refused_there():
-    # The pre-check reads once; the deleting status is the cascade's first WRITE, so it carries
-    # the same check under compare-and-swap. Nothing between them reaches the roster, and the
-    # refusal has to leave alice's card usable just as the pre-check's does — it is raised
+def test_a_transfer_landing_between_the_claims_read_and_its_write_is_refused_there(monkeypatch):
+    # The owner check rides the cascade's first write, under compare-and-swap, so a transfer
+    # committing after that write's read fails the swap and the retry refuses. Nothing between
+    # them reaches the roster, and the refusal has to leave alice's card usable — it is raised
     # outside the cascade's own handler, which is where it escaped every repair once.
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob"))
@@ -639,25 +639,25 @@ def test_a_transfer_landing_between_the_fresh_read_and_the_first_write_is_refuse
     s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] = json.dumps(
         {"version": 1, "connections": [{"name": "sales", "role": "owner", "status": "deleting"}]}
     ).encode()
+    real_read = teardown_registry._read
+    fired = []
 
-    # Between the fresh read and the cascade's first write, which is the window the read alone
-    # cannot see and the guarded write is there to close.
-    real_destroyable = d.reg.is_destroyable
-
-    def transfer_then_route(record):
-        out = real_destroyable(record)
-        current = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-        s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
-            dict(current, owner="bob")
-        ).encode()
+    def read_then_transfer(name):
+        out = real_read(name)
+        if not fired:
+            fired.append(True)
+            s3.put_object(
+                Bucket="admin-bkt",
+                Key="shared-spaces/sales.json",
+                Body=json.dumps(dict(stale, owner="bob")),
+            )
         return out
 
-    d.reg.is_destroyable = transfer_then_route
-    try:
-        raises(lambda: d.delete_space("sales", "alice", "req-d", stale), teardown_registry.OwnerChanged)
-    finally:
-        d.reg.is_destroyable = real_destroyable
+    monkeypatch.setattr(teardown_registry, "_read", read_then_transfer)
 
+    raises(lambda: d.delete_space("sales", "alice", "req-d", stale), teardown_registry.OwnerChanged)
+
+    assert fired
     saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert saved["owner"] == "bob" and saved["status"] == "active"
     assert "lastRequestId" not in saved, "the refusal must not have written to bob's record"
@@ -723,3 +723,36 @@ def test_a_retry_repairs_the_deleting_status_its_own_earlier_attempt_left():
     assert saved["status"] == "active" and saved["owner"] == "bob"
     assert member_refusal("bob", "sales", "add_members", ["carol"], saved) is None
     authorize("delete", "sales", "bob", saved)
+
+
+def test_a_create_going_active_between_the_route_read_and_the_first_write_is_emptied_not_destroyed(
+    monkeypatch,
+):
+    # The route used to be decided on a read of its own, and the first write re-checked only the
+    # owner. The owner's create retry finishing in between turned a destroyable record active,
+    # and the cascade tore down a space the create had just reported ready. The route is now
+    # decided inside the compare-and-swap that writes the deleting status, so the create's write
+    # fails that swap and the retry reads the active record.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice",), status="provisioning")
+    reg_before = dict(json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")]), lastRequestId="req-c")
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(reg_before).encode()
+    real_read = teardown_registry._read
+    fired = []
+
+    def read_then_create_finishes(name):
+        out = real_read(name)
+        if not fired:
+            fired.append(True)
+            teardown_registry.finalize("sales", "alice", "req-c", "active")
+        return out
+
+    monkeypatch.setattr(teardown_registry, "_read", read_then_create_finishes)
+
+    d.delete_space("sales", "alice", "req-d", reg_before)
+
+    assert fired
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+    assert "sales" in glue.databases
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["everActive"] is True and saved["members"] == [] and saved["emptiedAt"]
