@@ -6,11 +6,17 @@ assigning and clearing those slots. Reading the user doubles as the user pool ex
 All operations are idempotent and replay-safe.
 """
 
+import logging
+
+import cache
+import registry
 from cpcommon import clients, observability
 from cpcommon import config as cpconfig
 from registry import ProvisioningError
 
 import config
+
+logger = logging.getLogger()
 
 
 def normalize_members(raw: list | None, owner: str) -> list[str]:
@@ -206,3 +212,52 @@ def clear_slot(username: str, name: str) -> None:
                 UserAttributes=[{"Name": _slot_attr(k), "Value": ""}],
             )
             return
+
+
+def reinstate(members: list[str], name: str) -> None:
+    """Gives back the slots and cards a removal cleared before its roster write refused it.
+
+    A leave and a remove clear each name's slot and card BEFORE the roster write, so a fault
+    part way leaves the name still listed and a retry repeats the idempotent clears. A refusal
+    at that write is the one outcome where the order costs something: every name it covers is
+    still on the roster, holding neither a slot nor a card, and when the name is the space's new
+    owner nothing can re-issue either, because the add normalises an owner out.
+
+    Only a name on the roster read HERE is reinstated, and an unreadable roster or an ownerless
+    record, which a delete has emptied, reinstates nobody: this is the granting direction, so a
+    name the record no longer lists is left without the grant. Each step is best-effort, because the caller is about to re-raise the
+    refusal and a fault here must not replace the sentence the requester reads.
+
+    Args:
+      members: The names whose slot and card this run cleared.
+      name: The space name.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    try:
+        record = registry.load(name) or {}
+    except Exception:
+        logger.exception("failed to read the roster before reinstating members of %s", name)
+        return
+    owner = record.get("owner")
+    if not isinstance(owner, str) or not owner:
+        return
+    listed = roster(record)
+    acknowledged = registry.effective_acknowledged(record) if listed else []
+    for member in members:
+        if member not in listed:
+            continue
+        try:
+            assign_or_find_slot(member, name)
+            if member == owner:
+                cache.write_owner_projection(member, name, listed, acknowledged, record.get("createdAt"))
+            else:
+                cache.write_member_entry(
+                    member, name, owner, listed, acknowledged, record.get("createdAt")
+                )
+        except Exception:
+            logger.exception("failed to reinstate %s on %s", member, name)

@@ -7,9 +7,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import leave as l
+import registry as leave_registry
 from cpcommon import clients
 from cpcommon import config as cpconfig
-from fakes import install
+from fakes import install, raises
 
 
 def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
@@ -126,3 +127,21 @@ def test_the_owner_told_about_a_leave_is_the_one_the_commit_carries():
 
     told = [json.loads(m["MessageBody"])["username"] for m in sqs.sent]
     assert told == ["carol"]
+
+
+def test_a_leave_landing_after_the_space_was_transferred_to_the_leaver_is_refused_and_undone():
+    # bob's leave was authorized while alice owned the space, and her transfer to him committed
+    # before his roster write. Completing it left an owner who is not a member, holding no slot
+    # and no card, and the add normalises an owner out, so nobody could give him either back.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
+    stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(dict(stale, owner="bob")).encode()
+
+    raises(lambda: l.leave_space("sales", "bob", "req-l", stale), leave_registry.OwnerChanged)
+
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["owner"] == "bob" and saved["members"] == ["alice", "bob", "carol"]
+    assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+    card = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert [(c["name"], c["role"]) for c in card["connections"]] == [("sales", "owner")]

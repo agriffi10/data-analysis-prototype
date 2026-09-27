@@ -72,6 +72,10 @@ def remove_members(space, members, request_id, registry):
     removed user's token is re-minted — the same lag as on the add path, in the direction that
     matters more, which is why it is recorded.
 
+    **A transfer that made one of the names the owner refuses the whole removal**, as the
+    validator's own refusal of a removal naming the owner does, because partly serving it is
+    worse than saying so. Every name's slot and card cleared ahead of the write is given back.
+
     Args:
       space: The space name.
       members: The requested member names, normalised here.
@@ -82,6 +86,8 @@ def remove_members(space, members, request_id, registry):
       The verb result, carrying the members actually removed.
 
     Raises:
+      OwnerChanged: When a transfer after the request was authorized made one of the names the
+        owner.
       RuntimeError: When the registry CAS attempts are exhausted.
       ClientError: On any non-precondition S3 or Cognito fault.
     """
@@ -97,7 +103,11 @@ def remove_members(space, members, request_id, registry):
         current_set.discard(member)
         removed.append(member)
 
-    committed = reg.save_members(registry, request_id, remove=removed)
+    try:
+        committed = reg.save_members(registry, request_id, remove=removed)
+    except reg.OwnerChanged:
+        membership.reinstate(removed, space)
+        raise
     membership_index.drop_for_all(removed, space)
     cache.write_roster_to_all(
         committed["members"],

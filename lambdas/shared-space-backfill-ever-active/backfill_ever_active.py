@@ -37,7 +37,7 @@ Attributes:
     the record is now a human decision.** Deleting is gated on ownership and on nothing else —
     neither the validator nor the authorizer looks at status — so an owner may delete their own
     failed or still-provisioning create, and the verb writes ``deleting`` before it tears
-    anything down. An invocation that dies rather than raising leaves that status permanently,
+    anything down, as the forget verb does too. An invocation that dies rather than raising leaves that status permanently,
     because the machine records a failure without writing one. So a ``deleting`` record can
     name a space that was never usable, and stamping it unattended would burn its name forever
     with nobody ever seeing it.

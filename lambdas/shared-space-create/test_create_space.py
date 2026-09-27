@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import cache
 import create_space as c
 import membership_index
+import pytest
 import registry as reg
 from cpcommon import clients
 from fakes import install, raises
@@ -323,3 +324,56 @@ def test_save_members_and_set_status_both_preserve_the_stamp():
 
     reg.set_status(record, "deleting", "req-3")
     assert _record(s3)["everActive"] is True
+
+
+def test_a_create_whose_record_a_delete_claimed_mid_provisioning_fails_and_leaves_the_claim(monkeypatch):
+    # finalize rebuilt the record from a literal, so it overwrote the deleting status and stamped
+    # the space ever-active while the delete that claimed it went on tearing it down: the owner
+    # was told the space was ready, and it then vanished. It now refuses a claimed record, and
+    # the failure path's own finalize refuses it too rather than writing failed over the claim.
+    s3, *_ = install()
+    real_grant = c._grant_portal_role
+
+    def grant_then_delete_claims(name):
+        real_grant(name)
+        record = json.loads(s3.store[("admin-bkt", f"shared-spaces/{name}.json")])
+        s3.put_object(
+            Bucket="admin-bkt",
+            Key=f"shared-spaces/{name}.json",
+            Body=json.dumps(dict(record, status="deleting", lastRequestId="req-d")),
+        )
+
+    monkeypatch.setattr(c, "_grant_portal_role", grant_then_delete_claims)
+
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, match="deleted")
+
+    saved = _record(s3)
+    assert saved["status"] == "deleting" and saved["lastRequestId"] == "req-d"
+    assert "everActive" not in saved
+
+
+@pytest.mark.parametrize("reserved_by", [None, "bob"])
+def test_a_create_whose_record_was_deleted_mid_provisioning_neither_resurrects_nor_takes_it(
+    monkeypatch, reserved_by
+):
+    # The same literal rebuild on an absent record re-created the name the delete had just
+    # freed, as active, over resources the teardown had removed; and on a record another user
+    # had reserved since, it handed their name to this create's owner.
+    s3, *_ = install()
+    real_grant = c._grant_portal_role
+    bobs = {"name": "sales", "owner": "bob", "members": ["bob"], "status": "provisioning"}
+
+    def grant_then_delete_frees(name):
+        real_grant(name)
+        del s3.store[("admin-bkt", f"shared-spaces/{name}.json")]
+        if reserved_by:
+            s3.put_object(Bucket="admin-bkt", Key=f"shared-spaces/{name}.json", Body=json.dumps(bobs))
+
+    monkeypatch.setattr(c, "_grant_portal_role", grant_then_delete_frees)
+
+    raises(lambda: c.create_space("sales", "alice", "req-1"), reg.ProvisioningError, match="deleted")
+
+    if reserved_by:
+        assert _record(s3) == bobs
+    else:
+        assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store

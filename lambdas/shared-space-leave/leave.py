@@ -42,6 +42,10 @@ def leave_space(space, actor, request_id, registry):
     actually landed. The owner is notified only after that write lands; a no-op leave emits
     nothing.
 
+    **A transfer to the actor committing before that write refuses it.** The validator's owner
+    check read an older record, and completing the leave wrote an owner who is not a member. The
+    slot and card cleared ahead of the write are given back, since the actor now owns the space.
+
     Args:
       space: The space name.
       actor: The verified member leaving.
@@ -53,6 +57,7 @@ def leave_space(space, actor, request_id, registry):
 
     Raises:
       AuthorizationError: When the actor is the owner, who must delete the space instead.
+      OwnerChanged: When the space was transferred to the actor after the request was authorized.
       RuntimeError: When the registry CAS attempts are exhausted.
       ClientError: On any non-precondition S3 or Cognito fault.
     """
@@ -67,7 +72,11 @@ def leave_space(space, actor, request_id, registry):
         return {"status": "ok", "action": "leave", "space": space, "left": False}
     membership.clear_slot(actor, space)
     cache.remove_entry(actor, space)
-    committed = reg.save_members(registry, request_id, remove=[actor])
+    try:
+        committed = reg.save_members(registry, request_id, remove=[actor])
+    except reg.OwnerChanged:
+        membership.reinstate([actor], space)
+        raise
     membership_index.drop(actor, space)
     remaining = committed["members"]
     cache.write_roster_to_all(

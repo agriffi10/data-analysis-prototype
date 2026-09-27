@@ -38,8 +38,9 @@ class MembershipRefused(Exception):
     RAISED class's name, so the subclasses stay distinguishable to a user; collapsing them would
     give two quite different situations one sentence.
 
-    Only additions are refused. Removing and acknowledging are exempt — both only shrink or
-    annotate a roster, and refusing them would strand a member who slipped through.
+    Additions are what this refuses. Removing and acknowledging are exempt — both only shrink or
+    annotate a roster, and refusing them would strand a member who slipped through — with one
+    exception, a removal naming the space's CURRENT owner, which ``OwnerChanged`` covers.
     """
 
 
@@ -64,6 +65,12 @@ class OwnerChanged(MembershipRefused):
     and would re-apply her change to it, taking the space away from carol. That is a lost
     authorization wearing the shape of a correct retry, and only a check inside the transform
     can see it.
+
+    **A removal is refused the same way when the change of hands made one of its names the
+    owner.** The validator refuses a leave by the owner and a removal naming the owner, on the
+    record it loaded; alice transferring to bob between that read and bob's leave left an owner
+    who was not a member, holding no slot, and the add normalises an owner out, so no verb could
+    give either back.
     """
 
 
@@ -356,6 +363,14 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
     timestamp is: the record is rebuilt from a literal, so it is the one writer here that
     provably drops a field it does not name.
 
+    **That literal is also why it refuses a record that is no longer this create's.** Built from
+    nothing, it overwrote a ``deleting`` claim with an active, ever-active record while the
+    delete that claimed it went on tearing the space down, so the owner was told the space was
+    ready and it then vanished; on an absent record it re-created a name a teardown had just
+    freed, and on a record another user had since reserved it took their name. So a record that
+    is gone, claimed by a delete, or owned by somebody else is refused, on both outcomes: the
+    failure path's own call must not write ``failed`` over the claim either.
+
     Args:
       name: The space name.
       actor: The verified creator, who is the sole member at this point.
@@ -367,6 +382,7 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
       None.
 
     Raises:
+      ProvisioningError: When the record is gone, claimed by a delete, or owned by somebody else.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -381,8 +397,10 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
           The record to write.
 
         Raises:
-          None.
+          ProvisioningError: When the freshly-read record is no longer this create's.
         """
+        if existing is None or existing.get("status") == "deleting" or existing.get("owner") != actor:
+            raise ProvisioningError("the space was deleted while it was being set up")
         record = {
             "version": 1,
             "name": name,
@@ -390,12 +408,12 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
             "members": [actor],
             "status": status,
             "lastRequestId": request_id,
-            "createdAt": (existing or {}).get("createdAt") or now_iso(),
+            "createdAt": existing.get("createdAt") or now_iso(),
             "updatedAt": now_iso(),
         }
         if reason:
             record["reason"] = reason
-        if status == "active" or (existing or {}).get("everActive"):
+        if status == "active" or existing.get("everActive"):
             record["everActive"] = True
         return record
 
@@ -410,8 +428,8 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
 def mark_ever_active(name: str, request_id: str) -> bool:
     """Stamps the durable ever-active fact on a record that does not carry it yet.
 
-    The one writer of that field outside ``finalize``, shared by the delete verb and the
-    one-shot backfill so the two cannot drift. The field is monotonic — written once, never
+    The one-shot backfill's writer of that field; ``finalize`` stamps a create's outcome and
+    ``begin_delete`` stamps the emptying route inside its claim. The field is monotonic — written once, never
     cleared and never written false — because it is what decides whether a later delete empties
     a space or destroys it, and a status can move back and forth while that answer cannot.
 
@@ -523,6 +541,12 @@ def save_members(
     them because both only shrink or annotate a roster, and a late removal revokes rather than
     grants, so refusing one would strand a member who slipped through.
 
+    **A removal naming the record's current owner is refused whoever passes what.** Every caller
+    has already kept the owner out of its delta, against the record the validator loaded, so the
+    only way the owner reaches one is a transfer committing after that read — and completing the
+    removal writes an owner who is not a member. The check is here rather than in the verbs for
+    the reason ``MembershipRefused`` gives: this transform holds the only record fresh enough.
+
     Args:
       registry: The registry record, used for the space name and as the fallback base.
       request_id: The run's request id.
@@ -542,7 +566,8 @@ def save_members(
       SpaceHasNoOwner: When an addition targets a space whose owner has been cleared.
       SpaceAlreadyEmptied: When an addition targets a space a delete has emptied.
       SpaceNeverActive: When an addition targets a space that is still destroyable.
-      OwnerChanged: When an expected owner was given and the space has changed hands since.
+      OwnerChanged: When an expected owner was given and the space has changed hands since, or
+        when a removal names the record's current owner.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -583,9 +608,16 @@ def save_members(
             collapsed into the wrong one of the two sentences. Inside, because a delta that adds
             NOBODY grants nothing and so needs no re-authorization: checked outside, a request
             whose names were all already members, unknown or at their slot limit would turn an
-            idempotent no-op into a refusal and lose the report naming them.
+            idempotent no-op into a refusal and lose the report naming them. Also when a
+            removal names the record's current owner.
         """
         record = dict(existing) if existing is not None else dict(registry)
+        owner = record.get("owner")
+        if owner and owner in removing:
+            raise OwnerChanged(
+                f"space {name!r} is now owned by {owner!r}, who cannot be removed from it, "
+                "so the membership change is refused"
+            )
         if add:
             if not record.get("owner"):
                 raise SpaceHasNoOwner(f"space {name!r} has no owner and cannot take new members")
@@ -623,34 +655,25 @@ def save_members(
     )
 
 
-def set_status(
-    registry: dict, status: str, request_id: str, reason: str | None = None, expected_owner=None
-) -> None:
+def set_status(registry: dict, status: str, request_id: str, reason: str | None = None) -> None:
     """Rewrites a space's status, preserving its owner, members and the rest.
 
     Compare-and-swap on the freshly-read record, so the status change is applied to current state
-    and never regresses a value a concurrent writer just committed.
-
-    **``expected_owner`` makes this the delete cascade's authorization re-check, because it is the
-    cascade's FIRST write.** A status is not authorization-carrying and needs no such check on its
-    own account; what it carries here is position. The delete verb checks its own fresh read
-    before writing anything, and a transfer landing between that read and this write would leave
-    the rest of the cascade running against somebody else's space — so the check goes on the write
-    that opens it, where a refusal has destroyed nothing and written nothing.
+    and never regresses a value a concurrent writer just committed. A status is not
+    authorization-carrying, so nothing here re-checks who asked; the write that OPENS a delete
+    does, and it is ``begin_delete``.
 
     Args:
       registry: The registry record, used for the space name and as the fallback base.
-      status: The new status — deleting before the cascade, or failed on a hard error.
+      status: The new status — failed on a hard error, or active when a refused delete hands the
+        space back.
       request_id: The run's request id.
       reason: The failure reason, when there is one. Absent, any existing reason is cleared.
-      expected_owner: The owner the request was authorized against, or None to write the status
-        whatever the record now says. An emptied record answers from ``previousOwner``.
 
     Returns:
       None.
 
     Raises:
-      OwnerChanged: When an expected owner was given and the space has changed hands since.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -666,16 +689,9 @@ def set_status(
           The record to write.
 
         Raises:
-          OwnerChanged: When an expected owner was given and the record names another.
+          None.
         """
         record = dict(existing) if existing is not None else dict(registry)
-        if expected_owner is not None:
-            current = record.get("owner") or record.get("previousOwner")
-            if current != expected_owner:
-                raise OwnerChanged(
-                    f"space {name!r} is owned by {current!r}, not {expected_owner!r}, "
-                    "so the status change is refused"
-                )
         record["status"] = status
         record["lastRequestId"] = request_id
         record["updatedAt"] = now_iso()
@@ -691,6 +707,96 @@ def set_status(
         write=lambda record, etag: _put(name, record, etag),
         label=f"registry/{name}",
     )
+
+
+def begin_delete(
+    registry: dict, actor: str, request_id: str, *, only_if_destroyable: bool = False
+) -> tuple[dict, bool]:
+    """Opens a delete or a forget: re-checks the owner, decides the route and claims the record, in one swap.
+
+    **The route is decided on the record this swap writes over, and nowhere else.** Both verbs
+    used to decide it on a read of their own and write afterwards, so the decision was not
+    bound to the record they went on to destroy: the owner's create retry finishing in between
+    turned a destroyable record active and it was torn down anyway, and a forget validated
+    against a name its actor had already freed passed the owner check on that stale copy and
+    tore down the next user's reservation. Deciding inside the transform means a write landing
+    after the read fails the swap and the retry decides again.
+
+    **The claim is the ``deleting`` status, and it is what keeps the decision true afterwards.**
+    ``finalize`` refuses a claimed record, and a create's reservation cannot take one over, so
+    nothing can turn a space the claim found destroyable into one that was usable while the
+    teardown runs. The emptying route stamps ``everActive`` in the same write, so the record
+    reads as the route it took for every later reader too: a status of ``deleting`` without the
+    stamp would otherwise read destroyable to a second delete arriving before the stamp did.
+
+    **A refusal writes nothing**, so it leaves somebody else's record exactly as it was. An
+    emptied record answers the owner check from ``previousOwner``, so a retry of a delete that
+    failed after the rewrite is not refused as a lost authorization.
+
+    Args:
+      registry: The registry record from the validator, used for the space name.
+      actor: The verified requester, who must still own the space.
+      request_id: The run's request id.
+      only_if_destroyable: True for the forget, which touches a usable space not at all: such a
+        record is left unwritten and reported as not destroyable, before the owner is checked,
+        since nothing is written that the check would guard.
+
+    Returns:
+      A ``(read, destroying)`` pair: the record the swap read, and whether the space is to be
+      torn down rather than emptied.
+
+    Raises:
+      RegistryRecordMissing: When there is no record. Without this the write would re-create one
+        from nothing.
+      OwnerChanged: When the record names an owner other than the actor.
+      CasExhausted: When the attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+    name = registry["name"]
+    read: dict = {}
+    destroying = False
+
+    def apply(existing):
+        """Decides the route on the freshly-read record and writes the claim when it may.
+
+        Args:
+          existing: The freshly-read record, or None.
+
+        Returns:
+          The claimed record, or the record unchanged when a forget meets a usable space.
+
+        Raises:
+          RegistryRecordMissing: When there is no record.
+          OwnerChanged: When the record names an owner other than the actor.
+        """
+        nonlocal read, destroying
+        if existing is None:
+            raise RegistryRecordMissing(f"space {name!r} has no registry record")
+        read = dict(existing)
+        destroying = is_destroyable(existing)
+        if only_if_destroyable and not destroying:
+            return existing
+        current = existing.get("owner") or existing.get("previousOwner")
+        if current != actor:
+            raise OwnerChanged(
+                f"space {name!r} is owned by {current!r}, not {actor!r}, so the delete is refused"
+            )
+        record = dict(existing)
+        record["status"] = "deleting"
+        record["lastRequestId"] = request_id
+        record["updatedAt"] = now_iso()
+        record.pop("reason", None)
+        if not destroying:
+            record["everActive"] = True
+        return record
+
+    casio.cas_mutate(
+        read=lambda: _read(name),
+        apply=apply,
+        write=lambda record, etag: _put(name, record, etag),
+        label=f"registry/{name}",
+    )
+    return read, destroying
 
 
 def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: str) -> dict:

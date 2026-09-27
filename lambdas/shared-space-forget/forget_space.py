@@ -74,10 +74,20 @@ def forget_space(space, actor, request_id, registry):
     because a space could get stuck in a user's list, and leaving the registry untouched is
     intentional. Without saying so, the next reader sees a half-done teardown.
 
+    **The route and the owner are decided on the record the teardown claims**, by
+    ``begin_delete``, and not on the validator's copy or a read of this verb's own. This verb
+    used to write nothing before tearing down, so a record the actor's own create retry had
+    turned active after that read was torn down anyway, and a second dismiss validated against a
+    name the first had already freed passed the owner check on that stale copy and tore down the
+    next user's reservation of it. A record that changed hands before the claim takes the
+    cache-only path; one that became usable is kept. A fault in the teardown leaves the claim's
+    ``deleting`` status standing, as a killed delete does, and the card this verb removes last is
+    what retries it.
+
     Args:
       space: The space name.
       actor: The verified actor.
-      request_id: The run's request id, unused.
+      request_id: The run's request id, which the teardown's claim records.
       registry: The registry record, or None for a phantom space.
 
     Returns:
@@ -92,6 +102,7 @@ def forget_space(space, actor, request_id, registry):
       RegistryRecordMissing: When the actor owns the space but its record has gone. Unlike the
         delete verb this is a live path, because the authorizer returns early for this action so
         that a phantom card stays dismissible.
+      CasExhausted: When the teardown's claim exhausts its attempts.
       RegistryRecordResurrected: When a membership write re-created the record after the name
         was freed.
       TeardownIncompleteError: When a teardown pass left resources behind, so the name is not
@@ -113,10 +124,13 @@ def forget_space(space, actor, request_id, registry):
                 f"cannot forget active space {space!r} — use Delete (owner) or Leave (member)"
             )
         if owner == actor:
-            fresh = reg.load(space)
-            if fresh is None:
-                raise reg.RegistryRecordMissing(f"space {space!r} has no registry record")
-            if not reg.is_destroyable(fresh):
+            try:
+                fresh, destroying = reg.begin_delete(
+                    registry, actor, request_id, only_if_destroyable=True
+                )
+            except reg.OwnerChanged:
+                return _forget_card(space, actor)
+            if not destroying:
                 logger.info("forget %s by %s: kept, the space was usable", space, actor)
                 observability.info(
                     "space forgotten",
@@ -152,6 +166,26 @@ def forget_space(space, actor, request_id, registry):
                 stores=["registry", "cognito", "glue", "cache", "membership-index"],
             )
             return {"status": "ok", "action": "forget", "space": space, "mode": "teardown"}
+    return _forget_card(space, actor)
+
+
+def _forget_card(space, actor):
+    """Clears the actor's own claim on a space, and leaves the registry alone.
+
+    The cache-only path, reached for a phantom card, a space owned by somebody else, and a
+    record whose owner changed between the validator's read and the teardown's claim — the last
+    being a name the actor freed and another user has since reserved.
+
+    Args:
+      space: The space name.
+      actor: The verified actor.
+
+    Returns:
+      The verb result, in cache-only mode.
+
+    Raises:
+      ClientError: On any S3 or Cognito fault.
+    """
     membership.clear_slot(actor, space)
     membership_index.drop(actor, space)
     cache.remove_entry(actor, space)

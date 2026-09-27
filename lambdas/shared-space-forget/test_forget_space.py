@@ -376,3 +376,55 @@ def test_forget_teardown_clears_a_member_the_validator_never_saw():
     f.forget_space("sales", "alice", "req-f", stale_event_copy)
 
     assert cognito.users["bob"]["custom:shared_space_1"] == "", "bob's slot outlived the freed name"
+
+
+def test_a_stale_forget_of_a_freed_name_leaves_the_new_owners_space_alone():
+    # alice's first dismiss tore her failed space down and freed the name; bob reserved it; her
+    # second dismiss, validated against her old record, then passed the owner check on that stale
+    # copy and tore bob's space down. The owner is re-checked on the record the teardown claims.
+    s3, glue, _lf, cognito = install()
+    stale = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+    bobs = {"name": "sales", "owner": "bob", "members": ["bob"], "status": "provisioning"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(bobs).encode()
+    s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
+    glue.seed_space_database("sales", [])
+    cognito.users = {"alice": {}, "bob": {"custom:shared_space_1": "sales"}}
+
+    out = f.forget_space("sales", "alice", "req-f", stale)
+
+    assert out["mode"] == "cache_only"
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")]) == bobs
+    assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
+    assert "sales" in glue.databases
+    assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+
+
+def test_a_create_going_active_before_the_forget_claims_the_record_is_kept(monkeypatch):
+    # The forget wrote nothing before its teardown, so a create retry finishing after its read
+    # was torn down with it. The claim is now a compare-and-swap that decides the route, so the
+    # create's write fails that swap and the retry finds a space that was usable.
+    s3, glue, _lf, cognito = install()
+    record = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
+    s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
+    glue.seed_space_database("sales", [])
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
+    real_read = forget_registry._read
+    fired = []
+
+    def read_then_create_finishes(name):
+        out = real_read(name)
+        if not fired:
+            fired.append(True)
+            forget_registry.finalize("sales", "alice", "req-c", "active")
+        return out
+
+    monkeypatch.setattr(forget_registry, "_read", read_then_create_finishes)
+
+    out = f.forget_space("sales", "alice", "req-f", record)
+
+    assert fired and out["mode"] == "kept"
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["status"] == "active" and saved["lastRequestId"] == "req-c"
+    assert ("shared-bkt", "sales/DO_NOT_DELETE.txt") in s3.store
+    assert "sales" in glue.databases

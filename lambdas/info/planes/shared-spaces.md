@@ -77,6 +77,12 @@ machine and every verb.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success. Raise, and leave the registry record —
   **the record IS the name lock**.
+- **A delete's route and owner are decided on the record it claims.** `registry.begin_delete` is
+  the first write of delete and forget: one swap that decides `is_destroyable`, re-checks the owner
+  and writes `deleting`, and `finalize` refuses a claimed, absent or re-owned record. A removal
+  naming the current owner is refused in `save_members`' swap, and leave and remove give back what
+  they cleared first (`membership.reinstate`)
+  ([entry](../../../docs/decisions/control-planes.md#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)).
 - **A teardown touches only a database the space made.** A space's database and a user's personal
   one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,
   and `teardown.owns_database` gates the revoke and the drop the same way.
