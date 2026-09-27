@@ -89,10 +89,13 @@ and reported, not refused.
 
 ## What is not here
 
-No alarm on DLQ depth — there is no CloudWatch alarm anywhere in `infra/` today, and it would be
-the first, a new resource type with its own deploy-role IAM. Named so the gap is a decision rather
-than an oversight. No read surface of any kind: the records are read with the AWS CLI by whoever
-wants them, and that is the whole retrieval story.
+No alarm on DLQ depth, by Andrew's decision (2026-09-27): the user's guarantee ends at the queue,
+so the writer's invocation-error metric and the DLQ's 14-day retention (`sqs.tf`) are what notice a
+death, and an alarm without an action — the shape `infra/modules/observability/alarm.tf` sets —
+would notify nobody. Reasoning: the feedback entry in `docs/decisions/control-planes.md`.
+
+No read surface of any kind: the records are read with the AWS CLI by whoever wants them, and that
+is the whole retrieval story.
 
 **The admin bucket has versioning off**, in common with every bucket here. For a file appended
 under compare-and-swap that matters, and what stands in for it is that the append never rewrites a
