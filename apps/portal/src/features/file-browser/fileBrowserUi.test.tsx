@@ -219,6 +219,15 @@ describe('RenameDialog', () => {
       expect(onRename).toHaveBeenCalledWith('final.pdf');
     });
 
+    it('describes the field with the locked extension, ahead of any refusal', async () => {
+      const user = userEvent.setup();
+      setup({kind: 'file', currentName: 'report.pdf'});
+      const field = screen.getByLabelText(/new name/i);
+      expect(field).toHaveAccessibleDescription('The .pdf extension can’t be changed.');
+      await user.type(field, '/b');
+      expect(field).toHaveAccessibleDescription('The .pdf extension can’t be changed. File name cannot contain “/”.');
+    });
+
     // The locked extension drops trailing whitespace, which no name may end in; a bare dot is no
     // file type and a control character no valid name can keep, so either leaves the name editable.
     it.each([
