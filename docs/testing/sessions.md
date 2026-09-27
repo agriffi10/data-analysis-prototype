@@ -10,6 +10,27 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-27 (which quote `DROP VIEW` takes)
+
+**What was under test.** Whether the Drop view menu action works. Since 2026-08-19 it sent
+`` DROP VIEW `db`.`view` `` with Hive's backticks, and `SHOW CREATE VIEW` had just turned out to be
+Trino's, where backticks are refused. The record held no run of the backticked form. Every probe
+named `agriffith.no_such_view_0927`, which the rail's Views group showed did not exist, so none
+could drop anything. The sitting ended at about 02:05Z (UTC), when the tab was closed.
+
+**Browser and instruments.** As the entry below: **agriffith**, width 1512, a new tab in the
+`claude-in-chrome` group that Andrew signed in at the Cognito form, `visibilityState` overridden,
+SQL typed into Monaco and read back before each run, Run pressed with `element.click()`.
+
+**Results.**
+- `` DROP VIEW `agriffith`.`no_such_view_0927` ``, the menu's form: refused at start, *"Something went
+  wrong. Contact the Administrator."* The status bar kept no verdict, so no execution started.
+- `DROP VIEW agriffith.no_such_view_0927`, `DROP VIEW agriffith."no_such_view_0927"` and
+  `DROP VIEW "agriffith"."no_such_view_0927"`: each started and failed *"That table wasn’t found."*
+- So `DROP VIEW` is Trino's, and the Drop view action could not have dropped any view from 2026-08-19;
+  nobody ran it to see. It now
+  double-quotes both parts, the last form above. Not run: the menu action on a real view.
+
 ## Live-check session — 2026-09-27 (a word only Hive reserves, in `SHOW CREATE TABLE`)
 
 **What was under test.** Whether View DDL on a table breaks when the name is a lowercase word that

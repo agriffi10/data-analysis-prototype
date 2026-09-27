@@ -211,7 +211,7 @@ export async function runStatementToCompletion(p: {
  * append a query-history entry.
  *
  * Each statement quotes in the dialect of the engine that parses it. `SHOW CREATE TABLE` is Hive
- * DDL, and every part is backticked, as `DROP` does: Hive reserves words the query list does not,
+ * DDL, and every part is backticked, as `DROP TABLE` does: Hive reserves words the query list does not,
  * and bare `db.exchange` is a syntax error where `` `db`.`exchange` `` is not. `SHOW CREATE VIEW` is
  * parsed by Trino and takes double quotes: Athena returns a view's DDL for `db."v"` and refuses
  * `` db.`v` `` as a syntax error. There a name is quoted only when it needs it, so an ordinary one

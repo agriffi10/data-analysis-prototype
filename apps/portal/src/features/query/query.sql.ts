@@ -533,8 +533,7 @@ function reachesAsQuery(statement: string, from: number): boolean {
  * matters: the complement is not "the Hive DDL". `DELETE`, `UPDATE` and `MERGE` are Trino DML on an
  * Iceberg table, and they fall outside this set, so a name that needed quoting there arrives bare —
  * whereupon Athena refuses the statement. That loud failure is the side of the fence to be wrong on,
- * against a backtick in a Trino statement or a double quote in Hive DDL, each of which matches
- * nothing and says so nowhere.
+ * against a double quote in Hive DDL, which matches nothing and says so nowhere.
  *
  * A **CTAS is inside** the set once its `AS <query>` has been typed, because its whole statement is
  * Trino: AWS documents the body as DML and the head's property syntax is Trino's

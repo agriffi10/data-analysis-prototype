@@ -859,8 +859,8 @@ describe('QueryWorkspace', () => {
       );
 
       expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
-      // BACKTICKS: a DROP is DDL, which Athena parses with Hive — the mirror of CREATE VIEW
-      // above, which is Trino and takes double quotes. The database is the identifier that
+      // BACKTICKS: a DROP TABLE is DDL, which Athena parses with Hive — the mirror of the view
+      // statements, which are Trino and take double quotes. The database is the identifier that
       // needs quoting: a space named before the plane took the catalog rule passed no format check.
       expect(mockRunToCompletion).toHaveBeenCalledWith(
         expect.objectContaining({sql: 'DROP TABLE `alice`.`sales_2026`'})
@@ -878,6 +878,22 @@ describe('QueryWorkspace', () => {
       // SPEC-106: the toast shows friendly, mapped text — not the raw Athena reason.
       expect(await screen.findByText(/Couldn’t drop sales_2026/)).toBeInTheDocument();
       expect(screen.queryByText(/table locked/)).not.toBeInTheDocument();
+    });
+
+    it('Drop view double-quotes the view, which Athena parses with Trino', async () => {
+      mockRunToCompletion.mockResolvedValueOnce(ok(succeeded('q-drop-view')));
+      const {user} = renderWorkspace();
+      await openTableMenu(user, 'revenue_view');
+      await user.click(await screen.findByRole('menuitem', {name: 'Drop view'}));
+
+      await user.click(
+        within(screen.getByRole('alertdialog', {name: /confirm drop view/i})).getByRole('button', {name: 'Drop view'})
+      );
+
+      expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
+      expect(mockRunToCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({sql: 'DROP VIEW "alice"."revenue_view"'})
+      );
     });
 
     it('Drop table in a shared space says the drop is everyone’s', async () => {
