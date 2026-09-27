@@ -287,6 +287,17 @@ here because the landing session had no signed-in Chrome tab and the in-app brow
 | **The Files rail collapses and expands by keyboard without losing focus** | §4.2 | At 1200px wide (the rail is hidden below 900px), Tab to *Collapse sidebar* and press Enter: focus lands on *Show sidebar*. Press Enter: focus lands on *Collapse sidebar* — not on the page — and once the rail is open its content starts at the same left edge as on a fresh load, with the space caption visible; the regression this guards showed only the right-hand part of the rail. |
 | **A drag that ends outside a dialog does not close it** | §4.2 | Open Rename on a file, drag-select its name and release past the dialog's edge over the backdrop: the dialog stays open with the selection intact. A plain click on the backdrop still closes it. |
 
+### Drop view's Trino quoting (2026-09-27) — NOT RUN: it needs a view to drop
+
+Drop view sent `DROP VIEW` with Hive's backticks from 2026-08-19, which Athena refuses; it now
+double-quotes both parts. The dialect was settled by editor runs against a view that does not exist
+([`sessions.md`](sessions.md), 2026-09-27), so the statement the menu now sends has parsed, but the
+menu action has not run on a real view, and nothing records it ever working since 2026-08-19.
+
+| Check | Where | What would settle it |
+|---|---|---|
+| **The menu's Drop view drops a view** | §4.3 | On the deployed fix, create a disposable view (Create view, `SELECT 1 AS x`), then table-row menu → Drop view → confirm: *"Dropped …"*, and the view leaves the rail's Views group. Worth repeating in a shared space whose name needs quoting, such as `live0922 odd`. A *"Couldn’t drop <view>. Something went wrong. Contact the Administrator."* toast is the old defect. It needs a view to drop, so it is Andrew's to approve. |
+
 ### Needs a second account for the REFUSAL half — RUN 2026-09-21: only the expired token is still owed
 
 | Check | Note |

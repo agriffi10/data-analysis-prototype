@@ -59,8 +59,8 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
 - **Every DDL literal goes through `literal()`** — `TBLPROPERTIES` and `LOCATION` included — and
   the escapers split on **two axes that are easy to conflate**. *Values:* `ddl.literal`
   backslash-escapes (Hive/DDL), `sql._literal_dml` and the browser's `sqlLiteral` double the quote
-  (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`), `sqlDdlIdentifier` and
-  `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
+  (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`, `DROP VIEW`), `sqlDdlIdentifier` and
+  `ddl.quote` (Hive, `DROP TABLE`, inner backtick doubled — data-quality partition keys come from S3 folder
   names). **Autocomplete is a third identifier site and picks by STATEMENT**: `quoteIdentifierIfNeeded`
   quotes a suggestion's parts in a Trino statement (`SELECT`/`WITH`/`VALUES`/`INSERT`/`EXPLAIN`,
   `CREATE [OR REPLACE] VIEW`, and a CTAS once its `AS <query>` exists) and inserts the bare name in
@@ -1064,6 +1064,12 @@ repair is renaming a folder, and a user told to fix a column name goes looking i
 `CREATE VIEW` is Trino (double quotes); `DROP TABLE` / `DROP VIEW` is Hive (backticks, an inner
 backtick doubled). The browser had only `lib/sql.ts` `sqlIdentifier`, the Trino one, so both
 statements interpolated their identifiers raw.
+
+**Superseded for `DROP VIEW` on 2026-09-27:** it is Trino too, so this entry's `DROP` escaper is the
+right one for `DROP TABLE` only. A backticked `DROP VIEW` was refused at submit while the bare and
+double-quoted forms parsed, so the browser's Drop view could not have dropped any view from this
+entry until this fix; it takes `sqlIdentifier` now ([`sessions.md`](../testing/sessions.md), 2026-09-27). The sweep
+this entry calls for stopped at the statement's verb, not its engine.
 
 The identifier that matters is the **database**. A view or table name is typed into a dialog held
 to `CATALOG_IDENTIFIER_RE`; a shared space's name was held to nothing the browser cannot
