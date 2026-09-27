@@ -82,7 +82,9 @@ machine and every verb.
   and writes `deleting`, and `finalize` refuses any record that is no longer its own reservation.
   A removal naming the current owner is refused by `refuse_removing_owner`, before anything is
   cleared and again inside `save_members`' swap, after which only the new owner's slot and card are
-  given back (`membership.reinstate_owner`)
+  given back (`membership.reinstate_owner`, granted first and confirmed by a read after). **That
+  confirmation holds only because every roster removal revokes after a write the read can see**:
+  delete and forget claim before revoking, and leave and remove clear again after their commit
   ([entry](../../../docs/decisions/control-planes.md#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)).
 - **A teardown touches only a database the space made.** A space's database and a user's personal
   one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,

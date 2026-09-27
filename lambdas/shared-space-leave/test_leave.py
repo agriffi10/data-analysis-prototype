@@ -179,18 +179,22 @@ def test_a_transfer_landing_after_the_fresh_read_is_refused_at_the_write_and_the
     assert [(c["name"], c["role"]) for c in card["connections"]] == [("sales", "owner")]
 
 
-def test_the_restored_slot_is_taken_back_when_a_delete_claims_the_space_before_it_is_confirmed(monkeypatch):
+def test_the_restored_slot_and_card_are_taken_back_when_a_delete_claims_before_they_are_confirmed(
+    monkeypatch,
+):
     # A grant decided on a read taken BEFORE it could land on a space a delete emptied in between,
-    # leaving a slot on a roster naming nobody. So the grant is written first and confirmed by a
-    # read after it, and here that read finds the delete's claim.
+    # leaving a slot on a roster naming nobody. So the slot and the card are written first and
+    # confirmed by a read after both, and here that read finds the delete's claim. The claim
+    # lands after the card, the last write before the read: a card written after the read would
+    # outlive a delete that claimed and revoked in between.
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
     stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     _transfer_to_bob_while_clearing(monkeypatch, s3, stale)
-    real_assign = l.membership.assign_or_find_slot
+    real_card = l.membership.cache.write_owner_projection
 
-    def assign_then_delete_claims(username, name):
-        out = real_assign(username, name)
+    def card_then_delete_claims(*args, **kwargs):
+        out = real_card(*args, **kwargs)
         current = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
         s3.put_object(
             Bucket="admin-bkt",
@@ -199,10 +203,39 @@ def test_the_restored_slot_is_taken_back_when_a_delete_claims_the_space_before_i
         )
         return out
 
-    monkeypatch.setattr(l.membership, "assign_or_find_slot", assign_then_delete_claims)
+    monkeypatch.setattr(l.membership.cache, "write_owner_projection", card_then_delete_claims)
 
     raises(lambda: l.leave_space("sales", "bob", "req-l", stale), leave_registry.OwnerChanged)
 
     assert cognito.users["bob"]["custom:shared_space_1"] == ""
+    card = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert card["connections"] == []
+
+
+def test_a_leave_committing_after_an_owner_restore_still_revokes_the_restored_slot(monkeypatch):
+    # bob's leave cleared his slot and stalled before its roster write; the space went to bob and
+    # back in that gap, and a second, refused leave of his gave him the slot back while he owned
+    # it. The first leave's write then committed, taking him off the roster with the slot left.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
+    stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    real_save = leave_registry.save_members
+    fired = []
+
+    def owner_goes_to_bob_and_back_first(*args, **kwargs):
+        if not fired:
+            fired.append(True)
+            key = "shared-spaces/sales.json"
+            s3.put_object(Bucket="admin-bkt", Key=key, Body=json.dumps(dict(stale, owner="bob")))
+            l.membership.reinstate_owner(["bob"], "sales")
+            assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+            s3.put_object(Bucket="admin-bkt", Key=key, Body=json.dumps(stale))
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(leave_registry, "save_members", owner_goes_to_bob_and_back_first)
+
+    assert l.leave_space("sales", "bob", "req-l", stale)["left"] is True
+
+    assert fired and cognito.users["bob"]["custom:shared_space_1"] == ""
     card = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
     assert card["connections"] == []

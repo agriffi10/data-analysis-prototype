@@ -223,13 +223,17 @@ def reinstate_owner(cleared: list[str], name: str) -> None:
     owner mends by removing and re-adding them, where re-granting them could hand a slot to
     somebody a concurrent removal had just taken off the roster.
 
-    **The grant is written first and confirmed after**, and taken back unless the record read
-    after it still names this person as owner, lists them, and is neither claimed by a delete
-    nor emptied. A read before the grant cannot be trusted with it: a delete could empty the
-    space between that read and the grant, leaving a slot on a roster naming nobody. Read after,
-    anything that ends the ownership has either committed before the read, which takes the slot
-    back, or revokes it itself after the grant — a delete clears the whole roster it claimed,
-    and removing this person needs a transfer away first, which the read sees.
+    **The slot and the card are written first and confirmed after**, and both are taken back
+    unless the record read after them still names this person as owner, lists them, and is
+    neither claimed by a delete nor emptied. A read before the grant cannot be trusted with it:
+    a delete could empty the space between that read and the grant, leaving a slot on a roster
+    naming nobody. Read after, it holds because every writer that ends someone's place on a
+    roster revokes AFTER a write that read can see. A delete and a forget claim the record before
+    they revoke anyone, so their claim is either seen, or their revocation lands after this
+    grant. A leave and a remove revoke again after their own commit, so their commit is either
+    seen, or their second revocation lands after this grant — which is the case a first pass
+    alone lost, when a removal cleared this person early and committed after the space had gone
+    to them and back.
 
     Args:
       cleared: The names whose slot and card this run cleared.
@@ -244,24 +248,30 @@ def reinstate_owner(cleared: list[str], name: str) -> None:
         the generic failure — the owner's access was not given back — instead of the sentence
         about the space changing hands.
     """
-    owner = (registry.load(name) or {}).get("owner")
+    record = registry.load(name) or {}
+    owner = record.get("owner")
     if not isinstance(owner, str) or owner not in cleared:
         return
+    listed = roster(record)
     assign_or_find_slot(owner, name)
     try:
+        cache.write_owner_projection(
+            owner,
+            name,
+            listed,
+            registry.effective_acknowledged(record) if listed else [],
+            record.get("createdAt"),
+        )
         after = registry.load(name) or {}
     except Exception:
         clear_slot(owner, name)
+        cache.remove_entry(owner, name)
         raise
-    listed = roster(after)
     if (
         after.get("owner") != owner
-        or owner not in listed
+        or owner not in roster(after)
         or after.get("status") == "deleting"
         or after.get("emptiedAt")
     ):
         clear_slot(owner, name)
-        return
-    cache.write_owner_projection(
-        owner, name, listed, registry.effective_acknowledged(after), after.get("createdAt")
-    )
+        cache.remove_entry(owner, name)

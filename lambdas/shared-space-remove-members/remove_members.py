@@ -2,7 +2,8 @@
 
 Clears their membership slot, drops their membership index entry and their cache entry, and
 removes them from the registry. The
-owner is never removed, being normalised out. Idempotent — removing a non-member is a no-op.
+owner is never removed: normalised out against the validator's record, and refused against the
+current one. Idempotent — removing a non-member is a no-op.
 Shared objects and tables are left intact; this is membership only.
 
 The service name is the control plane, not the function: one shared-space request is up to eight
@@ -78,6 +79,11 @@ def remove_members(space, members, request_id, registry):
     refuses it again for a transfer landing after that read, and then gives only the new owner
     back their slot and card — ``membership.reinstate_owner`` says why the others are not.
 
+    **Each removed name's slot and card are cleared on both sides of the commit.** Before it, so
+    a fault leaves them listed and a retry repeats the clears; after it, so no grant written in
+    between — an owner restore, while the space went to that member and back — outlives the
+    removal. The second pass is what ``membership.reinstate_owner``'s confirming read relies on.
+
     Args:
       space: The space name.
       members: The requested member names, normalised here.
@@ -112,6 +118,9 @@ def remove_members(space, members, request_id, registry):
     except reg.OwnerChanged:
         membership.reinstate_owner(removed, space)
         raise
+    for member in removed:
+        membership.clear_slot(member, space)
+        cache.remove_entry(member, space)
     membership_index.drop_for_all(removed, space)
     cache.write_roster_to_all(
         committed["members"],

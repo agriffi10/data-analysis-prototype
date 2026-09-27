@@ -2829,14 +2829,18 @@ sentence, which is true of both verbs.
 
 **The second refusal comes after the slots are cleared**, because clearing first is what keeps a
 faulted leave or remove retryable. So `membership.reinstate_owner` gives back the NEW OWNER's slot
-and card, and no one else's. **A first draft gave back every cleared name the roster listed, and a
-review reproduced it granting in two interleavings:** a delete emptying the space between its
-roster read and the grant, and a concurrent removal of the same member. It now grants first and
-confirms after, taking the slot back unless the record read after the grant still names the owner,
-lists them and is neither claimed nor emptied; a delete that claims later revokes the roster it
-claimed, and removing the owner needs a transfer away first, which that read sees. The other
-cleared names stay listed without a slot — a denial the owner mends by removing and re-adding them,
-and reachable only when a transfer lands inside one verb's few writes.
+and card, and no one else's; the other cleared names stay listed without a slot — a denial the
+owner mends by removing and re-adding them, reachable only when a transfer commits during the
+verb's clearing pass, a Cognito read and write plus a cache write per name. **Two reviews each
+reproduced this restore granting**, and the second instance is what made it structural rather than
+a third patch. A first draft granted on a roster read before the grant, and a delete emptied the
+space in between. The next granted first and confirmed with a read after, which still leaked: a
+removal that had cleared the member early committed after the space went to them and back. What
+holds now is an invariant, not a check: **every writer that ends someone's place on a roster
+revokes AFTER a write the confirming read can see** — a delete and a forget claim before they
+revoke, and a leave and a remove now clear the slot and card again after their own commit. So
+whatever ends the ownership is either seen by that read, which takes back the slot and the card
+(both written before it), or revokes after the grant.
 
 **The destroy decision was not bound to the record destroyed.** Delete read the record, chose its
 route with `is_destroyable`, then wrote `deleting` re-checking only the owner; forget wrote nothing
@@ -2854,7 +2858,9 @@ absent, `deleting`, owned by someone else or last written by another request**, 
 nothing can turn a claimed space usable while it is torn down, and a create racing a teardown fails
 and says so. The request-id clause is the one a review showed was needed: a delete whose teardown
 faults writes `failed` over its own claim, and without it the create's finalize then took the
-record back to active over a revoked grant and a deleted marker. `set_status` lost
+record back to active over a revoked grant and a deleted marker. Its one cost is a denial: a create
+whose index write fails after `finalize` succeeded cannot record `failed` if another writer landed
+in between, so the space stays active with the owner's slot rolled back. `set_status` lost
 its `expected_owner`, whose one caller was the delete's first write.
 
 **What it costs:** a forget whose teardown faults now leaves `deleting` rather than the status it

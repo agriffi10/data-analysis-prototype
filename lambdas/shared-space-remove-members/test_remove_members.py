@@ -265,3 +265,36 @@ def test_a_transfer_landing_after_the_fresh_read_gives_back_the_owner_alone(monk
         "carol": "",
     }
     assert _cards(s3, "bob", "carol") == {"bob": ["owner"], "carol": None}
+
+
+def test_a_removal_committing_after_an_owner_restore_still_revokes_the_restored_slot(monkeypatch):
+    # alice's removal of bob cleared his slot and stalled before its roster write. In that gap
+    # the space went to bob and back, and bob's refused leave gave him his slot back while he
+    # owned it. alice's write then committed against alice as owner and took bob off the roster,
+    # leaving him a slot, an owner card and a grant no roster shows. A removal now revokes again
+    # after its own commit, which is what makes a grant confirmed by a later read safe.
+    s3, _glue, _lf, cognito = install()
+    reg = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, reg)
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob", "carol")}
+    real_save = remove_registry.save_members
+    fired = []
+
+    def owner_goes_to_bob_and_back_first(*args, **kwargs):
+        if not fired:
+            fired.append(True)
+            key = "shared-spaces/sales.json"
+            s3.put_object(Bucket="admin-bkt", Key=key, Body=json.dumps(dict(reg, owner="bob")))
+            r.membership.reinstate_owner(["bob"], "sales")
+            assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+            s3.put_object(Bucket="admin-bkt", Key=key, Body=json.dumps(reg))
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(remove_registry, "save_members", owner_goes_to_bob_and_back_first)
+
+    out = r.remove_members("sales", ["bob"], "req-r", reg)
+
+    assert fired and out["removed"] == ["bob"]
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == ["alice", "carol"]
+    assert cognito.users["bob"]["custom:shared_space_1"] == ""
+    assert _cards(s3, "bob")["bob"] in (None, [])

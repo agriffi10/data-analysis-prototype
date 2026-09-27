@@ -4,9 +4,9 @@ Clears the actor's membership slot, membership index entry and cache entry, and 
 the registry. Shared
 objects, tables, the database and every other member are untouched. Idempotent — if the actor
 is not a member, such as on a retry after the registry write, it is a clean no-op success. The
-registry write is last, so a mid-way failure leaves the actor still listed and a retry re-runs
-the idempotent clears. The validator already blocks the owner; the guard here is defence in
-depth.
+slot and card are cleared before the registry write, so a mid-way failure leaves the actor still
+listed and a retry re-runs the idempotent clears, and again after it. The validator already
+blocks the owner; the guards here re-check it against the record as it is now.
 
 The service name is the control plane, not the function: one shared-space request is up to eight
 invocations, and they are only one queryable set if they share it. The per-verb identity rides
@@ -47,6 +47,11 @@ def leave_space(space, actor, request_id, registry):
     before anything is cleared; the roster write refuses it again for a transfer landing after
     that read, and then gives the new owner back the slot and card cleared ahead of the write.
 
+    **The slot and card are cleared on both sides of the commit.** Before it, so a fault leaves
+    the actor listed and a retry repeats the clears; after it, so no grant written in between —
+    an owner restore, while the space went to the actor and back — outlives the removal. The
+    second pass is what ``membership.reinstate_owner``'s confirming read relies on.
+
     Args:
       space: The space name.
       actor: The verified member leaving.
@@ -79,6 +84,8 @@ def leave_space(space, actor, request_id, registry):
     except reg.OwnerChanged:
         membership.reinstate_owner([actor], space)
         raise
+    membership.clear_slot(actor, space)
+    cache.remove_entry(actor, space)
     membership_index.drop(actor, space)
     remaining = committed["members"]
     cache.write_roster_to_all(
