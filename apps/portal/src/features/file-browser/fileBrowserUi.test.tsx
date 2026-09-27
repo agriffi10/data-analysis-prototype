@@ -237,16 +237,21 @@ describe('RenameDialog', () => {
       expect(onRename).toHaveBeenCalledWith('archive.2024');
     });
 
-    it('rejects an invalid name (contains a slash) and keeps Rename disabled', () => {
-      setup();
-      fireEvent.change(screen.getByLabelText(/new name/i), {
-        target: {value: 'a/b'}
-      });
-      expect(screen.getByLabelText(/new name/i)).toHaveAccessibleDescription(/\//);
+    it.each([
+      {kind: 'file' as const, refusal: 'File name cannot contain “/”.'},
+      {kind: 'folder' as const, refusal: 'Folder name cannot contain “/”.'}
+    ])('refuses a $kind name with a slash, naming the $kind, and keeps Rename disabled', async ({kind, refusal}) => {
+      const user = userEvent.setup();
+      setup({kind, currentName: 'notes'});
+      const field = screen.getByLabelText(/new name/i);
+      await user.clear(field);
+      await user.type(field, 'a/b');
+      expect(field).toHaveAccessibleDescription(refusal);
       expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
     });
 
-    // A file named like the app's folder is not that folder, and nothing downstream refuses it.
+    // A file named like the app's folder is not that folder, and nothing downstream refuses it — but
+    // `system_settings` is refused by name alone, for a file as for a folder.
     it.each([
       {
         kind: 'folder' as const,
@@ -260,7 +265,13 @@ describe('RenameDialog', () => {
         value: 'user_settings',
         refusal: '“user_settings” is a name the app keeps for its own folders. Pick another name.'
       },
-      {kind: 'file' as const, parentPrefix: 'alice/', value: 'shared_tables', refusal: null}
+      {kind: 'file' as const, parentPrefix: 'alice/', value: 'shared_tables', refusal: null},
+      {
+        kind: 'file' as const,
+        parentPrefix: 'alice/',
+        value: 'system_settings',
+        refusal: '“system_settings” is a folder the app manages. Pick another name.'
+      }
     ])('checks a $kind renamed to “$value” in $parentPrefix', ({kind, parentPrefix, value, refusal}) => {
       setup({kind, currentName: 'notes', parentPrefix});
       const field = screen.getByLabelText(/new name/i);

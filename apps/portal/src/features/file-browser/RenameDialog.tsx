@@ -1,5 +1,5 @@
 import {useRef, useState} from 'react';
-import {validateFolderNameForPlane} from './fileBrowser.service';
+import {validateFileName, validateFolderNameForPlane} from './fileBrowser.service';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {FIELD_HINT} from '../../components/fieldStyles';
@@ -25,10 +25,10 @@ function splitFileName(name: string): {base: string; ext: string} {
 }
 
 /**
- * Rename a file or folder. The new name is validated with the
- * same rules as create-folder/upload (non-empty trimmed, no `/`, no
- * leading/trailing whitespace, no control chars), and a folder's against its parent too, so a name
- * that would land on one of the app's own folders is refused before it is submitted. Modal; Escape cancels; the input
+ * Rename a file or folder. The new name is validated with the leaf-name rules (non-empty trimmed,
+ * no `/`, no leading/trailing whitespace, no control chars) — a file's by `validateFileName`, a
+ * folder's by `validateFolderNameForPlane` against its parent too, so a name that would land on one
+ * of the app's own folders is refused before it is submitted. Modal; Escape cancels; the input
  * is prefilled with the current name and the Rename action is disabled until the
  * name is valid and changed. For a file WITH an extension, only the base name is
  * editable — the extension is held fixed and re-appended on submit so a rename
@@ -45,7 +45,8 @@ export function RenameDialog({kind, currentName, parentPrefix, isBusy = false, o
   // Recompose the full name from the (trimmed) base plus the locked extension.
   const trimmedBase = name.trim();
   const nextName = trimmedBase.length === 0 ? '' : trimmedBase + ext;
-  const validationError = validateFolderNameForPlane(nextName, kind === 'folder' ? parentPrefix : undefined);
+  const validationError =
+    kind === 'file' ? validateFileName(nextName) : validateFolderNameForPlane(nextName, parentPrefix);
   const unchanged = nextName === currentName;
   const canRename = validationError === null && !unchanged && !isBusy;
 
