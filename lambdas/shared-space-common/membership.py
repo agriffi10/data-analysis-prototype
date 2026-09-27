@@ -6,8 +6,6 @@ assigning and clearing those slots. Reading the user doubles as the user pool ex
 All operations are idempotent and replay-safe.
 """
 
-import logging
-
 import cache
 import registry
 from cpcommon import clients, observability
@@ -15,8 +13,6 @@ from cpcommon import config as cpconfig
 from registry import ProvisioningError
 
 import config
-
-logger = logging.getLogger()
 
 
 def normalize_members(raw: list | None, owner: str) -> list[str]:
@@ -214,50 +210,58 @@ def clear_slot(username: str, name: str) -> None:
             return
 
 
-def reinstate(members: list[str], name: str) -> None:
-    """Gives back the slots and cards a removal cleared before its roster write refused it.
+
+def reinstate_owner(cleared: list[str], name: str) -> None:
+    """Gives a space's owner back the slot and card a refused removal cleared from them.
 
     A leave and a remove clear each name's slot and card BEFORE the roster write, so a fault
-    part way leaves the name still listed and a retry repeats the idempotent clears. A refusal
-    at that write is the one outcome where the order costs something: every name it covers is
-    still on the roster, holding neither a slot nor a card, and when the name is the space's new
-    owner nothing can re-issue either, because the add normalises an owner out.
+    part way leaves the name still listed and a retry repeats the idempotent clears. Both verbs
+    refuse a removal naming the current owner before clearing anything, so this runs only when a
+    transfer to one of the names committed in the moment between that check and the write. The
+    owner is the one name nothing else can re-issue a slot for, because the add normalises an
+    owner out; every other name the run cleared is left listed without one — a denial, which the
+    owner mends by removing and re-adding them, where re-granting them could hand a slot to
+    somebody a concurrent removal had just taken off the roster.
 
-    Only a name on the roster read HERE is reinstated, and an unreadable roster or an ownerless
-    record, which a delete has emptied, reinstates nobody: this is the granting direction, so a
-    name the record no longer lists is left without the grant. Each step is best-effort, because the caller is about to re-raise the
-    refusal and a fault here must not replace the sentence the requester reads.
+    **The grant is written first and confirmed after**, and taken back unless the record read
+    after it still names this person as owner, lists them, and is neither claimed by a delete
+    nor emptied. A read before the grant cannot be trusted with it: a delete could empty the
+    space between that read and the grant, leaving a slot on a roster naming nobody. Read after,
+    anything that ends the ownership has either committed before the read, which takes the slot
+    back, or revokes it itself after the grant — a delete clears the whole roster it claimed,
+    and removing this person needs a transfer away first, which the read sees.
 
     Args:
-      members: The names whose slot and card this run cleared.
+      cleared: The names whose slot and card this run cleared.
       name: The space name.
 
     Returns:
       None.
 
     Raises:
-      None.
+      ProvisioningError: When the owner already holds the maximum number of spaces again.
+      ClientError: On an S3 or Cognito fault. Raised rather than logged, so the requester reads
+        the generic failure — the owner's access was not given back — instead of the sentence
+        about the space changing hands.
     """
+    owner = (registry.load(name) or {}).get("owner")
+    if not isinstance(owner, str) or owner not in cleared:
+        return
+    assign_or_find_slot(owner, name)
     try:
-        record = registry.load(name) or {}
+        after = registry.load(name) or {}
     except Exception:
-        logger.exception("failed to read the roster before reinstating members of %s", name)
+        clear_slot(owner, name)
+        raise
+    listed = roster(after)
+    if (
+        after.get("owner") != owner
+        or owner not in listed
+        or after.get("status") == "deleting"
+        or after.get("emptiedAt")
+    ):
+        clear_slot(owner, name)
         return
-    owner = record.get("owner")
-    if not isinstance(owner, str) or not owner:
-        return
-    listed = roster(record)
-    acknowledged = registry.effective_acknowledged(record) if listed else []
-    for member in members:
-        if member not in listed:
-            continue
-        try:
-            assign_or_find_slot(member, name)
-            if member == owner:
-                cache.write_owner_projection(member, name, listed, acknowledged, record.get("createdAt"))
-            else:
-                cache.write_member_entry(
-                    member, name, owner, listed, acknowledged, record.get("createdAt")
-                )
-        except Exception:
-            logger.exception("failed to reinstate %s on %s", member, name)
+    cache.write_owner_projection(
+        owner, name, listed, registry.effective_acknowledged(after), after.get("createdAt")
+    )

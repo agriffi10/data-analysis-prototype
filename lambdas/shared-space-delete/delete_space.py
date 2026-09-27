@@ -84,9 +84,9 @@ def _hand_the_space_back(space, actor, registry, request_id):
     in the tidy-up must not replace the sentence the actor needs to read.
 
     **It runs before anything is revoked, which is what keeps it this small.** The only owner
-    check the cascade makes is on its first write, and a refusal there writes nothing, so the most
-    reaching here can find is a deleting status an earlier attempt of this request left. A check on the emptying rewrite would have caught a transfer
-    landing later, during the revocation loop; ``empty_space``'s docstring says why that was tried
+    check the cascade makes is on its first write, and a refusal there writes nothing, so the only
+    write of this request it can find is a deleting status an earlier attempt left. A check on the
+    emptying rewrite would have caught a transfer landing later, during the revocation loop; ``empty_space``'s docstring says why that was tried
     and abandoned rather than repaired from here.
 
     Two things are undone. The deleting status, when this run wrote it — the record belongs to

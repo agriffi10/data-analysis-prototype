@@ -202,28 +202,66 @@ def test_the_roster_fans_out_under_the_owner_the_commit_carries():
     assert alice_cache["connections"][0]["owner"] == "carol"
 
 
-def test_a_remove_naming_the_member_a_transfer_just_made_owner_is_refused_and_undone():
+def _cards(s3, *members):
+    out = {}
+    for m in members:
+        key = ("user-bkt", f"{m}/user_settings/shared-connections.json")
+        out[m] = [c["role"] for c in json.loads(s3.store[key])["connections"]] if key in s3.store else None
+    return out
+
+
+def test_a_remove_naming_the_member_a_transfer_just_made_owner_is_refused_before_anything_is_cleared():
     # The validator refuses a removal naming the owner, whole, because partly serving the request
     # is worse than saying so. A transfer committing after that check made one of the names the
     # owner, and the verb went on to strip the new owner of the roster, the slot and the card.
-    # dave left the roster meanwhile, so his slot is the one the undo must NOT give back.
     s3, _glue, _lf, cognito = install()
-    reg = _active_reg(members=["alice", "bob", "carol", "dave"])
-    _seed_reg(s3, dict(reg, owner="bob", members=["alice", "bob", "carol"]))
-    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob", "carol", "dave")}
+    reg = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, dict(reg, owner="bob"))
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob", "carol")}
 
     raises(
-        lambda: r.remove_members("sales", ["bob", "carol", "dave"], "req-r", reg),
+        lambda: r.remove_members("sales", ["bob", "carol"], "req-r", reg),
         remove_registry.OwnerChanged,
     )
 
     saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert saved["owner"] == "bob" and saved["members"] == ["alice", "bob", "carol"]
-    slots = {m: cognito.users[m]["custom:shared_space_1"] for m in ("bob", "carol", "dave")}
-    assert slots == {"bob": "sales", "carol": "sales", "dave": ""}
-    roles = {
-        m: json.loads(s3.store[("user-bkt", f"{m}/user_settings/shared-connections.json")])["connections"][0]["role"]
-        for m in ("bob", "carol")
+    assert {m: cognito.users[m]["custom:shared_space_1"] for m in ("bob", "carol")} == {
+        "bob": "sales",
+        "carol": "sales",
     }
-    assert roles == {"bob": "owner", "carol": "member"}
-    assert ("user-bkt", "dave/user_settings/shared-connections.json") not in s3.store
+
+
+def test_a_transfer_landing_after_the_fresh_read_gives_back_the_owner_alone(monkeypatch):
+    # The roster write's refusal comes after every named slot is cleared. Only the new owner is
+    # given theirs back: nothing else can re-issue it, while carol's can be re-issued by an add,
+    # and giving hers back could re-grant somebody a concurrent removal had just taken off.
+    s3, _glue, _lf, cognito = install()
+    reg = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, reg)
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob", "carol")}
+    real_clear = r.membership.clear_slot
+    fired = []
+
+    def clear_then_transfer(username, name):
+        real_clear(username, name)
+        if not fired:
+            fired.append(True)
+            s3.put_object(
+                Bucket="admin-bkt", Key="shared-spaces/sales.json", Body=json.dumps(dict(reg, owner="bob"))
+            )
+
+    monkeypatch.setattr(r.membership, "clear_slot", clear_then_transfer)
+
+    raises(
+        lambda: r.remove_members("sales", ["bob", "carol"], "req-r", reg),
+        remove_registry.OwnerChanged,
+    )
+
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["owner"] == "bob" and saved["members"] == ["alice", "bob", "carol"]
+    assert {m: cognito.users[m]["custom:shared_space_1"] for m in ("bob", "carol")} == {
+        "bob": "sales",
+        "carol": "",
+    }
+    assert _cards(s3, "bob", "carol") == {"bob": ["owner"], "carol": None}

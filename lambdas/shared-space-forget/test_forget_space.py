@@ -405,7 +405,8 @@ def test_a_create_going_active_before_the_forget_claims_the_record_is_kept(monke
     # create's write fails that swap and the retry finds a space that was usable.
     s3, glue, _lf, cognito = install()
     record = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
-    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
+    retrying = dict(record, status="provisioning", lastRequestId="req-c")
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(retrying).encode()
     s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
     glue.seed_space_database("sales", [])
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}

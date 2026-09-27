@@ -74,7 +74,9 @@ def remove_members(space, members, request_id, registry):
 
     **A transfer that made one of the names the owner refuses the whole removal**, as the
     validator's own refusal of a removal naming the owner does, because partly serving it is
-    worse than saying so. Every name's slot and card cleared ahead of the write is given back.
+    worse than saying so. A fresh read refuses it before anything is cleared; the roster write
+    refuses it again for a transfer landing after that read, and then gives only the new owner
+    back their slot and card — ``membership.reinstate_owner`` says why the others are not.
 
     Args:
       space: The space name.
@@ -94,8 +96,10 @@ def remove_members(space, members, request_id, registry):
     owner = registry["owner"]
     current_set = set(registry.get("members", []))
     removed = []
+    targets = membership.normalize_members(members, owner)
+    reg.refuse_removing_owner(reg.load(space), targets)
 
-    for member in membership.normalize_members(members, owner):
+    for member in targets:
         if member not in current_set:
             continue
         membership.clear_slot(member, space)
@@ -106,7 +110,7 @@ def remove_members(space, members, request_id, registry):
     try:
         committed = reg.save_members(registry, request_id, remove=removed)
     except reg.OwnerChanged:
-        membership.reinstate(removed, space)
+        membership.reinstate_owner(removed, space)
         raise
     membership_index.drop_for_all(removed, space)
     cache.write_roster_to_all(

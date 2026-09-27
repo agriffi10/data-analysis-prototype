@@ -42,9 +42,10 @@ def leave_space(space, actor, request_id, registry):
     actually landed. The owner is notified only after that write lands; a no-op leave emits
     nothing.
 
-    **A transfer to the actor committing before that write refuses it.** The validator's owner
-    check read an older record, and completing the leave wrote an owner who is not a member. The
-    slot and card cleared ahead of the write are given back, since the actor now owns the space.
+    **A transfer to the actor refuses the leave.** The validator's owner check read an older
+    record, and completing the leave wrote an owner who is not a member. A fresh read refuses it
+    before anything is cleared; the roster write refuses it again for a transfer landing after
+    that read, and then gives the new owner back the slot and card cleared ahead of the write.
 
     Args:
       space: The space name.
@@ -70,12 +71,13 @@ def leave_space(space, actor, request_id, registry):
             "nothing to leave", space=space, actor=actor, already=True, left=False
         )
         return {"status": "ok", "action": "leave", "space": space, "left": False}
+    reg.refuse_removing_owner(reg.load(space), [actor])
     membership.clear_slot(actor, space)
     cache.remove_entry(actor, space)
     try:
         committed = reg.save_members(registry, request_id, remove=[actor])
     except reg.OwnerChanged:
-        membership.reinstate([actor], space)
+        membership.reinstate_owner([actor], space)
         raise
     membership_index.drop(actor, space)
     remaining = committed["members"]

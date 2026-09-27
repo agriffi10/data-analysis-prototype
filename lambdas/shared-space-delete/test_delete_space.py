@@ -735,7 +735,8 @@ def test_a_create_going_active_between_the_route_read_and_the_first_write_is_emp
     # fails that swap and the retry reads the active record.
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice",), status="provisioning")
-    reg_before = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    reg_before = dict(json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")]), lastRequestId="req-c")
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(reg_before).encode()
     real_read = teardown_registry._read
     fired = []
 

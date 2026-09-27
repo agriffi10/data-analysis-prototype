@@ -79,9 +79,10 @@ machine and every verb.
   **the record IS the name lock**.
 - **A delete's route and owner are decided on the record it claims.** `registry.begin_delete` is
   the first write of delete and forget: one swap that decides `is_destroyable`, re-checks the owner
-  and writes `deleting`, and `finalize` refuses a claimed, absent or re-owned record. A removal
-  naming the current owner is refused in `save_members`' swap, and leave and remove give back what
-  they cleared first (`membership.reinstate`)
+  and writes `deleting`, and `finalize` refuses any record that is no longer its own reservation.
+  A removal naming the current owner is refused by `refuse_removing_owner`, before anything is
+  cleared and again inside `save_members`' swap, after which only the new owner's slot and card are
+  given back (`membership.reinstate_owner`)
   ([entry](../../../docs/decisions/control-planes.md#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)).
 - **A teardown touches only a database the space made.** A space's database and a user's personal
   one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,

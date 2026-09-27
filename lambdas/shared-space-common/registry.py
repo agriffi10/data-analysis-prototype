@@ -363,13 +363,17 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
     timestamp is: the record is rebuilt from a literal, so it is the one writer here that
     provably drops a field it does not name.
 
-    **That literal is also why it refuses a record that is no longer this create's.** Built from
-    nothing, it overwrote a ``deleting`` claim with an active, ever-active record while the
-    delete that claimed it went on tearing the space down, so the owner was told the space was
+    **That literal is also why it refuses a record that is no longer this create's reservation.**
+    Built from nothing, it overwrote a ``deleting`` claim with an active, ever-active record while
+    the delete that claimed it went on tearing the space down, so the owner was told the space was
     ready and it then vanished; on an absent record it re-created a name a teardown had just
     freed, and on a record another user had since reserved it took their name. So a record that
-    is gone, claimed by a delete, or owned by somebody else is refused, on both outcomes: the
-    failure path's own call must not write ``failed`` over the claim either.
+    is gone, claimed by a delete, owned by somebody else, or last written by another request is
+    refused, on both outcomes: the failure path's own call must not write ``failed`` over the
+    claim either. The request-id clause is the one that covers a claim a delete has since
+    replaced — its failure path writes ``failed`` over ``deleting`` — and a same-owner
+    reservation made after a teardown freed the name; the other three stay because a request id
+    is whatever the caller sent, so two requests can carry the same one.
 
     Args:
       name: The space name.
@@ -382,7 +386,8 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
       None.
 
     Raises:
-      ProvisioningError: When the record is gone, claimed by a delete, or owned by somebody else.
+      ProvisioningError: When the record is gone, claimed by a delete, owned by somebody else, or
+        last written by another request.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -399,7 +404,12 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
         Raises:
           ProvisioningError: When the freshly-read record is no longer this create's.
         """
-        if existing is None or existing.get("status") == "deleting" or existing.get("owner") != actor:
+        if (
+            existing is None
+            or existing.get("status") == "deleting"
+            or existing.get("owner") != actor
+            or existing.get("lastRequestId") != request_id
+        ):
             raise ProvisioningError("the space was deleted while it was being set up")
         record = {
             "version": 1,
@@ -506,6 +516,34 @@ def effective_acknowledged(registry: dict) -> list[str]:
     return list(ack)
 
 
+def refuse_removing_owner(record, names) -> None:
+    """Refuses a removal that names a space's current owner, as a change of hands.
+
+    **One predicate with two consumers.** ``save_members`` applies it inside its swap, the only
+    record fresh enough to hold the rule; the leave and remove verbs apply it to a read taken
+    before they clear anything, so the ordinary race — a transfer committing between the
+    validator's read and the verb — is refused before a slot is touched and needs no repair.
+    Written twice, the verbs' copy could drift from the one that guards the roster.
+
+    Args:
+      record: A registry record, or None, which names no owner and refuses nothing.
+      names: The members a removal would take off the roster.
+
+    Returns:
+      None.
+
+    Raises:
+      OwnerChanged: When the record's owner is among the names.
+    """
+    owner = record.get("owner") if isinstance(record, dict) else None
+    if isinstance(owner, str) and owner and owner in names:
+        name = record.get("name") if isinstance(record, dict) else None
+        raise OwnerChanged(
+            f"space {name!r} is now owned by {owner!r}, who cannot be removed from it, "
+            "so the membership change is refused"
+        )
+
+
 def save_members(
     registry: dict, request_id: str, *, add=(), remove=(), acknowledge=(), expected_owner=None
 ) -> dict:
@@ -544,8 +582,10 @@ def save_members(
     **A removal naming the record's current owner is refused whoever passes what.** Every caller
     has already kept the owner out of its delta, against the record the validator loaded, so the
     only way the owner reaches one is a transfer committing after that read — and completing the
-    removal writes an owner who is not a member. The check is here rather than in the verbs for
-    the reason ``MembershipRefused`` gives: this transform holds the only record fresh enough.
+    removal writes an owner who is not a member. The verbs apply the same predicate,
+    ``refuse_removing_owner``, to a read taken before they clear anything; this is the copy that
+    holds, for the reason ``MembershipRefused`` gives: this transform holds the only record fresh
+    enough.
 
     Args:
       registry: The registry record, used for the space name and as the fallback base.
@@ -612,12 +652,7 @@ def save_members(
             removal names the record's current owner.
         """
         record = dict(existing) if existing is not None else dict(registry)
-        owner = record.get("owner")
-        if owner and owner in removing:
-            raise OwnerChanged(
-                f"space {name!r} is now owned by {owner!r}, who cannot be removed from it, "
-                "so the membership change is refused"
-            )
+        refuse_removing_owner(record, removing)
         if add:
             if not record.get("owner"):
                 raise SpaceHasNoOwner(f"space {name!r} has no owner and cannot take new members")

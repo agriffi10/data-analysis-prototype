@@ -129,14 +129,46 @@ def test_the_owner_told_about_a_leave_is_the_one_the_commit_carries():
     assert told == ["carol"]
 
 
-def test_a_leave_landing_after_the_space_was_transferred_to_the_leaver_is_refused_and_undone():
+def test_a_leave_authorized_before_a_transfer_to_the_leaver_is_refused_before_anything_is_cleared():
     # bob's leave was authorized while alice owned the space, and her transfer to him committed
-    # before his roster write. Completing it left an owner who is not a member, holding no slot
-    # and no card, and the add normalises an owner out, so nobody could give him either back.
+    # before the verb ran. Completing it left an owner who is not a member, holding no slot and
+    # no card, and the add normalises an owner out, so nobody could give him either back.
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
     stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(dict(stale, owner="bob")).encode()
+    bob_card = s3.store[("user-bkt", "bob/user_settings/shared-connections.json")]
+
+    raises(lambda: l.leave_space("sales", "bob", "req-l", stale), leave_registry.OwnerChanged)
+
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["owner"] == "bob" and saved["members"] == ["alice", "bob", "carol"]
+    assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+    assert s3.store[("user-bkt", "bob/user_settings/shared-connections.json")] == bob_card
+
+
+def _transfer_to_bob_while_clearing(monkeypatch, s3, stale):
+    real_clear = l.membership.clear_slot
+    fired = []
+
+    def clear_then_transfer(username, name):
+        real_clear(username, name)
+        if not fired:
+            fired.append(True)
+            s3.put_object(
+                Bucket="admin-bkt", Key="shared-spaces/sales.json", Body=json.dumps(dict(stale, owner="bob"))
+            )
+
+    monkeypatch.setattr(l.membership, "clear_slot", clear_then_transfer)
+
+
+def test_a_transfer_landing_after_the_fresh_read_is_refused_at_the_write_and_the_owner_restored(monkeypatch):
+    # The fresh read narrows the window to the moment between it and the roster write, and the
+    # write's own refusal closes it — after the slot and card are gone, so they are given back.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
+    stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    _transfer_to_bob_while_clearing(monkeypatch, s3, stale)
 
     raises(lambda: l.leave_space("sales", "bob", "req-l", stale), leave_registry.OwnerChanged)
 
@@ -145,3 +177,32 @@ def test_a_leave_landing_after_the_space_was_transferred_to_the_leaver_is_refuse
     assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
     card = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
     assert [(c["name"], c["role"]) for c in card["connections"]] == [("sales", "owner")]
+
+
+def test_the_restored_slot_is_taken_back_when_a_delete_claims_the_space_before_it_is_confirmed(monkeypatch):
+    # A grant decided on a read taken BEFORE it could land on a space a delete emptied in between,
+    # leaving a slot on a roster naming nobody. So the grant is written first and confirmed by a
+    # read after it, and here that read finds the delete's claim.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
+    stale = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    _transfer_to_bob_while_clearing(monkeypatch, s3, stale)
+    real_assign = l.membership.assign_or_find_slot
+
+    def assign_then_delete_claims(username, name):
+        out = real_assign(username, name)
+        current = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+        s3.put_object(
+            Bucket="admin-bkt",
+            Key="shared-spaces/sales.json",
+            Body=json.dumps(dict(current, status="deleting", lastRequestId="req-d")),
+        )
+        return out
+
+    monkeypatch.setattr(l.membership, "assign_or_find_slot", assign_then_delete_claims)
+
+    raises(lambda: l.leave_space("sales", "bob", "req-l", stale), leave_registry.OwnerChanged)
+
+    assert cognito.users["bob"]["custom:shared_space_1"] == ""
+    card = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])
+    assert card["connections"] == []
