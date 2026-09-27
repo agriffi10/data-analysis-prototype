@@ -383,9 +383,10 @@ def test_the_writer_is_sized_for_an_UNBOUNDED_document_and_the_ceiling_is_comput
     """The memory budget, and the number of submissions in one day it actually buys.
 
     A cap is computed against the budget that sized it, never written down: a hard-coded number
-    hides a wrong model. The model here is what the writer does — read the day's bytes, parse
-    them, append, re-serialise, encode — so peak resident is several multiples of the object,
-    and the object grows all day because the spec declines a per-user quota.
+    hides a wrong model. The model here is what the writer does — read the day's bytes, split
+    and parse each line, and write them out again with one more — so peak resident is several
+    multiples of the object, and the object grows all day because the spec declines a per-user
+    quota.
 
     128 MB (the Lambda default, and what notifications-writer runs on) buys the low thousands of
     maximum-length submissions before an OOM. That matters more than an ordinary crash: SIGKILL
@@ -411,7 +412,7 @@ def test_the_writer_is_sized_for_an_UNBOUNDED_document_and_the_ceiling_is_comput
     # What the budget buys, derived from FR-002's own message cap rather than assumed.
     max_message = _python_cap_from_route("MAX_MESSAGE_CHARS")
     per_entry = max_message + 220  # the six declared fields' keys, ids, stamps and JSON overhead
-    peak_multiple = 4  # raw bytes + parsed objects + re-serialised string + encoded bytes
+    peak_multiple = 4  # the bytes read, the lines split from them, the new body, and headroom
     ceiling = (mine * 1024 * 1024) // (per_entry * peak_multiple)
 
     assert ceiling > 10_000, (

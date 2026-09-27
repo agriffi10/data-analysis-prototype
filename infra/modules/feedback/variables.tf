@@ -19,7 +19,7 @@ variable "account_id" {
 }
 
 variable "admin_bucket_name" {
-  description = "Name of the admin bucket (the analytics module owns it). The writer reads and writes one object per day under feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.json here (env ADMIN_BUCKET + scoped in the writer policy, prefix-scoped to feedback/). No new bucket is created, and no lifecycle rule expires this prefix."
+  description = "Name of the admin bucket (the analytics module owns it). The writer reads and writes one JSONL object per day under feedback/year=YYYY/month=MM/day=DD/feedback_YYYY_MM_DD.jsonl here (env ADMIN_BUCKET + scoped in the writer policy, prefix-scoped to feedback/). No new bucket is created, and no lifecycle rule expires this prefix."
   type        = string
 }
 

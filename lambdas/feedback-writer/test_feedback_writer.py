@@ -5,8 +5,8 @@ design turns on what happens when two submissions race for one day's object. A f
 ``IfMatch``/``IfNoneMatch`` would make the compare-and-swap loop untestable and green either way.
 
 The weight is on the three properties that make this safe to leave running unattended: the day
-comes from the submission and not from this function's clock, an existing document is appended to
-rather than replaced, and a document it cannot read is left exactly where it is.
+comes from the submission and not from this function's clock, an existing file is appended to
+rather than replaced, and a line it cannot parse is kept exactly where it is and reported.
 """
 
 import json
@@ -82,7 +82,7 @@ class FakeS3:
 
     Attributes:
       objects: Key to a ``(bytes, etag)`` pair.
-      puts: Every accepted put, in order.
+      puts: Every accepted put, in order, with the content type it declared.
       attempts: Every put ATTEMPTED, refused ones included. ``puts`` alone cannot see a
         conditional write that lost, which is exactly the write worth asserting on.
       reads: How many reads have been served.
@@ -94,7 +94,7 @@ class FakeS3:
         """Builds the fake.
 
         Args:
-          objects: Initial key-to-document mapping, serialized on the way in.
+          objects: Initial key-to-entries mapping, written as JSONL on the way in.
           read_fault: Raised by the first read, to drive the fail-safe branch.
           steal_after: After this many reads, a competing writer replaces the object, so the
             next conditional write loses its precondition.
@@ -112,8 +112,8 @@ class FakeS3:
         self.read_fault = read_fault
         self.steal_after = steal_after
         self._tags = 0
-        for key, document in (objects or {}).items():
-            self._store(key, json.dumps(document).encode())
+        for key, entries in (objects or {}).items():
+            self._store(key, b"".join(json.dumps(e).encode() + b"\n" for e in entries))
 
     def _store(self, key, body):
         """Writes an object and mints it a fresh entity tag.
@@ -161,7 +161,7 @@ class FakeS3:
           Bucket: The bucket. Unused.
           Key: The object key.
           Body: The bytes to write.
-          ContentType: Ignored.
+          ContentType: Recorded on the accepted put.
           IfMatch: Write only if the entity tag matches.
           IfNoneMatch: Write only if the object is absent.
 
@@ -178,25 +178,35 @@ class FakeS3:
         if IfMatch is not None and (current is None or current[1] != IfMatch):
             raise _Fault("PreconditionFailed")
         self._store(Key, Body)
-        self.puts.append({"Key": Key, "Body": Body, "IfMatch": IfMatch, "IfNoneMatch": IfNoneMatch})
+        self.puts.append(
+            {
+                "Key": Key,
+                "Body": Body,
+                "ContentType": ContentType,
+                "IfMatch": IfMatch,
+                "IfNoneMatch": IfNoneMatch,
+            }
+        )
         return {}
 
-    def document(self, key):
-        """The stored document, parsed.
+    def entries(self, key):
+        """The stored file's lines, each parsed on its own.
 
         Args:
           key: The object key.
 
         Returns:
-          The parsed document.
+          One parsed object per line.
 
         Raises:
-          None.
+          AssertionError: If the file does not end its last line.
         """
-        return json.loads(self.objects[key][0])
+        body = self.objects[key][0]
+        assert body.endswith(b"\n"), "a JSONL file ends every line, the last included"
+        return [json.loads(line) for line in body[:-1].split(b"\n")]
 
 
-KEY = "feedback/year=2026/month=08/day=28/feedback_2026_08_28.json"
+KEY = "feedback/year=2026/month=08/day=28/feedback_2026_08_28.jsonl"
 
 
 def _submission(**overrides):
@@ -268,20 +278,19 @@ def test_an_absent_day_is_created_with_exactly_the_one_submission(s3):
 
     result = w.handler(_event(_submission()), None)
 
-    assert result == {"key": KEY, "entries": 1}
+    assert result == {"key": KEY, "lines": 1}
     assert fake.attempts == [{"Key": KEY, "IfMatch": None, "IfNoneMatch": "*"}], (
         "the first write must be create-only and nothing else, or two writers both creating a "
         "day lose one"
     )
     assert fake.puts[0]["IfMatch"] is None
-    document = fake.document(KEY)
-    assert document["version"] == 1
-    assert document["date"] == "2026-08-28"
-    assert [e["eventId"] for e in document["entries"]] == [_submission()["eventId"]]
-    assert document["entries"][0]["message"] == "The upload bar sticks at 0%."
+    assert fake.puts[0]["ContentType"] == "application/x-ndjson"
+    entries = fake.entries(KEY)
+    assert [e["eventId"] for e in entries] == [_submission()["eventId"]]
+    assert entries[0]["message"] == "The upload bar sticks at 0%."
 
 
-def test_three_submissions_land_in_one_document_in_submission_order(s3):
+def test_three_submissions_land_in_one_file_in_submission_order(s3):
     """Every existing entry survives an append; the day's object is never a replacement."""
     fake = s3()
     ids = ["a", "b", "c"]
@@ -298,9 +307,9 @@ def test_three_submissions_land_in_one_document_in_submission_order(s3):
             None,
         )
 
-    document = fake.document(KEY)
-    assert [e["eventId"] for e in document["entries"]] == ids
-    assert [e["message"] for e in document["entries"]] == ["note 0", "note 1", "note 2"]
+    entries = fake.entries(KEY)
+    assert [e["eventId"] for e in entries] == ids
+    assert [e["message"] for e in entries] == ["note 0", "note 1", "note 2"]
     assert fake.puts[1]["IfMatch"] is not None, "an append must be conditional on the tag it read"
 
 
@@ -315,7 +324,7 @@ def test_the_day_comes_from_the_submission_not_from_this_functions_clock(s3):
 
     w.handler(_event(_submission(submittedAt="2025-01-02T23:59:59Z")), None)
 
-    assert "feedback/year=2025/month=01/day=02/feedback_2025_01_02.json" in fake.objects
+    assert "feedback/year=2025/month=01/day=02/feedback_2025_01_02.jsonl" in fake.objects
 
 
 def test_a_stamp_in_another_offset_is_resolved_to_the_utc_day(s3):
@@ -331,45 +340,95 @@ def test_a_stamp_in_another_offset_is_resolved_to_the_utc_day(s3):
     assert KEY in fake.objects
 
 
-def test_a_document_that_will_not_parse_is_raised_over_and_never_overwritten(s3):
-    """The day's records are somebody's only copy, so a bad byte is not repaired by replacement."""
+def test_lines_that_will_not_parse_are_kept_reported_and_appended_after(s3, captured_events):
+    """Refusing would dead-letter the rest of the day and protect nothing, since nothing is replaced.
+
+    The bad lines sit in the middle, so a check of the last line alone reports the wrong first
+    line, and the warning carries line numbers only — a bad line may hold a user's message. One is
+    nested deeply enough that the parser raises ``RecursionError``, which is not a ``ValueError``.
+    """
     fake = s3()
-    fake.objects[KEY] = (b"{not json", '"tag-9"')
+    deep = b"[" * 20000
+    existing = b'{"eventId": "a"}\n{not json\n[1, 2]\n\n' + deep + b'\n{"eventId": "b"}\n'
+    fake.objects[KEY] = (existing, '"tag-9"')
 
-    with pytest.raises(w.CorruptDocumentError, match="not valid JSON"):
-        w.handler(_event(_submission()), None)
+    result = w.handler(_event(_submission(eventId="mine")), None)
 
-    assert fake.puts == [], "nothing may be written over a document that could not be read"
-    assert fake.objects[KEY][0] == b"{not json"
+    body = fake.objects[KEY][0]
+    assert body.startswith(existing), "an append must keep every byte it read, bad lines included"
+    assert json.loads(body[len(existing) :])["eventId"] == "mine"
+    assert result["lines"] == 7
+    warnings = [
+        e for e in captured_events.events if e["message"] == "day object has unreadable lines"
+    ]
+    assert [(e["fields"]["lines"], e["fields"]["first_line"]) for e in warnings] == [(4, 2)]
+    assert "not json" not in json.dumps([dict(e) for e in captured_events.events])
 
 
-def test_a_document_of_a_newer_version_is_refused_untouched(s3):
-    """A shape this build does not understand is not migrated in place by an unwatched function."""
-    fake = s3(objects={KEY: {"version": 2, "date": "2026-08-28", "entries": []}})
+def test_an_append_keeps_the_existing_bytes_and_starts_its_own_line(s3, captured_events):
+    """A file whose last line was left unterminated still gets the new entry on a line of its own.
 
-    with pytest.raises(w.CorruptDocumentError, match="version 2"):
-        w.handler(_event(_submission()), None)
+    The existing bytes are kept exactly, not re-serialised, so an append can never rewrite a line
+    somebody else wrote. The line is valid JSON however it is spaced, so nothing is reported.
+    """
+    fake = s3()
+    existing = b'{"eventId":"kept",  "note":"hand-spaced"}'
+    fake.objects[KEY] = (existing, '"tag-9"')
 
-    assert fake.puts == []
+    w.handler(_event(_submission(eventId="mine")), None)
+
+    assert fake.objects[KEY][0].startswith(existing + b"\n")
+    assert [e["eventId"] for e in fake.entries(KEY)] == ["kept", "mine"]
+    assert not [
+        e for e in captured_events.events if e["message"] == "day object has unreadable lines"
+    ], "a clean file was reported as unreadable"
+
+
+def test_an_empty_day_object_takes_the_entry_as_its_first_line(s3):
+    """A 0-byte object is a file with no lines, not one with a blank line to start after."""
+    fake = s3()
+    fake.objects[KEY] = (b"", '"tag-9"')
+
+    result = w.handler(_event(_submission()), None)
+
+    assert result["lines"] == 1
+    assert fake.puts[0]["IfMatch"] == '"tag-9"'
+    assert not fake.objects[KEY][0].startswith(b"\n")
+    assert [e["eventId"] for e in fake.entries(KEY)] == [_submission()["eventId"]]
+
+
+def test_a_message_with_line_breaks_stays_on_one_line(s3):
+    """One submission is one line, whatever the user typed into the textarea."""
+    fake = s3()
+    message = "first line\nsecond line\r\nthird\u2028fourth\u0085fifth"
+
+    result = w.handler(_event(_submission(message=message)), None)
+
+    assert result["lines"] == 1
+    assert fake.objects[KEY][0].count(b"\n") == 1
+    assert fake.objects[KEY][0].isascii(), (
+        "a raw U+2028 or U+0085 splits the line for any reader that uses str.splitlines"
+    )
+    assert fake.entries(KEY)[0]["message"] == message
 
 
 def test_a_lost_race_re_reads_and_the_winners_entry_survives(s3):
     """The append is rebuilt on what the winner wrote, which is the whole point of re-reading."""
     fake = s3(
-        objects={KEY: {"version": 1, "date": "2026-08-28", "entries": [{"eventId": "winner"}]}},
+        objects={KEY: [{"eventId": "winner"}]},
         steal_after=1,
     )
 
     result = w.handler(_event(_submission(eventId="mine")), None)
 
     assert fake.reads == 2, "a precondition failure must re-read, not retry the same bytes"
-    assert result["entries"] == 2
-    assert [e["eventId"] for e in fake.document(KEY)["entries"]] == ["winner", "mine"]
+    assert result["lines"] == 2
+    assert [e["eventId"] for e in fake.entries(KEY)] == ["winner", "mine"]
 
 
 def test_exhausting_the_attempts_raises_so_the_submission_dead_letters(s3, monkeypatch):
     """A submission dropped here would be gone with nothing recording that it ever arrived."""
-    fake = s3(objects={KEY: {"version": 1, "date": "2026-08-28", "entries": []}})
+    fake = s3(objects={KEY: [{"eventId": "kept"}]})
     monkeypatch.setattr(fake, "steal_after", None)
     original = fake.get_object
 
@@ -406,7 +465,7 @@ def test_an_unreadable_day_falls_back_to_a_create_only_write_that_cannot_overwri
     because the write that follows is create-only — which is asserted here rather than argued.
     """
     fake = s3(
-        objects={KEY: {"version": 1, "date": "2026-08-28", "entries": [{"eventId": "kept"}]}},
+        objects={KEY: [{"eventId": "kept"}]},
         read_fault="AccessDenied",
     )
 
@@ -418,8 +477,8 @@ def test_an_unreadable_day_falls_back_to_a_create_only_write_that_cannot_overwri
     assert fake.puts[0]["IfMatch"] is not None, (
         "and the write that actually landed must be the conditional retry, not the create"
     )
-    assert result["entries"] == 2
-    assert [e["eventId"] for e in fake.document(KEY)["entries"]] == ["kept", "mine"], (
+    assert result["lines"] == 2
+    assert [e["eventId"] for e in fake.entries(KEY)] == ["kept", "mine"], (
         "the create-only write lost its precondition, so the re-read had to preserve the entry"
     )
 
@@ -469,7 +528,7 @@ def test_the_message_text_reaches_no_emitted_record(s3, captured_events):
     assert str(len(secret)) in rendered, (
         "the length should be recorded — without it the event says nothing about the submission"
     )
-    assert fake.document(KEY)["entries"][0]["message"] == secret
+    assert fake.entries(KEY)[0]["message"] == secret
 
 
 def test_a_large_day_object_is_reported_before_it_becomes_fatal(s3, captured_events):
@@ -480,11 +539,7 @@ def test_a_large_day_object_is_reported_before_it_becomes_fatal(s3, captured_eve
     a dead-letter queue nobody drains. So the growth has to be visible well before that, and the
     threshold is asserted to sit under what the function's memory can actually rewrite.
     """
-    big = {
-        "version": 1,
-        "date": "2026-08-28",
-        "entries": [{"eventId": f"e{n}", "message": "x" * 4000} for n in range(5000)],
-    }
+    big = [{"eventId": f"e{n}", "message": "x" * 4000} for n in range(5000)]
     fake = s3(objects={KEY: big})
 
     w.handler(_event(_submission()), None)
@@ -493,7 +548,7 @@ def test_a_large_day_object_is_reported_before_it_becomes_fatal(s3, captured_eve
     assert len(warnings) == 1, "a day that is expensive to rewrite went unreported"
     assert warnings[0]["fields"]["key"] == KEY
     assert warnings[0]["fields"]["bytes"] > w.LARGE_OBJECT_WARN_BYTES
-    assert len(fake.document(KEY)["entries"]) == 5001, "the append still happened"
+    assert len(fake.entries(KEY)) == 5001, "the append still happened"
 
 
 def test_the_warning_threshold_is_under_what_the_function_can_rewrite():
@@ -502,8 +557,8 @@ def test_the_warning_threshold_is_under_what_the_function_can_rewrite():
     The budget is the memory the module's Terraform declares, read rather than restated — and
     read through `tf_blocks`, because the two packagings spell that attribute differently and a
     pattern matching only one of them stops finding the number without ever saying so. Peak
-    resident while appending is several multiples of the raw object — the bytes, the parsed
-    objects, the re-serialised string and its encoding all coexist — so the threshold has to
+    resident while appending is several multiples of the raw object — the bytes read, the lines
+    split from them and the new body all coexist — so the threshold has to
     leave room for that multiple, not merely be smaller than the memory.
     """
     lambda_tf = (
@@ -534,8 +589,8 @@ def test_a_submission_with_no_route_is_stored_without_one(s3):
 
     result = w.handler(_event(_submission(route=None)), None)
 
-    assert result["entries"] == 1
-    entry = fake.document(KEY)["entries"][0]
+    assert result["lines"] == 1
+    entry = fake.entries(KEY)[0]
     assert "route" not in entry
     assert entry["username"] == "acarter"
 
@@ -555,8 +610,8 @@ def test_only_the_declared_fields_are_persisted(s3):
 
     w.handler(_event(smuggled), None)
 
-    entry = fake.document(KEY)["entries"][0]
+    entry = fake.entries(KEY)[0]
     assert set(entry) == {*w.ENTRY_FIELDS, "schemaVersion"}
     assert "idToken" not in entry and "email" not in entry and "internalScore" not in entry
-    assert "@" not in json.dumps(fake.document(KEY)), "an address reached the day's document"
+    assert b"@" not in fake.objects[KEY][0], "an address reached the day's file"
 
