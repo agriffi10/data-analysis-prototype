@@ -21,7 +21,10 @@ CheckQuery → ByteScan → AssembleReport → DropTempTables`
 `DropTempTablesOnFailure` is the other arm — **cleanup is reached on every path**. That is safe
 because it touches Glue only: the role holds **no `s3:DeleteObject` anywhere**, plus an explicit
 `Deny s3:PutObject` on `*/user_settings/*` and `*/DO_NOT_DELETE.txt`, since an overwrite of
-`notifications.json` would be unrecoverable.
+`notifications.json` would be unrecoverable. **Cleanup is bounded in time as well as swallowed:** on
+the success path it runs after the user was told the check completed, and a Lambda timeout there
+lands in the Catch that records the run failed, so every Athena call of both drops runs under one
+`cpcommon.budget` and a drop not settled by its deadline is logged as leaked instead.
 
 **The Athena poll lives in the state machine** (`Wait(30s)` → check-query → `Choice`), not inside a
 Lambda. That is this plane's key structural difference, and Standard executions are what remove the

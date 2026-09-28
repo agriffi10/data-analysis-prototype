@@ -384,9 +384,9 @@ being threaded into it.
 
 ## `cpcommon/budget.py` — why a call is capped on a thread, not bounded by the client
 
-Some writes ride along after a verb's real work and are swallowed when they fail — the
-data-quality runs index after the user is told the check completed, and the archive index after
-the receipt. A stall is not a failure: a call that never answers raises nothing to swallow, and
+Some calls ride along after a verb's real work and are swallowed when they fail — the
+data-quality runs index and temp-table drops after the user is told the check completed, and the
+archive index after the receipt. A stall is not a failure: a call that never answers raises nothing to swallow, and
 holds the verb to its Lambda timeout, failing a run whose outcome has already been reported.
 
 **The first answer was a model, and every review found a term it missed.** `clients.s3_bounded`
@@ -400,20 +400,28 @@ A guard over a model like that passes while the model is wrong, and the archive'
 
 **So the budget bounds the wait rather than the call.** Each call runs on a worker thread, and the
 caller stops waiting once `CALL_CAP_SECONDS` have passed. A loop through one `Budget` holds its
-verb for at most its deadline plus one cap, whatever the client does, and a guard can compare
-that sum to a timeout exactly. `s3_bounded` still sits underneath, so an abandoned call usually
-gives up within seconds rather than a minute — not always: a peer that trickles bytes defeats the
-read bound, and a DNS lookup has none, so such a call holds its thread and socket for longer. A
-loop stops at its first abandoned call, so that is at most one per loop. The worker runs in a copy
-of the caller's context, so its log lines keep the run's trace; one that finishes after the
-handler returns logs into the next invocation.
+verb for at most its deadline plus one cap, whatever the client does, plus whatever the loop
+itself does between calls — nothing for an index store, one poll interval for `athena.run_ddl`,
+which sleeps before its next call is refused — and a guard can compare that sum to a timeout
+exactly. A bounded client — `s3_bounded`, `athena_bounded` — still sits
+underneath, so an abandoned call usually gives up within seconds rather than a minute — not
+always: a peer that trickles bytes defeats the read bound, and a DNS lookup has none, so such a
+call holds its thread and socket for longer. A loop stops at its first abandoned call, so that is
+at most one per loop; data-quality cleanup runs a loop per temp table, so at most one per table.
+The worker runs in a copy of the caller's context, so its log lines keep the run's trace; one that
+finishes after the handler returns logs into the next invocation.
 
 **An abandoned call is not cancelled, which decides what may use this.** Its thread finishes or
 fails on its own, and in Lambda it may do so during a later invocation of the same container,
 since the runtime freezes the process when the handler returns. That is harmless for a read, and
 for a write conditioned on the tag it read: if the object has moved, the late write is refused,
 and if not, it writes exactly what the loop meant to. An unconditional write, or anything with a
-side effect outside the object, does not belong under a budget. A signal-based alarm was the
+side effect outside the object, does not belong under a budget — unless what it acts on belongs
+to this run alone and acting twice or late is the same as acting once. A late unconditional PUT to
+a shared index fails that test, since the index is not the run's and a late write overwrites a
+newer one. Data-quality cleanup's drop passes it: an if-exists drop of a temp table named from a
+request id `dqcommon.run_claim` lets only one execution hold, so a late one finishes that run's
+cleanup and can reach no other run's table. A signal-based alarm was the
 other way to bound the call, and it was not used, because it interrupts whatever code the main
 thread happens to be running rather than only the call.
 

@@ -26,8 +26,8 @@ class Budget:
     """A deadline for a run of optional calls, each of which may hold its caller for one cap.
 
     A loop that makes every call through one budget holds its caller for at most its seconds plus
-    ``CALL_CAP_SECONDS``, whatever the client under it does: the deadline is checked before each
-    call starts, and no call is waited on past the cap.
+    ``CALL_CAP_SECONDS``, whatever the client under it does, plus whatever the loop does between
+    calls: the deadline is checked before each call starts, and no call is waited on past the cap.
     """
 
     def __init__(self, seconds: float, label: str) -> None:

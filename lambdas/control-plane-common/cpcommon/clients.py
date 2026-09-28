@@ -5,7 +5,7 @@ are imported inside each factory so a verb that never needs a client never pays 
 Tests patch the cached module globals directly (``clients._s3 = Fake()``).
 
 Attributes:
-  BOUNDED_CONNECT_SECONDS: How long ``s3_bounded`` waits to connect before a call gives up.
+  BOUNDED_CONNECT_SECONDS: How long a bounded client waits to connect before a call gives up.
   BOUNDED_READ_SECONDS: How long it waits for a response once connected.
   BOUNDED_MAX_ATTEMPTS: How many attempts one call makes in all, under the standard retry mode —
     one retry, so a single dropped connection is survived and a stalled endpoint is waited on at
@@ -25,6 +25,7 @@ _sqs = None
 _sfn = None
 _glue = None
 _athena = None
+_athena_bounded = None
 _cognito = None
 _lf = None
 _jwks: dict = {}
@@ -73,16 +74,8 @@ def s3_bounded():
     global _s3_bounded
     if _s3_bounded is None:
         import boto3
-        from botocore.config import Config
 
-        _s3_bounded = boto3.client(
-            "s3",
-            config=Config(
-                connect_timeout=BOUNDED_CONNECT_SECONDS,
-                read_timeout=BOUNDED_READ_SECONDS,
-                retries={"mode": "standard", "total_max_attempts": BOUNDED_MAX_ATTEMPTS},
-            ),
-        )
+        _s3_bounded = boto3.client("s3", config=_bounded_config())
     return _s3_bounded
 
 
@@ -164,6 +157,57 @@ def athena():
 
         _athena = boto3.client("athena")
     return _athena
+
+
+def athena_bounded():
+    """Returns an Athena client whose every call gives up within seconds, for work that is optional.
+
+    The Athena twin of ``s3_bounded``, and like it no bound on a call by itself: a caller that must
+    finish in time runs each call under ``cpcommon.budget``, and this client is what makes a call
+    the budget abandons give up within seconds rather than run on for minutes. A
+    ``StartQueryExecution`` retried here does not start a second query, because botocore fills in
+    the idempotency token once per call and every attempt carries it.
+
+    Args:
+      None.
+
+    Returns:
+      The cached, bounded boto3 Athena client.
+
+    Raises:
+      None.
+    """
+    global _athena_bounded
+    if _athena_bounded is None:
+        import boto3
+
+        _athena_bounded = boto3.client("athena", config=_bounded_config())
+    return _athena_bounded
+
+
+def _bounded_config():
+    """Builds the client configuration every bounded client shares.
+
+    One builder rather than a copy per client, because ``budget.CALL_CAP_SECONDS`` is derived
+    from these bounds for every bounded client alike, and two copies could drift apart. The
+    attempts go in as ``total_max_attempts``, since botocore's ``max_attempts`` counts retries.
+
+    Args:
+      None.
+
+    Returns:
+      The botocore ``Config``.
+
+    Raises:
+      None.
+    """
+    from botocore.config import Config
+
+    return Config(
+        connect_timeout=BOUNDED_CONNECT_SECONDS,
+        read_timeout=BOUNDED_READ_SECONDS,
+        retries={"mode": "standard", "total_max_attempts": BOUNDED_MAX_ATTEMPTS},
+    )
 
 
 def cognito():

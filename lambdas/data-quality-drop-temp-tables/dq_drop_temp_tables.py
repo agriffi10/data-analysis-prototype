@@ -17,14 +17,35 @@ that went INTO the failed state, so a create that died between its two statement
 at all — the one path where reading them back leaks the table it had already built. The names and
 the database are re-derived from the request id when the state carries none.
 
+Cleanup is bounded in time as well as swallowed, because a drop that is only slow raises nothing
+for the swallow to catch. On the success path this verb runs after assemble-report has told the
+user the check completed, and a Lambda timeout here lands in the state's Catch, which records the
+run as failed. So every Athena call of both drops — each start and each poll — runs under one
+``cpcommon.budget`` on ``cpcommon.clients.athena_bounded``, and a drop reached once the budget is
+spent is not started. ``test_cleanup_cannot_outlast_the_verbs_timeout`` holds the worst case under
+half the verb's Terraform timeout.
+
+A budget abandons a call without cancelling it, so only a call whose late completion is harmless
+may run under one. Both of these qualify. A late poll is a read. A late start submits the same
+if-exists drop the on-time one would have, of a table named from this run's request id, which
+``dqcommon.run_claim`` lets only one execution ever hold; if it lands in a later invocation of the
+container, it finishes the cleanup this run wanted and can reach no other run's table.
+
 The service name is the control plane, not the function: one data-quality run is nine
 invocations, and they are only one queryable set if they share it. The per-verb identity rides as
 the ``verb`` field.
+
+Attributes:
+  DROP_DEADLINE_SECONDS: How long the drops together may keep starting Athena calls. The worst
+    case is this plus one call cap and one poll interval: a poll started just inside the deadline
+    may run for the cap, and ``run_ddl`` sleeps once more before the budget refuses the next. It is
+    set a few seconds under what the half-timeout line allows, so that line stays a margin rather
+    than becoming the budget.
 """
 
 import logging
 
-from cpcommon import athena, observability
+from cpcommon import athena, budget, clients, observability
 from cpcommon import config as cpconfig
 from dqcommon import messages, notify, results, sql
 
@@ -33,9 +54,11 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="data-quality")
 
+DROP_DEADLINE_SECONDS = 20
+
 
 @observability.step("drop-table")
-def _drop(database: str, table: str, output_location: str) -> bool:
+def _drop(database: str, table: str, output_location: str, calls: budget.Budget) -> bool:
     """Drops one temp table, reporting rather than raising on failure.
 
     Cleanup never raises, and that is a deliberate trade. On the failure path, raising would
@@ -50,10 +73,18 @@ def _drop(database: str, table: str, output_location: str) -> bool:
     than error because the request did not fail and must not read as though it did. The event
     names the table, because the recovery is a human running a drop by hand.
 
+    The drop is polled only while the shared budget lasts, and that has a cost of its own: a drop
+    still running when polling stops is logged as leaked even if Athena completes it moments
+    later, because stopping the poll does not stop the statement. That errs toward a false alarm,
+    and the recovery is an if-exists drop, which is harmless on a table already gone; erring the
+    other way is the Lambda timeout the budget exists to prevent. A drop reached once the budget
+    is spent is not started at all; that table really is left behind, and is logged the same way.
+
     Args:
       database: The database the table lives in.
       table: The table to drop.
       output_location: The ``s3://`` results prefix for the DDL statement.
+      calls: The budget every Athena call of every drop in this invocation runs under.
 
     Returns:
       True when the drop ran, False when it failed.
@@ -69,6 +100,8 @@ def _drop(database: str, table: str, output_location: str) -> bool:
             output_location=output_location,
             fail_reason=messages.QUERY_FAILED,
             timeout_reason=messages.QUERY_TIMEOUT,
+            client=clients.athena_bounded(),
+            call=calls.call,
         )
         logger.info("dropped %s.%s", database, table)
         return True
@@ -166,9 +199,10 @@ def _cleanup(event: dict) -> dict:
     bucket = (event.get("space") or {}).get("bucket") or cpconfig.USER_SPACE_BUCKET
     ddl_output = results.ddl_output(bucket, event.get("reportPrefix") or "")
 
+    calls = budget.Budget(DROP_DEADLINE_SECONDS, f"dropping the temp tables in {database}")
     dropped, failed = [], []
     for table in tables:
-        (dropped if _drop(database, table, ddl_output) else failed).append(table)
+        (dropped if _drop(database, table, ddl_output, calls) else failed).append(table)
 
     observability.info(
         "cleaned up",

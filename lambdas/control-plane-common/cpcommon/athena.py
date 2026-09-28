@@ -3,7 +3,8 @@
 Consolidates the byte-identical start-then-poll loop that table-builder's ``execute-ddl``
 and table-share's ``create-table`` each carried. Each verb records different reason codes
 and drives its own fake clock in tests, so the reason codes, clock, sleep and poll bounds
-are all injectable; the per-verb wrappers bind them and keep their patchable seams.
+are all injectable; the per-verb wrappers bind them and keep their patchable seams. The
+client and the way each call is made are injectable too, for a caller that must finish in time.
 
 Attributes:
   DEFAULT_POLL_INTERVAL_SECONDS: Delay between polls when a caller supplies none.
@@ -129,6 +130,8 @@ def run_ddl(
     poll_interval_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
     max_poll_duration_seconds=DEFAULT_MAX_POLL_DURATION_SECONDS,
     client_request_token=None,
+    client=None,
+    call=None,
 ):
     """Runs a DDL statement to a terminal state, holding a poll loop open until it settles.
 
@@ -159,6 +162,12 @@ def run_ddl(
           SECOND time; with one, Athena returns the original execution id and the retry
           re-attaches. On a DROP + CREATE pair that is the difference between a retry
           re-reading its own work and a retry dropping the table it just rebuilt.
+      client: The Athena client to call, or None for the default ``clients.athena()``.
+      call: What each Athena call is made through — given the call as a function of no
+          arguments, it returns what the call returns — or None to make it directly. The poll
+          cap is checked between calls, so it bounds nothing while one call hangs; a caller that
+          must finish in time passes ``Budget.call`` from ``cpcommon.budget``, which is checked
+          before the start and every poll, and pairs it with ``clients.athena_bounded()``.
 
     Returns:
       The ``QueryExecutionId`` on ``SUCCEEDED``.
@@ -166,10 +175,12 @@ def run_ddl(
     Raises:
       TerminalError: ``fail_reason`` on a failed or unstartable query; ``timeout_reason``
           when the poll cap is exceeded. The query may still finish in Athena, so the
-          timeout is recorded rather than silently lost.
+          timeout is recorded rather than silently lost. A call that ``call`` itself stops —
+          a budget running out — is a start or poll that failed, so it raises ``fail_reason``.
       TransientError: on a throttling/5xx Athena error (for the SFN ``Retry``).
     """
-    athena = clients.athena()
+    athena = client if client is not None else clients.athena()
+    call = call if call is not None else _direct
     try:
         params = {
             "QueryString": query,
@@ -179,7 +190,7 @@ def run_ddl(
         }
         if client_request_token:
             params["ClientRequestToken"] = client_request_token
-        started = athena.start_query_execution(**params)
+        started = call(lambda: athena.start_query_execution(**params))
     except Exception as exc:
         errors.raise_if_transient(exc, "Athena")
         raise TerminalError(fail_reason, f"could not start query: {exc}") from exc
@@ -192,7 +203,7 @@ def run_ddl(
     while True:
         polls += 1
         try:
-            resp = athena.get_query_execution(QueryExecutionId=qid)
+            resp = call(lambda: athena.get_query_execution(QueryExecutionId=qid))
         except Exception as exc:
             errors.raise_if_transient(exc, "Athena")
             raise TerminalError(fail_reason, f"could not poll query {qid}: {exc}") from exc
@@ -241,6 +252,21 @@ def run_ddl(
             observability.info("query state changed", query_id=qid, state=state, polls=polls)
             previous_state = state
         sleep(poll_interval_seconds)
+
+
+def _direct(fn):
+    """Makes a call directly, for a ``run_ddl`` caller that passes no ``call`` of its own.
+
+    Args:
+      fn: The call, taking no arguments.
+
+    Returns:
+      What the call returns.
+
+    Raises:
+      Exception: Whatever the call raises, unchanged.
+    """
+    return fn()
 
 
 class BoundRunner:
