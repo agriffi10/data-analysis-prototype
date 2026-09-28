@@ -231,6 +231,7 @@ describe('the column header menu', () => {
       'Sort ascending',
       'Sort descending',
       'Clear sort',
+      'Filter by value…',
       'Filter: equals…',
       'Filter: does not equal…',
       'Filter: greater than…',

@@ -68,6 +68,8 @@ export type AthenaStandIn = {
   listingGate: Deferred | null;
   /** Fails this many listing result reads before they succeed. */
   failedListingReads: number;
+  /** What an exploration returns, by its SQL; the default is `COLUMNS` and `ROWS`. */
+  explorationResult: (sql: string) => {columns: {name: string; type: string}[]; rows: (string | null)[][]};
 };
 
 /**
@@ -81,7 +83,8 @@ export function installAthena(): AthenaStandIn {
     listingRows: () => LISTING_ROWS,
     listingState: 'SUCCEEDED',
     listingGate: null,
-    failedListingReads: 0
+    failedListingReads: 0,
+    explorationResult: () => ({columns: COLUMNS, rows: ROWS})
   };
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
@@ -110,7 +113,7 @@ export function installAthena(): AthenaStandIn {
   }) as never);
   vi.mocked(getQueryResults).mockImplementation((async ({queryExecutionId}: {queryExecutionId: string}) => {
     const sql = athena.sqlOf.get(queryExecutionId) ?? '';
-    if (!isListing(sql)) return ok({columns: COLUMNS, rows: ROWS});
+    if (!isListing(sql)) return ok(athena.explorationResult(sql));
     if (athena.failedListingReads > 0) {
       athena.failedListingReads -= 1;
       return {success: false, error: {message: 'Service unavailable', code: 'ServiceUnavailable'}};
@@ -133,6 +136,11 @@ export function listingStarts(): string[] {
     .mocked(runQuery)
     .mock.calls.map(([call]) => (call as {sql: string}).sql)
     .filter(isListing);
+}
+
+/** The most recent exploration statement started. */
+export function lastExploration(): string {
+  return explorationStarts().at(-1) ?? '';
 }
 
 /** Every exploration statement started so far, in order. */
