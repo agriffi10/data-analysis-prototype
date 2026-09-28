@@ -261,7 +261,8 @@ number}` entries, `valueCount` (the `value_count` column, `0` when there are no 
 `truncated` (`valueCount >` the entries held). The provider reads the ledger for the listing's
 execution id before recording it, and so tells the picker whether the listing is a cache hit. A
 failure is shown through `toUserMessage` with *Try again*, which re-reads the results when the
-execution `SUCCEEDED` and starts one execution otherwise. Nothing here changes the tab's
+execution `SUCCEEDED`, watches it again when the watch ended with it still running, and starts one
+execution when it `FAILED` or was `CANCELLED`. Nothing here changes the tab's
 description or its filter history.
 
 These invariants hold, and the criteria below test them:
