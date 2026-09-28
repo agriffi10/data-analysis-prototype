@@ -20,7 +20,9 @@ over two conditions on one column, and Pick values in the builder. All on `explo
 viewport 716 wide, signed in by Andrew at the Cognito form. Query starts were counted with the
 Resource Timing API (`performance.getEntriesByType('resource')`, paths ending `/v1/queries`),
 because the pane's network reader does not show the API's requests. Selects were set with the
-pane's `form_input`; control names, focus and the generated statement were read from the DOM.
+pane's `form_input`, buttons and checkboxes pressed with its `computer` left click, and text typed
+with its `computer` type; control names, focus and the generated statement were read from the
+DOM.
 
 **Results — all pass.**
 - **W.** One start (1 → 2). Chips `region equals “south”` and
@@ -34,7 +36,8 @@ pane's `form_input`; control names, focus and the generated statement were read 
   nothing (the unfiltered statement was cached) and focus went to **Filter rows…**.
 - **Y.** The value field's description was the pattern hint. `o%` → one start; statement
   `WHERE lower("owner") LIKE lower('o%')`; 43 rows, owners O'Brien and Okafor — a lowercase
-  pattern matched capital O.
+  pattern matched capital O. The script said `A%` on any text column, which matches nothing in
+  `explorer150`; the run used `o%` on `owner`, and the row now says so.
 - **Z.** Built `owner is like o%` and `owner does not equal Okafor` in Filter rows (one start, 9
   rows); the header read *Column options: owner, filtered*. Order and filter showed
   "2 conditions — change them in Filter rows" with no Filter select for owner; sorting region and

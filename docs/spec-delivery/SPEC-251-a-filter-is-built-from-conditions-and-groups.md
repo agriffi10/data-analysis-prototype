@@ -58,4 +58,5 @@ Local: format, ESLint, both suites (Vitest and pytest), mypy, ruff, `npm run bui
 check and every `ci.yml` validator, all green by exit code. Mutation-checked guards: the depth
 bound both ways, the clean-row pass-through, the unlisted column's `valueKind`, Order and filter's
 merge guard, the filter mark, the mount-on-press picker, and the Help guard for each phrase. The
-live checks (§4.5 W–AA) run after deploy, from a signed-in session.
+live checks (§4.5 W–AA) ran on the deployed image on 2026-09-28 and passed —
+`docs/testing/sessions.md`; W–Y's steps were corrected to what `explorer150` can show.
