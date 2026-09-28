@@ -3,6 +3,7 @@ import {appendViewLine, parseViewLine} from '../../lib/savedViewLine';
 import {buildSavedView, readSavedView, stripForSharedFolder} from './savedView';
 import {fullExploration} from './savedView.testkit';
 import type {SavedView} from './savedView';
+import type {FilterItem} from './dataExplorer.types';
 
 describe('a saved view', () => {
   it('comes back whole from the file this build writes, minus only the panel', () => {
@@ -87,5 +88,40 @@ describe('a saved view', () => {
     expect(Object.keys(presentation.formatting.transformers)).toEqual(['amount', 'payload']);
     // The gradient rule ignores its operator, so it stays.
     expect(presentation.formatting.rules.map((rule) => rule.id)).toEqual(['r3']);
+  });
+});
+
+describe('a saved view carrying groups', () => {
+  const leaf = (value: string): FilterItem => ({column: 'region', operator: '=', value, valueKind: 'string'});
+  // A group at the top level holding a group: the deepest nesting the builder can make.
+  const twoDeep: FilterItem = {join: 'or', items: [leaf('EU'), {join: 'and', items: [leaf('US'), leaf('CA')]}]};
+  const withFilters = (filters: unknown[]) => {
+    const view = structuredClone(buildSavedView(fullExploration()) as SavedView);
+    (view.query as {filters: unknown[]}).filters = filters;
+    return view;
+  };
+
+  it('comes back whole with a group nested two deep', () => {
+    const exploration = fullExploration();
+    exploration.query.filters = [leaf('x'), twoDeep];
+    const parsed = parseViewLine(appendViewLine('SELECT 1', buildSavedView(exploration)) as string);
+
+    expect(readSavedView(parsed.kind === 'ok' ? parsed.payload : null)?.query.filters).toEqual([leaf('x'), twoDeep]);
+  });
+
+  it.each([
+    {
+      name: 'a group nested three deep',
+      item: {join: 'or', items: [{join: 'and', items: [{join: 'or', items: [leaf('EU')]}]}]}
+    },
+    {name: 'a group with no items', item: {join: 'or', items: []}},
+    {name: 'a join that is neither and nor or', item: {join: 'xor', items: [leaf('EU')]}},
+    {
+      name: 'a prototype-key operator inside a group',
+      item: {join: 'or', items: [{column: 'a', operator: 'toString', value: 'x'}]}
+    },
+    {name: 'a group carrying a key of its own', item: {join: 'or', items: [leaf('EU')], label: 'mine'}}
+  ])('is refused whole for $name', ({item}) => {
+    expect(readSavedView(withFilters([item]))).toBeNull();
   });
 });

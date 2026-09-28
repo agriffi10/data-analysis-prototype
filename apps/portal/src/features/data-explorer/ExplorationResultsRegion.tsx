@@ -37,11 +37,12 @@ import {FilterByValueDialog, type FilterByValueResult} from './FilterByValueDial
 import {
   clearFilter,
   clearSort,
-  filterChipLabel,
+  filterItemLabel,
   filterOf,
   filterValueKind,
   operatorTakesValue,
   operatorsFor,
+  removeFilterItem,
   setFilter,
   setGrouping,
   setSort,
@@ -53,10 +54,10 @@ import {heldText, leftOutNote} from './savedView';
 import type {
   AwaitingRun,
   CalcPanelState,
-  ColumnFilter,
   CopyOptions,
   ExplorationPresentation,
   ExplorationSource,
+  FilterItem,
   FilterOperator,
   FormattingState
 } from './dataExplorer.types';
@@ -148,9 +149,9 @@ export type ExplorationResultsRegionProps = {
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
 
-/** A column filter's chip remove control, named for the whole label so a truncated chip is still read out. */
-function chipRemoveLabel(filter: ColumnFilter): string {
-  return `Remove filter: ${filterChipLabel(filter)}`;
+/** A filter chip's remove control, named for the whole label so a truncated chip is still read out. */
+function chipRemoveLabel(item: FilterItem): string {
+  return `Remove filter: ${filterItemLabel(item)}`;
 }
 /**
  * Why a save is refused when the grid shows no column the result has.
@@ -503,29 +504,25 @@ export function ExplorationResultsRegion({
   };
 
   // Removing a chip unmounts the button focus was on, which would leave it on the page body; the
-  // next chip's remove button takes it, else the previous one's, else the expression input.
+  // chip that took its place takes it, else the one before, else the expression input. Found by
+  // POSITION, never by label: two chips can read alike, and a label search would land on the wrong
+  // one of them.
   const chipsRef = useRef<HTMLDivElement>(null);
   const expressionInputRef = useRef<HTMLInputElement>(null);
-  const refocusAfterRemoval = useRef<{removeLabel: string | null} | null>(null);
-  const removeFilter = (column: string) => {
-    const at = query.filters.findIndex((filter) => filter.column === column);
-    const neighbour = query.filters[at + 1] ?? query.filters[at - 1];
-    refocusAfterRemoval.current = {removeLabel: neighbour ? chipRemoveLabel(neighbour) : null};
-    actions.clearFilter(column);
+  const refocusAfterRemoval = useRef<{index: number} | null>(null);
+  const removeFilter = (index: number) => {
+    refocusAfterRemoval.current = {index};
+    apply({filters: removeFilterItem(query, index).filters});
   };
   // Keyed on the filters, so it runs after the commit that dropped the removed chip.
   useEffect(() => {
     const pending = refocusAfterRemoval.current;
     if (pending === null) return;
     refocusAfterRemoval.current = null;
-    if (pending.removeLabel === null) {
-      expressionInputRef.current?.focus();
-      return;
-    }
-    const buttons = chipsRef.current?.querySelectorAll('button') ?? [];
-    Array.from(buttons)
-      .find((button) => button.getAttribute('aria-label') === pending.removeLabel)
-      ?.focus();
+    const buttons = Array.from(chipsRef.current?.querySelectorAll('button') ?? []);
+    const next = buttons[pending.index] ?? buttons[pending.index - 1];
+    if (next) next.focus();
+    else expressionInputRef.current?.focus();
   }, [query.filters]);
 
   // The filter already on that column, so re-filtering it is an edit rather than a retype.
@@ -842,12 +839,13 @@ export function ExplorationResultsRegion({
           ref={chipsRef}
           className="flex-none">
           <ChipList ariaLabel="Column filters">
-            {query.filters.map((filter) => (
+            {/* Keyed by position: nothing else is unique, since two items can read alike. */}
+            {query.filters.map((item, index) => (
               <Chip
-                key={filter.column}
-                name={filterChipLabel(filter)}
-                removeLabel={chipRemoveLabel(filter)}
-                onRemove={() => removeFilter(filter.column)}
+                key={index}
+                name={filterItemLabel(item)}
+                removeLabel={chipRemoveLabel(item)}
+                onRemove={() => removeFilter(index)}
               />
             ))}
           </ChipList>

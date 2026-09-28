@@ -203,6 +203,15 @@ export const FORMATTING_COLOUR_LABELS: Record<ColourToken | SurfaceToken, string
   'danger-soft': 'Red tint'
 };
 
+/**
+ * The hint beneath every field a pattern is typed into, so the three surfaces say it alike.
+ *
+ * `is like` has no escape character, so the only way to find a `%` or `_` itself is one of the
+ * literal text operators — which is why the hint names one.
+ */
+export const LIKE_PATTERN_HINT =
+  '% matches any run of characters and _ matches any one character. Capitals are ignored. To find a % or _ itself, use contains.';
+
 /** What every surface and the renderer need to know about a filter operator. */
 type FilterOperatorSpec = {
   /** Menu and select wording, so one operator is never spelt two ways. */
@@ -221,7 +230,7 @@ type FilterOperatorSpec = {
   /**
    * Whether the column's `valueKind` decides how the value reaches the SQL.
    *
-   * False for the four text operators, which build a pattern and quote it whatever the
+   * False for the text operators, which build a pattern and quote it whatever the
    * column holds. Read by the RENDERER and by both value inputs, so the input cannot
    * refuse a value the renderer would have accepted — the `isBareNumeric` precedent, one
    * field rather than two rules that can disagree.
@@ -237,6 +246,13 @@ type FilterOperatorSpec = {
    * whether an apply changed anything is where a hand-written test would be missed.
    */
   listsNull: boolean;
+  /**
+   * What the field its value is typed into says beneath it, when the operator needs explaining.
+   *
+   * Here rather than at each surface so an operator that needs a hint gets it at every value input
+   * at once — the three that take a typed value all read it.
+   */
+  hint?: string;
 };
 
 /**
@@ -269,6 +285,22 @@ export const FILTER_OPERATOR_SPECS: Record<FilterOperator, FilterOperatorSpec> =
   },
   startsWith: {label: 'starts with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
   endsWith: {label: 'ends with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  like: {
+    label: 'is like',
+    takes: 'value',
+    offeredOn: 'text',
+    valueKindApplies: false,
+    listsNull: false,
+    hint: LIKE_PATTERN_HINT
+  },
+  notLike: {
+    label: 'is not like',
+    takes: 'value',
+    offeredOn: 'text',
+    valueKindApplies: false,
+    listsNull: false,
+    hint: LIKE_PATTERN_HINT
+  },
   in: {label: 'is one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true, listsNull: true},
   notIn: {label: 'is not one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true, listsNull: false},
   isNull: {label: 'is null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false, listsNull: false},
@@ -276,6 +308,14 @@ export const FILTER_OPERATOR_SPECS: Record<FilterOperator, FilterOperatorSpec> =
   isEmpty: {label: 'is empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false, listsNull: false},
   isNotEmpty: {label: 'is not empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false, listsNull: false}
 };
+
+/**
+ * How deep groups nest: a group at the top level, and one more level inside it.
+ *
+ * Deep enough to say both `(a or b) and (c or d)` and `(a and b) or (c and d)`. The stored-document
+ * check holds the same bound, so a saved view cannot nest deeper than the builder can show.
+ */
+export const FILTER_GROUP_DEPTH_MAX = 2;
 
 /** What a surface needs to know about a colour operator, so no list of them is written twice. */
 type ColourOperatorSpec = {

@@ -321,6 +321,62 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
   });
 });
 
+describe('useExplorationTabs — the groups a stored document may carry', () => {
+  const leaf = (value: string) => ({column: 'region', operator: '=', value});
+  // A group at the top level holding a group: the deepest nesting the builder can make.
+  const twoDeep = {join: 'or', items: [leaf('EU'), {join: 'and', items: [leaf('US'), leaf('CA')]}]};
+  const query = (filters: unknown[]) => ({filters, expression: null, ordering: [], grouping: null});
+  const store = (filters: unknown[], past: unknown[] = []) =>
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'orders',
+            exploration: {
+              id: 'e',
+              source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'},
+              query: query(filters),
+              presentation: {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}}
+            },
+            scannedByExecution: {},
+            history: {past, future: []}
+          }
+        ],
+        activeTabId: 'a'
+      })
+    );
+
+  it('restores a group nested two deep, in the tab and in its history', () => {
+    // The acceptance side of the depth bound: counted one too shallow, this valid shape would be
+    // refused — and one refused tab discards the whole session.
+    store([leaf('x'), twoDeep], [query([twoDeep])]);
+
+    const [tab] = setup().result.current.tabs;
+
+    expect(tab?.exploration.query.filters).toEqual([leaf('x'), twoDeep]);
+    expect(tab?.history.past).toEqual([query([twoDeep])]);
+  });
+
+  it.each([
+    {
+      name: 'a group nested three deep',
+      item: {join: 'or', items: [{join: 'and', items: [{join: 'or', items: [leaf('EU')]}]}]}
+    },
+    {name: 'a group with no items', item: {join: 'or', items: []}},
+    {name: 'a join that is neither and nor or', item: {join: 'xor', items: [leaf('EU')]}},
+    {
+      name: 'a prototype-key operator inside a group',
+      item: {join: 'or', items: [{column: 'a', operator: 'toString', value: 'x'}]}
+    }
+  ])('discards a document carrying $name', ({item}) => {
+    store([item]);
+    expect(setup().result.current.tabs).toEqual([]);
+  });
+});
+
 describe('useExplorationTabs — the operators a stored document may carry (SPEC-238)', () => {
   const documentWith = (over: Record<string, unknown>) => ({
     version: 1,
@@ -350,7 +406,7 @@ describe('useExplorationTabs — the operators a stored document may carry (SPEC
     // The guard on the one derivation that is not compile-checked. A hand-written set here
     // — which is what this used to be — silently discarded a whole session's tabs over an
     // operator it had not heard of. The length is asserted so the loop cannot be vacuous.
-    expect(FILTER_OPERATORS).toHaveLength(16);
+    expect(FILTER_OPERATORS).toHaveLength(18);
     const filters = FILTER_OPERATORS.map((operator, index) => ({
       column: `c${index}`,
       operator,

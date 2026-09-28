@@ -242,6 +242,8 @@ describe('the column header menu', () => {
       'Filter: does not contain…',
       'Filter: starts with…',
       'Filter: ends with…',
+      'Filter: is like…',
+      'Filter: is not like…',
       'Filter: is one of…',
       'Filter: is not one of…',
       'Filter: is null',
@@ -304,18 +306,21 @@ describe('the operators a column offers, by its type', () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
 
-    const items = await filterItemsOf(user, 'qty');
-    expect(items).toContain('Filter: is one of…');
-    for (const label of [
-      'Filter: contains…',
-      'Filter: does not contain…',
-      'Filter: starts with…',
-      'Filter: ends with…',
-      'Filter: is empty',
-      'Filter: is not empty'
-    ]) {
-      expect(items, label).not.toContain(label);
-    }
+    // The whole list, not the absence of a named few: a text operator added later with the wrong
+    // `offeredOn` would pass a check that never names it.
+    expect(await filterItemsOf(user, 'qty')).toEqual([
+      'Filter: equals…',
+      'Filter: does not equal…',
+      'Filter: greater than…',
+      'Filter: greater than or equal to…',
+      'Filter: less than…',
+      'Filter: less than or equal to…',
+      'Filter: is one of…',
+      'Filter: is not one of…',
+      'Filter: is null',
+      'Filter: is not null',
+      'Clear filter'
+    ]);
   });
 
   it('offers a date column the comparisons and the null tests only', async () => {

@@ -183,6 +183,61 @@ describe('renderExplorationSql — WHERE composition (FR-005)', () => {
     const sql = renderExplorationSql(TABLE, q({expression: "lower(name) LIKE '%o''brien%'"}));
     expect(sql).toContain(`WHERE (lower(name) LIKE '%o''brien%')`);
   });
+
+  // A stored expression typed with a WHERE in front reached Athena as `WHERE (WHERE …)`. The
+  // column `where_flag` is the case a looser pattern would eat.
+  it.each([
+    {typed: "WHERE status = 'open'", sent: `WHERE (status = 'open')`},
+    {typed: 'where_flag = 1', sent: 'WHERE (where_flag = 1)'},
+    // Only a LEADING where comes off: one inside a value is the user's data.
+    {typed: "note LIKE '%where%'", sent: "WHERE (note LIKE '%where%')"}
+  ])('renders a stored "$typed" under the one WHERE the renderer supplies', ({typed, sent}) => {
+    const sql = renderExplorationSql(TABLE, q({expression: typed}));
+    expect(sql).toContain(sent);
+    expect(sql.match(/\bWHERE\b/g)).toHaveLength(1);
+  });
+});
+
+describe('renderExplorationSql — groups', () => {
+  const eu = {column: 'region', operator: '=', value: 'EU'} as const;
+  const us = {column: 'region', operator: '=', value: 'US'} as const;
+
+  it('brackets a group and joins its items with its own word, beside the top level’s AND', () => {
+    expect(whereOf(q({filters: [{join: 'or', items: [eu, us]}]}))).toBe(`WHERE ("region" = 'EU' OR "region" = 'US')`);
+    expect(
+      whereOf(
+        q({
+          filters: [
+            {column: 'status', operator: '=', value: 'open'},
+            {join: 'or', items: [eu, us]}
+          ]
+        })
+      )
+    ).toBe(`WHERE ("status" = 'open' AND ("region" = 'EU' OR "region" = 'US'))`);
+  });
+
+  it('brackets a group inside a group in its own parentheses', () => {
+    const filters = [
+      {
+        join: 'or' as const,
+        items: [
+          {column: 'x', operator: '=' as const, value: '1'},
+          {
+            join: 'and' as const,
+            items: [
+              {column: 'y', operator: '=' as const, value: '2'},
+              {column: 'z', operator: '=' as const, value: '3'}
+            ]
+          }
+        ]
+      }
+    ];
+    expect(whereOf(q({filters}))).toBe(`WHERE ("x" = '1' OR ("y" = '2' AND "z" = '3'))`);
+  });
+
+  it('refuses an empty group rather than emitting `()`', () => {
+    expect(() => whereOf(q({filters: [{join: 'or', items: []}]}))).toThrow(ExplorationRenderError);
+  });
 });
 
 describe('renderExplorationSql — ordering (FR-002)', () => {
@@ -394,6 +449,28 @@ describe('the text operators (FR-001)', () => {
   });
 });
 
+describe('is like and is not like', () => {
+  it('passes the pattern through with its wildcards live, folded by Trino on both sides', () => {
+    expect(filtered({column: 'name', operator: 'like', value: 'A%B_c'})).toBe(
+      `WHERE lower("name") LIKE lower('A%B_c')`
+    );
+    expect(filtered({column: 'name', operator: 'notLike', value: 'A%'})).toBe(
+      `WHERE lower("name") NOT LIKE lower('A%')`
+    );
+  });
+
+  it('doubles a quote and leaves a backslash as itself, since there is no escape character', () => {
+    expect(filtered({column: 'name', operator: 'like', value: "o'b\\%"})).toBe(
+      `WHERE lower("name") LIKE lower('o''b\\%')`
+    );
+  });
+
+  it('refuses an empty pattern', () => {
+    expect(() => filtered({column: 'name', operator: 'like', value: ''})).toThrow(ExplorationRenderError);
+    expect(() => filtered({column: 'name', operator: 'notLike'})).toThrow(ExplorationRenderError);
+  });
+});
+
 describe('the list operators (FR-002)', () => {
   it('de-duplicates and sorts by code unit, so two orders render one statement', () => {
     expect(filtered({column: 'brnd_name', operator: 'in', values: ['Abilify', 'Abacavir', 'Abilify']})).toBe(
@@ -471,7 +548,7 @@ describe('every operator renders (FR-001–FR-003)', () => {
     // A POPULATION guard, and the count is asserted first: `[].every` is true, so a loop
     // over an empty list would pass while proving nothing. It is the runtime half of the
     // claim `Record<FilterOperator, …>` makes at compile time.
-    expect(FILTER_OPERATORS).toHaveLength(16);
+    expect(FILTER_OPERATORS).toHaveLength(18);
     for (const operator of FILTER_OPERATORS) {
       const filter = {
         column: 'c',
@@ -493,7 +570,7 @@ describe('every operator renders (FR-001–FR-003)', () => {
     // operator, this is where a non-numeric value on a numeric column would start throwing
     // instead of being quoted — and the inputs would start refusing what the renderer takes.
     const unaffected = FILTER_OPERATORS.filter((o) => operatorTakesValue(o) && !operatorUsesValueKind(o));
-    expect(unaffected).toEqual(['contains', 'notContains', 'startsWith', 'endsWith']);
+    expect(unaffected).toEqual(['contains', 'notContains', 'startsWith', 'endsWith', 'like', 'notLike']);
     for (const operator of unaffected) {
       expect(() => filtered({column: 'c', operator, value: 'not a number', valueKind: 'number'})).not.toThrow();
     }

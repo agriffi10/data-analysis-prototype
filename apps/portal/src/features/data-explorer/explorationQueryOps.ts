@@ -1,9 +1,11 @@
 import {aggregateAlias, groupingNameCollision, groupingOrderingViolation, isBareNumeric} from './renderExplorationSql';
 import {EXPLORER_FILTER_VALUES_MAX, FILTER_OPERATOR_SPECS} from './dataExplorer.constants';
 import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
+import {isFilterGroup} from './exploration';
 import type {
   ColumnFilter,
   ExplorationQuery,
+  FilterItem,
   FilterOperator,
   FilterValueKind,
   Grouping,
@@ -47,7 +49,7 @@ export function isFilterOperator(value: string): value is FilterOperator {
  * Whether an operator needs a single value, i.e. whether choosing it must open an input.
  *
  * @param operator - The filter operator.
- * @returns True for the six comparisons and the four text operators.
+ * @returns True for the six comparisons and the six text operators.
  */
 export function operatorTakesValue(operator: FilterOperator): boolean {
   return FILTER_OPERATOR_SPECS[operator].takes === 'value';
@@ -77,7 +79,7 @@ export function operatorListsNull(operator: FilterOperator): boolean {
  * Whether the column's `valueKind` decides how this operator's value reaches the SQL.
  *
  * The renderer reads the same field, so a value input refuses exactly what the renderer
- * refuses. It matters for the four text operators: they build a pattern and quote it
+ * refuses. It matters for the text operators: they build a pattern and quote it
  * whatever the column holds, so a numeric column must NOT refuse text typed into one —
  * a refusal there would turn back a filter the renderer accepts.
  *
@@ -86,6 +88,16 @@ export function operatorListsNull(operator: FilterOperator): boolean {
  */
 export function operatorUsesValueKind(operator: FilterOperator): boolean {
   return FILTER_OPERATOR_SPECS[operator].valueKindApplies;
+}
+
+/**
+ * What the value field says beneath it for this operator, if anything.
+ *
+ * @param operator - The filter operator.
+ * @returns The hint, or null when the operator needs none.
+ */
+export function operatorHint(operator: FilterOperator): string | null {
+  return FILTER_OPERATOR_SPECS[operator].hint ?? null;
 }
 
 /**
@@ -307,27 +319,43 @@ function canonicalGrouping(grouping: ExplorationQuery['grouping']) {
   };
 }
 
+// Each operator is compared on the field it actually READS, and the other is dropped rather than
+// compared as absent: a document written before an operator changed can carry a stray `value`
+// beside a list, and comparing it would make an apply that changed nothing push a history entry.
+// The list itself is compared de-duplicated and sorted the way the renderer sorts it, since that
+// is what decides the SQL.
+function canonicalCondition(f: ColumnFilter) {
+  return {
+    column: f.column,
+    operator: f.operator,
+    value: operatorTakesValue(f.operator) ? (f.value ?? null) : null,
+    values: operatorTakesValues(f.operator) ? [...new Set(f.values ?? [])].sort() : null,
+    includesNull: operatorListsNull(f.operator) && f.includesNull === true,
+    valueKind: f.valueKind ?? 'string'
+  };
+}
+
+// Every container's items are sorted by their own canonical text, so the order of a list says
+// nothing at any depth. Sorting on the FULL text rather than on column and operator is what lets
+// two conditions on one column with one operator — `qty > 5` beside `qty > 3` — compare equal in
+// either order.
+function canonicalItems(items: FilterItem[]): string[] {
+  return items
+    .map((item) =>
+      JSON.stringify(
+        isFilterGroup(item) ? {join: item.join, items: canonicalItems(item.items)} : canonicalCondition(item)
+      )
+    )
+    .sort();
+}
+
 // Compared on a CANONICAL form rather than field by field: `filters` and `ordering` are
 // arrays whose order carries no meaning (priority does), so two descriptions that render
 // identical SQL must compare equal or an apply that changed nothing would push a history
 // entry and the Back button would step through duplicates.
 function canonical(query: ExplorationQuery): string {
   return JSON.stringify({
-    filters: [...query.filters]
-      // Each operator is compared on the field it actually READS, and the other is dropped
-      // rather than compared as absent: a document written before an operator changed can
-      // carry a stray `value` beside a list, and comparing it would make an apply that
-      // changed nothing push a history entry. The list itself is compared de-duplicated and
-      // sorted the way the renderer sorts it, since that is what decides the SQL.
-      .map((f) => ({
-        column: f.column,
-        operator: f.operator,
-        value: operatorTakesValue(f.operator) ? (f.value ?? null) : null,
-        values: operatorTakesValues(f.operator) ? [...new Set(f.values ?? [])].sort() : null,
-        includesNull: operatorListsNull(f.operator) && f.includesNull === true,
-        valueKind: f.valueKind ?? 'string'
-      }))
-      .sort((a, b) => a.column.localeCompare(b.column) || a.operator.localeCompare(b.operator)),
+    filters: canonicalItems(query.filters),
     expression: query.expression?.trim() || null,
     ordering: [...query.ordering].sort((a, b) => a.priority - b.priority).map((e) => [e.column, e.direction]),
     grouping: canonicalGrouping(query.grouping)
@@ -345,19 +373,27 @@ export function sameQuery(a: ExplorationQuery, b: ExplorationQuery): boolean {
   return canonical(a) === canonical(b);
 }
 
+// Whether a top-level item is a condition on this column. A group never is, whatever it holds.
+function isTopLevelConditionOn(item: FilterItem, column: string): item is ColumnFilter {
+  return !isFilterGroup(item) && item.column === column;
+}
+
 /**
- * Adds or replaces the filter on one column.
+ * Adds or replaces the column's filter at the TOP LEVEL.
  *
- * One filter per column, always — a second filter on a column is far more often a user
- * refining the first than asking for `x = 1 AND x = 2`, and the second reading is
- * reachable through the expression bar where it is written out in full.
+ * Every top-level condition on the column is replaced, and every group is left alone. A second
+ * filter set from a menu is far more often a user refining the first than asking for
+ * `x = 1 AND x = 2`, so the menus replace — and they stop at the top level because a condition
+ * inside an OR group means something the menu cannot show, and changing it would change what
+ * the whole group matches. Several conditions on one column, and groups, are built in the
+ * filter builder.
  *
  * @param query - The description to edit.
  * @param filter - The filter to apply; its `column` decides what it replaces.
  * @returns A new description.
  */
 export function setFilter(query: ExplorationQuery, filter: ColumnFilter): ExplorationQuery {
-  const others = query.filters.filter((f) => f.column !== filter.column);
+  const others = query.filters.filter((item) => !isTopLevelConditionOn(item, filter.column));
   // Only the field the operator READS is written, whatever the caller passed: a surface
   // that left a value behind on the way to `is one of` would store a filter carrying both,
   // and the two would then disagree about what the column is filtered by.
@@ -378,14 +414,84 @@ export function setFilter(query: ExplorationQuery, filter: ColumnFilter): Explor
   };
 }
 
-/** Drops any filter on one column. */
+/** Drops the column's top-level conditions, leaving every group as it is. */
 export function clearFilter(query: ExplorationQuery, column: string): ExplorationQuery {
-  return {...query, filters: query.filters.filter((f) => f.column !== column)};
+  return {...query, filters: query.filters.filter((item) => !isTopLevelConditionOn(item, column))};
 }
 
-/** The filter currently applied to a column, or null. */
+/**
+ * The column's top-level conditions, in the order they are applied.
+ *
+ * @param query - The description to read.
+ * @param column - The column.
+ * @returns Every top-level condition naming it; none inside a group.
+ */
+export function topLevelConditionsOn(query: ExplorationQuery, column: string): ColumnFilter[] {
+  return query.filters.filter((item) => isTopLevelConditionOn(item, column));
+}
+
+/**
+ * The column's filter as a menu shows it: its top-level condition, when that is its only one.
+ *
+ * Null for two or more, because a single-filter surface that showed one of them would edit it as
+ * if it were the whole filter — and `setFilter` would then replace both.
+ *
+ * @param query - The description to read.
+ * @param column - The column.
+ * @returns The one top-level condition, else null.
+ */
 export function filterOf(query: ExplorationQuery, column: string): ColumnFilter | null {
-  return query.filters.find((f) => f.column === column) ?? null;
+  const conditions = topLevelConditionsOn(query, column);
+  return conditions.length === 1 ? conditions[0] : null;
+}
+
+function namesColumn(item: FilterItem, column: string): boolean {
+  return isFilterGroup(item) ? item.items.some((inner) => namesColumn(inner, column)) : item.column === column;
+}
+
+/**
+ * Whether any condition, at any depth, filters on the column.
+ *
+ * What the header's filter mark and its accessible name both read, so the two never disagree about
+ * a column whose only conditions sit inside a group.
+ *
+ * @param query - The description to read.
+ * @param column - The column.
+ * @returns True when a condition anywhere names it.
+ */
+export function isFilteredAnywhere(query: ExplorationQuery, column: string): boolean {
+  return query.filters.some((item) => namesColumn(item, column));
+}
+
+/**
+ * Why a column's menu cannot clear its filter, when its conditions are all inside groups.
+ *
+ * Clear filter acts on the top level only, for the reason `setFilter` gives, so a column filtered
+ * only inside a group has nothing there to clear.
+ */
+export const GROUPED_ONLY_REFUSAL = 'This column’s conditions are inside a group — change them in Filter rows.';
+
+/**
+ * What Order and filter shows in place of a column's select when it holds several top-level
+ * conditions, which one select cannot show.
+ *
+ * @param count - How many top-level conditions the column holds.
+ * @returns The sentence to show.
+ */
+export function severalConditionsNote(count: number): string {
+  return `${count} conditions — change them in Filter rows`;
+}
+
+/**
+ * Removes one top-level item — a condition, or a whole group — by its position.
+ *
+ * @param query - The description to edit.
+ * @param index - The item's position at the top level.
+ * @returns A new description; the same one when the index is out of range.
+ */
+export function removeFilterItem(query: ExplorationQuery, index: number): ExplorationQuery {
+  if (index < 0 || index >= query.filters.length) return query;
+  return {...query, filters: query.filters.filter((_, at) => at !== index)};
 }
 
 /**
@@ -398,17 +504,19 @@ export function filterOf(query: ExplorationQuery, column: string): ColumnFilter 
  *
  * @param query - The applied description.
  * @param column - The column whose values are listed.
- * @returns The filters without the column's own, and the expression.
+ * @returns The filters without the column's own top-level conditions, and the expression.
  */
 export function narrowingFor(query: ExplorationQuery, column: string): ValuesNarrowing {
-  return {filters: query.filters.filter((f) => f.column !== column), expression: query.expression};
+  // Only the column's TOP-LEVEL conditions leave: a group stays whole, since dropping one of its
+  // conditions would change what the rest of it matches.
+  return {filters: query.filters.filter((item) => !isTopLevelConditionOn(item, column)), expression: query.expression};
 }
 
 /** How many of a list's values a filter's chip names before it says how many more there are. */
 const CHIP_LIST_SHOWN = 3;
 
 /**
- * One column filter in words, as its chip beside the expression box shows it.
+ * One column filter in words, as its chip shows it.
  *
  * The operator reads as the menu offers it, so a chip never words a filter differently from the
  * gesture that set it. A value is quoted exactly when the statement quotes it — the same
@@ -433,6 +541,21 @@ export function filterChipLabel(filter: ColumnFilter): string {
   if (operatorListsNull(filter.operator) && filter.includesNull === true) names.push(NULL_DISPLAY);
   const more = names.length - CHIP_LIST_SHOWN;
   return `${head} ${names.slice(0, CHIP_LIST_SHOWN).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
+/**
+ * One top-level item in words, for its chip.
+ *
+ * A condition reads as `filterChipLabel` words it. A group reads its items joined by the word its
+ * join means, in parentheses, and a group inside it in parentheses of its own — the same brackets
+ * the statement carries, so the chip and the SQL agree about what goes with what.
+ *
+ * @param item - A top-level item of the applied description.
+ * @returns E.g. `(region equals “EU” or region equals “US”)`.
+ */
+export function filterItemLabel(item: FilterItem): string {
+  if (!isFilterGroup(item)) return filterChipLabel(item);
+  return `(${item.items.map(filterItemLabel).join(item.join === 'or' ? ' or ' : ' and ')})`;
 }
 
 // Priorities are re-stamped from the sorted order on every edit, so they stay 0-based and

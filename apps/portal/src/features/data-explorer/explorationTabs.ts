@@ -3,6 +3,7 @@ import {
   EXPLORATION_TABS_STORAGE_PREFIX,
   COLOUR_OPERATORS,
   EXPLORER_FILTER_HISTORY_MAX,
+  FILTER_GROUP_DEPTH_MAX,
   FORMATTING_BACKGROUNDS,
   FORMATTING_FOREGROUNDS,
   NUMERIC_TRANSFORMER_MAX_PRECISION
@@ -13,6 +14,7 @@ import {isFilterOperator, operatorListsNull, operatorTakesValues} from './explor
 import type {
   AwaitingRun,
   ExplorationPresentation,
+  FilterItem,
   ExplorationQuery,
   ExplorationSource,
   ExplorationTab,
@@ -98,6 +100,33 @@ function isValidFilter(value: unknown): boolean {
     return false;
   }
   return filter.valueKind === undefined || filter.valueKind === 'string' || filter.valueKind === 'number';
+}
+
+/**
+ * Whether a stored filter item is a condition or a group this build could have written.
+ *
+ * `depth` counts the groups above the item, so a top-level item is at 0 and the bound is
+ * `FILTER_GROUP_DEPTH_MAX` groups deep. Beyond the renderer's own refusals, the bound is what keeps
+ * a saved view another member wrote from nesting deeper than the builder can show — and it is
+ * also what stops the recursion, since a document is untrusted.
+ *
+ * @param value - One entry of a stored `filters` list, or of a group's `items`.
+ * @param depth - How many groups contain it.
+ * @returns True for a valid condition, or a group of valid items within the bound.
+ */
+function isValidFilterItem(value: unknown, depth: number): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (!Object.hasOwn(value, 'items')) return isValidFilter(value);
+  if (depth >= FILTER_GROUP_DEPTH_MAX) return false;
+  const group = value as Record<string, unknown>;
+  if (group.join !== 'and' && group.join !== 'or') return false;
+  // Empty is refused for the reason an empty list is: it is a shape no gesture can produce, and it
+  // renders `()`, which would leave the exploration unrenderable until the user found it.
+  return (
+    Array.isArray(group.items) &&
+    group.items.length > 0 &&
+    group.items.every((item) => isValidFilterItem(item, depth + 1))
+  );
 }
 
 function isValidSortEntry(value: unknown): boolean {
@@ -190,7 +219,7 @@ function isValidLedger(value: unknown): boolean {
 function isValidQuery(value: unknown): boolean {
   const query = value as Record<string, unknown> | undefined;
   if (typeof query !== 'object' || query === null) return false;
-  if (!Array.isArray(query.filters) || !query.filters.every(isValidFilter)) return false;
+  if (!Array.isArray(query.filters) || !query.filters.every((item) => isValidFilterItem(item, 0))) return false;
   if (!Array.isArray(query.ordering) || !query.ordering.every(isValidSortEntry)) return false;
   if (query.expression !== null && typeof query.expression !== 'string') return false;
   return isValidGrouping(query.grouping);
@@ -439,6 +468,7 @@ function onlyKeys(value: unknown, allowed: readonly string[]): boolean {
 
 const QUERY_KEYS = ['filters', 'expression', 'ordering', 'grouping'] as const;
 const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'includesNull', 'valueKind'] as const;
+const GROUP_KEYS = ['join', 'items'] as const;
 const SORT_KEYS = ['column', 'direction', 'priority'] as const;
 const GROUPING_KEYS = ['columns', 'aggregates', 'duplicatesOnly', 'showPercentage'] as const;
 const AGGREGATE_KEYS = ['fn', 'column'] as const;
@@ -461,11 +491,16 @@ const TRANSFORMER_KEYS: Record<string, readonly string[]> = {
   url: ['kind', 'template']
 };
 
+function itemHasOnlyDeclaredKeys(item: FilterItem): boolean {
+  if (!Object.hasOwn(item, 'items')) return onlyKeys(item, FILTER_KEYS);
+  return onlyKeys(item, GROUP_KEYS) && (item as {items: FilterItem[]}).items.every(itemHasOnlyDeclaredKeys);
+}
+
 function queryHasOnlyDeclaredKeys(query: ExplorationQuery): boolean {
   const grouping = query.grouping;
   return (
     onlyKeys(query, QUERY_KEYS) &&
-    query.filters.every((filter) => onlyKeys(filter, FILTER_KEYS)) &&
+    query.filters.every(itemHasOnlyDeclaredKeys) &&
     query.ordering.every((entry) => onlyKeys(entry, SORT_KEYS)) &&
     (grouping === null ||
       (onlyKeys(grouping, GROUPING_KEYS) &&

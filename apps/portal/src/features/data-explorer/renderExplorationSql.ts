@@ -1,7 +1,9 @@
 import {sqlIdentifier, sqlLiteral} from '../../lib/sql';
 import {EXPLORER_FILTER_VALUES_MAX, FILTER_OPERATOR_SPECS, SQL_SOURCE_ALIAS} from './dataExplorer.constants';
+import {isFilterGroup} from './exploration';
 import type {
   ColumnFilter,
+  FilterItem,
   FilterOperator,
   ExplorationQuery,
   ExplorationSource,
@@ -152,6 +154,18 @@ function renderLike(filter: ColumnFilter, negated: boolean, prefix: string, suff
   return `lower(${sqlIdentifier(filter.column)}) ${test} lower(${pattern}) ESCAPE '${LIKE_ESCAPE}'`;
 }
 
+// The user's pattern goes through `sqlLiteral` and NOTHING else: `%` and `_` are the wildcards the
+// operator exists to offer, and there is no escape character, so no pattern can be one Athena
+// refuses to parse. Case is folded on both sides by Trino, as it is for the literal operators.
+function renderPattern(filter: ColumnFilter, negated: boolean): string {
+  const value = requireValue(filter);
+  if (value === '') {
+    throw new ExplorationRenderError(`Filter on "${filter.column}" uses ${filter.operator} but its value is empty.`);
+  }
+  const test = negated ? 'NOT LIKE' : 'LIKE';
+  return `lower(${sqlIdentifier(filter.column)}) ${test} lower(${sqlLiteral(value)})`;
+}
+
 // De-duplicated and sorted by UTF-16 code unit before anything is emitted, so two lists
 // holding the same values in different orders render an IDENTICAL statement — which is the
 // execution cache key, and what makes re-applying such a pair free rather than a second bill.
@@ -201,6 +215,8 @@ const RENDER_FILTER: Record<FilterOperator, (filter: ColumnFilter) => string> = 
   notContains: (filter) => renderLike(filter, true, '%', '%'),
   startsWith: (filter) => renderLike(filter, false, '', '%'),
   endsWith: (filter) => renderLike(filter, false, '%', ''),
+  like: (filter) => renderPattern(filter, false),
+  notLike: (filter) => renderPattern(filter, true),
   in: renderIn,
   notIn: (filter) => `${sqlIdentifier(filter.column)} NOT IN (${renderValues(filter)})`,
   isNull: (filter) => `${sqlIdentifier(filter.column)} IS NULL`,
@@ -213,6 +229,18 @@ const RENDER_FILTER: Record<FilterOperator, (filter: ColumnFilter) => string> = 
 
 function renderFilter(filter: ColumnFilter): string {
   return RENDER_FILTER[filter.operator](filter);
+}
+
+// A group is ALWAYS parenthesized, one item or several: it sits beside other items joined with
+// AND, and an unbracketed OR would be captured by the neighbour on its left.
+function renderItem(item: FilterItem): string {
+  if (!isFilterGroup(item)) return renderFilter(item);
+  if (item.items.length === 0) {
+    // The builder refuses an empty group and the stored-document check refuses one, so reaching
+    // here is a caller bug — and `()` is a statement Athena would reject.
+    throw new ExplorationRenderError('A filter group must hold at least one condition.');
+  }
+  return `(${item.items.map(renderItem).join(item.join === 'or' ? ' OR ' : ' AND ')})`;
 }
 
 function renderFrom(source: ExplorationSource): string {
@@ -268,9 +296,11 @@ function renderProjection(grouping: Grouping | null): string {
 /** A `WHERE` the user typed in front of their condition; `where_flag = 1` keeps its column, since `\b` needs a non-word character. */
 const TYPED_WHERE = /^\s*where\b/i;
 
-function renderWhere(filters: ColumnFilter[], expression: string | null): string | null {
-  const filterSql = filters.map(renderFilter);
-  // The expression bar asks for a condition, and this supplies the WHERE; one typed in front
+function renderWhere(filters: FilterItem[], expression: string | null): string | null {
+  // The top level keeps the rule it had before groups existed — one item bare, several bracketed
+  // and joined with AND — so every filter that could be built then renders byte for byte as it did.
+  const filterSql = filters.map(renderItem);
+  // A stored expression was typed as a condition, and this supplies the WHERE; one typed in front
   // anyway would reach Athena as `WHERE (WHERE …)` and fail, so it is taken off here.
   const trimmed = expression?.replace(TYPED_WHERE, '').trim();
 

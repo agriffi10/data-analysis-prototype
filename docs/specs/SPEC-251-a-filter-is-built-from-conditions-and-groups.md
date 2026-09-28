@@ -80,7 +80,8 @@ Read from the code at `8a628382`.
   re-sets only the columns it shows a select for, so it never merges two conditions into one.
 - **An edit keeps what it did not touch.** The builder and Order and filter hand back a condition
   the user did not change as the stored object itself, so a field neither surface shows is never
-  lost on the way through. SPEC-249's `includesNull` is the case that exists today.
+  lost on the way through. SPEC-249's `includesNull`, which lands before this spec, is the case
+  in view.
 - **A flat filter renders byte-identical SQL.** Nothing is cached across a deploy, so this is not
   about the cache. It is the proof that the change is additive: every filter a user can build today
   still means and says exactly what it did, which the unchanged expected strings of the existing
