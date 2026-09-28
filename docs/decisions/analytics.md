@@ -1811,7 +1811,9 @@ and Text claims marked in `browser.md` and above.
 deploy runs the old strict reader, which refuses a view line without the key, so dropping it would
 make every save unreadable there and after a revert. The reader takes the key off a COPY before the
 strict comparison, and only when it holds `null`, `grid`, `record` or `text` — the values some build
-wrote — so a view saved in Record opens as the table and any other value is still refused whole.
+wrote — so a view saved in Record opens as the table and any other value is still refused whole. A
+line with no such key is accepted too, where the old reader refused it; that is what lets a later
+build stop writing the key once no page from before this change can still be open.
 The session store needs nothing: its normaliser builds the presentation key by key, so the retired
 `presentation` and `recordRowIndex` drop on read.
 

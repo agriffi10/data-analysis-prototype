@@ -844,8 +844,8 @@ hundred stops inside the grid and Tab walks the column instead of leaving. The *
 carries a focusable copy of the link**, which is what makes that cost a keyboard user nothing, and
 the Record view (since removed, [analytics.md](analytics.md#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)) — which already wraps every value in a button — renders the text without an anchor
 at all, because an anchor inside a button is nested interactive content. No axe case had rendered a
-transformed cell, which is how a `nested-interactive` violation reached review; the file now walks
-both views, and the fix was verified by reverting it.
+transformed cell, which is how a `nested-interactive` violation reached review; the file walked
+both views, and the fix was verified by reverting it (both since removed with the Record view).
 
 **A wildcard translated one for one manufactures catastrophic backtracking.** Mapping each `%` in a
 `LIKE` pattern to its own `[\s\S]*` makes adjacent wildcards nested unbounded quantifiers:

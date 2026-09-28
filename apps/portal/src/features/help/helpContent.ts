@@ -673,7 +673,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Everything you click here builds a real SQL statement, and you can see it and keep it. Open <b>Generated SQL</b> at any time to read exactly what is about to run — a good way to learn the SQL for something you have just built by hand.',
         steps: [
           'Open <b>Generated SQL</b> above the rows to see the statement your filters, sorting and grouping produced.',
-          'Choose <b>Open in Query</b> there, or from <b>Options</b>, to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration.',
+          'Choose <b>Open in Query</b> there, or from <b>Options</b>, to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration. On a phone it opens read-only, ready to run.',
           'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file. Exploring a table, the file also records your filters, sorting, grouping, column layout, colors and transformers.',
           'To pick up where you left off, click <b>+</b> on the tab strip, choose <b>Open saved view</b>, then <b>Open</b> the file. Everything comes back as you left it, ready to change.',
           'A view saved in a shared space opens without running, because anyone in that space can change the file. Check its <b>Generated SQL</b>, then choose <b>Run</b>. Its link columns and pattern color rules are left out, and the tab says so.',

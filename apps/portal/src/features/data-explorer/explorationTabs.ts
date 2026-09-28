@@ -506,7 +506,8 @@ export function readStrictQuery(value: unknown): ExplorationQuery | null {
  * Reads a saved view's presentation STRICTLY, without the panel state a view does not carry.
  *
  * The retired `presentation` key is taken off a COPY first, and only when it holds a value some
- * build wrote; everything after that compares the copy, so the strictness below is unchanged.
+ * build wrote; everything after that compares the copy. A view with no such key at all is accepted
+ * too, which is what lets a later build stop writing it.
  *
  * @param value - The payload's `presentation`.
  * @returns The presentation minus `valuePanelOpen`, or null when the store's normaliser would
