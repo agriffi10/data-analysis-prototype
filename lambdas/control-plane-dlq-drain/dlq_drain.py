@@ -321,6 +321,11 @@ def _notify_one(record: dict) -> None:
     prefix carries an id near the API's 128-character limit past what the queue accepts as a
     key, and the sender sends such a key as its digest; the payload keeps the id as it is.
 
+    **The send is the one in the fleet that is not capped in time**, because here it is the whole
+    job rather than work after it. The sweep deletes a message once it has notified, so a send
+    abandoned at the cap would delete a message whose notice may never arrive; a stall that holds
+    the drain to its timeout instead leaves the message on its queue for the next sweep.
+
     The recipient is recorded: the username is already the S3 prefix, the principal tag and the
     Glue database name, and which user was affected is the first question anyone asks about a
     dead-lettered request.
@@ -387,7 +392,7 @@ def _notify_one(record: dict) -> None:
     dedup_id = f"dlq:{request_id}" if request_id else None
     payload = {"requestId": request_id} if request_id else None
 
-    emit_notification(username, message, dedup_id=dedup_id, payload=payload)
+    emit_notification(username, message, dedup_id=dedup_id, payload=payload, bounded=False)
 
     observability.info(
         "notified a dead-lettered request",

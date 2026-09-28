@@ -31,7 +31,7 @@ import membership_index
 import registry as reg
 import teardown
 from cpcommon import observability
-from notify import emit_notification
+from notify import emit_notification, send_budget
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -161,6 +161,11 @@ def _notify_members(members, space, actor, request_id):
     emitter: it dedupes recipients while preserving order, and the message depends on whether
     the recipient is the actor.
 
+    **Every send shares one budget**, from ``send_budget``: the loop runs after the change has
+    committed, and a stalled queue holding each send for a cap of its own would carry a large
+    roster past the verb's timeout, which the Catch records as a failed run although the change
+    committed and some of its members were already told.
+
     Args:
       members: The space's members at deletion, possibly with repeats.
       space: The space's name, for the message.
@@ -173,13 +178,16 @@ def _notify_members(members, space, actor, request_id):
     Raises:
       None. ``emit_notification`` catches and logs its own failures.
     """
+    sends = send_budget()
     for recipient in dict.fromkeys(members):
         message = (
             f'You deleted the shared space "{space}".'
             if recipient == actor
             else f'The shared space "{space}" was deleted.'
         )
-        emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
+        emit_notification(
+            recipient, message, dedup_id=f"{request_id}:delete:{recipient}", budget=sends
+        )
 
 
 def delete_space(space, actor, request_id, registry):

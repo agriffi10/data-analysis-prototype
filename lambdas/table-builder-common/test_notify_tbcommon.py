@@ -68,6 +68,7 @@ def _sent_message(event):
     config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/notifications.fifo"
     queue = _FakeSqs()
     clients._sqs = queue
+    clients._sqs_bounded = queue
 
     notify.emit_created(event)
 

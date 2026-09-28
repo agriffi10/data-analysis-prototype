@@ -1045,6 +1045,7 @@ def install(cognito_attrs=None, max_memberships=10):
     clients._lf = FakeLF()
     clients._cognito = FakeCognito(cognito_attrs)
     clients._sqs = FakeSqs()
+    clients._sqs_bounded = clients._sqs
     config.MAX_SHARED_MEMBERSHIPS = max_memberships
     config.PORTAL_ROLE_ARN = "arn:aws:iam::1:role/portal"
     cpconfig.ADMIN_BUCKET = "admin-bkt"

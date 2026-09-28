@@ -20,13 +20,16 @@ import json
 from typing import cast
 
 from . import clients, config
+from .budget import Budget
 
 
-def load(name: str) -> dict | None:
+def load(name: str, client=None) -> dict | None:
     """Reads one shared space's registry record from the admin bucket.
 
     Args:
       name: The shared space name.
+      client: The S3 client to read with, the per-container default when None. ``owner_of``
+        passes the bounded one.
 
     Returns:
       The record, or None if no such space is registered.
@@ -35,12 +38,37 @@ def load(name: str) -> dict | None:
       ClientError: On any S3 failure other than a missing key.
       ValueError: If the stored record is not valid JSON.
     """
-    s3 = clients.s3()
+    s3 = client or clients.s3()
     try:
         obj = s3.get_object(Bucket=config.ADMIN_BUCKET, Key=f"shared-spaces/{name}.json")
     except s3.exceptions.NoSuchKey:
         return None
     return cast("dict", json.loads(obj["Body"].read()))
+
+
+def owner_of(name: str, calls: Budget) -> str:
+    """Reads a space's registered owner for a notice sent after the work it reports, in time.
+
+    Table share and file send tell a space recipient's owner once the sender has been told, so
+    the lookup is optional work after the outcome, and a stall on it must not hold the verb to its
+    timeout. The whole read, the body included, runs as one call under ``calls`` on the bounded
+    client, which is built here on the caller's thread.
+
+    Args:
+      name: The shared space name.
+      calls: The budget the lookup shares with the notices around it.
+
+    Returns:
+      The owner's username, or an empty string for a space with no record or no owner.
+
+    Raises:
+      TimeoutError: When the budget's deadline has passed, or the read is still running at the cap.
+      ClientError: On any S3 failure other than a missing key.
+      ValueError: If the stored record is not valid JSON.
+    """
+    s3 = clients.s3_bounded()
+    record = calls.call(lambda: load(name, client=s3))
+    return (record or {}).get("owner") or ""
 
 
 def is_active(record: dict | None) -> bool:

@@ -756,3 +756,19 @@ def test_a_create_going_active_between_the_route_read_and_the_first_write_is_emp
     assert "sales" in glue.databases
     saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert saved["everActive"] is True and saved["members"] == [] and saved["emptiedAt"]
+
+
+def test_a_stalled_queue_holds_the_fan_out_for_one_deadline_not_a_cap_per_member(stalled_sends, caplog):
+    """The fan-out runs after every member's access has ended, so its sends share one budget: two
+    start before its deadline and every later one is refused, where a budget per send would start
+    them all."""
+    s3, glue, _lf, cognito = install()
+    members = ("alice", *(f"user{i:02d}" for i in range(11)))
+    _seed_full_space(s3, glue, cognito, members=members)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    stalled_sends.install()
+
+    d.delete_space("sales", "alice", "req-d", reg)
+
+    assert stalled_sends.started == 2
+    assert stalled_sends.reasons(caplog.records) == ["notifications: a call ran past 0.05s"] * 2 + ["notifications ran out of time"] * (len(members) - 2)

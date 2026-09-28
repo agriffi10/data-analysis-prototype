@@ -92,6 +92,7 @@ def test_one_dedup_key_sent_to_two_people_goes_out_in_two_groups() -> None:
     config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
     fake = _FakeSqs()
     clients._sqs = fake
+    clients._sqs_bounded = fake
 
     for username in ("alice", "bob"):
         notify.emit_notification(username, "a notice", dedup_id="0f8fad5b-d9cb-469f-a165-70867728950e:failure")

@@ -110,6 +110,7 @@ def sent(monkeypatch):
     """
     fake = _Sqs()
     monkeypatch.setattr(clients, "_sqs", fake)
+    monkeypatch.setattr(clients, "_sqs_bounded", fake)
     monkeypatch.setattr(
         config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/notifications.fifo", raising=False
     )
@@ -552,7 +553,7 @@ def test_every_success_notice_names_its_run_side_and_recipient(sent, monkeypatch
       AssertionError: If two runs collapse, a retry is told twice, or one run's notices merge.
     """
     owners = {"finance": "bob", "ops": "bob", "data": "alice"}
-    monkeypatch.setattr(tsnotify.reg, "load", lambda name: {"owner": owners[name]})
+    monkeypatch.setattr(tsnotify.reg, "load", lambda name, client=None: {"owner": owners[name]})
     recipients = [("user", "bob"), ("space", "finance"), ("space", "ops"), ("space", "data")]
 
     runs = []

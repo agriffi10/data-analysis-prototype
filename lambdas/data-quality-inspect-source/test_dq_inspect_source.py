@@ -155,6 +155,7 @@ def test_a_request_id_another_execution_holds_is_refused_before_listing_and_tell
     cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
     sqs = _FakeSqs()
     v.clients._sqs = sqs
+    v.clients._sqs_bounded = sqs
     listed, fake = _setup([("alice/sales/a.csv", 10)])
     v.handler(_event(), None)
     v.handler(_event(), None)

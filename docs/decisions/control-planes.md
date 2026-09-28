@@ -131,6 +131,16 @@ inside the execution the Pipe starts.
   `validate-authorize`, after the request that would overflow has already arrived. And **check the
   unit**: bytes on the wire, bytes in the value, and a count are three different questions that
   look alike as integers.
+- **Optional work after the user is told runs under `cpcommon.budget`**, never on a bare default
+  client inside a swallow: a stall raises nothing to swallow, so it holds the verb to its timeout
+  and fails a run whose outcome was already reported. Each call is waited on for one cap, a loop
+  through one budget starts no call past its deadline, and a guard holds deadline plus cap to half
+  the timeout Terraform deploys the verb with. That covers the runs and archive indexes, the
+  temp-table drops, every notification send — a loop of notices passes every send one
+  `notify.send_budget()` — and the space-owner lookup. **Only a call whose late completion is
+  harmless belongs under one**, since an abandoned call is not cancelled; the one send left
+  uncapped is the DLQ drain's, which deletes a message once it has notified, so a capped send there
+  would throw away the retry a stall leaves it. Reasoning: `lambdas/info/shared-layer.md`.
 - **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
   execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
   every caught failure double-notifies). The cost, an uncaught `DataLimitExceeded` or `Runtime`

@@ -12,6 +12,8 @@ import os
 import pathlib
 import re
 import sys
+import threading
+import time
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "file-send-common"))
@@ -24,7 +26,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_notify as m
 import pytest
-from cpcommon import clients, config
+from cpcommon import budget, clients, config
 from fscommon import notify, paths
 
 _PORTAL = pathlib.Path(__file__).resolve().parents[2] / "apps" / "portal" / "src"
@@ -45,7 +47,7 @@ def sent(monkeypatch):
 @pytest.fixture(autouse=True)
 def registry(monkeypatch):
     """A registry whose spaces have an owner, unless a test says otherwise."""
-    monkeypatch.setattr(notify.reg, "load", lambda name: {"owner": f"{name}-owner"})
+    monkeypatch.setattr(notify.reg, "load", lambda name, client=None: {"owner": f"{name}-owner"})
 
 
 def _ok(kind="user", name="bob"):
@@ -122,8 +124,9 @@ def test_two_sends_delivered_alike_are_two_notices_to_everyone_and_a_retry_is_on
     """
     queue = _Queue()
     monkeypatch.setattr(clients, "_sqs", queue)
+    monkeypatch.setattr(clients, "_sqs_bounded", queue)
     monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/n.fifo", raising=False)
-    monkeypatch.setattr(notify.reg, "load", lambda name: {"owner": "bob"})
+    monkeypatch.setattr(notify.reg, "load", lambda name, client=None: {"owner": "bob"})
     recipients = [_ok(), _ok(kind="space", name="finance")]
     runs = []
     for request_id in ("run-a", "run-b", "run-a"):
@@ -247,3 +250,50 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         )
         assert link[0] == "/" and link[1] not in ("/", "\\"), f"{link!r} is not a path isSafeInAppPath accepts"
         assert not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in link), f"{link!r} carries a control character"
+
+
+def test_a_stalled_queue_holds_the_producer_for_one_deadline_not_a_cap_per_message(stalled_sends, caplog):
+    """Every message of the run shares one budget: two start before its deadline and every later
+    one is refused, where a budget per message would start all ten."""
+    recipients = [_ok(name=f"user{i}") for i in range(5)]
+
+    m.handler(_summary(recipients), None)
+
+    assert stalled_sends.started == 2
+    assert stalled_sends.reasons(caplog.records) == (
+        ["notifications: a call ran past 0.05s"] * 2 + ["notifications ran out of time"] * 8
+    )
+
+
+def test_a_stalled_owner_lookup_costs_the_owners_message_and_not_the_send(monkeypatch, caplog):
+    """The lookup runs after the sender was told, on the bounded client and under the producer's
+    budget, which the error's label names: a budget of its own would be labelled for the lookup."""
+    queue = _Queue()
+    monkeypatch.setattr(clients, "_sqs", queue)
+    monkeypatch.setattr(clients, "_sqs_bounded", queue)
+    monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/n.fifo", raising=False)
+    monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
+    bounded_s3 = object()
+    monkeypatch.setattr(clients, "_s3_bounded", bounded_s3)
+    released = threading.Event()
+    read_with = []
+
+    def _stalled_load(name, client=None):
+        read_with.append(client)
+        released.wait(5)
+        return {"owner": "bob"}
+
+    monkeypatch.setattr(notify.reg, "load", _stalled_load)
+    started = time.perf_counter()
+    try:
+        m.handler(_summary([_ok(kind="space", name="finance")]), None)
+        held = time.perf_counter() - started
+    finally:
+        released.set()
+
+    lookup = [r for r in caplog.records if "owner lookup failed" in r.getMessage()]
+    assert [c["MessageGroupId"] for c in queue.calls] == ["alice"]
+    assert read_with == [bounded_s3]
+    assert [str(r.exc_info[1]) for r in lookup] == ["notifications: a call ran past 0.05s"]
+    assert held < 1
+

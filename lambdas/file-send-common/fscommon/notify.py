@@ -5,9 +5,10 @@ the sender-addressed failure, and the per-recipient outcomes, the
 recipient's own message and the link that takes them to what arrived.
 
 A missed notification must never change or fail the outcome, so every emit goes through
-``cpcommon.notify.emit_notification``, which catches, logs and never raises. That is the whole
-contract of this plane's producer: the copy has already happened by the time it runs, and a
-message is the only thing it can add.
+``cpcommon.notify.emit_notification``, which catches, logs and never raises, and waits for a send
+no longer than its cap. That is the whole contract of this plane's producer: the copy has already
+happened by the time it runs, and a message is the only thing it can add. The owner lookup a space
+recipient's message needs is capped the same way, and shares the producer's budget.
 
 **Every message names its run, and the reason is the queue's deduplication.** The rule is one
 token per OUTCOME, not per verb; here every outcome is emitted from exactly one place, so there is
@@ -39,8 +40,16 @@ import logging
 import re
 
 from cpcommon import registry as reg
+from cpcommon.budget import Budget
 from cpcommon.errors import TerminalError
-from cpcommon.notify import actor_of, dedup_id, emit_notification, request_payload
+from cpcommon.notify import (
+    SEND_DEADLINE_SECONDS,
+    actor_of,
+    dedup_id,
+    emit_notification,
+    request_payload,
+    send_budget,
+)
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -61,6 +70,7 @@ __all__ = [
     "notifies_on_failure",
     "received_files_link",
     "request_payload",
+    "send_budget",
 ]
 
 _FILES_ROUTE = "/files"
@@ -185,7 +195,13 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
 
 
 def emit_recipient_outcome(
-    sender: str, outcome: dict, item_names, object_count: int, request_id: str | None
+    sender: str,
+    outcome: dict,
+    item_names,
+    object_count: int,
+    request_id: str | None,
+    *,
+    budget: Budget | None = None,
 ) -> None:
     """Tells everyone who should hear about ONE recipient's outcome, and nobody who should not.
 
@@ -207,14 +223,18 @@ def emit_recipient_outcome(
         re-send ending the same way is a second message rather than a duplicate of the first.
         Required, because every message is named from it and a caller that forgot it would name
         none while each call still passed a name.
+      budget: The budget every message and owner lookup of the producer's run shares, from
+        ``send_budget``, since the producer tells each recipient's outcome in turn. None gives
+        this outcome's calls budgets of their own.
 
     Returns:
       None. Every emit is best-effort: the copy has already happened, and a missed message must
       not change what did.
 
     Raises:
-      None. An owner lookup that fails is logged and skipped, leaving the sender's own message
-      untouched — the two are independent, and the sender's is the one that always applies.
+      None. An owner lookup that fails or runs out of time is logged and skipped, leaving the
+      sender's own message untouched — the two are independent, and the sender's is the one that
+      always applies.
     """
     kind, name = outcome.get("kind") or "", outcome.get("name") or ""
 
@@ -228,6 +248,7 @@ def emit_recipient_outcome(
                 tokens={"itemName": outcome.get("detail") or ""},
             ),
             payload=request_payload({"requestId": request_id}),
+            budget=budget,
         )
         return
 
@@ -235,18 +256,25 @@ def emit_recipient_outcome(
         sender,
         success_message(kind, name, item_names, object_count),
         dedup_id=dedup_id(request_id, f"sent:{kind}:{name}"),
+        budget=budget,
     )
     link = received_files_link(kind, name, sender)
     received = dedup_id(request_id, f"received:{kind}:{name}")
 
     if kind == "user":
         emit_notification(
-            name, recipient_message(sender, item_names, object_count), dedup_id=received, link=link
+            name,
+            recipient_message(sender, item_names, object_count),
+            dedup_id=received,
+            link=link,
+            budget=budget,
         )
         return
 
     try:
-        owner = (reg.load(name) or {}).get("owner") or ""
+        owner = reg.owner_of(
+            name, budget or Budget(SEND_DEADLINE_SECONDS, f"the owner lookup for {name}")
+        )
     except Exception:
         logger.exception("owner lookup failed for space %s; skipping the owner notification", name)
         return
@@ -258,4 +286,5 @@ def emit_recipient_outcome(
         space_owner_message(sender, name, item_names, object_count),
         dedup_id=received,
         link=link,
+        budget=budget,
     )

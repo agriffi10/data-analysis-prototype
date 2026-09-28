@@ -197,6 +197,12 @@ def _collect_transfer_results(event) -> dict:
     list is the unbounded term that breaches the 256 KB payload limit — where the limit error lands
     ON the Map and destroys every per-recipient outcome it exists to keep.
 
+    **The copy-failure notices share one budget.** One per failed recipient is sent before the
+    outcomes reach the recipients still waiting on their tables, and without it a stalled queue
+    would hold the collector for a cap per failed recipient, after the export read that is its
+    real work. A timeout here fails the whole share, the recipients whose objects copied cleanly
+    too.
+
     **``guardResults`` is consumed, not carried.** It is this verb's input and its raw
     ``{Error, Cause}`` per refused recipient is the state's heaviest per-recipient term. Leaving it
     on the state alongside the outcomes and then the finish Map's results would hold three copies
@@ -221,9 +227,12 @@ def _collect_transfer_results(event) -> dict:
         if isinstance(record, dict)
     ]
 
+    sends = notify.send_budget()
     for entry in entries:
         if entry["reason"] == COPY_FAILED:
-            notify.emit_recipient_failure(event, entry["kind"] or "", entry["name"] or "", COPY_FAILED)
+            notify.emit_recipient_failure(
+                event, entry["kind"] or "", entry["name"] or "", COPY_FAILED, budget=sends
+            )
 
     copied = sum(1 for entry in entries if entry["status"] == "ok")
     logger.info(

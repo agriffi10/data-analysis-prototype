@@ -206,6 +206,7 @@ def test_a_copy_failure_is_told_under_the_runs_name_and_the_name_reaches_create_
     clients._s3 = _FakeS3(_export(failures=[{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]))
     queue = _FakeSqs()
     monkeypatch.setattr(clients, "_sqs", queue)
+    monkeypatch.setattr(clients, "_sqs_bounded", queue)
     monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/n.fifo", raising=False)
     event = {
         **_event([{"status": "ok", "recipient": _resolved("bob")}, {"status": "ok", "recipient": _resolved("carol")}]),
@@ -231,3 +232,22 @@ def test_an_export_that_covers_only_some_batches_fails_the_whole_request():
     with pytest.raises(TerminalError) as caught:
         m.handler(_event([{"status": "ok", "recipient": _resolved("bob")}], item_count=99), None)
     assert caught.value.reason == "transfer_results_unreadable"
+
+
+def test_a_stalled_queue_holds_the_copy_failure_notices_for_one_deadline(stalled_sends, caplog):
+    """The notices share one budget: two start before its deadline and every later one is refused,
+    where a budget per notice would start all five before the outcomes reach the finish Map."""
+    names = [f"user{i}" for i in range(5)]
+    clients._s3 = _FakeS3(
+        _export(failures=[{"recipient": n, "kind": "user", "reason": "copy_failed"} for n in names])
+    )
+    event = _event([{"status": "ok", "recipient": _resolved(n)} for n in names])
+
+    out = m.handler(event, None)
+
+    assert [o["reason"] for o in out["outcomes"]] == ["copy_failed"] * 5
+    assert stalled_sends.started == 2
+    assert stalled_sends.reasons(caplog.records) == (
+        ["notifications: a call ran past 0.05s"] * 2 + ["notifications ran out of time"] * 3
+    )
+

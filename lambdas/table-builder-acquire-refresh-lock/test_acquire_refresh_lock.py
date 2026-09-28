@@ -45,6 +45,7 @@ def sqs(monkeypatch):
     )
     fake = _FakeSqs()
     monkeypatch.setattr(clients, "_sqs", fake)
+    monkeypatch.setattr(clients, "_sqs_bounded", fake)
     return fake
 
 

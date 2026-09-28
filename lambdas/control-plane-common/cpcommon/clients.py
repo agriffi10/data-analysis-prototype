@@ -22,6 +22,7 @@ BOUNDED_MAX_ATTEMPTS = 2
 _s3 = None
 _s3_bounded = None
 _sqs = None
+_sqs_bounded = None
 _sfn = None
 _glue = None
 _athena = None
@@ -97,6 +98,30 @@ def sqs():
 
         _sqs = boto3.client("sqs")
     return _sqs
+
+
+def sqs_bounded():
+    """Returns an SQS client whose every call gives up within seconds, for a notification send.
+
+    The SQS twin of ``s3_bounded``, and like it no bound on a call by itself: ``emit_notification``
+    runs each send under ``cpcommon.budget``, and this client is what makes a send the budget
+    abandons give up within seconds rather than hold its thread and socket for minutes.
+
+    Args:
+      None.
+
+    Returns:
+      The cached, bounded boto3 SQS client.
+
+    Raises:
+      None.
+    """
+    global _sqs_bounded
+    if _sqs_bounded is None:
+        import boto3
+
+        _sqs_bounded = boto3.client("sqs", config=_bounded_config())
+    return _sqs_bounded
 
 
 def sfn():

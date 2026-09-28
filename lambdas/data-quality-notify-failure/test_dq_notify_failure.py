@@ -37,6 +37,7 @@ def _arm():
     config.NOTIFICATIONS_QUEUE_URL = QUEUE
     fake = _FakeSqs()
     clients._sqs = fake
+    clients._sqs_bounded = fake
     return fake
 
 

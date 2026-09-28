@@ -30,8 +30,9 @@ which fails a check whose report is written and whose actor has been told it com
 index uses ``cpcommon.clients.s3_bounded``, and every call runs under one ``cpcommon.budget``:
 no call starts once ``INDEX_DEADLINE_SECONDS`` have passed and none is waited on past
 ``budget.CALL_CAP_SECONDS``, so the append holds the verb for at most the sum, and
-``test_the_index_path_cannot_outlast_assemble_report`` holds that under the verb's timeout. The
-archive index is bounded the same way for the same reason.
+``test_the_notice_and_the_index_cannot_outlast_assemble_report`` holds that, with the completion
+notice's own cap, under the verb's timeout. The archive index is bounded the same way for the same
+reason.
 
 Attributes:
   INDEX_BASENAME: The index object's basename, inside a space's reports prefix.

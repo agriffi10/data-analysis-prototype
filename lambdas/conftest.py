@@ -18,8 +18,10 @@ block, and ``test_no_test_module_ships_its_own_runner`` refuses one that does.
 """
 
 import ast
+import itertools
 import os
 import sys
+import threading
 
 _LAYER_DIRS = (
     "control-plane-common",
@@ -152,6 +154,118 @@ def _restore_shared_layer_modules():
     for module, snapshot in saved.items():
         module.__dict__.clear()
         module.__dict__.update(snapshot)
+
+
+class _UnfakedBoundedSqs:
+    """Stands in for the bounded SQS client until a test installs its own, and records any use.
+
+    Every notification is sent on ``clients.sqs_bounded()``, while most suites fake only
+    ``clients._sqs``. A send that reached a real client would fail, be swallowed by the sender,
+    and leave an assertion that nobody was told passing for the wrong reason, so reaching this is
+    a failure of the test, reported at teardown because the sender swallows the error it raises.
+
+    Attributes:
+      calls: The attribute names production code asked this client for.
+    """
+
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        self.calls.append(name)
+        raise AssertionError(f"a notification reached the bounded SQS client unfaked ({name})")
+
+
+@pytest.fixture(autouse=True)
+def _refuse_an_unfaked_bounded_sqs(_restore_shared_layer_modules):
+    from cpcommon import clients
+
+    previous = clients._sqs_bounded
+    sentinel = _UnfakedBoundedSqs()
+    clients._sqs_bounded = sentinel
+    yield
+    clients._sqs_bounded = previous
+    assert not sentinel.calls, (
+        "a notification was sent on clients.sqs_bounded(), which this test never faked: install "
+        "the fake in clients._sqs_bounded as well as clients._sqs"
+    )
+
+
+_STALLED_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/1/notifications.fifo"
+
+
+class StalledSends:
+    """A notifications queue that answers no send, on a budget clock that only the budget reads.
+
+    Each reading of the clock is one second later than the last, and the send deadline is two and
+    a half, so a budget created before a loop lets exactly two sends start and refuses the rest,
+    whatever the machine's speed. The cap stays on real time and is cut to a twentieth of a
+    second, so each started send is abandoned quickly. Counting the sends started is what tells a
+    shared budget from one per send, which would start every one.
+
+    Attributes:
+      started: The ``send_message`` calls the queue was handed, one per send that began.
+      sent: The parameters of each, for asserting who a started send was for.
+      released: Set at teardown, so every abandoned send returns and its thread ends.
+    """
+
+    def __init__(self):
+        self.started = 0
+        self.sent = []
+        self.released = threading.Event()
+        self._readings = itertools.count()
+
+    def monotonic(self):
+        return float(next(self._readings))
+
+    def install(self):
+        """Points the sender at this queue again, after a suite's own harness installed its fakes.
+
+        The shared-layer snapshot restores both names after the test.
+        """
+        from cpcommon import clients, config
+
+        clients._sqs_bounded = self
+        config.NOTIFICATIONS_QUEUE_URL = _STALLED_QUEUE_URL
+
+    def send_message(self, **kwargs):
+        self.started += 1
+        self.sent.append(kwargs)
+        self.released.wait(5)
+        return {"MessageId": "late"}
+
+    @staticmethod
+    def reasons(records):
+        """The message of every ``TimeoutError`` a budget raised into a logged exception, in order.
+
+        A send abandoned at the cap says ``ran past`` and one the deadline refused to start says
+        ``ran out of time``: the message, not the type, is what tells the two apart.
+        """
+        return [
+            str(record.exc_info[1])
+            for record in records
+            if record.exc_info and isinstance(record.exc_info[1], TimeoutError)
+        ]
+
+
+@pytest.fixture
+def stalled_sends(monkeypatch):
+    """Points every notification at a queue that never answers, on the budget clock above.
+
+    A fixture rather than a fake each suite copies, because every loop of notices is tested
+    against the same stall and the same deadline arithmetic.
+    """
+    from cpcommon import budget, clients, config, notify
+
+    queue = StalledSends()
+    monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
+    monkeypatch.setattr(budget, "time", queue)
+    monkeypatch.setattr(notify, "SEND_DEADLINE_SECONDS", 2.5)
+    monkeypatch.setattr(clients, "_sqs_bounded", queue)
+    monkeypatch.setattr(config, "NOTIFICATIONS_QUEUE_URL", _STALLED_QUEUE_URL)
+    yield queue
+    queue.released.set()
+
 
 _REQUIRED_ENV = {
     "COGNITO_USER_POOL_ID": "us-east-1_testpool",
