@@ -772,3 +772,51 @@ describe('what a switch removes, Help leaves out of the guides it does not hide'
     expect(guideText('explore-save-formats')).toMatch(/<b>Format<\/b>/);
   });
 });
+
+describe('the words someone used to a desktop SQL client looks for', () => {
+  const guide = (id: string) => {
+    const found = HELP_SECTIONS.flatMap((s) => s.guides).find((g) => g.id === id);
+    expect(found, id).toBeDefined();
+    return found!;
+  };
+  const steps = (id: string) => [guide(id).intro ?? '', ...guide(id).steps].join(' ');
+
+  // A closed card shows only its title and a subtitle cut to one line, so a word must sit near the
+  // front of the subtitle to be seen by someone scanning the list. On a 375px phone the panel is a
+  // full-width sheet showing about 214px of subtitle, which is about 34 characters of 13px Inter.
+  // 32 is a stand-in for that width, kept below it for headroom since glyph widths vary.
+  const SUBTITLE_VISIBLE_CHARS = 32;
+
+  it('puts each one near the front of the subtitle of the guide that holds the feature', () => {
+    const onCard: [string, RegExp][] = [
+      ['explore-filter-sort', /filter by value/i],
+      ['browse-databases', /database navigator/i],
+      ['run-script', /SQL script/i],
+      ['work-with-results', /result tabs/i],
+      ['save-query', /SQL script/i],
+      ['load-saved-query', /\.sql script/i],
+      ['archive-files', /back where they were/i]
+    ];
+    for (const [id, pattern] of onCard) {
+      const match = pattern.exec(guide(id).subtitle);
+      expect(match, `${id} ${pattern}`).not.toBeNull();
+      expect(match!.index + match![0].length, `${id} ${pattern}`).toBeLessThanOrEqual(SUBTITLE_VISIBLE_CHARS);
+    }
+  });
+
+  it('names LIKE, NOT LIKE, IN and NOT IN in the filter steps, and result tabs in the script steps', () => {
+    for (const pattern of [/<b>LIKE<\/b>/, /<b>NOT LIKE<\/b>/, /<b>IN<\/b>/, /<b>NOT IN<\/b>/])
+      expect(steps('explore-filter-sort'), String(pattern)).toMatch(pattern);
+    expect(steps('run-script')).toMatch(/result tab/i);
+  });
+
+  it('weaves them into the guides rather than naming DBeaver', () => {
+    for (const section of HELP_SECTIONS) {
+      expect(`${section.label} ${section.subtitle}`, section.id).not.toMatch(/dbeaver/i);
+      for (const g of section.guides) {
+        const text = [g.title, g.subtitle, g.intro ?? '', ...g.steps, g.callout?.text ?? ''].join(' ');
+        expect(text, g.id).not.toMatch(/dbeaver/i);
+      }
+    }
+  });
+});

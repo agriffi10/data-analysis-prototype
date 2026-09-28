@@ -161,7 +161,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'archive-files',
         title: 'Archive and restore files',
-        subtitle: 'Move files you rarely need into long-term storage, and bring them back later.',
+        subtitle: 'Put files back where they were, after archiving them for the long term.',
         intro:
           'Archiving takes files or folders out of your space and stores them cheaply for the long term. Unlike a delete, the copy is kept safely — but it is <b>no longer in your file list</b>, and getting it back is not instant. Use it for things you want to keep but do not expect to open again soon.',
         steps: [
@@ -292,7 +292,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'run-script',
         title: 'Run several statements at once',
-        subtitle: 'Write a script of ;-separated statements and run it top to bottom.',
+        subtitle: 'Run a SQL script of ;-separated statements from top to bottom.',
         intro:
           'You don’t have to run statements one at a time. Put several in the editor separated by semicolons — say, a <b>CREATE TABLE</b> followed by a <b>SELECT</b> — and Data Quarry runs them in order, one after another. Each gets its own history entry, and you pick whether you want a single final result or one result per statement.',
         steps: [
@@ -313,9 +313,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'browse-databases',
         title: 'Browse databases and query across them',
-        subtitle: 'Explore every database you can access and join across them.',
+        subtitle: 'Use the database navigator to find your tables, and join across databases.',
         intro:
-          'The rail on the left is your map of everything you can query — your own personal database plus any shared spaces you belong to. Expand any database to see its tables and columns. There’s no “current” database to switch between, which means a single query can read from, and join across, any databases you have access to.',
+          'The rail on the left is your database navigator, a map of everything you can query — your own personal database plus any shared spaces you belong to. Expand any database to see its tables and columns. There’s no “current” database to switch between, which means a single query can read from, and join across, any databases you have access to.',
         steps: [
           'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
           'Expand a database to inspect its tables and columns.',
@@ -332,7 +332,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'save-query',
         title: 'Save a query',
-        subtitle: 'Keep the queries you reach for often.',
+        subtitle: 'Keep a query as a SQL script you can open again.',
         intro:
           'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history. A saved query is an ordinary <code>.sql</code> file in a <b>saved_queries</b> folder in a space, so you can find it, download it or delete it like anything else — and saving into a shared space is how you hand a query to the people you work with.',
         steps: [
@@ -350,7 +350,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'load-saved-query',
         title: 'Open a saved query',
-        subtitle: 'Find a saved query — yours or a colleague’s — and load it.',
+        subtitle: 'Find a .sql script — yours or a colleague’s — and open it.',
         intro:
           'Saved queries live in a <b>saved_queries</b> folder in a space, so opening one starts by choosing which space to look in.',
         steps: [
@@ -381,7 +381,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'work-with-results',
         title: 'Work with results',
-        subtitle: 'Read and page through query output.',
+        subtitle: 'Switch between result tabs, and read and page through query output.',
         intro:
           'Once a query succeeds, its results fill the table below the editor. You can make yourself at home here — resize columns, page through large result sets, and give whichever pane you’re focused on more room.',
         steps: [
@@ -389,7 +389,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Drag a column’s edge to resize it — your widths are remembered as you switch tabs.',
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
           'Choose how many rows show at once with <b>Rows per page</b> above the table — any number from 1 to 1000 (the default is 100). One setting covers every result tab, and it sticks for the session.',
-          'Ran a script with <b>Run Multiple Queries</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
+          'Ran a script with <b>Run Multiple Queries</b>, or selected several statements and clicked <b>Run Statement</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
           'Want more room? Drag the divider between the editor and the results to any split you like — or, if you would rather not drag, use the small <b>▲</b> and <b>▼</b> buttons on the divider to nudge it a step at a time. Click the divider and the arrow keys, <b>Home</b> and <b>End</b> move it too; from the keyboard, it sits between those two buttons. Double-click it to go back to an even split. Where you leave it sticks for the session.'
         ]
       },
@@ -554,7 +554,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Start exploring a table',
         subtitle: 'Open a table and look at its rows.',
         intro:
-          'The <b>Data Explorer</b> is the Query workspace without the SQL: you pick a table, and then filter, sort, group and summarize it by clicking. Each table you open gets its own tab — up to 10 at once — and your tabs are still there when you come back to the Explorer in the same browser tab.',
+          'The <b>Data Explorer</b> is the Query workspace without the SQL: you pick a table, and then filter, sort, group and summarize it by clicking. Each table you open gets its own tab — up to 10 at once — and your tabs are still there when you come back to the Explorer in the same browser tab. Every filter, sort and grouping you set is written as SQL — <b>contains</b> as a <b>LIKE</b>, <b>is one of</b> as an <b>IN</b> — and you can read it under <b>Generated SQL</b>.',
         steps: [
           'Open the <b>Data Explorer</b> tab. Pick a <b>Space</b> — your own is listed under your username, and any shared space you belong to follows it — then choose a table or view from the list.',
           'Already in the <b>Query</b> tab? Hover over a table in the schema rail, open its <b>⋮</b> menu and choose <b>Explore data</b> to open it here.',
@@ -570,12 +570,14 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'explore-filter-sort',
         title: 'Filter and sort',
-        subtitle: 'Narrow the rows down and put them in order.',
+        subtitle: 'Filter by value or by part of a value, and put the rows in order.',
         intro:
           'This is what the Explorer is for. Everything here is a click, and each one rewrites the query underneath and runs it again — so the rows you end up with are the real answer over the whole table, not just over what was on screen.',
         steps: [
           'Click the <b>⋯</b> on a column header to sort it, to filter it, or to hide it with <b>Hide column</b>. The filters read <b>Filter: equals…</b> and so on. A text column offers <b>equals</b>, <b>does not equal</b>, <b>greater than</b> and the other comparisons, <b>contains</b>, <b>does not contain</b>, <b>starts with</b>, <b>ends with</b>, <b>is one of</b>, <b>is not one of</b>, <b>is null</b>, <b>is not null</b>, <b>is empty</b> and <b>is not empty</b>; a number column offers the comparisons, the two list tests and <b>is null</b> / <b>is not null</b>; a date or true/false column offers the comparisons and <b>is null</b> / <b>is not null</b>. <b>Is one of</b> asks for one value per line. A column holds one filter at a time, and filters on several columns all apply together.',
           'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
+          "Used to <b>LIKE</b> and <b>NOT LIKE</b>? <b>Contains</b> and <b>does not contain</b> are those, with a <code>%</code> either side of what you type, and <b>starts with</b> and <b>ends with</b> put the <code>%</code> at one end only. They ignore capitals, and a <code>%</code> or <code>_</code> you type is looked for as itself rather than taken as a wildcard, so for a pattern of your own, use the <b>Filter expression</b> box. A <b>LIKE</b> you write there minds capitals: <code>name LIKE 'A%B'</code> matches them exactly, and <code>lower(name) LIKE 'a%b'</code> ignores them. <b>Generated SQL</b> shows each filter written out.",
+          '<b>Is one of</b> and <b>is not one of</b> are <b>IN</b> and <b>NOT IN</b>. As in SQL, <b>does not contain</b>, <b>does not equal</b> and <b>is not one of</b> leave out every row where the column is <b>NULL</b>.',
           'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Open <b>Options</b> and choose <b>Columns</b> to hide, show, pin or reorder columns. <b>Show all</b> brings back every hidden column and <b>Unpin all</b> unpins every pinned one; a column you moved stays where you put it.',
           "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it — two columns compared with each other, an <b>OR</b> between conditions, or a list that should keep the <b>NULL</b> rows too, such as <code>state IN ('NY', 'NJ') OR state IS NULL</code>. Leave out the word <b>WHERE</b>.",
@@ -631,9 +633,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'explore-copy-and-export',
         title: 'Copy or save what you found',
-        subtitle: 'Take a selection to the clipboard, or every row to a file.',
+        subtitle: 'Copy a selection to the clipboard, or export every row to a file.',
         intro:
-          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results…</b> saves every row the query returned as a file in your files — and neither one runs another query.',
+          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results…</b> saves every row the query returned as a file in your files, where you can download it — and neither one runs another query.',
         steps: [
           'Select some cells and press <kbd>Ctrl/Cmd + C</kbd> to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>Tab-separated (for spreadsheets)</b>, <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to <b>Include column names</b>, <b>Include row numbers</b> or <b>Quote values</b>.',
@@ -666,7 +668,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'explore-save-as-query',
         title: 'Save an exploration as a query',
-        subtitle: 'Keep the SQL the Explorer wrote for you.',
+        subtitle: 'Keep the SQL the Explorer wrote for you, as a saved query or a view.',
         intro:
           'Everything you click here builds a real SQL statement, and you can see it and keep it. Open <b>Generated SQL</b> at any time to read exactly what is about to run — a good way to learn the SQL for something you have just built by hand.',
         steps: [
