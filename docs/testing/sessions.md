@@ -10,6 +10,52 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-28 (SPEC-249's Filter by value)
+
+**What was under test.** SPEC-249 (#923, squash `14a2bfb3`). Deploy SPA image went green on that sha
+at 16:19:07Z and every row below ran after it; the header menu offering **Filter by value…** is
+itself the proof the new build was served. Times are UTC.
+
+**Browser.** Andrew's Chrome, as **agriffith**, in a tab in the `claude-in-chrome` group that Andrew
+signed in himself at the Cognito form earlier the same day. Width 1512.
+
+**Instruments, each a way this run differed from a user's.**
+- Real pointer clicks and typing (the extension's `computer` tool) for every menu, checkbox, radio,
+  search and Apply.
+- Two reads went through the DOM rather than the eye: *Order and filter*'s list row (the textarea's
+  value and the two boxes' `checked`), and the *Generated SQL* disclosure, opened by setting
+  `details.open` and read as text.
+- The scanned totals are the cost line's own text, read before and after each gesture.
+
+**Tables.** `order_referring` (CSV, 2,012,907 rows, about 69 MB a scan) has no blank `first_name`
+among its 1,000 most common, so the `(empty)` rows ran on `explorer150`'s `qty`, which has two.
+
+| e2e row | What ran | Result |
+|---|---|---|
+| Q | `first_name` ⋯ → **Filter by value…** | The list opened most common first — MICHAEL 28,072 rows, DAVID 23,719 — under "Showing the 1,000 most common of 136,718 values", focus in **Search values**, and "This query scanned 69 MB · 137 MB scanned by this exploration". |
+| R | Tick MICHAEL and DAVID, **Apply filter** | Chip `first_name is one of “DAVID”, “MICHAEL”`, **51,791** rows (28,072 + 23,719, exactly). Total 206 MB: the first run, the listing and the apply. |
+| S | Reopen **Filter by value…** on `first_name` | Both still ticked, the same list, and "Loaded from an earlier run in this tab — nothing more scanned". Total unchanged. |
+| T | **is not one of**, **Apply filter** | Chip `first_name is not one of “DAVID”, “MICHAEL”`, **1,961,116** rows (2,012,907 − 51,791). |
+| U | **Remove all filters and sorts**, then **Filter by value…** on `npi` | "Showing the 1,000 most common of **2,012,902** values", five values at 2 rows and the rest at 1 — consistent with 2,012,907 rows. The windowed count held on a real two-million-group column. |
+| V | `last_name` ⋯ → **Filter: is one of…**, `KING`, tick **NULL**, **Apply filter**; then **Order and filter** → **Apply** untouched | Chip `last_name is one of “KING”, NULL`, 2,284 rows. The dialog's row held `KING` with **NULL** ticked and **(empty)** not; the untouched Apply left the chip, the rows and the 412 MB total as they were. |
+| (empty) | `explorer150` `qty` ⋯ → **Filter by value…**, search `empty` | `(empty), 2 rows` listed; ticked and applied, chip `qty is one of (empty)` and the two blank rows. |
+| Pending apply | With `qty is one of (empty)` still applied, click an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** at once | While the list still read "Counting the values…", `O'Brien` sat ticked under *Also selected*, and the apply wrote it: *Generated SQL* read `WHERE ("qty" IN ('') AND "owner" IN ('O''Brien'))`. |
+| 7 | **Remove all filters and sorts**; `owner`'s own list gave the unfiltered count, `O'Brien, 9 rows`. Then an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** | The list opened with `O'Brien, 9 rows` ticked, from the cache. Applied: **9 of 9** rows, and *Generated SQL* read `WHERE "owner" IN ('O''Brien')`. |
+
+### Observed, not a failure
+
+- A search that matches nothing leaves the list area empty with no sentence saying so, and the
+  dialog shrinks and re-centres under the pointer.
+
+### Not run
+
+- The `SELECT COUNT(DISTINCT npi)` cross-check row U suggests; the listing's own counts were used
+  instead, and they are self-consistent only if `npi` holds no NULL.
+- **is not one of** over a column holding NULL: no column used here had one, so "and no NULL rows"
+  was not observed.
+
+---
+
 ## Live-check session — 2026-09-27 (which quote `DROP VIEW` takes)
 
 **What was under test.** Whether the Drop view menu action works. Since 2026-08-19 it sent

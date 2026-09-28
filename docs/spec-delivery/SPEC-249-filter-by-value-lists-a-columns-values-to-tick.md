@@ -62,4 +62,5 @@ Mutation-tested the guards whose failure would be silent: `canonical` and `FILTE
 the clear-all rule's truncation test and the aggregate exclusion; after the diff review, billing
 every tab that asked, the id check before dropping a failed start, the still-running watch, a
 joining tab's bookkeeping, the NULL-cell seed and Enter in the search field. The live check in
-`docs/testing/e2e.md` runs on the deployed image.
+`docs/testing/e2e.md` ran on the deployed image on 2026-09-28 (`docs/testing/sessions.md`); two
+parts of it were not run and are named there.
