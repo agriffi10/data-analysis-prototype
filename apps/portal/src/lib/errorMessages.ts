@@ -144,7 +144,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   // before anything was started. The user's way out is their own filters, so it says which.
   {
     code: 'ExplorationStatementTooLong',
-    message: 'This query is too long to run. Use fewer or shorter filter values, or a shorter expression.',
+    message: 'This query is too long to run. Use fewer conditions, or fewer or shorter filter values.',
     userFixable: true
   },
 

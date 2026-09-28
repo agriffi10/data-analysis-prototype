@@ -820,3 +820,15 @@ describe('the words someone used to a desktop SQL client looks for', () => {
     }
   });
 });
+
+describe('the filter box the Data Explorer no longer has', () => {
+  it('is named by no guide, so a later edit cannot send anyone to it', () => {
+    const texts = HELP_SECTIONS.flatMap((section) => [
+      `${section.label} ${section.subtitle}`,
+      ...section.guides.map((g) => [g.title, g.subtitle, g.intro ?? '', ...g.steps, g.callout?.text ?? ''].join(' '))
+    ]);
+    // The population first: over no text at all, the absence below would hold vacuously.
+    expect(texts.join(' ')).toMatch(/<b>Filter rows…<\/b>/);
+    for (const text of texts) expect(text).not.toMatch(/Filter expression|Apply expression/i);
+  });
+});

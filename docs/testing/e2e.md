@@ -615,7 +615,7 @@ as honestly as a succeeding one.
 | 5 | **Next**, **Prev**, **Next** on the pager | **Zero** `StartQueryExecution`. `GET …/results` calls are expected: each scans nothing, though each is an API call. The running total does not move. |
 | 6 | Clear the filter, then apply the **same** one again | **Zero** new executions, and the line reads *"Loaded from an earlier run in this tab — nothing more scanned"*. Total unchanged. |
 | 7 | Click an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** (the cell starts ticked) | **Rows come back** — count them in the unfiltered grid first. **An empty grid here is a FAILURE.** **Generated SQL** reads `WHERE "owner" IN ('O''Brien')`. The wrong escaper fails *silently*, as a predicate that matches nothing. |
-| 8 | Type `qty >>> 5` into **Filter expression** → **Apply** | Error banner, the **previous** rows still beneath it, toolbar and expression bar still there. |
+| 8 | On a `date` column, **Filter: equals…** `not-a-date` → **Apply filter** | Error banner, the **previous** rows still beneath it, the toolbar and **Filter rows…** still there. |
 | 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This version of the query failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
 | 10 | **Grouping** → group by `region`, `COUNT(*)`, tick **Show percentage**, Apply | **1** execution, changed figure. **Generated SQL** is a real `GROUP BY` and the percentage column is **not in it** — it is computed in the browser and its header says `(this page)`. |
 | 11 | Copy the disclosed SQL, then `aws athena get-query-execution --query-execution-id <id>` and compare `QueryString` | **Byte-identical.** The only check that proves the disclosure and the executed string have not drifted — and a JSON hop now sits in the middle, so the comparison is against Athena's own read-back, not against the request body. |
@@ -714,11 +714,11 @@ as honestly as a succeeding one.
 | J | **Options → Grouping** on that tab, group by a column, then reopen Grouping | The panel still lists every one of the statement's columns, not the grouped result's. |
 | K | Back in Query, run `SELECT count(*) FROM …` | **Explore in Data Explorer** is there but disabled, saying to name every column with `AS`. `SHOW TABLES` offers no button at all. |
 
-**Column filter chips, and Open in Query.** Count executions throughout.
+**Filter chips, and Open in Query.** Count executions throughout.
 
 | # | Do | Expect |
 |---|---|---|
-| L | On an `explorer150` tab, filter one text column from its **⋯** menu with **equals**, and a second column with **is one of** and four values | Two chips under the **Filter expression** box, in the order they were set: `<column> equals “<value>”` and `<column> is one of “…”, “…”, “…” and 1 more`. **1** execution per filter. |
+| L | On an `explorer150` tab, filter one text column from its **⋯** menu with **equals**, and a second column with **is one of** and four values | Two chips beside **Filter rows…**, in the order they were set: `<column> equals “<value>”` and `<column> is one of “…”, “…”, “…” and 1 more`. **1** execution per filter. |
 | M | Click the first chip's **×** | That chip goes, the grid updates, **1** execution, and focus sits on the remaining chip's **×**. The bar's **Back** arrow brings both chips back. |
 | N | Open **Generated SQL**, choose **Open in Query** | `/query` opens a new tab labelled with the exploration tab's name, holding the statement, **not run**. The URL carries no query string. Reload opens no second tab. |
 | O | Edit the statement, run it, then go back to the **Data Explorer** | The Query run is its own. The exploration is as it was: the same chips, the same rows, and the bar's **Back** arrow steps through the same history. |
@@ -736,6 +736,15 @@ statement that begins `SELECT "<column>" AS "value"`.
 | T | Choose **is not one of**, **Apply filter** | The grid shows every other brand, and no NULL rows. |
 | U | **Options** → **Remove all filters and sorts**, then **Filter by value…** on the ID column | The note reads *Showing the 1,000 most common of N values*. Check N with `SELECT COUNT(DISTINCT id)` in Query — N is one more than that if the column holds any NULL, because the list counts NULL as a value and `COUNT(DISTINCT)` skips it. The other filters narrow the list, which is why they are removed first. |
 | V | Another text column's **⋯** → **Filter: is one of…**, type one value, tick **NULL**, **Apply filter** | That value's rows and the NULL rows. Then **Options** → **Order and filter** → **Apply** untouched: **zero** executions. |
+
+**Filter rows: conditions and groups.** Count executions throughout.
+
+| # | Do | Expect |
+|---|---|---|
+| W | **Filter rows…** → **Add condition** `status equals <a value>`, then **Add group** (it reads **any of these**) with two values of another text column → **Apply** | **1** execution. Chips `status equals “…”` and `(<column> equals “a” or <column> equals “b”)`. **Generated SQL** holds `AND (… OR …)`. |
+| X | Click the group chip's **×** | **1** execution, more rows than W, and focus on the chip left. |
+| Y | On a text column, **Filter: is like…** | The hint under **Value** says what `%` and `_` do. Type `A%` → **Apply filter**: **1** execution, rows starting with `a` or `A`, and **Generated SQL** reads `lower("<column>") LIKE lower('A%')`. |
+| Z | **Options → Order and filter** on a tab with two conditions on one column, built in **Filter rows…** | That column reads "2 conditions — change them in Filter rows". Change another column's sort → **Apply**: **1** execution, both conditions still chips. |
 
 ### 4.6 Data quality
 

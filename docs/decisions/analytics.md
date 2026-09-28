@@ -48,6 +48,7 @@ entry you need, not the file.**
 - [A tab's scan total is what that tab has shown, so twin tabs each count a shared execution (2026-09-26)](#a-tabs-scan-total-is-what-that-tab-has-shown-so-twin-tabs-each-count-a-shared-execution-2026-09-26)
 - [The explorer shows a table and nothing else, and a saved view still records the retired choice (2026-09-28)](#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)
 - [A column's values are a list you tick, and a list may hold (empty) and NULL (SPEC-249)](#a-columns-values-are-a-list-you-tick-and-a-list-may-hold-empty-and-null-spec-249)
+- [A filter is conditions and groups built by pointing, and the expression box is gone (SPEC-251)](#a-filter-is-conditions-and-groups-built-by-pointing-and-the-expression-box-is-gone-spec-251)
 
 ## Fences
 
@@ -149,6 +150,14 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   **262,144-byte** `QueryString` limit, measured in UTF-8 bytes. A list may hold `''` and name NULL
   (`includesNull`, only where the table's `listsNull` says), and `canonical` must compare it, or
   ticking NULL is an apply that changes nothing.
+- **A filter is a tree: the top level is AND, OR lives in a group, and groups nest two deep.** An
+  item of `query.filters` may be a `FilterGroup`, so code that walks it goes through
+  `isFilterGroup` and never assumes a `ColumnFilter` — a walk that reads `.column` off every item
+  compiles wherever the type is loose and misses the conditions inside groups. The column menu,
+  **Filter by value…** and Order and filter edit a column's **top-level** conditions only; an edit
+  that passes a filter through hands an untouched condition back as the stored object. A flat list
+  renders byte for byte as before groups. The free-text `expression` is **read-only**: kept,
+  rendered and removable, never written, since converting it needs a parser that drops what it missed.
 - **A saved view is trusted by where its FILE was listed from, never by the database it names.** From
   a shared space's `saved_queries/`, which any member writes, it opens held, unlinked, and without
   URL transformers or pattern-matching Colors rules; the hold is read fail-closed. Its payload
@@ -536,7 +545,10 @@ verbatim, as Monaco's does, while a filter value arrives *from data* and is quot
 A cell containing `O'Brien` filtered by one click is the whole hazard, and it arrives from real
 data long before anyone thinks to type it. *(Qualified by SPEC-247: an expression can now also
 arrive in a saved view another member of a shared space wrote, so it is not always the viewer's own
-SQL. Such a view is held until the viewer runs it — the SPEC-247 entry below.)*
+SQL. Such a view is held until the viewer runs it — the SPEC-247 entry below.)* *(Superseded in
+part by SPEC-251: the bar is gone. An expression stored before that still passes through verbatim,
+read-only, and nothing writes a new one; **is like** quotes its pattern like any other value — the
+SPEC-251 entry below.)*
 
 **The spec's own filter model would not have worked, and nothing offline would have caught it.**
 `value?: string` with every value quoted renders `WHERE "qty" > '5'`, and Trino does not coerce
@@ -1471,6 +1483,12 @@ the expression bar's job, and the guide now points there for the conditions the 
 cannot say. **Not built:** reading blank CSV fields as NULL, which would change what existing tables
 return; relabelling `(empty)`, which is accurate; a length check in the Query workspace, where the
 user wrote the statement and Athena's own refusal is the honest report.
+
+> **Superseded (SPEC-251, 2026-09-28) — the raw `LIKE` rejection ONLY.** The expression bar is gone,
+> so its reason went with it: **is like** and **is not like** are filter operators now, with `%` and
+> `_` as wildcards, capitals folded by Trino on both sides as here, and no escape character.
+> Case-sensitive variants stay rejected, and the four text operators above stay literal. Everything
+> else in this entry still stands; the full reasoning is the SPEC-251 entry below.
 ## A CSV refresh keeps the table's column order and appends what is new (SPEC-235)
 
 **The defect.** Athena reads a CSV by POSITION — OpenCSVSerde skips the header line and takes each
@@ -1722,6 +1740,11 @@ the cap it would have shown nothing at all.
 that edit; running the statement on arrival in Query; on a phone, opening no tab, as *View DDL*
 does — this statement is meant to be edited, and the editor exists only at a wider width.
 
+> **Superseded (SPEC-251, 2026-09-28) — the expression box, and chips by column.** There is no box
+> any more: the chips sit beside **Filter rows…**, one per top-level item, a group worded in its
+> brackets, and focus after a removal is found by position and falls back to that button. Chips
+> remove and nothing else, and no SQL is read back, as this entry decided. The SPEC-251 entry below.
+
 ## A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)
 
 **The view rides inside the `.sql` file, on its last line, and that is the whole format.** A Data
@@ -1879,3 +1902,60 @@ both, since it re-parses every list row.
 
 **The typed items stay.** **Filter: is one of…** remains the way to paste a long list of known
 values, beside **Filter by value…** rather than replaced by it.
+
+## A filter is conditions and groups built by pointing, and the expression box is gone (SPEC-251)
+
+**The box goes, and a builder takes its place (Andrew, 2026-09-28, on an outside review).** Users do
+want OR and several conditions on one column, and until now the only way to say either was raw SQL
+in the *Filter expression* box — which is Query's job. **Filter rows…** builds conditions and groups
+by pointing, in a staged dialog whose Apply is one execution however much changed.
+
+**The top level is AND, and OR lives in a group.** That was already the rule at the top level, so
+every stored filter list is a valid filter as it stands and nothing migrates. It is also what keeps
+the menus simple: a filter set from a column's menu always narrows, where a top level that could be
+OR would make a menu gesture either widen the result or wrap the whole filter in a new group.
+Groups nest two deep — a group, and one more level inside it — which says both
+`(a or b) and (c or d)` and `(a and b) or (c and d)`; the stored-document gate holds the same bound,
+and its depth counter was mutation-tested both ways after a four-deep fixture let an off-by-one
+through that a three-deep one catches.
+
+**The menus stop at the top level.** `setFilter` and `clearFilter` replace or remove a column's
+top-level conditions and leave groups alone, because a condition inside an OR group means something
+the menu cannot show. `filterOf` answers only for a column's single top-level condition, since a
+single-filter surface showing one of two would edit it as the whole — and Order and filter re-sets
+only the columns it shows a select for, since its old loop re-set every list filter through
+`setFilter` and would have merged two conditions into one. The header's mark follows
+`isFilteredAnywhere`, and Clear filter is refused, with its reason, when a column's conditions are
+all grouped.
+
+**An untouched condition is handed back as the stored object.** The builder keeps each row's stored
+condition beside its draft and returns it whole unless the row changed, so a field the builder does
+not show survives an edit elsewhere; SPEC-249's `includesNull` is the case in view. A changed row on
+a column the result no longer lists keeps the stored `valueKind`, since a type lookup there falls
+back to text and would quote a number.
+
+**A flat filter renders byte for byte as before.** Nothing is cached across a deploy — the execution
+cache is in memory and so is the record of failed statements — so this is not about the cache; it
+is the proof the change is additive, carried by the existing renderer tests' unchanged strings.
+
+**`is like` / `is not like` fold capitals and have no escape character.** They sit beside four text
+operators that ignore capitals, and switching `contains` to `is like` to add a wildcard should not
+lose rows by case. The pattern goes through `sqlLiteral` alone, so `%` and `_` stay wildcards and no
+pattern is one Athena refuses to parse; finding a literal `%` or `_` is what the literal operators
+are for, and the hint under every pattern field says so. That matches the Colors rules'
+"matches (% and _)", which has no escape character either. The hint rides on the operator table
+(`hint`), so all three value inputs show it.
+
+**A stored expression is kept, not converted.** Turning free SQL into conditions needs a parser,
+and whatever it missed would vanish without a word. So `expression` stays in the model, renders as
+it always did, and shows verbatim beside the chips with **Remove SQL condition** and, under the
+`query` flag, **Open in Query**. Keeping the field's name means no stored document is rewritten and
+the saved-view line stays at version 1. A saved view that USES a group is refused whole by a page
+loaded before this change — never partly applied — and a flat one opens there as it always did.
+
+**What moved to Query.** Comparing two columns, a function such as `TRY_CAST` — the guide's advice
+for numbers in a CSV text column — and a case-sensitive match are SQL, and the guide sends them to
+**Open in Query**.
+
+**Rejected.** A top level that can be OR; groups nested without a bound; parsing a stored expression
+into conditions; the menus editing conditions inside a group; an escape character for `is like`.
