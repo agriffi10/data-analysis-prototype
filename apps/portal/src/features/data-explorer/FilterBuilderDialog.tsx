@@ -129,16 +129,13 @@ export function FilterBuilderDialog({
   const base = useId();
   const [draft, setDraft] = useState<DraftItem[]>(() => toDraft(filters));
   const [refusals, setRefusals] = useState<Record<string, string>>({});
-  // The list rows whose values picker is open. Opening one is the billed gesture — the picker lists
-  // the column's values with a query — so a list row never mounts one on its own.
-  const [picking, setPicking] = useState<ReadonlySet<string>>(() => new Set());
-  const togglePicking = (id: string) =>
-    setPicking((open) => {
-      const next = new Set(open);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // The one list row whose values picker is open. Opening one is the billed gesture — the picker
+  // lists the column's values with a query — so it closes whenever the row stops being the thing
+  // the user pressed for: a new column or a non-list test would otherwise start a listing nobody
+  // asked for, and typed lines would reach the picker a keystroke at a time. One at a time keeps
+  // the picker's own controls (Search values, Select all shown) unique in the dialog.
+  const [picking, setPicking] = useState<string | null>(null);
+  const closePicker = (id: string) => setPicking((open) => (open === id ? null : open));
   // Finds the control to focus once the edit that set it has been committed. A ref rather than
   // state: nothing renders from it, and the effect below consumes it on that commit.
   const pendingFocus = useRef<(() => HTMLElement | null) | null>(null);
@@ -208,7 +205,10 @@ export function FilterBuilderDialog({
           aria-invalid={columnRefused || undefined}
           aria-describedby={columnRefused ? errorId : undefined}
           value={row.column}
-          onChange={(e) => edit(row.id, (r) => withColumn(r, e.target.value, operatorsOf(e.target.value)))}>
+          onChange={(e) => {
+            closePicker(row.id);
+            edit(row.id, (r) => withColumn(r, e.target.value, operatorsOf(e.target.value)));
+          }}>
           <option value="">Choose a column</option>
           {!listed && row.column !== '' && <option value={row.column}>{row.column}</option>}
           {offered.map((column) => (
@@ -224,7 +224,11 @@ export function FilterBuilderDialog({
             aria-label={`${label}: test`}
             className={SELECT_CLASS}
             value={row.operator}
-            onChange={(e) => edit(row.id, (r) => withOperator(r, e.target.value as FilterOperator))}>
+            onChange={(e) => {
+              const operator = e.target.value as FilterOperator;
+              if (!operatorTakesValues(operator)) closePicker(row.id);
+              edit(row.id, (r) => withOperator(r, operator));
+            }}>
             {shownOperators.map((operator) => (
               <option
                 key={operator}
@@ -263,18 +267,23 @@ export function FilterBuilderDialog({
               offersEmpty={draftValueKind(row, valueKindOf) === 'string'}
               offersNull={operatorListsNull(row.operator)}
               error={columnRefused ? null : refusal}
-              onChange={(next) => edit(row.id, (r) => ({...r, dirty: true, listField: next}))}
+              boxNamePrefix={label}
+              onChange={(next) => {
+                // Typing is the other way in: the picker closes rather than follow each keystroke.
+                if (next.text !== row.listField.text) closePicker(row.id);
+                edit(row.id, (r) => ({...r, dirty: true, listField: next}));
+              }}
             />
             {source && (
               <Button
                 size="sm"
-                aria-expanded={picking.has(row.id)}
+                aria-expanded={picking === row.id}
                 aria-label={`${label}: pick values`}
-                onClick={() => togglePicking(row.id)}>
-                {picking.has(row.id) ? 'Hide values' : 'Pick values'}
+                onClick={() => setPicking((open) => (open === row.id ? null : row.id))}>
+                Pick values
               </Button>
             )}
-            {source && picking.has(row.id) && (
+            {source && picking === row.id && (
               <div className="basis-full">
                 <FilterValuePicker
                   source={source}

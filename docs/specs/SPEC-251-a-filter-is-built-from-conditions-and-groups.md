@@ -227,7 +227,9 @@ an operator select and a value input:
   round-trip through it. SPEC-249's **Pick values** control sits beside it. That control mounts
   `FilterValuePicker` only when pressed, with no narrowing (`{filters: [], expression: null}`),
   because inside an OR group, narrowing one condition's values by its neighbours would hide the
-  values the OR exists to reach.
+  values the OR exists to reach. One row's picker is open at a time, and it closes when that row's
+  column changes, when its test leaves the list tests, or when a line is typed into its field — each
+  would otherwise start a listing nobody pressed for, or feed the picker a keystroke at a time.
 
 A new condition starts with no column chosen. Changing its operator keeps a single value across the
 single-value operators and keeps a list across the two list operators, as Order and filter does. A
@@ -271,8 +273,11 @@ Apply, unless the user removes it.
       included, after an Apply that changed a different condition.
 - [ ] With a legacy expression applied, an Apply from the builder keeps the expression in the
       statement.
-- [ ] Every control's accessible name says which condition or group it belongs to, and the open
-      dialog passes the axe check on the container the test drove.
+- [ ] Every control the builder renders is named for its condition or group, the list field's
+      (empty) and NULL boxes included, and with one row's picker open no two controls in the dialog
+      share a name. The open dialog passes the axe check on the container the test drove.
+- [ ] A row's picker closes when its column changes, when its test leaves the list tests, and when
+      a value is typed into its field.
 - [ ] Opening the builder over a filter with an **is one of** condition starts no execution.
       Pressing that row's **Pick values** mounts the picker with no narrowing.
 
@@ -369,7 +374,9 @@ docstring stops pointing at the expression bar.
 The **Filter and sort** guide (`explore-filter-sort` in `helpContent.ts`) describes **Filter rows…**,
 **all of these** / **any of these**, several conditions on one column, **is like** with its wildcards
 and its ignored capitals, the read-only SQL condition and its two controls, and **Open in Query** for
-what the builder cannot say. This spec's PR is rebased onto the Help session's
+what the builder cannot say — that last in *Save an exploration as a query*, because **Open in
+Query** is removed with the `query` flag and that guide is hidden with it, where *Filter and sort*
+is not (the gating rule at the top of `helpContent.ts`). This spec's PR is rebased onto the Help session's
 `help-dbeaver-vocabulary` branch after it merges. The guide keeps the LIKE / NOT LIKE / IN / NOT IN
 wording that branch's `help.test.tsx` check requires, and the step that branch adds, which sends a
 pattern of the user's own to the expression box, names **is like** instead. No guide mentions
@@ -392,8 +399,9 @@ people to shorten an expression.
       nothing, and the new `help.test.tsx` assertion fails when either phrase is planted in a guide.
 - [ ] Every hit of `grep -rn -i "expression bar\|expression box" docs/decisions docs/specs/ARCS.md`
       either carries a supersede marker or describes something other than the Data Explorer.
-- [ ] The guide names **Filter rows…**, **any of these**, **is like**, **Remove SQL condition** and
-      **Open in Query**, and `help.test.tsx` passes.
+- [ ] *Filter and sort* names **Filter rows…**, **any of these**, **is like** and **Remove SQL
+      condition**; *Save an exploration as a query* sends a SQL condition to **Open in Query**; and
+      `help.test.tsx` passes.
 - [ ] The SPEC-238 register entry's raw-LIKE rejection carries a supersede marker naming this spec,
       and the new entry and the Fences clause exist. `validate_docs.py` passes.
 - [ ] The inventory has no `ExpressionBar` row and has a `FilterBuilderDialog` row.

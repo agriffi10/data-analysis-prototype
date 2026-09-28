@@ -52,6 +52,8 @@ function lastSql(): string {
   return (calls[calls.length - 1][0] as {sql: string}).sql;
 }
 
+type User = ReturnType<typeof renderWithProviders>['user'];
+
 /** Renders the workspace, waits for the first rows, and opens Filter rows. */
 async function openBuilder() {
   const view = renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
@@ -156,6 +158,12 @@ describe('Filter rows', () => {
 
     await user.click(within(dialog).getByRole('button', {name: 'Add condition'}));
     expect(within(dialog).getByLabelText('Condition 1: column')).toHaveFocus();
+    await user.click(within(dialog).getByRole('button', {name: 'Add condition'}));
+    await user.selectOptions(within(dialog).getByLabelText('Condition 2: column'), 'qty');
+    await user.click(within(dialog).getByRole('button', {name: 'Remove condition 1'}));
+    // The row that took its place takes focus: once condition 2, now condition 1, on `qty`.
+    expect(within(dialog).getByLabelText('Condition 1: column')).toHaveFocus();
+    expect(within(dialog).getByLabelText('Condition 1: column')).toHaveDisplayValue('qty');
     await user.click(within(dialog).getByRole('button', {name: 'Add group'}));
     expect(within(dialog).getByLabelText('Group 1: match')).toHaveDisplayValue('any of these');
     await user.click(within(dialog).getByRole('button', {name: 'Add group to group 1'}));
@@ -173,12 +181,16 @@ describe('Filter rows', () => {
     // no longer has rides on another, and the legacy expression is never the builder's to touch.
     const list = {column: 'region', operator: 'in', values: ['EU'], valueKind: 'string', includesNull: true};
     const gone: FilterItem = {column: 'gone', operator: '>', value: '5', valueKind: 'number'};
+    // A second column the result no longer has, left alone, so the one criterion that is about an
+    // untouched unlisted row is met by a row nobody edited.
+    const alsoGone: FilterItem = {column: 'also_gone', operator: '=', value: 'x', valueKind: 'string'};
     seedTab({
       filters: [
         {column: 'qty', operator: '>', value: '5', valueKind: 'number'},
         {column: 'qty', operator: '<', value: '10', valueKind: 'number'},
         list as FilterItem,
-        gone
+        gone,
+        alsoGone
       ],
       expression: "state <> 'void'"
     });
@@ -193,13 +205,14 @@ describe('Filter rows', () => {
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(lastSql()).toContain(
-      `WHERE ("qty" > 5 AND "qty" < 10 AND ("region" IN ('EU') OR "region" IS NULL) AND "gone" > 6) AND (state <> 'void')`
+      `WHERE ("qty" > 5 AND "qty" < 10 AND ("region" IN ('EU') OR "region" IS NULL) AND "gone" > 6 AND "also_gone" = 'x') AND (state <> 'void')`
     );
     expect(stored().query.filters).toEqual([
       {column: 'qty', operator: '>', value: '5', valueKind: 'number'},
       {column: 'qty', operator: '<', value: '10', valueKind: 'number'},
       list,
-      {...gone, value: '6'}
+      {...gone, value: '6'},
+      alsoGone
     ]);
   });
 
@@ -254,5 +267,60 @@ describe('Filter rows', () => {
       .filter(isListing);
     expect(listing).not.toContain('WHERE');
     expect(lastSql()).toContain(`WHERE ("region" IN ('EU', 'US') AND "state" = 'NY')`);
+  });
+
+  it('names every control apart from every other, with two list rows and a picker open', async () => {
+    seedTab({
+      filters: [
+        {column: 'region', operator: 'in', values: ['EU'], valueKind: 'string'},
+        {column: 'state', operator: 'in', values: ['NY'], valueKind: 'string'}
+      ]
+    });
+    const {user, dialog} = await openBuilder();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Condition 2: pick values'}));
+    await within(dialog).findByRole('checkbox', {name: /^US,/});
+
+    // `getBy` throws on two matches, so each of these is a check that the name is unique.
+    for (const row of ['Condition 1', 'Condition 2']) {
+      expect(within(dialog).getByRole('checkbox', {name: `${row}: (empty)`})).toBeInTheDocument();
+      expect(within(dialog).getByRole('checkbox', {name: `${row}: NULL`})).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', {name: `${row}: pick values`})).toBeInTheDocument();
+    }
+    expect(within(dialog).getByRole('textbox', {name: 'Search values'})).toBeInTheDocument();
+    expect(within(dialog).queryAllByRole('checkbox', {name: '(empty)'})).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      trigger: 'its column changes',
+      act: (user: User, dialog: HTMLElement) =>
+        user.selectOptions(within(dialog).getByLabelText('Condition 1: column'), 'state')
+    },
+    {
+      trigger: 'its test leaves the list tests and comes back',
+      act: async (user: User, dialog: HTMLElement) => {
+        await user.selectOptions(within(dialog).getByLabelText('Condition 1: test'), '=');
+        await user.selectOptions(within(dialog).getByLabelText('Condition 1: test'), 'in');
+      }
+    },
+    {
+      trigger: 'a value is typed',
+      act: (user: User, dialog: HTMLElement) =>
+        user.type(within(dialog).getByLabelText('Condition 1: values, one per line'), 'X')
+    }
+  ])('closes a row’s picker when $trigger, so nothing lists what nobody asked for', async ({act}) => {
+    seedTab({filters: [{column: 'region', operator: 'in', values: ['EU'], valueKind: 'string'}]});
+    const {user, dialog} = await openBuilder();
+    await user.click(within(dialog).getByRole('button', {name: 'Condition 1: pick values'}));
+    expect(within(dialog).getByLabelText('Search values')).toBeInTheDocument();
+
+    await act(user, dialog);
+
+    expect(within(dialog).queryByLabelText('Search values')).toBeNull();
+    expect(within(dialog).getByRole('button', {name: 'Condition 1: pick values'})).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
   });
 });

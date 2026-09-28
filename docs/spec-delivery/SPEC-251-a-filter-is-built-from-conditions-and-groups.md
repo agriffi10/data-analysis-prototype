@@ -6,7 +6,9 @@
   conditions and groups by pointing, staged, and applies them as one execution. The top level
   matches all of its items; a group matches **all** or **any of these** and may hold one more level
   of groups. A list row carries SPEC-249's typed field and **Pick values**, which mounts
-  `FilterValuePicker` only when pressed, with no narrowing.
+  `FilterValuePicker` only when pressed, with no narrowing — one row at a time, closed when the
+  row's column, test or typed lines change. `FilterValuesField` gained `boxNamePrefix` so several
+  fields' (empty) and NULL boxes are named apart.
 - `ExplorationQuery.filters` is `FilterItem[]` (`ColumnFilter | FilterGroup`, told apart by
   `isFilterGroup`). The renderer brackets every group and renders a flat list byte for byte as
   before. Both stored-document gates accept groups two deep and refuse deeper, empty, badly joined
@@ -23,7 +25,8 @@
   `isFilteredAnywhere`, and Clear filter is refused with a reason when a column's conditions are all
   grouped. Order and filter shows "<n> conditions — change them in Filter rows" for a column with
   two or more, and re-sets only the columns it shows.
-- Help's *Filter and sort* guide, a `help.test.tsx` guard that no guide names the retired box, the
+- Help's *Filter and sort* guide, and a step in the `query`-gated *Save an exploration as a query*
+  guide for what the builder cannot say, a `help.test.tsx` guard that no guide names the retired box, the
   analytics register entry and its Fences clause, supersede markers in `analytics.md`,
   `browser.md` and `ARCS.md`, the inventory, and the live checks in `e2e.md` (§4.5, rows 8 and
   W–AA).
@@ -34,6 +37,8 @@
   later operator that needs one reaches all three inputs at once.
 - The notice is a named group ("Condition written in SQL") so its **Open in Query** can be told
   apart from the Options menu's control of the same name.
+- Chips are keyed by label and occurrence, not position, so removing one moves focus to a
+  different element, which a screen reader announces.
 
 ## What changed from earlier specs?
 

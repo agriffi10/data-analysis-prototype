@@ -152,6 +152,24 @@ export type ExplorationResultsRegionProps = {
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
 
+/**
+ * A key per chip that survives the removal of a chip before it: the label, and which of the chips
+ * reading alike it is.
+ *
+ * Not the position: keyed by position, removing a chip re-labels the next one in place, so focus
+ * stays on the same element and a screen reader that does not voice a changed name says nothing.
+ * Keyed this way, focus moves to a different element and is announced.
+ */
+function chipKeys(items: FilterItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const label = filterItemLabel(item);
+    const nth = seen.get(label) ?? 0;
+    seen.set(label, nth + 1);
+    return `${label}#${nth}`;
+  });
+}
+
 /** A filter chip's remove control, named for the whole label so a truncated chip is still read out. */
 function chipRemoveLabel(item: FilterItem): string {
   return `Remove filter: ${filterItemLabel(item)}`;
@@ -845,12 +863,11 @@ export function ExplorationResultsRegion({
             ref={chipsRef}
             className="min-w-0 flex-1">
             <ChipList ariaLabel="Filters">
-              {/* Keyed by position: nothing else is unique, since two items can read alike. */}
-              {query.filters.map((item, index) => (
+              {chipKeys(query.filters).map((key, index) => (
                 <Chip
-                  key={index}
-                  name={filterItemLabel(item)}
-                  removeLabel={chipRemoveLabel(item)}
+                  key={key}
+                  name={filterItemLabel(query.filters[index])}
+                  removeLabel={chipRemoveLabel(query.filters[index])}
                   onRemove={() => removeFilter(index)}
                 />
               ))}

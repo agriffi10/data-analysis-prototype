@@ -130,8 +130,12 @@ describe('the filter chips', () => {
     seedTab({filters: [STATE_NY, QTY_OVER_5, STATE_NY, CITY_SET]});
     const {user} = await renderSettled();
 
-    await user.click(screen.getByRole('button', {name: REMOVE_QTY}));
+    const qtyButton = screen.getByRole('button', {name: REMOVE_QTY});
+    await user.click(qtyButton);
     await waitFor(() => expect(screen.getAllByRole('button', {name: REMOVE_STATE})[1]).toHaveFocus());
+    // A DIFFERENT element takes focus, which is what a screen reader announces — the removed chip's
+    // button renamed in place would say nothing.
+    expect(document.activeElement).not.toBe(qtyButton);
     await user.click(screen.getByRole('button', {name: REMOVE_CITY}));
     await waitFor(() => expect(screen.getAllByRole('button', {name: REMOVE_STATE})[1]).toHaveFocus());
     await user.click(screen.getAllByRole('button', {name: REMOVE_STATE})[1]);

@@ -1950,14 +1950,16 @@ are for, and the hint under every pattern field says so. That matches the Colors
 
 **A stored expression is kept, not converted.** Turning free SQL into conditions needs a parser,
 and whatever it missed would vanish without a word. So `expression` stays in the model, renders as
-it always did, and shows verbatim beside the chips with **Remove SQL condition** and, under the
-`query` flag, **Open in Query**. Keeping the field's name means no stored document is rewritten and
+it always did, and shows verbatim beneath the filter row with **Remove SQL condition** and, under
+the `query` flag, **Open in Query**. Keeping the field's name means no stored document is rewritten and
 the saved-view line stays at version 1. A saved view that USES a group is refused whole by a page
 loaded before this change — never partly applied — and a flat one opens there as it always did.
 
 **What moved to Query.** Comparing two columns, a function such as `TRY_CAST` — the guide's advice
-for numbers in a CSV text column — and a case-sensitive match are SQL, and the guide sends them to
-**Open in Query**.
+for numbers in a CSV text column — and a case-sensitive match are SQL, and the guide that says so
+is *Save an exploration as a query*, since **Open in Query** goes with the `query` flag and that
+guide goes with it; *Filter and sort* stays flag-neutral. One row's picker is open at a time and
+closes when its row stops being what was pressed for, since each remount is a billed listing.
 
 **Rejected.** A top level that can be OR; groups nested without a bound; parsing a stored expression
 into conditions; the menus editing conditions inside a group; an escape character for `is like`.
