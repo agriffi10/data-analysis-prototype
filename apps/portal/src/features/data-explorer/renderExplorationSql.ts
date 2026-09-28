@@ -7,7 +7,8 @@ import type {
   ExplorationSource,
   Grouping,
   GroupingAggregate,
-  SortEntry
+  SortEntry,
+  ValuesNarrowing
 } from './dataExplorer.types';
 
 /**
@@ -416,5 +417,37 @@ export function renderExplorationSql(source: ExplorationSource, query: Explorati
 
   // No trailing semicolon: this string is handed to StartQueryExecution, not to an
   // editor, and Athena rejects a batch.
+  return parts.join('\n');
+}
+
+/**
+ * The statement that lists one column's values, most common first, for the values picker.
+ *
+ * Built from the same `renderFrom` and `renderWhere` as an exploration, so its quoting and its
+ * parenthesisation are the exploration's own. The narrowing is used whole: which filters and
+ * which expression narrow the list is the CALLER's decision, since a menu means "the rows the
+ * other filters leave" and a condition inside an OR group must not be narrowed by its siblings.
+ *
+ * The third column counts every value with a window over the grouped rows, which scans nothing
+ * more — so a list cut at the cap can still say how many values there are. Ordinals in the
+ * `GROUP BY` and `ORDER BY` mean a source column called `value` or `row_count` cannot be
+ * mistaken for an output alias, and the ties break by value with NULL last so the list reads
+ * the same every time.
+ *
+ * @param source - Where the rows come from.
+ * @param narrowing - The filters and expression the listed rows must satisfy.
+ * @param column - The column whose values are listed.
+ * @returns The rendered statement, with no trailing semicolon.
+ * @throws ExplorationRenderError - A narrowing filter cannot be rendered (a caller bug).
+ */
+export function renderColumnValuesSql(source: ExplorationSource, narrowing: ValuesNarrowing, column: string): string {
+  const identifier = sqlIdentifier(column);
+  const parts = [
+    `SELECT ${identifier} AS "value", COUNT(*) AS "row_count", COUNT(*) OVER () AS "value_count"`,
+    `FROM ${renderFrom(source)}`
+  ];
+  const where = renderWhere(narrowing.filters, narrowing.expression);
+  if (where) parts.push(`WHERE ${where}`);
+  parts.push('GROUP BY 1', 'ORDER BY 2 DESC, 1 ASC NULLS LAST', `LIMIT ${EXPLORER_FILTER_VALUES_MAX}`);
   return parts.join('\n');
 }

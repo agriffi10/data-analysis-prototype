@@ -27,6 +27,8 @@ export type ExplorationGridProps = {
   formatting: PageFormatting;
   /** A comparison was chosen and needs a value; the REGION raises the dialog, not the header. */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
+  /** Opens the values picker for a column, from its header menu. */
+  onFilterByValue: (column: string) => void;
   /** A header drag started (the column) or ended (null) — for drop targets outside the grid. */
   onColumnDrag?: (name: string | null) => void;
   /**
@@ -62,6 +64,7 @@ export function ExplorationGrid({
   actions,
   formatting,
   onRequestFilterValue,
+  onFilterByValue,
   onColumnDrag,
   onCopy,
   gridRef
@@ -151,6 +154,7 @@ export function ExplorationGrid({
           onSelectColumn={selection.selectColumn}
           actions={actions}
           onRequestFilterValue={onRequestFilterValue}
+          onFilterByValue={onFilterByValue}
           onHideColumn={hideColumn}
           hideRefusal={geometry.hideRefusal}
         />

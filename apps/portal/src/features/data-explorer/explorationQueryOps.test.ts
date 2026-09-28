@@ -128,7 +128,13 @@ describe('readListField — the lines and the two boxes as one list', () => {
     ['NULL where the operator cannot list it', field('', false, true), 'string', 'notIn', {refusal: NO_VALUES_REFUSAL}],
     ['(empty) on a number column', field('', true), 'number', 'in', {refusal: NO_VALUES_REFUSAL}],
     ['a line, (empty) and NULL', field('a', true, true), 'string', 'in', {values: ['a', ''], includesNull: true}],
-    ['1,000 lines plus (empty)', field(lines(EXPLORER_FILTER_VALUES_MAX), true), 'string', 'in', {refusal: TOO_MANY_VALUES_REFUSAL}],
+    [
+      '1,000 lines plus (empty)',
+      field(lines(EXPLORER_FILTER_VALUES_MAX), true),
+      'string',
+      'in',
+      {refusal: TOO_MANY_VALUES_REFUSAL}
+    ],
     [
       '999 lines plus (empty) plus NULL',
       field(lines(EXPLORER_FILTER_VALUES_MAX - 1), true, true),
@@ -215,7 +221,11 @@ describe('filterChipLabel', () => {
       {column: 'c', operator: 'in', values: ['b', '', 'a'], includesNull: true},
       'c is one of (empty), “a”, “b” and 1 more'
     ],
-    ['a short list naming NULL', {column: 'c', operator: 'in', values: ['a'], includesNull: true}, 'c is one of “a”, NULL'],
+    [
+      'a short list naming NULL',
+      {column: 'c', operator: 'in', values: ['a'], includesNull: true},
+      'c is one of “a”, NULL'
+    ],
     ['spaces kept visible', {column: 'name', operator: '=', value: ' x '}, 'name equals “ x ”']
   ])('words %s', (_case, filter, label) => {
     expect(filterChipLabel(filter)).toBe(label);

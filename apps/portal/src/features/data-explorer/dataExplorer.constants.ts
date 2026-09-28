@@ -260,7 +260,13 @@ export const FILTER_OPERATOR_SPECS: Record<FilterOperator, FilterOperatorSpec> =
   '<': {label: 'less than', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
   '<=': {label: 'less than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
   contains: {label: 'contains', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
-  notContains: {label: 'does not contain', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  notContains: {
+    label: 'does not contain',
+    takes: 'value',
+    offeredOn: 'text',
+    valueKindApplies: false,
+    listsNull: false
+  },
   startsWith: {label: 'starts with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
   endsWith: {label: 'ends with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
   in: {label: 'is one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true, listsNull: true},
