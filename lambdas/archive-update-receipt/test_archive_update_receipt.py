@@ -158,6 +158,7 @@ class _FakeS3:
 def _install(**kwargs):
     fake = _FakeS3(**kwargs)
     clients._s3 = fake
+    clients._s3_bounded = fake
     return fake
 
 

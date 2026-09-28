@@ -80,6 +80,7 @@ class _FakeS3:
 def _install(**kwargs):
     fake = _FakeS3(**kwargs)
     clients._s3 = fake
+    clients._s3_bounded = fake
     return fake
 
 
@@ -261,3 +262,14 @@ def test_an_entry_that_cannot_be_built_costs_the_label_and_nothing_else():
     assert index_store.record_archive(BUCKET, KEY, _broken) is False
 
     assert fake.put_attempts == 0
+
+
+def test_the_index_stops_starting_calls_once_its_deadline_has_passed(monkeypatch):
+    """A stall is not a fault, so nothing would catch it: the loop must give up on the clock."""
+    clock = iter(range(1000))
+    monkeypatch.setattr(index_store.time, "monotonic", lambda: next(clock))
+    fake = _install(put_error=_ClientError("PreconditionFailed", 412))
+
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry()) is False
+
+    assert 0 < fake.put_attempts < cas.MAX_ATTEMPTS

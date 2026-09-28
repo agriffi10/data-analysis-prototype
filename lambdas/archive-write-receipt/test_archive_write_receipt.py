@@ -91,6 +91,7 @@ class _FakeS3:
 def _install(error=None, index_error=None):
     fake = _FakeS3(error, index_error)
     clients._s3 = fake
+    clients._s3_bounded = fake
     return fake
 
 

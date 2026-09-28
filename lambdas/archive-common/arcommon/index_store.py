@@ -24,6 +24,14 @@ other read fault, a 403 above all, raises into the caller's catch rather than be
 absence: the conditional write would refuse the overwrite anyway, but a fault is not a reason to
 try.
 
+**Every call is bounded in time as well as swallowed, because a stall is not a fault.** A read
+that never answers raises nothing for the swallow to catch; it holds the verb until its Lambda
+timeout, which fails a run whose archive or restore has already happened. So the index uses
+``cpcommon.clients.s3_bounded`` and the whole compare-and-swap gives up once
+``INDEX_DEADLINE_SECONDS`` have passed — checked before each call, so the worst case is the
+deadline plus one bounded call, and ``test_the_index_path_cannot_outlast_the_verbs_that_run_it``
+holds that under both verbs' timeouts.
+
 **Serialized unescaped, with compact separators, and that is paired with the entry cap.** The
 browser fetches the whole document through the object content route, whose stored cap and
 Lambda's response ceiling both bind; escaped, a full index of worst-case entries passed both.
@@ -38,12 +46,15 @@ Attributes:
     with an ellipsis. A key may be 1,024 bytes; a row shows a fraction of that.
   ELLIPSIS: What a cut path ends with.
   RESTORE_STATUSES: The three stages ``update-receipt`` records, and nothing else.
+  INDEX_DEADLINE_SECONDS: How long one compare-and-swap may keep starting calls before it gives
+    up and leaves the archive unlabelled.
   _CORRUPT: The reading of a document that is not a version-1 index.
   _NEWER: The reading of a document written by a newer build.
 """
 
 import json
 import logging
+import time
 from datetime import UTC, datetime
 
 from cpcommon import cas, clients, errors
@@ -61,6 +72,8 @@ ITEM_PATH_MAX_CHARS = 200
 ELLIPSIS = "…"
 
 RESTORE_STATUSES = frozenset({"requested", "restored", "incomplete"})
+
+INDEX_DEADLINE_SECONDS = 5
 
 _CORRUPT = object()
 
@@ -160,7 +173,7 @@ def _read(bucket: str, key: str) -> tuple:
         than writing over a document it could not see.
     """
     try:
-        stored = clients.s3().get_object(Bucket=bucket, Key=key)
+        stored = clients.s3_bounded().get_object(Bucket=bucket, Key=key)
     except Exception as err:
         if _is_absent(err):
             return None, None
@@ -203,7 +216,7 @@ def _write(bucket: str, key: str, document: dict, etag: str | None) -> None:
         kwargs["IfNoneMatch"] = "*"
     else:
         kwargs["IfMatch"] = etag
-    clients.s3().put_object(**kwargs)
+    clients.s3_bounded().put_object(**kwargs)
 
 
 def _mutate(bucket: str, key: str, apply, archive_id) -> bool:
@@ -223,11 +236,29 @@ def _mutate(bucket: str, key: str, apply, archive_id) -> bool:
     Raises:
       None.
     """
+    deadline = time.monotonic() + INDEX_DEADLINE_SECONDS
+
+    def _in_time(call):
+        """Refuses to start another call once the deadline has passed.
+
+        Args:
+          call: The call to make.
+
+        Returns:
+          What the call returns.
+
+        Raises:
+          TimeoutError: When the deadline has passed; the caller below swallows it.
+        """
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"the archive index at {bucket}/{key} ran out of time")
+        return call()
+
     try:
         cas.cas_mutate(
-            lambda: _read(bucket, key),
+            lambda: _in_time(lambda: _read(bucket, key)),
             apply,
-            lambda document, etag: _write(bucket, key, document, etag),
+            lambda document, etag: _in_time(lambda: _write(bucket, key, document, etag)),
             label=f"{bucket}/{key}",
             on_conflict=lambda attempt: logger.info(
                 "archive index %s/%s changed under us (attempt %d)", bucket, key, attempt
