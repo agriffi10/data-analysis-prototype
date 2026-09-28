@@ -24,6 +24,7 @@ import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
 import {ExpressionBar} from './ExpressionBar';
+import {FilterBuilderDialog} from './FilterBuilderDialog';
 import {FilterValueDialog} from './FilterValueDialog';
 import {FilterHistoryControls} from './FilterHistoryControls';
 import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
@@ -268,6 +269,7 @@ export function ExplorationResultsRegion({
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [groupingOpen, setGroupingOpen] = useState(false);
   const [coloursOpen, setColoursOpen] = useState(false);
@@ -832,25 +834,33 @@ export function ExplorationResultsRegion({
         inputRef={expressionInputRef}
       />
 
-      {/* The column filters the menus set, which the expression box never shows. They apply
-          together with it, and each chip removes its own filter as one apply. */}
-      {query.filters.length > 0 && (
-        <div
-          ref={chipsRef}
-          className="flex-none">
-          <ChipList ariaLabel="Column filters">
-            {/* Keyed by position: nothing else is unique, since two items can read alike. */}
-            {query.filters.map((item, index) => (
-              <Chip
-                key={index}
-                name={filterItemLabel(item)}
-                removeLabel={chipRemoveLabel(item)}
-                onRemove={() => removeFilter(index)}
-              />
-            ))}
-          </ChipList>
-        </div>
-      )}
+      {/* The filter row: the way into the builder, whatever the results are doing — a failed
+          apply has to leave the user somewhere they can correct it — and the applied filter as
+          chips, one per top-level item, each removing its own item as one apply. */}
+      <div className="flex flex-none flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          onClick={() => setBuilderOpen(true)}>
+          Filter rows…
+        </Button>
+        {query.filters.length > 0 && (
+          <div
+            ref={chipsRef}
+            className="min-w-0 flex-1">
+            <ChipList ariaLabel="Column filters">
+              {/* Keyed by position: nothing else is unique, since two items can read alike. */}
+              {query.filters.map((item, index) => (
+                <Chip
+                  key={index}
+                  name={filterItemLabel(item)}
+                  removeLabel={chipRemoveLabel(item)}
+                  onRemove={() => removeFilter(index)}
+                />
+              ))}
+            </ChipList>
+          </div>
+        )}
+      </div>
 
       {/* Available whether or not grouping is active: the Explorer writes SQL
           the user did not, grouped or otherwise, and every statement it writes is a bill. */}
@@ -934,6 +944,21 @@ export function ExplorationResultsRegion({
           onApply={(transformers) => {
             setTransformersOpen(false);
             setFormatting({transformers});
+          }}
+        />
+      )}
+
+      {builderOpen && (
+        <FilterBuilderDialog
+          // The SOURCE's columns while grouping is in force, by the Grouping panel's rule: a filter
+          // is a WHERE, and the result's columns are the grouping's by then.
+          columns={query.grouping ? schemaColumns : geometry.all}
+          queryRefusalOf={actions.queryRefusalOf}
+          filters={query.filters}
+          onCancel={() => setBuilderOpen(false)}
+          onApply={(filters) => {
+            setBuilderOpen(false);
+            apply({filters});
           }}
         />
       )}
