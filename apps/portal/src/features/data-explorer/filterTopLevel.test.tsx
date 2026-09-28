@@ -3,6 +3,7 @@ import {screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {chooseExplorationOption} from './explorationOptions.testkit';
+import {isListing} from './columnValues.testkit';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
@@ -11,7 +12,7 @@ import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.servi
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState, FilterItem} from './dataExplorer.types';
 
-// The single-filter surfaces — a column's menu, its value dialog, Filter by this value, and Order
+// The single-filter surfaces — a column's menu, its value dialog, Filter by value…, and Order
 // and filter — edit a column's TOP-LEVEL conditions and never reach into a group, and each surface
 // that takes a pattern says what its wildcards mean.
 
@@ -81,23 +82,37 @@ beforeEach(() => {
   vi.mocked(readSharedConnectionsCache).mockResolvedValue(ok({version: 1, connections: []}) as never);
   vi.mocked(getDatabase).mockResolvedValue(ok({name: 'alice'}) as never);
   vi.mocked(listTables).mockResolvedValue(ok([{name: 'orders', tableType: 'EXTERNAL_TABLE', columns: []}]) as never);
-  let seq = 0;
-  vi.mocked(runQuery).mockImplementation((async () => {
-    seq += 1;
-    return ok({queryExecutionId: `exec-${seq}`});
+  const sqlOf = new Map<string, string>();
+  vi.mocked(runQuery).mockImplementation((async ({sql}: {sql: string}) => {
+    const queryExecutionId = `exec-${sqlOf.size + 1}`;
+    sqlOf.set(queryExecutionId, sql);
+    return ok({queryExecutionId});
   }) as never);
   vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
     ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
-  vi.mocked(getQueryResults).mockResolvedValue(
-    ok({
-      columns: [
-        {name: 'qty', type: 'integer'},
-        {name: 'status', type: 'varchar'},
-        {name: 'name', type: 'varchar'}
-      ],
-      rows: [['7', 'open', 'Acme']]
-    }) as never
-  );
+  // A values listing answers with its own shape: `[value, row_count, value_count]`.
+  vi.mocked(getQueryResults).mockImplementation((async ({queryExecutionId}: {queryExecutionId: string}) =>
+    isListing(sqlOf.get(queryExecutionId) ?? '')
+      ? ok({
+          columns: [
+            {name: 'value', type: 'integer'},
+            {name: 'row_count', type: 'bigint'},
+            {name: 'value_count', type: 'bigint'}
+          ],
+          // Two values, so ticking one is a filter: every value ticked clears the column's filter.
+          rows: [
+            ['7', '1', '2'],
+            ['9', '1', '2']
+          ]
+        })
+      : ok({
+          columns: [
+            {name: 'qty', type: 'integer'},
+            {name: 'status', type: 'varchar'},
+            {name: 'name', type: 'varchar'}
+          ],
+          rows: [['7', 'open', 'Acme']]
+        })) as never);
 });
 
 afterEach(() => {
@@ -140,15 +155,19 @@ describe('the column menu edits the top level only', () => {
     );
   });
 
-  it('leaves one top-level condition from Filter by this value on a column that had two', async () => {
+  it('leaves one top-level condition from Filter by value… on a column that had two', async () => {
     seedTab([QTY_OVER_5, QTY_OVER_0]);
     const {user} = await renderSettled();
     await user.click(screen.getAllByRole('gridcell')[0]);
+    await chooseExplorationOption(user, 'Filter by value…');
+    const dialog = await screen.findByRole('dialog', {name: 'Filter qty by value'});
+    await within(dialog).findByText('7');
 
-    await chooseExplorationOption(user, 'Filter by this value');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply filter'}));
 
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    expect(storedFilters()).toEqual([{column: 'qty', operator: '=', value: '7', valueKind: 'number'}]);
+    await waitFor(() =>
+      expect(storedFilters()).toEqual([{column: 'qty', operator: 'in', values: ['7'], valueKind: 'number'}])
+    );
   });
 });
 

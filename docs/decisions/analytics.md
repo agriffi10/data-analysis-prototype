@@ -1932,7 +1932,9 @@ all grouped.
 condition beside its draft and returns it whole unless the row changed, so a field the builder does
 not show survives an edit elsewhere; SPEC-249's `includesNull` is the case in view. A changed row on
 a column the result no longer lists keeps the stored `valueKind`, since a type lookup there falls
-back to text and would quote a number.
+back to text and would quote a number. A list row's **Pick values** mounts SPEC-249's picker only
+when pressed, because mounting is the billed listing, and passes it no narrowing, since the builder
+cannot know until Apply which neighbours a row is ANDed with.
 
 **A flat filter renders byte for byte as before.** Nothing is cached across a deploy — the execution
 cache is in memory and so is the record of failed statements — so this is not about the cache; it

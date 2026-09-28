@@ -3,11 +3,13 @@ import {Button} from '../../components/Button';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {SELECT_CLASS} from './dataExplorer.constants';
+import {FilterValuePicker} from './FilterValuePicker';
 import {FilterValuesField} from './FilterValuesField';
 import {
   FILTER_OPERATOR_LABELS,
   filterValueKind,
   operatorHint,
+  operatorListsNull,
   operatorTakesValue,
   operatorTakesValues,
   operatorUsesValueKind,
@@ -17,9 +19,11 @@ import {
   addItem,
   draftValueKind,
   emptyCondition,
+  fieldOfSelection,
   fromDraft,
   newGroup,
   removeItem,
+  selectionOfField,
   toDraft,
   updateItem,
   withColumn,
@@ -27,7 +31,7 @@ import {
 } from './filterBuilderDraft';
 import type {DraftCondition, DraftGroup, DraftItem} from './filterBuilderDraft';
 import type {QueryColumn} from '../catalog/catalog.types';
-import type {FilterItem, FilterJoin, FilterOperator} from './dataExplorer.types';
+import type {ExplorationSource, FilterItem, FilterJoin, FilterOperator, ValuesNarrowing} from './dataExplorer.types';
 
 export type FilterBuilderDialogProps = {
   /** The columns a condition may test: the source's, hidden ones included. */
@@ -36,9 +40,20 @@ export type FilterBuilderDialogProps = {
   queryRefusalOf: (column: string) => string | null;
   /** The applied filter, which the draft starts from. */
   filters: FilterItem[];
+  /** Where the rows come from, which the values picker lists a column's values over; null offers no picker. */
+  source: ExplorationSource | null;
   onApply: (filters: FilterItem[]) => void;
   onCancel: () => void;
 };
+
+/**
+ * What narrows the values a builder row's picker lists: nothing.
+ *
+ * Inside an OR group, narrowing one condition's values by its neighbours would hide exactly the
+ * values the OR exists to reach, and the builder cannot tell which neighbours a row is ANDed with
+ * until Apply.
+ */
+const NO_NARROWING: ValuesNarrowing = {filters: [], expression: null};
 
 /** What a group's select calls each join. */
 const JOIN_LABELS: Record<FilterJoin, string> = {and: 'all of these', or: 'any of these'};
@@ -103,10 +118,27 @@ function focusAfterRemoval(base: string, siblings: DraftItem[], index: number, c
  * **No field submits on Enter**, as in Order and filter: every field is one row of many, and a row
  * mid-edit filing the whole dialog is what `FormDialog`'s suppression exists to prevent.
  */
-export function FilterBuilderDialog({columns, queryRefusalOf, filters, onApply, onCancel}: FilterBuilderDialogProps) {
+export function FilterBuilderDialog({
+  columns,
+  queryRefusalOf,
+  filters,
+  source,
+  onApply,
+  onCancel
+}: FilterBuilderDialogProps) {
   const base = useId();
   const [draft, setDraft] = useState<DraftItem[]>(() => toDraft(filters));
   const [refusals, setRefusals] = useState<Record<string, string>>({});
+  // The list rows whose values picker is open. Opening one is the billed gesture — the picker lists
+  // the column's values with a query — so a list row never mounts one on its own.
+  const [picking, setPicking] = useState<ReadonlySet<string>>(() => new Set());
+  const togglePicking = (id: string) =>
+    setPicking((open) => {
+      const next = new Set(open);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Finds the control to focus once the edit that set it has been committed. A ref rather than
   // state: nothing renders from it, and the effect below consumes it on that commit.
   const pendingFocus = useRef<(() => HTMLElement | null) | null>(null);
@@ -222,14 +254,42 @@ export function FilterBuilderDialog({columns, queryRefusalOf, filters, onApply, 
           </span>
         )}
         {row.operator !== '' && operatorTakesValues(row.operator) && (
-          <FilterValuesField
-            className="basis-full"
-            label={`${label}: values, one per line`}
-            labelHidden
-            value={row.listText}
-            error={columnRefused ? null : refusal}
-            onChange={(next) => edit(row.id, (r) => ({...r, dirty: true, listText: next}))}
-          />
+          <>
+            <FilterValuesField
+              className="basis-full"
+              label={`${label}: values, one per line`}
+              labelHidden
+              value={row.listField}
+              offersEmpty={draftValueKind(row, valueKindOf) === 'string'}
+              offersNull={operatorListsNull(row.operator)}
+              error={columnRefused ? null : refusal}
+              onChange={(next) => edit(row.id, (r) => ({...r, dirty: true, listField: next}))}
+            />
+            {source && (
+              <Button
+                size="sm"
+                aria-expanded={picking.has(row.id)}
+                aria-label={`${label}: pick values`}
+                onClick={() => togglePicking(row.id)}>
+                {picking.has(row.id) ? 'Hide values' : 'Pick values'}
+              </Button>
+            )}
+            {source && picking.has(row.id) && (
+              <div className="basis-full">
+                <FilterValuePicker
+                  source={source}
+                  column={row.column}
+                  valueKind={draftValueKind(row, valueKindOf)}
+                  operator={row.operator === 'notIn' ? 'notIn' : 'in'}
+                  narrowing={NO_NARROWING}
+                  selection={selectionOfField(row.listField, draftValueKind(row, valueKindOf))}
+                  onSelectionChange={(next) =>
+                    edit(row.id, (r) => ({...r, dirty: true, listField: fieldOfSelection(next)}))
+                  }
+                />
+              </div>
+            )}
+          </>
         )}
         {columnRefused && (
           <p

@@ -1,15 +1,23 @@
 import {isFilterGroup, newExplorationId} from './exploration';
 import {
   EMPTY_TEXT_REFUSAL,
-  filterValuesText,
+  listFieldOf,
   operatorTakesValue,
   operatorTakesValues,
   operatorUsesValueKind,
-  parseFilterValues
+  readListField
 } from './explorationQueryOps';
+import type {ListFieldValue} from './explorationQueryOps';
 import {isBareNumeric} from './renderExplorationSql';
 import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
-import type {ColumnFilter, FilterItem, FilterJoin, FilterOperator, FilterValueKind} from './dataExplorer.types';
+import type {
+  ColumnFilter,
+  FilterItem,
+  FilterJoin,
+  FilterOperator,
+  FilterValueKind,
+  ValueSelection
+} from './dataExplorer.types';
 
 // The builder's staged draft, and every edit it makes, kept pure and apart from the dialog so the
 // dialog only renders and dispatches. A draft item carries an `id` the stored filter does not —
@@ -29,8 +37,11 @@ export type DraftCondition = {
   /** Empty until a column is chosen, which picks the column's first operator. */
   operator: FilterOperator | '';
   value: string;
-  /** A list operator's one-per-line text, held raw so a half-typed line survives until Apply. */
-  listText: string;
+  /**
+   * A list operator's field: its lines held raw, so a half-typed line survives until Apply, and
+   * the (empty) and NULL boxes the lines cannot hold.
+   */
+  listField: ListFieldValue;
 };
 
 /** One group as the builder holds it. */
@@ -61,7 +72,7 @@ function toDraftItem(item: FilterItem): DraftItem {
     column: item.column,
     operator: item.operator,
     value: item.value ?? '',
-    listText: filterValuesText(item.values ?? [])
+    listField: listFieldOf(item)
   };
 }
 
@@ -92,7 +103,7 @@ export function emptyCondition(): DraftCondition {
     column: '',
     operator: '',
     value: '',
-    listText: ''
+    listField: listFieldOf(null)
   };
 }
 
@@ -204,8 +215,8 @@ function conditionOf(
   const valueKind = draftValueKind(row, valueKindOf);
   const base: ColumnFilter = {column: row.column, operator: row.operator, valueKind};
   if (operatorTakesValues(row.operator)) {
-    const parsed = parseFilterValues(row.listText, valueKind);
-    return 'refusal' in parsed ? parsed : {filter: {...base, values: parsed.values}};
+    const read = readListField(row.listField, valueKind, row.operator);
+    return 'refusal' in read ? read : {filter: {...base, ...read}};
   }
   if (!operatorTakesValue(row.operator)) return {filter: base};
   if (!operatorUsesValueKind(row.operator)) {
@@ -250,4 +261,39 @@ export function fromDraft(
     });
   const filters = build(items);
   return Object.keys(refusals).length > 0 ? {refusals} : {filters};
+}
+
+/**
+ * A list row's field as the values picker's selection: the lines, and the empty string where its
+ * box is ticked.
+ *
+ * The lines are split as the list reader splits them and not refused here — the picker only ticks
+ * what it lists, and Apply still reads the field through `readListField`, which is where a bad
+ * line is refused.
+ *
+ * @param field - The row's list field.
+ * @param valueKind - How the column's values reach the SQL; a number's line is trimmed.
+ * @returns The selection the picker starts from.
+ */
+export function selectionOfField(field: ListFieldValue, valueKind: FilterValueKind): ValueSelection {
+  const lines = field.text
+    .split(/\r\n|\r|\n/)
+    .map((line) => (valueKind === 'number' ? line.trim() : line))
+    .filter((line) => line !== '');
+  const values = [...new Set(lines)];
+  return {values: field.empty ? [...values, ''] : values, includesNull: field.includesNull};
+}
+
+/**
+ * The picker's selection written back into a list row's field.
+ *
+ * @param selection - What the picker has ticked.
+ * @returns The lines one per value, and the (empty) and NULL boxes.
+ */
+export function fieldOfSelection(selection: ValueSelection): ListFieldValue {
+  return {
+    text: selection.values.filter((value) => value !== '').join('\n'),
+    empty: selection.values.includes(''),
+    includesNull: selection.includesNull
+  };
 }

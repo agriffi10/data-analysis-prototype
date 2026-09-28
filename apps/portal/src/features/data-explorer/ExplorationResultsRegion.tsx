@@ -965,6 +965,7 @@ export function ExplorationResultsRegion({
           columns={query.grouping ? schemaColumns : geometry.all}
           queryRefusalOf={actions.queryRefusalOf}
           filters={query.filters}
+          source={source}
           onCancel={() => setBuilderOpen(false)}
           onApply={(filters) => {
             setBuilderOpen(false);

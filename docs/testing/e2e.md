@@ -745,6 +745,7 @@ statement that begins `SELECT "<column>" AS "value"`.
 | X | Click the group chip's **×** | **1** execution, more rows than W, and focus on the chip left. |
 | Y | On a text column, **Filter: is like…** | The hint under **Value** says what `%` and `_` do. Type `A%` → **Apply filter**: **1** execution, rows starting with `a` or `A`, and **Generated SQL** reads `lower("<column>") LIKE lower('A%')`. |
 | Z | **Options → Order and filter** on a tab with two conditions on one column, built in **Filter rows…** | That column reads "2 conditions — change them in Filter rows". Change another column's sort → **Apply**: **1** execution, both conditions still chips. |
+| AA | On a filtered tab, **Filter rows…** → a condition with **is one of** → **Pick values** | **Zero** listings until the press, then **1**, and its statement has **no** `WHERE` — the builder does not narrow. Tick a value → **Apply**: **1** execution. |
 
 ### 4.6 Data quality
 

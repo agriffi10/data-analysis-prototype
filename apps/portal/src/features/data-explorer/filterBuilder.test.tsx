@@ -4,6 +4,7 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
+import {isListing} from './columnValues.testkit';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
@@ -68,23 +69,36 @@ beforeEach(() => {
   vi.mocked(readSharedConnectionsCache).mockResolvedValue(ok({version: 1, connections: []}) as never);
   vi.mocked(getDatabase).mockResolvedValue(ok({name: 'alice'}) as never);
   vi.mocked(listTables).mockResolvedValue(ok([{name: 'orders', tableType: 'EXTERNAL_TABLE', columns: []}]) as never);
-  let seq = 0;
-  vi.mocked(runQuery).mockImplementation((async () => {
-    seq += 1;
-    return ok({queryExecutionId: `exec-${seq}`});
+  const sqlOf = new Map<string, string>();
+  vi.mocked(runQuery).mockImplementation((async ({sql}: {sql: string}) => {
+    const queryExecutionId = `exec-${sqlOf.size + 1}`;
+    sqlOf.set(queryExecutionId, sql);
+    return ok({queryExecutionId});
   }) as never);
   vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
     ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048, engineExecutionTimeMillis: 120})) as never);
-  vi.mocked(getQueryResults).mockResolvedValue(
-    ok({
-      columns: [
-        {name: 'state', type: 'varchar'},
-        {name: 'region', type: 'varchar'},
-        {name: 'qty', type: 'integer'}
-      ],
-      rows: [['NY', 'EU', '9']]
-    }) as never
-  );
+  // A values listing answers with its own shape: `[value, row_count, value_count]`.
+  vi.mocked(getQueryResults).mockImplementation((async ({queryExecutionId}: {queryExecutionId: string}) =>
+    isListing(sqlOf.get(queryExecutionId) ?? '')
+      ? ok({
+          columns: [
+            {name: 'value', type: 'varchar'},
+            {name: 'row_count', type: 'bigint'},
+            {name: 'value_count', type: 'bigint'}
+          ],
+          rows: [
+            ['EU', '5', '2'],
+            ['US', '4', '2']
+          ]
+        })
+      : ok({
+          columns: [
+            {name: 'state', type: 'varchar'},
+            {name: 'region', type: 'varchar'},
+            {name: 'qty', type: 'integer'}
+          ],
+          rows: [['NY', 'EU', '9']]
+        })) as never);
 });
 
 afterEach(() => {
@@ -179,7 +193,7 @@ describe('Filter rows', () => {
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(lastSql()).toContain(
-      `WHERE ("qty" > 5 AND "qty" < 10 AND "region" IN ('EU') AND "gone" > 6) AND (state <> 'void')`
+      `WHERE ("qty" > 5 AND "qty" < 10 AND ("region" IN ('EU') OR "region" IS NULL) AND "gone" > 6) AND (state <> 'void')`
     );
     expect(stored().query.filters).toEqual([
       {column: 'qty', operator: '>', value: '5', valueKind: 'number'},
@@ -213,5 +227,32 @@ describe('Filter rows', () => {
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(lastSql()).not.toContain('WHERE');
+  });
+
+  it('lists a list row’s values only when asked, unnarrowed, and applies what is ticked', async () => {
+    // A top-level `state` condition sits beside the list: the picker must not narrow by it, since
+    // inside an OR group a neighbour's narrowing would hide the values the OR exists to reach.
+    seedTab({
+      filters: [
+        {column: 'region', operator: 'in', values: ['EU'], valueKind: 'string'},
+        {column: 'state', operator: '=', value: 'NY', valueKind: 'string'}
+      ]
+    });
+    const {user, dialog} = await openBuilder();
+    // Mounted is billed, so the picker is not there until asked for — its search field renders the
+    // moment it mounts, which makes this absence a check on the mount rather than on the data.
+    expect(within(dialog).queryByLabelText('Search values')).toBeNull();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Condition 1: pick values'}));
+    await user.click(await within(dialog).findByRole('checkbox', {name: /^US,/}));
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
+    const [listing] = vi
+      .mocked(runQuery)
+      .mock.calls.map(([call]) => (call as {sql: string}).sql)
+      .filter(isListing);
+    expect(listing).not.toContain('WHERE');
+    expect(lastSql()).toContain(`WHERE ("region" IN ('EU', 'US') AND "state" = 'NY')`);
   });
 });

@@ -51,7 +51,9 @@ Read from the code at `8a628382`.
 - **The surfaces that set filters.** The column menu (`ColumnFilterMenu.tsx`), its value dialog
   (`FilterValueDialog.tsx`), **Filter by this value**, **Order and filter** (`OrderFilterDialog.tsx`,
   one operator select per column), the chips (`ExplorationResultsRegion.tsx`), **Remove all filters
-  and sorts** and Back/Forward (`useExplorationQuery.ts`, `FilterHistoryControls.tsx`).
+  and sorts** and Back/Forward (`useExplorationQuery.ts`, `FilterHistoryControls.tsx`). SPEC-249,
+  which landed before this spec, renamed **Filter by this value** to **Filter by value…** and made it
+  list the column's values to tick; its apply still goes through `setFilter`.
 - **What only the expression could say.** The Help guide on `main` sends three cases there: OR, a
   list that keeps its NULL rows, and a numeric comparison on a CSV text column with `TRY_CAST`. It
   also offered comparing two columns. The Help session's unmerged `help-dbeaver-vocabulary` branch
@@ -72,7 +74,7 @@ Read from the code at `8a628382`.
   That can say `(A or B) and (C or D)` and `(A and B) or (C and D)`, which covers what people ask
   for, without a builder that recurses without bound. The stored-document check holds the same
   bound, so a hostile saved view cannot nest deeper.
-- **The column menus, Filter by this value and Order and filter edit only the top level.** A menu
+- **The column menus, Filter by value… and Order and filter edit only the top level.** A menu
   gesture replaces that column's top-level conditions and leaves every group alone, exactly as it
   replaces the column's one filter today. Reaching into an OR group would change what the group
   means in a way the menu cannot show. Order and filter keeps its one select per column while the
@@ -116,7 +118,7 @@ Read from the code at `8a628382`.
 - **is like** and **is not like** (FR-002).
 - The **Filter rows** builder, with SPEC-249's value picker as its list input (FR-003).
 - Removing the expression box, the chips for groups, and the read-only stored expression (FR-004).
-- The column menus, Filter by this value and Order and filter at the top level (FR-005).
+- The column menus, Filter by value… and Order and filter at the top level (FR-005).
 - Help, the Key Decisions register, the inventory and the live checks (FR-006).
 
 ### Out of Scope
@@ -320,7 +322,7 @@ and the expression in one apply, as it does today.
 - [ ] A saved view carrying an expression reopens with the notice, and saving it again keeps the
       expression in the file's view line.
 
-### FR-005: The column menus, Filter by this value and Order and filter work at the top level
+### FR-005: The column menus, Filter by value… and Order and filter work at the top level
 
 #### Description:
 
@@ -330,7 +332,7 @@ column's top-level condition only when it is that column's only top-level condit
 `isFilteredAnywhere` says whether any condition at any depth names the column. `setFilter`'s
 docstring stops pointing at the expression bar.
 
-- **The column menu.** Every **Filter: …** gesture, its value dialog and **Filter by this value** go
+- **The column menu.** Every **Filter: …** gesture, its value dialog and **Filter by value…** go
   through `setFilter`. **Clear filter** is enabled when the column has a top-level condition. When
   its conditions are all inside groups, it is refused with the reason "This column’s conditions are
   inside a group — change them in Filter rows." The header's filter mark, its wider padding and the
@@ -350,7 +352,7 @@ docstring stops pointing at the expression bar.
 - [ ] With the same filter, **Clear filter** removes only `qty > 5`. With only the grouped
       condition left, **Clear filter** is refused with the reason above, and the header still shows
       its filter mark and says *filtered*.
-- [ ] **Filter by this value** on a cell of a column with two top-level conditions leaves one
+- [ ] **Filter by value…** on a cell of a column with two top-level conditions leaves one
       top-level condition on that column.
 - [ ] With `qty is one of 1, 2` and `qty > 0` at the top level and a group elsewhere, Order and
       filter opens without error and shows "2 conditions — change them in Filter rows" for `qty`.
