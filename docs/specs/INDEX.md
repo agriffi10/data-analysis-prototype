@@ -256,7 +256,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 248 — A Name Is One User's or One Space's, and Only the Plane Writes a Membership | Draft |
 | 249 — Filter by Value Lists a Column's Values to Tick | Completed |
 | 250 — An Archive Has a Name, and a Restore Picks It From a List | In Progress |
-| 251 — A Filter Is Built From Conditions and Groups, Not Typed as SQL | In Progress |
+| 251 — A Filter Is Built From Conditions and Groups, Not Typed as SQL | Completed |
 
 ## Arcs
 
