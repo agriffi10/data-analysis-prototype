@@ -466,7 +466,8 @@ describe('nothing to save (FR-002)', () => {
     const {user} = render();
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
 
-    await user.type(screen.getByLabelText('Filter expression'), 'not sql at all{Enter}');
+    await user.click(await screen.findByRole('button', {name: /^Column options: id/}));
+    await user.click(await screen.findByRole('menuitem', {name: 'Filter: is not null'}));
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     await screen.findByText(/syntax error in your query/i);
 

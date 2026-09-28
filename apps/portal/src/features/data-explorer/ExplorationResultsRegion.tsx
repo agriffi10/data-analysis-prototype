@@ -23,8 +23,9 @@ import {computePageFormatting} from './formatting';
 import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
-import {ExpressionBar} from './ExpressionBar';
+import {FilterBuilderDialog} from './FilterBuilderDialog';
 import {FilterValueDialog} from './FilterValueDialog';
+import {SqlConditionNotice} from './SqlConditionNotice';
 import {FilterHistoryControls} from './FilterHistoryControls';
 import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
 import {OrderFilterDialog} from './OrderFilterDialog';
@@ -37,15 +38,18 @@ import {FilterByValueDialog, type FilterByValueResult} from './FilterByValueDial
 import {
   clearFilter,
   clearSort,
-  filterChipLabel,
+  filterItemLabel,
   filterOf,
   filterValueKind,
+  isFilteredAnywhere,
   operatorTakesValue,
   operatorsFor,
+  removeFilterItem,
   setFilter,
   setGrouping,
   setSort,
-  sortOf
+  sortOf,
+  topLevelConditionsOn
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn, QueryState} from '../catalog/catalog.types';
@@ -53,10 +57,10 @@ import {heldText, leftOutNote} from './savedView';
 import type {
   AwaitingRun,
   CalcPanelState,
-  ColumnFilter,
   CopyOptions,
   ExplorationPresentation,
   ExplorationSource,
+  FilterItem,
   FilterOperator,
   FormattingState
 } from './dataExplorer.types';
@@ -148,9 +152,29 @@ export type ExplorationResultsRegionProps = {
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
 
-/** A column filter's chip remove control, named for the whole label so a truncated chip is still read out. */
-function chipRemoveLabel(filter: ColumnFilter): string {
-  return `Remove filter: ${filterChipLabel(filter)}`;
+/**
+ * A key per chip that survives the removal of a chip before it: the label, and which of the chips
+ * reading alike it is.
+ *
+ * Not the position: keyed by position, removing a chip re-labels the next one in place, so focus
+ * stays on the same element and a screen reader that does not voice a changed name says nothing.
+ * Keyed this way, focus moves to a different element and is announced — unless the chip after the
+ * removed one reads the same, when the one left keeps the earlier key; telling those two apart
+ * would need an id on every stored filter item.
+ */
+function chipKeys(items: FilterItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const label = filterItemLabel(item);
+    const nth = seen.get(label) ?? 0;
+    seen.set(label, nth + 1);
+    return `${label}#${nth}`;
+  });
+}
+
+/** A filter chip's remove control, named for the whole label so a truncated chip is still read out. */
+function chipRemoveLabel(item: FilterItem): string {
+  return `Remove filter: ${filterItemLabel(item)}`;
 }
 /**
  * Why a save is refused when the grid shows no column the result has.
@@ -229,7 +253,7 @@ export const NOTHING_TO_EXPORT = 'There’s nothing to save until this query fin
 /**
  * One exploration's rows, and everything that changes which rows they are.
  *
- * The **query toolbar and the expression bar render whatever the results are doing** —
+ * The **query toolbar and the filter row render whatever the results are doing** —
  * loading, empty, or failed. That is not cosmetic: a failed apply has to leave the user
  * somewhere they can correct it, and a toolbar that disappears with the
  * rows takes the correction with it.
@@ -267,6 +291,7 @@ export function ExplorationResultsRegion({
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [groupingOpen, setGroupingOpen] = useState(false);
   const [coloursOpen, setColoursOpen] = useState(false);
@@ -474,7 +499,8 @@ export function ExplorationResultsRegion({
     queryRefusalOf,
     sortOf: (column) => sortOf(query, column),
     sortCount: query.ordering.length,
-    filterOf: (column) => filterOf(query, column),
+    isFiltered: (column) => isFilteredAnywhere(query, column),
+    hasTopLevelFilter: (column) => topLevelConditionsOn(query, column).length > 0,
     valueKindOf,
     sort: (column, direction) => apply({ordering: setSort(query, column, direction).ordering}),
     clearSort: (column) => apply({ordering: clearSort(query, column).ordering}),
@@ -503,29 +529,24 @@ export function ExplorationResultsRegion({
   };
 
   // Removing a chip unmounts the button focus was on, which would leave it on the page body; the
-  // next chip's remove button takes it, else the previous one's, else the expression input.
+  // chip that took its place takes it, else the one before, else Filter rows. Found by POSITION,
+  // never by label: two chips can read alike, and a label search would land on the wrong one.
   const chipsRef = useRef<HTMLDivElement>(null);
-  const expressionInputRef = useRef<HTMLInputElement>(null);
-  const refocusAfterRemoval = useRef<{removeLabel: string | null} | null>(null);
-  const removeFilter = (column: string) => {
-    const at = query.filters.findIndex((filter) => filter.column === column);
-    const neighbour = query.filters[at + 1] ?? query.filters[at - 1];
-    refocusAfterRemoval.current = {removeLabel: neighbour ? chipRemoveLabel(neighbour) : null};
-    actions.clearFilter(column);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const refocusAfterRemoval = useRef<{index: number} | null>(null);
+  const removeFilter = (index: number) => {
+    refocusAfterRemoval.current = {index};
+    apply({filters: removeFilterItem(query, index).filters});
   };
   // Keyed on the filters, so it runs after the commit that dropped the removed chip.
   useEffect(() => {
     const pending = refocusAfterRemoval.current;
     if (pending === null) return;
     refocusAfterRemoval.current = null;
-    if (pending.removeLabel === null) {
-      expressionInputRef.current?.focus();
-      return;
-    }
-    const buttons = chipsRef.current?.querySelectorAll('button') ?? [];
-    Array.from(buttons)
-      .find((button) => button.getAttribute('aria-label') === pending.removeLabel)
-      ?.focus();
+    const buttons = Array.from(chipsRef.current?.querySelectorAll('button') ?? []);
+    const next = buttons[pending.index] ?? buttons[pending.index - 1];
+    if (next) next.focus();
+    else filterButtonRef.current?.focus();
   }, [query.filters]);
 
   // The filter already on that column, so re-filtering it is an edit rather than a retype.
@@ -628,9 +649,9 @@ export function ExplorationResultsRegion({
           <Button
             onClick={() => {
               onRun?.();
-              // The button leaves with the hold; focus goes to the filter expression, where the
-              // user carries on, rather than to the page body.
-              expressionInputRef.current?.focus();
+              // The button leaves with the hold; focus goes to Filter rows, where the user carries
+              // on, rather than to the page body.
+              filterButtonRef.current?.focus();
             }}>
             Run
           </Button>
@@ -829,29 +850,45 @@ export function ExplorationResultsRegion({
         </p>
       </div>
 
-      <ExpressionBar
-        expression={query.expression}
-        onApply={(expression) => apply({expression})}
-        inputRef={expressionInputRef}
-      />
+      {/* The filter row: the way into the builder, whatever the results are doing — a failed
+          apply has to leave the user somewhere they can correct it — and the applied filter as
+          chips, one per top-level item, each removing its own item as one apply. */}
+      <div className="flex flex-none flex-wrap items-center gap-2">
+        <Button
+          ref={filterButtonRef}
+          size="sm"
+          onClick={() => setBuilderOpen(true)}>
+          Filter rows…
+        </Button>
+        {query.filters.length > 0 && (
+          <div
+            ref={chipsRef}
+            className="min-w-0 flex-1">
+            <ChipList ariaLabel="Filters">
+              {chipKeys(query.filters).map((key, index) => (
+                <Chip
+                  key={key}
+                  name={filterItemLabel(query.filters[index])}
+                  removeLabel={chipRemoveLabel(query.filters[index])}
+                  onRemove={() => removeFilter(index)}
+                />
+              ))}
+            </ChipList>
+          </div>
+        )}
+      </div>
 
-      {/* The column filters the menus set, which the expression box never shows. They apply
-          together with it, and each chip removes its own filter as one apply. */}
-      {query.filters.length > 0 && (
-        <div
-          ref={chipsRef}
-          className="flex-none">
-          <ChipList ariaLabel="Column filters">
-            {query.filters.map((filter) => (
-              <Chip
-                key={filter.column}
-                name={filterChipLabel(filter)}
-                removeLabel={chipRemoveLabel(filter)}
-                onRemove={() => removeFilter(filter.column)}
-              />
-            ))}
-          </ChipList>
-        </div>
+      {query.expression?.trim() && (
+        <SqlConditionNotice
+          expression={query.expression}
+          onRemove={() => {
+            // The notice leaves with the condition, and focus with it; Filter rows is where the
+            // user carries on.
+            apply({expression: null});
+            filterButtonRef.current?.focus();
+          }}
+          onOpenInQuery={queryEnabled && onOpenInQuery && sql !== null ? () => onOpenInQuery(sql) : undefined}
+        />
       )}
 
       {/* Available whether or not grouping is active: the Explorer writes SQL
@@ -936,6 +973,22 @@ export function ExplorationResultsRegion({
           onApply={(transformers) => {
             setTransformersOpen(false);
             setFormatting({transformers});
+          }}
+        />
+      )}
+
+      {builderOpen && (
+        <FilterBuilderDialog
+          // The SOURCE's columns while grouping is in force, by the Grouping panel's rule: a filter
+          // is a WHERE, and the result's columns are the grouping's by then.
+          columns={query.grouping ? schemaColumns : geometry.all}
+          queryRefusalOf={actions.queryRefusalOf}
+          filters={query.filters}
+          source={source}
+          onCancel={() => setBuilderOpen(false)}
+          onApply={(filters) => {
+            setBuilderOpen(false);
+            apply({filters});
           }}
         />
       )}

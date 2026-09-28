@@ -3,8 +3,12 @@ import {
   FILTER_OPERATORS,
   NO_VALUES_REFUSAL,
   TOO_MANY_VALUES_REFUSAL,
+  clearFilter,
   filterChipLabel,
+  filterItemLabel,
+  filterOf,
   isFilterOperator,
+  isFilteredAnywhere,
   isTextType,
   listFieldOf,
   numericLineRefusal,
@@ -16,9 +20,9 @@ import {
 } from './explorationQueryOps';
 import {EXPLORER_FILTER_VALUES_MAX} from './dataExplorer.constants';
 import {emptyExplorationQuery} from './exploration';
-import type {ColumnFilter, ExplorationQuery} from './dataExplorer.types';
+import type {ColumnFilter, ExplorationQuery, FilterItem} from './dataExplorer.types';
 
-const withFilters = (filters: ColumnFilter[]): ExplorationQuery => ({...emptyExplorationQuery(), filters});
+const withFilters = (filters: FilterItem[]): ExplorationQuery => ({...emptyExplorationQuery(), filters});
 
 describe('isTextType (FR-004)', () => {
   it('accepts both spellings and their parameterised forms, and nothing else', () => {
@@ -44,6 +48,8 @@ describe('operatorsFor (FR-004)', () => {
       'notContains',
       'startsWith',
       'endsWith',
+      'like',
+      'notLike',
       'in',
       'notIn',
       'isNull',
@@ -54,12 +60,9 @@ describe('operatorsFor (FR-004)', () => {
   });
 
   it('offers a numeric column the list tests but no text or empty one', () => {
-    const numeric = operatorsFor('bigint');
-    expect(numeric).toContain('in');
-    expect(numeric).toContain('notIn');
-    for (const operator of ['contains', 'notContains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty']) {
-      expect(numeric, operator).not.toContain(operator);
-    }
+    // The whole list, not the absence of a named few: a text operator added later with the wrong
+    // `offeredOn` would pass a check that never names it.
+    expect(operatorsFor('bigint')).toEqual(['=', '<>', '>', '>=', '<', '<=', 'in', 'notIn', 'isNull', 'isNotNull']);
   });
 
   it('offers a date column the comparisons and the null tests only', () => {
@@ -71,7 +74,7 @@ describe('operatorsFor (FR-004)', () => {
 
 describe('isFilterOperator (the stored-document gate)', () => {
   it('admits every operator the app offers', () => {
-    expect(FILTER_OPERATORS).toHaveLength(16);
+    expect(FILTER_OPERATORS).toHaveLength(18);
     for (const operator of FILTER_OPERATORS) expect(isFilterOperator(operator), operator).toBe(true);
   });
 
@@ -229,5 +232,69 @@ describe('filterChipLabel', () => {
     ['spaces kept visible', {column: 'name', operator: '=', value: ' x '}, 'name equals “ x ”']
   ])('words %s', (_case, filter, label) => {
     expect(filterChipLabel(filter)).toBe(label);
+  });
+});
+
+describe('the menus edit the top level only', () => {
+  const above5: ColumnFilter = {column: 'qty', operator: '>', value: '5', valueKind: 'number'};
+  const grouped: FilterItem = {
+    join: 'or',
+    items: [
+      {column: 'qty', operator: '=', value: '1', valueKind: 'number'},
+      {column: 'status', operator: '=', value: 'open'}
+    ]
+  };
+
+  it('replaces and clears the column’s top-level conditions and leaves its group alone', () => {
+    const query = withFilters([above5, {column: 'qty', operator: '<', value: '9', valueKind: 'number'}, grouped]);
+    const seven: ColumnFilter = {column: 'qty', operator: '=', value: '7', valueKind: 'number'};
+
+    expect(setFilter(query, seven).filters).toEqual([grouped, seven]);
+    expect(clearFilter(query, 'qty').filters).toEqual([grouped]);
+  });
+
+  it('shows a column’s filter only when one top-level condition is its only one, and marks it filtered anywhere', () => {
+    expect(filterOf(withFilters([above5, grouped]), 'qty')).toBe(above5);
+    expect(filterOf(withFilters([above5, {...above5, value: '6'}]), 'qty')).toBeNull();
+    expect(filterOf(withFilters([grouped]), 'qty')).toBeNull();
+    expect(isFilteredAnywhere(withFilters([grouped]), 'qty')).toBe(true);
+    expect(isFilteredAnywhere(withFilters([grouped]), 'region')).toBe(false);
+  });
+});
+
+describe('sameQuery over conditions and groups', () => {
+  const gt5: ColumnFilter = {column: 'qty', operator: '>', value: '5', valueKind: 'number'};
+  const gt3: ColumnFilter = {column: 'qty', operator: '>', value: '3', valueKind: 'number'};
+
+  it('ignores the order of items, including two on one column with one operator, at every depth', () => {
+    expect(sameQuery(withFilters([gt5, gt3]), withFilters([gt3, gt5]))).toBe(true);
+    expect(
+      sameQuery(withFilters([{join: 'or', items: [gt5, gt3]}]), withFilters([{join: 'or', items: [gt3, gt5]}]))
+    ).toBe(true);
+  });
+
+  it('tells two groups apart by their join', () => {
+    expect(
+      sameQuery(withFilters([{join: 'or', items: [gt5, gt3]}]), withFilters([{join: 'and', items: [gt5, gt3]}]))
+    ).toBe(false);
+  });
+});
+
+describe('filterItemLabel', () => {
+  it('words a group in the brackets its statement carries', () => {
+    const item: FilterItem = {
+      join: 'or',
+      items: [
+        {column: 'region', operator: '=', value: 'EU'},
+        {
+          join: 'and',
+          items: [
+            {column: 'region', operator: '=', value: 'US'},
+            {column: 'name', operator: 'like', value: 'A%'}
+          ]
+        }
+      ]
+    };
+    expect(filterItemLabel(item)).toBe('(region equals “EU” or (region equals “US” and name is like “A%”))');
   });
 });

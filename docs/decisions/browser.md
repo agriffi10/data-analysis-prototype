@@ -465,7 +465,9 @@ one statement and the execution cache decides whether it costs anything. Nothing
 description. An apply that changes nothing is a **no-op**, compared with `sameQuery` on a canonical
 form rather than field by field, because `filters` and `ordering` are arrays whose order carries no
 meaning (priority does) — without that, applying the same filter twice would fill Back with
-duplicates of one description. `clearAll` deliberately **preserves `grouping`**: that is SPEC-182's,
+duplicates of one description. *(Superseded in part by SPEC-251: the expression bar is gone, and
+the filter builder is the surface in its place; every surface still goes through the one `apply` —
+`analytics.md`, the SPEC-251 entry.)* `clearAll` deliberately **preserves `grouping`**: that is SPEC-182's,
 and un-grouping a view from a control labelled "Remove all filters" is a change nobody asked for.
 
 > **SUPERSEDED by SPEC-182 (FR-006 AC3): `clearAll` clears the grouping too, and the control's LABEL
@@ -515,7 +517,8 @@ sentence about the wrong thing. And `ExplorationResultsRegion` was restructured 
 and the expression bar render whatever the results are doing, with `useQueryResults` pointed at the
 **last execution whose rows actually arrived** while the current one is failed. A failed apply has
 to leave the user somewhere they can correct it, and a toolbar that disappears with the rows takes
-the correction with it. The test for this is only meaningful because the failed execution's results
+the correction with it. *(Superseded in part by SPEC-251: the filter row, with **Filter rows…**,
+holds the expression bar's place and renders whatever the results are doing, for the same reason.)* The test for this is only meaningful because the failed execution's results
 also fail — mocked to succeed, it passed with the fallback deleted.
 
 **FR-006 AC4 needed a mechanism the spec did not name.** "Navigating history never re-runs a query

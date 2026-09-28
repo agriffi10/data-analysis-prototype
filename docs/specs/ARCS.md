@@ -1491,6 +1491,10 @@ Monaco's does, while the **per-column menus and filter-by-cell-value** are the a
 around a value the user never wrote as SQL. A cell containing `O'Brien` filtered by `=` is the whole
 hazard in one click, and it arrives from real data long before anyone thinks to type it.
 
+> **Superseded in part (SPEC-251, 2026-09-28).** The expression bar is gone; a stored expression still
+> passes through verbatim, read-only. `analytics.md`, *A filter is conditions and groups built by
+> pointing, and the expression box is gone*.
+
 **Everything is server-side, and the forward-only cursor stops mattering because of it.** Athena's
 `GetQueryResults` gives a `NextToken` with no random access and no re-sort of a finished result,
 which reads like a blocker for an Excel-like grid. It is not, once the engine is one **execution per
@@ -1569,6 +1573,11 @@ boundary is identical either way, and gating the bar would buy no security while
 unable to express what analysts actually filter on. The accepted cost is stated plainly — an
 environment that turns `query` off to *tidy SQL away* will still be offering a SQL input on this
 page.
+
+> **Superseded (SPEC-251, 2026-09-28).** There is no SQL input on this page any more, so that accepted
+> cost is gone: the filter builder writes no free SQL and is not gated on `query` either, and a stored
+> expression can be removed with the flag off but opened in Query only with it on. `analytics.md`,
+> *A filter is conditions and groups built by pointing, and the expression box is gone*.
 
 **Four of DBeaver's surfaces are excluded by nature rather than by scope.** Chart, Spatial/GIS and
 the JSON/XML presentations have no column types here to render, and the **References panel is
@@ -3228,7 +3237,8 @@ list operator and its value cap, so 238 goes first.
 **Decisions Andrew took while these were written (2026-09-16):** export leaves hidden columns out in
 the converter, not with a second query (239). The data-quality report stores up to five duplicated
 rows (240). The column menu's text filters are contains, does not contain, starts with and ends
-with, ignoring case, and raw `LIKE` patterns stay in the expression box (238). His earlier rulings
+with, ignoring case, and raw `LIKE` patterns stay in the expression box (238 — superseded by 251:
+the box is gone, and **is like** / **is not like** take the pattern). His earlier rulings
 from #804 still stand: destructive triggers get a red outline, a space is named by its database name
 wherever one is picked, and Athena's own text appears only behind Details.
 

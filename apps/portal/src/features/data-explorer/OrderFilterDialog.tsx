@@ -18,6 +18,7 @@ import {
   listFieldOf,
   moveSortPriority,
   moveSortRefusal,
+  operatorHint,
   operatorListsNull,
   operatorTakesValue,
   operatorTakesValues,
@@ -26,12 +27,29 @@ import {
   readListField,
   setFilter,
   setSort,
-  sortOf
+  severalConditionsNote,
+  sortOf,
+  topLevelConditionsOn
 } from './explorationQueryOps';
 import {isBareNumeric} from './renderExplorationSql';
+import {isFilterGroup} from './exploration';
 import type {ListFieldValue} from './explorationQueryOps';
-import type {ExplorationQuery, FilterOperator} from './dataExplorer.types';
+import type {ColumnFilter, ExplorationQuery, FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
+
+/**
+ * The conditions this dialog shows a select for: a column's top-level condition, when it is that
+ * column's only one.
+ *
+ * Only these are seeded and re-set on Apply. A group is never read here, and a column holding two
+ * top-level conditions shows a note instead — re-setting it through `setFilter` would merge the
+ * two into one.
+ */
+function editableConditions(query: ExplorationQuery): ColumnFilter[] {
+  return query.filters.filter(
+    (item): item is ColumnFilter => !isFilterGroup(item) && topLevelConditionsOn(query, item.column).length === 1
+  );
+}
 
 export type OrderFilterSettings = {
   query: ExplorationQuery;
@@ -96,7 +114,9 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
   // not touched, with the list only reappearing if they cycled the operator dropdown.
   const [listFields, setListFields] = useState<Record<string, ListFieldValue>>(() =>
     Object.fromEntries(
-      query.filters.filter((f) => operatorTakesValues(f.operator)).map((f) => [f.column, listFieldOf(f)])
+      editableConditions(query)
+        .filter((f) => operatorTakesValues(f.operator))
+        .map((f) => [f.column, listFieldOf(f)])
     )
   );
 
@@ -141,7 +161,10 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     // the error-wording rule forbids showing anyone. Same predicate, so the two cannot disagree.
     const bad: Record<string, string> = {};
     let query = draft.query;
-    for (const filter of draft.query.filters) {
+    // Only the columns this dialog shows a row for: a condition on any other is not one it offers
+    // to change, so re-setting it would only move it for nothing.
+    const shown = new Set(columns.map((c) => c.name));
+    for (const filter of editableConditions(draft.query).filter((f) => shown.has(f.column))) {
       if (operatorTakesValues(filter.operator)) {
         // Parsed HERE and nowhere else in this dialog, through the same reader the value
         // dialog uses — the two surfaces must refuse the same lists, and the way they
@@ -156,7 +179,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
         continue;
       }
       if (!operatorTakesValue(filter.operator)) continue;
-      // The numeric refusal follows the OPERATOR, not the column: the four text operators
+      // The numeric refusal follows the OPERATOR, not the column: the text operators
       // quote their value whatever the column holds, so refusing text typed into one of
       // them here would turn back a filter the renderer accepts.
       if (!operatorUsesValueKind(filter.operator)) {
@@ -195,6 +218,9 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
           const lastVisible = !hidden && visibleCount <= 1;
           const sort = sortOf(draft.query, column.name);
           const filter = filterOf(draft.query, column.name);
+          const topLevelCount = topLevelConditionsOn(draft.query, column.name).length;
+          const hint = filter && operatorTakesValue(filter.operator) ? operatorHint(filter.operator) : null;
+          const hintId = `${reasonId}-${index}-hint`;
           // Show and Pin stay available on a calculated column — geometry applies to it
           // like any other; only the two controls that would reach the SQL are refused.
           const refusal = queryRefusalOf(column.name);
@@ -275,29 +301,34 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                 </span>
               )}
 
-              <select
-                aria-label={`Filter ${column.name}`}
-                className={cx(SELECT_CLASS, REFUSED_CONTROL)}
-                aria-disabled={refusal !== null || undefined}
-                aria-describedby={refusal !== null ? queryReasonId : undefined}
-                value={filter?.operator ?? ''}
-                onChange={(e) => {
-                  if (refusal === null) changeOperator(column.name, e.target.value as FilterOperator | '');
-                }}>
-                <option value="">No filter</option>
-                {operatorsFor(column.type).map((operator) => (
-                  <option
-                    key={operator}
-                    value={operator}>
-                    {FILTER_OPERATOR_LABELS[operator]}
-                  </option>
-                ))}
-              </select>
+              {topLevelCount > 1 ? (
+                <span className="text-xs text-text-3">{severalConditionsNote(topLevelCount)}</span>
+              ) : (
+                <select
+                  aria-label={`Filter ${column.name}`}
+                  className={cx(SELECT_CLASS, REFUSED_CONTROL)}
+                  aria-disabled={refusal !== null || undefined}
+                  aria-describedby={refusal !== null ? queryReasonId : undefined}
+                  value={filter?.operator ?? ''}
+                  onChange={(e) => {
+                    if (refusal === null) changeOperator(column.name, e.target.value as FilterOperator | '');
+                  }}>
+                  <option value="">No filter</option>
+                  {operatorsFor(column.type).map((operator) => (
+                    <option
+                      key={operator}
+                      value={operator}>
+                      {FILTER_OPERATOR_LABELS[operator]}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               {filter && operatorTakesValue(filter.operator) && (
                 <span className="basis-40">
                   <Input
                     aria-label={`Value for ${column.name}`}
+                    aria-describedby={hint ? hintId : undefined}
                     value={filter.value ?? ''}
                     error={errors[column.name] || null}
                     onChange={(e) => {
@@ -305,6 +336,13 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                       editQuery((q) => setFilter(q, {...filter, value: e.target.value}));
                     }}
                   />
+                  {hint && (
+                    <p
+                      id={hintId}
+                      className="mt-1 text-xs text-text-3">
+                      {hint}
+                    </p>
+                  )}
                 </span>
               )}
 
@@ -315,6 +353,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   labelHidden
                   value={listFields[column.name] ?? listFieldOf(null)}
                   column={column.name}
+                  boxNamePrefix={column.name}
                   offersEmpty={(filter.valueKind ?? 'string') === 'string'}
                   offersNull={operatorListsNull(filter.operator)}
                   error={errors[column.name] || null}

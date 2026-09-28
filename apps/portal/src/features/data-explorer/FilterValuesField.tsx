@@ -20,6 +20,12 @@ export type FilterValuesFieldProps = {
   error?: string | null;
   onChange: (value: ListFieldValue) => void;
   className?: string;
+  /**
+   * Put in front of the two boxes' names, for a surface showing several of these fields at once —
+   * without it every one of them offers a box called "(empty)", which voice control and a list of
+   * form controls cannot tell apart.
+   */
+  boxNamePrefix?: string;
 };
 
 /** The group of boxes under the lines, named once so both surfaces and their tests agree; the column follows it. */
@@ -54,8 +60,10 @@ export function FilterValuesField({
   column,
   error,
   onChange,
-  className
+  className,
+  boxNamePrefix
 }: FilterValuesFieldProps) {
+  const boxName = (shown: string) => (boxNamePrefix ? `${boxNamePrefix}: ${shown}` : undefined);
   const fieldId = useId();
   const errorId = `${fieldId}-error`;
   const hasError = error != null && error !== '';
@@ -102,6 +110,7 @@ export function FilterValuesField({
               <input
                 type="checkbox"
                 checked={value.empty}
+                aria-label={boxName(EMPTY_DISPLAY)}
                 onChange={() => onChange({...value, empty: !value.empty})}
               />
               <span className="italic text-text-3">{EMPTY_DISPLAY}</span>
@@ -112,6 +121,7 @@ export function FilterValuesField({
               <input
                 type="checkbox"
                 checked={value.includesNull}
+                aria-label={boxName(NULL_DISPLAY)}
                 onChange={() => onChange({...value, includesNull: !value.includesNull})}
               />
               <span className="italic text-text-3">{NULL_DISPLAY}</span>

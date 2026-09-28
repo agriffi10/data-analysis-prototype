@@ -42,6 +42,8 @@ export type FilterOperator =
   | 'notContains'
   | 'startsWith'
   | 'endsWith'
+  | 'like'
+  | 'notLike'
   | 'in'
   | 'notIn'
   | 'isNull'
@@ -67,9 +69,9 @@ export type ColumnFilter = {
   column: string;
   operator: FilterOperator;
   /**
-   * The six comparisons and the four text operators. Absent for every other operator.
+   * The six comparisons and the six text operators. Absent for every other operator.
    *
-   * A raw cell value, quoted at render time. The four text operators quote it whatever
+   * A raw cell value, quoted at render time. The text operators quote it whatever
    * `valueKind` says, because `LIKE` against a number is a type error rather than a match.
    */
   value?: string;
@@ -143,10 +145,35 @@ export type Grouping = {
   showPercentage: boolean;
 };
 
+/** How a group's items combine. The top level of a filter always combines with AND. */
+export type FilterJoin = 'and' | 'or';
+
+/**
+ * Bracketed conditions that must all hold, or any one of which must.
+ *
+ * OR lives only here: the top level is AND, so a filter set from a column's menu always
+ * narrows the rows, and a menu never has to reach inside a group to do it.
+ */
+export type FilterGroup = {
+  join: FilterJoin;
+  /** At least one. A top-level group may hold groups; a group inside a group may not. */
+  items: FilterItem[];
+};
+
+/** One entry of a filter: a condition, or a group of them. Told apart by `isFilterGroup`. */
+export type FilterItem = ColumnFilter | FilterGroup;
+
 /** Everything that renders SQL. Nothing else may. */
 export type ExplorationQuery = {
-  filters: ColumnFilter[];
-  /** User-authored WHERE fragment, passed through verbatim. */
+  /** Every item must hold. */
+  filters: FilterItem[];
+  /**
+   * A condition typed into the filter box the Explorer no longer has, passed through verbatim.
+   *
+   * Read-only: a stored tab, history entry or saved view keeps it, it still renders, it shows
+   * verbatim and it can be removed. Nothing writes a new one — converting it into conditions
+   * would need a SQL parser, and whatever the parser missed would be lost without a word.
+   */
   expression: string | null;
   ordering: SortEntry[];
   grouping: Grouping | null;

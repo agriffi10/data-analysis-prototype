@@ -89,7 +89,7 @@ export function ExplorationGridHeader({
             className={cx(
               `sticky top-0 border-b border-border bg-surface-2 py-1 pl-3 text-left ${SECTION_CAPTION}`,
               column.pinned ? 'z-30' : 'z-20',
-              actions.sortOf(column.name) || actions.filterOf(column.name) ? 'pr-[74px]' : 'pr-[54px]'
+              actions.sortOf(column.name) || actions.isFiltered(column.name) ? 'pr-[74px]' : 'pr-[54px]'
             )}
             // The resize handle and the menu live INSIDE the header, so a drag of the edge
             // — or a click anywhere in the menu — would otherwise finish as a click that

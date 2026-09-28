@@ -3,6 +3,8 @@ import type {
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationSource,
+  FilterGroup,
+  FilterItem,
   FormattingState,
   Grouping,
   QueryHistoryCursor
@@ -27,6 +29,19 @@ export function newExplorationId(): string {
     fallbackSeq += 1;
     return `exploration-${fallbackSeq}`;
   }
+}
+
+/**
+ * Whether a filter item is a group rather than a condition.
+ *
+ * `Object.hasOwn`, never `in`: a stored document is the one untrusted input this model has, and
+ * `in` would also answer for an `items` inherited through the prototype chain.
+ *
+ * @param item - A top-level item, or one inside a group.
+ * @returns True for a group.
+ */
+export function isFilterGroup(item: FilterItem): item is FilterGroup {
+  return Object.hasOwn(item, 'items');
 }
 
 /**

@@ -65,8 +65,8 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
   const [pendingColumn, setPendingColumn] = useState<string>(ALL_ROWS);
   const [error, setError] = useState<string | null>(null);
 
-  // Re-seeded during render when the APPLIED grouping changes underneath the panel, the
-  // same way `ExpressionBar` re-seeds its text: a history step, Clear all or a second tab
+  // Re-seeded during render when the APPLIED grouping changes underneath the panel, React's
+  // "adjust state when a prop changes" pattern: a history step, Clear all or a second tab
   // rewrites the grouping without going through this draft, and a panel still showing the
   // grouping the user has just stepped away from would re-apply it on the next Apply.
   // Compared on the applied value's identity — an apply from THIS panel replaces the object

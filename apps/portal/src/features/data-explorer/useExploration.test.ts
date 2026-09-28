@@ -393,7 +393,7 @@ describe('useExploration — a statement Athena would refuse for its length (SPE
     // *Save as query* refuse, rather than handing over a file Athena will not run.
     expect(result.current.sql).toBeNull();
     expect(toUserText(result.current.error)).toBe(
-      'This query is too long to run. Use fewer or shorter filter values, or a shorter expression.'
+      'This query is too long to run. Use fewer conditions, or fewer or shorter filter values.'
     );
   });
 

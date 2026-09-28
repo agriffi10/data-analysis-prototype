@@ -55,7 +55,7 @@ function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
 /**
  * The one door through which a tab's query description changes.
  *
- * Every gesture that renders SQL — a header menu, a cell filter, the expression bar, the
+ * Every gesture that renders SQL — a header menu, a cell filter, the filter builder, the
  * settings dialog, Remove all — lands here, which is what makes "one apply is one
  * execution" a property of the feature rather than of each surface: the description is
  * written once, `useExploration` re-renders one statement, and the cache decides whether
