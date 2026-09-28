@@ -322,8 +322,8 @@ describe('grouping’s extras', () => {
     await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
     await user.click(byValue);
 
-    // And the settings dialog, which stands in for the header menu in Record and Text view — so
-    // Tab has to reach the refusal, and the reason has to be more than a hover.
+    // And the settings dialog, the other place a column's sort and filter are set — so Tab has
+    // to reach the refusal, and the reason has to be more than a hover.
     await chooseExplorationOption(user, 'Order and filter');
     const dialog = await screen.findByRole('dialog', {name: 'Order and filter'});
     const sortPercent = within(dialog).getByRole('combobox', {name: `Sort ${percent}`});

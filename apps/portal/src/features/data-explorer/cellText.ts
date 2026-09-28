@@ -5,8 +5,7 @@ export const NULL_DISPLAY = 'NULL';
 export const EMPTY_DISPLAY = '(empty)';
 
 /**
- * A cell's value as plain text, for a `title`, the Text presentation, and anywhere a
- * string is all that fits.
+ * A cell's value as plain text, for a `title` and anywhere a string is all that fits.
  *
  * Athena hands every value back as a string, so NULL and `''` arrive looking identical
  * unless something upstream keeps the difference — `getQueryResults` now does,

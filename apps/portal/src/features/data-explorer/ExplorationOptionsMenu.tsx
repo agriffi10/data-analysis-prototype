@@ -44,15 +44,23 @@ export type ExplorationOptionsMenuProps = {
   createViewEnabled: boolean;
   onCreateView: () => void;
   createViewRefusal?: string;
+  /**
+   * Opens the current statement in a new Query tab — the same gesture as the button inside
+   * *Generated SQL*, here so it can be found without opening that disclosure first. Follows the
+   * `query` flag like the two items above it.
+   */
+  openInQueryEnabled: boolean;
+  onOpenInQuery: () => void;
+  openInQueryRefusal?: string;
 };
 
 /**
  * The Data Explorer's overflow menu: every action the toolbar used to spell out.
  *
  * **THE SPLIT IS NOW "IS IT A DESTINATION OR A GESTURE", NOT "DOES IT CHANGE THE ROWS".**
- * What stays on the bar is undo/redo and the view switch — the two things whose current
- * state has to be readable, and usable repeatedly, without opening anything. Everything
- * that opens a dialog, applies a change and is done goes in here.
+ * What stays on the bar is undo/redo — the one control whose current state has to be
+ * readable, and usable repeatedly, without opening anything. Everything that opens a dialog,
+ * applies a change and is done goes in here.
  *
  * This REVERSES the earlier rule, deliberately and on user feedback rather than on a fresh
  * opinion. The old split kept the query-changing controls — Order and filter, Clear, Filter
@@ -65,6 +73,11 @@ export type ExplorationOptionsMenuProps = {
  *
  * Grouping keeps its place here for its original reason: opening it is free, what it applies
  * is a `GROUP BY`, and a user reaches for it far less often than for a filter.
+ *
+ * **Colors and Transformers come LAST**, in a group of their own. Both only change how values
+ * look and neither runs a query, and a review from outside the team read them as clutter
+ * between the things they reach for; last keeps them one menu away without costing the
+ * frequent items their place.
  *
  * **A REFUSAL SURVIVES THE MOVE.** Copy, Export and Save as query were `aria-disabled` with a
  * reason on the toolbar, and an item that merely greyed out inside a menu would be strictly
@@ -104,19 +117,19 @@ export function ExplorationOptionsMenu({
   saveRefusal,
   createViewEnabled,
   onCreateView,
-  createViewRefusal
+  createViewRefusal,
+  openInQueryEnabled,
+  onOpenInQuery,
+  openInQueryRefusal
 }: ExplorationOptionsMenuProps) {
   const items: MenuItem[] = [
     // The query-changing group, first: these are what the screen is for, so they sit above
-    // the presentation and export groups rather than being appended to them.
+    // the panel and export groups rather than being appended to them.
     {kind: 'action', label: 'Order and filter', onSelect: onOrderAndFilter},
     {kind: 'action', label: clearAllLabel, onSelect: onClearAll, disabledReason: clearAllRefusal},
     {kind: 'action', label: 'Filter by this value', onSelect: onFilterByCell, disabledReason: filterByCellRefusal},
     {kind: 'separator'},
     {kind: 'action', label: 'Columns', onSelect: onColumns},
-    {kind: 'action', label: 'Colors', onSelect: onColours},
-    {kind: 'action', label: 'Transformers', onSelect: onTransformers},
-    {kind: 'separator'},
     {kind: 'action', label: valueOpen ? 'Hide the value panel' : 'Value', onSelect: onToggleValue},
     {kind: 'action', label: calcOpen ? 'Hide Calc' : 'Calc', onSelect: onToggleCalc},
     {kind: 'action', label: groupingOpen ? 'Hide Grouping' : 'Grouping', onSelect: onToggleGrouping},
@@ -133,7 +146,15 @@ export function ExplorationOptionsMenu({
       ? ([
           {kind: 'action', label: 'Create view…', onSelect: onCreateView, disabledReason: createViewRefusal}
         ] as MenuItem[])
-      : [])
+      : []),
+    ...(openInQueryEnabled
+      ? ([
+          {kind: 'action', label: 'Open in Query', onSelect: onOpenInQuery, disabledReason: openInQueryRefusal}
+        ] as MenuItem[])
+      : []),
+    {kind: 'separator'},
+    {kind: 'action', label: 'Colors', onSelect: onColours},
+    {kind: 'action', label: 'Transformers', onSelect: onTransformers}
   ];
 
   return (

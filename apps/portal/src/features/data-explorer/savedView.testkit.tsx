@@ -41,7 +41,6 @@ export function fullExploration(database = 'alice'): Exploration {
       pinnedColumns: ['region'],
       columnOrder: ['region', 'name'],
       columnWidths: {region: 180},
-      presentation: 'record',
       formatting: {
         rules: [
           {id: 'r1', column: 'name', operator: 'regex', value: '^ac', background: 'accent-soft'},

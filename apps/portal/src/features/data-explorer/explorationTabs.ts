@@ -356,7 +356,8 @@ function normalizeFormatting(value: unknown): FormattingState {
  * A document written before these fields existed carries only the four geometry fields, and one
  * written by a future version may carry fields this build has never heard of — both must
  * restore rather than discard the tab, because presentation is cosmetic and the
- * exploration beside it is not.
+ * exploration beside it is not. A tab stored while the explorer still offered Record and Text
+ * views carries `presentation` and `recordRowIndex`; they are dropped here like any unknown key.
  *
  * @param value - The stored `presentation` object (already known to BE an object).
  * @returns A complete presentation, with defaults wherever the document was silent or wrong.
@@ -364,20 +365,12 @@ function normalizeFormatting(value: unknown): FormattingState {
 function normalizePresentation(value: unknown): ExplorationPresentation {
   const stored = (value ?? {}) as Record<string, unknown>;
   const empty = emptyExplorationPresentation();
-  const presentation = stored.presentation;
   return {
     hiddenColumns: stringArray(stored.hiddenColumns) ?? empty.hiddenColumns,
     columnOrder: stringArray(stored.columnOrder) ?? empty.columnOrder,
     pinnedColumns: stringArray(stored.pinnedColumns) ?? empty.pinnedColumns,
     columnWidths: finiteWidths(stored.columnWidths) ?? empty.columnWidths,
-    presentation: presentation === 'grid' || presentation === 'record' || presentation === 'text' ? presentation : null,
     valuePanelOpen: stored.valuePanelOpen === true,
-    // A non-integer or negative index would address a row that cannot exist; the views
-    // clamp to the loaded page anyway, so page one, row one is the honest default.
-    recordRowIndex:
-      typeof stored.recordRowIndex === 'number' && Number.isInteger(stored.recordRowIndex) && stored.recordRowIndex >= 0
-        ? stored.recordRowIndex
-        : empty.recordRowIndex,
     formatting: normalizeFormatting(stored.formatting)
   };
 }
@@ -443,14 +436,16 @@ const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'valueKind'] as co
 const SORT_KEYS = ['column', 'direction', 'priority'] as const;
 const GROUPING_KEYS = ['columns', 'aggregates', 'duplicatesOnly', 'showPercentage'] as const;
 const AGGREGATE_KEYS = ['fn', 'column'] as const;
-const VIEW_PRESENTATION_KEYS = [
-  'hiddenColumns',
-  'columnOrder',
-  'pinnedColumns',
-  'columnWidths',
-  'presentation',
-  'formatting'
-] as const;
+const VIEW_PRESENTATION_KEYS = ['hiddenColumns', 'columnOrder', 'pinnedColumns', 'columnWidths', 'formatting'] as const;
+
+/**
+ * The values a view line's retired `presentation` key can hold.
+ *
+ * Every view written while the explorer offered Grid, Record and Text carries one of these, and
+ * this build still writes `null` so a page loaded before the change can read what it saves. Any
+ * other value is not something a build wrote, and the view is refused like any other stranger.
+ */
+const LEGACY_VIEW_CHOICES: readonly unknown[] = [null, 'grid', 'record', 'text'];
 const FORMATTING_KEYS = ['rules', 'colourByType', 'stripeColumns', 'transformers'] as const;
 const RULE_KEYS = ['id', 'column', 'scope', 'operator', 'value', 'foreground', 'background', 'gradient'] as const;
 const GRADIENT_KEYS = ['min', 'max', 'from', 'to'] as const;
@@ -508,24 +503,24 @@ export function readStrictQuery(value: unknown): ExplorationQuery | null {
 }
 
 /**
- * Reads a saved view's presentation STRICTLY, without the two fields a view does not carry.
+ * Reads a saved view's presentation STRICTLY, without the panel state a view does not carry.
+ *
+ * The retired `presentation` key is taken off a COPY first, and only when it holds a value some
+ * build wrote; everything after that compares the copy. A view with no such key at all is accepted
+ * too, which is what lets a later build stop writing it.
  *
  * @param value - The payload's `presentation`.
- * @returns The presentation minus `valuePanelOpen` and `recordRowIndex`, or null when the store's
- *   normaliser would default, drop or repair anything in it.
+ * @returns The presentation minus `valuePanelOpen`, or null when the store's normaliser would
+ *   default, drop or repair anything in it.
  */
-export function readStrictPresentation(
-  value: unknown
-): Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'> | null {
+export function readStrictPresentation(value: unknown): Omit<ExplorationPresentation, 'valuePanelOpen'> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const normalized: Partial<ExplorationPresentation> = normalizePresentation(value);
+  const {presentation: legacy, ...current} = value as Record<string, unknown>;
+  if (Object.hasOwn(value, 'presentation') && !LEGACY_VIEW_CHOICES.includes(legacy)) return null;
+  const normalized: Partial<ExplorationPresentation> = normalizePresentation(current);
   delete normalized.valuePanelOpen;
-  delete normalized.recordRowIndex;
-  const full = normalized as Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>;
-  return sameJson(normalized, value) &&
-    presentationHasOnlyDeclaredShape(value as Record<string, unknown>, full.formatting)
-    ? full
-    : null;
+  const full = normalized as Omit<ExplorationPresentation, 'valuePanelOpen'>;
+  return sameJson(normalized, current) && presentationHasOnlyDeclaredShape(current, full.formatting) ? full : null;
 }
 
 function isValidTabsState(value: unknown): value is ExplorationTabsState {

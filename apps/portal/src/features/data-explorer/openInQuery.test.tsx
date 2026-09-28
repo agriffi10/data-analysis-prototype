@@ -5,6 +5,7 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
+import {NOTHING_TO_OPEN} from './ExplorationResultsRegion';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -41,15 +42,24 @@ function QueryPage() {
   );
 }
 
-function seedTab() {
+function seedTab(expression: string | null = null) {
   const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
   exploration.query = {
     ...exploration.query,
-    filters: [{column: 'state', operator: '=', value: 'NY', valueKind: 'string'}]
+    filters: [{column: 'state', operator: '=', value: 'NY', valueKind: 'string'}],
+    expression
   };
   const state: ExplorationTabsState = {
     version: 1,
-    tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
+    tabs: [
+      {
+        id: 't1',
+        label: 'orders',
+        exploration,
+        scannedByExecution: {},
+        history: {past: [], future: []}
+      }
+    ],
     activeTabId: 't1'
   };
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -61,9 +71,8 @@ function persistedTab() {
   return {query: tab.exploration.query, presentation: tab.exploration.presentation, history: tab.history};
 }
 
-/** Renders both routes on jsdom's own history, settles the first run, and opens the disclosure. */
-async function renderWithSqlShown() {
-  const view = renderWithProviders(
+function renderRoutes() {
+  return renderWithProviders(
     <Routes>
       <Route
         path="/explore"
@@ -76,6 +85,11 @@ async function renderWithSqlShown() {
     </Routes>,
     {route: '/explore', auth: authenticated('alice'), browserRouter: true}
   );
+}
+
+/** Renders both routes on jsdom's own history, settles the first run, and opens the disclosure. */
+async function renderWithSqlShown() {
+  const view = renderRoutes();
   await screen.findByRole('gridcell', {name: 'NY'});
   await view.user.click(screen.getByText('Generated SQL'));
   const sql = (screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value;
@@ -127,5 +141,31 @@ describe('Open in Query', () => {
     expect(await screen.findByRole('tab', {name: /orders/})).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByRole('gridcell', {name: 'NY'})).toBeInTheDocument();
     expect(persistedTab()).toEqual(before);
+  });
+
+  it('goes from the Options menu too, with the same statement', async () => {
+    const {user, sql} = await renderWithSqlShown();
+
+    await user.click(screen.getByRole('button', {name: 'Options'}));
+    await user.click(screen.getByRole('menuitem', {name: 'Open in Query'}));
+
+    expect(await screen.findByRole('button', {name: 'Back to the Data Explorer'})).toBeInTheDocument();
+    expect((window.history.state as {usr: unknown}).usr).toEqual({openSql: {sql, label: 'orders'}});
+  });
+
+  it('refuses from the Options menu, saying why, when there is no statement to open', async () => {
+    // Too long for Athena, so it never renders into a statement at all.
+    sessionStorage.clear();
+    seedTab(`state = '${'x'.repeat(270_000)}'`);
+    const {user} = renderRoutes();
+    await screen.findByRole('button', {name: 'Options'});
+
+    await user.click(screen.getByRole('button', {name: 'Options'}));
+    const item = screen.getByRole('menuitem', {name: 'Open in Query'});
+    await user.click(item);
+
+    expect(item).toHaveAttribute('title', NOTHING_TO_OPEN);
+    expect(window.location.pathname).toBe('/explore');
+    expect(runQuery).not.toHaveBeenCalled();
   });
 });
