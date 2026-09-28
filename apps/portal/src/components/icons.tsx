@@ -28,7 +28,7 @@ export function UploadIcon({className}: IconProps) {
 }
 
 /**
- * Document / saved-query bookmark (query tab strip, history row, saved-queries drawer).
+ * Document / saved-query bookmark (history row, the drawer's empty saved-queries list, and the mobile view's empty lists).
  *
  * @example
  * <DocumentIcon className="h-4 w-4" />

@@ -303,6 +303,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'To run only some of them, select those statements and click <b>Run Statement</b>. Each one that returns rows gets its own result tab.',
           'Close a result tab you no longer need with its <b>✕</b>, or from the keyboard, move to it with the arrow keys and press <kbd>Delete</kbd> or <kbd>Backspace</kbd>. The last one stays open, and the next run replaces them all.',
           'Statements run one at a time, in order. The status bar shows which one is running (for example “Statement 2 of 4”), and each gets its own history entry.',
+          'To keep a copy of the script on your computer, click <b>Download</b> in the toolbar above the editor. The tab’s whole query is saved as a <code>.sql</code> file named after the tab — a saved query’s tab carries its name.',
           'If a statement fails, or is still running after <b>30 minutes</b>, the script stops there — the message names the statement, and the ones after it don’t run.'
         ],
         callout: {
@@ -317,7 +318,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'The rail on the left is your database navigator, a map of everything you can query — your own personal database plus any shared spaces you belong to. Expand any database to see its tables and columns. There’s no “current” database to switch between, which means a single query can read from, and join across, any databases you have access to.',
         steps: [
-          'The schema rail on the left lists every database you can access — your personal database (named after your username) and any shared spaces you belong to.',
+          'The rail on the left lists every database you can access. Your personal database, named after your username, is under <b>My database</b>; any shared spaces you belong to are under <b>Shared spaces</b>, one database each.',
           'Expand a database to inspect its tables and columns.',
           'Created a table elsewhere, or a teammate did? Click the <b>Refresh</b> icon beside an expanded database to re-read its tables and views without reloading the page.',
           'Hover over a table and open its <b>⋮</b> menu for more. <b>View data</b> opens a new tab and runs a query over the whole table, <b>View DDL</b> opens how the table was defined, and <b>Drop table</b> — <b>Drop view</b> on a view — removes it after you confirm. Dropping a table built from a folder leaves its files where they are, but an Iceberg table you created in a query is dropped together with its data.',
@@ -354,11 +355,12 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Saved queries live in a <b>saved_queries</b> folder in a space, so opening one starts by choosing which space to look in.',
         steps: [
-          'Click <b>Saved queries</b> to open the list.',
+          'Click <b>Saved queries</b> in the toolbar above the editor, beside <b>Save</b>, to open the list.',
           'Choose a <b>Space</b> at the top. Your own space, shown as your username, comes first, and any shared space available to you is listed after it. Your choice is remembered for the rest of the session.',
           'The list shows the <code>.sql</code> files in that space’s <b>saved_queries</b> folder in alphabetical order, with names that start with a capital letter first, along with when each changed and how big it is. Use <b>Prev</b> and <b>Next</b> to page through them.',
           'A count ending in <b>+</b> — like <b>1–10 of 25+</b> — means there are at least that many; pressing Next fetches more.',
           'Click <b>Open</b> to load one into a new tab. Editing it changes only your tab: the file changes when you save, and not before.',
+          'Or click <b>Open and run</b> to open it in a new tab and run it straight away. Every statement in it runs in order, as <b>Run Query Tab</b> runs them, and you see the last result set.',
           'Click <b>Delete</b> and confirm to remove one. Deleting a query in a shared space removes it for everyone in that space; a tab that has it open keeps its SQL.'
         ],
         callout: {
@@ -389,7 +391,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Drag a column’s edge to resize it — your widths are remembered as you switch tabs.',
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
           'Choose how many rows show at once with <b>Rows per page</b> above the table — any number from 1 to 1000 (the default is 100). One setting covers every result tab, and it sticks for the session.',
-          'Ran a script with <b>Run Multiple Queries</b>, or selected several statements and clicked <b>Run Statement</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
+          'Ran a script with <b>Run Multiple Queries</b>, or selected several statements and clicked <b>Run Statement</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths. Close one you no longer need with its <b>✕</b>, or press <kbd>Delete</kbd> or <kbd>Backspace</kbd> on it; the last one stays open.',
           'Want more room? Drag the divider between the editor and the results to any split you like — or, if you would rather not drag, use the small <b>▲</b> and <b>▼</b> buttons on the divider to nudge it a step at a time. Click the divider and the arrow keys, <b>Home</b> and <b>End</b> move it too; from the keyboard, it sits between those two buttons. Double-click it to go back to an even split. Where you leave it sticks for the session.'
         ]
       },

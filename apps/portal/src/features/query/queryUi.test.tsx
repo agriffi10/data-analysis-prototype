@@ -249,6 +249,24 @@ describe('ResultTabs', () => {
       }
     );
 
+    // A click on a ✕ can focus the tab it sits in, and the close removes that tab. Closing a tab
+    // that is not the shown one leaves the shown one shown, so focus goes there, not to a neighbour.
+    it.each([
+      ['the shown tab', 1, '3 · SELECT b', 1, 2],
+      ['the shown tab, when it is the last', 2, '4 · SHOW TABLES', 2, 1],
+      ['a tab after the shown one', 0, '4 · SHOW TABLES', 2, 0]
+    ])('hands focus to the tab shown after a pointer close of %s', async (_, active, label, closed, heir) => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      const onClose = vi.fn();
+      renderTabs(active, vi.fn(), onClose);
+      const rendered = screen.getAllByRole('tab');
+
+      await user.click(screen.getByTitle(`Close ${label}`));
+
+      expect(onClose).toHaveBeenCalledWith(closed);
+      expect(rendered[heir]).toHaveFocus();
+    });
+
     it('offers no way to close the last remaining tab', async () => {
       const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onClose = vi.fn();
@@ -395,6 +413,7 @@ describe('SavedQueriesPanel', () => {
         isLoadingMore={false}
         onRetry={onRetry}
         onOpen={onOpen}
+        onOpenAndRun={vi.fn()}
         onDelete={onDelete}
         {...over}
       />
@@ -523,6 +542,7 @@ describe('SavedQueriesPanel', () => {
       isLoadingMore: false,
       onRetry: vi.fn(),
       onOpen: vi.fn(),
+      onOpenAndRun: vi.fn(),
       onDelete: vi.fn()
     };
     const {rerender} = render(<SavedQueriesPanel {...props} />);
@@ -622,7 +642,6 @@ describe('QueryTabStrip', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     const onNew = vi.fn();
-    const onOpenSaved = vi.fn();
     const onOpenHistory = vi.fn();
     render(
       <QueryTabStrip
@@ -632,12 +651,11 @@ describe('QueryTabStrip', () => {
         onSelect={onSelect}
         onClose={onClose}
         onNew={onNew}
-        onOpenSaved={onOpenSaved}
         onOpenHistory={onOpenHistory}
         {...over}
       />
     );
-    return {onSelect, onClose, onNew, onOpenSaved, onOpenHistory};
+    return {onSelect, onClose, onNew, onOpenHistory};
   }
 
   describe('QueryTabStrip', () => {
@@ -659,11 +677,9 @@ describe('QueryTabStrip', () => {
       expect(onClose).toHaveBeenCalledWith('b');
     });
 
-    it('renders the global Saved queries + History buttons', async () => {
+    it('renders the global History button', async () => {
       const user = userEvent.setup(USER_EVENT_OPTIONS);
-      const {onOpenSaved, onOpenHistory} = setup();
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      expect(onOpenSaved).toHaveBeenCalledTimes(1);
+      const {onOpenHistory} = setup();
       await user.click(screen.getByRole('button', {name: 'History'}));
       expect(onOpenHistory).toHaveBeenCalledTimes(1);
     });
@@ -695,7 +711,6 @@ describe('QueryTabStrip.a11y', () => {
           onSelect={noop}
           onClose={noop}
           onNew={noop}
-          onOpenSaved={noop}
           onOpenHistory={noop}
         />
         {/* The panel the tablist's `aria-controls` points at (lives in

@@ -292,6 +292,31 @@ export function statementHint(sql: string): string {
   return `${collapsed.slice(0, STATEMENT_HINT_MAX - 1).trimEnd()}…`;
 }
 
+/** Characters Windows or macOS refuse in a file name. */
+const UNSAFE_IN_FILE_NAME: ReadonlySet<string> = new Set(['\\', '/', ':', '*', '?', '"', '<', '>', '|']);
+/** In characters, not code units, so the cut never splits a surrogate pair. */
+const DOWNLOAD_STEM_MAX = 120;
+
+/** Leading dots hide a file on a Mac; trailing dots and spaces are dropped by Windows. */
+const trimFileNameEnds = (s: string) => s.replace(/^[.\s]+/, '').replace(/[.\s]+$/, '');
+
+/**
+ * The name a tab's SQL downloads under: `name` made safe for a file system, with `.sql` added
+ * exactly once. A refused character or a control character becomes `_`, and dots and spaces at
+ * either end go. A name with nothing left is `query.sql`.
+ *
+ * @example
+ * sqlDownloadName('Revenue by region'); // 'Revenue by region.sql'
+ * sqlDownloadName('SELECT * FROM mydb.t'); // 'SELECT _ FROM mydb.t.sql'
+ */
+export function sqlDownloadName(name: string): string {
+  const chars = Array.from(name, (ch) => (UNSAFE_IN_FILE_NAME.has(ch) || ch < ' ' || ch === '\u007f' ? '_' : ch));
+  const stem = Array.from(trimFileNameEnds(chars.join('')).replace(/\.sql$/i, ''))
+    .slice(0, DOWNLOAD_STEM_MAX)
+    .join('');
+  return `${trimFileNameEnds(stem) || 'query'}.sql`;
+}
+
 // ── Statement-aware completion support ──────────────────────────────────
 
 /** One `FROM`/`JOIN` reference: `database` is null for an unqualified name, which resolves to nothing. */

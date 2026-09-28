@@ -146,8 +146,12 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
       await screen.findByLabelText('SQL editor');
       expect(screen.getByRole('tab', {name: /Query 1/})).toBeInTheDocument();
-      // History + Saved queries hoisted to the global bar; Save stays per-tab.
-      expect(screen.getByRole('button', {name: 'Saved queries'})).toBeInTheDocument();
+      // History sits on the global bar; Saved queries sits in the toolbar beside Save, and keeps
+      // its words in the tablet band, where the toolbar's other labels are hidden.
+      expect(within(screen.getByRole('button', {name: 'Saved queries'})).getByText('Saved queries')).not.toHaveClass(
+        'hidden'
+      );
+      expect(within(screen.getByRole('button', {name: 'Save query'})).getByText('Save')).toHaveClass('hidden');
       expect(screen.getAllByRole('button', {name: /History/})).toHaveLength(1);
       expect(screen.getByRole('button', {name: 'Save query'})).toBeInTheDocument();
 
@@ -195,12 +199,46 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
     });
 
-    it('offers Copy only when the tab has SQL to copy', async () => {
+    it('offers Copy and Download only when the tab has SQL to copy', async () => {
       seedSingle('');
       renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
       expect(screen.getByRole('button', {name: 'Copy query'})).toBeDisabled();
+      expect(screen.getByRole('button', {name: 'Download query'})).toBeDisabled();
+    });
+
+    it('downloads the active tab’s SQL as a .sql file named after the saved query it holds', async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(ok('SELECT region\nFROM alice.sales;'));
+      // jsdom has no object URLs, and an anchor click there navigates; the file is what the
+      // browser is handed, so the blob and the anchor are captured instead. The stubs stay in
+      // place: the revoke runs a minute after the click, after this test has finished.
+      const blobs: Blob[] = [];
+      Object.assign(URL, {
+        createObjectURL: (blob: Blob) => (blobs.push(blob), 'blob:query'),
+        revokeObjectURL: () => {}
+      });
+      const anchors: HTMLAnchorElement[] = [];
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+        this: HTMLAnchorElement
+      ) {
+        anchors.push(this);
+      });
+      try {
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
+        await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+        await user.click(await screen.findByRole('button', {name: 'Open saved query Revenue'}));
+        await screen.findByRole('tab', {name: /Revenue/});
+
+        await user.click(screen.getByRole('button', {name: 'Download query'}));
+
+        expect(anchors.map((a) => [a.download, a.getAttribute('href')])).toEqual([['Revenue.sql', 'blob:query']]);
+        expect(await blobs[0].text()).toBe('SELECT region\nFROM alice.sales;');
+      } finally {
+        click.mockRestore();
+      }
     });
 
     it('copies the whole of the active tab’s SQL from the toolbar', async () => {
@@ -565,6 +603,46 @@ describe('QueryWorkspace', () => {
         'alice',
         expect.objectContaining({savedQueryKey: 'alice/saved_queries/Revenue.sql', savedQueryName: 'Revenue'})
       );
+    });
+
+    it('Open and run opens the saved query in a new tab, runs all of it there and records it in history', async () => {
+      queueRuns('q-1', 'q-2');
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(ok('SELECT 1;\nSELECT 2;'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: 'Open and run saved query Revenue'}));
+
+      expect(await screen.findByRole('tab', {name: /Revenue/, selected: true})).toBeInTheDocument();
+      expect(editor()).toHaveValue('SELECT 1;\nSELECT 2;');
+      await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+      expect(mockRunQuery.mock.calls.map(([args]) => args.sql)).toEqual(['SELECT 1', 'SELECT 2']);
+      // The tab it ran in was opened in the same click, so the link has to travel with the run.
+      expect(mockAppend).toHaveBeenCalledWith(
+        'alice',
+        expect.objectContaining({savedQueryKey: 'alice/saved_queries/Revenue.sql', savedQueryName: 'Revenue'})
+      );
+      expect(screen.queryByRole('button', {name: 'Open and run saved query Revenue'})).not.toBeInTheDocument();
+    });
+
+    // The row stays on screen until the body arrives, so a double-click lands twice on it.
+    it('opens and runs a saved query once when Open and run is double-clicked', async () => {
+      let resolveRead: (v: Awaited<ReturnType<typeof mockReadSaved>>) => void = () => {};
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+
+      await user.dblClick(await screen.findByRole('button', {name: 'Open and run saved query Revenue'}));
+      resolveRead(ok('SELECT 1;'));
+
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      expect(screen.getAllByRole('tab', {name: /Revenue/})).toHaveLength(1);
+      expect(mockReadSaved).toHaveBeenCalledTimes(1);
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
     });
 
     it('opens NO tab and says which file is gone when its body cannot be read', async () => {

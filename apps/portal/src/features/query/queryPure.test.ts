@@ -13,6 +13,7 @@ import {
   sameSql,
   schemaChangingDatabase,
   splitSqlStatements,
+  sqlDownloadName,
   sqlTableReferences,
   statementHint
 } from './query.sql';
@@ -228,6 +229,24 @@ describe('query.sql', () => {
   describe('statementHint', () => {
     it('collapses whitespace and strips leading comments', () => {
       expect(statementHint('-- setup\nSELECT *\n  FROM mydb.t')).toBe('SELECT * FROM mydb.t');
+    });
+  });
+
+  describe('sqlDownloadName', () => {
+    it.each([
+      ['Revenue by region', 'Revenue by region.sql'],
+      ['SELECT * FROM mydb.t', 'SELECT _ FROM mydb.t.sql'],
+      ['a/b\\c:d?e"f<g>h|i\tj', 'a_b_c_d_e_f_g_h_i_j.sql'],
+      ['report.SQL ', 'report.sql'],
+      ['x .sql', 'x.sql'],
+      ['..hidden..', 'hidden.sql'],
+      [' . ', 'query.sql']
+    ])('names %j as %j', (name, expected) => {
+      expect(sqlDownloadName(name)).toBe(expected);
+    });
+
+    it('caps a long name at 120 characters without splitting one', () => {
+      expect(sqlDownloadName(`${'x'.repeat(119)}😀tail`)).toBe(`${'x'.repeat(119)}😀.sql`);
     });
   });
 

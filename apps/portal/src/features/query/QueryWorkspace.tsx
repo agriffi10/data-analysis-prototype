@@ -27,6 +27,7 @@ import {
   isTextOutputSql,
   resolveRunStatements,
   splitSqlStatements,
+  sqlDownloadName,
   statementHint,
   stripTrailingSemicolons
 } from './query.sql';
@@ -51,6 +52,7 @@ import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {QueryHistoryEntry, QueryTab} from './query.types';
 import type {GlueTableSummary} from '../catalog/catalog.types';
+import type {SavedQuery} from '../saved-queries/savedQueries.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it.
@@ -395,6 +397,13 @@ export function QueryWorkspace() {
     if (id !== null) submitBatch(splitSqlStatements(entry.sql), 'script-single', id);
   };
 
+  // Open and run: the saved query opens as Open opens it, then runs whole, as a Re-run does. Its
+  // link goes with the run because the new tab is not in this render's tab list yet.
+  const handleOpenAndRunSaved = (query: SavedQuery) =>
+    savedFlow.openSaved(query, (id, sql) =>
+      submitBatch(splitSqlStatements(sql), 'script-single', id, undefined, {key: query.key, name: query.name})
+    );
+
   // Open a tab through the cap guard; at the cap show the dialog.
   const handleNewTab = () => {
     const id = tabs.openTab();
@@ -680,7 +689,6 @@ export function QueryWorkspace() {
               onSelect={tabs.setActiveTab}
               onClose={requestClose}
               onNew={handleNewTab}
-              onOpenSaved={openSaved}
               onOpenHistory={openHistory}
             />
 
@@ -697,8 +705,11 @@ export function QueryWorkspace() {
                 canClear={canClear}
                 canSave={canSave}
                 sql={activeTab.sql}
+                // A tab opened from or saved as a saved query carries that query's name as its label.
+                downloadName={sqlDownloadName(activeTab.label)}
                 onClear={() => setClearOpen(true)}
                 onSave={saveQuery.openDialog}
+                onOpenSaved={openSaved}
                 onCreateView={handleOpenCreateView}
                 onStop={handleStop}
                 onRunStatement={handleRunStatement}
@@ -776,7 +787,7 @@ export function QueryWorkspace() {
         )}
       </main>
 
-      {/* Editor-shell drawers: opened from the tab strip, and their actions
+      {/* Editor-shell drawers: opened from the tab strip and the toolbar, and their actions
           (Open / Re-run) load SQL into the editor — so they belong to the
           editor's breakpoints only. The mobile home is the surface for these
           two lists below `tablet`. */}
@@ -805,6 +816,7 @@ export function QueryWorkspace() {
             isLoadingMore={saved.isLoadingMore}
             onRetry={saved.refresh}
             onOpen={savedFlow.openSaved}
+            onOpenAndRun={handleOpenAndRunSaved}
             onDelete={savedFlow.deleteSaved}
           />
         </>

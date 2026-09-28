@@ -29,14 +29,16 @@ type Props = {
   isLoadingMore: boolean;
   onRetry: () => void;
   onOpen: (query: SavedQuery) => void;
+  /** As `onOpen`, then runs the new tab's SQL. */
+  onOpenAndRun: (query: SavedQuery) => void;
   /** Parent removes the query and unlinks any open tab. */
   onDelete: (query: SavedQuery) => void;
 };
 
 /**
  * Saved-queries drawer: a space selector, then that space's `.sql` files a page at a
- * time, with Open (→ new linked tab) and Delete (→ confirm). The delete confirm owns
- * Escape while open.
+ * time, with Open (→ new linked tab), Open and run (→ the same, then run) and Delete
+ * (→ confirm). The delete confirm owns Escape while open.
  *
  * the selector renders ABOVE every body state, so a space the user can
  * no longer reach is an error about *that space* — they pick another and carry on —
@@ -61,6 +63,7 @@ export function SavedQueriesPanel({
   isLoadingMore,
   onRetry,
   onOpen,
+  onOpenAndRun,
   onDelete
 }: Props) {
   const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
@@ -158,6 +161,13 @@ export function SavedQueriesPanel({
                   aria-label={`Open saved query ${q.name}`}
                   className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
                   Open
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenAndRun(q)}
+                  aria-label={`Open and run saved query ${q.name}`}
+                  className="rounded-sm px-1.5 py-0.5 text-xs font-semibold text-accent-text hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  Open and run
                 </button>
                 <button
                   type="button"
