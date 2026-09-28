@@ -533,11 +533,11 @@ function FileBrowserContent({
           rootPrefix={rootPrefix}
           busy={archive.busy}
           submitError={archive.error}
-          onConfirm={async () => {
+          onConfirm={async (name) => {
             // The selection clears and the listing is invalidated only on the way OUT of a
             // SUCCESSFUL enqueue, and the answer comes from the call rather than from
             // `archive.error`, which in this closure is the value from before the submit.
-            if (await archive.submit()) {
+            if (await archive.submit(name)) {
               selection.clear();
               // `refresh` IS `invalidateListing` for this prefix. The archive has only
               // been enqueued, so the listing will not have changed yet — invalidating anyway is
@@ -568,6 +568,7 @@ function FileBrowserContent({
 
       {restore.open && space && (
         <RestoreArchiveDialog
+          space={space}
           spaceLabel={rootLabel ?? space.name}
           busy={restore.busy}
           submitError={restore.error}

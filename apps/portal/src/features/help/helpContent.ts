@@ -166,12 +166,14 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Archiving takes files or folders out of your space and stores them cheaply for the long term. Unlike a delete, the copy is kept safely — but it is <b>no longer in your file list</b>, and getting it back is not instant. Use it for things you want to keep but do not expect to open again soon.',
         steps: [
           'In the <b>Files</b> tab, tick one or more items and click <b>Archive</b> — or open a single item’s <b>Details</b> and choose <b>Archive</b> there.',
-          'Read the confirmation. It names what will go, and says plainly that these files leave this space.',
-          'Click <b>Archive</b>. The work happens in the background, and a notification tells you when it has finished — including the <b>archive id</b> you will need to get it back.',
-          'Every archive also leaves a folder under <b>system_settings</b> → <b>archive</b> in your space, named after its id, holding a receipt you can download and read.',
-          'To bring an archive back, open the <b>Files</b> tab in the space it was archived from, click <b>Restore Archived Data</b>, paste the archive id, and click <b>Restore</b>. Everything comes back where it was. In a narrow window that first button moves to a bar along the bottom and says just <b>Restore</b>.',
+          'Read the confirmation. It names what will go, says where it goes and how a restore brings it back, and that long-term storage is charged for at least 90 days.',
+          'Give the archive a <b>Name</b> if you like — it is how you will recognise it in the restore list later. It is optional, and it cannot be changed afterwards.',
+          'Click <b>Archive</b>. The work happens in the background, and a notification tells you when it has finished, naming the archive’s id.',
+          'Every archive also leaves a folder under <b>system_settings</b> → <b>archive</b> in your space, named after its id, holding a receipt you can download and read — its first line is the name. Beside the folders is an <b>index.json</b> the portal keeps to label the restore list; there is nothing in it you need to act on.',
+          'To bring an archive back, open the <b>Files</b> tab in the space it was archived from, click <b>Restore Archived Data</b>, pick the archive from the list, and click <b>Restore</b>. Each archive shows its name, when it was archived, what it held and what its last restore did — an archive the portal cannot label shows just its id. Everything comes back where it was. In a narrow window that first button moves to a bar along the bottom and says just <b>Restore</b>.',
+          'An archive missing from the list — one whose receipt could not be written, which its notification tells you — can still be restored: click <b>Restore by archive id instead</b> and paste its id.',
           'A restore takes <b>several hours</b> — the files have to be retrieved from long-term storage first. You get one notification when it starts and another when it is done.',
-          'An archive can be restored once. When every file is back, the archived copy is removed, and the notification says so.'
+          'An archive can be restored once. When every file is back, the archived copy is removed, the notification says so, and the list shows the archive as restored.'
         ],
         callout: {
           kind: 'warning',

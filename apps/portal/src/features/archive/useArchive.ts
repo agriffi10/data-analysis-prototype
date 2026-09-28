@@ -1,31 +1,14 @@
 import {useRef, useState} from 'react';
+import {useQuery} from '@tanstack/react-query';
 import {toUserText} from '../../lib/errorMessages';
-import {enqueueArchive, enqueueRestore} from './archive.service';
+import {unwrap} from '../../lib/serviceResult';
+import {enqueueArchive, enqueueRestore, listArchives} from './archive.service';
 import type {ArchiveItem, ArchiveSpace} from '../../types/archive.types';
 
 // Only a success is ever pushed: a FAILURE stays in the dialog, beside the selection or the
 // pasted id the user would have to reproduce if it closed. The union is the toast host's,
 // narrowed here to what these hooks actually send.
 type ArchiveToast = {variant: 'success'; message: string};
-
-/**
- * The archive id's shape, checked before enqueue.
- *
- * The SERVER validates it again — `arcommon.paths.validated_archive_id`, before the value is
- * concatenated into any key — and that is the boundary. This copy exists so a typo costs the
- * user a sentence now rather than a notification hours later, which on this plane is the whole
- * difference: a restore that fails at the front door still spent none of the 3-5 hours.
- */
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-/**
- * Is this a well-formed archive id? Held to the SAME pattern the control plane uses, rather than
- * a laxer "looks like a uuid" — a second, looser rule in the browser would report a value as
- * valid that the plane then refuses, which is the failure this check exists to prevent.
- */
-export function isArchiveId(value: string): boolean {
-  return UUID_V4.test(value.trim());
-}
 
 /**
  * Dialog + enqueue state for Archive.
@@ -68,14 +51,17 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
    * listing only after a successful enqueue, and reading `error` from the enclosing render to
    * decide would read the value from BEFORE the submit — clearing the selection under a dialog
    * whose retry then has nothing to archive (the journey test caught exactly that).
+   *
+   * @param name - What the user called the archive, as typed; the service normalises it and an
+   *   empty one sends no name.
    */
-  const submit = async (): Promise<boolean> => {
+  const submit = async (name = ''): Promise<boolean> => {
     if (!items || !space || inFlight.current) return false;
     inFlight.current = true;
     try {
       setBusy(true);
       setError(null);
-      const result = await enqueueArchive({requestId: crypto.randomUUID(), space, items});
+      const result = await enqueueArchive({requestId: crypto.randomUUID(), space, items, name});
       if (!result.success) {
         setError(toUserText(result.error));
         return false;
@@ -173,4 +159,33 @@ export function useRestoreArchive(space: ArchiveSpace | null, notify: (toast: Ar
     },
     submit
   };
+}
+
+/** The archive feature's query keys, kept beside the one hook that uses them. */
+export const archiveKeys = {
+  all: ['archive'] as const,
+  list: (space: ArchiveSpace) => [...archiveKeys.all, 'list', space.kind, space.name] as const
+};
+
+/**
+ * The restore dialog's list of the space's archives.
+ *
+ * Fetched while the dialog is open and stale at once, so every opening reads the receipt folder
+ * afresh — a restore requested a minute ago shows its new status the next time, with no
+ * invalidation to remember — while the rows already in the cache show during the refetch. It is
+ * not refetched on window focus: a list that reorders under the user's selection is worse than
+ * one that is a few minutes old.
+ *
+ * @param space - The space being restored into, or null before one is known.
+ * @param enabled - Whether the dialog is open.
+ * @returns The query; its error is the receipt folder failing to list, never the index.
+ */
+export function useArchiveList(space: ArchiveSpace | null, enabled: boolean) {
+  return useQuery({
+    queryKey: space ? archiveKeys.list(space) : [...archiveKeys.all, 'list', 'none'],
+    enabled: enabled && space !== null,
+    queryFn: async () => unwrap(await listArchives(space as ArchiveSpace)),
+    staleTime: 0,
+    refetchOnWindowFocus: false
+  });
 }

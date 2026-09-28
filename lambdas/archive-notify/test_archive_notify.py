@@ -78,7 +78,7 @@ def test_a_shared_space_archive_says_which_space_to_restore_it_from(sent):
 
     assert sent[0][1].endswith(
         "to restore them, open the finance space in Files, choose Restore Archived Data and "
-        "enter this id."
+        "pick this archive from the list."
     )
 
 

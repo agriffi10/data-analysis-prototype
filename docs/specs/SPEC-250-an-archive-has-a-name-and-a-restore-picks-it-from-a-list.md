@@ -1,7 +1,7 @@
 # Spec: An Archive Has a Name, and a Restore Picks It From a List
 
 **ID:** SPEC-250
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-28
 **Depends On:** SPEC-168/170/172 (the archive plane, its restore arm and both dialogs), SPEC-246 (the `archive` kill switch, which still gates both entry points)
 
@@ -342,6 +342,8 @@ The dialog also has these states:
 - **Empty:** "This space has no archives yet."
 - **Error** (the folder listing itself fails): "Couldn't load this space's archives." with a
   **Try again** button that refetches.
+  A re-read that fails while rows are already shown keeps them: every opening re-reads the list,
+  and a transient fault must not take away the archives the user was about to pick from.
 
 The fallback link (FR-005) is present in every state. The list is a TanStack Query keyed per space
 in a feature-local `archiveKeys`. It goes stale at once, so every opening refetches, and cached rows
@@ -407,7 +409,7 @@ switching back. Submitting in id mode sends the typed id, and the list selection
 #### Description:
 
 - **The archived notification** (`arcommon.messages.archived_message`) keeps naming the archive id.
-  Its instruction changes from "... and enter this id" to "... and pick it from the list". The
+  Its instruction changes from "... and enter this id" to "... and pick this archive from the list". The
   shared-space variant keeps naming the space.
 - **Help `archive-files`**: the steps describe:
   - the Name field;
@@ -433,8 +435,8 @@ switching back. Submitting in id mode sends the typed id, and the list selection
 
 #### Acceptance Criteria:
 
-- [ ] `archived_message` for a personal and for a shared archive contains the id and "pick it from
-      the list", and no longer contains "enter this id". The messages module's existing
+- [ ] `archived_message` for a personal and for a shared archive contains the id and "pick this
+      archive from the list", and no longer contains "enter this id". The messages module's existing
       denylist/plant corpus stays green.
 - [ ] The `archive-files` guide mentions "Name", "Restore by archive id instead" and "system_settings".
       A `help.test.tsx` assertion covers the first two.

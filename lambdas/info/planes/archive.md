@@ -67,6 +67,20 @@ they would share one archive prefix — and since restore authorizes by *space* 
 sits there, a member of space `alice` could restore user `alice`'s files. Receipts need no such
 segment: they live in each space's own bucket.
 
+**Each space also keeps an archive index, and it is a label, never a record.**
+`{root}system_settings/archive/index.json` holds one entry per archive — its name, when and by
+whom it was made, the first few items, the counts, and what its last restore did — so the restore
+dialog can show a list instead of asking for a pasted id. The **receipt folders** say which
+archives exist; the index only labels them, so an archive it lacks is still listed and still
+restored. write-receipt records an archive after its receipt, update-receipt records each restore
+stage on an existing entry and never creates one, every write is a compare-and-swap, and every
+failure is swallowed. **A stall is bounded as well as swallowed**: the index uses
+`cpcommon.clients.s3_bounded` and gives up on a deadline, because a call that never answers raises
+nothing to catch and would hold the verb past its Lambda timeout after the real work was done. It
+is capped at 200 entries and written unescaped, a pair measured against the read route's stored cap
+and Lambda's response ceiling. An archive's optional name (`arcommon.names`) is checked before the
+space is authorized and becomes the receipt's first line.
+
 **Containment lives in `cpcommon.paths`, not in `arcommon`.** Archive is the third plane to ask "is
 this key inside the root I authorized?", and it is the one place a second copy is a cross-tenant
 read. `fscommon.paths` re-exports the three names.
@@ -162,7 +176,9 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   engine treats an absent class as "do not pass the argument", so relying on S3's default would be
   invisible in the code and would land every restored object back in `GLACIER` — looking like a
   success until it expired to unreadable.
-- **A restore takes its SPACE from the request and its ARCHIVE from a pasted id**, so authorization
+- **A restore takes its SPACE from the request and its ARCHIVE from an id the browser sends** —
+  picked from the space's list since SPEC-250, typed only as the fallback; *(was "a pasted id")* —
+  and the server treats the two identically, so authorization
   is a question about *that* space, and an archive belonging to another one simply is not found:
   `archive_not_found` never distinguishes "never existed" from "not yours". The id is matched against
   `arcommon.paths`' one UUID rule **before** it is concatenated into a key, and the root is then built
@@ -216,9 +232,11 @@ deliver while every bound computed from it reads as satisfied. Eight workers; th
 | `config` | domain configuration |
 | `counts` | the numbers a person reads — files, with a folder placeholder counted only when it fell short — beside the object counts the gate compares |
 | `delete` | batched deletion, refusing over the **whole** list (unlike `focommon.delete`, which is per item) |
+| `index_store` | the per-space archive index that labels the restore list — a compare-and-swap that never raises and is bounded in time |
 | `guard` | the destination guard — nothing a restore would write over may already exist |
 | `manifest` | `_manifest.json`, the integrity record written before anything is deleted |
 | `messages` | user-facing archive and restore wording |
+| `names` | the archive-name rule, which the browser's `archiveName.ts` and a shared corpus hold to |
 | `notify` | best-effort outcome notifications |
 | `paths` | the archive key layout, and the inverse that survives a lost record |
 | `plan` | the copy plan, expanded once and passed by pointer |

@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest';
-import {screen} from '@testing-library/react';
+import {fireEvent, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -43,13 +43,30 @@ describe('ArchiveDialog', () => {
     expect(screen.getByRole('heading', {name: 'Archive 2 items?'})).toBeInTheDocument();
   });
 
-  it('says the data leaves this space, and that a restore takes hours', () => {
-    // FR-002 AC2. Both are consequences of decisions recorded in SPEC-168 and SPEC-171, and
-    // neither can be inferred from a button reading "Archive".
-    renderDialog([FOLDER]);
+  it('says where the data goes, where a restore puts it, what stops one, how long, what it costs and how to find it', () => {
+    // The six facts the outside reviewers asked for, each by the phrase that carries it. None of
+    // them can be inferred from a button reading "Archive".
+    const {baseElement} = renderDialog([FOLDER]);
+    const text = baseElement.textContent ?? '';
 
-    expect(screen.getByText(/removed from this space/i)).toBeInTheDocument();
-    expect(screen.getByText(/several hours/i)).toBeInTheDocument();
+    for (const phrase of [
+      /long-term archive storage/,
+      /same folder/,
+      /overwrites nothing/,
+      /move or rename/,
+      /several hours/,
+      /90 days/,
+      /Restore Archived Data/
+    ]) {
+      expect(text).toMatch(phrase);
+    }
+  });
+
+  it('never tells the user to destroy a file to make a restore fit', () => {
+    // The files in a restore's way can be the only copy left, so the remedy is to move them.
+    const {baseElement} = renderDialog([FOLDER, FILE]);
+
+    expect(baseElement.textContent).not.toMatch(/delete|trash|overwrite it|replace/i);
   });
 
   it('warns that a folder takes everything inside it', () => {
@@ -63,7 +80,7 @@ describe('ArchiveDialog', () => {
     // delete confirm's "This can't be undone" would be the one sentence here that is false.
     renderDialog([FOLDER]);
 
-    expect(screen.queryByText(/can’t be undone/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/can’t be undone|cannot be undone/i)).not.toBeInTheDocument();
   });
 
   it('focuses Cancel, not the confirm', async () => {
@@ -86,13 +103,41 @@ describe('ArchiveDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('confirms only when the confirm is actually pressed', async () => {
+  it('confirms only when the confirm is actually pressed, with the name normalised', async () => {
     const user = userEvent.setup();
     const {onConfirm} = renderDialog([FOLDER]);
 
+    await user.type(screen.getByLabelText('Name (optional)'), '  Q1   reports ');
     await user.click(screen.getByRole('button', {name: 'Archive'}));
 
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith('Q1 reports');
+  });
+
+  it.each([
+    ['a right-to-left override', 'Q1\u202ereports'],
+    ['a tab', 'Q1\treports']
+  ])('refuses a name holding %s, says why, and archives nothing', async (_label, name) => {
+    const user = userEvent.setup();
+    const {onConfirm} = renderDialog([FOLDER]);
+    const field = screen.getByLabelText('Name (optional)');
+
+    fireEvent.change(field, {target: {value: name}});
+    await user.click(screen.getByRole('button', {name: 'Archive'}));
+
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(field).toHaveAccessibleDescription(/can’t contain tabs, line breaks or other control characters/);
+  });
+
+  it('keeps Enter in the Name field from archiving, because the field is in no form', async () => {
+    const user = userEvent.setup();
+    const {onConfirm} = renderDialog([FOLDER]);
+    const field = screen.getByLabelText<HTMLInputElement>('Name (optional)');
+
+    await user.type(field, 'Q1{Enter}');
+
+    expect(field.form).toBeNull();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name: 'Archive'})).toBeInTheDocument();
   });
 
   it('locks both controls and dismissal while the enqueue is in flight', async () => {

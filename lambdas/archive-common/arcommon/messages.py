@@ -336,13 +336,12 @@ def archived_message(
 ) -> str:
     """Composes the text for a completed ARCHIVE.
 
-    **It names the archive id, and that is the whole reason this message cannot be generic.** The
-    archived objects live in a bucket the browser has no relationship with, so the id is the
-    user's only route back to them — the receipt carries it too, but the receipt is inside the
-    folder the id names, and a user who never opens it has nowhere else to read it. It also says
-    where the id goes: an id with no instruction beside it left a user holding it and not knowing
-    what to do with it. A shared space's archive names that space, because Files opens the
-    personal one and a restore only finds an archive in the space being browsed.
+    **It says where to find the archive again, and it still names the archive id.** A restore
+    starts from Restore Archived Data, where the space's archives are listed to pick from; the id
+    is what matches this archive to its receipt, what the restore dialog's id field takes when the
+    list cannot show an archive, and what an administrator needs quoted. A shared space's archive
+    names that space, because Files opens the personal one and a restore only finds an archive in
+    the space being browsed.
 
     The size renders through ``receipt.human_bytes``, so one archive reads the same in its receipt,
     in this message and in the file browser (the shared TB ceiling).
@@ -367,7 +366,8 @@ def archived_message(
         f"Archived {phrase} ({receipt.human_bytes(total_bytes)}). "
         f"{'It has' if one else 'They have'} been removed from your space. "
         f"Archive id: {request_id} - to restore {'it' if one else 'them'}, {where} "
-        "Restore Archived Data" + ("" if shared_space else " in Files") + " and enter this id."
+        "Restore Archived Data" + ("" if shared_space else " in Files")
+        + " and pick this archive from the list."
     )
 
 

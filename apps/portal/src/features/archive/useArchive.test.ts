@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, renderHook} from '@testing-library/react';
-import {isArchiveId, useArchive, useRestoreArchive} from './useArchive';
+import {isArchiveId} from './archiveId';
+import {useArchive, useRestoreArchive} from './useArchive';
 import {enqueueArchive, enqueueRestore} from './archive.service';
 
 vi.mock('./archive.service', async (importOriginal) => ({

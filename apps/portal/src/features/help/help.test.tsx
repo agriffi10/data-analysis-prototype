@@ -832,3 +832,14 @@ describe('the filter box the Data Explorer no longer has', () => {
     for (const text of texts) expect(text).not.toMatch(/Filter expression|Apply expression/i);
   });
 });
+
+describe('the archive guide', () => {
+  it('names the archive’s Name, the list to pick from, and the id fallback', () => {
+    const guide = HELP_SECTIONS.flatMap((s) => s.guides).find((g) => g.id === 'archive-files');
+    const text = guide ? [guide.intro ?? '', ...guide.steps].join(' ') : '';
+
+    expect(text).toMatch(/<b>Name<\/b>/);
+    expect(text).toMatch(/pick the archive from the list/);
+    expect(text).toMatch(/<b>Restore by archive id instead<\/b>/);
+  });
+});

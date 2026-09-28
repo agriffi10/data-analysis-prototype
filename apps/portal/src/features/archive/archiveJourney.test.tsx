@@ -171,12 +171,14 @@ describe('the archive journey', () => {
     const dialog = await screen.findByRole('alertdialog', {name: 'Confirm archive'});
     expect(within(dialog).getByRole('heading', {name: /Archive the folder “reports\/”/})).toBeInTheDocument();
 
+    await user.type(within(dialog).getByLabelText('Name (optional)'), 'Q1 reports');
     await user.click(within(dialog).getByRole('button', {name: 'Archive'}));
 
     expect(api.countOf('archive.archive')).toBe(1);
     expect(api.bodyFor('archive.archive')).toEqual({
       requestId: expect.any(String),
-      source: {space: {kind: 'personal', name: 'alice'}, items: [{kind: 'folder', key: 'alice/reports/'}]}
+      source: {space: {kind: 'personal', name: 'alice'}, items: [{kind: 'folder', key: 'alice/reports/'}]},
+      archiveName: 'Q1 reports'
     });
     expect(screen.queryByRole('alertdialog', {name: 'Confirm archive'})).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', {name: 'Select folder reports'})).not.toBeChecked();
@@ -294,13 +296,42 @@ describe('the archive journey', () => {
 });
 
 describe('the restore journey', () => {
-  it('opens from the toolbar, validates the id and enqueues a restore', async () => {
+  it('lists the space’s archives and restores the one picked, under a run id of its own', async () => {
     const user = userEvent.setup();
     const api = programmedApi();
+    api.on('objects.list', {
+      success: true,
+      data: {
+        items: [{kind: 'folder', key: `alice/system_settings/archive/${ARCHIVE_ID}/`, size: null, lastModified: null}],
+        nextToken: null
+      }
+    });
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Restore Archived Data'}));
     const dialog = await screen.findByRole('dialog', {name: 'Restore archived data'});
+    await user.click(await within(dialog).findByRole('radio', {name: 'Archive 3f8a1c2e'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Restore'}));
+
+    const body = api.bodyFor('archive.restore') as {requestId: string; archiveId: string};
+    expect(body).toEqual({
+      requestId: expect.any(String),
+      space: {kind: 'personal', name: 'alice'},
+      archiveId: ARCHIVE_ID
+    });
+    expect(body.requestId).not.toBe(ARCHIVE_ID);
+    expect(screen.queryByRole('dialog', {name: 'Restore archived data'})).not.toBeInTheDocument();
+  });
+
+  it('still takes a typed id, one link under the list, and validates it', async () => {
+    const user = userEvent.setup();
+    const api = programmedApi();
+    api.on('objects.list', {success: true, data: {items: [], nextToken: null}});
+    renderBrowser();
+
+    await user.click(await screen.findByRole('button', {name: 'Restore Archived Data'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Restore archived data'});
+    await user.click(within(dialog).getByRole('button', {name: 'Restore by archive id instead'}));
 
     await user.type(within(dialog).getByLabelText('Archive id'), 'nope');
     await user.click(within(dialog).getByRole('button', {name: 'Restore'}));
@@ -322,7 +353,7 @@ describe('the restore journey', () => {
 
   it('names the space it will restore into', async () => {
     const user = userEvent.setup();
-    programmedApi();
+    programmedApi().on('objects.list', {success: true, data: {items: [], nextToken: null}});
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Restore Archived Data'}));
