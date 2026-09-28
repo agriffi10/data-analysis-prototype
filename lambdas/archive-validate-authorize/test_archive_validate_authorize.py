@@ -242,3 +242,45 @@ def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(field, 
 
     assert caught.value.reason == reason
     assert caught.value.detail == detail
+
+
+# ── The archive's name ───────────────────────────────────────────────────────
+
+
+def test_a_name_rides_on_the_archive_block_and_its_absence_is_recorded_as_none():
+    named = verb.handler(_event(archiveName="Q1 reports"), None)
+    unnamed = verb.handler(_event(), None)
+
+    assert named["archive"]["name"] == "Q1 reports"
+    assert unnamed["archive"]["name"] is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [7, "", " Q1", "\U0001F600" * 101, "Q1\u0007"],
+    ids=["not-a-string", "empty", "not-normalised", "101-code-points", "bell"],
+)
+def test_a_refused_name_fails_the_request_before_the_space_is_read(value, monkeypatch):
+    """A SHARED space, because authorizing one reads the registry from S3 — the read a refused name
+    must not cost. The loader here raises, so a check that ran after it would fail with its error
+    instead of this reason."""
+
+    def _registry_read(name):
+        raise AssertionError("the registry was read for a request the name already refused")
+
+    monkeypatch.setattr(authz.reg, "load", _registry_read)
+    source = _source(space={"kind": "shared", "name": "team"}, items=[{"kind": "file", "key": "team/q1.csv"}])
+
+    assert _refused(archiveName=value, source=source) == "invalid_name"
+
+
+def test_a_restore_carrying_a_name_is_refused_as_an_unknown_field():
+    assert _restore_refused(archiveName="Q1") == "malformed_event"
+
+
+def test_both_modes_resolve_the_spaces_index_key_beside_its_receipt_folders():
+    archived = verb.handler(_event(), None)
+    restored = verb.handler(_restore_event(), None)
+
+    assert archived["archive"]["indexKey"] == "alice/system_settings/archive/index.json"
+    assert restored["archive"]["indexKey"] == "alice/system_settings/archive/index.json"

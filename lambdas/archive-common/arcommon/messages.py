@@ -124,6 +124,9 @@ _BODIES = {
     "invalid_request": "that request was malformed and could not be run.",
     "no_items": "nothing was selected.",
     "invalid_items": "the list of files was malformed.",
+    "invalid_name": (
+        "that archive name is too long, or has characters an archive name can't hold."
+    ),
     "too_many_items": (
         "you can archive at most {maxItems} files or folders at a time. Please select fewer."
     ),
@@ -290,6 +293,7 @@ ARCHIVE_ONLY = frozenset(
     {
         "no_items",
         "invalid_items",
+        "invalid_name",
         "too_many_items",
         "selection_too_large",
         "reserved_folder",

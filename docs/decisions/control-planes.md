@@ -366,9 +366,11 @@ state, and a Cause is a JSON document inside a JSON string on the state — esca
 everything else. Reserved honestly, a quote-heavy selection at the old 96 KiB caps reached a
 `RecordFailure` of **263,533 bytes (archive) and 271,446 (file-send)** against 262,144, on a `Pass`
 with no `Catch` — figures the chain guard computes rather than restates, because the first pair
-written here was measured before the units were corrected and was wrong by up to 8 KB. `ARCHIVE_MAX_ITEM_BYTES` is now **89 KiB** and `SEND_MAX_ITEM_BYTES` **84 KiB**, each
+written here was measured before the units were corrected and was wrong by up to 8 KB. `ARCHIVE_MAX_ITEM_BYTES` came down to **89 KiB** and `SEND_MAX_ITEM_BYTES` to **84 KiB**, each
 pinned tight — one whole kibibyte more and the chain breaches — with the SPA's mirrors moved with
-them.
+them. *(Superseded for archive by SPEC-250: **87 KiB**, because the archive's optional name rides
+in the same message and its bound had nowhere to come from but the selection. The characterised
+overshoot above describes the body without the name.)*
 
 **A fourth live overshoot the spec never named: file-ops measured a quantity nothing produces.** Its
 selection cap counted the selection with `ensure_ascii=False`, on the reasoning that the browser

@@ -1,0 +1,132 @@
+{
+  "about": "Raw archive names and what the name rule makes of each. 'normalized' is the name sent (empty means no name); null means refused. 'repeat' repeats both 'raw' and 'normalized' that many times. Run by arcommon's names tests and by the browser's archiveName tests.",
+  "cases": [
+    {
+      "why": "an ordinary name is kept as typed",
+      "raw": "Q1 reports",
+      "normalized": "Q1 reports"
+    },
+    {
+      "why": "spaces around and between words collapse to one",
+      "raw": "  Q1   reports  ",
+      "normalized": "Q1 reports"
+    },
+    {
+      "why": "spaces only is no name at all",
+      "raw": "   ",
+      "normalized": ""
+    },
+    {
+      "why": "empty is no name at all",
+      "raw": "",
+      "normalized": ""
+    },
+    {
+      "why": "a tab is refused, never turned into a space",
+      "raw": "Q1\treports",
+      "normalized": null
+    },
+    {
+      "why": "a line feed would start a new receipt line",
+      "raw": "Q1\nRestored to: x",
+      "normalized": null
+    },
+    {
+      "why": "a carriage return would too",
+      "raw": "Q1\rreports",
+      "normalized": null
+    },
+    {
+      "why": "C1 next-line is refused",
+      "raw": "Q1\u0085reports",
+      "normalized": null
+    },
+    {
+      "why": "DEL is refused",
+      "raw": "Q1\u007freports",
+      "normalized": null
+    },
+    {
+      "why": "a line separator is refused",
+      "raw": "Q1\u2028reports",
+      "normalized": null
+    },
+    {
+      "why": "a paragraph separator is refused",
+      "raw": "Q1\u2029reports",
+      "normalized": null
+    },
+    {
+      "why": "a right-to-left override is refused",
+      "raw": "Q1\u202ereports",
+      "normalized": null
+    },
+    {
+      "why": "a first-strong isolate is refused",
+      "raw": "Q1\u2068reports",
+      "normalized": null
+    },
+    {
+      "why": "the Arabic letter mark is refused",
+      "raw": "Q1\u061creports",
+      "normalized": null
+    },
+    {
+      "why": "a left-to-right mark is refused",
+      "raw": "Q1\u200ereports",
+      "normalized": null
+    },
+    {
+      "why": "a lone surrogate cannot be encoded, so it is refused",
+      "raw": "Q1\ud800",
+      "normalized": null
+    },
+    {
+      "why": "a surrogate PAIR is one astral character and is kept",
+      "raw": "Q1 \ud83d\ude00",
+      "normalized": "Q1 \ud83d\ude00"
+    },
+    {
+      "why": "a no-break space is a character, not a space, so it survives trimming",
+      "raw": "\u00a0Q1\u00a0",
+      "normalized": "\u00a0Q1\u00a0"
+    },
+    {
+      "why": "an ideographic space is a character too",
+      "raw": "\u3000Q1",
+      "normalized": "\u3000Q1"
+    },
+    {
+      "why": "a zero-width joiner is allowed; it builds emoji",
+      "raw": "a\u200db",
+      "normalized": "a\u200db"
+    },
+    {
+      "why": "accented and CJK text is kept",
+      "raw": "Donn\u00e9es \u5831\u544a",
+      "normalized": "Donn\u00e9es \u5831\u544a"
+    },
+    {
+      "why": "a quote and a colon are ordinary characters",
+      "raw": "Name: \"x\"",
+      "normalized": "Name: \"x\""
+    },
+    {
+      "why": "a hundred astral characters is exactly the cap",
+      "raw": "\ud83d\ude00",
+      "repeat": 100,
+      "normalized": "\ud83d\ude00"
+    },
+    {
+      "why": "a hundred and one is over it",
+      "raw": "\ud83d\ude00",
+      "repeat": 101,
+      "normalized": null
+    },
+    {
+      "why": "the cap is on the normalised length, so padding does not count",
+      "raw": "     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa     ",
+      "normalized": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

@@ -82,6 +82,14 @@ Attributes:
     ``Bound.owner`` gives. It is an ``api`` bound rather than a ``verb`` one because the list is
     the field that makes the chain's worst case unmeasurable while it is unbounded, and that has
     to be settled before the message is built.
+  MAX_ARCHIVE_NAME_BYTES: What an archive's name may serialize to. The plane caps a name at a
+    hundred code points (``arcommon.config.ARCHIVE_NAME_MAX_CHARS``), and the sender serializes
+    with ``ensure_ascii``, under which the worst code point is an astral one: two surrogate
+    escapes, twelve bytes. So a hundred of them plus the quotes. **A byte count derived from the
+    character cap, not the cap itself** — the size chain reads a bound in the unit it declares,
+    and the character count spent as bytes would model the field twelve times too small. The
+    hundred is mirrored rather than imported, for the reason ``Bound.owner`` gives, and a guard
+    holds it equal to the plane's.
   FIELD_BOUNDS: Every declared bound, one per (route, path).
 """
 
@@ -144,6 +152,7 @@ MAX_COLUMN_INDEXES_PER_REQUEST: Final[int] = 1_500
 MAX_PARTITION_KEYS_BYTES: Final[int] = 40 * 1024
 MAX_PARTITION_VALUE_BYTES: Final[int] = 255
 MAX_PARTITION_VALUES_BYTES: Final[int] = MAX_PARTITION_KEYS_BYTES // 4
+MAX_ARCHIVE_NAME_BYTES: Final[int] = 12 * 100 + 2
 
 
 @dataclass(frozen=True)
@@ -367,6 +376,10 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "archive.archive", "source.items[].key", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which every selected item names",
         measured="value",
+    ),
+    Bound(
+        "archive.archive", "archiveName", MAX_ARCHIVE_NAME_BYTES, "api",
+        "the plane's hundred-code-point name cap at the worst escaping a code point takes",
     ),
     Bound(
         "archive.restore", "requestId", MAX_REQUEST_ID_BYTES, "api",

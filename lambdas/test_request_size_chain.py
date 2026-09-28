@@ -1015,6 +1015,11 @@ OLD_MAX_MESSAGE_BYTES = 262_144 - 512
 #: The archive and file-send selection caps before the fourth link was modelled honestly.
 OLD_SELECTION_CAP_BYTES = 96 * 1024
 
+#: Fields a route gained after the old caps were characterised. The figures the register quotes
+#: describe the body as it was, so the characterisation leaves these out rather than re-quoting a
+#: number for a request that never existed at those caps.
+FIELDS_ADDED_SINCE_THE_OLD_CAPS = {"archive.archive": ("archiveName",)}
+
 
 def test_a_body_at_the_OLD_cap_produced_a_record_over_the_state_limit():
     """The first live overshoot: the cap admitted a message no execution could start from.
@@ -1124,7 +1129,7 @@ def test_an_accented_file_ops_selection_breached_what_its_own_cap_measured():
     assert failure_state > cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 
-def test_the_overshoot_the_register_cites_is_the_one_this_model_computes():
+def test_the_overshoot_the_register_cites_is_the_one_this_model_computes(monkeypatch):
     """The figures the register and the delivery doc quote, computed rather than transcribed.
 
     An earlier pair was measured before the recipients-count and identifier-unit corrections and
@@ -1134,6 +1139,16 @@ def test_the_overshoot_the_register_cites_is_the_one_this_model_computes():
     """
     from arcommon import config as ar_config
     from fscommon import config as fs_config
+
+    current = worst_case_body
+
+    def _as_it_was(route, fill):
+        body = current(route, fill)
+        for field in FIELDS_ADDED_SINCE_THE_OLD_CAPS.get(route.id, ()):
+            body.pop(field, None)
+        return body
+
+    monkeypatch.setitem(globals(), "worst_case_body", _as_it_was)
 
     breaches = {}
     for route_id, module, name, plane in (

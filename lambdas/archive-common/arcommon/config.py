@@ -81,6 +81,10 @@ Attributes:
     written here was stale within the same branch. ``lambdas/test_request_size_chain.py`` computes
     every link for every piped route against one constant and pins the overshoot; the message cap
     this sits under is derived in ``lambdas/api/apicommon/enqueue.py``.
+
+    **It came down again, from 89 KiB, to make room for the archive's name.** The cap was pinned
+    as tight as the chain admits, so the name's bound had nowhere to go but out of the selection;
+    one kibibyte less still overshot once the name rode beside it.
   ARCHIVE_MAX_OBJECTS: Cap on the EXPANDED object count — what the selection actually resolves
     to, which ``ARCHIVE_MAX_ITEMS`` says nothing about because one selected folder can hold any
     number of objects. What sizes it is the copy plan held in MEMORY by inspect-source, which
@@ -230,6 +234,25 @@ Attributes:
   RECEIPT_NAME: The receipt object's basename. **A plain text file the user downloads and reads
     themselves** — deliberately not rendered in the browser, which leaves the project's
     no-preview rule untouched.
+  ARCHIVE_NAME_MAX_CHARS: The longest name an archive may carry, in code points after
+    normalisation. The browser's field states the same number (``archiveName.ts``) and a test
+    holds the two equal; the API's byte bound on the field is derived from it at the worst
+    escaping a code point can take.
+  ARCHIVE_NAME_REFUSED_RANGES: The code points a name may not contain, as inclusive ranges,
+    checked on the raw value before normalisation. The C0 and C1 controls and the line and
+    paragraph separators would each start a new line in the receipt, where the rewrite keys on a
+    line's label; the bidirectional controls would let a name shown to the other members of a
+    shared space read as something it is not. The surrogate range can only match a LONE
+    surrogate, since Python iterates by code point: one arrives from a JSON escape of half a pair,
+    passes every other check and cannot be encoded, so the receipt write would fail after the
+    source had already been deleted.
+  ARCHIVE_INDEX_NAME: The basename of the per-space archive index, beside the receipt folders.
+  ARCHIVE_INDEX_MAX_ENTRIES: How many archives the index labels, newest kept. **It is set
+    together with the index's unescaped encoding, and is not the data-quality index's cap:**
+    the browser reads the whole document through the object content route, whose stored cap and
+    Lambda's response ceiling both bind, and a test builds this many worst-case entries at the
+    read route's worst fill and measures both. An archive past the cap still appears in the
+    restore list, from its receipt folder, without a label.
 """
 
 from cpcommon.app_managed import (
@@ -251,7 +274,7 @@ SPACE_KINDS = frozenset({"personal", "shared"})
 
 ARCHIVE_MAX_ITEMS = 200
 
-ARCHIVE_MAX_ITEM_BYTES = 89 * 1024
+ARCHIVE_MAX_ITEM_BYTES = 87 * 1024
 
 ARCHIVE_MAX_OBJECTS = 20_000
 
@@ -289,6 +312,22 @@ RESERVED_SOURCE_ROOTS = (
 PROTECTED_MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
 RECEIPT_NAME = "receipt.txt"
+
+ARCHIVE_NAME_MAX_CHARS = 100
+
+ARCHIVE_NAME_REFUSED_RANGES = (
+    (0x0000, 0x001F),
+    (0x007F, 0x009F),
+    (0x061C, 0x061C),
+    (0x200E, 0x200F),
+    (0x2028, 0x202E),
+    (0x2066, 0x2069),
+    (0xD800, 0xDFFF),
+)
+
+ARCHIVE_INDEX_NAME = "index.json"
+
+ARCHIVE_INDEX_MAX_ENTRIES = 200
 
 
 def archive_bucket() -> str:

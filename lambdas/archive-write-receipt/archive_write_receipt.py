@@ -13,13 +13,19 @@ run is recoverable by hand rather than merely reported.
 **``Files archived`` is the file count off the ``transfer`` block**, the same number the archived
 notification names, so a folder placeholder is not counted as a file on either.
 
+**The archive is then recorded in the space's index, and only after the receipt is written** — the
+index labels the restore list, the receipt folder is what puts an archive in it, and an entry
+for an archive with no receipt would label a row the list will never show. Recording never fails
+the run: ``index_store`` swallows every fault, and a run validated before the index key existed
+carries none and is simply not labelled.
+
 The service name is the control plane, not the function, so one archive's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import counts, notify, receipt
+from arcommon import counts, index_store, notify, receipt
 from cpcommon import observability
 from cpcommon.errors import TerminalError, TransientError
 
@@ -76,6 +82,7 @@ def _write_receipt(event) -> dict:
     source = event.get("source") or {}
     archive = event.get("archive") or {}
     record = {
+        "name": archive.get("name"),
         "requestId": event.get("requestId"),
         "startedAt": (event.get("execution") or {}).get("startedAt"),
         "source": {"bucket": source.get("bucket"), "root": source.get("root")},
@@ -94,6 +101,12 @@ def _write_receipt(event) -> dict:
             f"the archive completed but its receipt could not be written: {err}",
             tokens={"requestId": str(event.get("requestId"))},
         ) from err
+
+    index_store.record_archive(
+        archive.get("receiptBucket"),
+        archive.get("indexKey"),
+        lambda: index_store.entry_from(event, record["fileCount"]),
+    )
 
     logger.info("receipt written to %s", key)
     observability.info(

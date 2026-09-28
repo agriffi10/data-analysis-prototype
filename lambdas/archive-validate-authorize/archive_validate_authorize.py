@@ -3,7 +3,9 @@
 Parses the SQS record, reads the trusted actor out of the API's identity block, authorizes
 the actor's access to the space, and resolves the archive prefix — for an ARCHIVE, checking that
 every selected item sits inside the source and is not one of the portal's own folders and
-enforcing the request-shape caps; for a RESTORE, validating the pasted archive id
+enforcing the request-shape caps, and checking the optional archive name against
+``arcommon.names`` before the space is authorized, since authorizing a shared space reads the
+registry and a refused name should cost nothing; for a RESTORE, validating the pasted archive id
 before it is concatenated into a key. Read-only in both: nothing is listed, copied or deleted
 here.
 
@@ -48,7 +50,7 @@ Attributes:
 import json
 import logging
 
-from arcommon import authz, notify, paths, restore
+from arcommon import authz, names, notify, paths, restore
 from arcommon.config import (
     ARCHIVE_MAX_ITEM_BYTES,
     ARCHIVE_MAX_ITEMS,
@@ -67,7 +69,7 @@ observability.init(service="archive")
 
 _ALLOWED_FIELDS = {
     "archive": frozenset(
-        {"requestId", "mode", "actor", "source", "identity", "traceparent"}
+        {"requestId", "mode", "actor", "source", "archiveName", "identity", "traceparent"}
     ),
     "restore": restore.ALLOWED_FIELDS,
 }
@@ -309,8 +311,8 @@ def _validate_and_authorize(event) -> dict:
     Raises:
       TerminalError: ``unauthorized`` for an unusable identity block, ``forbidden`` for an
         unreachable space or
-        an out-of-root key, ``invalid_request`` for a malformed request or archive id, or any
-        selection reason.
+        an out-of-root key, ``invalid_request`` for a malformed request or archive id,
+        ``invalid_name`` for an archive name the rule refuses, or any selection reason.
       TransientError: On a retryable S3 fault.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
@@ -327,6 +329,7 @@ def _validate_and_authorize(event) -> dict:
         request_id = paths.validated_request_id(req.get("requestId"))
         if mode == "restore":
             return _restore(req, request_id, actor)
+        name = names.validated_name(req["archiveName"]) if "archiveName" in req else None
         declared = req.get("source") if isinstance(req.get("source"), dict) else {}
         source = authz.authorize_source(actor, declared.get("space"))
         source["items"] = _normalize_items(declared.get("items"), source)
@@ -348,6 +351,8 @@ def _validate_and_authorize(event) -> dict:
             "root": archive_root,
             "receiptBucket": source["bucket"],
             "receiptKey": receipt_key,
+            "indexKey": paths.index_key(source["name"]),
+            "name": name,
         },
     }
     logger.info(

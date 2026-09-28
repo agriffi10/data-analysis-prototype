@@ -633,6 +633,7 @@ def _smallest(node: TypeNode) -> object:
 _KIND_BY_SUFFIX = (
     ("requestId", "MAX_REQUEST_ID_BYTES", "wire"),
     ("archiveId", "MAX_REQUEST_ID_BYTES", "wire"),
+    ("archiveName", "MAX_ARCHIVE_NAME_BYTES", "wire"),
     ("submittedAt", "MAX_TIMESTAMP_BYTES", "wire"),
     ("location", "MAX_S3_KEY_BYTES", "value"),
     ("prefix", "MAX_S3_KEY_BYTES", "value"),

@@ -1232,10 +1232,14 @@ class ArchiveEnqueueRequest(TypedDict):
     Attributes:
       requestId: The caller's per-submit id, which is also the archive's permanent identity.
       source: The space and selection.
+      archiveName: What the user called the archive. Absent when they gave it no name; the plane
+        checks the rule again, because this service checks only its size. Not ``name``: a field
+        with that leaf is a catalog identifier everywhere else on this contract.
     """
 
     requestId: str
     source: FileSendSource
+    archiveName: NotRequired[str]
 
 
 class RestoreEnqueueRequest(TypedDict):

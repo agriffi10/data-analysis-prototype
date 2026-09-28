@@ -34,13 +34,17 @@ empty, or a listing that would not answer — selects the cleared outcome, which
 The count runs once, before the receipt is written, and rides on the state so the receipt line and
 the notification cannot tell the user two different things.
 
+**Each stage is also recorded on the archive's entry in the space's index**, which labels the
+restore list with what the archive's last restore did. That record is a label: it never raises,
+never creates an entry, and is written only once the stage's outcome is real.
+
 The service name is the control plane, not the function, so one restore's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 """
 
 import logging
 
-from arcommon import counts, notify, receipt, restore
+from arcommon import counts, index_store, notify, receipt, restore
 from cpcommon import observability
 from cpcommon.errors import TerminalError, TransientError
 
@@ -59,9 +63,9 @@ def _fallback_record(event) -> dict:
 
     Reachable only when S3 proved the receipt is absent — every other read fault raises, so a
     document this run merely failed to READ is never overwritten. Every field comes from what the
-    restore already knows and is exact, with one exception: **the archive's own start time cannot
-    be recovered**, so ``Requested`` renders as a placeholder. That is the whole reason the
-    ordinary path rewrites rather than re-renders.
+    restore already knows and is exact, with two exceptions: **the archive's own start time and
+    its name cannot be recovered**, so ``Requested`` and ``Name`` render as placeholders. That is
+    the whole reason the ordinary path rewrites rather than re-renders.
 
     ``Request ID`` is the ARCHIVE's id and not this restore's. They are deliberately different
     values, and the one that belongs on this document is the one that opened it.
@@ -78,6 +82,7 @@ def _fallback_record(event) -> dict:
     archive = event.get("archive") or {}
     space = event.get("source") or {}
     return {
+        "name": None,
         "requestId": archive.get("archiveId"),
         "startedAt": None,
         "source": {"bucket": space.get("bucket"), "root": space.get("root")},
@@ -85,6 +90,35 @@ def _fallback_record(event) -> dict:
         "fileCount": counts.file_count(event),
         "totalBytes": event.get("totalBytes"),
     }
+
+
+def _record_in_index(event, status: str) -> None:
+    """Records this stage of the restore on the archive's entry in the space's index.
+
+    Called only once the stage's outcome is real: at ``requested`` after the receipt says so,
+    because a failure there fails the run before anything is billed and the index must not claim
+    a restore that never started; at ``restored`` and ``incomplete`` whether or not the receipt
+    could be written, because what it records has happened either way. It never raises, and an
+    event validated before the index key existed carries none and records nothing.
+
+    Args:
+      event: The validated restore request, carrying the seeded ``restore`` block.
+      status: The stage being recorded.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    archive = event.get("archive") or {}
+    index_store.record_restore(
+        archive.get("receiptBucket"),
+        archive.get("indexKey"),
+        archive.get("archiveId"),
+        status,
+        (event.get("restore") or {}).get("requestedAt"),
+    )
 
 
 def _restore_state(event) -> dict:
@@ -256,6 +290,7 @@ def _update_receipt(event) -> dict:
         except Exception as err:
             if status != RESTORED:
                 raise
+            _record_in_index(event, status)
             logger.warning("the receipt could not record the finished restore: %s", err)
             observability.error(
                 "receipt not updated after a finished restore",
@@ -263,6 +298,7 @@ def _update_receipt(event) -> dict:
                 error=type(err).__name__,
             )
             return event
+        _record_in_index(event, status)
         logger.info("receipt %s updated: restore %s", key, status)
         observability.info(
             "receipt updated",
@@ -282,6 +318,7 @@ def _update_receipt(event) -> dict:
         _rewrite(counted)
     except Exception as err:  # noqa: BLE001 - the data that landed stays, and the raise below stands
         logger.warning("the receipt could not record the partial restore: %s", err)
+    _record_in_index(event, status)
 
     observability.info(
         "restore incomplete",

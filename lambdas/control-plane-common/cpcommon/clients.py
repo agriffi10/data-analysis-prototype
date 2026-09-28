@@ -3,9 +3,23 @@
 Clients are created once per warm container and reused. Heavy dependencies (boto3, PyJWT)
 are imported inside each factory so a verb that never needs a client never pays for it.
 Tests patch the cached module globals directly (``clients._s3 = Fake()``).
+
+Attributes:
+  BOUNDED_CONNECT_SECONDS: How long ``s3_bounded`` waits to connect before a call gives up.
+  BOUNDED_READ_SECONDS: How long it waits for a response once connected.
+  BOUNDED_MAX_ATTEMPTS: How many attempts one call makes in all, under the standard retry mode —
+    one retry, so a single dropped connection is survived and a stalled endpoint is not waited
+    on twice over.
 """
 
+BOUNDED_CONNECT_SECONDS = 1
+
+BOUNDED_READ_SECONDS = 2
+
+BOUNDED_MAX_ATTEMPTS = 2
+
 _s3 = None
+_s3_bounded = None
 _sqs = None
 _sfn = None
 _glue = None
@@ -33,6 +47,40 @@ def s3():
 
         _s3 = boto3.client("s3")
     return _s3
+
+
+def s3_bounded():
+    """Returns an S3 client whose every call gives up within seconds, for work that is optional.
+
+    The default client waits a minute for a response and retries five times, which is right for a
+    verb's own work and wrong for a convenience riding along after it: a stalled endpoint would
+    hold the verb past its Lambda timeout, and a timeout is outside every ``Retry`` and lands in
+    the failure path of a run whose real work already succeeded. A caller of this client catches
+    what it raises and moves on; the worst case of one call is derivable from the three bounds.
+
+    Args:
+      None.
+
+    Returns:
+      The cached, bounded boto3 S3 client.
+
+    Raises:
+      None.
+    """
+    global _s3_bounded
+    if _s3_bounded is None:
+        import boto3
+        from botocore.config import Config
+
+        _s3_bounded = boto3.client(
+            "s3",
+            config=Config(
+                connect_timeout=BOUNDED_CONNECT_SECONDS,
+                read_timeout=BOUNDED_READ_SECONDS,
+                retries={"mode": "standard", "max_attempts": BOUNDED_MAX_ATTEMPTS},
+            ),
+        )
+    return _s3_bounded
 
 
 def sqs():

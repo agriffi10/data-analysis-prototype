@@ -117,6 +117,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
             "archiveId": archive_id,
             "receiptBucket": space["bucket"],
             "receiptKey": paths.receipt_key(space["name"], archive_id),
+            "indexKey": paths.index_key(space["name"]),
         },
     }
 

@@ -6,6 +6,7 @@ failed write fails the RUN, even though the data is safely archived, because a u
 receipt has no id and therefore no route to a restore.
 """
 
+import json
 import os
 import sys
 
@@ -21,47 +22,96 @@ os.environ.setdefault("ARCHIVE_BUCKET", "archive-bkt")
 import archive_write_receipt as m
 import pytest
 from arcommon import notify
-from cpcommon import clients
+from cpcommon import cas, clients
 from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ROOT = f"personal/alice/archive/{_REQUEST_ID}/"
 
 
+_INDEX_KEY = "alice/system_settings/archive/index.json"
+
+
 class _S3Error(Exception):
-    def __init__(self, code):
-        self.response = {"Error": {"Code": code}}
+    def __init__(self, code, status=400):
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
         super().__init__(code)
 
 
-class _FakeS3:
-    def __init__(self, error=None):
-        self.puts = []
-        self._error = error
+class _Body:
+    def __init__(self, data):
+        self._data = data
 
-    def put_object(self, Bucket, Key, Body, ContentType):
+    def read(self):
+        return self._data
+
+
+class _FakeS3:
+    """The receipt's write, plus the index's conditional read and write.
+
+    ``puts`` records the receipt writes the verb's own contract is about; the index lives in
+    ``objects`` and honours If-Match / If-None-Match, because the index is a compare-and-swap and a
+    fake that ignored the conditions would let an index test pass without the index code running.
+    """
+
+    def __init__(self, error=None, index_error=None):
+        self.puts = []
+        self.index_puts = 0
+        self.objects = {}
+        self._error = error
+        self._index_error = index_error
+
+    def get_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise _S3Error("NoSuchKey", 404)
+        body, etag = self.objects[Key]
+        return {"Body": _Body(body), "ETag": etag}
+
+    def put_object(self, Bucket, Key, Body, ContentType, IfMatch=None, IfNoneMatch=None):
+        if Key == _INDEX_KEY:
+            self.index_puts += 1
+            if self._index_error:
+                raise self._index_error
+            current = self.objects.get(Key)
+            if IfNoneMatch == "*" and current is not None:
+                raise _S3Error("ConditionalRequestConflict", 409)
+            if IfMatch is not None and (current is None or current[1] != IfMatch):
+                raise _S3Error("PreconditionFailed", 412)
+            self.objects[Key] = (Body, f'"etag-{self.index_puts}"')
+            return {}
         if self._error:
             raise self._error
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, "ContentType": ContentType})
         return {}
 
+    def index(self):
+        return json.loads(self.objects[_INDEX_KEY][0])
 
-def _install(error=None):
-    fake = _FakeS3(error)
+
+def _install(error=None, index_error=None):
+    fake = _FakeS3(error, index_error)
     clients._s3 = fake
+    clients._s3_bounded = fake
     return fake
 
 
-def _event(space_bucket="user-bkt", name="alice"):
+def _event(space_bucket="user-bkt", name="alice", archive=None):
     return {
         "requestId": _REQUEST_ID,
         "actor": {"username": "alice"},
-        "source": {"bucket": space_bucket, "root": f"{name}/", "kind": "personal", "name": name},
+        "source": {
+            "bucket": space_bucket,
+            "root": f"{name}/",
+            "kind": "personal",
+            "name": name,
+            "items": [{"kind": "folder", "key": f"{name}/reports/"}],
+        },
         "archive": {
             "bucket": "archive-bkt",
             "root": _ARCHIVE_ROOT,
             "receiptBucket": space_bucket,
             "receiptKey": f"{name}/archive/{_REQUEST_ID}/receipt.txt",
+            **(archive or {}),
         },
         "execution": {"name": "arch-exec-1", "startedAt": "2026-08-10T14:02:11.123Z"},
         "objectCount": 1204,
@@ -105,3 +155,76 @@ def test_a_failed_write_fails_the_run_and_says_the_data_is_archived(_no_real_not
     assert "were archived" in message
     assert _REQUEST_ID in message
     assert "nothing was deleted" not in message
+
+
+# ── The name, and the index ─────────────────────────────────────────────────
+
+
+def test_the_receipt_opens_with_the_archives_name_or_a_placeholder():
+    fake = _install()
+
+    m.handler(_event(archive={"name": "Q1 reports"}), None)
+    m.handler(_event(), None)
+
+    named, unnamed = (put["Body"].decode().splitlines()[0] for put in fake.puts)
+    assert named.split(":", 1) == ["Name", "              Q1 reports"]
+    assert unnamed.split(":", 1)[1].strip() == "-"
+
+
+def test_the_archive_is_recorded_in_the_spaces_index_once_however_often_the_verb_runs():
+    fake = _install()
+    event = _event(archive={"indexKey": _INDEX_KEY, "name": "Q1 reports"})
+
+    result = m.handler(event, None)
+    m.handler(event, None)
+
+    assert result["receiptKey"] == f"alice/archive/{_REQUEST_ID}/receipt.txt"
+    assert "Files archived:    1204" in fake.puts[0]["Body"].decode()
+    assert fake.index()["archives"] == [
+        {
+            "archiveId": _REQUEST_ID,
+            "name": "Q1 reports",
+            "archivedAt": "2026-08-10T14:02:11.123Z",
+            "archivedBy": "alice",
+            "items": [{"kind": "folder", "path": "reports/"}],
+            "itemCount": 1,
+            "fileCount": 1204,
+            "totalBytes": 8_412_339_201,
+            "restore": None,
+        }
+    ]
+
+
+def test_an_archive_whose_receipt_failed_is_not_indexed():
+    """The receipt folder is what puts an archive in the restore list, so a label with no receipt
+    would label a row the list never shows."""
+    fake = _install(error=_S3Error("AccessDenied", 403))
+
+    with pytest.raises(TerminalError):
+        m.handler(_event(archive={"indexKey": _INDEX_KEY}), None)
+
+    assert fake.index_puts == 0
+
+
+@pytest.mark.parametrize(
+    ("error", "attempts"),
+    [(_S3Error("AccessDenied", 403), 1), (_S3Error("PreconditionFailed", 412), cas.MAX_ATTEMPTS)],
+    ids=["denied", "every-race-lost"],
+)
+def test_an_index_that_cannot_be_written_does_not_fail_a_completed_archive(error, attempts):
+    fake = _install(index_error=error)
+
+    result = m.handler(_event(archive={"indexKey": _INDEX_KEY}), None)
+
+    assert fake.index_puts == attempts
+    assert result["receiptKey"] == f"alice/archive/{_REQUEST_ID}/receipt.txt"
+
+
+def test_a_run_validated_before_the_index_existed_is_simply_not_indexed():
+    """Deploy skew: an execution the old front door validated carries no index key."""
+    fake = _install()
+
+    result = m.handler(_event(), None)
+
+    assert fake.index_puts == 0
+    assert result["receiptKey"] == f"alice/archive/{_REQUEST_ID}/receipt.txt"
