@@ -57,9 +57,11 @@ export function CreateViewDialog({busy = false, targetDatabase, statement, onCre
         already there with the same name is replaced.
       </p>
       {statement !== undefined && (
-        // Capped so a long statement cannot push the database and the name field out of view, and
-        // focusable so a keyboard can scroll what the cap hides.
+        // Capped so a long statement cannot push the database and the name field out of view, and a
+        // named, focusable region so a keyboard can scroll what the cap hides and a reader hears what it is.
         <pre
+          role="region"
+          aria-label="Statement to save"
           tabIndex={0}
           className="mb-3 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-text">
           {statement}

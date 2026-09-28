@@ -1078,8 +1078,9 @@ describe('QueryWorkspace', () => {
       await user.click(screen.getByRole('button', {name: 'Create view'}));
       const dialog = screen.getByRole('dialog', {name: 'Create view'});
       // The picked statement is shown before OR REPLACE acts on it, and the other one is not.
-      expect(within(dialog).getByText('SELECT region FROM alice.sales')).toBeInTheDocument();
-      expect(within(dialog).queryByText(/bob\.orders/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('region', {name: 'Statement to save'})).toHaveTextContent(
+        /^SELECT region FROM alice\.sales$/
+      );
       await user.type(within(dialog).getByLabelText('View name'), 'region_view');
       await user.click(within(dialog).getByRole('button', {name: 'Create'}));
 
