@@ -146,8 +146,12 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('button', {name: 'sales_2026'})).toBeInTheDocument();
       await screen.findByLabelText('SQL editor');
       expect(screen.getByRole('tab', {name: /Query 1/})).toBeInTheDocument();
-      // History sits on the global bar; Saved queries sits in the toolbar beside Save.
-      expect(screen.getByRole('button', {name: 'Saved queries'})).toBeInTheDocument();
+      // History sits on the global bar; Saved queries sits in the toolbar beside Save, and keeps
+      // its words in the tablet band, where the toolbar's other labels are hidden.
+      expect(within(screen.getByRole('button', {name: 'Saved queries'})).getByText('Saved queries')).not.toHaveClass(
+        'hidden'
+      );
+      expect(within(screen.getByRole('button', {name: 'Save query'})).getByText('Save')).toHaveClass('hidden');
       expect(screen.getAllByRole('button', {name: /History/})).toHaveLength(1);
       expect(screen.getByRole('button', {name: 'Save query'})).toBeInTheDocument();
 

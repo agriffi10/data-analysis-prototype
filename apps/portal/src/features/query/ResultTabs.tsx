@@ -28,7 +28,7 @@ export function ResultTabs({tabs, activeIndex, onSelect, onClose}: Props) {
   const solo = tabs.length <= 1;
 
   // Tabs are keyed by execution, so the heir's element survives the close and focus can be handed
-  // to it now rather than after the re-render. A click on a ✕ focuses the tab it sits in, which the
+  // to it now rather than after the re-render. A click on a ✕ can focus the tab it sits in, which the
   // close then removes, so the pointer path needs this as much as the keyboard one does.
   const close = (index: number) => {
     const heirIndex = index !== activeIndex ? activeIndex : index < tabs.length - 1 ? index + 1 : index - 1;

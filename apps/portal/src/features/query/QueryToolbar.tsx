@@ -5,9 +5,9 @@ import {cx} from '../../lib/cx';
 import {
   CheckIcon,
   CopyIcon,
-  DocumentIcon,
   DownloadIcon,
   EyeIcon,
+  FolderIcon,
   PlayIcon,
   SaveIcon,
   TrashLidIcon
@@ -122,8 +122,9 @@ export function QueryToolbar({
         variant="ghost"
         onClick={onOpenSaved}
         aria-label="Saved queries">
-        <DocumentIcon className="h-4 w-4" />
-        <span className={TOOLBAR_LABEL}>Saved queries</span>
+        <FolderIcon className="h-4 w-4" />
+        {/* Its words stay in the tablet band, where the rest go: being found is why it is here. */}
+        <span>Saved queries</span>
       </Button>
       {/* registered under the `query` flag, which already removes this whole
           route — the row exists so a future surface inherits the gate, not the bug. */}

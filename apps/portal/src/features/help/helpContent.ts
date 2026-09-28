@@ -318,7 +318,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'The rail on the left is your database navigator, a map of everything you can query — your own personal database plus any shared spaces you belong to. Expand any database to see its tables and columns. There’s no “current” database to switch between, which means a single query can read from, and join across, any databases you have access to.',
         steps: [
-          'The rail on the left lists every database you can access in two groups: <b>My database</b>, your personal database, named after your username, and <b>Shared spaces</b>, one for each shared space you belong to.',
+          'The rail on the left lists every database you can access. Your personal database, named after your username, is under <b>My database</b>; any shared spaces you belong to are under <b>Shared spaces</b>, one database each.',
           'Expand a database to inspect its tables and columns.',
           'Created a table elsewhere, or a teammate did? Click the <b>Refresh</b> icon beside an expanded database to re-read its tables and views without reloading the page.',
           'Hover over a table and open its <b>⋮</b> menu for more. <b>View data</b> opens a new tab and runs a query over the whole table, <b>View DDL</b> opens how the table was defined, and <b>Drop table</b> — <b>Drop view</b> on a view — removes it after you confirm. Dropping a table built from a folder leaves its files where they are, but an Iceberg table you created in a query is dropped together with its data.',
