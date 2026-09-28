@@ -1,7 +1,7 @@
 # Spec: A Filter Is Built From Conditions and Groups, Not Typed as SQL
 
 **ID:** SPEC-251
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-28
 **Depends On:** SPEC-238, SPEC-243, SPEC-247, SPEC-249 (FR-003's list input), and the Help session's
 `help-dbeaver-vocabulary` branch (FR-006), both merged before this spec's PR
