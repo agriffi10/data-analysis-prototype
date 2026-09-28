@@ -173,8 +173,11 @@ export const CALCULATED_COLUMN_REFUSAL =
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This version of the query failed last time it ran. Nothing has been run.';
 
-/** No statement exists yet: nothing rendered, or a suspended description was held back. */
-export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
+/**
+ * No statement exists: nothing rendered yet, the description was refused before it could, or a
+ * suspended one was held back. Worded to be true in all three, so it names no cause.
+ */
+export const NOTHING_TO_SAVE = 'There’s no query to save yet.';
 /**
  * Why a FAILED exploration cannot be saved.
  *
@@ -185,10 +188,10 @@ export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has r
  */
 export const FAILED_NOT_SAVEABLE = 'This query didn’t succeed, so there’s nothing to save yet.';
 /** The two reasons above, for Create view, which makes a view rather than saving a file. */
-export const NOTHING_TO_VIEW = 'There’s no query to make a view from yet — nothing has run.';
+export const NOTHING_TO_VIEW = 'There’s no query to make a view from yet.';
 export const FAILED_NO_VIEW = 'This query didn’t succeed, so there’s nothing to make a view from yet.';
 /** `Open in Query`'s refusal. A failed statement still opens: fixing it in Query is the point. */
-export const NOTHING_TO_OPEN = 'There’s no statement to open yet — nothing has run.';
+export const NOTHING_TO_OPEN = 'There’s no statement to open yet.';
 /** Copy takes a SELECTION, and an empty one has no rectangle to take. */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**
