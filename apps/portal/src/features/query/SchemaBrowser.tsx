@@ -1,3 +1,4 @@
+import {Fragment} from 'react';
 import {CollapsibleRail} from '../../components/CollapsibleRail';
 import {DatabaseRowIcon} from '../../components/icons';
 import {DatabaseNode} from './DatabaseNode';
@@ -49,6 +50,9 @@ function UnusableNode({connection}: {connection: Connection}) {
   );
 }
 
+/** Labels a group of databases without nesting it: the nodes under it keep the rail's own indent. */
+const GROUP_HEADING = 'px-2 pb-0.5 pt-2 text-xs font-semibold text-text-3';
+
 /**
  * The database tree itself, decoupled from the rail chrome so it can render both
  * on-page inside `CollapsibleRail` (≥ tablet) and inside the mobile
@@ -56,34 +60,46 @@ function UnusableNode({connection}: {connection: Connection}) {
  * logic. Each accessible database is a collapsible node that, when expanded,
  * loads and groups its own Tables and Views (browse-only).
  *
+ * The personal database sits under "My database" and the rest under "Shared spaces" — headings,
+ * not a level of the tree. A group with nothing in it has no heading.
+ *
  * @example
  * <SchemaTree connections={connections} actions={tableActions} />
  */
 export function SchemaTree({connections = [], actions}: {connections?: Connection[]; actions: TableActions}) {
   const single = connections.length <= 1;
+  const node = (conn: Connection) =>
+    isConnectionUsable(conn) ? (
+      <DatabaseNode
+        key={conn.id}
+        connection={conn}
+        // First-reveal default: expand the first database (personal), or a
+        // lone database, so there's something to see without a click.
+        defaultExpanded={single || conn === connections[0]}
+        actions={actions}
+      />
+    ) : (
+      <UnusableNode
+        key={conn.id}
+        connection={conn}
+      />
+    );
+  const groups = [
+    {heading: 'My database', members: connections.filter((c) => c.kind === 'personal')},
+    {heading: 'Shared spaces', members: connections.filter((c) => c.kind === 'shared')}
+  ].filter((group) => group.members.length > 0);
 
   return (
     <div className="flex flex-col gap-0.5">
       {connections.length === 0 ? (
         <p className="px-3 py-2 text-sm text-text-3">No databases available.</p>
       ) : (
-        connections.map((conn, i) =>
-          isConnectionUsable(conn) ? (
-            <DatabaseNode
-              key={conn.id}
-              connection={conn}
-              // First-reveal default: expand the first database (personal), or a
-              // lone database, so there's something to see without a click.
-              defaultExpanded={single || i === 0}
-              actions={actions}
-            />
-          ) : (
-            <UnusableNode
-              key={conn.id}
-              connection={conn}
-            />
-          )
-        )
+        groups.map((group) => (
+          <Fragment key={group.heading}>
+            <h2 className={GROUP_HEADING}>{group.heading}</h2>
+            {group.members.map(node)}
+          </Fragment>
+        ))
       )}
     </div>
   );

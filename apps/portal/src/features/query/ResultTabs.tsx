@@ -20,20 +20,27 @@ type Props = {
  *
  * A tab closes the way an editor tab does: a pointer-only ✕, and Delete or Backspace on the focused
  * tab for keyboard and assistive-technology users. The last tab has neither, so the region always has a
- * result to show.
+ * result to show. Either way focus lands on the tab shown after the close — the next one when the shown
+ * tab closes, the previous when it was the last, and the shown one otherwise — never on <body>.
  */
 export function ResultTabs({tabs, activeIndex, onSelect, onClose}: Props) {
   const tabRefs = useRef(new Map<number, HTMLButtonElement>());
   const solo = tabs.length <= 1;
 
+  // Tabs are keyed by execution, so the heir's element survives the close and focus can be handed
+  // to it now rather than after the re-render. A click on a ✕ focuses the tab it sits in, which the
+  // close then removes, so the pointer path needs this as much as the keyboard one does.
+  const close = (index: number) => {
+    const heirIndex = index !== activeIndex ? activeIndex : index < tabs.length - 1 ? index + 1 : index - 1;
+    const heir = tabRefs.current.get(heirIndex);
+    onClose(index);
+    heir?.focus();
+  };
+
   const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
     if ((e.key === 'Delete' || e.key === 'Backspace') && !solo) {
       e.preventDefault();
-      // Tabs are keyed by execution, so the neighbour's element survives the close and focus can
-      // be handed to it now rather than after the re-render.
-      const heir = tabRefs.current.get(index < tabs.length - 1 ? index + 1 : index - 1);
-      onClose(index);
-      heir?.focus();
+      close(index);
       return;
     }
     let next: number | null = null;
@@ -91,7 +98,7 @@ export function ResultTabs({tabs, activeIndex, onSelect, onClose}: Props) {
                 title={`Close ${tab.label}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onClose(index);
+                  close(index);
                 }}
                 className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                 <svg

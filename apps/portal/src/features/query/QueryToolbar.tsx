@@ -2,8 +2,18 @@ import {useRef} from 'react';
 import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {cx} from '../../lib/cx';
-import {CheckIcon, CopyIcon, EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
+import {
+  CheckIcon,
+  CopyIcon,
+  DocumentIcon,
+  DownloadIcon,
+  EyeIcon,
+  PlayIcon,
+  SaveIcon,
+  TrashLidIcon
+} from '../../components/icons';
 import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
+import {downloadTextFile} from '../../lib/downloadTextFile';
 import {FeatureGate} from '../feature-flags';
 
 // The editor toolbar is icon-only in the tablet band so its
@@ -15,12 +25,16 @@ type Props = {
   isInFlight: boolean;
   canRun: boolean;
   canClear: boolean;
-  /** Gates Copy, Save query and Create view alike: each is disabled only when the buffer is empty. */
+  /** Gates Copy, Download, Save query and Create view alike: each is disabled only when the buffer is empty. */
   canSave: boolean;
-  /** The active tab's SQL, which Copy writes to the clipboard whole. */
+  /** The active tab's SQL, which Copy writes to the clipboard and Download saves as a file, whole. */
   sql: string;
+  /** The file name Download saves `sql` under, `.sql` included. */
+  downloadName: string;
   onClear: () => void;
   onSave: () => void;
+  /** Opens the Saved queries drawer, which opens a query into a new tab. */
+  onOpenSaved: () => void;
   onCreateView: () => void;
   onStop: () => void;
   onRunStatement: () => void;
@@ -28,10 +42,12 @@ type Props = {
 };
 
 /**
- * The editor toolbar: Clear, Copy, Save and Create view, and the run split
- * button — which is replaced by a single Stop while a batch is in flight. The
- * actions sit to the right; the editor/results split is dragged at its own
- * divider, not chosen here.
+ * The editor toolbar: Clear, Copy, Download, Save, Saved queries and Create view, and the run
+ * split button — which is replaced by a single Stop while a batch is in flight. The actions sit
+ * to the right; the editor/results split is dragged at its own divider, not chosen here.
+ *
+ * Saved queries acts on no single tab — it opens a new one — but sits beside Save, which is where
+ * people look for a saved query; at the far end of the tab strip it went unnoticed.
  */
 export function QueryToolbar({
   isInFlight,
@@ -39,8 +55,10 @@ export function QueryToolbar({
   canClear,
   canSave,
   sql,
+  downloadName,
   onClear,
   onSave,
+  onOpenSaved,
   onCreateView,
   onStop,
   onRunStatement,
@@ -86,11 +104,26 @@ export function QueryToolbar({
       </Button>
       <Button
         variant="ghost"
+        onClick={() => downloadTextFile(downloadName, sql, 'application/sql')}
+        disabled={!canSave}
+        aria-label="Download query">
+        <DownloadIcon />
+        <span className={TOOLBAR_LABEL}>Download</span>
+      </Button>
+      <Button
+        variant="ghost"
         onClick={onSave}
         disabled={!canSave}
         aria-label="Save query">
         <SaveIcon />
         <span className={TOOLBAR_LABEL}>Save</span>
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={onOpenSaved}
+        aria-label="Saved queries">
+        <DocumentIcon className="h-4 w-4" />
+        <span className={TOOLBAR_LABEL}>Saved queries</span>
       </Button>
       {/* registered under the `query` flag, which already removes this whole
           route — the row exists so a future surface inherits the gate, not the bug. */}

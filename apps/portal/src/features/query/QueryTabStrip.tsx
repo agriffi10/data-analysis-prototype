@@ -1,6 +1,5 @@
 import {useEffect, useRef} from 'react';
 import {cx} from '../../lib/cx';
-import {DocumentIcon} from '../../components/icons';
 import type {QueryTab} from './query.types';
 
 type Props = {
@@ -10,8 +9,7 @@ type Props = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
-  onOpenSaved: () => void; // Global (all-tabs) workspace buttons
-  onOpenHistory: () => void;
+  onOpenHistory: () => void; // A global (all-tabs) workspace button
 };
 
 const barButton =
@@ -26,18 +24,9 @@ const barButton =
  * is never disabled (the cap is enforced by a dialog upstream).
  *
  * @example
- * <QueryTabStrip tabs={tabs} activeTabId={activeTabId} dirtyTabIds={dirty} onSelect={select} onClose={close} onNew={openBlank} onOpenSaved={openSaved} onOpenHistory={openHistory} />
+ * <QueryTabStrip tabs={tabs} activeTabId={activeTabId} dirtyTabIds={dirty} onSelect={select} onClose={close} onNew={openBlank} onOpenHistory={openHistory} />
  */
-export function QueryTabStrip({
-  tabs,
-  activeTabId,
-  dirtyTabIds,
-  onSelect,
-  onClose,
-  onNew,
-  onOpenSaved,
-  onOpenHistory
-}: Props) {
+export function QueryTabStrip({tabs, activeTabId, dirtyTabIds, onSelect, onClose, onNew, onOpenHistory}: Props) {
   const solo = tabs.length === 1;
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const newTabRef = useRef<HTMLButtonElement>(null);
@@ -111,7 +100,7 @@ export function QueryTabStrip({
       </button>
 
       {/* Only `role="tab"` elements may be tablist children (WCAG 4.1.2,
-          aria-required-children) — the +/Saved/History controls sit outside it.
+          aria-required-children) — the + and History controls sit outside it.
           This is the only scrollable region (min-w-0 + overflow-x-auto); the
           surrounding controls stay pinned. */}
       <div
@@ -192,15 +181,8 @@ export function QueryTabStrip({
         })}
       </div>
 
-      {/* workspace-global buttons (act across all tabs). They
-          sit outside the scrollable tablist so they stay visible at any tab count. */}
-      <button
-        type="button"
-        className={barButton}
-        onClick={onOpenSaved}>
-        <DocumentIcon />
-        Saved queries
-      </button>
+      {/* A workspace-global button (acts across all tabs). It sits outside the
+          scrollable tablist so it stays visible at any tab count. */}
       <button
         type="button"
         className={barButton}

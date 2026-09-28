@@ -401,6 +401,36 @@ describe('SchemaBrowser', () => {
       await waitFor(() => expect(mock.listTables).toHaveBeenCalledWith('project_alpha'));
     });
 
+    it('puts the personal database under My database and the shared spaces under Shared spaces', () => {
+      renderWithProviders(
+        <SchemaBrowser
+          connections={connections}
+          actions={makeActions()}
+        />
+      );
+      const placed = [
+        screen.getByRole('button', {name: 'Expand Project Alpha'}),
+        screen.getByRole('heading', {name: 'Shared spaces'}),
+        screen.getByRole('button', {name: 'Collapse My workspace'}),
+        screen.getByRole('heading', {name: 'My database'})
+      ];
+      const inDocumentOrder = placed
+        .slice()
+        .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+      expect(inDocumentOrder).toEqual([placed[3], placed[2], placed[1], placed[0]]);
+    });
+
+    it('has no Shared spaces heading when there are no shared spaces', () => {
+      renderWithProviders(
+        <SchemaBrowser
+          connections={[connections[0]]}
+          actions={makeActions()}
+        />
+      );
+      expect(screen.getByRole('heading', {name: 'My database'})).toBeInTheDocument();
+      expect(screen.queryByRole('heading', {name: 'Shared spaces'})).not.toBeInTheDocument();
+    });
+
     it('shows an unusable shared connection but not expandable or selectable (SPEC-052 FR-004)', () => {
       renderWithProviders(
         <SchemaBrowser

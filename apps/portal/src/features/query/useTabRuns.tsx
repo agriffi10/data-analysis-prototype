@@ -74,8 +74,18 @@ export type UseTabRunsResult = {
   dismissed: Record<string, boolean>;
   /** The headless pollers — one per tab holding an execution. Render this; it draws nothing. */
   pollers: React.ReactNode;
-  /** Starts a batch in `tabId` (defaults to the active tab). Returns whether the submit began. */
-  submitBatch: (statements: ParsedStatement[], scope: RunScope, tabId?: string, owner?: RunOwner) => boolean;
+  /**
+   * Starts a batch in `tabId` (defaults to the active tab). Returns whether the submit began. `link`
+   * is the saved query the run records in history, for a tab opened in the same event: the tab
+   * list this hook was rendered with does not hold that tab yet, so its link cannot be read there.
+   */
+  submitBatch: (
+    statements: ParsedStatement[],
+    scope: RunScope,
+    tabId?: string,
+    owner?: RunOwner,
+    link?: {key: string; name: string}
+  ) => boolean;
   /** Cancels the active tab's in-flight statement and halts the remainder; a refused cancel is toasted. */
   handleStop: () => void;
   /** Forgets a closed tab's run state (the execution itself keeps running server-side). */
@@ -338,7 +348,8 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     statements: ParsedStatement[],
     scope: RunScope,
     tabId: string = activeTabId,
-    owner?: RunOwner
+    owner?: RunOwner,
+    link?: {key: string; name: string}
   ): boolean => {
     if (statements.length === 0) return false;
     // De-dupe guard. The ref reflects a submit already in flight for this tab even
@@ -356,7 +367,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     // a run from a tab linked to a saved query records that query in
     // history. Read off the TAB at submit time — the whole link lives there, so
     // there is no list to look the query up in.
-    const linkedSaved = owner ? owner.savedQuery : tabs.find((t) => t.id === tabId)?.savedQuery;
+    const linkedSaved = owner ? owner.savedQuery : (link ?? tabs.find((t) => t.id === tabId)?.savedQuery);
 
     setRunErrors((e) => ({...e, [tabId]: null}));
     // A start that fails installs no run, so the tab keeps the previous one — whose banner the

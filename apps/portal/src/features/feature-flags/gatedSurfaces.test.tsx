@@ -722,8 +722,10 @@ const RECIPES: Record<string, Recipe> = {
           canClear
           canSave
           sql="SELECT 1"
+          downloadName="query.sql"
           onClear={vi.fn()}
           onSave={vi.fn()}
+          onOpenSaved={vi.fn()}
           onCreateView={vi.fn()}
           onStop={vi.fn()}
           onRunStatement={vi.fn()}

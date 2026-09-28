@@ -34,8 +34,11 @@ export type UseSavedQueryFlowResult = {
   /** Linked tabs whose buffer differs from the file they were opened from. */
   dirtyTabIds: Set<string>;
   saveQuery: ReturnType<typeof useSaveQuery>;
-  /** Open a saved query into a new linked tab — exactly one GetObject, and only here. */
-  openSaved: (query: SavedQuery) => void;
+  /**
+   * Open a saved query into a new linked tab — exactly one GetObject, and only here. `afterOpen`
+   * is handed the new tab's id and SQL once the tab exists, which is how Open and run runs it.
+   */
+  openSaved: (query: SavedQuery, afterOpen?: (tabId: string, sql: string) => void) => void;
   /** Read a saved query's body and hand it on, for surfaces that show no SQL until asked. */
   withSavedSql: (query: SavedQuery, use: (sql: string, title: string) => void) => void;
   /** Delete the file and unlink any open tab pointing at it. */
@@ -141,7 +144,7 @@ export function useSavedQueryFlow({
     }
   });
 
-  const openSaved = (query: SavedQuery) => {
+  const openSaved = (query: SavedQuery, afterOpen?: (tabId: string, sql: string) => void) => {
     // The cap is checked BEFORE the fetch. Reading a body only to discard it and raise
     // the limit dialog spends a GetObject on a tab that was never going to open.
     if (tabs.tabs.length >= QUERY_TABS_MAX) {
@@ -170,6 +173,7 @@ export function useSavedQueryFlow({
       rememberSavedSql(query.key, body.data);
       onOpened();
       focusEditor();
+      afterOpen?.(id, body.data);
     })();
   };
 
