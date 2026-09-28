@@ -161,7 +161,10 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     // the error-wording rule forbids showing anyone. Same predicate, so the two cannot disagree.
     const bad: Record<string, string> = {};
     let query = draft.query;
-    for (const filter of editableConditions(draft.query)) {
+    // Only the columns this dialog shows a row for: a condition on any other is not one it offers
+    // to change, so re-setting it would only move it for nothing.
+    const shown = new Set(columns.map((c) => c.name));
+    for (const filter of editableConditions(draft.query).filter((f) => shown.has(f.column))) {
       if (operatorTakesValues(filter.operator)) {
         // Parsed HERE and nowhere else in this dialog, through the same reader the value
         // dialog uses — the two surfaces must refuse the same lists, and the way they
