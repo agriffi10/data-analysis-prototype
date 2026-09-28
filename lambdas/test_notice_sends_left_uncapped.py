@@ -10,9 +10,11 @@ report and a stall held to the timeout would fail that outcome. Two kinds of cal
   user was told, and on the timed-out door a send held to the timeout fails an asynchronous
   invocation that Lambda retries.
 
-A send anywhere else passing it brings back the stall the cap exists for, and a failure door's
+A send anywhere else passing it brings back the stall the cap exists for, and a timed-out door's
 send left capped gives up the retry. ``bounded=`` anything but the literal is refused, since it
-cannot be read.
+cannot be read. A door must send through ``emit_notification`` itself: a domain emitter or the
+failure decorator would send capped where this cannot see it. **What it cannot see** is a
+``**`` splat outside the doors that carries ``bounded=False``.
 
 Attributes:
   LAMBDAS: The tree the sweep reads.
@@ -57,6 +59,53 @@ def waits(source: str) -> list[bool]:
         )
         for call in sorted(calls, key=lambda c: (c.lineno, c.col_offset))
     ]
+
+
+def other_senders(source: str) -> list[str]:
+    """Names every call in a module that could send a notification other than the sender itself.
+
+    Args:
+      source: The module's text.
+
+    Returns:
+      The name of each call to an ``emit_*`` function other than ``emit_notification``, and of each
+      ``notifies_on_failure`` call, decorators included, in source order.
+
+    Raises:
+      SyntaxError: If the module does not parse.
+    """
+    calls = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)]
+    names = [
+        (call, call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", ""))
+        for call in sorted(calls, key=lambda c: (c.lineno, c.col_offset))
+    ]
+    return [
+        name
+        for _call, name in names
+        if (name.startswith("emit_") and name != "emit_notification") or name == "notifies_on_failure"
+    ]
+
+
+def _door_modules():
+    """Every production module that belongs to a door.
+
+    Args:
+      None.
+
+    Returns:
+      Each path relative to ``LAMBDAS``, whether or not it sends.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        str(path.relative_to(LAMBDAS))
+        for path in LAMBDAS.rglob("*.py")
+        if "__pycache__" not in path.parts
+        and not path.name.startswith("test_")
+        and path.name not in ("conftest.py", "fakes.py")
+        and _is_door(str(path.relative_to(LAMBDAS)))
+    )
 
 
 def _sends():
@@ -116,12 +165,39 @@ def test_the_sweep_reads_which_sends_wait(source, expected):
     assert waits(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("notify.emit_failure(event, err, step)\n", ["emit_failure"], id="a-domain-emitter"),
+        pytest.param(
+            "@notify.notifies_on_failure('x')\ndef h(e, c):\n    return e\n",
+            ["notifies_on_failure"],
+            id="the-failure-decorator",
+        ),
+        pytest.param("emit_notification(u, m, bounded=False)\nlog(u)\n", [], id="the-sender-alone"),
+    ],
+)
+def test_the_sweep_names_every_other_way_a_module_could_send(source, expected):
+    assert other_senders(source) == expected
+
+
 def test_every_failure_door_and_the_drain_waits_for_every_send():
     doors = [(path, sends) for path, sends in _sends() if _is_door(path)]
 
-    assert DRAIN in [path for path, _sends_ in doors], "the drain no longer sends a notification"
-    assert sum(path != DRAIN for path, _sends_ in doors) >= 1, "no notify-failure module was found"
     assert [path for path, sends in doors if not all(sends)] == []
+
+
+def test_every_door_sends_through_the_sender_and_is_seen_sending():
+    """Set equality over the directories, so a door that stopped calling the sender directly — and
+    so dropped out of the sweep above — reddens rather than leaving the other doors to pass."""
+    sending = {path.split("/")[0] for path, _sends_ in _sends() if _is_door(path)}
+    doors = {d.name for d in LAMBDAS.glob("*-notify-failure") if d.is_dir()}
+
+    routed = {path: other_senders((LAMBDAS / path).read_text()) for path in _door_modules()}
+
+    assert {path: names for path, names in routed.items() if names} == {}
+    assert DRAIN.split("/")[0] in sending, "the drain no longer sends a notification"
+    assert sending == doors | {DRAIN.split("/")[0]}
 
 
 def test_no_other_send_waits():

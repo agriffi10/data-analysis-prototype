@@ -452,12 +452,14 @@ change no state; the alternative was a timeout that failed a run whose outcome w
 
 **Two kinds of notification send wait rather than being capped**, passing `bounded=False`, which
 sends on the caller's thread on the default client, whose waits outlast both callers' timeouts.
-In each the send is the whole job, after an outcome already recorded, and a stall held to the
-timeout is what earns the retry. The DLQ drain deletes a message once it has notified, so a send
-abandoned at the cap would let the message go with its notice perhaps never sent, where a stall
-leaves it on its queue for the next sweep. Every plane's notify-failure reports a run that has
-already failed, so a stall can fail nothing the user was told, and on the timed-out door, an
-asynchronous invocation, a send held to the timeout fails the invocation and Lambda retries it.
+In each the send is the whole job, after an outcome already recorded. The DLQ drain deletes a
+message once it has notified, so a send abandoned at the cap would let the message go with its
+notice perhaps never sent, where a stall leaves it on its queue for the next sweep. Every plane's
+notify-failure reports a run that has already failed, so a stall can fail nothing the user was
+told. On the timed-out door, where a plane has one, an asynchronous invocation, a send held to
+the timeout fails the invocation and Lambda retries it; on the state machine's own door no retry
+follows, since a Lambda timeout is outside its `Retry` and its `Catch` goes to `Failed`, so there
+waiting only costs the run's time, and saves the notice on a queue slower than the cap.
 `test_notice_sends_left_uncapped.py` holds the set to exactly those, both ways.
 
 A signal-based alarm was the other way to bound the call, and it was not used, because it

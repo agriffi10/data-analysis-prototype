@@ -140,9 +140,9 @@ inside the execution the Pipe starts.
   the space-owner lookup and every notification send but two kinds — a loop of notices passes
   every send one `notify.send_budget()`. **Only a call whose late completion is harmless belongs
   under one**, since an abandoned call is not cancelled. The DLQ drain and every notify-failure
-  wait for their sends instead, because there a stall held to the timeout is what earns the retry:
-  the drain's next sweep, the timed-out door's async invocation. Reasoning:
-  `lambdas/info/shared-layer.md`.
+  wait for their sends instead: each reports an outcome already recorded, and at the drain and a
+  timed-out door a stall held to the timeout is what earns the retry — the next sweep, Lambda's
+  async retry. Reasoning: `lambdas/info/shared-layer.md`.
 - **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
   execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
   every caught failure double-notifies). The cost, an uncaught `DataLimitExceeded` or `Runtime`

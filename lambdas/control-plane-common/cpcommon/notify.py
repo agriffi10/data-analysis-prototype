@@ -23,9 +23,9 @@ here rather than a fleet-wide one.
 **A send is capped in time, because most run after the outcome they report.** A stalled send
 raises nothing for the sender's swallow to catch, so on the default client it would hold its verb
 to the Lambda timeout and fail a run whose user had been told, or was about to be, that it worked.
-Each send runs under ``cpcommon.budget`` on the bounded client, unless its caller is one of the two
-kinds whose retry depends on a stall; why an abandoned send may finish late, what that costs, and
-who those callers are is ``lambdas/info/shared-layer.md``.
+Each send runs under ``cpcommon.budget`` on the bounded client, unless its caller is the DLQ drain
+or a notify-failure, whose send is its whole job; why an abandoned send may finish late, what that
+costs, and why those callers wait is ``lambdas/info/shared-layer.md``.
 
 Attributes:
   SEND_DEADLINE_SECONDS: How long a verb that sends several notices may keep starting them through
@@ -243,11 +243,12 @@ def emit_notification(
       budget: The budget this send shares with the rest of its verb's notices, from
         ``send_budget``. None gives the send a budget of its own.
       bounded: False for a caller whose send is its whole job, after an outcome that has already
-        been recorded, and whose retry depends on a stall holding it to its timeout: the DLQ drain,
-        which deletes a message once it has notified, and every plane's notify-failure, whose
-        timed-out door is an asynchronous invocation Lambda retries. A send abandoned at the cap
-        would lose that retry. The send is then made on the caller's thread on the default client,
-        whose waits outlast those callers' timeouts, and ``budget`` is not read.
+        been recorded: the DLQ drain and every plane's notify-failure. At the drain, which deletes
+        a message once it has notified, and at a timed-out door, an asynchronous invocation Lambda
+        retries, a stall held to the timeout is what earns the retry that a send abandoned at the
+        cap would lose; at a notify-failure's other door the run has already failed, so waiting
+        costs nothing. The send is then made on the caller's thread on the default client, whose
+        waits outlast those callers' timeouts, and ``budget`` is not read.
 
     Returns:
       None. Also returns without sending when the queue URL is unset.
