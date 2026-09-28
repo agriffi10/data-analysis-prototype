@@ -249,7 +249,7 @@ describe('ResultTabs', () => {
       }
     );
 
-    // A click on a ✕ focuses the tab it sits in, and the close removes that tab. Closing a tab
+    // A click on a ✕ can focus the tab it sits in, and the close removes that tab. Closing a tab
     // that is not the shown one leaves the shown one shown, so focus goes there, not to a neighbour.
     it.each([
       ['the shown tab', 1, '3 · SELECT b', 1, 2],
