@@ -13,7 +13,9 @@ than restating it** — the second hand-synced copy is how the two drifted befor
    the `lambdas/info/planes/<plane>.md` page for any plane it changes; pull only the
    `architecture.md` section you need, the `## Fences` of each `docs/decisions/` area the spec
    touches, and then only the `decisions/` entry / dependency delivery-doc you actually need.
-3. Confirm CI is green: `gh run list --branch main --event push --limit 5`. Investigate failures before building.
+3. **Confirm `main` is green, verdict first:** `python3 scripts/watch_ci.py --branch main --once`.
+   Then each path-filtered deploy's last outcome, read as `ci-and-deploy-traps.md` says: a red row
+   is a failure to investigate, a green one proves nothing. Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
 5. **Generate and validate a plan before writing code.** Turn the spec's Implementation Phases into a
    concrete implementation plan, then validate it against the spec (every FR + acceptance criterion is

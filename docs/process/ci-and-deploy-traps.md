@@ -24,7 +24,19 @@ These pass locally and fail later — check them as part of the work, not as an 
   read of the newest runs**: its endpoint intermittently serves a page weeks stale, and a head
   missing from that page reads as "no push run yet" while `main` is green. So every script that
   judges a commit asks `actions/runs?head_sha=` for it — `watch_ci.py`, the queue's `turn`, and the
-  supervisor's watch and archive check — and a person reading the list checks its dates first.
+  supervisor's watch and archive check. The session-start check's verdict is
+  `python3 scripts/watch_ci.py --branch main --once`. Then it reads what the head's own runs may
+  not include — each path-filtered deploy's last outcome — one workflow at a time, because the two
+  image deploys run on every push and crowd the others out of any short repo-wide list. Run this
+  twice and keep, per workflow, the row with the newer `createdAt`:
+
+  ```bash
+  for w in deploy-infra deploy-lambdas deploy-config; do gh run list --workflow $w.yml --branch main --event push --limit 1 --json workflowName,conclusion,headSha,createdAt; done
+  ```
+
+  It is best-effort context, never the verdict: this endpoint has served a run weeks stale too,
+  and a path-filtered deploy's newest run is rarely main's head, so nothing proves one read fresh.
+  A red row is a failure to investigate; a green one proves nothing.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.

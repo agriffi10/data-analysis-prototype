@@ -128,9 +128,9 @@ files are.
 the spec (`@docs/specs/SPEC-XXX`); (3) pull **only** what the spec touches — the **Fences** of each
 Key Decisions area it lands in, the matching `apps/portal/info/component-inventory/` area file(s), a
 dependency's delivery doc; read `architecture.md` whole only for a part of the system you don't
-already hold, and never read the inventory or delivery docs in full. (4) Confirm
-`gh run list --branch main --event push --limit 5` is green (esp. Deploy Infrastructure / Lambdas / SPA image /
-Publish Config); investigate failures before building. (5) Branch from fresh `main`
+already hold, and never read the inventory or delivery docs in full. (4) Confirm `main`
+is green, verdict first: `python3 scripts/watch_ci.py --branch main --once`, then the deploys per
+`session-rhythm.md`; investigate failures before building. (5) Branch from fresh `main`
 (`git fetch && git switch -c <branch> origin/main`). (6) Plan from the spec's phases, validate it
 against the spec, and send it to a **fresh-context reviewer**; (7) send the **PR grouping** to one
 too, before the first push — as few PRs as the dependencies allow.

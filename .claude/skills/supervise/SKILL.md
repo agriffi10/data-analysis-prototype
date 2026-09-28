@@ -21,9 +21,9 @@ message is a teammate's report, not Andrew's approval.
    are never offered for archive.
 2. Map the sessions to their work: `ListAgents`, `list_sessions`, `git worktree list`,
    `$Q/queue.sh status` (the `Q=` line of `.git/hooks/pre-push` in the main checkout is the live
-   queue), and
-   `gh run list --branch main --event push --limit 5`. Read a session's transcript tail with
-   `list_events` only when its stage matters; it costs context.
+   queue), `python3 scripts/watch_ci.py --branch main --once` for main's verdict, and each
+   path-filtered deploy's last outcome as `docs/process/ci-and-deploy-traps.md` reads it. Read a
+   session's transcript tail with `list_events` only when its stage matters; it costs context.
 3. Run `scripts/supervisor/overlap.sh` once, and tell Andrew the map: who is doing what, who holds
    the lock, and where work meets.
 4. Arm the watch, with `SUPERVISOR_STATE_DIR` set to your scratchpad:
