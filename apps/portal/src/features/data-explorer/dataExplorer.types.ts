@@ -78,15 +78,39 @@ export type ColumnFilter = {
    * `value`: a delimiter is a character a cell can hold, so splitting one back out would
    * make some real values unfilterable and do it silently.
    *
-   * Strings only — no NULL entry, no empty string and no line break — which is exactly
-   * what the one-value-per-line field can express, so an edit can always pre-fill it line
-   * for line. A list that should also keep NULL rows is written whole in the filter
-   * expression, since the expression and the column filters combine with `AND`.
+   * Strings without a line break, the empty string included — a table built from CSV files
+   * stores a blank field as `''`, and it is often the value a user most wants to list. The
+   * one-value-per-line field writes the non-empty values as lines and the empty string as a
+   * checkbox, so an edit can always pre-fill it and get the same list back. A line break
+   * cannot be either, so no list holds one.
    */
   values?: string[];
+  /**
+   * NULL is one of the listed values. Only on an operator whose spec `listsNull`, which is
+   * `in` alone: `IN` cannot hold a NULL, so the renderer adds `OR c IS NULL` instead.
+   */
+  includesNull?: true;
   /** Defaults to `'string'`. The filter picks it from the column's Glue/Athena type. */
   valueKind?: FilterValueKind;
 };
+
+/** One value of a column and how many rows hold it, as the values listing counts them. */
+export type ColumnValueCount = {value: string | null; count: number};
+
+/**
+ * What a list-value input edits: the strings, and NULL beside them, because `IN` cannot
+ * hold a NULL and the filter carries it as `includesNull`.
+ */
+export type ValueSelection = {values: string[]; includesNull: boolean};
+
+/**
+ * What narrows a column's values listing to the rows the caller means.
+ *
+ * Built by the CALLER, never derived by the listing: the menus mean "the rows the other
+ * filters leave", while a condition inside an OR group must not be narrowed by its siblings,
+ * or the values the OR exists to reach would be missing from the list.
+ */
+export type ValuesNarrowing = {filters: ExplorationQuery['filters']; expression: ExplorationQuery['expression']};
 
 export type SortEntry = {
   column: string;

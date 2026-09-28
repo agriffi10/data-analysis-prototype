@@ -415,6 +415,25 @@ describe('the list operators (FR-002)', () => {
   });
 });
 
+describe('a list holding the empty string and naming NULL', () => {
+  it.each([
+    [
+      'is one of, with NULL beside the values',
+      {column: 'c', operator: 'in', values: ['b', '', 'a'], includesNull: true},
+      `WHERE ("c" IN ('', 'a', 'b') OR "c" IS NULL)`
+    ],
+    ['is one of, naming only NULL', {column: 'c', operator: 'in', values: [], includesNull: true}, 'WHERE "c" IS NULL'],
+    ['is not one of, holding the empty string', {column: 'c', operator: 'notIn', values: ['', 'x']}, `WHERE "c" NOT IN ('', 'x')`],
+    [
+      'is not one of, ignoring a NULL it cannot list',
+      {column: 'c', operator: 'notIn', values: ['x'], includesNull: true},
+      `WHERE "c" NOT IN ('x')`
+    ]
+  ] as const)('renders %s', (_case, filter, where) => {
+    expect(filtered(filter)).toBe(where);
+  });
+});
+
 describe('the empty operators (FR-003)', () => {
   it('tests both spellings of absent, parenthesized so a neighbour cannot capture the OR', () => {
     expect(filtered({column: 'last_name', operator: 'isEmpty'})).toBe(

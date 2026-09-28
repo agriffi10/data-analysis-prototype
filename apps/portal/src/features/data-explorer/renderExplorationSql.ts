@@ -168,6 +168,19 @@ function renderValues(filter: ColumnFilter): string {
   return distinct.map((value) => quoteOrBare(filter, value)).join(', ');
 }
 
+// `IN` cannot hold a NULL — `c IN ('a', NULL)` never matches a NULL row — so a list that
+// names one keeps the NULL rows with its own test, parenthesised for the reason `isEmpty`'s
+// is. A list naming ONLY NULL is that test alone. Read off the operator table, so only an
+// operator that can list NULL ever renders it.
+function renderIn(filter: ColumnFilter): string {
+  const column = sqlIdentifier(filter.column);
+  if (!FILTER_OPERATOR_SPECS[filter.operator].listsNull || filter.includesNull !== true) {
+    return `${column} IN (${renderValues(filter)})`;
+  }
+  if ((filter.values ?? []).length === 0) return `${column} IS NULL`;
+  return `(${column} IN (${renderValues(filter)}) OR ${column} IS NULL)`;
+}
+
 /**
  * One renderer per operator, exhaustive over the union by TYPE.
  *
@@ -187,7 +200,7 @@ const RENDER_FILTER: Record<FilterOperator, (filter: ColumnFilter) => string> = 
   notContains: (filter) => renderLike(filter, true, '%', '%'),
   startsWith: (filter) => renderLike(filter, false, '', '%'),
   endsWith: (filter) => renderLike(filter, false, '%', ''),
-  in: (filter) => `${sqlIdentifier(filter.column)} IN (${renderValues(filter)})`,
+  in: renderIn,
   notIn: (filter) => `${sqlIdentifier(filter.column)} NOT IN (${renderValues(filter)})`,
   isNull: (filter) => `${sqlIdentifier(filter.column)} IS NULL`,
   isNotNull: (filter) => `${sqlIdentifier(filter.column)} IS NOT NULL`,

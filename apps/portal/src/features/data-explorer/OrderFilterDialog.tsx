@@ -14,19 +14,21 @@ import {
   clearSort,
   filterOf,
   filterValueKind,
-  filterValuesText,
+  listFieldOf,
   moveSortPriority,
   moveSortRefusal,
+  operatorListsNull,
   operatorTakesValue,
   operatorTakesValues,
   operatorUsesValueKind,
   operatorsFor,
-  parseFilterValues,
+  readListField,
   setFilter,
   setSort,
   sortOf
 } from './explorationQueryOps';
 import {isBareNumeric} from './renderExplorationSql';
+import type {ListFieldValue} from './explorationQueryOps';
 import type {ExplorationQuery, FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
@@ -94,11 +96,9 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
   // dialog unmounts on Cancel, so an empty start meant every reopen showed a blank field
   // for a list that was still applied — and then refused Apply for a column the user had
   // not touched, with the list only reappearing if they cycled the operator dropdown.
-  const [listText, setListText] = useState<Record<string, string>>(() =>
+  const [listFields, setListFields] = useState<Record<string, ListFieldValue>>(() =>
     Object.fromEntries(
-      query.filters
-        .filter((f) => operatorTakesValues(f.operator))
-        .map((f) => [f.column, filterValuesText(f.values ?? [])])
+      query.filters.filter((f) => operatorTakesValues(f.operator)).map((f) => [f.column, listFieldOf(f)])
     )
   );
 
@@ -118,8 +118,8 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
     // of` is one click rather than a retype. Moving between a list and a single value
     // carries nothing across: `setFilter` writes only the field the new operator reads.
     if (operator !== '' && operatorTakesValues(operator)) {
-      const stored = filterOf(draft.query, column)?.values ?? [];
-      setListText((t) => ({...t, [column]: t[column] ?? filterValuesText(stored)}));
+      const stored = listFieldOf(filterOf(draft.query, column));
+      setListFields((t) => ({...t, [column]: t[column] ?? stored}));
     }
     editQuery((q) => {
       if (operator === '') return clearFilter(q, column);
@@ -131,6 +131,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
         // of intent) and is dropped for the tests that must carry none.
         value: operatorTakesValue(operator) ? (existing?.value ?? '') : undefined,
         values: operatorTakesValues(operator) ? (existing?.values ?? []) : undefined,
+        includesNull: existing?.includesNull,
         valueKind: filterValueKind(columns.find((c) => c.name === column)?.type ?? '')
       });
     });
@@ -147,9 +148,13 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
         // Parsed HERE and nowhere else in this dialog, through the same reader the value
         // dialog uses — the two surfaces must refuse the same lists, and the way they
         // would come to disagree is a second parser.
-        const parsed = parseFilterValues(listText[filter.column] ?? '', filter.valueKind ?? 'string');
+        const parsed = readListField(
+          listFields[filter.column] ?? listFieldOf(null),
+          filter.valueKind ?? 'string',
+          filter.operator
+        );
         if ('refusal' in parsed) bad[filter.column] = parsed.refusal;
-        else query = setFilter(query, {...filter, values: parsed.values});
+        else query = setFilter(query, {...filter, values: parsed.values, includesNull: parsed.includesNull});
         continue;
       }
       if (!operatorTakesValue(filter.operator)) continue;
@@ -310,11 +315,13 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   className="basis-full"
                   label={`Values for ${column.name}, one per line`}
                   labelHidden
-                  value={listText[column.name] ?? ''}
+                  value={listFields[column.name] ?? listFieldOf(null)}
+                  offersEmpty={(filter.valueKind ?? 'string') === 'string'}
+                  offersNull={operatorListsNull(filter.operator)}
                   error={errors[column.name] || null}
                   onChange={(next) => {
                     setErrors((errs) => ({...errs, [column.name]: ''}));
-                    setListText((t) => ({...t, [column.name]: next}));
+                    setListFields((t) => ({...t, [column.name]: next}));
                   }}
                 />
               )}

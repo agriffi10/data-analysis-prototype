@@ -227,6 +227,16 @@ type FilterOperatorSpec = {
    * field rather than two rules that can disagree.
    */
   valueKindApplies: boolean;
+  /**
+   * Whether the list may name NULL as one of its values, carried as `includesNull`.
+   *
+   * True for `in` alone. `c IN (…, NULL)` never matches a NULL row, so a list that keeps the
+   * NULL rows is rendered `(c IN (…) OR c IS NULL)`. `notIn` stays false because `NOT IN`
+   * already leaves the NULL rows out, which is SQL's own rule and the one `<>` follows. Every
+   * consumer reads this column rather than testing for `in`: the comparison that decides
+   * whether an apply changed anything is where a hand-written test would be missed.
+   */
+  listsNull: boolean;
 };
 
 /**
@@ -243,22 +253,22 @@ type FilterOperatorSpec = {
  * operators, the null tests, then the empty tests.
  */
 export const FILTER_OPERATOR_SPECS: Record<FilterOperator, FilterOperatorSpec> = {
-  '=': {label: 'equals', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  '<>': {label: 'does not equal', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  '>': {label: 'greater than', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  '>=': {label: 'greater than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  '<': {label: 'less than', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  '<=': {label: 'less than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true},
-  contains: {label: 'contains', takes: 'value', offeredOn: 'text', valueKindApplies: false},
-  notContains: {label: 'does not contain', takes: 'value', offeredOn: 'text', valueKindApplies: false},
-  startsWith: {label: 'starts with', takes: 'value', offeredOn: 'text', valueKindApplies: false},
-  endsWith: {label: 'ends with', takes: 'value', offeredOn: 'text', valueKindApplies: false},
-  in: {label: 'is one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true},
-  notIn: {label: 'is not one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true},
-  isNull: {label: 'is null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false},
-  isNotNull: {label: 'is not null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false},
-  isEmpty: {label: 'is empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false},
-  isNotEmpty: {label: 'is not empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false}
+  '=': {label: 'equals', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  '<>': {label: 'does not equal', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  '>': {label: 'greater than', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  '>=': {label: 'greater than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  '<': {label: 'less than', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  '<=': {label: 'less than or equal to', takes: 'value', offeredOn: 'any', valueKindApplies: true, listsNull: false},
+  contains: {label: 'contains', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  notContains: {label: 'does not contain', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  startsWith: {label: 'starts with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  endsWith: {label: 'ends with', takes: 'value', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  in: {label: 'is one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true, listsNull: true},
+  notIn: {label: 'is not one of', takes: 'values', offeredOn: 'textOrNumber', valueKindApplies: true, listsNull: false},
+  isNull: {label: 'is null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false, listsNull: false},
+  isNotNull: {label: 'is not null', takes: 'nothing', offeredOn: 'any', valueKindApplies: false, listsNull: false},
+  isEmpty: {label: 'is empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false, listsNull: false},
+  isNotEmpty: {label: 'is not empty', takes: 'nothing', offeredOn: 'text', valueKindApplies: false, listsNull: false}
 };
 
 /** What a surface needs to know about a colour operator, so no list of them is written twice. */

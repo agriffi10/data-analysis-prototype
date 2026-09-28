@@ -367,15 +367,25 @@ describe('useExplorationTabs — the operators a stored document may carry (SPEC
     expect(query?.filters).toEqual(filters);
   });
 
+  it('restores a list holding the empty string and naming NULL', () => {
+    const filters = [{column: 'state', operator: 'in', values: ['', 'NY'], includesNull: true}];
+    const query = restoredQuery({query: {filters, expression: null, ordering: [], grouping: null}});
+    expect(query?.filters).toEqual(filters);
+  });
+
   it('discards a document whose filter is shaped wrong', () => {
-    // Each of these is a shape the one-value-per-line field cannot express, so a filter
-    // carrying one could never be edited back into the form it came from.
+    // Each of these is a shape the list field cannot express or the renderer cannot render,
+    // so a filter carrying one could never be edited back into the form it came from.
     const bad = [
       {column: 'a', operator: 'contains', value: 7},
       {column: 'a', operator: 'in', values: ['a', 7]},
       {column: 'a', operator: 'in', values: ['a', null]},
-      {column: 'a', operator: 'in', values: ['a', '']},
       {column: 'a', operator: 'in', values: ['a', 'b\nc']},
+      // NULL rides only on the operator that can render it, and only as `true`.
+      {column: 'a', operator: 'notIn', values: ['a'], includesNull: true},
+      {column: 'a', operator: 'in', values: ['a'], includesNull: false},
+      // A list operator without its list renders nothing and throws.
+      {column: 'a', operator: 'in'},
       {column: 'a', operator: 'in', values: ['a', 'b\rc']},
       {column: 'a', operator: 'in', values: 'NY'},
       // `[].every` is true, so an empty list passed the check, restored, and then threw out

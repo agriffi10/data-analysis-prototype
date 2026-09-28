@@ -1,12 +1,14 @@
 import {aggregateAlias, groupingNameCollision, groupingOrderingViolation, isBareNumeric} from './renderExplorationSql';
 import {EXPLORER_FILTER_VALUES_MAX, FILTER_OPERATOR_SPECS} from './dataExplorer.constants';
+import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
 import type {
   ColumnFilter,
   ExplorationQuery,
   FilterOperator,
   FilterValueKind,
   Grouping,
-  SortEntry
+  SortEntry,
+  ValuesNarrowing
 } from './dataExplorer.types';
 
 // The pure edits every filtering and ordering surface makes to a query description.
@@ -59,6 +61,16 @@ export function operatorTakesValue(operator: FilterOperator): boolean {
  */
 export function operatorTakesValues(operator: FilterOperator): boolean {
   return FILTER_OPERATOR_SPECS[operator].takes === 'values';
+}
+
+/**
+ * Whether an operator's list may name NULL, carried as `includesNull`.
+ *
+ * @param operator - The filter operator.
+ * @returns True for `in` alone; see `FILTER_OPERATOR_SPECS` for why `notIn` is not.
+ */
+export function operatorListsNull(operator: FilterOperator): boolean {
+  return FILTER_OPERATOR_SPECS[operator].listsNull;
 }
 
 /**
@@ -168,17 +180,74 @@ export function numericLineRefusal(line: number): string {
   return `Line ${line} is not a number — this column holds numbers.`;
 }
 
-/** What a list filter's values look like in the multi-line field: one per line, in stored order. */
+/**
+ * What a list filter's values look like in the multi-line field: one per line, in stored order.
+ *
+ * The empty string is left out — a blank line is one the field ignores, so it is carried by
+ * the field's (empty) checkbox instead.
+ */
 export function filterValuesText(values: string[]): string {
-  return values.join('\n');
+  return values.filter((value) => value !== '').join('\n');
 }
 
 /**
- * The ONE reading of the multi-line value field.
+ * The whole state of the one-value-per-line field: its text, and the two values a line
+ * cannot hold, each a checkbox beneath it.
+ */
+export type ListFieldValue = {text: string; empty: boolean; includesNull: boolean};
+
+/**
+ * Pre-fills the list field from a column's filter, so an edit gets back the list it opened.
  *
- * Both surfaces that offer a list operator call this, so neither can accept a list the
+ * @param filter - The column's filter, or null for a fresh field.
+ * @returns The non-empty values one per line in stored order, and the two boxes ticked where
+ *   the list holds the empty string or names NULL.
+ */
+export function listFieldOf(filter: ColumnFilter | null): ListFieldValue {
+  const values = filter && operatorTakesValues(filter.operator) ? (filter.values ?? []) : [];
+  return {
+    text: filterValuesText(values),
+    empty: values.includes(''),
+    includesNull: filter !== null && operatorListsNull(filter.operator) && filter.includesNull === true
+  };
+}
+
+/**
+ * The ONE reading of the list field, for both surfaces that show it.
+ *
+ * The lines are parsed by `parseFilterValues`; the empty string joins them when its box is
+ * ticked, and NULL only where the operator can list it — a box left ticked while the user
+ * switched a row to `is not one of` is dropped rather than stored on an operator that cannot
+ * render it. The count refusal counts what reaches the `IN` list, which is the lines and the
+ * empty string, never NULL.
+ *
+ * @param field - The field's text and boxes.
+ * @param valueKind - How the column's values reach the SQL.
+ * @param operator - The list operator the field is for.
+ * @returns The list to store, or the sentence to show instead.
+ */
+export function readListField(
+  field: ListFieldValue,
+  valueKind: FilterValueKind,
+  operator: FilterOperator
+): {values: string[]; includesNull?: true} | {refusal: string} {
+  const parsed = parseFilterValues(field.text, valueKind);
+  if ('refusal' in parsed) return parsed;
+  const values = field.empty && valueKind === 'string' ? [...parsed.values, ''] : parsed.values;
+  const includesNull = field.includesNull && operatorListsNull(operator);
+  if (values.length === 0 && !includesNull) return {refusal: NO_VALUES_REFUSAL};
+  if (values.length > EXPLORER_FILTER_VALUES_MAX) return {refusal: TOO_MANY_VALUES_REFUSAL};
+  return includesNull ? {values, includesNull: true} : {values};
+}
+
+/**
+ * The ONE reading of the multi-line value field's LINES; `readListField` adds its boxes.
+ *
+ * Both surfaces that offer a list operator reach this, so neither can accept a list the
  * other refuses — and the renderer's own numeric gate is the predicate used, rather than a
- * second numeric rule that could disagree with it.
+ * second numeric rule that could disagree with it. It refuses a bad line and too many lines;
+ * whether the list as a whole is empty is `readListField`'s question, since a box can supply
+ * its only value.
  *
  * Lines are numbered as the FIELD shows them, blank lines included, because the number in
  * the refusal is what the user counts down to. A line of length zero is ignored; on a
@@ -205,7 +274,6 @@ export function parseFilterValues(text: string, valueKind: FilterValueKind): {va
     seen.add(value);
     values.push(value);
   }
-  if (values.length === 0) return {refusal: NO_VALUES_REFUSAL};
   if (values.length > EXPLORER_FILTER_VALUES_MAX) return {refusal: TOO_MANY_VALUES_REFUSAL};
   return {values};
 }
@@ -256,6 +324,7 @@ function canonical(query: ExplorationQuery): string {
         operator: f.operator,
         value: operatorTakesValue(f.operator) ? (f.value ?? null) : null,
         values: operatorTakesValues(f.operator) ? [...new Set(f.values ?? [])].sort() : null,
+        includesNull: operatorListsNull(f.operator) && f.includesNull === true,
         valueKind: f.valueKind ?? 'string'
       }))
       .sort((a, b) => a.column.localeCompare(b.column) || a.operator.localeCompare(b.operator)),
@@ -292,7 +361,9 @@ export function setFilter(query: ExplorationQuery, filter: ColumnFilter): Explor
   // Only the field the operator READS is written, whatever the caller passed: a surface
   // that left a value behind on the way to `is one of` would store a filter carrying both,
   // and the two would then disagree about what the column is filtered by.
-  const {value, values, ...rest} = filter;
+  // `includesNull` the same way: kept only where the operator can list NULL and only as
+  // `true`, so a row switched to `is not one of` cannot carry it into a render that ignores it.
+  const {value, values, includesNull, ...rest} = filter;
   return {
     ...query,
     filters: [
@@ -300,7 +371,8 @@ export function setFilter(query: ExplorationQuery, filter: ColumnFilter): Explor
       {
         ...rest,
         ...(operatorTakesValue(filter.operator) ? {value} : {}),
-        ...(operatorTakesValues(filter.operator) ? {values} : {})
+        ...(operatorTakesValues(filter.operator) ? {values} : {}),
+        ...(operatorListsNull(filter.operator) && includesNull === true ? {includesNull} : {})
       }
     ]
   };
@@ -316,6 +388,22 @@ export function filterOf(query: ExplorationQuery, column: string): ColumnFilter 
   return query.filters.find((f) => f.column === column) ?? null;
 }
 
+/**
+ * What narrows a column's values listing when a menu asks for it: every other filter and the
+ * expression, never the column's own filter.
+ *
+ * The user is choosing values for this column, so every value the other filters leave must
+ * be on offer — including the ones its current filter excludes. Grouping and ordering do not
+ * change which values exist, so neither is part of it.
+ *
+ * @param query - The applied description.
+ * @param column - The column whose values are listed.
+ * @returns The filters without the column's own, and the expression.
+ */
+export function narrowingFor(query: ExplorationQuery, column: string): ValuesNarrowing {
+  return {filters: query.filters.filter((f) => f.column !== column), expression: query.expression};
+}
+
 /** How many of a list's values a filter's chip names before it says how many more there are. */
 const CHIP_LIST_SHOWN = 3;
 
@@ -327,7 +415,8 @@ const CHIP_LIST_SHOWN = 3;
  * `operatorUsesValueKind` test the renderer applies — so a number column's comparison reads bare
  * and every text value shows its leading and trailing spaces inside the quotes. An empty string
  * reads `(empty)`, as the grid shows one. A list is named in the renderer's de-duplicated, sorted
- * order, so the chip agrees with the SQL rather than with the order the values were typed in.
+ * order, so the chip agrees with the SQL rather than with the order the values were typed in,
+ * and a list that names NULL says `NULL` after its values.
  *
  * @param filter - A filter from the applied description.
  * @returns E.g. `state equals “NY”`, `qty greater than 5`, `c is one of “a”, “b”, “c” and 2 more`.
@@ -335,13 +424,15 @@ const CHIP_LIST_SHOWN = 3;
 export function filterChipLabel(filter: ColumnFilter): string {
   const head = `${filter.column} ${FILTER_OPERATOR_LABELS[filter.operator]}`;
   const bare = filter.valueKind === 'number' && operatorUsesValueKind(filter.operator);
-  const shown = (value: string) => (value === '' ? '(empty)' : bare ? value : `“${value}”`);
+  const shown = (value: string) => (value === '' ? EMPTY_DISPLAY : bare ? value : `“${value}”`);
   if (operatorTakesValue(filter.operator)) return `${head} ${shown(filter.value ?? '')}`;
   if (!operatorTakesValues(filter.operator)) return head;
-  const distinct = [...new Set(filter.values ?? [])].sort();
-  const more = distinct.length - CHIP_LIST_SHOWN;
-  const named = distinct.slice(0, CHIP_LIST_SHOWN).map(shown).join(', ');
-  return `${head} ${named}${more > 0 ? ` and ${more} more` : ''}`;
+  // NULL is named LAST, after the values in the renderer's order, as the statement's
+  // `OR c IS NULL` follows its `IN` list.
+  const names = [...new Set(filter.values ?? [])].sort().map(shown);
+  if (operatorListsNull(filter.operator) && filter.includesNull === true) names.push(NULL_DISPLAY);
+  const more = names.length - CHIP_LIST_SHOWN;
+  return `${head} ${names.slice(0, CHIP_LIST_SHOWN).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 }
 
 // Priorities are re-stamped from the sorted order on every edit, so they stay 0-based and

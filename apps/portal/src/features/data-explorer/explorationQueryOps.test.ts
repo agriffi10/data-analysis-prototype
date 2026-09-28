@@ -6,9 +6,11 @@ import {
   filterChipLabel,
   isFilterOperator,
   isTextType,
+  listFieldOf,
   numericLineRefusal,
   operatorsFor,
   parseFilterValues,
+  readListField,
   sameQuery,
   setFilter
 } from './explorationQueryOps';
@@ -105,14 +107,44 @@ describe('parseFilterValues (FR-004)', () => {
     expect(parseFilterValues('NY\r\nNJ', 'string')).toEqual({values: ['NY', 'NJ']});
   });
 
-  it('refuses nothing at all, and more than the cap counted after duplicates collapse', () => {
-    expect(parseFilterValues('', 'string')).toEqual({refusal: NO_VALUES_REFUSAL});
-    expect(parseFilterValues('\n\n', 'string')).toEqual({refusal: NO_VALUES_REFUSAL});
+  it('refuses more than the cap counted after duplicates collapse, and leaves an empty field to its reader', () => {
+    expect(parseFilterValues('\n\n', 'string')).toEqual({values: []});
     const lines = Array.from({length: EXPLORER_FILTER_VALUES_MAX}, (_, i) => `v${i}`);
     expect(parseFilterValues([...lines, 'v0'].join('\n'), 'string')).toEqual({values: lines});
     expect(parseFilterValues([...lines, 'one-more'].join('\n'), 'string')).toEqual({
       refusal: TOO_MANY_VALUES_REFUSAL
     });
+  });
+});
+
+describe('readListField — the lines and the two boxes as one list', () => {
+  const field = (text: string, empty = false, includesNull = false) => ({text, empty, includesNull});
+  const lines = (count: number) => Array.from({length: count}, (_, i) => `v${i}`).join('\n');
+
+  it.each([
+    ['nothing at all', field(''), 'string', 'in', {refusal: NO_VALUES_REFUSAL}],
+    ['only (empty)', field('', true), 'string', 'in', {values: ['']}],
+    ['only NULL', field('', false, true), 'string', 'in', {values: [], includesNull: true}],
+    ['NULL where the operator cannot list it', field('', false, true), 'string', 'notIn', {refusal: NO_VALUES_REFUSAL}],
+    ['(empty) on a number column', field('', true), 'number', 'in', {refusal: NO_VALUES_REFUSAL}],
+    ['a line, (empty) and NULL', field('a', true, true), 'string', 'in', {values: ['a', ''], includesNull: true}],
+    ['1,000 lines plus (empty)', field(lines(EXPLORER_FILTER_VALUES_MAX), true), 'string', 'in', {refusal: TOO_MANY_VALUES_REFUSAL}],
+    [
+      '999 lines plus (empty) plus NULL',
+      field(lines(EXPLORER_FILTER_VALUES_MAX - 1), true, true),
+      'string',
+      'in',
+      {values: [...lines(EXPLORER_FILTER_VALUES_MAX - 1).split('\n'), ''], includesNull: true}
+    ]
+  ] as const)('reads %s', (_case, input, valueKind, operator, expected) => {
+    expect(readListField(input, valueKind, operator)).toEqual(expected);
+  });
+
+  it('pre-fills from a stored list so reading it back gives the same list', () => {
+    const stored: ColumnFilter = {column: 'c', operator: 'in', values: ['b', '', 'a'], includesNull: true};
+    const prefilled = listFieldOf(stored);
+    expect(prefilled).toEqual({text: 'b\na', empty: true, includesNull: true});
+    expect(readListField(prefilled, 'string', 'in')).toEqual({values: ['b', 'a', ''], includesNull: true});
   });
 });
 
@@ -122,6 +154,13 @@ describe('setFilter writes only the field the operator reads (FR-002)', () => {
     expect(listed.filters[0]).toEqual({column: 'c', operator: 'in', values: ['a']});
     const single = setFilter(listed, {column: 'c', operator: '=', value: 'x', values: ['a']});
     expect(single.filters[0]).toEqual({column: 'c', operator: '=', value: 'x'});
+  });
+
+  it('keeps includesNull on is one of and drops it on is not one of', () => {
+    const kept = setFilter(withFilters([]), {column: 'c', operator: 'in', values: ['a'], includesNull: true});
+    expect(kept.filters[0]).toEqual({column: 'c', operator: 'in', values: ['a'], includesNull: true});
+    const dropped = setFilter(kept, {column: 'c', operator: 'notIn', values: ['a'], includesNull: true});
+    expect(dropped.filters[0]).toEqual({column: 'c', operator: 'notIn', values: ['a']});
   });
 });
 
@@ -138,6 +177,10 @@ describe('sameQuery over a list filter (FR-002)', () => {
 
   it('is false when the values themselves differ', () => {
     expect(sameQuery(listed(['a', 'b']), listed(['a', 'c']))).toBe(false);
+  });
+
+  it('is false when only NULL was added to the list, since that is a different statement', () => {
+    expect(sameQuery(listed(['a']), listed(['a'], {includesNull: true}))).toBe(false);
   });
 });
 
@@ -167,6 +210,12 @@ describe('filterChipLabel', () => {
     ],
     ['an operator with no value', {column: 'last_name', operator: 'isEmpty'}, 'last_name is empty'],
     ['an empty string', {column: 'name', operator: '=', value: ''}, 'name equals (empty)'],
+    [
+      'a list naming (empty) and NULL, NULL last and counted',
+      {column: 'c', operator: 'in', values: ['b', '', 'a'], includesNull: true},
+      'c is one of (empty), “a”, “b” and 1 more'
+    ],
+    ['a short list naming NULL', {column: 'c', operator: 'in', values: ['a'], includesNull: true}, 'c is one of “a”, NULL'],
     ['spaces kept visible', {column: 'name', operator: '=', value: ' x '}, 'name equals “ x ”']
   ])('words %s', (_case, filter, label) => {
     expect(filterChipLabel(filter)).toBe(label);

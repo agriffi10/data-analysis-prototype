@@ -469,6 +469,7 @@ export function ExplorationResultsRegion({
           operator,
           value: input && 'value' in input ? input.value : operatorTakesValue(operator) ? '' : undefined,
           values: input && 'values' in input ? input.values : undefined,
+          includesNull: input && 'values' in input ? input.includesNull : undefined,
           valueKind: valueKindOf(column)
         }).filters
       }),

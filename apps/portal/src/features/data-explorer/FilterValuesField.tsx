@@ -2,33 +2,57 @@ import {useId, useRef} from 'react';
 import {cx} from '../../lib/cx';
 import {FIELD_LABEL} from '../../components/fieldStyles';
 import {useFieldErrorAnnouncement} from '../../components/useFieldErrorAnnouncement';
+import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
+import type {ListFieldValue} from './explorationQueryOps';
 
 export type FilterValuesFieldProps = {
   /** The field's visible and accessible name. */
   label: string;
   /** Hides the label visually, keeping it for assistive technology — for a row of fields that are labelled that way. */
   labelHidden?: boolean;
-  value: string;
+  value: ListFieldValue;
+  /** Offer the (empty) box: text columns only, since a number column never holds an empty string. */
+  offersEmpty: boolean;
+  /** Offer the NULL box: only where the operator can list NULL. */
+  offersNull: boolean;
   error?: string | null;
-  onChange: (value: string) => void;
+  onChange: (value: ListFieldValue) => void;
   className?: string;
 };
 
+/** The group of boxes under the lines, named once so both surfaces and their tests agree. */
+export const ALSO_IN_THE_LIST = 'Also in the list';
+
 /**
- * The one-value-per-line field both list-operator surfaces use.
+ * The one-value-per-line field both list-operator surfaces use, with a box for each value a
+ * line cannot hold.
  *
  * Extracted rather than written twice because the value dialog and *Order and filter* must
- * refuse the same lists — they already share the parser, and a second copy of the field is
+ * refuse the same lists — they already share the reader, and a second copy of the field is
  * where the labelling and the error wiring would drift apart. It carries `Input`'s
  * accessibility contract over a `<textarea>`: the label is associated by id, and the
  * message is the field's description, spoken by `useFieldErrorAnnouncement`'s rules — except
  * Enter, which is a newline here.
  *
+ * The two boxes exist so the field can reopen ANY list without losing part of it. A blank
+ * line is ignored, so the empty string is a box; a NULL is not a value a line can spell, so
+ * it is a box too. Without them, a list written by the values picker would lose its (empty)
+ * and NULL the first time *Order and filter* re-read it.
+ *
  * It holds RAW TEXT, never the parsed values. A field that stored what the parser returned
  * would collapse a blank line the user had just opened, and a duplicate they were half way
  * through typing, out from under the cursor.
  */
-export function FilterValuesField({label, labelHidden, value, error, onChange, className}: FilterValuesFieldProps) {
+export function FilterValuesField({
+  label,
+  labelHidden,
+  value,
+  offersEmpty,
+  offersNull,
+  error,
+  onChange,
+  className
+}: FilterValuesFieldProps) {
   const fieldId = useId();
   const errorId = `${fieldId}-error`;
   const hasError = error != null && error !== '';
@@ -45,10 +69,10 @@ export function FilterValuesField({label, labelHidden, value, error, onChange, c
         ref={fieldRef}
         id={fieldId}
         rows={6}
-        value={value}
+        value={value.text}
         onChange={(e) => {
           spoken.onChange();
-          onChange(e.target.value);
+          onChange({...value, text: e.target.value});
         }}
         onFocus={spoken.onFocus}
         onBlur={spoken.onBlur}
@@ -66,6 +90,31 @@ export function FilterValuesField({label, labelHidden, value, error, onChange, c
           className="mt-1.5 text-xs text-danger">
           {error}
         </p>
+      )}
+      {(offersEmpty || offersNull) && (
+        <fieldset className="mt-2 flex flex-wrap items-center gap-x-4">
+          <legend className="float-left mr-3 text-xs text-text-2">{ALSO_IN_THE_LIST}</legend>
+          {offersEmpty && (
+            <label className="flex min-h-[24px] items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={value.empty}
+                onChange={() => onChange({...value, empty: !value.empty})}
+              />
+              <span className="italic text-text-3">{EMPTY_DISPLAY}</span>
+            </label>
+          )}
+          {offersNull && (
+            <label className="flex min-h-[24px] items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={value.includesNull}
+                onChange={() => onChange({...value, includesNull: !value.includesNull})}
+              />
+              <span className="italic text-text-3">{NULL_DISPLAY}</span>
+            </label>
+          )}
+        </fieldset>
       )}
       <span
         aria-live="polite"

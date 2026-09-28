@@ -16,7 +16,8 @@ import {UNFILTERABLE_VALUE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import type {ExplorationTabsState} from './dataExplorer.types';
+import {ALSO_IN_THE_LIST} from './FilterValuesField';
+import type {ColumnFilter, ExplorationTabsState} from './dataExplorer.types';
 
 // SPEC-181 FR-001 and FR-002: the per-column header menu, and filtering by the focused
 // cell's value. Every assertion here is about the SQL that reaches Athena and about how
@@ -68,8 +69,9 @@ function render() {
   return {user, container};
 }
 
-function seedTab() {
-  const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+function seedTab(filters: ColumnFilter[] = []) {
+  const created = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+  const exploration = {...created, query: {...created.query, filters}};
   const state: ExplorationTabsState = {
     version: 1,
     tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
@@ -511,6 +513,60 @@ describe('the list operators from the menu', () => {
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
 
+  it('adds NULL to an applied list with its box, and that alone is a new statement', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a'], valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.click(within(screen.getByRole('group', {name: ALSO_IN_THE_LIST})).getByRole('checkbox', {name: 'NULL'}));
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`WHERE ("note" IN ('a') OR "note" IS NULL)`);
+  });
+
+  it('takes NULL back out of an applied list, and that is a new statement too', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a'], includesNull: true, valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.click(screen.getByRole('checkbox', {name: 'NULL'}));
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql().endsWith(`WHERE "note" IN ('a')`)).toBe(true);
+  });
+
+  it('writes a line, (empty) and NULL as one list', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), 'a');
+    await user.click(screen.getByRole('checkbox', {name: '(empty)'}));
+    await user.click(screen.getByRole('checkbox', {name: 'NULL'}));
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`WHERE ("note" IN ('', 'a') OR "note" IS NULL)`);
+  });
+
+  it.each([
+    ['a text column’s is not one of', 'note', 'Filter: is not one of…', {empty: true, nul: false}],
+    ['a number column’s is one of', 'total amount', 'Filter: is one of…', {empty: false, nul: true}]
+  ])('offers %s only the boxes it can use', async (_case, column, item, offered) => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, column, item);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryAllByRole('checkbox', {name: '(empty)'})).toHaveLength(offered.empty ? 1 : 0);
+    expect(within(dialog).queryAllByRole('checkbox', {name: 'NULL'})).toHaveLength(offered.nul ? 1 : 0);
+  });
+
   it('names the line a number column cannot read, counting blank lines', async () => {
     vi.mocked(getQueryResults).mockResolvedValue(
       ok({columns: [{name: 'qty', type: 'bigint'}], rows: [['1']]}) as never
@@ -568,6 +624,22 @@ describe('Order and filter refuses what the value dialog refuses', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Order and filter'})).not.toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
     expect(lastSql()).toContain(`"note" IN ('NJ', 'NY')`);
+  });
+
+  it('keeps a list holding (empty) and NULL through an Apply that touched nothing', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a', ''], includesNull: true, valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await openOrderFilter(user);
+    expect(within(dialog).getByLabelText('Values for note, one per line')).toHaveValue('a');
+    expect(within(dialog).getByRole('checkbox', {name: '(empty)'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', {name: 'NULL'})).toBeChecked();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Order and filter'})).not.toBeInTheDocument());
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(lastSql()).toContain(`("note" IN ('', 'a') OR "note" IS NULL)`);
   });
 
   it('applies a list on one column and a pattern on another as ONE execution', async () => {
