@@ -45,10 +45,9 @@ export type OrderFilterDialogProps = {
   /**
    * Why a column takes no filter and no sort, or null when it does.
    *
-   * The same reader the header menu asks. It matters most HERE: Record view, the default
-   * below `tablet`, and Text view have no column header, so this dialog stands in for the
-   * header menu's sort and criteria there — and a calculated column offered a sort here would
-   * be refused by the renderer, not by Athena, taking the whole exploration to an error banner.
+   * The same reader the header menu asks, so the two places a column's sort and criteria are
+   * set refuse the same columns — and a calculated column offered a sort here would be refused
+   * by the renderer, not by Athena, taking the whole exploration to an error banner.
    */
   queryRefusalOf: (column: string) => string | null;
   /** The applied description — the starting point for the staged one. */
@@ -77,9 +76,8 @@ export type OrderFilterDialogProps = {
  *
  * **A refused Show, Sort or Filter is `aria-disabled`, never `disabled`,** and is described by
  * its reason, printed in the row. A `disabled` one is skipped by Tab and can only explain itself
- * in a `title`, which a phone never shows — and on a phone, Record view has no column header, so
- * this dialog is where its sort and criteria live. Each handler checks the refusal itself, and
- * the controlled value puts the control back.
+ * in a `title`, which a phone never shows. Each handler checks the refusal itself, and the
+ * controlled value puts the control back.
  */
 export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCancel}: OrderFilterDialogProps) {
   const [draft, setDraft] = useState<OrderFilterSettings>({

@@ -151,9 +151,6 @@ export type CalcResult = {
   skipped: number;
 };
 
-/** How the current page's rows are drawn. None of these render SQL. */
-export type GridPresentation = 'grid' | 'record' | 'text';
-
 /**
  * A colour a rule may paint text in.
  *
@@ -263,18 +260,7 @@ export type ExplorationPresentation = {
   columnOrder: string[];
   pinnedColumns: string[];
   columnWidths: Record<string, number>;
-  /**
-   * The chosen presentation, or **null for "the user has not chosen"**.
-   *
-   * Null is what makes the mobile default expressible: below `tablet` an unchosen
-   * tab opens in Record and above it in Grid, while a tab whose user HAS chosen keeps that
-   * choice at every width. A non-null default would have to be picked when the tab is
-   * created — by `useExplorationTabs`, which has no business reading the viewport.
-   */
-  presentation: GridPresentation | null;
   valuePanelOpen: boolean;
-  /** The Record view's focused row index within the current page. */
-  recordRowIndex: number;
   /** Colours, striping and transformers. Restored whole or not at all. */
   formatting: FormattingState;
 };

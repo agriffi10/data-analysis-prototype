@@ -95,8 +95,7 @@ export {
   EXPLORER_FILTER_HISTORY_MAX,
   colourOperatorTakesValue,
   ROW_NUMBER_COLUMN_WIDTH,
-  SQL_SOURCE_ALIAS,
-  TEXT_VIEW_MAX_COLUMN_CHARS
+  SQL_SOURCE_ALIAS
 } from './dataExplorer.constants';
 export {DataExplorerWorkspace} from './DataExplorerWorkspace';
 export {SourcePicker} from './SourcePicker';
@@ -106,9 +105,6 @@ export {SaveExplorationDialog} from './SaveExplorationDialog';
 export type {SaveExplorationDialogProps} from './SaveExplorationDialog';
 export {ExplorationGrid} from './ExplorationGrid';
 export {ExplorationGridHeader} from './ExplorationGridHeader';
-export {ExplorationRecordView} from './ExplorationRecordView';
-export {ExplorationTextView} from './ExplorationTextView';
-export {PresentationSwitch} from './PresentationSwitch';
 export {ValuePanel} from './ValuePanel';
 export {ColumnsPanel} from './ColumnsPanel';
 export {RowColoursDialog} from './RowColoursDialog';
@@ -142,7 +138,6 @@ export type {
   ExplorationSource,
   ExplorationQuery,
   ExplorationPresentation,
-  GridPresentation,
   CellRef,
   CellRange,
   CellSelection,

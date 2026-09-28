@@ -3,7 +3,6 @@ import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
-import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
@@ -13,9 +12,9 @@ import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service'
 import type {ExplorationTabsState} from './dataExplorer.types';
 import {chooseExplorationOption} from './explorationOptions.testkit';
 
-// SPEC-180 Phase 3 and 4: the Value panel, the Record and Text presentations, and the
-// below-`tablet` default. Every one of these is a view over rows that have ALREADY been
-// fetched, so the count of `runQuery` calls is an assertion in its own right.
+// The Value panel, and the table as the only presentation at every width. Every one of these is
+// a view over rows that have ALREADY been fetched, so the count of `runQuery` calls is an
+// assertion in its own right.
 
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn(),
@@ -153,103 +152,27 @@ describe('the Value panel', () => {
   });
 });
 
-// ─── FR-004 / FR-005: Record and Text ────────────────────────────────────────
+// ─── One presentation: the table ─────────────────────────────────────────────
 
-describe('the Record and Text presentations', () => {
-  it('transposes the focused row, walks rows, and returns to the grid on the same one', async () => {
-    const {user} = render();
-    const cells = await screen.findAllByRole('gridcell');
-    await user.click(cells[6]); // row 3, `id`
-
-    await user.click(screen.getByRole('button', {name: 'Record'}));
-    const record = await screen.findByRole('region', {name: 'Row 3'});
-    expect(within(record).getByText('note')).toBeInTheDocument();
-    expect(within(record).getByText('third')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', {name: 'Previous row'}));
-    expect(await screen.findByRole('region', {name: 'Row 2'})).toBeInTheDocument();
-
-    // Back to the grid, on the row Record left off at — not the one the cursor started on.
-    // Asserting "there is exactly one cursor cell" would say nothing: there always is one.
-    // The claim is WHICH row it is in.
-    await user.click(screen.getByRole('button', {name: 'Grid'}));
-    await screen.findByRole('grid');
-    const cursor = screen.getAllByRole('gridcell').find((c) => c.getAttribute('tabindex') === '0');
-    const cursorRow = screen.getAllByRole('row').findIndex((r) => r.contains(cursor ?? null));
-    expect(within(screen.getAllByRole('row')[cursorRow]).getByRole('rowheader')).toHaveTextContent('2');
-    expect(runQuery).toHaveBeenCalledTimes(1);
-  });
-
-  it('honours hidden columns and column order in Record and Text', async () => {
-    seedTab({hiddenColumns: ['note'], columnOrder: ['total', 'id']});
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'total'});
-
-    await user.click(screen.getByRole('button', {name: 'Record'}));
-    const record = await screen.findByRole('region', {name: /^Row /});
-    expect(within(record).queryByText('note')).not.toBeInTheDocument();
-    expect(
-      within(record)
-        .getAllByRole('term')
-        .map((dt) => dt.textContent)
-    ).toEqual(['totaldouble', 'idvarchar']);
-
-    await user.click(screen.getByRole('button', {name: 'Text'}));
-    const text = (await screen.findByText(/total\s+id/)).textContent ?? '';
-    expect(text).not.toMatch(/note/);
-    expect(text.split('\n')[0].indexOf('id')).toBeGreaterThan(text.split('\n')[0].indexOf('total'));
-  });
-
-  it('renders the loaded page as aligned text, says which rows, and names a NULL', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-    await user.click(screen.getByRole('button', {name: 'Text'}));
-
-    const lines = ((await screen.findByText(/^id\s+note/)).textContent ?? '').split('\n');
-    expect(lines[1]).toMatch(/^-+ {2}-+/); // the rule under the header
-    expect(lines[3]).toMatch(/NULL/); // row 2's null column, named rather than blank
-    expect(screen.getByText('Rows 1–3 of this page')).toBeInTheDocument();
-    expect(runQuery).toHaveBeenCalledTimes(1);
-  });
-
-  it('persists the presentation choice per tab', async () => {
-    seedTab({presentation: 'text'});
-    render();
-
-    expect(await screen.findByText('Rows 1–3 of this page')).toBeInTheDocument();
-    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
-  });
-
-  it('leaves Record and its Value panel axe-clean', async () => {
-    seedTab({valuePanelOpen: true, presentation: 'record'});
-    render();
-    await screen.findByRole('region', {name: /^Row /});
-
-    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
-  });
-});
-
-// ─── FR-007: below `tablet`, Record is the default ───────────────────────────
-
-describe('the mobile default', () => {
-  it('opens an unchosen tab in Record below tablet, and still allows the grid', async () => {
+// Record used to open by default below `tablet`, and Text was a third choice. Both are gone: the
+// table is shown at every width, and a tab stored while they existed opens as the table with the
+// rest of its presentation intact.
+describe('the table is the only presentation', () => {
+  it('opens as the table below tablet', async () => {
     window.innerWidth = 400;
-    const {user} = render();
-
-    expect(await screen.findByRole('region', {name: /^Row /})).toBeInTheDocument();
-    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', {name: 'Grid'}));
-    expect(await screen.findByRole('grid')).toBeInTheDocument();
-  });
-
-  it('keeps a CHOSEN presentation at every width', async () => {
-    // The choice is the user's, not the viewport's — which is what `presentation: null`
-    // (unchosen) exists to distinguish from `'grid'` (chosen).
-    window.innerWidth = 400;
-    seedTab({presentation: 'grid'});
     render();
 
     expect(await screen.findByRole('grid')).toBeInTheDocument();
+    expect(screen.getAllByRole('gridcell')).toHaveLength(ROWS.length * COLUMNS.length);
+  });
+
+  it('opens a tab stored in Record or Text as the table, keeping the rest of its presentation', async () => {
+    seedTab({presentation: 'text', recordRowIndex: 2, hiddenColumns: ['note'], valuePanelOpen: true});
+    render();
+
+    expect(await screen.findByRole('grid')).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', {name: 'note'})).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', {name: 'total'})).toBeInTheDocument();
+    expect(screen.getByRole('complementary', {name: 'Value'})).toBeInTheDocument();
   });
 });

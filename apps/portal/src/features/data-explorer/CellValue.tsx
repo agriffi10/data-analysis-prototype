@@ -6,15 +6,6 @@ export type CellValueProps = {
   className?: string;
   /** How a transformer renders this cell; absent renders the value itself. */
   transformed?: TransformedValue | null;
-  /**
-   * Whether a resolved URL may render as an anchor here.
-   *
-   * False wherever the cell is ALREADY inside something interactive — the Record view puts
-   * every value in a button — because an anchor inside a button is nested interactive
-   * content, which is invalid and which the tab strip already had to correct once
-   * strip. There the transformed text renders as text and the Value panel carries the link.
-   */
-  linkable?: boolean;
 };
 
 /**
@@ -36,7 +27,7 @@ export type CellValueProps = {
  * inside the grid and Tab would walk the column instead of leaving. The keyboard route to
  * the link is the Value panel, which is already the keyboard route to a cell's full value.
  */
-export function CellValue({value, className, transformed, linkable = true}: CellValueProps) {
+export function CellValue({value, className, transformed}: CellValueProps) {
   if (value === null || value === '') {
     return (
       <span className={className}>
@@ -44,7 +35,7 @@ export function CellValue({value, className, transformed, linkable = true}: Cell
       </span>
     );
   }
-  if (transformed?.href && linkable) {
+  if (transformed?.href) {
     return (
       <a
         href={transformed.href}

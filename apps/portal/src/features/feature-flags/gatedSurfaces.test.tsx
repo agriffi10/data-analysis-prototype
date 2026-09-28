@@ -561,6 +561,18 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
     find: async () => screen.queryByRole('menuitem', {name: 'Create view…'})
   },
+  'Open in Query in the Options menu': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await openExplorationOptions(userEvent.setup({delay: null}));
+    },
+    // A sibling item as the anchor, for the reason `Save as query` gives below. Run or not, the
+    // item is present — refused while there is no statement — so only the flag can remove it.
+    anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
+    find: async () => screen.queryByRole('menuitem', {name: 'Open in Query'})
+  },
   'Save as query': {
     render: async () => {
       seedExplorationTab();
@@ -1315,6 +1327,7 @@ describe('the registry itself', () => {
         // The generated statement opened in a Query tab: a Query surface wearing a Data Explorer
         // control, on the same terms as the two above it.
         'Open in Query',
+        'Open in Query in the Options menu',
         'Open saved view',
         'Query help section',
         'Tables help section',

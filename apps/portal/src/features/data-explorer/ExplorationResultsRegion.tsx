@@ -5,7 +5,6 @@ import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {useToast} from '../../components/toastContext';
 import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
-import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultRowCount} from '../catalog/useResultRowCount';
@@ -24,14 +23,11 @@ import {computePageFormatting} from './formatting';
 import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
-import {ExplorationRecordView} from './ExplorationRecordView';
-import {ExplorationTextView} from './ExplorationTextView';
 import {ExpressionBar} from './ExpressionBar';
 import {FilterValueDialog} from './FilterValueDialog';
 import {FilterHistoryControls} from './FilterHistoryControls';
 import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
 import {OrderFilterDialog} from './OrderFilterDialog';
-import {PresentationSwitch} from './PresentationSwitch';
 import {ValuePanel} from './ValuePanel';
 import {useCellSelection} from './useCellSelection';
 import {exportColumnIndexes} from './exportColumns';
@@ -60,8 +56,7 @@ import type {
   CopyOptions,
   ExplorationPresentation,
   FilterOperator,
-  FormattingState,
-  GridPresentation
+  FormattingState
 } from './dataExplorer.types';
 import type {UseExplorationQueryResult} from './useExplorationQuery';
 
@@ -192,6 +187,8 @@ export const FAILED_NOT_SAVEABLE = 'This query didn’t succeed, so there’s no
 /** The two reasons above, for Create view, which makes a view rather than saving a file. */
 export const NOTHING_TO_VIEW = 'There’s no query to make a view from yet — nothing has run.';
 export const FAILED_NO_VIEW = 'This query didn’t succeed, so there’s nothing to make a view from yet.';
+/** `Open in Query`'s refusal. A failed statement still opens: fixing it in Query is the point. */
+export const NOTHING_TO_OPEN = 'There’s no statement to open yet — nothing has run.';
 /** Copy takes a SELECTION, and an empty one has no rectangle to take. */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**
@@ -506,34 +503,8 @@ export function ExplorationResultsRegion({
   // filter leaves list mode empty and a list leaves the single-value field empty.
   const pendingExisting = pendingFilter ? filterOf(query, pendingFilter.column) : null;
 
-  // Below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
-  // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
-  // never how anything is styled, and a tab whose user HAS chosen keeps
-  // that choice at every width, which is what `presentation: null` exists to express.
-  const isMobile = useIsMobile();
-  const view: GridPresentation = presentation.presentation ?? (isMobile ? 'record' : 'grid');
-
-  // The stored row outlives the page it was taken on (a tab switch, a restore), so it is
-  // clamped where it is READ.
-  const recordRow = Math.min(Math.max(presentation.recordRowIndex, 0), Math.max(rows.length - 1, 0));
-
-  // Record and the grid share ONE focused row, and the sync runs in BOTH directions —
-  // entering Record from the cursor, and moving the cursor to the row Record left off at
-  // Only the first half shipped at first, so "switch back" landed on
-  // whatever the cursor last touched (found in review).
-  const setView = (next: GridPresentation) => {
-    if (next !== 'record' && view === 'record') {
-      selection.selectCell({row: recordRow, column: selection.selection.cursor.column}, {});
-    }
-    onPresentationChange((p) => ({
-      ...p,
-      presentation: next,
-      recordRowIndex: next === 'record' ? selection.selection.cursor.row : p.recordRowIndex
-    }));
-  };
-
   const cursorColumn = geometry.visible.find((column) => column.name === selection.selection.cursor.column) ?? null;
-  const cursorRow = view === 'record' ? recordRow : selection.selection.cursor.row;
+  const cursorRow = selection.selection.cursor.row;
   // THE RAW CELL VALUE, never `cellText` and never a formatted rendering: a
   // NULL reads as "NULL" on screen and a transformed URL will not look like its value at
   // all, and either one as a predicate matches nothing.
@@ -663,43 +634,21 @@ export function ExplorationResultsRegion({
     return (
       <>
         <div className="flex min-h-0 flex-1 flex-col gap-2 tablet:flex-row">
-          {view === 'grid' && (
-            <ExplorationGrid
-              columns={geometry.visible}
-              rows={rows}
-              rangeStart={results.rangeStart}
-              geometry={geometry}
-              selection={selection}
-              actions={actions}
-              formatting={pageFormatting}
-              onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
-              onColumnDrag={(name) => {
-                draggedColumn.current = name;
-              }}
-              onCopy={plainCopy}
-              gridRef={gridRef}
-            />
-          )}
-          {view === 'record' && (
-            <ExplorationRecordView
-              columns={geometry.visible}
-              rows={rows}
-              rowIndex={recordRow}
-              rangeStart={results.rangeStart}
-              formats={pageFormatting.formats}
-              transformed={pageFormatting.transformed}
-              onRowIndexChange={(next) => onPresentationChange((p) => ({...p, recordRowIndex: next}))}
-              onFocusColumn={(column) => selection.selectCell({row: recordRow, column}, {})}
-            />
-          )}
-          {view === 'text' && (
-            <ExplorationTextView
-              columns={geometry.visible}
-              rows={rows}
-              rangeStart={results.rangeStart}
-              rangeEnd={results.rangeEnd}
-            />
-          )}
+          <ExplorationGrid
+            columns={geometry.visible}
+            rows={rows}
+            rangeStart={results.rangeStart}
+            geometry={geometry}
+            selection={selection}
+            actions={actions}
+            formatting={pageFormatting}
+            onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
+            onColumnDrag={(name) => {
+              draggedColumn.current = name;
+            }}
+            onCopy={plainCopy}
+            gridRef={gridRef}
+          />
 
           {groupingOpen && (
             <GroupingPanel
@@ -779,14 +728,10 @@ export function ExplorationResultsRegion({
           onBack={queryControls.back}
           onForward={queryControls.forward}
         />
-        <PresentationSwitch
-          value={view}
-          onChange={setView}
-        />
         {/* Every action, now — including the three that change the query, which used to sit
-            out here as buttons. The bar is left with undo/redo and the view switch: the
-            controls whose current state has to be readable, and which get used repeatedly
-            rather than once per decision.
+            out here as buttons. The bar is left with undo/redo: the controls whose current
+            state has to be readable, and which get used repeatedly rather than once per
+            decision.
 
             A REFUSAL SURVIVES THE MOVE. Each of these was `aria-disabled` with a reason on
             the toolbar, and an item that merely greys out inside a menu would be strictly
@@ -829,6 +774,11 @@ export function ExplorationResultsRegion({
           // A view is made FROM a statement, so this region's own reasons mirror a save's: there is
           // nothing to build one out of. The host's reason is about the SOURCE and comes second.
           createViewRefusal={viewRefusal ?? createViewRefusal ?? undefined}
+          openInQueryEnabled={queryEnabled && onOpenInQuery !== undefined}
+          onOpenInQuery={() => {
+            if (sql !== null) onOpenInQuery?.(sql);
+          }}
+          openInQueryRefusal={sql === null ? NOTHING_TO_OPEN : undefined}
         />
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included. */}

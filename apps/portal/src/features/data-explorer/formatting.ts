@@ -61,7 +61,7 @@ export type PageFormatting = {
    * `transformed[row][columnName]`, absent wherever a cell renders as itself.
    *
    * Resolved here rather than at each cell so one prop carries everything a page's cells
-   * need — the grid, the Record view and the Value panel all read the same rendering, and
+   * need — the grid and the Value panel both read the same rendering, and
    * a panel that transformed a value differently from the cell beside it would be the
    * bug this spec is most likely to ship.
    */
@@ -271,8 +271,8 @@ function matchesRegex(target: string): Compiled['matches'] {
 // Ordering comparisons read as numbers when BOTH sides are plainly numeric and as text
 // otherwise, using the renderer's own numeric predicate rather than a second one — a
 // panel that disagreed with the filter about which values are numbers would order a
-// column one way and colour it another. Text comparison is by code unit: deterministic,
-// and the same order the Text view already prints.
+// column one way and colour it another. Text comparison is by code unit, which is
+// deterministic.
 function ordering(target: string, decide: (left: string | number, right: string | number) => boolean) {
   const numericTarget = isBareNumeric(target) ? Number(target) : null;
   return (value: string | null) => {

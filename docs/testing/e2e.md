@@ -698,7 +698,8 @@ as honestly as a succeeding one.
 | Do | Expect |
 |---|---|
 | Open the picker with no tabs | The space rail, then the object list headed **Tables (n)**, and **Views (n)** — either heading is omitted when that group is empty, which is symmetric, so a space with tables and no views correctly shows one heading. No title over the list, and NO create control anywhere on the picker. |
-| **Options** on an open exploration | One menu holding Order and filter, Remove all filters and sorts, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Save results…, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
+| **Options** on an open exploration | One menu in four groups: Order and filter, Remove all filters and sorts, Filter by this value; Columns, Value, Calc, Grouping; Copy…, Save results…, Save as query, Create view…, Open in Query; Colors, Transformers. The bar keeps only undo/redo — no Grid/Record/Text control. |
+| **Options → Open in Query** | A new **Query** tab holds the same statement *Generated SQL* shows, not yet run. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
 | **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |
@@ -1240,10 +1241,8 @@ shows the desktop file table where the app mounts a card list.
 - The **sticky pinned column block** — pin, scroll right, confirm it stays put and its background is
   opaque over the scrolling cells.
 - A column **⌄** menu near the grid's right edge is **not clipped**.
-- Below `tablet` **Record view**, the default here, has no column header (nor does Text view), so
-  **Order and filter** is the way in from the default view, and every sort and filter must be settable from that dialog
-  alone, at 400px. **Grid view keeps the header menu at every width** (Andrew, 2026-09-22): switch
-  to Grid at 400px and a column's `Column options` menu opens with its full list.
+- The table is the only view at this width too — no Record or Text. A column's `Column options`
+  menu opens with its full list at 400px, and **Order and filter** sets every sort and filter as well.
 - The **Value panel** renders as a sheet, not a side panel; **Calc and Grouping stack below** the
   grid.
 - The toolbar's controls **wrap rather than overflow**. Count them rather than trusting a number.
@@ -1251,7 +1250,6 @@ shows the desktop file table where the app mounts a card list.
 - A **band boundary** is visible where two striping groups meet.
 - An **anchor in a truncating cell** does not push the cell's layout around.
 - The **header-drag-onto-Grouping** gesture, which no test performs.
-- **Record view is the default** on an unchosen tab at this width.
 - Every dialog is **372px** at this width, centred, with no horizontal page scroll — the overlay pads
   14px each side of a full-width panel (root font-size 14px), so 400 − 28. The 392 this line used to
   give was measured at a wider window. The suggestion listbox stays **inside** its dialog, not

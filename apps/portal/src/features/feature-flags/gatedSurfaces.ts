@@ -143,6 +143,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Opening the generated statement in a Query tab lands the user on the Query workspace, so it
     // follows `query` for the reason `Save as query` does: without the flag it leads nowhere.
     {name: 'Open in Query', kind: 'control', path: '/explore'},
+    // The same gesture from the Options menu. A description rather than the accessible name,
+    // because the name is the disclosure button's row just above and names key the walk.
+    {name: 'Open in Query in the Options menu', kind: 'control', path: '/explore'},
     // Reopening a saved view reads the saved-query store, which is hidden with Query off, so the
     // control follows `query` for the reason `Save as query` does.
     {name: 'Open saved view', kind: 'control', path: '/explore'},

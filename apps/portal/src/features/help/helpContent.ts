@@ -560,7 +560,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Already in the <b>Query</b> tab? Hover over a table in the schema rail, open its <b>⋮</b> menu and choose <b>Explore data</b> to open it here.',
           'Got a query result you want to filter, group or color? Choose <b>Explore in Data Explorer</b> beside <b>Save results…</b> to open that statement here. It runs the statement again, and every column needs its own name — give an expression or a repeated column one with <b>AS</b>.',
           'Use <b>+</b> on the tab strip to explore another table alongside this one, and <b>✕</b> to close one.',
-          'Switch between <b>Grid</b>, <b>Record</b> and <b>Text</b> with the three buttons above the rows — <b>Record</b> shows one row at a time, which is the easier read on a phone.'
+          'The rows show as a table at every screen size. On a narrow screen, scroll it sideways, and select a cell and choose <b>Value</b> from <b>Options</b> to read the whole of it.'
         ],
         callout: {
           kind: 'tip',
@@ -614,7 +614,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Color cells and change how values are shown',
         subtitle: 'Highlight what matters, and show a column as rounded numbers, codes or links.',
         intro:
-          'Two dialogs change what the page looks like and nothing else. <b>Colors</b> tints values, bands rows and highlights cells by what they hold; <b>Transformers</b> changes how a column’s values are written. Both work on the rows already in your browser, so neither one runs a query or costs anything, and each tab keeps its own. They show in <b>Grid</b> and <b>Record</b>, except bands, which only <b>Grid</b> draws; <b>Text</b> shows the values as they are.',
+          'Two dialogs change what the page looks like and nothing else. <b>Colors</b> tints values, bands rows and highlights cells by what they hold; <b>Transformers</b> changes how a column’s values are written. Both work on the rows already in your browser, so neither one runs a query or costs anything, and each tab keeps its own.',
         steps: [
           'Open <b>Options</b> and choose <b>Colors</b>. Tick <b>Color values by their data type</b> to tint each value by its type, so numbers, dates and true-or-false values stand apart from plain text.',
           'Under <b>Band rows by</b>, tick the column or columns that tie rows together — an order number, say. Each run of rows with the same values in all of them becomes a band, and every other band is shaded. Bands are worked out from the rows on this page.',
@@ -622,7 +622,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Choose <b>Paint the matching cells</b> or <b>Paint the whole row</b>, then a text color, a background, or both — <b>No change</b> leaves that one as it was. To shade by size instead, tick <b>Shade a number range</b>, type the two ends of the range and pick a tint for each; a value that isn’t a number is left alone.',
           'Rules run in order, and a later one wins where two set the same thing. Use <b>↑</b> and <b>↓</b> to move a rule and <b>Remove</b> to delete one, then click <b>Apply</b> — nothing changes until you do.',
           'Open <b>Options</b> and choose <b>Transformers</b> to change how a column is written. Every column starts <b>As it is</b>. <b>Number</b> rounds to the decimal places you give; with <b>Leave non-numbers alone</b> ticked a value that isn’t a number shows as it is, and without it shows <b>#ERR</b>. <b>Encoded</b> writes the value out as <b>Hex</b> or <b>Base64</b>, cut short with <b>…</b> past the length you set.',
-          'Choose <b>Link</b> to turn a column’s values into links. Type the web address with <code>${value}</code> where the cell’s value goes, such as <code>https://example.com/orders/${value}</code>, or just <code>${value}</code> when the column already holds web addresses. Clicking a cell opens its link in a new browser tab. Only <b>https</b> links open: any other cell stays plain text, and hovering over it says why. In <b>Record</b>, or from the keyboard, select the cell and open <b>Value</b> from <b>Options</b> to follow its link.',
+          'Choose <b>Link</b> to turn a column’s values into links. Type the web address with <code>${value}</code> where the cell’s value goes, such as <code>https://example.com/orders/${value}</code>, or just <code>${value}</code> when the column already holds web addresses. Clicking a cell opens its link in a new browser tab. Only <b>https</b> links open: any other cell stays plain text, and hovering over it says why. From the keyboard, select the cell and open <b>Value</b> from <b>Options</b> to follow its link.',
           'Click <b>Apply</b> when you’re done — nothing changes until you do.'
         ],
         callout: {
@@ -673,7 +673,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Everything you click here builds a real SQL statement, and you can see it and keep it. Open <b>Generated SQL</b> at any time to read exactly what is about to run — a good way to learn the SQL for something you have just built by hand.',
         steps: [
           'Open <b>Generated SQL</b> above the rows to see the statement your filters, sorting and grouping produced.',
-          'Choose <b>Open in Query</b> there to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration.',
+          'Choose <b>Open in Query</b> there, or from <b>Options</b>, to copy the statement into a new <b>Query</b> tab, where you can edit it and run it. It doesn’t run until you do, and changes you make there don’t come back to this exploration.',
           'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file. Exploring a table, the file also records your filters, sorting, grouping, column layout, colors and transformers.',
           'To pick up where you left off, click <b>+</b> on the tab strip, choose <b>Open saved view</b>, then <b>Open</b> the file. Everything comes back as you left it, ready to change.',
           'A view saved in a shared space opens without running, because anyone in that space can change the file. Check its <b>Generated SQL</b>, then choose <b>Run</b>. Its link columns and pattern color rules are left out, and the tab says so.',

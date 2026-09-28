@@ -422,7 +422,8 @@ memory could not have caught it: the test client runs `gcTime: 0`, so it was ass
 index during a refetch rather than a restored position, and it now holds a second observer warm so
 the case it is named for is the case it runs.
 
-**`presentation: null` means UNCHOSEN, and that is the whole of FR-007's mobile default.** Below
+**Superseded 2026-09-28: the explorer is table-only at every width, so there is no choice to leave
+unchosen** ([analytics.md](analytics.md#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)). **`presentation: null` means UNCHOSEN, and that is the whole of FR-007's mobile default.** Below
 `tablet` an unchosen tab opens in Record; a tab whose user has chosen keeps that choice at every
 width. A non-null default would have had to be picked when the tab is created, by
 `useExplorationTabs`, which has no business reading the viewport — and `useIsMobile` would then have
@@ -830,7 +831,7 @@ as `3130`, which is itself a plain number, so a Calc reading the rendering would
 number rather than fail visibly. NULL and the empty string are returned untransformed, because both
 are absences the grid already names in words.
 
-**The Text view stays raw** — no colours, no transformers. It is the drag-select-and-copy surface,
+**The Text view stays raw** (superseded 2026-09-28: the Text view was removed, [analytics.md](analytics.md#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)) — no colours, no transformers. It is the drag-select-and-copy surface,
 and its whole promise is that what is on screen is what is copied.
 
 ## A link in a grid is not a tab stop, and the app must not manufacture backtracking
@@ -841,7 +842,7 @@ Two review findings that generalise beyond this spec.
 `tabIndex={-1}` — so a URL transformer's anchor is `tabIndex={-1}` too, or a hundred rows put a
 hundred stops inside the grid and Tab walks the column instead of leaving. The **Value panel
 carries a focusable copy of the link**, which is what makes that cost a keyboard user nothing, and
-the Record view — which already wraps every value in a button — renders the text without an anchor
+the Record view (since removed, [analytics.md](analytics.md#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)) — which already wraps every value in a button — renders the text without an anchor
 at all, because an anchor inside a button is nested interactive content. No axe case had rendered a
 transformed cell, which is how a `nested-interactive` violation reached review; the file now walks
 both views, and the fix was verified by reverting it.

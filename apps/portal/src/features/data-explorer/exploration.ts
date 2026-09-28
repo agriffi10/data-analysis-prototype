@@ -76,10 +76,6 @@ export function emptyFormattingState(): FormattingState {
 /**
  * The empty presentation state. Nothing here reaches the renderer.
  *
- * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
- * lets the viewport decide the opening view without a tab being born knowing how
- * wide the window is.
- *
  * @returns Presentation state that changes no SQL.
  */
 export function emptyExplorationPresentation(): ExplorationPresentation {
@@ -88,9 +84,7 @@ export function emptyExplorationPresentation(): ExplorationPresentation {
     columnOrder: [],
     pinnedColumns: [],
     columnWidths: {},
-    presentation: null,
     valuePanelOpen: false,
-    recordRowIndex: 0,
     formatting: emptyFormattingState()
   };
 }

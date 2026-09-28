@@ -18,7 +18,19 @@ import type {
 export type SavedView = {
   source: {database: string; table: string};
   query: ExplorationQuery;
-  presentation: Omit<ExplorationPresentation, 'valuePanelOpen' | 'recordRowIndex'>;
+  presentation: Omit<ExplorationPresentation, 'valuePanelOpen'>;
+};
+
+/**
+ * A view as this build writes it: a `SavedView` whose presentation still carries the retired
+ * `presentation: null`.
+ *
+ * Readers from before the explorer went table-only refuse a view line without that key, and a
+ * page loaded before a deploy keeps running the old reader, so the key stays in what is written.
+ * `readSavedView` takes it off again.
+ */
+export type SavedViewLine = Omit<SavedView, 'presentation'> & {
+  presentation: SavedView['presentation'] & {presentation: null};
 };
 
 /** Colors operators that compile an author-typed pattern into a backtracking expression. */
@@ -30,18 +42,17 @@ const PATTERN_OPERATORS: ReadonlySet<ColourOperator> = new Set(['regex', 'like',
  * A statement source is left out on purpose: restoring one would re-run SQL taken from a file.
  *
  * @param exploration - The tab's exploration, as it was when the user chose to save.
- * @returns The view, or null.
+ * @returns The view line's payload, or null.
  */
-export function buildSavedView(exploration: Exploration): SavedView | null {
+export function buildSavedView(exploration: Exploration): SavedViewLine | null {
   const {source, query, presentation} = exploration;
   if (source.kind !== 'table') return null;
   const kept: Partial<ExplorationPresentation> = {...presentation};
   delete kept.valuePanelOpen;
-  delete kept.recordRowIndex;
   return {
     source: {database: source.database, table: source.table},
     query,
-    presentation: kept as SavedView['presentation']
+    presentation: {...(kept as SavedView['presentation']), presentation: null}
   };
 }
 

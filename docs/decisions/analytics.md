@@ -46,6 +46,7 @@ entry you need, not the file.**
 - [A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)](#a-column-filter-shows-as-a-chip-and-the-generated-sql-is-edited-in-query-on-a-copy-spec-243)
 - [A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)](#a-saved-exploration-carries-its-view-on-one-comment-line-and-a-shared-spaces-is-held-spec-247)
 - [A tab's scan total is what that tab has shown, so twin tabs each count a shared execution (2026-09-26)](#a-tabs-scan-total-is-what-that-tab-has-shown-so-twin-tabs-each-count-a-shared-execution-2026-09-26)
+- [The explorer shows a table and nothing else, and a saved view still records the retired choice (2026-09-28)](#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)
 
 ## Fences
 
@@ -707,7 +708,7 @@ Apply because that is where the conflict is *built* — sort a column, then grou
 in the same commit.** "While a grouping is in force the grid shows only the grouping columns and the
 aggregates" stopped being true the moment the percentage column was appended: it is a real
 `GridColumn`, so it gets a header menu, a row in the settings dialog (the header menu's stand-in in
-Record or Text view — **corrected 2026-09-22**: this said the only path below `tablet`, which the
+Record or Text view, **both since removed** ([the table-only entry](#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)) — **corrected 2026-09-22**: this said the only path below `tablet`, which the
 build never matched, since Grid view keeps the header menu at every width, as Andrew confirmed is
 intended) and the toolbar's *Filter by this value* — and it exists in no statement, so sorting it is
 a description the renderer REFUSES and filtering it is a `COLUMN_NOT_FOUND`. `ColumnQueryActions`
@@ -1740,7 +1741,8 @@ that bound a crafted file can still carry a few thousand rules, at well under a 
 is accepted. The store's lenient read
 of `sessionStorage` is untouched; the two answer different questions (keep a session's tabs; trust a
 file). `ExplorationQuery` and `ExplorationPresentation` are therefore a FILE FORMAT now: changing
-either needs a reader for the old shape or a new line version, not a session reset.
+either needs a reader for the old shape or a new line version, not a session reset. The first such
+reader is the retired view choice's, in [the table-only entry](#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28).
 
 **Where the FILE came from decides how much of it is trusted — never the database it names.** Only
 the owner writes a personal `saved_queries/`, and file sends land in a separate inbox, so a view from
@@ -1796,3 +1798,26 @@ meaning this entry settles the other way.
 
 **Rejected.** Filing a shared execution at zero on whichever tab reaches it second; a session-wide
 seen-executions set; tracking the starting tab.
+
+## The explorer shows a table and nothing else, and a saved view still records the retired choice (2026-09-28)
+
+**Record and Text are gone (Andrew, 2026-09-28, on an outside review).** Nobody needs the
+explorer's rows as anything but a table, so the Grid/Record/Text control and both other views were
+removed — phones included, where Record used to open by default: a phone scrolls the table sideways
+and reads a whole value in the Value panel. This supersedes FR-007's mobile default and the Record
+and Text claims marked in `browser.md` and above.
+
+**The retired `presentation` key stays in what a save writes, as `null`.** A page loaded before a
+deploy runs the old strict reader, which refuses a view line without the key, so dropping it would
+make every save unreadable there and after a revert. The reader takes the key off a COPY before the
+strict comparison, and only when it holds `null`, `grid`, `record` or `text` — the values some build
+wrote — so a view saved in Record opens as the table and any other value is still refused whole.
+The session store needs nothing: its normaliser builds the presentation key by key, so the retired
+`presentation` and `recordRowIndex` drop on read.
+
+**The Options menu is ordered by use.** Colors and Transformers moved to a last group of their own —
+the same review read them as clutter, and both only change how values look — and **Open in Query**
+joined Save as query and Create view…, under the same `query` flag. It repeats the *Generated SQL*
+button rather than moving it, and is refused only when there is no statement: a failed one still
+opens, because fixing it in Query is the point. It is a second row in `gatedSurfaces.ts`, since the
+walk keys on names and the accessible name is already the disclosure button's.

@@ -5,7 +5,7 @@ import {fullExploration} from './savedView.testkit';
 import type {SavedView} from './savedView';
 
 describe('a saved view', () => {
-  it('comes back whole from the file this build writes, minus only the panel and record row', () => {
+  it('comes back whole from the file this build writes, minus only the panel', () => {
     const exploration = fullExploration();
     const parsed = parseViewLine(appendViewLine('SELECT 1', buildSavedView(exploration)) as string);
 
@@ -14,7 +14,7 @@ describe('a saved view', () => {
     expect(view).toEqual({
       source: {database: 'alice', table: 'orders'},
       query: exploration.query,
-      presentation: {...exploration.presentation, valuePanelOpen: undefined, recordRowIndex: undefined}
+      presentation: {...exploration.presentation, valuePanelOpen: undefined}
     });
     expect(view && Object.hasOwn(view.presentation, 'valuePanelOpen')).toBe(false);
   });
@@ -41,6 +41,31 @@ describe('a saved view', () => {
     expect(readSavedView(nestedExtra)).toBeNull();
     expect(readSavedView(hiddenByWidth)).toBeNull();
     expect(readSavedView(undefined)).toBeNull();
+  });
+
+  // The explorer used to offer Grid, Record and Text, and every view saved then records the
+  // choice. Those files must still open, and a page loaded before this build — which refuses a
+  // view without the key — must still open what this build saves.
+  it('opens a view that records a Record or Text choice, and still writes the key older pages read', () => {
+    const written = buildSavedView(fullExploration())!;
+    expect(written.presentation.presentation).toBeNull();
+
+    const current = readSavedView(structuredClone(written));
+    expect(current).not.toBeNull();
+    expect(current && Object.hasOwn(current.presentation, 'presentation')).toBe(false);
+    for (const choice of ['grid', 'record', 'text']) {
+      const legacy = structuredClone(written);
+      Object.assign(legacy.presentation, {presentation: choice});
+      expect(readSavedView(legacy)).toEqual(current);
+    }
+    const withoutKey = structuredClone(written) as {presentation: Record<string, unknown>};
+    delete withoutKey.presentation.presentation;
+    expect(readSavedView(withoutKey)).toEqual(current);
+
+    // A value no build ever wrote is still a stranger, and refused whole.
+    const unknownChoice = structuredClone(written);
+    Object.assign(unknownChoice.presentation, {presentation: 'cards'});
+    expect(readSavedView(unknownChoice)).toBeNull();
   });
 
   it('loses its link columns and pattern rules, and says how many, when it comes from a shared space', () => {

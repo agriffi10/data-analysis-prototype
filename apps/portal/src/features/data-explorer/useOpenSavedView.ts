@@ -38,8 +38,7 @@ function openRequest(
   const stripped = shared ? stripForSharedFolder(done.view.presentation) : null;
   const presentation = {
     ...(stripped?.presentation ?? done.view.presentation),
-    valuePanelOpen: false,
-    recordRowIndex: 0
+    valuePanelOpen: false
   };
   const {query} = done;
   return {
