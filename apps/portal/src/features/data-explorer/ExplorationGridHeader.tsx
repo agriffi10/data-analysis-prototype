@@ -31,6 +31,8 @@ export type ExplorationGridHeaderProps = {
   actions: ColumnQueryActions;
   /** A comparison needs a value; the region raises the dialog (`Modal` does not portal). */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
+  /** Listing a column's values to tick; the region raises that dialog too. */
+  onFilterByValue: (column: string) => void;
   /** Hides a column from its own menu. */
   onHideColumn: (name: string) => void;
   /** Why a column cannot be hidden, or null when it can. */
@@ -60,6 +62,7 @@ export function ExplorationGridHeader({
   onSelectColumn,
   actions,
   onRequestFilterValue,
+  onFilterByValue,
   onHideColumn,
   hideRefusal
 }: ExplorationGridHeaderProps) {
@@ -133,6 +136,7 @@ export function ExplorationGridHeader({
               column={column.name}
               actions={actions}
               onRequestValue={onRequestFilterValue}
+              onFilterByValue={onFilterByValue}
               onHide={onHideColumn}
               hideRefusal={hideRefusal(column.name)}
             />

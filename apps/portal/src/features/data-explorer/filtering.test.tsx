@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
-import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
 import {politeAnnouncements} from '../../test/liveRegions';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -12,11 +12,11 @@ import {newExploration} from './exploration';
 import {NUMERIC_VALUE_REFUSAL, VALUES_FIELD_LABEL} from './FilterValueDialog';
 import {EMPTY_TEXT_REFUSAL, NO_VALUES_REFUSAL, numericLineRefusal} from './explorationQueryOps';
 import {NO_HISTORY_BACK} from './FilterHistoryControls';
-import {UNFILTERABLE_VALUE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import type {ExplorationTabsState} from './dataExplorer.types';
+import {ALSO_IN_THE_LIST} from './FilterValuesField';
+import type {ColumnFilter, ExplorationTabsState} from './dataExplorer.types';
 
 // SPEC-181 FR-001 and FR-002: the per-column header menu, and filtering by the focused
 // cell's value. Every assertion here is about the SQL that reaches Athena and about how
@@ -68,8 +68,9 @@ function render() {
   return {user, container};
 }
 
-function seedTab() {
-  const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+function seedTab(filters: ColumnFilter[] = []) {
+  const created = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+  const exploration = {...created, query: {...created.query, filters}};
   const state: ExplorationTabsState = {
     version: 1,
     tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
@@ -230,6 +231,7 @@ describe('the column header menu', () => {
       'Sort ascending',
       'Sort descending',
       'Clear sort',
+      'Filter by value…',
       'Filter: equals…',
       'Filter: does not equal…',
       'Filter: greater than…',
@@ -264,72 +266,6 @@ describe('the column header menu', () => {
     await screen.findByRole('menu');
 
     await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
-  });
-});
-
-// ─── FR-002: filter by this cell's value ─────────────────────────────────────
-
-describe('filter by this cell’s value', () => {
-  it('uses the cell’s RAW value', async () => {
-    const {user} = render();
-    const cells = await screen.findAllByRole('gridcell');
-    await user.click(cells[1]); // row 1, `note` — O'Brien
-
-    await chooseExplorationOption(user, 'Filter by this value');
-
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    expect(lastSql()).toContain(`WHERE "note" = 'O''Brien'`);
-  });
-
-  it('turns a NULL cell into IS NULL, never into = ‘’', async () => {
-    const {user} = render();
-    const cells = await screen.findAllByRole('gridcell');
-    await user.click(cells[4]); // row 2, `note` — SQL NULL, drawn as the word NULL
-
-    await chooseExplorationOption(user, 'Filter by this value');
-
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    // The cell READS "NULL"; filtering on what it reads would be `= 'NULL'`, which is a
-    // string nobody has. Athena returns every value as a string, so this is the app's
-    // distinction to make.
-    expect(lastSql()).toContain(`WHERE "note" IS NULL`);
-    expect(lastSql()).not.toContain(`'NULL'`);
-  });
-
-  it('replaces the filter already on that column rather than accumulating a second one', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-
-    await chooseFromMenu(user, 'note', 'Filter: is null');
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-
-    // `find`, not `get`: results are read only once the execution reports SUCCEEDED, so a
-    // new apply leaves the grid empty for a poll. Waiting on the `runQuery` count alone
-    // lands in that window.
-    await user.click((await screen.findAllByRole('gridcell'))[1]);
-    await chooseExplorationOption(user, 'Filter by this value');
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
-
-    const sql = lastSql();
-    expect(sql).toContain(`WHERE "note" = 'O''Brien'`);
-    // Two filters on one column would be `IS NULL AND = 'O''Brien'` — a contradiction that
-    // returns nothing, from a gesture that reads like a correction.
-    expect(sql).not.toContain('IS NULL');
-    expect(sql.match(/"note"/g)).toHaveLength(1);
-  });
-
-  it('refuses, with a reason, where the value could not be a predicate', async () => {
-    // A numeric column whose cell holds something the renderer would emit bare and Athena
-    // would reject. The refusal is `Button.disabledReason` — reachable, not hover-only.
-    vi.mocked(getQueryResults).mockResolvedValue(ok({columns: COLUMNS, rows: [['1', 'x', 'Infinity']]}) as never);
-    const {user} = render();
-    const cells = await screen.findAllByRole('gridcell');
-    await user.click(cells[2]); // row 1, `total amount`
-
-    const control = await explorationOption(user, 'Filter by this value');
-    await waitFor(() => expect(control).toHaveAttribute('title', UNFILTERABLE_VALUE));
-    await user.click(control);
-    expect(runQuery).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -511,6 +447,64 @@ describe('the list operators from the menu', () => {
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
 
+  it('adds NULL to an applied list with its box, and that alone is a new statement', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a'], valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.click(
+      within(screen.getByRole('group', {name: `${ALSO_IN_THE_LIST} note`})).getByRole('checkbox', {name: 'NULL'})
+    );
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`WHERE ("note" IN ('a') OR "note" IS NULL)`);
+    const stored = JSON.parse(sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? '{}');
+    expect(stored.tabs[0].history.past).toHaveLength(1);
+  });
+
+  it('takes NULL back out of an applied list, and that is a new statement too', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a'], includesNull: true, valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.click(screen.getByRole('checkbox', {name: 'NULL'}));
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql().endsWith(`WHERE "note" IN ('a')`)).toBe(true);
+  });
+
+  it('writes a line, (empty) and NULL as one list', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await chooseFromMenu(user, 'note', 'Filter: is one of…');
+
+    await user.type(screen.getByLabelText(VALUES_FIELD_LABEL), 'a');
+    await user.click(screen.getByRole('checkbox', {name: '(empty)'}));
+    await user.click(screen.getByRole('checkbox', {name: 'NULL'}));
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`WHERE ("note" IN ('', 'a') OR "note" IS NULL)`);
+  });
+
+  it.each([
+    ['a text column’s is not one of', 'note', 'Filter: is not one of…', {empty: true, nul: false}],
+    ['a number column’s is one of', 'total amount', 'Filter: is one of…', {empty: false, nul: true}]
+  ])('offers %s only the boxes it can use', async (_case, column, item, offered) => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await chooseFromMenu(user, column, item);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryAllByRole('checkbox', {name: '(empty)'})).toHaveLength(offered.empty ? 1 : 0);
+    expect(within(dialog).queryAllByRole('checkbox', {name: 'NULL'})).toHaveLength(offered.nul ? 1 : 0);
+  });
+
   it('names the line a number column cannot read, counting blank lines', async () => {
     vi.mocked(getQueryResults).mockResolvedValue(
       ok({columns: [{name: 'qty', type: 'bigint'}], rows: [['1']]}) as never
@@ -568,6 +562,22 @@ describe('Order and filter refuses what the value dialog refuses', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Order and filter'})).not.toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
     expect(lastSql()).toContain(`"note" IN ('NJ', 'NY')`);
+  });
+
+  it('keeps a list holding (empty) and NULL through an Apply that touched nothing', async () => {
+    seedTab([{column: 'note', operator: 'in', values: ['a', ''], includesNull: true, valueKind: 'string'}]);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await openOrderFilter(user);
+    expect(within(dialog).getByLabelText('Values for note, one per line')).toHaveValue('a');
+    expect(within(dialog).getByRole('checkbox', {name: '(empty)'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', {name: 'NULL'})).toBeChecked();
+
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Order and filter'})).not.toBeInTheDocument());
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(lastSql()).toContain(`("note" IN ('', 'a') OR "note" IS NULL)`);
   });
 
   it('applies a list on one column and a pattern on another as ONE execution', async () => {

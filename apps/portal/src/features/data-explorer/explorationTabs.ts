@@ -9,7 +9,7 @@ import {
 } from './dataExplorer.constants';
 import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
 import {MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
-import {isFilterOperator} from './explorationQueryOps';
+import {isFilterOperator, operatorListsNull, operatorTakesValues} from './explorationQueryOps';
 import type {
   AwaitingRun,
   ExplorationPresentation,
@@ -68,19 +68,20 @@ function isValidSource(value: unknown): boolean {
 // raw TypeError out of the renderer instead of an ExplorationRenderError.
 const AGGREGATE_FUNCTIONS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
 
-// A list holds STRINGS only, and the three it refuses are the three the one-value-per-line
-// field cannot express: a `null` or a number is not a line, an empty string is a line the
-// field ignores, and a value carrying `\n` or `\r` would come back as two lines. Refusing
-// them here is what lets an edit pre-fill the field line for line and get the same list back.
-function isValidFilterValues(value: unknown): boolean {
+// A list holds STRINGS without a line break. The field writes the non-empty values as lines
+// and the empty string as a checkbox, so both round-trip; a value carrying `\n` or `\r`
+// would come back as two lines, and a `null` or a number is not a value the field can show.
+// NULL rides beside the list as `includesNull`, and only an operator that can render it may
+// carry it.
+function isValidFilterValues(value: unknown, includesNull: unknown): boolean {
   // The length test is not redundant: `[].every` is TRUE, so without it a stored
   // `values: []` restored happily and then threw out of every render, leaving the
-  // exploration unrenderable until the user found and cleared that filter. The field
-  // itself refuses an empty list, so it is a shape no gesture can produce.
+  // exploration unrenderable until the user found and cleared that filter. A list that
+  // names only NULL is the one empty list that renders — as `c IS NULL`.
   return (
     Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((entry) => typeof entry === 'string' && entry !== '' && !/[\n\r]/.test(entry))
+    (value.length > 0 || includesNull === true) &&
+    value.every((entry) => typeof entry === 'string' && !/[\n\r]/.test(entry))
   );
 }
 
@@ -90,7 +91,12 @@ function isValidFilter(value: unknown): boolean {
   if (typeof filter.column !== 'string') return false;
   if (typeof filter.operator !== 'string' || !isFilterOperator(filter.operator)) return false;
   if (filter.value !== undefined && typeof filter.value !== 'string') return false;
-  if (filter.values !== undefined && !isValidFilterValues(filter.values)) return false;
+  // A list operator REQUIRES its list: one restored without it renders nothing and throws.
+  if (operatorTakesValues(filter.operator) && filter.values === undefined) return false;
+  if (filter.values !== undefined && !isValidFilterValues(filter.values, filter.includesNull)) return false;
+  if (filter.includesNull !== undefined && !(filter.includesNull === true && operatorListsNull(filter.operator))) {
+    return false;
+  }
   return filter.valueKind === undefined || filter.valueKind === 'string' || filter.valueKind === 'number';
 }
 
@@ -432,7 +438,7 @@ function onlyKeys(value: unknown, allowed: readonly string[]): boolean {
 }
 
 const QUERY_KEYS = ['filters', 'expression', 'ordering', 'grouping'] as const;
-const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'valueKind'] as const;
+const FILTER_KEYS = ['column', 'operator', 'value', 'values', 'includesNull', 'valueKind'] as const;
 const SORT_KEYS = ['column', 'direction', 'priority'] as const;
 const GROUPING_KEYS = ['columns', 'aggregates', 'duplicatesOnly', 'showPercentage'] as const;
 const AGGREGATE_KEYS = ['fn', 'column'] as const;

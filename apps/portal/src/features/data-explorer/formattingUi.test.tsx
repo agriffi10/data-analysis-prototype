@@ -302,13 +302,20 @@ describe('transformers (FR-005, FR-006)', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
     await waitFor(() => expect(cell(0, 'qty')).toHaveTextContent('10.00'));
 
-    // The filter has to carry the RAW `10`. `"qty" = 10.00` is a different predicate, and
-    // against a bigint column Athena would reject it outright.
+    // The filter has to carry the RAW `10`. `"qty" IN (10.00)` is a different predicate, and
+    // against a bigint column Athena would reject it outright. The cell's value is ticked when
+    // the list opens, so applying straight away filters by it.
     await user.click(cell(0, 'qty'));
-    await chooseExplorationOption(user, 'Filter by this value');
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(runQuery).mock.calls[1][0].sql).toContain('"qty" = 10');
-    expect(vi.mocked(runQuery).mock.calls[1][0].sql).not.toContain('10.00');
+    await chooseExplorationOption(user, 'Filter by value…');
+    await user.click(await screen.findByRole('button', {name: 'Apply filter'}));
+    const applied = () =>
+      vi
+        .mocked(runQuery)
+        .mock.calls.map(([call]) => call.sql)
+        .filter((sql) => sql.startsWith('SELECT *'));
+    await waitFor(() => expect(applied()).toHaveLength(2));
+    expect(applied()[1]).toContain('"qty" IN (10)');
+    expect(applied()[1]).not.toContain('10.00');
   });
 
   it('leaves Calc aggregating the raw values, not the rendering', async () => {

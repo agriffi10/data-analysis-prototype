@@ -5,16 +5,18 @@ import {FilterValuesField} from './FilterValuesField';
 import {
   EMPTY_TEXT_REFUSAL,
   FILTER_OPERATOR_LABELS,
-  filterValuesText,
+  listFieldOf,
+  operatorListsNull,
   operatorTakesValues,
   operatorUsesValueKind,
-  parseFilterValues
+  readListField,
+  type ListFieldValue
 } from './explorationQueryOps';
 import {isBareNumeric} from './renderExplorationSql';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
 
 /** What the dialog hands back: one value for a comparison or a text operator, a list for the other two. */
-export type FilterValueResult = {value: string} | {values: string[]};
+export type FilterValueResult = {value: string} | {values: string[]; includesNull?: true};
 
 export type FilterValueDialogProps = {
   column: string;
@@ -59,18 +61,21 @@ export function FilterValueDialog({
   const list = operatorTakesValues(operator);
   const [value, setValue] = useState(existing && !list ? (existing.value ?? '') : '');
   // Pre-filled in the list's STORED order rather than the rendered one, so the lines a user
-  // sees are the lines they typed; the renderer sorts on its own way to the SQL.
-  const [text, setText] = useState(list ? filterValuesText(existing?.values ?? []) : '');
+  // sees are the lines they typed; the renderer sorts on its own way to the SQL. Only from a
+  // list filter: a comparison's value is not a list to reopen.
+  const [field, setField] = useState<ListFieldValue>(() =>
+    listFieldOf(existing && operatorTakesValues(existing.operator) ? existing : null)
+  );
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const submitList = () => {
-    const parsed = parseFilterValues(text, valueKind);
+    const parsed = readListField(field, valueKind, operator);
     if ('refusal' in parsed) {
       setError(parsed.refusal);
       return;
     }
-    onApply({values: parsed.values});
+    onApply(parsed);
   };
 
   const submitValue = () => {
@@ -110,10 +115,13 @@ export function FilterValueDialog({
         <FilterValuesField
           className="mt-3"
           label={VALUES_FIELD_LABEL}
-          value={text}
+          value={field}
+          column={column}
+          offersEmpty={valueKind === 'string'}
+          offersNull={operatorListsNull(operator)}
           error={error}
           onChange={(next) => {
-            setText(next);
+            setField(next);
             setError(null);
           }}
         />

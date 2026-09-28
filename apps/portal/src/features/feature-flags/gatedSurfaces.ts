@@ -270,7 +270,10 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
       path: '/help',
       helpId: 'explore-save-formats'
     },
-    {name: 'Save an exploration guide', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'}
+    {name: 'Save an exploration guide', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'},
+    // A pointer from the Query section to the Data Explorer's Filter by value: every step is a
+    // surface this flag hides, so the guide follows it as well as its own section's `query`.
+    {name: 'Filter by value guide under Query', kind: 'guide', path: '/help', helpId: 'query-filter-by-value'}
   ],
   // A kill switch rather than an area, so it hides two things and not a tab: the record of what
   // this session handed to the plane, and the guide describing a round trip that only exists

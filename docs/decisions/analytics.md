@@ -47,6 +47,7 @@ entry you need, not the file.**
 - [A saved exploration carries its view on one comment line, and a shared space's is held (SPEC-247)](#a-saved-exploration-carries-its-view-on-one-comment-line-and-a-shared-spaces-is-held-spec-247)
 - [A tab's scan total is what that tab has shown, so twin tabs each count a shared execution (2026-09-26)](#a-tabs-scan-total-is-what-that-tab-has-shown-so-twin-tabs-each-count-a-shared-execution-2026-09-26)
 - [The explorer shows a table and nothing else, and a saved view still records the retired choice (2026-09-28)](#the-explorer-shows-a-table-and-nothing-else-and-a-saved-view-still-records-the-retired-choice-2026-09-28)
+- [A column's values are a list you tick, and a list may hold (empty) and NULL (SPEC-249)](#a-columns-values-are-a-list-you-tick-and-a-list-may-hold-empty-and-null-spec-249)
 
 ## Fences
 
@@ -114,7 +115,9 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
   **message** — the same `InvalidRequestException` is a malformed query at submit, and a name-keyed
   mapper passes any test exercising one at a time. The client gate is **kept**, and asserts on the
-  **CALL**: with the 409 in place the screen looks right either way.
+  **CALL**: with the 409 in place the screen looks right either way. The values picker's listing is
+  started with `fetchQuery` and **never observed**: an eviction's `resetQueries` refetches whatever
+  is observed, which for a listing is a bill nobody asked for.
 - **A result's total is Athena's `OutputRows`, and only a `SELECT`'s count is the grid's.** A walked
   page is a billed API call, never "free", so the count comes from `GetQueryRuntimeStatistics` in
   one call, and the exact walk runs only where Athena does not count. `EXPLAIN` is **DML**, and it
@@ -143,7 +146,9 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   stored-document check, which discarded a whole session's tabs over an operator it had not heard
   of. A membership test over that table uses **`Object.hasOwn`, never `in`**, which admits
   `toString`. A rendered statement is refused before it starts when it exceeds Athena's
-  **262,144-byte** `QueryString` limit, measured in UTF-8 bytes.
+  **262,144-byte** `QueryString` limit, measured in UTF-8 bytes. A list may hold `''` and name NULL
+  (`includesNull`, only where the table's `listsNull` says), and `canonical` must compare it, or
+  ticking NULL is an apply that changes nothing.
 - **A saved view is trusted by where its FILE was listed from, never by the database it names.** From
   a shared space's `saved_queries/`, which any member writes, it opens held, unlinked, and without
   URL transformers or pattern-matching Colors rules; the hold is read fail-closed. Its payload
@@ -1451,7 +1456,9 @@ the column would refuse a `contains` the renderer accepts.
 **A list is `values: string[]`, never a delimited `value`.** A delimiter is a character a cell can
 hold, so splitting one back out makes some real values unfilterable, silently. The stored-document
 check refuses a list holding a number, a `null`, an empty string or a line break, which is what lets
-an edit pre-fill the one-value-per-line field line for line and get the same list back. Rendering
+an edit pre-fill the one-value-per-line field line for line and get the same list back.
+(**Superseded in part by SPEC-249, 2026-09-28:** a list may now hold the empty string and name NULL,
+and the field carries both as boxes — see [the entry](#a-columns-values-are-a-list-you-tick-and-a-list-may-hold-empty-and-null-spec-249).) Rendering
 de-duplicates and sorts by UTF-16 code unit, so two lists holding the same values are one statement
 — which is the execution cache key, and therefore one bill rather than two. The **1,000**-value cap
 is an input bound, not the query's limit: the real limit is Athena's statement length, measured
@@ -1823,3 +1830,52 @@ joined Save as query and Create view…, under the same `query` flag. It repeats
 button rather than moving it, and is refused only when there is no statement: a failed one still
 opens, because fixing it in Query is the point. It is a second row in `gatedSurfaces.ts`, since the
 walk keys on names and the accessible name is already the disclosure button's.
+
+## A column's values are a list you tick, and a list may hold (empty) and NULL (SPEC-249)
+
+Outside reviewers comparing the Data Explorer with DBeaver asked for **Filter by value** to list a
+column's values and let the user tick several, and Andrew approved it on 2026-09-28, twelve days
+after cancelling the same feature as SPEC-241. The spec reused 241's reviewed decisions on the
+query, the cost and the lifecycle, and added **is not one of**, NULL and (empty) as values, and the
+rename of the Options item.
+
+**The list is narrowed by the OTHER filters and the expression, never the column's own, and the
+caller says what narrows it.** DBeaver lists the whole table's values (dbeaver/dbeaver#21416 asks
+otherwise); the spreadsheet behaviour is the one users expect, and the column's own filter is left
+out so a value it excludes can be ticked back. `renderColumnValuesSql` takes the narrowing as an
+argument, because the AND/OR builder must pass none: inside an OR group, narrowing a condition's
+values by its siblings hides the values the OR exists to reach.
+
+**At most 1,000 values, most common first, with a total from `COUNT(*) OVER ()`.** The window was
+proven on Athena before it was designed on — over 10,000,000 generated groups it ran in 4.0 s
+against 3.1 s without it, and over 40,000,000 in 16.3 s, so its single-node count is not the
+resource risk a reviewer suspected. **Search runs no query**: a billed scan per keystroke is the
+cost this feature must not have, and a value past the 1,000 is typed with **Filter: is one of…**.
+
+**A listing is billed work, started by a gesture and by nothing else.** It is cached under
+`explorerKeys.execution`, so a catalog change drops it with the explorations over that table. But
+`resetQueries` refetches every OBSERVED entry, so the start is a `fetchQuery` that nothing observes:
+an eviction drops it, and only the next opening starts one. **Every requester waits on the
+`runQuery` call itself, kept in an in-flight map by cache key and per query client, never on
+`fetchQuery`'s promise.** An eviction during the start cancels the cache's copy while the call runs
+on, and a second tab asking for the same statement joins the call rather than the cache; a key
+remembers which start it waits on, so one an eviction forgot asks again, and the map outlives a
+remount of the Explorer, which would otherwise pay for the start twice. The first build hung its bookkeeping
+on the cache's promise and the query function; the diff review drove both escapes — a start that
+failed after the cancel left its key "counting" forever, and a joining tab was never linked or
+billed. The
+provider sits above the source picker, since New tab unmounts the tab panel and would take a
+running listing's watch with it. *Cancel* stops nothing: `stopQuery` would bill the part scanned
+and leave nothing to show.
+
+**NULL rides beside the list, and only `in` can carry it.** `c IN (…, NULL)` never matches a NULL
+row, so `in` renders `(c IN (…) OR c IS NULL)`, and a list of only NULL renders `c IS NULL` while
+staying a list, so both editors reopen it as one. `notIn` keeps SPEC-238's rule that it excludes
+NULL rows; the picker shows that NULL entry ticked and locked. **Rejected:** changing `notIn` to
+keep NULL rows unless listed — it would change every stored `notIn` filter and part with `<>`,
+which follows the same SQL rule. The typed field keeps working by gaining **(empty)** and **NULL**
+boxes rather than refusing such lists; without them, applying *Order and filter* untouched dropped
+both, since it re-parses every list row.
+
+**The typed items stay.** **Filter: is one of…** remains the way to paste a long list of known
+values, beside **Filter by value…** rather than replaced by it.

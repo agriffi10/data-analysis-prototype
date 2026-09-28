@@ -21,7 +21,7 @@ function props(over: Partial<React.ComponentProps<typeof ExplorationOptionsMenu>
     onOrderAndFilter: NOOP,
     clearAllLabel: 'Remove all filters and sorts',
     onClearAll: NOOP,
-    onFilterByCell: NOOP,
+    onFilterByValue: NOOP,
     onColumns: NOOP,
     onColours: NOOP,
     onTransformers: NOOP,
@@ -61,7 +61,7 @@ describe('the Data Explorer options menu', () => {
       // The query-changing group leads: these are what the screen is for.
       'Order and filter',
       'Remove all filters and sorts',
-      'Filter by this value',
+      'Filter by value…',
       'Columns',
       'Value',
       'Calc',

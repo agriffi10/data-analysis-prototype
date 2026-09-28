@@ -4,13 +4,20 @@ import {
   exceedsAthenaQueryLimit,
   ExplorationRenderError,
   groupingOrderingViolation,
+  renderColumnValuesSql,
   renderExplorationSql,
   rendersFromSqlBody
 } from './renderExplorationSql';
 import {EXPLORER_FILTER_VALUES_MAX} from './dataExplorer.constants';
-import {FILTER_OPERATORS, operatorTakesValue, operatorTakesValues, operatorUsesValueKind} from './explorationQueryOps';
+import {
+  FILTER_OPERATORS,
+  narrowingFor,
+  operatorTakesValue,
+  operatorTakesValues,
+  operatorUsesValueKind
+} from './explorationQueryOps';
 import {emptyExplorationQuery, newExploration} from './exploration';
-import type {ExplorationQuery, ExplorationSource, Grouping} from './dataExplorer.types';
+import type {ColumnFilter, ExplorationQuery, ExplorationSource, Grouping} from './dataExplorer.types';
 
 const TABLE: ExplorationSource = {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'};
 const SQL_SOURCE: ExplorationSource = {kind: 'sql', body: 'SELECT * FROM alice.orders', label: 'Monthly'};
@@ -415,6 +422,29 @@ describe('the list operators (FR-002)', () => {
   });
 });
 
+describe('a list holding the empty string and naming NULL', () => {
+  it.each<[string, ColumnFilter, string]>([
+    [
+      'is one of, with NULL beside the values',
+      {column: 'c', operator: 'in', values: ['b', '', 'a'], includesNull: true},
+      `WHERE ("c" IN ('', 'a', 'b') OR "c" IS NULL)`
+    ],
+    ['is one of, naming only NULL', {column: 'c', operator: 'in', values: [], includesNull: true}, 'WHERE "c" IS NULL'],
+    [
+      'is not one of, holding the empty string',
+      {column: 'c', operator: 'notIn', values: ['', 'x']},
+      `WHERE "c" NOT IN ('', 'x')`
+    ],
+    [
+      'is not one of, ignoring a NULL it cannot list',
+      {column: 'c', operator: 'notIn', values: ['x'], includesNull: true},
+      `WHERE "c" NOT IN ('x')`
+    ]
+  ])('renders %s', (_case, filter, where) => {
+    expect(filtered(filter)).toBe(where);
+  });
+});
+
 describe('the empty operators (FR-003)', () => {
   it('tests both spellings of absent, parenthesized so a neighbour cannot capture the OR', () => {
     expect(filtered({column: 'last_name', operator: 'isEmpty'})).toBe(
@@ -479,5 +509,52 @@ describe('exceedsAthenaQueryLimit (FR-005)', () => {
     const twoByte = 'é'.repeat(131_073);
     expect(twoByte).toHaveLength(131_073);
     expect(exceedsAthenaQueryLimit(twoByte)).toBe(true);
+  });
+});
+
+describe('renderColumnValuesSql — the values listing', () => {
+  const NONE = {filters: [], expression: null};
+
+  it('narrows by every other filter and the expression, never grouping, ordering or the column’s own filter', () => {
+    const query = q({
+      filters: [
+        {column: 'state', operator: '=', value: 'NY'},
+        {column: 'brnd_name', operator: 'contains', value: 'ab'}
+      ],
+      expression: 'qty > 5',
+      ordering: [{column: 'state', direction: 'desc', priority: 0}],
+      grouping: g({columns: ['state'], aggregates: [{fn: 'COUNT', column: '*'}]})
+    });
+
+    const sql = renderColumnValuesSql(TABLE, narrowingFor(query, 'brnd_name'), 'brnd_name');
+
+    expect(sql).toBe(
+      'SELECT "brnd_name" AS "value", COUNT(*) AS "row_count", COUNT(*) OVER () AS "value_count"\n' +
+        'FROM "alice"."orders"\n' +
+        `WHERE "state" = 'NY' AND (qty > 5)\n` +
+        'GROUP BY 1\n' +
+        'ORDER BY 2 DESC, 1 ASC NULLS LAST\n' +
+        `LIMIT ${EXPLORER_FILTER_VALUES_MAX}`
+    );
+  });
+
+  it('has no WHERE line when nothing narrows it', () => {
+    expect(renderColumnValuesSql(TABLE, NONE, 'c')).not.toContain('WHERE');
+  });
+
+  it('reads a statement source through the exploration’s own subquery', () => {
+    const exploration = renderExplorationSql(SQL_SOURCE, q());
+    const listing = renderColumnValuesSql(SQL_SOURCE, NONE, 'c');
+
+    expect(listing.slice(listing.indexOf('\nFROM '), listing.indexOf('\nGROUP BY'))).toBe(
+      exploration.slice(exploration.indexOf('\nFROM '))
+    );
+  });
+
+  it('keeps its ordinals when a column is named like one of its outputs', () => {
+    const sql = renderColumnValuesSql(TABLE, NONE, 'row_count');
+
+    expect(sql.startsWith('SELECT "row_count" AS "value", COUNT(*) AS "row_count", ')).toBe(true);
+    expect(sql).toContain('GROUP BY 1\nORDER BY 2 DESC, 1 ASC NULLS LAST');
   });
 });

@@ -32,7 +32,8 @@ import {ValuePanel} from './ValuePanel';
 import {useCellSelection} from './useCellSelection';
 import {exportColumnIndexes} from './exportColumns';
 import {useColumnGeometry} from './useColumnGeometry';
-import {aggregateAlias, isBareNumeric} from './renderExplorationSql';
+import {aggregateAlias} from './renderExplorationSql';
+import {FilterByValueDialog, type FilterByValueResult} from './FilterByValueDialog';
 import {
   clearFilter,
   clearSort,
@@ -55,6 +56,7 @@ import type {
   ColumnFilter,
   CopyOptions,
   ExplorationPresentation,
+  ExplorationSource,
   FilterOperator,
   FormattingState
 } from './dataExplorer.types';
@@ -63,6 +65,8 @@ import type {UseExplorationQueryResult} from './useExplorationQuery';
 export type ExplorationResultsRegionProps = {
   /** The tab these rows belong to — what the fallback execution below is scoped by. */
   tabId: string;
+  /** Where the tab's rows come from, which the values picker lists from; null with no tab. */
+  source: ExplorationSource | null;
   /**
    * The statement that was run, straight from `useExploration`.
    *
@@ -170,7 +174,16 @@ export const NO_RESULT_COLUMN_TO_SAVE = 'Show at least one of the result’s col
  */
 export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
-export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
+/** Why a column's values cannot be listed: every tick becomes an `is one of`, which only these columns offer. */
+export const FILTER_BY_VALUE_TYPES_REFUSAL = 'Filter by value works on text and number columns.';
+/** Why a grouped view's aggregate cannot be listed: the listing reads the rows before grouping, which have no such column. */
+export const AGGREGATE_FILTER_BY_VALUE_REFUSAL =
+  'This column is worked out by the grouping, so its values can’t be listed.';
+/**
+ * Why a held tab's values cannot be listed. The listing carries the filter expression, and a held
+ * tab's is SQL from a shared file the user has not yet chosen to run.
+ */
+export const HELD_FILTER_BY_VALUE_REFUSAL = 'Run the view first.';
 export const SUSPENDED_TEXT = 'This version of the query failed last time it ran. Nothing has been run.';
 
 /**
@@ -231,6 +244,7 @@ export const NOTHING_TO_EXPORT = 'There’s nothing to save until this query fin
  */
 export function ExplorationResultsRegion({
   tabId,
+  source,
   sql,
   queryExecutionId,
   state,
@@ -272,6 +286,10 @@ export function ExplorationResultsRegion({
   // which is state from here on.
   const [calc, setCalc] = useState<CalcPanelState>({functions: [...CALC_DEFAULT_FUNCTIONS], includeStrings: true});
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
+  // The values picker's column, and the cell it was opened on when the Options menu opened it.
+  const [filterByValue, setFilterByValue] = useState<{column: string; seed: {value: string | null} | null} | null>(
+    null
+  );
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
   // One flag, three consumers now: the saved-query store, the catalog view and Open in Query.
@@ -445,14 +463,15 @@ export function ExplorationResultsRegion({
   const typeOf = useMemo(() => new Map(geometry.all.map((column) => [column.name, column.type])), [geometry.all]);
   const valueKindOf = (column: string) => filterValueKind(typeOf.get(column) ?? '');
 
+  // The ONE reader every filter and sort surface asks first. Today it names exactly the appended
+  // percentage column, which the grid draws like any other and the SQL has never heard of.
+  const queryRefusalOf = (column: string) => (column === percentage?.column.name ? CALCULATED_COLUMN_REFUSAL : null);
+
   // Every per-column gesture goes through ONE object, and every one of them is a single
   // `apply` — so a menu choice is a description change, and a description change is at
   // most one execution.
   const actions: ColumnQueryActions = {
-    // The ONE reader every filter and sort surface asks first. Today it names exactly the
-    // appended percentage column, which the grid draws like any other and the SQL has
-    // never heard of.
-    queryRefusalOf: (column) => (column === percentage?.column.name ? CALCULATED_COLUMN_REFUSAL : null),
+    queryRefusalOf,
     sortOf: (column) => sortOf(query, column),
     sortCount: query.ordering.length,
     filterOf: (column) => filterOf(query, column),
@@ -460,6 +479,13 @@ export function ExplorationResultsRegion({
     sort: (column, direction) => apply({ordering: setSort(query, column, direction).ordering}),
     clearSort: (column) => apply({ordering: clearSort(query, column).ordering}),
     operatorsOf: (column) => operatorsFor(typeOf.get(column) ?? ''),
+    filterByValueRefusalOf: (column) => {
+      const refusal = queryRefusalOf(column);
+      if (refusal !== null) return refusal;
+      if (query.grouping?.aggregates.some((a) => aggregateAlias(a) === column))
+        return AGGREGATE_FILTER_BY_VALUE_REFUSAL;
+      return operatorsFor(typeOf.get(column) ?? '').includes('in') ? null : FILTER_BY_VALUE_TYPES_REFUSAL;
+    },
     // `setFilter` drops whichever of the two fields this operator does not read, so a
     // caller cannot leave a stale value behind on the way to a list operator.
     filter: (column, operator, input) =>
@@ -469,6 +495,7 @@ export function ExplorationResultsRegion({
           operator,
           value: input && 'value' in input ? input.value : operatorTakesValue(operator) ? '' : undefined,
           values: input && 'values' in input ? input.values : undefined,
+          includesNull: input && 'values' in input ? input.includesNull : undefined,
           valueKind: valueKindOf(column)
         }).filters
       }),
@@ -532,18 +559,14 @@ export function ExplorationResultsRegion({
   const saveRefusal = failed && !stillRunning ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
   const viewRefusal = failed && !stillRunning ? FAILED_NO_VIEW : sql === null ? NOTHING_TO_VIEW : null;
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
-  const filterByCellRefusal = !hasCell
-    ? NO_CELL_TO_FILTER
-    : // The cursor can sit in the calculated column like any other, and this action does
-      // not go through the header menu — so it asks the same reader the menu does.
-      (actions.queryRefusalOf(cursorColumn.name) ??
-      (cursorValue !== null &&
-      valueKindOf(cursorColumn.name) === 'number' &&
-      !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
-        the renderer would refuse has to be refused at the gesture instead — the refusal
-        it throws is operator text. */
-        ? UNFILTERABLE_VALUE
-        : null));
+  // Checked in this order because a held tab has no rows and so no cell: its refusal is the true
+  // one. The cursor can sit in the calculated column like any other, and this gesture does not go
+  // through the header menu, so it asks the same reader the menu does.
+  const filterByValueRefusal = held
+    ? HELD_FILTER_BY_VALUE_REFUSAL
+    : !hasCell
+      ? NO_CELL_TO_FILTER
+      : actions.filterByValueRefusalOf(cursorColumn.name);
 
   // THE ROWS, not the rendering. `renderCopy` is handed `rows` — the raw page, transformed
   // values and all left behind — because a URL column pasted into a spreadsheet has to carry
@@ -582,12 +605,17 @@ export function ExplorationResultsRegion({
     );
   };
 
-  const filterByCell = () => {
+  // THE RAW CELL VALUE seeds the list, for the reason `cursorValue` is read raw: a NULL cell
+  // ticks NULL, and a value the list could not tick starts nothing ticked.
+  const filterByCellValue = () => {
     if (!cursorColumn || cursorValue === undefined) return;
-    // A NULL cell is `IS NULL`, not `= ''`. Athena hands every value back as
-    // a string, so nothing below this line could tell the two apart.
-    if (cursorValue === null) actions.filter(cursorColumn.name, 'isNull');
-    else actions.filter(cursorColumn.name, '=', {value: cursorValue});
+    setFilterByValue({column: cursorColumn.name, seed: {value: cursorValue}});
+  };
+
+  const applyFilterByValue = (column: string, result: FilterByValueResult) => {
+    setFilterByValue(null);
+    if (result.kind === 'clear') actions.clearFilter(column);
+    else actions.filter(column, result.operator, {values: result.values, includesNull: result.includesNull});
   };
 
   const body = () => {
@@ -646,6 +674,7 @@ export function ExplorationResultsRegion({
             actions={actions}
             formatting={pageFormatting}
             onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
+            onFilterByValue={(column) => setFilterByValue({column, seed: null})}
             onColumnDrag={(name) => {
               draggedColumn.current = name;
             }}
@@ -754,8 +783,8 @@ export function ExplorationResultsRegion({
           clearAllLabel={queryControls.clearAllLabel}
           onClearAll={queryControls.clearAll}
           clearAllRefusal={queryControls.clearAllRefusal ?? undefined}
-          onFilterByCell={filterByCell}
-          filterByCellRefusal={filterByCellRefusal ?? undefined}
+          onFilterByValue={filterByCellValue}
+          filterByValueRefusal={filterByValueRefusal ?? undefined}
           onColumns={() => setColumnsOpen(true)}
           onColours={() => setColoursOpen(true)}
           onTransformers={() => setTransformersOpen(true)}
@@ -871,6 +900,19 @@ export function ExplorationResultsRegion({
             setPendingFilter(null);
           }}
           onCancel={() => setPendingFilter(null)}
+        />
+      )}
+
+      {filterByValue && source && (
+        <FilterByValueDialog
+          source={source}
+          column={filterByValue.column}
+          valueKind={valueKindOf(filterByValue.column)}
+          query={query}
+          existing={filterOf(query, filterByValue.column)}
+          seed={filterByValue.seed}
+          onApply={(result) => applyFilterByValue(filterByValue.column, result)}
+          onCancel={() => setFilterByValue(null)}
         />
       )}
 

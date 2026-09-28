@@ -318,7 +318,7 @@ describe('grouping’s extras', () => {
     // The cursor can sit in it like any other cell, and this action does not go through
     // that menu.
     await user.click(cell(0, percent));
-    const byValue = await explorationOption(user, 'Filter by this value');
+    const byValue = await explorationOption(user, 'Filter by value…');
     await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
     await user.click(byValue);
 

@@ -614,7 +614,7 @@ as honestly as a succeeding one.
 | 4 | Apply a filter that removes most rows | **1** `StartQueryExecution` and a **different** scanned figure. "The grid changed" is not the assertion — a client-side filter would do that too. |
 | 5 | **Next**, **Prev**, **Next** on the pager | **Zero** `StartQueryExecution`. `GET …/results` calls are expected: each scans nothing, though each is an API call. The running total does not move. |
 | 6 | Clear the filter, then apply the **same** one again | **Zero** new executions, and the line reads *"Loaded from an earlier run in this tab — nothing more scanned"*. Total unchanged. |
-| 7 | Click an `O'Brien` cell → **Filter by this value** | **Rows come back** — count them in the unfiltered grid first. **An empty grid here is a FAILURE.** **Generated SQL** reads `WHERE "owner" = 'O''Brien'`. The wrong escaper fails *silently*, as a predicate that matches nothing. |
+| 7 | Click an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** (the cell starts ticked) | **Rows come back** — count them in the unfiltered grid first. **An empty grid here is a FAILURE.** **Generated SQL** reads `WHERE "owner" IN ('O''Brien')`. The wrong escaper fails *silently*, as a predicate that matches nothing. |
 | 8 | Type `qty >>> 5` into **Filter expression** → **Apply** | Error banner, the **previous** rows still beneath it, toolbar and expression bar still there. |
 | 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This version of the query failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
 | 10 | **Grouping** → group by `region`, `COUNT(*)`, tick **Show percentage**, Apply | **1** execution, changed figure. **Generated SQL** is a real `GROUP BY` and the percentage column is **not in it** — it is computed in the browser and its header says `(this page)`. |
@@ -698,7 +698,7 @@ as honestly as a succeeding one.
 | Do | Expect |
 |---|---|
 | Open the picker with no tabs | The space rail, then the object list headed **Tables (n)**, and **Views (n)** — either heading is omitted when that group is empty, which is symmetric, so a space with tables and no views correctly shows one heading. No title over the list, and NO create control anywhere on the picker. |
-| **Options** on an open exploration | One menu in four groups: Order and filter, Remove all filters and sorts, Filter by this value; Columns, Value, Calc, Grouping; Copy…, Save results…, Save as query, Create view…, Open in Query; Colors, Transformers. The bar keeps only undo/redo — no Grid/Record/Text control. |
+| **Options** on an open exploration | One menu in four groups: Order and filter, Remove all filters and sorts, Filter by value…; Columns, Value, Calc, Grouping; Copy…, Save results…, Save as query, Create view…, Open in Query; Colors, Transformers. The bar keeps only undo/redo — no Grid/Record/Text control. |
 | **Options → Open in Query** | A new **Query** tab holds the same statement *Generated SQL* shows, not yet run. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
@@ -723,6 +723,19 @@ as honestly as a succeeding one.
 | N | Open **Generated SQL**, choose **Open in Query** | `/query` opens a new tab labelled with the exploration tab's name, holding the statement, **not run**. The URL carries no query string. Reload opens no second tab. |
 | O | Edit the statement, run it, then go back to the **Data Explorer** | The Query run is its own. The exploration is as it was: the same chips, the same rows, and the bar's **Back** arrow steps through the same history. |
 | P | At a phone width, do N again | The read-only SQL view shows the statement under the tab's name, with **Run**. Nothing runs until **Run** is tapped. |
+
+**Filter by value.** On a table built from CSV files, with a `brnd_name` column holding blanks and an
+ID-like column with more than 1,000 distinct values. Count executions throughout; a listing is the
+statement that begins `SELECT "<column>" AS "value"`.
+
+| # | Do | Expect |
+|---|---|---|
+| Q | `brnd_name`'s **⋯** → **Filter by value…** | **1** listing. Each brand with its row count, most common first, `(empty)` among them, and the line under the list saying what the listing scanned. |
+| R | Tick two brands and `(empty)`, **Apply filter** | **1** execution. The grid shows only those rows; the tab's scanned total rose by the listing plus the apply. |
+| S | Open **Filter by value…** on `brnd_name` again | All three ticked, **zero** new listings, and the line says it was loaded from an earlier run. |
+| T | Choose **is not one of**, **Apply filter** | The grid shows every other brand, and no NULL rows. |
+| U | **Options** → **Remove all filters and sorts**, then **Filter by value…** on the ID column | The note reads *Showing the 1,000 most common of N values*. Check N with `SELECT COUNT(DISTINCT id)` in Query — N is one more than that if the column holds any NULL, because the list counts NULL as a value and `COUNT(DISTINCT)` skips it. The other filters narrow the list, which is why they are removed first. |
+| V | Another text column's **⋯** → **Filter: is one of…**, type one value, tick **NULL**, **Apply filter** | That value's rows and the NULL rows. Then **Options** → **Order and filter** → **Apply** untouched: **zero** executions. |
 
 ### 4.6 Data quality
 

@@ -1069,6 +1069,7 @@ const RECIPES: Record<string, Recipe> = {
   'Copy and export guide': helpRecipe('explore-copy-and-export'),
   'Save an exploration guide': helpRecipe('explore-save-as-query'),
   'Save an exploration guide under Query': helpRecipe('explore-save-as-query'),
+  'Filter by value guide under Query': helpRecipe('query-filter-by-value'),
   'Colors and Transformers guide': helpRecipe('explore-colors-and-formats'),
   'Data Explorer save formats guide under the Data Explorer': helpRecipe('explore-save-formats'),
   'Create table guide': helpRecipe('create-table'),
@@ -1395,7 +1396,10 @@ describe('the registry itself', () => {
         'Colors and Transformers guide',
         'Copy and export guide',
         'Data Explorer save formats guide under the Data Explorer',
-        'Save an exploration guide'
+        'Save an exploration guide',
+        // The Query section's pointer to Filter by value: every step it names is a surface this
+        // flag hides, so it follows this flag as well as its section's.
+        'Filter by value guide under Query'
       ],
       // SPEC-190: a kill switch rather than an area. It hides the record of what this session
       // handed to the plane, and the guide for a round trip that only exists while the routing

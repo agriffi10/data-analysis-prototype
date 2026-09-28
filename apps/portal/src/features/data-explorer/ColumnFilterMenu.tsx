@@ -40,6 +40,15 @@ export type ColumnQueryActions = {
    * Trino would reject it on.
    */
   operatorsOf: (column: string) => FilterOperator[];
+  /**
+   * Why this column's values cannot be listed to tick, or null when they can.
+   *
+   * The one reader both menus ask. A column the query cannot address says so first; otherwise
+   * only a column the list operators are offered on can be listed, since every tick becomes
+   * an `is one of` — and an aggregate's output cannot, because the listing reads the ungrouped
+   * source, which has no such column.
+   */
+  filterByValueRefusalOf: (column: string) => string | null;
   sort: (column: string, direction: 'asc' | 'desc') => void;
   clearSort: (column: string) => void;
   filter: (column: string, operator: FilterOperator, input?: FilterValueResult) => void;
@@ -54,6 +63,8 @@ export type ColumnFilterMenuProps = {
   actions: ColumnQueryActions;
   /** Asks the REGION to open the value dialog — see below for why it is not opened here. */
   onRequestValue: (column: string, operator: FilterOperator) => void;
+  /** Asks the REGION to open the values picker for this column, for the same reason. */
+  onFilterByValue: (column: string) => void;
   /** Hides the column from the grid; it comes back from the Columns panel. */
   onHide: (column: string) => void;
   /** Why this column cannot be hidden (the last one visible), or null when it can. */
@@ -76,7 +87,14 @@ export type ColumnFilterMenuProps = {
  * context (`z-20`) and paint UNDER the sticky pinned headers (`z-30`), with the scrim
  * punched through. Nothing in jsdom can see that.
  */
-export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideRefusal}: ColumnFilterMenuProps) {
+export function ColumnFilterMenu({
+  column,
+  actions,
+  onRequestValue,
+  onFilterByValue,
+  onHide,
+  hideRefusal
+}: ColumnFilterMenuProps) {
   const [placement, setPlacement] = useState<{align: 'left' | 'right'; maxHeight?: number}>({align: 'left'});
   const sort = actions.sortOf(column);
   const filter = actions.filterOf(column);
@@ -94,6 +112,11 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
         {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},
         {kind: 'action', label: 'Clear sort', disabled: !sort, onSelect: () => actions.clearSort(column)},
         {kind: 'separator'},
+        // First among the filters: it is the one that shows what the column holds. Absent rather
+        // than refused where it cannot run, as the operators a type does not offer are absent.
+        ...(actions.filterByValueRefusalOf(column) === null
+          ? ([{kind: 'action', label: 'Filter by value…', onSelect: () => onFilterByValue(column)}] as MenuItem[])
+          : []),
         // Derived from the operator table rather than re-listed, and in ITS order: a
         // hand-written array cast to `FilterOperator[]` type-checks with half of them
         // missing, and a second list here is one that can offer what the settings dialog

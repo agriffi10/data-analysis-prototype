@@ -7,9 +7,9 @@ export type ExplorationOptionsMenuProps = {
   clearAllLabel: string;
   onClearAll: () => void;
   clearAllRefusal?: string;
-  /** Filter to the selected cell's value. */
-  onFilterByCell: () => void;
-  filterByCellRefusal?: string;
+  /** List the selected cell's column's values to tick, starting from the cell's own. */
+  onFilterByValue: () => void;
+  filterByValueRefusal?: string;
   /** Panels and dialogs the menu opens, each already knowing its own open state. */
   onColumns: () => void;
   onColours: () => void;
@@ -97,8 +97,8 @@ export function ExplorationOptionsMenu({
   clearAllLabel,
   onClearAll,
   clearAllRefusal,
-  onFilterByCell,
-  filterByCellRefusal,
+  onFilterByValue,
+  filterByValueRefusal,
   onColumns,
   onColours,
   onTransformers,
@@ -127,7 +127,7 @@ export function ExplorationOptionsMenu({
     // the panel and export groups rather than being appended to them.
     {kind: 'action', label: 'Order and filter', onSelect: onOrderAndFilter},
     {kind: 'action', label: clearAllLabel, onSelect: onClearAll, disabledReason: clearAllRefusal},
-    {kind: 'action', label: 'Filter by this value', onSelect: onFilterByCell, disabledReason: filterByCellRefusal},
+    {kind: 'action', label: 'Filter by value…', onSelect: onFilterByValue, disabledReason: filterByValueRefusal},
     {kind: 'separator'},
     {kind: 'action', label: 'Columns', onSelect: onColumns},
     {kind: 'action', label: valueOpen ? 'Hide the value panel' : 'Value', onSelect: onToggleValue},

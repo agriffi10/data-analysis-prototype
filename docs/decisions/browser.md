@@ -500,6 +500,12 @@ value itself never reaches SQL unescaped either way: it rides on a `ColumnFilter
 `CATALOG_IDENTIFIER_RE` describes names this app CREATES, and a column named `total amount` is
 ordinary.
 
+> **Superseded (SPEC-249, 2026-09-28) — the gesture refusal ONLY.** *Filter by this value* is now
+> **Filter by value…**, which opens a list of the column's values; a numeric value `isBareNumeric`
+> rejects is a disabled checkbox with its reason there, and the menu item no longer refuses for it.
+> The full entry is analytics.md's *A column's values are a list you tick*. Everything else above is
+> unchanged and still live.
+
 **A failure keeps the last good rows, and Athena's refusal had to be made into an error first.** A
 query Athena rejects is not an error anywhere in the plumbing — `getQueryStatus` **resolves**, and
 the reason arrives as `stateChangeReason` on a successful poll — so `useExploration` now surfaces a

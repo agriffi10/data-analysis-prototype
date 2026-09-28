@@ -19,6 +19,16 @@ describe('a saved view', () => {
     expect(view && Object.hasOwn(view.presentation, 'valuePanelOpen')).toBe(false);
   });
 
+  it('keeps a list that holds the empty string and names NULL', () => {
+    const exploration = fullExploration();
+    exploration.query.filters = [{column: 'region', operator: 'in', values: ['', 'north'], includesNull: true}];
+    const parsed = parseViewLine(appendViewLine('SELECT 1', buildSavedView(exploration)) as string);
+
+    const view = readSavedView(parsed.kind === 'ok' ? parsed.payload : null);
+
+    expect(view?.query.filters).toEqual(exploration.query.filters);
+  });
+
   it('is refused whole, not repaired, when any part is something this build would have to fix', () => {
     const view = buildSavedView(fullExploration()) as SavedView;
     const unknownOperator = structuredClone(view);

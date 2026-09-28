@@ -14,6 +14,7 @@ import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {buildOpenSqlHandoff, readExploreSqlHandoff} from '../../lib/routeHandoff';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
+import {ColumnValuesProvider} from './ColumnValuesProvider';
 import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsRegion, NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
@@ -32,6 +33,7 @@ import {useExploreDeepLink} from './useExploreDeepLink';
 import {evictSqlSource} from './useExplorationEviction';
 import {useSourceColumns} from './useSourceColumns';
 import {emptyExplorationPresentation} from './exploration';
+import {tabBytesScanned} from './explorationTabs';
 import type {ExploreTarget} from './exploreSources';
 import type {Exploration, ExplorationSource} from './dataExplorer.types';
 
@@ -279,6 +281,11 @@ export function DataExplorerWorkspace() {
   }
 
   const showPicker = picking || tabs.tabs.length === 0;
+  const ledgerOf = (tabId: string) => tabs.tabs.find((tab) => tab.id === tabId)?.scannedByExecution;
+  const totalOf = (tabId: string) => {
+    const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
+    return tab ? tabBytesScanned(tab) : 0;
+  };
   // A stable object while there is no active tab: the geometry resolver memoises on it,
   // and a fresh literal every render would recompute the whole column layout for nothing.
   const presentation = tabs.activeTab?.exploration.presentation ?? EMPTY_PRESENTATION;
@@ -287,181 +294,190 @@ export function DataExplorerWorkspace() {
     // Capped to the viewport below the h-14 header from tablet up, as the Query workspace is, so
     // the grid scrolls inside its own box and the SQL above it and the panels beside it stay in
     // view. Phones keep the page's own scroll: a bounded box would squeeze the stacked grid.
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col tablet:h-[calc(100dvh-3.5rem)] tablet:overflow-hidden">
-      {tabs.tabs.length > 0 && (
-        <ExplorationTabStrip
-          tabs={tabs.tabs}
-          activeTabId={tabs.activeTabId}
-          onSelect={(id) => {
-            setPicking(false);
-            tabs.setActiveTab(id);
-          }}
-          // Closing is not itself an execution. What CAN follow one is the neighbour that
-          // slides into view: if it has run this session its statement is cached, but a tab
-          // restored from `sessionStorage` and never opened has not, and showing an
-          // exploration is running it.
-          onClose={(id) => {
-            if (tabs.tabs.length === 1) setPickerTakesFocus(true);
-            tabs.closeTab(id);
-          }}
-          // A state read is honest for ONE human click — the picker's choice still goes
-          // through `openTab`, which is the authority and refuses on its own synchronous
-          // count. What this buys is the refusal arriving at the gesture that
-          // asked for it, rather than one table-click later.
-          onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
-          panelShown={!showPicker}
-        />
-      )}
-
-      {showPicker ? (
-        <SourcePicker
-          spaces={spaces}
-          username={username}
-          onChoose={openSource}
-          onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
-          onOpenSaved={queryEnabled ? () => setBrowsingSaved(true) : undefined}
-          takeFocus={pickerTakesFocus}
-        />
-      ) : (
-        // The region each tab controls. `aria-controls` on a tab has to name something, or
-        // the relationship the tablist announces does not exist.
-        <div
-          id={EXPLORATION_TABPANEL_ID}
-          role="tabpanel"
-          aria-label={tabs.activeTab?.label ?? 'Exploration'}
-          className="flex min-h-0 flex-1 flex-col">
-          <ExplorationResultsRegion
-            tabId={tabs.activeTabId}
-            // The statement that RAN, so the disclosure shows the string
-            // handed to StartQueryExecution rather than a second rendering of it.
-            sql={exploration.sql}
-            queryExecutionId={exploration.queryExecutionId}
-            // Load-bearing: the region reads results only at SUCCEEDED. Reading them
-            // earlier is a 400 from Athena that surfaces as the generic error message.
-            state={exploration.state}
-            isPending={exploration.isPending}
-            error={exploration.error}
-            schemaColumns={schemaColumns}
-            presentation={presentation}
-            // Presentation changes land the same way every other exploration edit does —
-            // through the tab — so geometry survives paging and tab switches, and is
-            // persisted with the tab it belongs to.
-            onPresentationChange={(update) =>
-              tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
-            }
-            queryControls={queryControls}
-            held={tabs.activeTab?.awaitingRun ?? null}
-            onRun={() => tabs.activeTab && tabs.releaseHold(tabs.activeTab.id)}
-            onSaveQuery={() => {
-              if (tabs.activeTab && exploration.sql !== null) {
-                setSaving({tabId: tabs.activeTab.id, sql: exploration.sql, exploration: tabs.activeTab.exploration});
-              }
+    // The values listings live ABOVE the source picker: New tab unmounts the tab panel, and a
+    // listing still running must keep its watch so its scan reaches the tab that asked.
+    <ColumnValuesProvider
+      activeTabId={tabs.activeTab?.id ?? null}
+      ledgerOf={ledgerOf}
+      recordScan={tabs.recordScan}
+      totalOf={totalOf}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col tablet:h-[calc(100dvh-3.5rem)] tablet:overflow-hidden">
+        {tabs.tabs.length > 0 && (
+          <ExplorationTabStrip
+            tabs={tabs.tabs}
+            activeTabId={tabs.activeTabId}
+            onSelect={(id) => {
+              setPicking(false);
+              tabs.setActiveTab(id);
             }}
-            // A copy of the statement goes to Query in router state, never the URL, and this tab is
-            // left exactly as it was: nothing comes back from the edit made there.
-            onOpenInQuery={(sql) => {
-              if (tabs.activeTab) {
-                navigate('/query', {state: buildOpenSqlHandoff({sql, label: tabs.activeTab.label})});
-              }
+            // Closing is not itself an execution. What CAN follow one is the neighbour that
+            // slides into view: if it has run this session its statement is cached, but a tab
+            // restored from `sessionStorage` and never opened has not, and showing an
+            // exploration is running it.
+            onClose={(id) => {
+              if (tabs.tabs.length === 1) setPickerTakesFocus(true);
+              tabs.closeTab(id);
             }}
-            onCreateView={() => {
-              const source = tabs.activeTab?.exploration.source;
-              if (exploration.sql !== null && source?.kind === 'table') {
-                setCreatingView({sql: exploration.sql, database: source.database});
-              }
-            }}
-            // A statement source reads whatever its body names, so there is no single database to
-            // create the view IN. Without this the control would be offered and do nothing.
-            createViewRefusal={
-              tabs.activeTab && tabs.activeTab.exploration.source.kind !== 'table' ? SQL_SOURCE_VIEW_REFUSAL : null
-            }
-            onExport={(columnIndexes) => {
-              setExportColumns(columnIndexes);
-              saveResults.openDialog();
-            }}
-            // Judged HERE, on the results location, because that object is what export
-            // copies — a grid full of rows says nothing about whether Athena has finished
-            // writing the CSV, and a failed apply leaves the LAST GOOD execution's rows on
-            // screen while this field has already moved on.
-            exportRefusal={exploration.outputLocation ? null : NOTHING_TO_EXPORT}
-            onSourceColumns={tabs.setTabSourceColumns}
+            // A state read is honest for ONE human click — the picker's choice still goes
+            // through `openTab`, which is the authority and refuses on its own synchronous
+            // count. What this buys is the refusal arriving at the gesture that
+            // asked for it, rather than one table-click later.
+            onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
+            panelShown={!showPicker}
           />
-          <CostIndicator
-            bytesScanned={shownApply?.bytesScanned ?? null}
-            fromCache={shownApply?.fromCache ?? false}
-            totalBytes={tabs.activeTabBytesScanned}
+        )}
+
+        {showPicker ? (
+          <SourcePicker
+            spaces={spaces}
+            username={username}
+            onChoose={openSource}
+            onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
+            onOpenSaved={queryEnabled ? () => setBrowsingSaved(true) : undefined}
+            takeFocus={pickerTakesFocus}
           />
-        </div>
-      )}
+        ) : (
+          // The region each tab controls. `aria-controls` on a tab has to name something, or
+          // the relationship the tablist announces does not exist.
+          <div
+            id={EXPLORATION_TABPANEL_ID}
+            role="tabpanel"
+            aria-label={tabs.activeTab?.label ?? 'Exploration'}
+            className="flex min-h-0 flex-1 flex-col">
+            <ExplorationResultsRegion
+              tabId={tabs.activeTabId}
+              source={tabs.activeTab?.exploration.source ?? null}
+              // The statement that RAN, so the disclosure shows the string
+              // handed to StartQueryExecution rather than a second rendering of it.
+              sql={exploration.sql}
+              queryExecutionId={exploration.queryExecutionId}
+              // Load-bearing: the region reads results only at SUCCEEDED. Reading them
+              // earlier is a 400 from Athena that surfaces as the generic error message.
+              state={exploration.state}
+              isPending={exploration.isPending}
+              error={exploration.error}
+              schemaColumns={schemaColumns}
+              presentation={presentation}
+              // Presentation changes land the same way every other exploration edit does —
+              // through the tab — so geometry survives paging and tab switches, and is
+              // persisted with the tab it belongs to.
+              onPresentationChange={(update) =>
+                tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
+              }
+              queryControls={queryControls}
+              held={tabs.activeTab?.awaitingRun ?? null}
+              onRun={() => tabs.activeTab && tabs.releaseHold(tabs.activeTab.id)}
+              onSaveQuery={() => {
+                if (tabs.activeTab && exploration.sql !== null) {
+                  setSaving({tabId: tabs.activeTab.id, sql: exploration.sql, exploration: tabs.activeTab.exploration});
+                }
+              }}
+              // A copy of the statement goes to Query in router state, never the URL, and this tab is
+              // left exactly as it was: nothing comes back from the edit made there.
+              onOpenInQuery={(sql) => {
+                if (tabs.activeTab) {
+                  navigate('/query', {state: buildOpenSqlHandoff({sql, label: tabs.activeTab.label})});
+                }
+              }}
+              onCreateView={() => {
+                const source = tabs.activeTab?.exploration.source;
+                if (exploration.sql !== null && source?.kind === 'table') {
+                  setCreatingView({sql: exploration.sql, database: source.database});
+                }
+              }}
+              // A statement source reads whatever its body names, so there is no single database to
+              // create the view IN. Without this the control would be offered and do nothing.
+              createViewRefusal={
+                tabs.activeTab && tabs.activeTab.exploration.source.kind !== 'table' ? SQL_SOURCE_VIEW_REFUSAL : null
+              }
+              onExport={(columnIndexes) => {
+                setExportColumns(columnIndexes);
+                saveResults.openDialog();
+              }}
+              // Judged HERE, on the results location, because that object is what export
+              // copies — a grid full of rows says nothing about whether Athena has finished
+              // writing the CSV, and a failed apply leaves the LAST GOOD execution's rows on
+              // screen while this field has already moved on.
+              exportRefusal={exploration.outputLocation ? null : NOTHING_TO_EXPORT}
+              onSourceColumns={tabs.setTabSourceColumns}
+            />
+            <CostIndicator
+              bytesScanned={shownApply?.bytesScanned ?? null}
+              fromCache={shownApply?.fromCache ?? false}
+              totalBytes={tabs.activeTabBytesScanned}
+            />
+          </div>
+        )}
 
-      {creatingView && (
-        <CreateViewDialog
-          busy={ddl.busy}
-          targetDatabase={creatingView.database}
-          onCreate={(name) =>
-            ddl.run({
-              sql: buildCreateViewSql(creatingView.database, name, creatingView.sql),
-              database: creatingView.database,
-              // The view is the only thing that changed, so the exploration it was built FROM
-              // is not evicted and does not re-run.
-              table: name,
-              describe: {success: `Saved view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
-              onSettled: () => setCreatingView(null)
-            })
-          }
-          onCancel={() => setCreatingView(null)}
-        />
-      )}
+        {creatingView && (
+          <CreateViewDialog
+            busy={ddl.busy}
+            targetDatabase={creatingView.database}
+            onCreate={(name) =>
+              ddl.run({
+                sql: buildCreateViewSql(creatingView.database, name, creatingView.sql),
+                database: creatingView.database,
+                // The view is the only thing that changed, so the exploration it was built FROM
+                // is not evicted and does not re-run.
+                table: name,
+                describe: {success: `Saved view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+                onSettled: () => setCreatingView(null)
+              })
+            }
+            onCancel={() => setCreatingView(null)}
+          />
+        )}
 
-      {/* Mounting IS the open state — see the dialog's own note. */}
-      {saving && (
-        <SaveExplorationDialog
-          sql={saving.sql}
-          exploration={saving.exploration}
-          spaces={spaces}
-          defaultSpace={savedSpace.space}
-          link={tabs.tabs.find((tab) => tab.id === saving.tabId)?.savedQuery}
-          onSaved={(query) => {
-            tabs.setTabSavedQuery(saving.tabId, {
-              spaceId: query.spaceId,
-              bucket: query.bucket,
-              key: query.key,
-              name: query.name
-            });
-            // ONE memory of "the space I am working in", written on every success — the
-            // same rule the Query workspace settles, and the same storage key.
-            savedSpace.selectSpace(query.spaceId);
-            setSaving(null);
-          }}
-          onClose={() => setSaving(null)}
-        />
-      )}
+        {/* Mounting IS the open state — see the dialog's own note. */}
+        {saving && (
+          <SaveExplorationDialog
+            sql={saving.sql}
+            exploration={saving.exploration}
+            spaces={spaces}
+            defaultSpace={savedSpace.space}
+            link={tabs.tabs.find((tab) => tab.id === saving.tabId)?.savedQuery}
+            onSaved={(query) => {
+              tabs.setTabSavedQuery(saving.tabId, {
+                spaceId: query.spaceId,
+                bucket: query.bucket,
+                key: query.key,
+                name: query.name
+              });
+              // ONE memory of "the space I am working in", written on every success — the
+              // same rule the Query workspace settles, and the same storage key.
+              savedSpace.selectSpace(query.spaceId);
+              setSaving(null);
+            }}
+            onClose={() => setSaving(null)}
+          />
+        )}
 
-      <ExportExplorationDialog saveResults={saveResults} />
+        <ExportExplorationDialog saveResults={saveResults} />
 
-      {browsingSaved && (
-        <OpenSavedViewDrawer
-          spaces={spaces}
-          space={savedSpace.space}
-          onSelectSpace={savedSpace.selectSpace}
-          openingKey={savedView.openingKey}
-          onOpen={savedView.openFile}
-          onClose={() => setBrowsingSaved(false)}
-        />
-      )}
+        {browsingSaved && (
+          <OpenSavedViewDrawer
+            spaces={spaces}
+            space={savedSpace.space}
+            onSelectSpace={savedSpace.selectSpace}
+            openingKey={savedView.openingKey}
+            onOpen={savedView.openFile}
+            onClose={() => setBrowsingSaved(false)}
+          />
+        )}
 
-      {savedView.refusal && (
-        <SavedViewRefusal
-          refusal={savedView.refusal}
-          onClose={savedView.dismissRefusal}
-          onOpenInQuery={() => {
-            const {sql, name} = savedView.refusal ?? {sql: '', name: ''};
-            navigate('/query', {state: buildOpenSqlHandoff({sql, label: name})});
-          }}
-        />
-      )}
+        {savedView.refusal && (
+          <SavedViewRefusal
+            refusal={savedView.refusal}
+            onClose={savedView.dismissRefusal}
+            onOpenInQuery={() => {
+              const {sql, name} = savedView.refusal ?? {sql: '', name: ''};
+              navigate('/query', {state: buildOpenSqlHandoff({sql, label: name})});
+            }}
+          />
+        )}
 
-      {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}
-    </div>
+        {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}
+      </div>
+    </ColumnValuesProvider>
   );
 }
