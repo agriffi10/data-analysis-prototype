@@ -2,8 +2,13 @@ import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
 import {contentBottomOf, contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor, menuMaxHeightFor} from './menuAlign';
-import {FILTER_OPERATOR_LABELS, operatorTakesValue, operatorTakesValues} from './explorationQueryOps';
-import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
+import {
+  FILTER_OPERATOR_LABELS,
+  GROUPED_ONLY_REFUSAL,
+  operatorTakesValue,
+  operatorTakesValues
+} from './explorationQueryOps';
+import type {FilterOperator, FilterValueKind} from './dataExplorer.types';
 import type {FilterValueResult} from './FilterValueDialog';
 
 /**
@@ -29,7 +34,16 @@ export type ColumnQueryActions = {
   sortOf: (column: string) => {direction: 'asc' | 'desc'; position: number} | null;
   /** How many columns the ordering has, so a lone sort need not show a priority. */
   sortCount: number;
-  filterOf: (column: string) => ColumnFilter | null;
+  /**
+   * Whether any condition, at any depth, filters on the column — what its mark and its accessible
+   * name both say, so the two never disagree about a column filtered only inside a group.
+   */
+  isFiltered: (column: string) => boolean;
+  /**
+   * Whether Clear filter has anything to clear: the menu clears the top level only, like every
+   * other menu edit, so a column filtered only inside a group has nothing there.
+   */
+  hasTopLevelFilter: (column: string) => boolean;
   /** The kind a filter on this column must carry, from its declared type. */
   valueKindOf: (column: string) => FilterValueKind;
   /**
@@ -97,7 +111,8 @@ export function ColumnFilterMenu({
 }: ColumnFilterMenuProps) {
   const [placement, setPlacement] = useState<{align: 'left' | 'right'; maxHeight?: number}>({align: 'left'});
   const sort = actions.sortOf(column);
-  const filter = actions.filterOf(column);
+  const filtered = actions.isFiltered(column);
+  const topLevel = actions.hasTopLevelFilter(column);
   const refusal = actions.queryRefusalOf(column);
 
   // A column the query cannot address keeps its menu and offers ONE refused item saying
@@ -130,7 +145,15 @@ export function ColumnFilterMenu({
             onSelect: () => (asks ? onRequestValue(column, operator) : actions.filter(column, operator))
           };
         }),
-        {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}
+        {
+          kind: 'action',
+          label: 'Clear filter',
+          // Refused with its reason when the conditions are all inside a group, so the user learns
+          // where to change them; plainly unavailable when there is no filter at all.
+          disabled: !filtered,
+          disabledReason: filtered && !topLevel ? GROUPED_ONLY_REFUSAL : undefined,
+          onSelect: () => actions.clearFilter(column)
+        }
       ];
   // Offered whether or not the query can address the column: a column the SQL does not have
   // still sizes, hides and pins like any other.
@@ -146,7 +169,7 @@ export function ColumnFilterMenu({
   const name = [
     `Column options: ${column}`,
     sort ? `sorted ${sort.direction === 'asc' ? 'ascending' : 'descending'}, sort ${sort.position}` : null,
-    filter ? 'filtered' : null
+    filtered ? 'filtered' : null
   ]
     .filter(Boolean)
     .join(', ');
@@ -191,7 +214,7 @@ export function ColumnFilterMenu({
                 {actions.sortCount > 1 ? sort.position : ''}
               </span>
             )}
-            {filter && <span aria-hidden="true">•</span>}
+            {filtered && <span aria-hidden="true">•</span>}
             <span aria-hidden="true">⋯</span>
           </button>
         )}

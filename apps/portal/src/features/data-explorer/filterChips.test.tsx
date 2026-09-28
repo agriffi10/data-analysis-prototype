@@ -8,11 +8,11 @@ import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import type {ColumnFilter, ExplorationTabsState} from './dataExplorer.types';
+import type {ColumnFilter, ExplorationTabsState, FilterItem} from './dataExplorer.types';
 
-// The column filters, shown as chips beside the expression box: what the menus set and the box
-// never shows. A chip's remove is one apply, so it is one execution and one history entry, and
-// it hands focus on rather than dropping it on the page body.
+// The applied filter, shown as chips beside Filter rows: one per top-level item, a group worded in
+// the brackets its statement carries. A chip's remove is one apply, so it is one execution and one
+// history entry, and it hands focus on rather than dropping it on the page body.
 
 vi.mock('../catalog/glue.service', () => ({getDatabase: vi.fn(), listTables: vi.fn()}));
 vi.mock('../catalog/athena.service', async (importOriginal) => ({
@@ -35,8 +35,16 @@ const CITY_SET: ColumnFilter = {column: 'city', operator: 'isNotNull'};
 const REMOVE_STATE = 'Remove filter: state equals “NY”';
 const REMOVE_QTY = 'Remove filter: qty greater than 5';
 const REMOVE_CITY = 'Remove filter: city is not null';
+const EU_OR_US: FilterItem = {
+  join: 'or',
+  items: [
+    {column: 'region', operator: '=', value: 'EU', valueKind: 'string'},
+    {column: 'region', operator: '=', value: 'US', valueKind: 'string'}
+  ]
+};
+const EU_OR_US_LABEL = '(region equals “EU” or region equals “US”)';
 
-function seedTab(query: {filters: ColumnFilter[]; expression?: string}) {
+function seedTab(query: {filters: FilterItem[]; expression?: string}) {
   const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
   exploration.query = {...exploration.query, filters: query.filters, expression: query.expression ?? null};
   const state: ExplorationTabsState = {
@@ -95,43 +103,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('the column filter chips', () => {
-  it('lists every column filter beside the expression box, in the order they were set', async () => {
-    seedTab({filters: [STATE_NY, QTY_OVER_5]});
+describe('the filter chips', () => {
+  it('lists every top-level item, a group in its brackets, in the order they were set', async () => {
+    seedTab({filters: [STATE_NY, EU_OR_US, QTY_OVER_5]});
 
     await renderSettled();
 
-    const chips = within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem');
-    expect(chips.map((chip) => chip.textContent)).toEqual(['state equals “NY”', 'qty greater than 5']);
+    const chips = within(screen.getByRole('list', {name: 'Filters'})).getAllByRole('listitem');
+    expect(chips.map((chip) => chip.textContent)).toEqual(['state equals “NY”', EU_OR_US_LABEL, 'qty greater than 5']);
   });
 
-  it('removes one filter as one execution and one history entry, and focuses the next chip', async () => {
-    seedTab({filters: [STATE_NY, QTY_OVER_5]});
+  it('removes a whole group as one execution and one history entry, and focuses the next chip', async () => {
+    seedTab({filters: [STATE_NY, EU_OR_US, QTY_OVER_5]});
     const {user} = await renderSettled();
 
-    await user.click(screen.getByRole('button', {name: REMOVE_STATE}));
+    await user.click(screen.getByRole('button', {name: `Remove filter: ${EU_OR_US_LABEL}`}));
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    expect(sqlsRun()[1]).toContain('"qty" > 5');
-    expect(sqlsRun()[1]).not.toContain('"state"');
+    expect(sqlsRun()[1]).toContain(`WHERE ("state" = 'NY' AND "qty" > 5)`);
     await waitFor(() => expect(persistedPast()).toBe(1));
     expect(screen.getByRole('button', {name: REMOVE_QTY})).toHaveFocus();
   });
 
-  it('hands focus to the next chip, else the previous one, else the expression input', async () => {
-    seedTab({filters: [STATE_NY, QTY_OVER_5, CITY_SET]});
+  it('hands focus by position to the next chip, else the previous one, else Filter rows', async () => {
+    // Two chips read alike here, so a focus found by LABEL would land on the first of them.
+    seedTab({filters: [STATE_NY, QTY_OVER_5, STATE_NY, CITY_SET]});
     const {user} = await renderSettled();
 
-    // The middle chip has a chip on each side, so this is the one removal that tells "next first"
-    // from "previous first".
     await user.click(screen.getByRole('button', {name: REMOVE_QTY}));
-    expect(await screen.findByRole('button', {name: REMOVE_CITY})).toHaveFocus();
+    await waitFor(() => expect(screen.getAllByRole('button', {name: REMOVE_STATE})[1]).toHaveFocus());
     await user.click(screen.getByRole('button', {name: REMOVE_CITY}));
-    expect(await screen.findByRole('button', {name: REMOVE_STATE})).toHaveFocus();
+    await waitFor(() => expect(screen.getAllByRole('button', {name: REMOVE_STATE})[1]).toHaveFocus());
+    await user.click(screen.getAllByRole('button', {name: REMOVE_STATE})[1]);
+    await waitFor(() => expect(screen.getByRole('button', {name: REMOVE_STATE})).toHaveFocus());
     await user.click(screen.getByRole('button', {name: REMOVE_STATE}));
 
-    expect(screen.queryByRole('list', {name: 'Column filters'})).toBeNull();
-    expect(screen.getByLabelText('Filter expression')).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Filter rows…'})).toHaveFocus());
+    expect(screen.queryByRole('list', {name: 'Filters'})).toBeNull();
   });
 
   it('brings a removed filter’s chip back with Back', async () => {
@@ -142,16 +150,7 @@ describe('the column filter chips', () => {
 
     await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
 
-    const chips = within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem');
+    const chips = within(screen.getByRole('list', {name: 'Filters'})).getAllByRole('listitem');
     expect(chips.map((chip) => chip.textContent)).toEqual(['state equals “NY”', 'qty greater than 5']);
-  });
-
-  it('shows no chip list for an expression alone', async () => {
-    seedTab({filters: [], expression: 'qty > 1'});
-
-    await renderSettled();
-
-    expect(screen.getByLabelText('Filter expression')).toHaveValue('qty > 1');
-    expect(screen.queryByRole('list', {name: 'Column filters'})).toBeNull();
   });
 });

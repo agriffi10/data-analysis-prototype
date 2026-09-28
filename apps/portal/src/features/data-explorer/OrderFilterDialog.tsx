@@ -176,7 +176,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
         continue;
       }
       if (!operatorTakesValue(filter.operator)) continue;
-      // The numeric refusal follows the OPERATOR, not the column: the four text operators
+      // The numeric refusal follows the OPERATOR, not the column: the text operators
       // quote their value whatever the column holds, so refusing text typed into one of
       // them here would turn back a filter the renderer accepts.
       if (!operatorUsesValueKind(filter.operator)) {

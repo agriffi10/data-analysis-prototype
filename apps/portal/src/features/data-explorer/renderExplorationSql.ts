@@ -93,7 +93,7 @@ export function aggregateAlias(aggregate: GroupingAggregate): string {
 }
 
 // Emitted bare or quoted by the operator's own `valueKindApplies`, never by a second rule
-// here: the four text operators build a pattern and quote it whatever the column holds, and
+// here: the text operators build a pattern and quote it whatever the column holds, and
 // a check written out again in this file is a check that can disagree with the one the two
 // value inputs read.
 function quoteOrBare(filter: ColumnFilter, raw: string): string {

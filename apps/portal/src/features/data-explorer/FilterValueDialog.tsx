@@ -1,4 +1,4 @@
-import {useRef, useState} from 'react';
+import {useId, useRef, useState} from 'react';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {FilterValuesField} from './FilterValuesField';
@@ -6,6 +6,7 @@ import {
   EMPTY_TEXT_REFUSAL,
   FILTER_OPERATOR_LABELS,
   listFieldOf,
+  operatorHint,
   operatorListsNull,
   operatorTakesValues,
   operatorUsesValueKind,
@@ -44,7 +45,7 @@ export const VALUES_FIELD_LABEL = 'Values, one per line';
  * alternative is an `ExplorationRenderError`, whose message names a column and an operator
  * and is operator text the error-wording rule forbids showing anyone.
  *
- * The numeric refusal follows the OPERATOR, not the column: the four text operators build a
+ * The numeric refusal follows the OPERATOR, not the column: the text operators build a
  * pattern and quote it whatever the column holds, so refusing text typed into one of them
  * on a numeric column would turn back a filter the renderer accepts.
  *
@@ -59,6 +60,8 @@ export function FilterValueDialog({
   onCancel
 }: FilterValueDialogProps) {
   const list = operatorTakesValues(operator);
+  const hint = list ? null : operatorHint(operator);
+  const hintId = useId();
   const [value, setValue] = useState(existing && !list ? (existing.value ?? '') : '');
   // Pre-filled in the list's STORED order rather than the rendered one, so the lines a user
   // sees are the lines they typed; the renderer sorts on its own way to the SQL. Only from a
@@ -85,7 +88,7 @@ export function FilterValueDialog({
       return;
     }
     // An empty pattern matches every non-NULL row, which is never the gesture the user made.
-    // The four text operators are exactly the ones that take a value without reading the
+    // The text operators are exactly the ones that take a value without reading the
     // column's kind. A comparison keeps taking an empty one: `= ''` is a real question, and
     // on a table built from CSV files it is the one that finds the blank cells.
     if (!operatorUsesValueKind(operator) && value === '') {
@@ -130,6 +133,7 @@ export function FilterValueDialog({
           ref={inputRef}
           className="mt-3"
           label="Value"
+          aria-describedby={hint ? hintId : undefined}
           value={value}
           error={error}
           inputMode={valueKind === 'number' && operatorUsesValueKind(operator) ? 'decimal' : undefined}
@@ -138,6 +142,13 @@ export function FilterValueDialog({
             setError(null);
           }}
         />
+      )}
+      {hint && (
+        <p
+          id={hintId}
+          className="mt-1 text-xs text-text-3">
+          {hint}
+        </p>
       )}
     </FormDialog>
   );

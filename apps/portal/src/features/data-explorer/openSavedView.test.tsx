@@ -102,7 +102,9 @@ describe('a view reopened from the personal folder', () => {
       name: 'Orders view'
     });
     expect(tab?.history).toEqual({past: [], future: []});
-    expect(within(screen.getByRole('list', {name: 'Column filters'})).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(screen.getByRole('list', {name: 'Filters'})).getAllByRole('listitem')).toHaveLength(3);
+    // The testkit's view carries a condition written in SQL, which reopens kept and on show.
+    expect(screen.getByText("status <> 'void'")).toBeInTheDocument();
     expect(screen.queryByRole('dialog', {name: 'Open saved view'})).not.toBeInTheDocument();
 
     await chooseExplorationOption(user, 'Save as query');

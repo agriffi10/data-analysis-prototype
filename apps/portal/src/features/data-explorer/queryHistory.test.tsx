@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {act, screen, waitFor} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {createTestQueryClient, renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
@@ -58,8 +58,12 @@ function render() {
   return {user};
 }
 
-function seedTab(history: {past: ExplorationQuery[]; future: ExplorationQuery[]} = {past: [], future: []}) {
+function seedTab(
+  history: {past: ExplorationQuery[]; future: ExplorationQuery[]} = {past: [], future: []},
+  query: Partial<ExplorationQuery> = {}
+) {
   const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+  exploration.query = {...exploration.query, ...query};
   const state: ExplorationTabsState = {
     version: 1,
     tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history}],
@@ -76,6 +80,23 @@ function storedHistory() {
 async function chooseFromMenu(user: ReturnType<typeof userEvent.setup>, column: string, item: string) {
   await user.click(await screen.findByRole('button', {name: new RegExp(`^Column options: ${column}`)}));
   await user.click(await screen.findByRole('menuitem', {name: item}));
+}
+
+/** Filters `status` on one value from its menu — the apply these tests make fail. */
+async function filterStatusEquals(user: ReturnType<typeof userEvent.setup>, value: string) {
+  await chooseFromMenu(user, 'status', 'Filter: equals…');
+  await user.type(screen.getByLabelText('Value'), value);
+  await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+}
+
+/** The applied filter's chips, as their text. */
+function chipTexts(): string[] {
+  const list = screen.queryByRole('list', {name: 'Filters'});
+  return list
+    ? within(list)
+        .getAllByRole('listitem')
+        .map((chip) => chip.textContent ?? '')
+    : [];
 }
 
 beforeEach(() => {
@@ -172,6 +193,11 @@ describe('filter history', () => {
         queryExecutionId === 'exec-1'
           ? ok({queryExecutionId, state: 'RUNNING'})
           : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+      // Glue's columns, since the watch stops before any result can name them: the builder is the
+      // way to change the filter while no grid is on screen.
+      vi.mocked(listTables).mockResolvedValue(
+        ok([{name: 'orders', tableType: 'EXTERNAL_TABLE', columns: [{name: 'status', type: 'string'}]}]) as never
+      );
       const requestsFor = (id: string) => vi.mocked(getQueryStatus).mock.calls.filter(([asked]) => asked === id).length;
       const user = userEvent.setup(USER_EVENT_OPTIONS);
       renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice'), queryClient});
@@ -187,7 +213,11 @@ describe('filter history', () => {
 
         await screen.findByText(/Data Quarry stopped waiting for this query/);
 
-        await user.type(screen.getByLabelText('Filter expression'), "status = 'open'{Enter}");
+        await user.click(screen.getByRole('button', {name: 'Filter rows…'}));
+        await user.click(screen.getByRole('button', {name: 'Add condition'}));
+        await user.selectOptions(screen.getByLabelText('Condition 1: column'), 'status');
+        await user.selectOptions(screen.getByLabelText('Condition 1: test'), 'isNotNull');
+        await user.click(screen.getByRole('button', {name: 'Apply'}));
         await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
         await screen.findAllByRole('gridcell');
         const beforeReturning = requestsFor('exec-1');
@@ -216,17 +246,17 @@ describe('filter history', () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
 
-    await user.type(screen.getByLabelText('Filter expression'), 'not sql at all{Enter}');
+    await filterStatusEquals(user, 'bad');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     await screen.findByText(/syntax error in your query/i);
 
     await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
-    await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
+    await waitFor(() => expect(chipTexts()).toEqual([]));
 
     await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
-    // The description is restored — the text is back in the bar — and nothing has run.
+    // The description is restored — its chip is back — and nothing has run.
     expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
-    expect(screen.getByLabelText('Filter expression')).toHaveValue('not sql at all');
+    expect(chipTexts()).toEqual(['status equals “bad”']);
     expect(runQuery).toHaveBeenCalledTimes(2);
     // Held back, so there is no statement: each of the two actions built from one says so in its own words.
     expect(await explorationOption(user, 'Save as query')).toHaveAttribute('title', NOTHING_TO_SAVE);
@@ -241,24 +271,22 @@ describe('filter history', () => {
 // ─── FR-007: remove all ──────────────────────────────────────────────────────
 
 describe('remove all', () => {
-  it('clears filters, the expression and every sort in ONE apply, from cache', async () => {
+  it('clears filters, a stored SQL condition and every sort in ONE apply', async () => {
+    seedTab(undefined, {expression: "id = '1'"});
     const {user} = render();
     await screen.findAllByRole('gridcell');
-
     await chooseFromMenu(user, 'status', 'Sort ascending');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     await chooseFromMenu(user, 'status', 'Filter: is not null');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
-    await user.type(screen.getByLabelText('Filter expression'), "id = '1'{Enter}");
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(4));
+    expect(lastSql()).toContain(`WHERE "status" IS NOT NULL AND (id = '1')`);
 
     await chooseExplorationOption(user, 'Remove all filters and sorts');
 
-    await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
-    expect(screen.getByRole('button', {name: 'Column options: status'})).toBeInTheDocument();
-    // Back to the unfiltered statement, which is still held (AC3).
-    expect(runQuery).toHaveBeenCalledTimes(4);
-    expect(lastSql()).toContain(`WHERE "status" IS NOT NULL AND (id = '1')`);
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(4));
+    expect(lastSql()).toBe('SELECT *\nFROM "alice"."orders"');
+    expect(chipTexts()).toEqual([]);
+    expect(screen.queryByText(/condition written in SQL/)).not.toBeInTheDocument();
   });
 
   it('says why it is unavailable when there is nothing to clear', async () => {
@@ -442,7 +470,7 @@ describe('across tabs', () => {
     renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
     await screen.findByText('open');
 
-    await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
+    await filterStatusEquals(user, 'bad');
     await screen.findByText(/syntax error in your query/i);
     await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));
@@ -461,7 +489,7 @@ describe('across tabs', () => {
     const user = userEvent.setup(USER_EVENT_OPTIONS);
     renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
     await screen.findByText('open');
-    await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
+    await filterStatusEquals(user, 'bad');
     await screen.findByText(/syntax error in your query/i);
     await user.click(screen.getByRole('button', {name: 'Back to the previous version of this query'}));
     await user.click(screen.getByRole('button', {name: 'Forward to the next version of this query'}));

@@ -23,9 +23,9 @@ import {computePageFormatting} from './formatting';
 import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
-import {ExpressionBar} from './ExpressionBar';
 import {FilterBuilderDialog} from './FilterBuilderDialog';
 import {FilterValueDialog} from './FilterValueDialog';
+import {SqlConditionNotice} from './SqlConditionNotice';
 import {FilterHistoryControls} from './FilterHistoryControls';
 import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
 import {OrderFilterDialog} from './OrderFilterDialog';
@@ -41,13 +41,15 @@ import {
   filterItemLabel,
   filterOf,
   filterValueKind,
+  isFilteredAnywhere,
   operatorTakesValue,
   operatorsFor,
   removeFilterItem,
   setFilter,
   setGrouping,
   setSort,
-  sortOf
+  sortOf,
+  topLevelConditionsOn
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn, QueryState} from '../catalog/catalog.types';
@@ -231,7 +233,7 @@ export const NOTHING_TO_EXPORT = 'There’s nothing to save until this query fin
 /**
  * One exploration's rows, and everything that changes which rows they are.
  *
- * The **query toolbar and the expression bar render whatever the results are doing** —
+ * The **query toolbar and the filter row render whatever the results are doing** —
  * loading, empty, or failed. That is not cosmetic: a failed apply has to leave the user
  * somewhere they can correct it, and a toolbar that disappears with the
  * rows takes the correction with it.
@@ -477,7 +479,8 @@ export function ExplorationResultsRegion({
     queryRefusalOf,
     sortOf: (column) => sortOf(query, column),
     sortCount: query.ordering.length,
-    filterOf: (column) => filterOf(query, column),
+    isFiltered: (column) => isFilteredAnywhere(query, column),
+    hasTopLevelFilter: (column) => topLevelConditionsOn(query, column).length > 0,
     valueKindOf,
     sort: (column, direction) => apply({ordering: setSort(query, column, direction).ordering}),
     clearSort: (column) => apply({ordering: clearSort(query, column).ordering}),
@@ -506,11 +509,10 @@ export function ExplorationResultsRegion({
   };
 
   // Removing a chip unmounts the button focus was on, which would leave it on the page body; the
-  // chip that took its place takes it, else the one before, else the expression input. Found by
-  // POSITION, never by label: two chips can read alike, and a label search would land on the wrong
-  // one of them.
+  // chip that took its place takes it, else the one before, else Filter rows. Found by POSITION,
+  // never by label: two chips can read alike, and a label search would land on the wrong one.
   const chipsRef = useRef<HTMLDivElement>(null);
-  const expressionInputRef = useRef<HTMLInputElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
   const refocusAfterRemoval = useRef<{index: number} | null>(null);
   const removeFilter = (index: number) => {
     refocusAfterRemoval.current = {index};
@@ -524,7 +526,7 @@ export function ExplorationResultsRegion({
     const buttons = Array.from(chipsRef.current?.querySelectorAll('button') ?? []);
     const next = buttons[pending.index] ?? buttons[pending.index - 1];
     if (next) next.focus();
-    else expressionInputRef.current?.focus();
+    else filterButtonRef.current?.focus();
   }, [query.filters]);
 
   // The filter already on that column, so re-filtering it is an edit rather than a retype.
@@ -627,9 +629,9 @@ export function ExplorationResultsRegion({
           <Button
             onClick={() => {
               onRun?.();
-              // The button leaves with the hold; focus goes to the filter expression, where the
-              // user carries on, rather than to the page body.
-              expressionInputRef.current?.focus();
+              // The button leaves with the hold; focus goes to Filter rows, where the user carries
+              // on, rather than to the page body.
+              filterButtonRef.current?.focus();
             }}>
             Run
           </Button>
@@ -828,17 +830,12 @@ export function ExplorationResultsRegion({
         </p>
       </div>
 
-      <ExpressionBar
-        expression={query.expression}
-        onApply={(expression) => apply({expression})}
-        inputRef={expressionInputRef}
-      />
-
       {/* The filter row: the way into the builder, whatever the results are doing — a failed
           apply has to leave the user somewhere they can correct it — and the applied filter as
           chips, one per top-level item, each removing its own item as one apply. */}
       <div className="flex flex-none flex-wrap items-center gap-2">
         <Button
+          ref={filterButtonRef}
           size="sm"
           onClick={() => setBuilderOpen(true)}>
           Filter rows…
@@ -847,7 +844,7 @@ export function ExplorationResultsRegion({
           <div
             ref={chipsRef}
             className="min-w-0 flex-1">
-            <ChipList ariaLabel="Column filters">
+            <ChipList ariaLabel="Filters">
               {/* Keyed by position: nothing else is unique, since two items can read alike. */}
               {query.filters.map((item, index) => (
                 <Chip
@@ -861,6 +858,19 @@ export function ExplorationResultsRegion({
           </div>
         )}
       </div>
+
+      {query.expression?.trim() && (
+        <SqlConditionNotice
+          expression={query.expression}
+          onRemove={() => {
+            // The notice leaves with the condition, and focus with it; Filter rows is where the
+            // user carries on.
+            apply({expression: null});
+            filterButtonRef.current?.focus();
+          }}
+          onOpenInQuery={queryEnabled && onOpenInQuery && sql !== null ? () => onOpenInQuery(sql) : undefined}
+        />
+      )}
 
       {/* Available whether or not grouping is active: the Explorer writes SQL
           the user did not, grouped or otherwise, and every statement it writes is a bill. */}
