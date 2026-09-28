@@ -23,8 +23,9 @@ the user to keep its id.
 
 Nothing about how an archive is stored, restored or deleted changes. The restore guard, the commit
 gate and every other fence in `docs/decisions/archive-and-restore.md` stand as they are. What
-changes is what the user is told, one optional field on the archive request, one line on the
-receipt, and a per-space index that exists to label the list.
+changes is what the user is told, one optional field on the archive request (and a selection cap
+2 KiB lower to make room for it), one line on the receipt, and a per-space index that exists to
+label the list.
 
 ## Scope
 
@@ -34,6 +35,12 @@ receipt, and a per-space index that exists to label the list.
   The register already records that decision as shown in this dialog, and it is not shown.
 - An optional archive name: the field in the dialog, the wire contract, the plane's validation, and
   a `Name` line on the receipt (FR-002).
+- The archive selection's serialized byte cap drops from 89 KiB to 87 KiB, in the plane
+  (`arcommon.config.ARCHIVE_MAX_ITEM_BYTES`) and in its browser mirror (FR-002). The cap was pinned
+  as tight as the queue message chain allows, 64 bytes under it, so the name's 1,202-byte bound
+  has to come out of the selection. 88 KiB still overshoots once the name is added, and 87 KiB is
+  the largest whole kibibyte that fits. Only a selection whose keys total between 87 and 89 KiB
+  is affected: it is now refused in the browser as too large, as a larger one already is.
 - A per-space archive index written by the plane: one entry per archive, updated by each restore
   stage. It is there to label the list and nothing depends on it (FR-003).
 - The restore dialog's archive list and picker (FR-004), and the collapsed fallback for restoring by
@@ -117,7 +124,9 @@ and held equal by a mirror test:
   means. An empty result means "no name", and the request carries no `name` field.
 - **At most `ARCHIVE_NAME_MAX_CHARS` = 100 code points** after normalisation.
 
-The browser checks and normalises the name when the user clicks **Archive**. A refused name
+The browser checks and normalises the name when the user clicks **Archive**. `enqueueArchive`
+normalises again and omits an empty result, because the service is the wire boundary and a caller
+that skipped the dialog must not send an un-normalised name. A refused name
 shows an inline error on the field, and nothing is enqueued. The field has `maxLength={100}`.
 `maxLength` counts UTF-16 units, which is never more than the code-point count, so the browser can
 never send a name longer than the server allows.
@@ -135,8 +144,9 @@ the size chain would otherwise read as 100 wire bytes. A test holds it equal to 
 from `arcommon.config.ARCHIVE_NAME_MAX_CHARS`. `archive-validate-authorize` adds `name` to the
 archive mode's allowed fields (and not the restore mode's). It refuses the whole request with a
 new terminal reason, `invalid_name`, when the value is not a string, is not already normalised, is
-empty, is too long, or contains a refused character. That happens before anything is listed, copied
-or deleted. A valid name rides on the state as `archive.name`, and `null` when absent. A nested
+empty, is too long, or contains a refused character. The check runs before the space is
+authorized, because authorizing a shared space reads the registry from S3, and before anything is
+listed, copied or deleted. A valid name rides on the state as `archive.name`, and `null` when absent. A nested
 field needs no change to the `Validated` Pass.
 
 The receipt gains a first line, `Name:`, rendered from `archive.name` or as `-` when there is none.
@@ -145,8 +155,9 @@ a newline.
 
 #### Acceptance Criteria:
 
-- [ ] A name typed with surrounding and doubled spaces is sent normalised, and a spaces-only name
-      sends no `name` field. `archive.service.test.ts` asserts the request body in both cases.
+- [ ] `enqueueArchive` called with a name that has surrounding and doubled spaces sends it
+      normalised, and called with a spaces-only name sends no `name` field.
+      `archive.service.test.ts` asserts the request body in both cases.
 - [ ] A name containing U+202E, and separately a name containing a tab, shows the field's error on
       **Archive** and makes no `archive.archive` call. A test asserts that the call count is zero
       *and* that the error names the reason, not merely that it appears.
@@ -161,14 +172,23 @@ a newline.
 - [ ] `invalid_name` has an archive-mode body in `arcommon.messages`, and the existing
       every-reason-has-a-body test covers it.
 - [ ] `test_request_size_chain.py` builds the archive worst case with a name at its 1,202-byte bound
-      and stays green. The bound row exists, which the contract's "every field has a bound" guard
-      requires. A test asserts `MAX_ARCHIVE_NAME_BYTES == ARCHIVE_NAME_MAX_CHARS * 12 + 2`.
+      and stays green, with `ARCHIVE_MAX_ITEM_BYTES` at 87 KiB in both its fits-the-cap test and its
+      tight-cap test (one kibibyte more overflows). The characterisation of what was live before
+      describes the body without a name. The bound row exists, which the contract's "every field
+      has a bound" guard requires. A test asserts
+      `MAX_ARCHIVE_NAME_BYTES == ARCHIVE_NAME_MAX_CHARS * 12 + 2`, and the existing browser-mirror
+      test holds `archive.service.ts`'s cap at 87 KiB.
 - [ ] `receipt.render` puts `Name:              Q1 reports` first when named, and `Name:` followed by
       `-` when not. `receipt.rewrite` over a named receipt changes only the two restore lines. A
       test asserts every other line byte-for-byte.
 - [ ] The Python mirror test reads `ARCHIVE_NAME_MAX_CHARS` and the refused-character ranges out of
       the browser module and asserts they equal `arcommon.config`'s. It is mutation-checked: change
       one range bound on one side and watch it go red.
+- [ ] One corpus, `lambdas/archive-common/archive_name_corpus.json`, lists raw inputs with their
+      expected outcome: a normalised name, or refused. It includes a tab, U+00A0, U+3000, U+061C,
+      U+202E, doubled spaces, 100 and 101 astral characters, and spaces only. The Python name
+      rule and `archiveName.test.ts` both run every case. The constants alone cannot catch
+      diverging logic, such as a `.trim()` that strips U+00A0.
 
 ### FR-003: The plane keeps a per-space archive index
 
@@ -316,8 +336,9 @@ The dialog also has these states:
   **Try again** button that refetches.
 
 The fallback link (FR-005) is present in every state. The list is a TanStack Query keyed per space
-in a feature-local `archiveKeys`, fetched when the dialog opens. It is not refetched on window focus while the dialog
-is open, and it is invalidated after a successful restore enqueue.
+in a feature-local `archiveKeys`. It goes stale at once, so every opening refetches, and cached rows
+show while that happens. No explicit invalidation is needed after a restore. It is not refetched
+on window focus while the dialog is open.
 
 The sentence naming the destination ("Everything in the archive is restored to {space}, back where
 it came from.") and the several-hours sentence stay as they are.
@@ -456,10 +477,11 @@ ARCHIVE_NAME_MAX_CHARS = 100
 ARCHIVE_NAME_REFUSED_RANGES = ((0x00, 0x1F), (0x7F, 0x9F), (0x061C, 0x061C), (0x200E, 0x200F),
                                (0x2028, 0x202E), (0x2066, 0x2069))
 ARCHIVE_INDEX_MAX_ENTRIES = 200
+ARCHIVE_INDEX_NAME = "index.json"
+ARCHIVE_MAX_ITEM_BYTES = 87 * 1024   # was 89 KiB; the name's bound comes out of it
 
 # lambdas/api/apicommon/bounds.py
 MAX_ARCHIVE_NAME_BYTES = 1202  # 100 code points x 12 escaped bytes + 2 quotes
-ARCHIVE_INDEX_NAME = "index.json"
 ```
 
 ## API / Interface Contract
@@ -472,7 +494,7 @@ listArchives(space: ArchiveSpace): Promise<ServiceResult<ArchiveListing[]>>; // 
 // archiveName.ts — the one browser-side statement of the name rule
 export const ARCHIVE_NAME_MAX_CHARS = 100;
 normalizeArchiveName(raw: string): string;
-archiveNameRefusal(normalized: string): string | null; // the user-facing reason, or null
+archiveNameRefusal(raw: string): string | null; // checks the RAW value first; the user-facing reason, or null
 
 // components/FormDialog.tsx — autoFocusRef widens; autoFocusSelect applies only to an input
 autoFocusRef?: RefObject<HTMLElement | null>;
@@ -509,7 +531,7 @@ lambdas/
 ├── archive-write-receipt/        (Name line, record_archive)
 ├── archive-update-receipt/       (record_restore)
 ├── api/apicommon/{contract,bounds}.py
-└── test_archive_name_browser_mirror.py
+└── archive-common/{archive_name_corpus.json, test_config_arcommon.py (mirror)}
 ```
 
 ## Implementation Phases
@@ -523,13 +545,14 @@ lambdas/
 - `receipt.render`'s `Name` line.
 - `index_store` on `cpcommon.cas`, called from write-receipt and update-receipt, with every failure
   swallowed.
-- Contract `name: NotRequired[str]`, the `Bound` row, the regenerated TS contract, and the size
-  chain.
-- The archived message's instruction (FR-006, server half).
+- Contract `name: NotRequired[str]`, the `Bound` row, the regenerated TS contract, the size chain,
+  and the selection cap at 87 KiB on both sides.
+- The shared name corpus, run by the Python rule's tests.
 
 ### Phase 2: The browser (FR-001, FR-002 browser half, FR-004, FR-005)
 
-- `archiveName.ts` and its Python mirror test.
+- `archiveName.ts`, its constants mirror, and the corpus run from the browser side.
+- The archived message's instruction (FR-006). It ships with the list it points at, not before.
 - The `ArchiveDialog` copy and Name field.
 - `listArchives` and `useArchiveList`.
 - `ArchiveList`, and `RestoreArchiveDialog`'s list and id modes.
@@ -539,7 +562,9 @@ lambdas/
 - Help `archive-files`, the plane page, the register entry, the inventory, and the live checks
   folded into `docs/testing/e2e.md`.
 
-**Landing order:** Phase 1 must deploy before a browser sends `name`. Validate-authorize rejects
-unknown fields, so a browser that ships first has every named archive refused as
-`malformed_event`. The Lambdas and the SPA image deploy from separate workflows, so they go in
-separate PRs, the plane first.
+**Landing order:** Phase 1 must deploy before a browser sends `name`. The API refuses an
+undeclared body field at once (`InvalidRequest`), and validate-authorize refuses one too. So a
+browser that ships first has every named archive refused. The Lambdas and the SPA image deploy
+from separate workflows with no ordering between them, so they go in separate PRs, the plane
+first. The browser's PR goes up only after a Deploy Lambdas run is green on a `main` commit that
+contains the plane's merge.
