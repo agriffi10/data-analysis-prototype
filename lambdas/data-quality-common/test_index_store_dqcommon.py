@@ -284,16 +284,19 @@ def test_a_read_that_never_answers_costs_the_row_and_not_the_verb(monkeypatch, c
     assert fake.put_attempts == 0
 
 
-def test_the_index_path_cannot_outlast_assemble_report():
-    """A stall on the index is swallowed only if it ends before the verb's Lambda timeout does.
+def test_the_notice_and_the_index_cannot_outlast_assemble_report():
+    """A stall after the report is written is swallowed only if it ends before the verb's timeout.
 
-    The worst case is the deadline plus one capped call started just before it. It must leave at
-    least half of the verb's timeout to the work the verb exists for — reading the query results
-    and writing the report — which runs on the unbounded default client before the index does.
+    The completion notice goes first, on a budget of its own, so it holds the verb for one cap; a
+    send that delivered and lost its reply would otherwise have held it to the timeout after the
+    user was told. The index follows, for its deadline plus one capped call started just before
+    it. Together they must leave at least half of the verb's timeout to the work the verb exists
+    for — reading the query results and writing the report — which runs on the unbounded default
+    client before either.
     """
-    worst = index_store.INDEX_DEADLINE_SECONDS + budget.CALL_CAP_SECONDS
+    worst = budget.CALL_CAP_SECONDS + index_store.INDEX_DEADLINE_SECONDS + budget.CALL_CAP_SECONDS
     timeout = _verb_timeout("assemble-report")
 
     assert worst <= timeout / 2, (
-        f"the index path can take {worst}s inside assemble-report, whose timeout is {timeout}s"
+        f"the notice and the index can take {worst}s inside assemble-report, whose timeout is {timeout}s"
     )

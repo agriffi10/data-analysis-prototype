@@ -471,3 +471,22 @@ def test_an_add_that_adds_nobody_is_a_no_op_even_after_a_transfer():
     assert out["added"] == [] and out["ignoredUnknown"] == []
     alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
     assert alice_cache["connections"][0]["owner"] == "carol"
+
+
+def test_a_stalled_queue_holds_the_notices_for_one_deadline_not_a_cap_per_member(stalled_sends, caplog):
+    """The notices run after the registry commit, so they share one budget: two start before its
+    deadline and every later one is refused, where a budget per send would start them all."""
+    s3, _glue, _lf, cognito = install()
+    members = [f"user{i:02d}" for i in range(12)]
+    cognito.users = {m: {} for m in members}
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+    stalled_sends.install()
+
+    out = a.add_members("sales", members, "req-2", reg)
+
+    reasons = stalled_sends.reasons(caplog.records)
+    assert out["added"] == members
+    assert stalled_sends.started == 2
+    assert len(reasons) >= len(members)
+    assert reasons == ["notifications: a call ran past 0.05s"] * 2 + ["notifications ran out of time"] * (len(reasons) - 2)

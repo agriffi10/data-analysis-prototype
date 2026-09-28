@@ -194,6 +194,7 @@ def sent(monkeypatch):
     """
     fake = _Sqs()
     monkeypatch.setattr(clients, "_sqs", fake)
+    monkeypatch.setattr(clients, "_sqs_bounded", fake)
     monkeypatch.setattr(clients, "_s3", _AdminBucket())
     monkeypatch.setattr(
         config, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/notifications.fifo", raising=False

@@ -19,15 +19,23 @@ payload would put the sender's run in a recipient's or a space owner's inbox, an
 leaves the queue.
 
 A missed notification must never change or fail the share outcome, so every emit goes through
-``cpcommon.notify.emit_notification``, which catches, logs and never raises.
+``cpcommon.notify.emit_notification``, which catches, logs and never raises, and waits for a send
+no longer than its cap. The owner lookup a space recipient's notice needs is capped the same way,
+since it too runs after the sender has been told.
 """
 
 import logging
 
 from cpcommon import registry as reg
+from cpcommon.budget import Budget
 from cpcommon.errors import TerminalError
 from cpcommon.messages import UNEXPECTED_ERROR
-from cpcommon.notify import dedup_id, emit_notification
+from cpcommon.notify import (
+    SEND_DEADLINE_SECONDS,
+    dedup_id,
+    emit_notification,
+    send_budget,
+)
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -48,6 +56,7 @@ __all__ = [
     "failure_dedup_id",
     "notifies_on_failure",
     "run_of",
+    "send_budget",
 ]
 
 
@@ -234,7 +243,9 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
     return _notifies_on_failure(step, emit_unexpected, emit_failure if notify_terminal else None)
 
 
-def emit_recipient_failure(request: dict, kind: str, name: str, reason: str) -> None:
+def emit_recipient_failure(
+    request: dict, kind: str, name: str, reason: str, *, budget: Budget | None = None
+) -> None:
     """Emits the sender-addressed failure notification for one recipient, from a collector.
 
     Every other per-recipient failure notification comes from the failing verb's own decorator,
@@ -248,6 +259,8 @@ def emit_recipient_failure(request: dict, kind: str, name: str, reason: str) -> 
       kind: The recipient kind.
       name: The recipient's name.
       reason: The terminal reason code for this recipient.
+      budget: The budget this notice shares with the collector's others, from ``send_budget``,
+        since the collector tells the sender of each failed recipient in turn.
 
     Returns:
       None.
@@ -266,6 +279,7 @@ def emit_recipient_failure(request: dict, kind: str, name: str, reason: str) -> 
             table_name=request.get("tableName") or "",
         ),
         dedup_id=failure_dedup_id(run_of(request), reason, kind, name),
+        budget=budget,
     )
 
 
@@ -283,7 +297,7 @@ def emit_recipient_success(event: dict) -> None:
 
     Returns:
       None. The owner notification is skipped with one log line when the record or its owner
-      cannot be resolved, without affecting the sender's message.
+      cannot be resolved in time, without affecting the sender's message.
 
     Raises:
       None.
@@ -308,7 +322,7 @@ def emit_recipient_success(event: dict) -> None:
         )
         return
     try:
-        owner = (reg.load(name) or {}).get("owner") or ""
+        owner = reg.owner_of(name, Budget(SEND_DEADLINE_SECONDS, f"the owner lookup for {name}"))
     except Exception:
         logger.exception("owner lookup failed for space %s; skipping owner notification", name)
         return

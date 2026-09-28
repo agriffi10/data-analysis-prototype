@@ -1,8 +1,9 @@
 """Best-effort notification primitives shared by every control plane.
 
-Five pieces are genuinely shared: the sender, the failure-notification skeleton, the *shape* of
-the FIFO deduplication token, ``is_silent``, the test for a reason nobody is told, and the payload
-that names a run. The domain emitters — ``emit_failure``, ``emit_unexpected`` and the per-arc
+Six pieces are genuinely shared: the sender, the budget a verb's several sends share, the
+failure-notification skeleton, the *shape* of the FIFO deduplication token, ``is_silent``, the test
+for a reason nobody is told, and the payload that names a run. The domain emitters —
+``emit_failure``, ``emit_unexpected`` and the per-arc
 success emitters — stay in each domain layer, because their signatures differ. So do the dedup
 **strategies**: ``dedup_id`` composes an id, it does not decide what goes in one, and the planes
 make different choices (see its docstring).
@@ -18,6 +19,24 @@ the flat ``actor`` envelope file-send introduced and archive inherited, where th
 field may be either the verified username or the token object it was verified from. The other
 four planes bind a plain string and read it directly, so this is a two-plane contract living
 here rather than a fleet-wide one.
+
+**A send is capped in time, because most run after the outcome they report.** A stalled send
+raises nothing for the sender's swallow to catch, so on the default client it would hold its verb
+to the Lambda timeout and fail a run whose user had been told, or was about to be, that it worked.
+Each send runs under ``cpcommon.budget`` on the bounded client, unless its caller is the DLQ drain
+or a notify-failure, whose send is its whole job; why an abandoned send may finish late, what that
+costs, and why those callers wait is ``lambdas/info/shared-layer.md``.
+
+Attributes:
+  SEND_DEADLINE_SECONDS: How long a verb that sends several notices may keep starting them through
+    the one budget ``send_budget`` returns, so its notices hold it for at most this plus one
+    ``budget.CALL_CAP_SECONDS``. A fleet guard holds that sum to half of each such verb's deployed
+    timeout, and this sits well under what the tightest allows, because the other half is not all
+    the verb's own: the shared-space transfer reader sizes add-members to half its timeout and
+    leaves the rest to cold starts and retries. It is still hundreds of sends at the per-send
+    figure that reader uses, several times the members one add or remove request may name. A
+    delete's roster has no cap, so one longer than that is told only in part even on a healthy
+    queue, each refused send logged, and the run still succeeds.
 """
 
 import functools
@@ -26,11 +45,14 @@ import json
 import logging
 
 from . import clients, config, observability
+from .budget import Budget
 from .errors import TerminalError, TransientError
 from .events import in_vocabulary
 from .messages import SILENT_REASONS
 
 logger = logging.getLogger()
+
+SEND_DEADLINE_SECONDS = 10
 
 
 def dedup_id(request_id, step: str) -> str | None:
@@ -156,17 +178,46 @@ def actor_of(event) -> str:
     return actor if isinstance(actor, str) else ""
 
 
+def send_budget() -> Budget:
+    """Starts the budget that every notice one invocation sends shares, for a verb that sends several.
+
+    A send made without one gets a budget of its own and holds its verb for one cap, which is right
+    for a lone send and wrong for a loop: a roster's worth of stalled sends held one cap each would
+    outlast the verb. Passed to every send in the loop, one budget holds them all to
+    ``SEND_DEADLINE_SECONDS`` plus one cap, and a fleet guard refuses a send inside a loop that
+    passes none.
+
+    Args:
+      None.
+
+    Returns:
+      A fresh budget whose deadline starts now.
+
+    Raises:
+      None.
+    """
+    return Budget(SEND_DEADLINE_SECONDS, "notifications")
+
+
 def emit_notification(
     username: str,
     message: str,
     dedup_id: str | None = None,
     link: str | None = None,
     payload: dict | None = None,
+    *,
+    budget: Budget | None = None,
+    bounded: bool = True,
 ) -> None:
     """Sends a create envelope to the FIFO notifications queue, grouped by username.
 
     A missed notification must never change or fail a pipeline outcome, which the Step
-    Function execution has already recorded — so every error is caught and logged.
+    Function execution has already recorded — so every error is caught and logged, and unless
+    ``bounded`` is False the send is waited for no longer than ``budget.CALL_CAP_SECONDS``, since a
+    stall raises nothing to catch.
+    The bounded client is built on the caller's thread and only the send runs on the budget's
+    worker, so a cold container's first send does not spend its cap importing boto3, and two
+    workers never build a client from the default session at once.
 
     Args:
       username: Recipient, also the FIFO message group. No recipient is a logged no-op.
@@ -189,12 +240,22 @@ def emit_notification(
         as one to persist, and an absent key is unambiguous where a null is not. **A plane
         that passes one owns its own size bound** — the writer enforces a ceiling and refuses
         anything over it, which dead-letters the message rather than delivering half a field.
+      budget: The budget this send shares with the rest of its verb's notices, from
+        ``send_budget``. None gives the send a budget of its own.
+      bounded: False for a caller whose send is its whole job, after an outcome that has already
+        been recorded: the DLQ drain and every plane's notify-failure. At the drain, which deletes
+        a message once it has notified, and at a timed-out door, an asynchronous invocation Lambda
+        retries, a stall held to the timeout is what earns the retry that a send abandoned at the
+        cap would lose; at a notify-failure's other door the run has already failed, so waiting
+        costs nothing. The send is then made on the caller's thread on the default client, whose
+        waits outlast those callers' timeouts, and ``budget`` is not read.
 
     Returns:
       None. Also returns without sending when the queue URL is unset.
 
     Raises:
-      None. Every failure is logged and swallowed.
+      None. Every failure is logged and swallowed, a send abandoned at the cap or refused past the
+      deadline among them, logged with the ``TimeoutError`` that says which.
     """
     if not config.NOTIFICATIONS_QUEUE_URL:
         logger.info("notifications queue unset; skipping notify for %s", username)
@@ -215,7 +276,13 @@ def emit_notification(
         }
         if dedup_id:
             kwargs["MessageDeduplicationId"] = _queue_key(dedup_id)
-        clients.sqs().send_message(**kwargs)
+        if not bounded:
+            clients.sqs().send_message(**kwargs)
+            return
+        client = clients.sqs_bounded()
+        (budget or Budget(SEND_DEADLINE_SECONDS, "a notification")).call(
+            lambda: client.send_message(**kwargs)
+        )
     except Exception:
         logger.exception("emit_notification failed for %s", username)
 

@@ -20,7 +20,7 @@ import membership_index
 import registry as reg
 from cpcommon import observability
 from cpcommon.errors import TerminalError
-from notify import emit_notification
+from notify import emit_notification, send_budget
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -38,6 +38,11 @@ def _notify_members(removed, space, request_id):
     moving to a shared emitter: the dedup id is a FIFO deduplication key on a notification a
     user sees, and each verb's is built differently.
 
+    **Every send shares one budget**, from ``send_budget``: the loop runs after the change has
+    committed, and a stalled queue holding each send for a cap of its own would carry a large
+    request past the verb's timeout, which the Catch records as a failed run although the change
+    committed and some of its members were already told.
+
     Args:
       removed: The members the registry write actually removed.
       space: The space's name, for the message.
@@ -49,11 +54,13 @@ def _notify_members(removed, space, request_id):
     Raises:
       None. ``emit_notification`` catches and logs its own failures.
     """
+    sends = send_budget()
     for member in removed:
         emit_notification(
             member,
             f'You\'ve been removed from the shared space "{space}".',
             dedup_id=f"{request_id}:remove-member:{member}",
+            budget=sends,
         )
 
 

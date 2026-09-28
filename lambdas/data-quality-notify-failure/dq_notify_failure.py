@@ -24,6 +24,10 @@ user most needs to hear about.
 The service name is the control plane, not the function: one data-quality run is nine
 invocations, and they are only one queryable set if they share it. The per-verb identity rides as
 the ``verb`` field.
+
+**Its send waits rather than being capped** (``bounded=False``), as every failure door's does. The
+run has already failed, so a stall can fail nothing the user was told, and a capped send would
+give up on a slow queue with the notice unsent.
 """
 
 import logging
@@ -140,6 +144,7 @@ def handler(event, context) -> dict:
         actor,
         messages.failure_message(reason, str(request.get("location") or "")),
         dedup_id=dedup_id(request_id, notify.FAILURE_STEP),
+        bounded=False,
     )
     observability.info(
         "notified the actor of a failure",

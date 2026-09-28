@@ -6,7 +6,11 @@ from cpcommon import clients
 
 @pytest.mark.parametrize(
     ("factory", "cached", "service"),
-    [("s3_bounded", "_s3_bounded", "s3"), ("athena_bounded", "_athena_bounded", "athena")],
+    [
+        ("s3_bounded", "_s3_bounded", "s3"),
+        ("athena_bounded", "_athena_bounded", "athena"),
+        ("sqs_bounded", "_sqs_bounded", "sqs"),
+    ],
 )
 def test_the_bounded_client_is_built_with_the_bounds_its_constants_name(
     monkeypatch, factory, cached, service

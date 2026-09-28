@@ -11,9 +11,15 @@ The planes are not counted here; ``test_space_reachability_predicates.py`` deriv
 Every refusal below is paired with a list-shaped positive control naming the SAME actor. A
 predicate that had been tightened into always answering False would satisfy the refusals on its
 own; only the control tells the two apart.
+
+The owner lookup a share's notice needs is read under a budget, and its tests close the file.
 """
 
+import json
+import threading
+
 import pytest
+from cpcommon import budget, clients
 from cpcommon import registry as reg
 
 
@@ -102,3 +108,85 @@ def test_a_record_that_is_not_a_dict_answers_false_rather_than_raising(record):
     """The status is read before the roster is, so a non-dict record never reaches a ``.get``."""
     assert reg.is_active_member(record, "alice") is False
     assert reg.may_receive_share(record) is False
+
+
+class _NoSuchKey(Exception):
+    """The missing-object error an S3 client names on its ``exceptions`` attribute."""
+
+
+class _Body:
+    """An object body that arrives at once, or not until the test lets it."""
+
+    def __init__(self, data, released=None):
+        self.data = data
+        self.released = released
+
+    def read(self):
+        if self.released is not None:
+            self.released.wait(5)
+        return self.data
+
+
+class _S3:
+    """An admin bucket holding registry records, which answers a GET at once."""
+
+    exceptions = type("exceptions", (), {"NoSuchKey": _NoSuchKey})
+
+    def __init__(self, records, released=None):
+        self.records = records
+        self.released = released
+
+    def get_object(self, Bucket, Key):
+        name = Key.removeprefix("shared-spaces/").removesuffix(".json")
+        if name not in self.records:
+            raise _NoSuchKey(Key)
+        return {"Body": _Body(json.dumps(self.records[name]).encode(), self.released)}
+
+
+class _Refusing:
+    """The default client, which the owner lookup must never reach."""
+
+    def __getattr__(self, name):
+        raise AssertionError(f"the owner lookup called {name} on the default client")
+
+
+@pytest.mark.parametrize(
+    ("records", "owner"),
+    [({"finance": _active(owner="bob")}, "bob"), ({}, "")],
+    ids=["registered", "unregistered"],
+)
+def test_the_owner_lookup_reads_on_the_bounded_client(monkeypatch, records, owner):
+    monkeypatch.setattr(clients, "_s3", _Refusing())
+    monkeypatch.setattr(clients, "_s3_bounded", _S3(records))
+
+    assert reg.owner_of("finance", budget.Budget(5, "the owner lookup")) == owner
+
+
+def test_an_owner_lookup_whose_body_never_arrives_is_abandoned_at_the_cap(monkeypatch):
+    """The body streams after the GET returns, so a lookup that capped only the GET would still
+    wait out a stalled read of it."""
+    monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
+    released = threading.Event()
+    monkeypatch.setattr(clients, "_s3_bounded", _S3({"finance": _active(owner="bob")}, released))
+
+    try:
+        with pytest.raises(TimeoutError, match="ran past"):
+            reg.owner_of("finance", budget.Budget(5, "the owner lookup"))
+    finally:
+        released.set()
+
+
+def test_the_owner_lookups_client_is_built_on_the_callers_thread(monkeypatch):
+    """Only the read goes to the worker: built there, a cold container would spend the cap
+    importing boto3, and two workers still running could build from the default session at once."""
+    built_on = []
+
+    def _build():
+        built_on.append(threading.current_thread())
+        return _S3({"finance": _active(owner="bob")})
+
+    monkeypatch.setattr(clients, "s3_bounded", _build)
+
+    assert reg.owner_of("finance", budget.Budget(5, "the owner lookup")) == "bob"
+    assert built_on == [threading.current_thread()]
+

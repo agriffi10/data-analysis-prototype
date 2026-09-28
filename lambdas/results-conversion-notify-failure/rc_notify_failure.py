@@ -39,6 +39,11 @@ so the user is told that and pointed at Parquet. On the streamed formats running
 the user cannot act on, and pointing them at Parquet from a Parquet request would be wrong, so
 the fallback stands. The log keeps the Lambda's own name for the operator.
 
+**Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
+stall can fail nothing the user was told, and on the timed-out door a send held to this function's
+timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
+be swallowed and never retried.
+
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
@@ -180,6 +185,7 @@ def _on_execution_timed_out(event) -> dict:
         username,
         messages.failure_message(_TIMEOUT_REASON, {"format": recovered["format"]}),
         payload=notify.request_payload({"raw": recovered["raw"], "format": recovered["format"]}),
+        bounded=False,
     )
     observability.info(
         "notified the actor that the execution timed out",
@@ -323,6 +329,7 @@ def handler(event, context) -> dict:
         username,
         messages.failure_message(_worded_reason(reason, fmt), {"format": fmt, **tokens}),
         payload=notify.request_payload({**request, "format": fmt}),
+        bounded=False,
     )
     observability.info(
         "notified the actor of a failure",

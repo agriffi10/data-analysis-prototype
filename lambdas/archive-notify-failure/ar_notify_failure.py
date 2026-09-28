@@ -53,6 +53,11 @@ there was none, which a late delete-source then follows by deleting nothing. "No
 is sent only when that claim — or an earlier refusal — makes it true; a verdict to delete, or one
 that cannot be read, gets a sentence that is true either way. ``arcommon.plan`` owns the record.
 
+**Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
+stall can fail nothing the user was told, and on the timed-out door a send held to this function's
+timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
+be swallowed and never retried.
+
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for an ARCHIVE the state machine's own timeout stopped with no
@@ -312,7 +317,10 @@ def _on_execution_timed_out(event) -> dict:
 
     tokens = {"requestId": archive_id} if archive_id else None
     notify.emit_notification(
-        username, messages.failure_message(reason, tokens=tokens, mode=mode), payload=payload
+        username,
+        messages.failure_message(reason, tokens=tokens, mode=mode),
+        payload=payload,
+        bounded=False,
     )
     logger.info("notified %s that their %s timed out", username, mode or "archive")
     observability.info(
@@ -433,6 +441,7 @@ def handler(event, context) -> dict:
         username,
         messages.failure_message(reason, mode=_mode(request)),
         payload=notify.request_payload(request),
+        bounded=False,
     )
     observability.info(
         "notified the actor of a failure",

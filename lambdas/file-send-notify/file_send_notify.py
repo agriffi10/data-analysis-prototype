@@ -72,6 +72,10 @@ def _notify(event) -> dict:
     succeeded through the state's Catch: nothing notified and nothing recorded. That is the
     per-item hazard ``pyproject.toml`` cites where it ignores ``PERF203`` fleet-wide.
 
+    **Every outcome's messages and owner lookup share one budget.** Up to two messages and a
+    lookup per recipient, each waited on for a cap of its own, is far past this verb's timeout at
+    the recipient cap, and a timeout here goes to ``Succeeded`` having told nobody after it.
+
     Args:
       event: The terminal summary.
 
@@ -98,10 +102,16 @@ def _notify(event) -> dict:
         )
         return summary
 
+    sends = notify.send_budget()
     for outcome in recipients:
         try:
             notify.emit_recipient_outcome(
-                sender, outcome, item_names, object_count, request_id=summary.get("requestId")
+                sender,
+                outcome,
+                item_names,
+                object_count,
+                request_id=summary.get("requestId"),
+                budget=sends,
             )
         except Exception:
             logger.exception(

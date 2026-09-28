@@ -31,6 +31,11 @@ request object; EventBridge passes a status-change event for a run the machine's
 the execution outright and no ``Catch`` covers it, so without the door an hour-long build ends in
 silence, which is the one failure a user is least able to diagnose.
 
+**Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
+stall can fail nothing the user was told, and on the timed-out door a send held to this function's
+timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
+be swallowed and never retried.
+
 Attributes:
   FAILURE_STEP: The dedup token for this emit. One per outcome rather than per verb: an
     execution reaches this state at most once, and the token only has to keep this failure
@@ -261,6 +266,7 @@ def _on_execution_timed_out(event) -> dict:
             tokens={"refreshLock": _refresh_lock_note(request.get("mode"))},
         ),
         dedup_id=dedup_id(request.get("requestId"), TIMEOUT_STEP),
+        bounded=False,
     )
     logger.info("notified %s that their build timed out", actor)
     observability.info(
@@ -374,6 +380,7 @@ def handler(event, context) -> dict:
             request.get("mode") or "create",
         ),
         dedup_id=dedup_id(request_id, FAILURE_STEP),
+        bounded=False,
     )
     observability.info(
         "notified the actor of a failure",

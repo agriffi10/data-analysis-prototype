@@ -43,6 +43,11 @@ bearer at the edge and writes what it verified, and the queue is writable by no 
 timeout firing hours later reads a value that was never time-limited in the first place. The
 expiry relaxation this door used to need is gone with the thing it relaxed.
 
+**Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
+stall can fail nothing the user was told, and on the timed-out door a send held to this function's
+timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
+be swallowed and never retried.
+
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
@@ -136,7 +141,10 @@ def _on_execution_timed_out(event) -> dict:
         return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
 
     notify.emit_notification(
-        username, messages.failure_message(_TIMEOUT_REASON), payload=payload
+        username,
+        messages.failure_message(_TIMEOUT_REASON),
+        payload=payload,
+        bounded=False,
     )
     logger.info("notified %s that their send timed out", username)
     observability.info(
@@ -284,7 +292,10 @@ def handler(event, context) -> dict:
         return request
 
     notify.emit_notification(
-        username, messages.failure_message(reason), payload=notify.request_payload(request)
+        username,
+        messages.failure_message(reason),
+        payload=notify.request_payload(request),
+        bounded=False,
     )
     observability.info(
         "notified the sender of a failure",

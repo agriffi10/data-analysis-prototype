@@ -298,3 +298,20 @@ def test_a_removal_committing_after_an_owner_restore_still_revokes_the_restored_
     assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == ["alice", "carol"]
     assert cognito.users["bob"]["custom:shared_space_1"] == ""
     assert _cards(s3, "bob")["bob"] in (None, [])
+
+
+def test_a_stalled_queue_holds_the_notices_for_one_deadline_not_a_cap_per_member(stalled_sends, caplog):
+    """The notices run after the registry commit, so they share one budget: two start before its
+    deadline and every later one is refused, where a budget per send would start them all."""
+    s3, _glue, _lf, cognito = install()
+    members = [f"user{i:02d}" for i in range(12)]
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in members}
+    reg = _active_reg(members=["alice", *members])
+    _seed_reg(s3, reg)
+    stalled_sends.install()
+
+    out = r.remove_members("sales", members, "req-3", reg)
+
+    assert out["removed"] == members
+    assert stalled_sends.started == 2
+    assert stalled_sends.reasons(caplog.records) == ["notifications: a call ran past 0.05s"] * 2 + ["notifications ran out of time"] * (len(members) - 2)

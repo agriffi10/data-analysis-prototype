@@ -17,13 +17,14 @@ import json
 import logging
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"))
 
 import dlq_drain
 import pytest
-from cpcommon import clients, config
+from cpcommon import budget, clients, config
 from token_shapes import JWT_SHAPED
 
 JWT = JWT_SHAPED
@@ -291,6 +292,45 @@ def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_block(monke
 
     assert result == {"drained": len(dlq_drain.SOURCES)}
     assert sorted(b["username"] for b in _bodies(sqs)) == [f"user{i}" for i in range(len(dlq_drain.SOURCES))]
+
+
+class _Refusing:
+    """A client no drain send may reach: it records what was asked of it and refuses it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        self.calls.append(name)
+        raise AssertionError(f"the drain sent on the bounded client ({name})")
+
+
+def test_a_slow_send_is_waited_for_so_the_message_is_notified_before_it_is_deleted(monkeypatch):
+    """The drain's send is its whole job, and the sweep deletes a message once it has notified: a
+    send capped like every other would give up on a slow queue and let the message be deleted
+    whether or not the abandoned send ever lands. The send takes four times the cap and is waited
+    for, on the default client."""
+    monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
+    sqs = _install()
+    bounded = _Refusing()
+    clients._sqs_bounded = bounded
+    record = sqs.send_message
+
+    def _slow_send(**kwargs):
+        time.sleep(0.2)
+        return record(**kwargs)
+
+    sqs.send_message = _slow_send
+    arn = _arn("data-quality")
+    url = dlq_drain._queue_url(arn)
+    monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
+    sqs.queued[url] = [_msg({"requestId": "r-1", **_identity("alice")}, receipt="rh-A")]
+
+    dlq_drain.handler({}, None)
+
+    assert [b["username"] for b in _bodies(sqs)] == ["alice"]
+    assert sqs.deleted == [(url, "rh-A")]
+    assert bounded.calls == []
 
 
 def test_the_sweep_deletes_each_message_it_drains(monkeypatch):

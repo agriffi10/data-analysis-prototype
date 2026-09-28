@@ -43,6 +43,7 @@ def _arm_notifications():
     config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
     fake = _FakeSqs()
     clients._sqs = fake
+    clients._sqs_bounded = fake
     return fake
 
 

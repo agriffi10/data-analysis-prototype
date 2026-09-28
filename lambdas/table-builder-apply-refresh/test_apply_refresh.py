@@ -156,6 +156,7 @@ def _install(**glue_kwargs):
     sqs = _FakeSqs()
     clients._glue = glue
     clients._sqs = sqs
+    clients._sqs_bounded = sqs
     clients._athena = _NoAthena()
     config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/notifications.fifo"
     return glue, sqs
