@@ -8,8 +8,9 @@ Attributes:
   BOUNDED_CONNECT_SECONDS: How long ``s3_bounded`` waits to connect before a call gives up.
   BOUNDED_READ_SECONDS: How long it waits for a response once connected.
   BOUNDED_MAX_ATTEMPTS: How many attempts one call makes in all, under the standard retry mode —
-    one retry, so a single dropped connection is survived and a stalled endpoint is not waited
-    on twice over.
+    one retry, so a single dropped connection is survived and a stalled endpoint is waited on at
+    most twice. Passed as ``total_max_attempts``: botocore reads a client config's
+    ``max_attempts`` as the number of RETRIES, so the same number there makes one attempt more.
 """
 
 BOUNDED_CONNECT_SECONDS = 1
@@ -52,11 +53,13 @@ def s3():
 def s3_bounded():
     """Returns an S3 client whose every call gives up within seconds, for work that is optional.
 
-    The default client waits a minute for a response and retries five times, which is right for a
+    The default client waits a minute for a response and makes five attempts, which is right for a
     verb's own work and wrong for a convenience riding along after it: a stalled endpoint would
     hold the verb past its Lambda timeout, and a timeout is outside every ``Retry`` and lands in
     the failure path of a run whose real work already succeeded. A caller of this client catches
-    what it raises and moves on; the worst case of one call is derivable from the three bounds.
+    what it raises and moves on. The bounds limit each wait inside a call, not the call — the TLS
+    handshake, a PUT's wait for ``100 Continue`` and the retry each add waits of their own — so a
+    caller that must finish in time also runs each call under ``cpcommon.budget``.
 
     Args:
       None.
@@ -77,7 +80,7 @@ def s3_bounded():
             config=Config(
                 connect_timeout=BOUNDED_CONNECT_SECONDS,
                 read_timeout=BOUNDED_READ_SECONDS,
-                retries={"mode": "standard", "max_attempts": BOUNDED_MAX_ATTEMPTS},
+                retries={"mode": "standard", "total_max_attempts": BOUNDED_MAX_ATTEMPTS},
             ),
         )
     return _s3_bounded

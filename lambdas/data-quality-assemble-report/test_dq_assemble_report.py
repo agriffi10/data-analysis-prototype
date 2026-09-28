@@ -136,6 +136,7 @@ def _event():
 def _setup(monkeypatch, objects=None, missing=()):
     fake = _FakeS3(objects=objects if objects is not None else _objects(), missing=missing)
     monkeypatch.setattr(v.clients, "s3", lambda: fake)
+    monkeypatch.setattr(v.clients, "s3_bounded", lambda: fake)
     return fake
 
 

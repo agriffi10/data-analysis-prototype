@@ -24,6 +24,15 @@ report is the artefact: it is already written and the notification has already f
 this runs, so failing the check because its row could not be recorded would trade a real outcome
 for a cosmetic one.
 
+Every call is bounded in time as well as swallowed, because a stall is not a fault. A read that
+never answers raises nothing for the swallow to catch; it holds the verb until its Lambda timeout,
+which fails a check whose report is written and whose actor has been told it completed. So the
+index uses ``cpcommon.clients.s3_bounded``, and every call runs under one ``cpcommon.budget``:
+no call starts once ``INDEX_DEADLINE_SECONDS`` have passed and none is waited on past
+``budget.CALL_CAP_SECONDS``, so the append holds the verb for at most the sum, and
+``test_the_index_path_cannot_outlast_assemble_report`` holds that under the verb's timeout. The
+archive index is bounded the same way for the same reason.
+
 Attributes:
   INDEX_BASENAME: The index object's basename, inside a space's reports prefix.
   ENTRY_FIELDS: The keys one entry carries — deliberately the row's fields and nothing more. The
@@ -32,12 +41,14 @@ Attributes:
     renders. The heavy findings stay in the per-run report, fetched only on drill-down. The row's
     qualifier is the incomplete flag rather than the approximate one: the approximate flag is true
     on every report, so a tag keyed to it sat on every row and told the user nothing.
+  INDEX_DEADLINE_SECONDS: How long one append may keep starting calls before it gives up and
+    leaves the run off the dashboard.
 """
 
 import json
 import logging
 
-from cpcommon import cas, clients
+from cpcommon import budget, cas, clients
 
 from . import config
 
@@ -54,6 +65,8 @@ ENTRY_FIELDS = (
     "hasIncompleteFigures",
     "timestamp",
 )
+
+INDEX_DEADLINE_SECONDS = 5
 
 
 def index_key(report_prefix: str) -> str:
@@ -116,7 +129,7 @@ def _read(bucket: str, key: str) -> tuple[list, str | None]:
       None.
     """
     try:
-        obj = clients.s3().get_object(Bucket=bucket, Key=key)
+        obj = clients.s3_bounded().get_object(Bucket=bucket, Key=key)
         body = obj["Body"].read()
         etag = obj.get("ETag")
     except Exception as err:  # noqa: BLE001
@@ -159,7 +172,7 @@ def _write(bucket: str, key: str, entries: list, etag: str | None) -> None:
         kwargs["IfNoneMatch"] = "*"
     else:
         kwargs["IfMatch"] = etag
-    clients.s3().put_object(**kwargs)
+    clients.s3_bounded().put_object(**kwargs)
 
 
 def append(bucket: str, report_prefix: str, summary: dict) -> bool:
@@ -190,16 +203,18 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
       summary: The assembled report summary.
 
     Returns:
-      True only when the row was recorded. On False the report is written, the notification has
-      fired and the user has a working link — so it is a lost row, not a lost check.
+      True only when the row was recorded. False means it was not confirmed — at worst a lost
+      row, though a write abandoned at the time cap can still land — and never a lost check: the
+      report is written, the notification has fired and the user has a working link.
 
     Raises:
-      None. Exhausting the retries, an unwritable object, a malformed summary — all are logged
-      and swallowed, because the caller runs after the report has been written and the actor
-      notified.
+      None. Exhausting the retries, running out of time, an unwritable object, a malformed
+      summary — all are logged and swallowed, because the caller runs after the report has been
+      written and the actor notified.
     """
     key = index_key(report_prefix)
     entry = entry_from(summary)
+    calls = budget.Budget(INDEX_DEADLINE_SECONDS, f"the runs index at {bucket}/{key}")
 
     def _apply(entries: list) -> list:
         """Replaces this run's row if present, appends it, and trims to the newest cap.
@@ -219,9 +234,9 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
 
     try:
         cas.cas_mutate(
-            lambda: _read(bucket, key),
+            lambda: calls.call(lambda: _read(bucket, key)),
             _apply,
-            lambda entries, etag: _write(bucket, key, entries, etag),
+            lambda entries, etag: calls.call(lambda: _write(bucket, key, entries, etag)),
             label=f"{bucket}/{key}",
             skip_no_op=False,
             on_conflict=lambda attempt: logger.info(

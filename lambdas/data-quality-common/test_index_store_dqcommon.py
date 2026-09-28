@@ -7,12 +7,18 @@ that ignored the preconditions would make every CAS test pass without exercising
 
 import json
 import os
+import pathlib
+import re
 import sys
+import threading
+import time
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import clients
+from cpcommon import budget, clients
 from dqcommon import config, index_store
 
 BUCKET = "dat-prod-user-space"
@@ -39,20 +45,27 @@ class _Body:
 class _FakeS3:
     """An S3 that actually enforces the conditional-put contract."""
 
-    def __init__(self, objects=None):
+    def __init__(self, objects=None, put_error=None):
         self.objects = dict(objects or {})  # key -> (bytes, etag)
         self.puts = 0
+        self.get_attempts = 0
+        self.put_attempts = 0
+        self.put_error = put_error
         self.version = 0
         #: Fires once before a put commits, to simulate a writer landing mid-CAS.
         self.on_put = None
 
     def get_object(self, Bucket, Key):
+        self.get_attempts += 1
         if Key not in self.objects:
             raise _ClientError("NoSuchKey")
         body, etag = self.objects[Key]
         return {"Body": _Body(body), "ETag": etag}
 
     def put_object(self, Bucket, Key, Body, ContentType=None, IfMatch=None, IfNoneMatch=None):
+        self.put_attempts += 1
+        if self.put_error:
+            raise self.put_error
         if self.on_put:
             hook, self.on_put = self.on_put, None
             hook()
@@ -69,10 +82,32 @@ class _FakeS3:
         return json.loads(self.objects[key][0])["entries"]
 
 
-def _install(objects=None):
-    fake = _FakeS3(objects)
+class _Unbounded:
+    """The default client, which must never be reached: it records the call and refuses it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        self.calls.append(name)
+        raise AssertionError(f"the runs index called {name} on the unbounded client")
+
+
+def _install(objects=None, put_error=None):
+    fake = _FakeS3(objects, put_error)
     clients._s3 = fake
+    clients._s3_bounded = fake
     return fake
+
+
+def _verb_timeout(name):
+    """One data-quality verb's Lambda timeout, read from the Terraform locals rather than restated."""
+    locals_tf = (
+        pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "data-quality" / "locals.tf"
+    ).read_text()
+    found = re.search(rf'"{name}"\s*=\s*\{{([^}}]*)\}}', locals_tf)
+    assert found, f"the data-quality locals no longer configure a {name!r} verb"
+    return int(re.search(r"timeout\s*=\s*(\d+)", found.group(1)).group(1))
 
 
 def _summary(request_id="r-1", **over):
@@ -183,3 +218,82 @@ def test_ACCEPTED_the_cap_evicts_by_position_so_a_replay_can_outlive_a_newer_run
     assert len(ids) == config.DQ_INDEX_MAX_ENTRIES
     assert "r-1" not in ids, "the oldest BY POSITION is the row dropped"
     assert "r-0" in ids, "and the replayed, older-by-timestamp row outlived it"
+
+
+# ── Bounded in time ──────────────────────────────────────────────────────────
+
+
+def test_every_index_call_goes_through_the_bounded_client():
+    """The budget caps how long the verb waits for a call, not how long the call runs: one left on
+    the default client, which waits a minute for a response and makes five attempts, would hold
+    its socket and thread that long after being abandoned."""
+    _install()
+    unbounded = _Unbounded()
+    clients._s3 = unbounded
+
+    assert index_store.append(BUCKET, PREFIX, _summary()) is True
+
+    assert unbounded.calls == []
+
+
+@pytest.mark.parametrize(
+    ("step", "gets", "puts"),
+    [
+        pytest.param(1, 3, 2, id="refused-before-a-write"),
+        pytest.param(2, 1, 1, id="refused-before-a-read"),
+    ],
+)
+def test_the_index_stops_starting_calls_once_its_deadline_has_passed(
+    monkeypatch, caplog, step, gets, puts
+):
+    """A stall is not a fault, so nothing would catch it: the loop must give up on the clock.
+
+    Every write loses its precondition, so without the deadline the loop would run all its
+    attempts and end in exhaustion. The clock advances ``step`` seconds per reading, which puts
+    the first call past the deadline on a write in one case and on a read in the other — the
+    exact counts are what tell the two checks apart, since dropping either still ends early.
+    """
+    clock = iter(range(0, 1000, step))
+    monkeypatch.setattr(budget.time, "monotonic", lambda: next(clock))
+    fake = _install(put_error=_ClientError("PreconditionFailed"))
+
+    assert index_store.append(BUCKET, PREFIX, _summary()) is False
+
+    assert (fake.get_attempts, fake.put_attempts) == (gets, puts)
+    assert isinstance(caplog.records[-1].exc_info[1], TimeoutError)
+
+
+def test_a_read_that_never_answers_costs_the_row_and_not_the_verb(monkeypatch, caplog):
+    """The stall the budget exists for, end to end: nothing raises, so only the cap ends it."""
+    monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
+    fake = _install()
+    released = threading.Event()
+    fake.get_object = lambda **_: released.wait(2)
+    started = time.monotonic()
+
+    try:
+        recorded = index_store.append(BUCKET, PREFIX, _summary())
+        held = time.monotonic() - started
+        reason = caplog.records[-1].exc_info[1]
+    finally:
+        released.set()
+
+    assert recorded is False
+    assert held < 1
+    assert isinstance(reason, TimeoutError) and "ran past" in str(reason)
+    assert fake.put_attempts == 0
+
+
+def test_the_index_path_cannot_outlast_assemble_report():
+    """A stall on the index is swallowed only if it ends before the verb's Lambda timeout does.
+
+    The worst case is the deadline plus one capped call started just before it. It must leave at
+    least half of the verb's timeout to the work the verb exists for — reading the query results
+    and writing the report — which runs on the unbounded default client before the index does.
+    """
+    worst = index_store.INDEX_DEADLINE_SECONDS + budget.CALL_CAP_SECONDS
+    timeout = _verb_timeout("assemble-report")
+
+    assert worst <= timeout / 2, (
+        f"the index path can take {worst}s inside assemble-report, whose timeout is {timeout}s"
+    )

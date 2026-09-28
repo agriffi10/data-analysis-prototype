@@ -16,6 +16,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `athena` | the bounded query runner and the DDL poll |
 | `auth` | token verification and the principal it yields — **the API's only, now** |
 | `bounded_read` | reading a bounded head of an object, or a Parquet file's footer alone, without polars' cloud reader |
+| `budget` | a deadline for optional calls that run after a verb's real work, and a cap on how long any one call is waited for |
 | `cas` | the ETag compare-and-swap retry loop, and the two conditional-write codes told apart — a compare-and-set retries on either, a conditional COPY does not |
 | `clients` | lazy, cached boto3 and JWKS client factories |
 | `cognito` | user pool lookups |
@@ -380,6 +381,41 @@ another.
 **Nothing in this codebase uses object_store any more**, which is the point: the one reader
 that does not work here is no longer on any path, and no call site depends on credentials
 being threaded into it.
+
+## `cpcommon/budget.py` — why a call is capped on a thread, not bounded by the client
+
+Some writes ride along after a verb's real work and are swallowed when they fail — the
+data-quality runs index after the user is told the check completed, and the archive index after
+the receipt. A stall is not a failure: a call that never answers raises nothing to swallow, and
+holds the verb to its Lambda timeout, failing a run whose outcome has already been reported.
+
+**The first answer was a model, and every review found a term it missed.** `clients.s3_bounded`
+bounds each wait inside a call, and a worst case derived from those bounds read as exact. It was
+not. The attempt count was passed as botocore's `max_attempts`, which means *retries*, so the
+client made one attempt more than it said. A GET's body streams after the call returns, outside
+the retries. The TLS handshake waits its own connect bound. A PUT waits a hard-coded second for
+`100 Continue`, and a server that starts that reply and stalls costs another read bound. Each
+urllib3 connect is repeated for every address the name resolves to, and DNS is not bounded at all.
+A guard over a model like that passes while the model is wrong, and the archive's did.
+
+**So the budget bounds the wait rather than the call.** Each call runs on a worker thread, and the
+caller stops waiting once `CALL_CAP_SECONDS` have passed. A loop through one `Budget` holds its
+verb for at most its deadline plus one cap, whatever the client does, and a guard can compare
+that sum to a timeout exactly. `s3_bounded` still sits underneath, so an abandoned call usually
+gives up within seconds rather than a minute — not always: a peer that trickles bytes defeats the
+read bound, and a DNS lookup has none, so such a call holds its thread and socket for longer. A
+loop stops at its first abandoned call, so that is at most one per loop. The worker runs in a copy
+of the caller's context, so its log lines keep the run's trace; one that finishes after the
+handler returns logs into the next invocation.
+
+**An abandoned call is not cancelled, which decides what may use this.** Its thread finishes or
+fails on its own, and in Lambda it may do so during a later invocation of the same container,
+since the runtime freezes the process when the handler returns. That is harmless for a read, and
+for a write conditioned on the tag it read: if the object has moved, the late write is refused,
+and if not, it writes exactly what the loop meant to. An unconditional write, or anything with a
+side effect outside the object, does not belong under a budget. A signal-based alarm was the
+other way to bound the call, and it was not used, because it interrupts whatever code the main
+thread happens to be running rather than only the call.
 
 ## `cpcommon/app_managed.py` — the folder names, and the builders per fact
 
