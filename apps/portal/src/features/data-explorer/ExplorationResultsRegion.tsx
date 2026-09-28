@@ -158,7 +158,9 @@ export const NO_CELL_TO_FILTER = 'Select a cell first.';
  *
  * Not the position: keyed by position, removing a chip re-labels the next one in place, so focus
  * stays on the same element and a screen reader that does not voice a changed name says nothing.
- * Keyed this way, focus moves to a different element and is announced.
+ * Keyed this way, focus moves to a different element and is announced — unless the chip after the
+ * removed one reads the same, when the one left keeps the earlier key; telling those two apart
+ * would need an id on every stored filter item.
  */
 function chipKeys(items: FilterItem[]): string[] {
   const seen = new Map<string, number>();

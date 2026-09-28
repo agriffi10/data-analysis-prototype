@@ -106,7 +106,7 @@ Read from the code at `8a628382`.
   **Filter rows…** button that sits where the expression box was, whatever the results are doing, so
   there is always a way to correct a filter.
 - **What moves to Query.** Comparing two columns, calling a function such as `TRY_CAST`, and a
-  case-sensitive match are raw SQL, and the builder does not offer them. The guide sends people to
+  pattern that minds capitals are raw SQL, and the builder does not offer them. The guide sends people to
   **Open in Query** for them. This is the cost of decision 1 in Andrew's approval, and it is stated
   here so the Help pass does not promise otherwise.
 
@@ -124,7 +124,7 @@ Read from the code at `8a628382`.
 ### Out of Scope
 
 - **Converting a stored expression into conditions**, or any SQL parsing.
-- **Comparing two columns, functions and casts** such as `TRY_CAST`, a case-sensitive match, and an
+- **Comparing two columns, functions and casts** such as `TRY_CAST`, a pattern that minds capitals, and an
   escape character for **is like**. These are Query's.
 - **A top level that joins with OR**, and groups more than two deep.
 - **The value picker itself.** SPEC-249 builds it, and this spec only places it in the builder.

@@ -1956,7 +1956,7 @@ the saved-view line stays at version 1. A saved view that USES a group is refuse
 loaded before this change — never partly applied — and a flat one opens there as it always did.
 
 **What moved to Query.** Comparing two columns, a function such as `TRY_CAST` — the guide's advice
-for numbers in a CSV text column — and a case-sensitive match are SQL, and the guide that says so
+for numbers in a CSV text column — and a pattern that minds capitals are SQL, and the guide that says so
 is *Save an exploration as a query*, since **Open in Query** goes with the `query` flag and that
 guide goes with it; *Filter and sort* stays flag-neutral. One row's picker is open at a time and
 closes when its row stops being what was pressed for, since each remount is a billed listing.

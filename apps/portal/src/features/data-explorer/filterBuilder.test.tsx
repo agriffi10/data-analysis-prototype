@@ -323,4 +323,19 @@ describe('Filter rows', () => {
       'false'
     );
   });
+
+  it('keeps a row’s picker open when NULL is ticked or the list test flips, since neither is a new listing', async () => {
+    seedTab({filters: [{column: 'region', operator: 'in', values: ['EU'], valueKind: 'string'}]});
+    const {user, dialog} = await openBuilder();
+    await user.click(within(dialog).getByRole('button', {name: 'Condition 1: pick values'}));
+
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Condition 1: NULL'}));
+    await user.selectOptions(within(dialog).getByLabelText('Condition 1: test'), 'notIn');
+
+    expect(within(dialog).getByLabelText('Search values')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', {name: 'Condition 1: pick values'})).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+  });
 });
