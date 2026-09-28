@@ -164,7 +164,9 @@ def _notify_members(members, space, actor, request_id):
     **Every send shares one budget**, from ``send_budget``: the loop runs after the change has
     committed, and a stalled queue holding each send for a cap of its own would carry a large
     roster past the verb's timeout, which the Catch records as a failed run although the change
-    committed and some of its members were already told.
+    committed and some of its members were already told. The roster has no cap, so one longer than
+    the deadline's worth of sends is told only in part even on a healthy queue, each refused send
+    logged, and the run still succeeds.
 
     Args:
       members: The space's members at deletion, possibly with repeats.

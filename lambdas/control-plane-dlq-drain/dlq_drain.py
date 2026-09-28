@@ -321,10 +321,12 @@ def _notify_one(record: dict) -> None:
     prefix carries an id near the API's 128-character limit past what the queue accepts as a
     key, and the sender sends such a key as its digest; the payload keeps the id as it is.
 
-    **The send is the one in the fleet that is not capped in time**, because here it is the whole
-    job rather than work after it. The sweep deletes a message once it has notified, so a send
-    abandoned at the cap would delete a message whose notice may never arrive; a stall that holds
-    the drain to its timeout instead leaves the message on its queue for the next sweep.
+    **The send waits rather than being capped**, as only the failure doors' do besides, because
+    here it is the whole job rather than work after it. The sweep deletes a message once it has
+    notified, whether or not the notice went out, so a send abandoned at the cap would let the
+    message be deleted with its notice perhaps never sent. On the default client, whose waits
+    outlast the drain's timeout, a stall holds the drain to that timeout instead, which leaves the
+    message on its queue for the next sweep.
 
     The recipient is recorded: the username is already the S3 prefix, the principal tag and the
     Glue database name, and which user was affected is the first question anyone asks about a

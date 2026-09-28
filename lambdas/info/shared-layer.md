@@ -412,14 +412,16 @@ always: a peer that trickles bytes defeats the read bound, and a DNS lookup has 
 call holds its thread and socket for longer. A loop stops at its first abandoned call, so that is
 at most one per loop; data-quality cleanup runs a loop per temp table, so at most one per table.
 
-**Notices are the one loop that goes on past an abandoned call.** One bad connection should not
-cost every later recipient their notice, so a stalled queue abandons one send per cap until the
-deadline, each giving up within seconds on `clients.sqs_bounded`. A lone send gets a budget of its
+**Notices go on past every abandoned call**, where cleanup goes on past at most one per table.
+One bad connection should not cost every later recipient their notice, so a stalled queue abandons
+one send per cap until the deadline, each giving up within seconds on `clients.sqs_bounded`. A lone send gets a budget of its
 own and holds its verb for one cap. A verb that sends in a loop passes every send the one budget
 `notify.send_budget` starts, which holds the loop to `notify.SEND_DEADLINE_SECONDS` plus one cap
 however many recipients there are; `test_notices_in_a_loop_share_a_budget.py` refuses an `emit_*`
-call in a loop that passes none, and holds each such verb's deadline plus cap to half the timeout
-Terraform deploys it with. The sender builds its client on the caller's thread and hands the
+call in a loop that passes none, or one the loop itself rebinds, and holds each such verb's
+deadline plus cap to half the timeout Terraform deploys it with. The deadline has a cost on a
+healthy queue too: a delete's roster has no cap, so one longer than the deadline's worth of sends is
+told only in part, each refused send logged, and the run still succeeds. The sender builds its client on the caller's thread and hands the
 worker only the send, so a cold container's first notice does not spend its cap importing boto3,
 and two workers still running never build a client from boto3's default session at once.
 The worker runs in a copy of the caller's context, so its log lines keep the run's trace; one that
@@ -448,11 +450,15 @@ change no state; the alternative was a timeout that failed a run whose outcome w
 **The owner lookup is a read**, and runs as one call — the GET and the read of its body — through
 `registry.owner_of`.
 
-**The DLQ drain's send is the one in the fleet that is not capped.** There the send is the whole
-job rather than work after it: the sweep deletes a message once it has notified, so a send
-abandoned at the cap would delete a message whose notice may never arrive, where a stall that holds
-the drain to its timeout leaves the message on its queue for the next sweep. It passes
-`bounded=False`, which sends on the caller's thread on the default client.
+**Two kinds of notification send wait rather than being capped**, passing `bounded=False`, which
+sends on the caller's thread on the default client, whose waits outlast both callers' timeouts.
+In each the send is the whole job, after an outcome already recorded, and a stall held to the
+timeout is what earns the retry. The DLQ drain deletes a message once it has notified, so a send
+abandoned at the cap would let the message go with its notice perhaps never sent, where a stall
+leaves it on its queue for the next sweep. Every plane's notify-failure reports a run that has
+already failed, so a stall can fail nothing the user was told, and on the timed-out door, an
+asynchronous invocation, a send held to the timeout fails the invocation and Lambda retries it.
+`test_notice_sends_left_uncapped.py` holds the set to exactly those, both ways.
 
 A signal-based alarm was the other way to bound the call, and it was not used, because it
 interrupts whatever code the main thread happens to be running rather than only the call.

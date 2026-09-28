@@ -22,6 +22,10 @@ possible at all.
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
 way — an ASL decode raises an uncatchable runtime error whenever the Cause is absent or is not
 JSON, on precisely the failures a user most needs to hear about.
+
+**Its send waits rather than being capped** (``bounded=False``), as every failure door's does. The
+run has already failed, so a stall can fail nothing the user was told, and a capped send would
+give up on a slow queue with the notice unsent.
 """
 
 import logging
@@ -122,6 +126,7 @@ def handler(event, context) -> dict:
         actor,
         request.get("message") or messages.failure_message(action, space, reason),
         dedup_id=_dedup(request_id, action, actor),
+        bounded=False,
     )
     observability.info(
         "notified the actor of a failure",

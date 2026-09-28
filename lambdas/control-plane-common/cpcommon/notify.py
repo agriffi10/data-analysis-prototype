@@ -23,8 +23,9 @@ here rather than a fleet-wide one.
 **A send is capped in time, because most run after the outcome they report.** A stalled send
 raises nothing for the sender's swallow to catch, so on the default client it would hold its verb
 to the Lambda timeout and fail a run whose user had been told, or was about to be, that it worked.
-Each send runs under ``cpcommon.budget`` on the bounded client; why an abandoned send may finish
-late, and what that costs, is ``lambdas/info/shared-layer.md``.
+Each send runs under ``cpcommon.budget`` on the bounded client, unless its caller is one of the two
+kinds whose retry depends on a stall; why an abandoned send may finish late, what that costs, and
+who those callers are is ``lambdas/info/shared-layer.md``.
 
 Attributes:
   SEND_DEADLINE_SECONDS: How long a verb that sends several notices may keep starting them through
@@ -33,7 +34,9 @@ Attributes:
     timeout, and this sits well under what the tightest allows, because the other half is not all
     the verb's own: the shared-space transfer reader sizes add-members to half its timeout and
     leaves the rest to cold starts and retries. It is still hundreds of sends at the per-send
-    figure that reader uses, several times the members one add or remove request may name.
+    figure that reader uses, several times the members one add or remove request may name. A
+    delete's roster has no cap, so one longer than that is told only in part even on a healthy
+    queue, each refused send logged, and the run still succeeds.
 """
 
 import functools
@@ -209,8 +212,9 @@ def emit_notification(
     """Sends a create envelope to the FIFO notifications queue, grouped by username.
 
     A missed notification must never change or fail a pipeline outcome, which the Step
-    Function execution has already recorded — so every error is caught and logged, and the send
-    is waited for no longer than ``budget.CALL_CAP_SECONDS``, since a stall raises nothing to catch.
+    Function execution has already recorded — so every error is caught and logged, and unless
+    ``bounded`` is False the send is waited for no longer than ``budget.CALL_CAP_SECONDS``, since a
+    stall raises nothing to catch.
     The bounded client is built on the caller's thread and only the send runs on the budget's
     worker, so a cold container's first send does not spend its cap importing boto3, and two
     workers never build a client from the default session at once.
@@ -238,11 +242,12 @@ def emit_notification(
         anything over it, which dead-letters the message rather than delivering half a field.
       budget: The budget this send shares with the rest of its verb's notices, from
         ``send_budget``. None gives the send a budget of its own.
-      bounded: False for a caller whose send is its whole job and whose retry depends on a stall
-        holding it — the DLQ drain, which deletes a message once it has notified, so a send
-        abandoned at the cap would delete the one message the next sweep could have retried. The
-        send is then made on the caller's thread on the default client, waited for however long it
-        takes, and ``budget`` is not read.
+      bounded: False for a caller whose send is its whole job, after an outcome that has already
+        been recorded, and whose retry depends on a stall holding it to its timeout: the DLQ drain,
+        which deletes a message once it has notified, and every plane's notify-failure, whose
+        timed-out door is an asynchronous invocation Lambda retries. A send abandoned at the cap
+        would lose that retry. The send is then made on the caller's thread on the default client,
+        whose waits outlast those callers' timeouts, and ``budget`` is not read.
 
     Returns:
       None. Also returns without sending when the queue URL is unset.

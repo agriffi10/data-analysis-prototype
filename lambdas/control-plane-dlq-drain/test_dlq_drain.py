@@ -307,8 +307,9 @@ class _Refusing:
 
 def test_a_slow_send_is_waited_for_so_the_message_is_notified_before_it_is_deleted(monkeypatch):
     """The drain's send is its whole job, and the sweep deletes a message once it has notified: a
-    send capped like every other would give up on a slow queue and delete the message unannounced.
-    The send takes four times the cap and still arrives, on the default client."""
+    send capped like every other would give up on a slow queue and let the message be deleted
+    whether or not the abandoned send ever lands. The send takes four times the cap and is waited
+    for, on the default client."""
     monkeypatch.setattr(budget, "CALL_CAP_SECONDS", 0.05)
     sqs = _install()
     bounded = _Refusing()

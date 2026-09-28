@@ -2,8 +2,8 @@
 
 A send made without a budget gets one of its own and holds its verb for one cap, which is right
 for a lone send. In a loop it is a cap per iteration, and a stalled queue then holds the verb a
-cap per recipient: past a 60 s timeout at the 44 members one add-members request may name, and
-past any timeout for a delete, whose roster is unbounded. A timeout there lands in the failure
+cap per recipient, which at ``apicommon.bounds.MAX_MEMBERS_PER_REQUEST`` members is past
+add-members' timeout, and past any timeout for a delete, whose roster is unbounded. A timeout there lands in the failure
 path of a run whose work had committed and whose first recipients had been told. So this reads
 every ``emit_*`` call under ``lambdas/`` that sits inside a loop and refuses one that does not pass
 ``budget=`` a budget made outside the call, then holds each such verb's worst case — the send
@@ -13,7 +13,8 @@ budgets in the fleet follow.
 **What it cannot see.** A loop that calls a helper which sends, rather than an ``emit_*`` itself,
 is invisible here; the DLQ drain is one, and its send is deliberately not capped at all. A
 ``budget=`` naming a variable the loop assigns, or iterates over, is refused as a budget per
-iteration; one rebound by a helper the loop calls is not seen.
+iteration; one rebound by a helper the loop calls is not seen, and a name bound outside the loop
+is trusted whatever it holds, ``sends = None`` included.
 
 Attributes:
   LAMBDAS: The tree the sweep reads.
