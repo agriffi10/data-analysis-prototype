@@ -12,8 +12,8 @@ budgets in the fleet follow.
 
 **What it cannot see.** A loop that calls a helper which sends, rather than an ``emit_*`` itself,
 is invisible here; the DLQ drain is one, and its send is deliberately not capped at all. A
-``budget=`` naming a variable is trusted to be the loop's own budget and not one made per
-iteration.
+``budget=`` naming a variable the loop assigns, or iterates over, is refused as a budget per
+iteration; one rebound by a helper the loop calls is not seen.
 
 Attributes:
   LAMBDAS: The tree the sweep reads.
@@ -77,22 +77,52 @@ def _callee(call: ast.Call) -> str:
     return func.attr if isinstance(func, ast.Attribute) else ""
 
 
-def _shares_a_budget(call: ast.Call) -> bool:
-    """Reports whether a send passes a budget made outside the call.
+def _shares_a_budget(call: ast.Call, rebound: set[str]) -> bool:
+    """Reports whether a send passes a budget made outside the loop it sits in.
 
     Args:
       call: A send.
+      rebound: What the loop assigns or iterates over, each spelled as ``ast.unparse`` spells it.
 
     Returns:
-      True for ``budget=`` a name or an attribute. A literal None is no budget, and a call such
-      as ``budget=send_budget()`` makes a fresh one per iteration, which shares nothing.
+      True for ``budget=`` a name or an attribute the loop does not rebind. A literal None is no
+      budget, and a call such as ``budget=send_budget()``, or a variable the loop assigns, is a
+      fresh one per iteration, which shares nothing.
 
     Raises:
       None.
     """
     return any(
-        k.arg == "budget" and isinstance(k.value, (ast.Name, ast.Attribute)) for k in call.keywords
+        k.arg == "budget"
+        and isinstance(k.value, (ast.Name, ast.Attribute))
+        and ast.unparse(k.value) not in rebound
+        for k in call.keywords
     )
+
+
+def _rebound(node: ast.AST) -> set[str]:
+    """Returns every name and attribute a loop binds once per iteration.
+
+    Args:
+      node: A loop or a comprehension.
+
+    Returns:
+      Its targets and every assignment inside the parts that run once per iteration, each spelled
+      as ``ast.unparse`` spells it.
+
+    Raises:
+      None.
+    """
+    targets = [g.target for g in node.generators] if isinstance(node, _COMPREHENSIONS) else []
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        targets.append(node.target)
+    stores = [
+        n
+        for part in [*targets, *_looped(node)]
+        for n in ast.walk(part)
+        if isinstance(n, (ast.Name, ast.Attribute)) and isinstance(n.ctx, ast.Store)
+    ]
+    return {ast.unparse(n) for n in stores}
 
 
 def _looped(node: ast.AST) -> list[ast.AST]:
@@ -121,7 +151,8 @@ def loop_sends(source: str) -> list[tuple[str, str, bool]]:
 
     Returns:
       ``(enclosing function, callee, shares a budget)`` per call, in source order, each call
-      once however many loops enclose it.
+      once however many loops enclose it, and sharing only if no loop around it rebinds the
+      budget it passes.
 
     Raises:
       SyntaxError: If the module does not parse.
@@ -136,12 +167,12 @@ def loop_sends(source: str) -> list[tuple[str, str, bool]]:
     for loop in ast.walk(tree):
         if not isinstance(loop, _LOOPS + _COMPREHENSIONS):
             continue
+        rebound = _rebound(loop)
         for part in _looped(loop):
             for call in ast.walk(part):
                 if isinstance(call, ast.Call) and _callee(call).startswith("emit_"):
-                    found.setdefault(
-                        call, (enclosing.get(call, "<module>"), _callee(call), _shares_a_budget(call))
-                    )
+                    shared = _shares_a_budget(call, rebound) and found.get(call, ("", "", True))[2]
+                    found[call] = (enclosing.get(call, "<module>"), _callee(call), shared)
     return [found[call] for call in sorted(found, key=lambda c: (c.lineno, c.col_offset))]
 
 
@@ -242,6 +273,26 @@ def deployed_timeout(module: str, verb: str) -> int:
             "def f(us):\n    for u in us:\n        emit_notification(u, 'm', budget=None)\n",
             [("f", "emit_notification", False)],
             id="a-literal-none",
+        ),
+        pytest.param(
+            "def f(us):\n    for u in us:\n        s = send_budget()\n        emit_x(u, budget=s)\n",
+            [("f", "emit_x", False)],
+            id="a-budget-assigned-inside-the-loop",
+        ),
+        pytest.param(
+            "def f(u, budgets):\n    for s in budgets:\n        emit_x(u, budget=s)\n",
+            [("f", "emit_x", False)],
+            id="a-budget-the-loop-iterates-over",
+        ),
+        pytest.param(
+            "def f(xs):\n    for a in xs:\n        s = send_budget()\n        for b in a:\n            emit_x(b, budget=s)\n",
+            [("f", "emit_x", False)],
+            id="a-budget-an-outer-loop-rebinds",
+        ),
+        pytest.param(
+            "def f(self, us):\n    for u in us:\n        self.s = send_budget()\n        emit_x(u, budget=self.s)\n",
+            [("f", "emit_x", False)],
+            id="an-attribute-the-loop-assigns",
         ),
         pytest.param(
             "def f(q):\n    while q:\n        notify.emit_recipient_failure(q.pop())\n",

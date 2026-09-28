@@ -175,3 +175,18 @@ def test_an_owner_lookup_whose_body_never_arrives_is_abandoned_at_the_cap(monkey
     finally:
         released.set()
 
+
+def test_the_owner_lookups_client_is_built_on_the_callers_thread(monkeypatch):
+    """Only the read goes to the worker: built there, a cold container would spend the cap
+    importing boto3, and two workers still running could build from the default session at once."""
+    built_on = []
+
+    def _build():
+        built_on.append(threading.current_thread())
+        return _S3({"finance": _active(owner="bob")})
+
+    monkeypatch.setattr(clients, "s3_bounded", _build)
+
+    assert reg.owner_of("finance", budget.Budget(5, "the owner lookup")) == "bob"
+    assert built_on == [threading.current_thread()]
+
