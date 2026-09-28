@@ -201,7 +201,8 @@ of one space can finish at the same moment.
   - At `requested`, it runs only after the receipt write succeeded. A failure there fails the run
     before anything is billed, and the index must not claim a restore that never started.
   - At `restored` and `incomplete`, it runs whether or not the receipt write succeeded, because
-    the outcome it records has happened either way. At `incomplete` it runs before the verb's
+    the outcome it records has happened either way. A transient fault on the receipt write still
+    re-raises first, as it does today, so the retried verb is the one that records it. At `incomplete` it runs before the verb's
     deliberate raise.
   - If the archive has no entry (it was made before this ships, or was trimmed), nothing is
     written. Rows are never created from the restore side.
@@ -315,7 +316,7 @@ The dialog also has these states:
   **Try again** button that refetches.
 
 The fallback link (FR-005) is present in every state. The list is a TanStack Query keyed per space
-in `queryKeys`, fetched when the dialog opens. It is not refetched on window focus while the dialog
+in a feature-local `archiveKeys`, fetched when the dialog opens. It is not refetched on window focus while the dialog
 is open, and it is invalidated after a successful restore enqueue.
 
 The sentence naming the destination ("Everything in the archive is restored to {space}, back where
@@ -499,9 +500,8 @@ apps/portal/src/
 │   ├── ArchiveList.tsx / .test.tsx            (the radio list and its states)
 │   ├── archiveName.ts / .test.ts              (the name rule)
 │   ├── archive.service.ts / .test.ts          (name on the wire, listArchives)
-│   └── useArchive.ts / .test.ts               (submit(name), useArchiveList)
+│   └── useArchive.ts / .test.ts               (submit(name), useArchiveList, archiveKeys)
 ├── components/FormDialog.tsx                  (autoFocusRef accepts any element)
-├── lib/queryKeys.ts                           (archive list key)
 └── types/archive.types.ts
 lambdas/
 ├── archive-common/arcommon/{config,paths,receipt,messages,restore,index_store}.py
