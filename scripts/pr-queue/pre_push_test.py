@@ -49,7 +49,9 @@ from a fixture the way the API would and runs queue.sh's real ``--jq`` through t
 which is the one tool this corpus needs beyond ``git``, ``sh`` and ``bash``. Only runs a PUSH to
 the trunk triggered are its build: a failed Dependabot job on the head once read as a red trunk,
 and since only a merge moves the head, every session waited for a merge the queue itself was
-refusing.
+refusing. And the head's runs are asked for BY SHA: GitHub's list endpoint intermittently serves a
+page weeks stale, so the fake serves that page to any read that does not filter by ``head_sha``,
+and a head missing from it must not read as a head with no runs.
 
 Usage: ``python3 scripts/pr-queue/pre_push_test.py`` — takes no arguments, imports nothing outside
 the standard library, and exits non-zero if any case does not behave as declared. ``--fake-gh``
@@ -78,6 +80,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from typing import NamedTuple
 
 QUEUE_SRC = pathlib.Path(__file__).resolve().parent
@@ -1286,10 +1289,10 @@ def hash_width(root: pathlib.Path) -> list[str]:
 # --- the queue's main-green check ---------------------------------------------------------------
 # `turn` lets nobody move until the trunk is green, and it reads green from GitHub Actions through
 # `gh`, which no corpus can reach. So these cases put a fake `gh` first on PATH — this module run
-# with `--fake-gh` — that answers `run list` from a fixture file the way the API would, and then
-# run the REAL `--jq` expression through the real `jq`, so the expression queue.sh sends is the one
-# measured. Every verdict is asserted by the line `turn` prints, never by its exit status alone:
-# RED, building and unreadable all exit 1.
+# with `--fake-gh` — that answers the runs endpoint, through `gh api` or `gh run list`, from a
+# fixture file the way the API would, and then run the REAL `--jq` expression through the real
+# `jq`, so the expression queue.sh sends is the one measured. Every verdict is asserted by the line
+# `turn` prints, never by its exit status alone: RED, building and unreadable all exit 1.
 
 HEAD = "{HEAD}"
 OLDER = "{OLDER}"
@@ -1307,17 +1310,30 @@ GH_RUN_FIELDS = frozenset((
     "headSha", "name", "number", "startedAt", "status", "updatedAt", "url", "workflowDatabaseId",
     "workflowName"))
 
+# The one endpoint `gh api` is faked for. The real gh fills in `{owner}` and `{repo}` from the
+# checkout's remote, so the placeholders are what queue.sh sends and what arrives here.
+RUNS_ENDPOINT = "repos/{owner}/{repo}/actions/runs"
+
+# The page GitHub's list endpoint was caught serving in place of the newest runs: twenty green push
+# runs on the trunk, all of one commit weeks older than the head. The fake serves it to every read
+# of a case marked stale that does not filter by `head_sha`.
+STALE_SHA = "2" * 40
+STALE_PAGE = tuple({"headSha": STALE_SHA, "headBranch": "main", "event": "push",
+                    "status": "completed", "conclusion": "success", "workflowName": "Deploy SPA image"}
+                   for _ in range(20))
+
 
 def gh_run(sha: str, event: str, conclusion: str, workflow: str,
-           status: str = "completed") -> dict[str, str]:
-    """Describe one Actions run on the trunk as ``gh run list --json`` reports it.
+           status: str = "completed", branch: str = "main") -> dict[str, str]:
+    """Describe one Actions run as ``gh run list --json`` reports it; the fake renames for the API.
 
     Args:
       sha: ``HEAD`` for the trunk's head, ``OLDER`` for a commit before it.
       event: What triggered it — ``push`` is the trunk's own build; ``dynamic`` is Dependabot's.
-      conclusion: The API's conclusion, which it reports as an empty string until the run ends.
+      conclusion: The conclusion ``gh run list`` reports, an empty string until the run ends.
       workflow: The workflow's name, so a failure report says which run it was.
       status: ``completed`` once the run has ended.
+      branch: The branch the run was triggered on, the trunk unless a case says otherwise.
 
     Returns:
       The run, with its sha still a sentinel.
@@ -1325,7 +1341,7 @@ def gh_run(sha: str, event: str, conclusion: str, workflow: str,
     Raises:
       None.
     """
-    return {"headSha": sha, "headBranch": "main", "event": event, "status": status,
+    return {"headSha": sha, "headBranch": branch, "event": event, "status": status,
             "conclusion": conclusion, "workflowName": workflow}
 
 
@@ -1391,6 +1407,7 @@ class GreenCase(NamedTuple):
         when the origin cannot be read at all.
       gh_fails: The fake ``gh`` exits non-zero, as a network or authentication failure does.
       override: The exit status of a ``main-green`` executable placed in the queue, or ``None``.
+      stale: The list endpoint serves ``STALE_PAGE`` to any read not filtered by ``head_sha``.
     """
 
     name: str
@@ -1400,6 +1417,7 @@ class GreenCase(NamedTuple):
     remote: str = "trunk"
     gh_fails: bool = False
     override: int | None = None
+    stale: bool = False
 
 
 GREEN_CASES: tuple[GreenCase, ...] = (
@@ -1430,11 +1448,26 @@ GREEN_CASES: tuple[GreenCase, ...] = (
     GreenCase("only_failed_non_push_runs_still_wait_for_the_push_runs",
               (dependabot(), gh_run(HEAD, "schedule", "failure", "Security"), pushed(sha=OLDER)),
               BUILDING),
-    # More Dependabot jobs after the merge than `--limit` holds. Filtered in the `--jq` instead of
-    # by the API, the window would hold nothing but these and the head would wait forever.
+    # More Dependabot jobs after the merge than one page holds. Filtered in the `--jq` instead of
+    # by the API, the page would hold nothing but these and the head could not be judged.
     GreenCase("a_burst_of_dependabot_jobs_cannot_crowd_the_push_runs_out",
-              (*(dependabot() for _ in range(31)), *(pushed(workflow=name) for name in DEPLOYS)),
+              (*(dependabot() for _ in range(101)), *(pushed(workflow=name) for name in DEPLOYS)),
               READY),
+    # The list endpoint serving a page weeks stale, with every deploy of the head green. Read off
+    # that page, the head has no runs at all and waits as though CI had not started.
+    GreenCase("a_stale_list_page_cannot_hide_a_green_head",
+              (*(pushed(workflow=name) for name in DEPLOYS), pushed(sha=OLDER)),
+              READY, stale=True),
+    # A branch cut at the trunk's head and pushed records the same sha. Its push runs are not the
+    # trunk's build, whatever they concluded.
+    GreenCase("a_push_run_on_another_branch_at_the_head_is_not_main",
+              (gh_run(HEAD, "push", "failure", "CI", branch="topic"), pushed()),
+              READY),
+    # One page cannot hold every push run of the head, and the failure is on the page not read.
+    # Judged from the page alone that is green; a subset of the build is not the build.
+    GreenCase("more_push_runs_than_one_page_holds_is_unreadable",
+              (*(pushed() for _ in range(100)), pushed("failure", "Deploy Lambdas")),
+              UNREADABLE),
     GreenCase("a_push_run_still_running_is_building",
               (dependabot(), running("Deploy Lambdas"), pushed()),
               BUILDING),
@@ -1478,32 +1511,49 @@ NON_PUSH_VERDICTS = (
 )
 
 GREEN_PLANTS: tuple[Plant, ...] = (
-    Plant("green_counts_push_runs_only",
-          ' --event push --limit 30', ' --limit 30',
-          NON_PUSH_VERDICTS),
-    # The same filter moved into the `--jq`. It passes every case but one: the limit now counts the
-    # Dependabot jobs, and a burst of them leaves no push run in the window.
-    Plant("green_filters_on_the_server_not_in_the_jq",
-          r'''--event push --limit 30 \
+    # The read this check replaced, restored whole. The stale page hides the head from it, and its
+    # thirty-run window judged a subset of an overflowing head as the whole.
+    Plant("green_reads_the_head_by_sha_not_off_the_list_page",
+          r'''gh api \
+             "repos/{owner}/{repo}/actions/runs?head_sha=$sha&branch=$MAIN&event=push&per_page=100" \
+             --jq 'if .total_count > (.workflow_runs | length)
+                   then error("more push runs on main than one page holds")
+                   else .workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion)" end' )"''',
+          r'''gh run list --branch "$MAIN" --event push --limit 30 \
              --json headSha,status,conclusion \
-             --jq '.[] | "\(''',
-          r'''--limit 30 \
-             --json headSha,status,conclusion,event \
-             --jq '.[] | select(.event == "push") | "\(''',
+             --jq '.[] | "\(.headSha) \(.status) \(.conclusion)"' )"''',
+          ("a_stale_list_page_cannot_hide_a_green_head",
+           "more_push_runs_than_one_page_holds_is_unreadable")),
+    Plant("green_counts_push_runs_only",
+          '&event=push&', '&',
+          NON_PUSH_VERDICTS),
+    # The same filter moved into the `--jq`. It passes every case but one: the page now counts the
+    # Dependabot jobs, and a burst of them overflows it.
+    Plant("green_filters_on_the_server_not_in_the_jq",
+          r'''&event=push&per_page=100" \
+             --jq 'if .total_count > (.workflow_runs | length)
+                   then error("more push runs on main than one page holds")
+                   else .workflow_runs[] | "''',
+          r'''&per_page=100" \
+             --jq 'if .total_count > (.workflow_runs | length)
+                   then error("more push runs on main than one page holds")
+                   else .workflow_runs[] | select(.event == "push") | "''',
           ("a_burst_of_dependabot_jobs_cannot_crowd_the_push_runs_out",)),
-    Plant("green_the_window_holds_every_push_run_of_the_head",
-          '--limit 30 \\', '--limit 4 \\',
+    Plant("green_counts_the_trunk_only",
+          '&branch=$MAIN&', '&',
+          ("a_push_run_on_another_branch_at_the_head_is_not_main",)),
+    Plant("green_the_page_holds_every_push_run_of_the_head",
+          '&per_page=100"', '&per_page=4"',
           ("a_failure_behind_every_green_deploy_is_still_red",)),
-    # The sha test is also what discards the one empty line `<<< "$runs"` feeds the loop when gh
-    # lists nothing, so the case with no runs at all breaks here too.
+    Plant("green_a_page_short_of_the_total_fails_closed",
+          'if .total_count > (.workflow_runs | length)', 'if false',
+          ("more_push_runs_than_one_page_holds_is_unreadable",)),
+    # The API already filters by sha; the test in the loop is the second line against a query that
+    # stops filtering, and it is also what discards the one empty line `<<< "$runs"` feeds the loop
+    # when nothing matched. That second job is the one the corpus can see.
     Plant("green_reads_the_head_only",
           '[ "$rsha" = "$sha" ] || continue', ':',
-          ("only_green_non_push_runs_still_wait_for_the_push_runs",
-           "only_failed_non_push_runs_still_wait_for_the_push_runs",
-           "a_failure_on_an_older_commit_is_not_main_red",
-           "no_push_run_yet_beside_yml_workflows_is_building",
-           "no_push_run_yet_beside_yaml_workflows_is_building",
-           "no_run_and_no_workflows_is_ready")),
+          ("no_run_and_no_workflows_is_ready",)),
     Plant("green_waits_for_a_run_still_going",
           '[ "$status" = "completed" ] || { building=1; continue; }', ':',
           ("a_push_run_still_running_is_building",)),
@@ -1535,9 +1585,11 @@ GREEN_PLANTS: tuple[Plant, ...] = (
           '*.yaml >/dev/null 2>&1 && return 2\n    return 0\n',
           '*.yaml >/dev/null 2>&1 && return 2\n    return 2\n',
           ("no_run_and_no_workflows_is_ready",)),
+    # The overflow refusal is a `jq` error, which reaches the verdict through the same exit status.
     Plant("green_a_failed_gh_fails_closed",
-          r'''\(.conclusion)"' )" || return 3''', r'''\(.conclusion)"' )" || true''',
-          ("a_gh_that_fails_is_never_read_as_green",)),
+          r'''\(.conclusion)" end' )" || return 3''', r'''\(.conclusion)" end' )" || true''',
+          ("a_gh_that_fails_is_never_read_as_green",
+           "more_push_runs_than_one_page_holds_is_unreadable")),
     Plant("green_a_missing_trunk_fails_closed",
           '  [ -n "$sha" ] || return 3\n', '  :\n',
           ("a_trunk_the_remote_lacks_is_never_read_as_green",)),
@@ -1557,13 +1609,16 @@ GREEN_PLANTS: tuple[Plant, ...] = (
 
 
 def fake_gh(argv: list[str]) -> int:
-    """Answer ``gh run list`` from the fixture file named by ``FAKE_GH_STATE``, as the API would.
+    """Answer the runs endpoint from the fixture file named by ``FAKE_GH_STATE``, as the API would.
 
-    Filters by ``--branch`` and ``--event`` BEFORE ``--limit`` truncates, because the API filters
-    server-side and pages what is left — the property a burst of Dependabot jobs tests. Refuses a
-    flag or ``--json`` field the real ``gh`` would refuse, and hands the ``--jq`` expression to the
-    real ``jq`` with ``-r``, which is how ``gh`` prints a string result. Every call is appended to
-    a log beside the fixture, so the harness can prove it reached this and not a real ``gh``.
+    Two routes reach it: ``gh api`` on ``RUNS_ENDPOINT`` with a query string, and ``gh run list``
+    with flags. Both filter BEFORE the page truncates, because the API filters server-side and
+    pages what is left — the property a burst of Dependabot jobs tests. An unknown query parameter
+    is ignored, as GitHub ignores one. A read not filtered by ``head_sha`` gets ``STALE_PAGE`` in a
+    case marked stale, which is the fault this corpus reproduces. Refuses a flag, endpoint or
+    ``--json`` field the real ``gh`` would refuse, and hands the ``--jq`` expression to the real
+    ``jq`` with ``-r``, which is how ``gh`` prints a string result. Every call is appended to a log
+    beside the fixture, so the harness can prove it reached this and not a real ``gh``.
 
     Args:
       argv: The arguments ``gh`` was called with.
@@ -1577,30 +1632,52 @@ def fake_gh(argv: list[str]) -> int:
     state_file = pathlib.Path(os.environ["FAKE_GH_STATE"])
     with state_file.with_suffix(".calls").open("a") as calls:
         calls.write(" ".join(argv) + "\n")
-    if argv[:2] != ["run", "list"]:
-        print(f"fake gh: only `run list` is faked, not {argv[:2]}", file=sys.stderr)
+    if argv[:1] == ["api"] and len(argv) >= 2:
+        endpoint, _, query = argv[1].partition("?")
+        flags, rest = {"--jq"}, argv[2:]
+    elif argv[:2] == ["run", "list"]:
+        endpoint, query = RUNS_ENDPOINT, ""
+        flags, rest = {"--branch", "--event", "--limit", "--json", "--jq"}, argv[2:]
+    else:
+        print(f"fake gh: only `api` and `run list` are faked, not {argv[:2]}", file=sys.stderr)
+        return 1
+    if endpoint != RUNS_ENDPOINT:
+        print(f"fake gh: only {RUNS_ENDPOINT} is faked, not {endpoint}", file=sys.stderr)
         return 1
     state = json.loads(state_file.read_text())
     if state["fail"]:
         print("fake gh: HTTP 502: Server Error", file=sys.stderr)
         return 1
     opts: dict[str, str] = {}
-    rest = argv[2:]
     while rest:
         flag = rest.pop(0)
-        if flag not in ("--branch", "--event", "--limit", "--json", "--jq") or not rest:
+        if flag not in flags or not rest:
             print(f"fake gh: unknown flag or missing value: {flag}", file=sys.stderr)
             return 1
         opts[flag] = rest.pop(0)
-    fields = opts.get("--json", "").split(",")
-    if not set(fields) <= GH_RUN_FIELDS:
-        print(f"fake gh: Unknown JSON field: {sorted(set(fields) - GH_RUN_FIELDS)}", file=sys.stderr)
-        return 1
-    runs = [r for r in state["runs"]
-            if r["headBranch"] == opts.get("--branch", r["headBranch"])
-            and r["event"] == opts.get("--event", r["event"])]
-    runs = runs[:int(opts.get("--limit", "20"))]
-    document = json.dumps([{field: r.get(field) for field in fields} for r in runs])
+    params = {k: v[-1] for k, v in urllib.parse.parse_qs(query).items()}
+    sha = params.get("head_sha")
+    branch = params.get("branch", opts.get("--branch"))
+    event = params.get("event", opts.get("--event"))
+    source = state["runs"] if sha or not state["stale"] else list(STALE_PAGE)
+    runs = [r for r in source
+            if r["headSha"] == (sha or r["headSha"])
+            and r["headBranch"] == (branch or r["headBranch"])
+            and r["event"] == (event or r["event"])]
+    if argv[0] == "api":
+        page = runs[:min(int(params.get("per_page", "30")), 100)]
+        document = json.dumps({"total_count": len(runs), "workflow_runs": [
+            {"head_sha": r["headSha"], "head_branch": r["headBranch"], "event": r["event"],
+             "status": r["status"], "conclusion": r["conclusion"] or None,
+             "name": r["workflowName"]} for r in page]})
+    else:
+        fields = opts.get("--json", "").split(",")
+        if not set(fields) <= GH_RUN_FIELDS:
+            print(f"fake gh: Unknown JSON field: {sorted(set(fields) - GH_RUN_FIELDS)}",
+                  file=sys.stderr)
+            return 1
+        page = runs[:int(opts.get("--limit", "20"))]
+        document = json.dumps([{field: r.get(field) for field in fields} for r in page])
     if "--jq" not in opts:
         print(document)
         return 0
@@ -1656,7 +1733,7 @@ def main_green(root: pathlib.Path) -> list[str]:
     def turn(case: GreenCase) -> str | None:
         head = fixture.base
         runs = [{**r, "headSha": {HEAD: head, OLDER: "1" * 40}[r["headSha"]]} for r in case.runs]
-        state_file.write_text(json.dumps({"fail": case.gh_fails, "runs": runs}))
+        state_file.write_text(json.dumps({"fail": case.gh_fails, "runs": runs, "stale": case.stale}))
         for ext in ("yml", "yaml"):
             wf = workflows / f"ci.{ext}"
             if ext in case.workflows:
@@ -1695,7 +1772,7 @@ def main_green(root: pathlib.Path) -> list[str]:
         return broken, problems
 
     _, problems = corpus("main_green")
-    if not calls.is_file() or "run list" not in calls.read_text():
+    if not calls.is_file() or f"api {RUNS_ENDPOINT}?head_sha=" not in calls.read_text():
         problems.append("main_green: the fake gh was never called, so the cases above measured "
                         "whatever gh PATH found instead")
     source = queue_sh.read_text()

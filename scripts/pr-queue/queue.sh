@@ -113,8 +113,14 @@ all_prs() {
 # and none of them is main's build. Counting them turned one failed Dependabot job into a RED
 # main that only a merge could clear — the head moves on nothing else — while every agent that
 # obeys this queue waited for a merge the queue itself was refusing. The API filters by event,
-# not the `--jq`, so the limit counts push runs alone and a burst of Dependabot jobs cannot push
-# main's own runs out of the window.
+# not the `--jq`, so the page counts push runs alone and a burst of Dependabot jobs cannot push
+# main's own runs out of it.
+#
+# THE RUNS ARE ASKED FOR BY THE HEAD'S SHA, never read off a page of the branch's newest runs.
+# GitHub's list endpoint intermittently serves a stale page — twenty runs weeks old — and a head
+# missing from that page read as "no push run yet" while main was green. `head_sha` is a filter
+# the server applies, so what comes back is the head's runs or nothing. One page is read, and a
+# total larger than the page is refused rather than judged: a subset of the runs is not the build.
 main_green() {
   [ -x "$Q/main-green" ] && { "$Q/main-green"; return $?; }
   local sha runs rsha status conclusion any=0 building=0 red=0
@@ -122,9 +128,11 @@ main_green() {
   # several worktrees hitting FETCH_HEAD at once would race on.
   sha="$( cd "$REPO" && git ls-remote origin "refs/heads/$MAIN" 2>/dev/null | cut -f1 )" || return 3
   [ -n "$sha" ] || return 3
-  runs="$( cd "$REPO" && gh run list --branch "$MAIN" --event push --limit 30 \
-             --json headSha,status,conclusion \
-             --jq '.[] | "\(.headSha) \(.status) \(.conclusion)"' )" || return 3
+  runs="$( cd "$REPO" && gh api \
+             "repos/{owner}/{repo}/actions/runs?head_sha=$sha&branch=$MAIN&event=push&per_page=100" \
+             --jq 'if .total_count > (.workflow_runs | length)
+                   then error("more push runs on main than one page holds")
+                   else .workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion)" end' )" || return 3
   while read -r rsha status conclusion; do
     [ "$rsha" = "$sha" ] || continue
     any=1
