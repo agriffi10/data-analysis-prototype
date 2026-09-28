@@ -239,6 +239,42 @@ describe('listArchives', () => {
     expect(result).toEqual({success: true, data: [{archiveId: NEW, details: null}]});
   });
 
+  it('reads a shared space’s index from that space, and labels its rows from it', async () => {
+    const shared = 'team/system_settings/archive/';
+    api.on('objects.list', page([NEW], null, [], shared));
+    api.on('objects.readContent', documentBody({version: 1, archives: [entry(NEW, '2026-09-01T00:00:00Z')]}));
+
+    const result = await listArchives({kind: 'shared', name: 'team'});
+
+    expect(api.queryFor('objects.readContent')).toEqual({
+      spaceKind: 'shared',
+      spaceName: 'team',
+      key: `${shared}index.json`
+    });
+    expect(result.success && result.data[0].details?.archivedAt).toBe('2026-09-01T00:00:00Z');
+  });
+
+  it.each([
+    ['no items', {items: undefined}],
+    ['a restore status it does not know', {restore: {status: 'lost', requestedAt: 't', updatedAt: 't'}}]
+  ])('drops only the label of an entry with %s, and keeps its neighbours', async (_label, broken) => {
+    api.on('objects.list', page([NEW, OLDER], null));
+    api.on(
+      'objects.readContent',
+      documentBody({
+        version: 1,
+        archives: [{...entry(NEW, '2026-09-01T00:00:00Z'), ...broken}, entry(OLDER, '2026-08-01T00:00:00Z')]
+      })
+    );
+
+    const result = await listArchives({kind: 'personal', name: 'alice'});
+
+    expect(result.success && result.data.map((row) => [row.archiveId, row.details !== null])).toEqual([
+      [OLDER, true],
+      [NEW, false]
+    ]);
+  });
+
   it('fails when the receipt folder itself cannot be listed', async () => {
     api.on('objects.list', apiFailure('InternalError'));
 

@@ -55,8 +55,9 @@ def _event(outcome, **overrides):
 
 
 def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
-    """FR-006 AC3. The id is the load-bearing one: the archived objects sit in a bucket the
-    browser has no relationship with, so it is the user's only route back to them.
+    """FR-006 AC3. The message says where to find the archive again — the restore dialog's list —
+    and still names its id, which is what matches the archive to its receipt and what the dialog's
+    id field takes when the list cannot show an archive.
 
     The payload carries no ``transfer`` block, which is what the machine's definition from
     before the file count sends — so the count is the object count, as it always was. The file
@@ -69,6 +70,8 @@ def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     assert "12 files" in message
     assert "3.0 MB" in message
     assert _ARCHIVE_ID in message
+    assert message.endswith("choose Restore Archived Data in Files and pick this archive from the list.")
+    assert "enter this id" not in message
 
 
 def test_a_shared_space_archive_says_which_space_to_restore_it_from(sent):

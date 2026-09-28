@@ -346,8 +346,8 @@ function FileBrowserContent({
                 rootPrefix={rootPrefix}
               />
             )}
-            {/* a restore has no selection — it takes a pasted id — so it sits
-                with the primary actions rather than on the selection toolbar. */}
+            {/* a restore has no selection — the archive is picked in its own dialog — so it
+                sits with the primary actions rather than on the selection toolbar. */}
             {restoreEnabled && <RestoreArchiveButton onClick={restore.openDialog} />}
             <Button
               variant="default"

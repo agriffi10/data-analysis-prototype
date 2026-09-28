@@ -23,10 +23,14 @@ const OLD = '22222222-2222-4222-8222-222222222222';
 const TYPED = '3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93';
 
 function folders(...ids: string[]) {
+  return foldersUnder(PREFIX, ...ids);
+}
+
+function foldersUnder(prefix: string, ...ids: string[]) {
   return {
     success: true as const,
     data: {
-      items: ids.map((id) => ({kind: 'folder' as const, key: `${PREFIX}${id}/`, size: null, lastModified: null})),
+      items: ids.map((id) => ({kind: 'folder' as const, key: `${prefix}${id}/`, size: null, lastModified: null})),
       nextToken: null
     }
   };
@@ -144,6 +148,26 @@ describe('RestoreArchiveDialog — the list', () => {
 
     expect(screen.getByRole('radio', {name: 'Archive 22222222'})).toBeInTheDocument();
     expect(screen.queryByText('Couldn’t load this space’s archives.')).not.toBeInTheDocument();
+  });
+
+  it('says who made each archive in a shared space, and not in a personal one', async () => {
+    api.on('objects.list', foldersUnder('team/system_settings/archive/', Q1));
+    const {unmount} = renderDialog({space: {kind: 'shared', name: 'team'}});
+    expect(await screen.findByRole('radio', {name: 'Q1 reports'})).toHaveAccessibleDescription(/by alice$/);
+    unmount();
+
+    api.on('objects.list', folders(Q1));
+    renderDialog();
+    expect(await screen.findByRole('radio', {name: 'Q1 reports'})).not.toHaveAccessibleDescription(/by alice/);
+  });
+
+  it('reads the list afresh on every opening, however long the app keeps other queries fresh', async () => {
+    const patient = new QueryClient({defaultOptions: {queries: {retry: false, staleTime: 30_000}}});
+    patient.setQueryData(archiveKeys.list(SPACE), [{archiveId: OLD, details: null}] satisfies ArchiveListing[]);
+
+    renderDialog({}, patient);
+
+    await vi.waitFor(() => expect(api.countOf('objects.list')).toBe(1));
   });
 
   it('has no axe violations with the list loaded', async () => {
