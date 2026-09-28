@@ -238,6 +238,7 @@ describe('query.sql', () => {
       ['SELECT * FROM mydb.t', 'SELECT _ FROM mydb.t.sql'],
       ['a/b\\c:d?e"f<g>h|i\tj', 'a_b_c_d_e_f_g_h_i_j.sql'],
       ['report.SQL ', 'report.sql'],
+      ['x .sql', 'x.sql'],
       ['..hidden..', 'hidden.sql'],
       [' . ', 'query.sql']
     ])('names %j as %j', (name, expected) => {

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {useSavedQueries} from '../saved-queries/useSavedQueries';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
@@ -144,36 +144,46 @@ export function useSavedQueryFlow({
     }
   });
 
+  // The row that asked for a body stays on screen until the read lands, so a second click
+  // there — a double-click — would open a second tab, and through Open and run start a second
+  // billed query. One read per file at a time.
+  const openingKeys = useRef(new Set<string>());
   const openSaved = (query: SavedQuery, afterOpen?: (tabId: string, sql: string) => void) => {
+    if (openingKeys.current.has(query.key)) return;
     // The cap is checked BEFORE the fetch. Reading a body only to discard it and raise
     // the limit dialog spends a GetObject on a tab that was never going to open.
     if (tabs.tabs.length >= QUERY_TABS_MAX) {
       onTabLimit();
       return;
     }
+    openingKeys.current.add(query.key);
     void (async () => {
-      const body = await readSavedQuery({bucket: query.bucket, key: query.key});
-      if (!body.success) {
-        // The drawer stays open and no tab is opened: the user asked for this file, and
-        // an empty tab labelled with its name would be a worse answer than the message.
-        toast.push({variant: 'danger', message: toUserText(body.error)});
-        return;
+      try {
+        const body = await readSavedQuery({bucket: query.bucket, key: query.key});
+        if (!body.success) {
+          // The drawer stays open and no tab is opened: the user asked for this file, and
+          // an empty tab labelled with its name would be a worse answer than the message.
+          toast.push({variant: 'danger', message: toUserText(body.error)});
+          return;
+        }
+        const id = tabs.openTab({
+          // The label is the FILE's name from the store's own function, so a tab and a
+          // list row can never disagree about what a file is called.
+          label: query.name,
+          sql: body.data,
+          savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
+        });
+        if (id === null) {
+          onTabLimit();
+          return;
+        }
+        rememberSavedSql(query.key, body.data);
+        onOpened();
+        focusEditor();
+        afterOpen?.(id, body.data);
+      } finally {
+        openingKeys.current.delete(query.key);
       }
-      const id = tabs.openTab({
-        // The label is the FILE's name from the store's own function, so a tab and a
-        // list row can never disagree about what a file is called.
-        label: query.name,
-        sql: body.data,
-        savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
-      });
-      if (id === null) {
-        onTabLimit();
-        return;
-      }
-      rememberSavedSql(query.key, body.data);
-      onOpened();
-      focusEditor();
-      afterOpen?.(id, body.data);
     })();
   };
 

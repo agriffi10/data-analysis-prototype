@@ -252,12 +252,13 @@ describe('ResultTabs', () => {
     // A click on a ✕ focuses the tab it sits in, and the close removes that tab. Closing a tab
     // that is not the shown one leaves the shown one shown, so focus goes there, not to a neighbour.
     it.each([
-      ['the shown tab', '3 · SELECT b', 1, 2],
-      ['another tab', '1 · SELECT a', 0, 1]
-    ])('hands focus to the tab shown after a pointer close of %s', async (_, label, closed, heir) => {
+      ['the shown tab', 1, '3 · SELECT b', 1, 2],
+      ['the shown tab, when it is the last', 2, '4 · SHOW TABLES', 2, 1],
+      ['a tab after the shown one', 0, '4 · SHOW TABLES', 2, 0]
+    ])('hands focus to the tab shown after a pointer close of %s', async (_, active, label, closed, heir) => {
       const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onClose = vi.fn();
-      renderTabs(1, vi.fn(), onClose);
+      renderTabs(active, vi.fn(), onClose);
       const rendered = screen.getAllByRole('tab');
 
       await user.click(screen.getByTitle(`Close ${label}`));

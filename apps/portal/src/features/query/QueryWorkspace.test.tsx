@@ -601,9 +601,10 @@ describe('QueryWorkspace', () => {
       );
     });
 
-    it('Open and run opens the saved query in a new tab, runs it there and records it in history', async () => {
+    it('Open and run opens the saved query in a new tab, runs all of it there and records it in history', async () => {
+      queueRuns('q-1', 'q-2');
       mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
+      mockReadSaved.mockResolvedValue(ok('SELECT 1;\nSELECT 2;'));
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
@@ -611,16 +612,33 @@ describe('QueryWorkspace', () => {
       await user.click(await screen.findByRole('button', {name: 'Open and run saved query Revenue'}));
 
       expect(await screen.findByRole('tab', {name: /Revenue/, selected: true})).toBeInTheDocument();
-      expect(editor()).toHaveValue('SELECT 1;');
-      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
-      expect(mockRunQuery).toHaveBeenCalledTimes(1);
-      expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
+      expect(editor()).toHaveValue('SELECT 1;\nSELECT 2;');
+      await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+      expect(mockRunQuery.mock.calls.map(([args]) => args.sql)).toEqual(['SELECT 1', 'SELECT 2']);
       // The tab it ran in was opened in the same click, so the link has to travel with the run.
       expect(mockAppend).toHaveBeenCalledWith(
         'alice',
         expect.objectContaining({savedQueryKey: 'alice/saved_queries/Revenue.sql', savedQueryName: 'Revenue'})
       );
       expect(screen.queryByRole('button', {name: 'Open and run saved query Revenue'})).not.toBeInTheDocument();
+    });
+
+    // The row stays on screen until the body arrives, so a double-click lands twice on it.
+    it('opens and runs a saved query once when Open and run is double-clicked', async () => {
+      let resolveRead: (v: Awaited<ReturnType<typeof mockReadSaved>>) => void = () => {};
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+
+      await user.dblClick(await screen.findByRole('button', {name: 'Open and run saved query Revenue'}));
+      resolveRead(ok('SELECT 1;'));
+
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      expect(screen.getAllByRole('tab', {name: /Revenue/})).toHaveLength(1);
+      expect(mockReadSaved).toHaveBeenCalledTimes(1);
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
     });
 
     it('opens NO tab and says which file is gone when its body cannot be read', async () => {
