@@ -638,7 +638,10 @@ apps/portal/info/component-inventory/data-explorer-feature.md
   figure; tick two brands and `(empty)` and apply; the grid shows only those rows and the tab's
   scanned total rose by the listing plus the apply. Reopen the dialog: all three are ticked and
   nothing new is scanned. Switch to **is not one of** and apply: the grid shows every other brand.
-  Open it on the ID column: the truncation note names the column's true distinct count. Fold it
+  Open it on the ID column: the truncation note names the column's true distinct count. Then on
+  another text column use the header's **Filter: is one of…**, type one value and tick **NULL**:
+  the grid shows that value's rows and the NULL rows, and **Order and filter** applied untouched
+  runs nothing. Fold it
   into `docs/testing/e2e.md` at completion, where rows 7 of the Explorer walk and the **Options**
   row still drive **Filter by this value**; and mark superseded the SPEC-238 entry's sentence in
   `docs/decisions/analytics.md` that the stored-document check refuses an empty string.
