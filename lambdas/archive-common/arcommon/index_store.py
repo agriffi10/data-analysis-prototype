@@ -27,10 +27,11 @@ try.
 **Every call is bounded in time as well as swallowed, because a stall is not a fault.** A read
 that never answers raises nothing for the swallow to catch; it holds the verb until its Lambda
 timeout, which fails a run whose archive or restore has already happened. So the index uses
-``cpcommon.clients.s3_bounded`` and the whole compare-and-swap gives up once
-``INDEX_DEADLINE_SECONDS`` have passed — checked before each call, so the worst case is the
-deadline plus one bounded call, and ``test_the_index_path_cannot_outlast_the_verbs_that_run_it``
-holds that under both verbs' timeouts.
+``cpcommon.clients.s3_bounded``, and every call runs under one ``cpcommon.budget``: no call
+starts once ``INDEX_DEADLINE_SECONDS`` have passed and none is waited on past
+``budget.CALL_CAP_SECONDS``, so the worst case is the sum, and
+``test_the_index_path_cannot_outlast_the_verbs_that_run_it`` holds that under both verbs'
+timeouts.
 
 **Serialized unescaped, with compact separators, and that is paired with the entry cap.** The
 browser fetches the whole document through the object content route, whose stored cap and
@@ -54,10 +55,9 @@ Attributes:
 
 import json
 import logging
-import time
 from datetime import UTC, datetime
 
-from cpcommon import cas, clients, errors
+from cpcommon import budget, cas, clients, errors
 
 from .config import ARCHIVE_INDEX_MAX_ENTRIES
 
@@ -231,34 +231,18 @@ def _mutate(bucket: str, key: str, apply, archive_id) -> bool:
 
     Returns:
       True when the loop finished, whether it wrote or found nothing to change; False when it
-      failed.
+      failed, which a write abandoned at the time cap can still outlive by landing late.
 
     Raises:
       None.
     """
-    deadline = time.monotonic() + INDEX_DEADLINE_SECONDS
-
-    def _in_time(call):
-        """Refuses to start another call once the deadline has passed.
-
-        Args:
-          call: The call to make.
-
-        Returns:
-          What the call returns.
-
-        Raises:
-          TimeoutError: When the deadline has passed; the caller below swallows it.
-        """
-        if time.monotonic() > deadline:
-            raise TimeoutError(f"the archive index at {bucket}/{key} ran out of time")
-        return call()
+    calls = budget.Budget(INDEX_DEADLINE_SECONDS, f"the archive index at {bucket}/{key}")
 
     try:
         cas.cas_mutate(
-            lambda: _in_time(lambda: _read(bucket, key)),
+            lambda: calls.call(lambda: _read(bucket, key)),
             apply,
-            lambda document, etag: _in_time(lambda: _write(bucket, key, document, etag)),
+            lambda document, etag: calls.call(lambda: _write(bucket, key, document, etag)),
             label=f"{bucket}/{key}",
             on_conflict=lambda attempt: logger.info(
                 "archive index %s/%s changed under us (attempt %d)", bucket, key, attempt

@@ -75,11 +75,12 @@ archives exist; the index only labels them, so an archive it lacks is still list
 restored. write-receipt records an archive after its receipt, update-receipt records each restore
 stage on an existing entry and never creates one, every write is a compare-and-swap, and every
 failure is swallowed. **A stall is bounded as well as swallowed**: the index uses
-`cpcommon.clients.s3_bounded` and gives up on a deadline, because a call that never answers raises
-nothing to catch and would hold the verb past its Lambda timeout after the real work was done. It
-is capped at 200 entries and written unescaped, a pair measured against the read route's stored cap
-and Lambda's response ceiling. An archive's optional name (`arcommon.names`) is checked before the
-space is authorized and becomes the receipt's first line.
+`cpcommon.clients.s3_bounded` under a `cpcommon.budget`, which gives up on a deadline and caps each
+call, because a call that never answers raises nothing to catch and would hold the verb past its
+Lambda timeout after the real work was done. It is capped at 200 entries and written unescaped, a
+pair measured against the read route's stored cap and Lambda's response ceiling. An archive's
+optional name (`arcommon.names`) is checked before the space is authorized and becomes the
+receipt's first line.
 
 **Containment lives in `cpcommon.paths`, not in `arcommon`.** Archive is the third plane to ask "is
 this key inside the root I authorized?", and it is the one place a second copy is a cross-tenant

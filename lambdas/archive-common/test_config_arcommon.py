@@ -569,20 +569,14 @@ def test_the_browser_mirrors_the_request_shape_caps():
 def test_the_index_path_cannot_outlast_the_verbs_that_run_it():
     """A stall on the index is swallowed only if it ends before the verb's Lambda timeout does.
 
-    The worst case is the deadline plus one bounded call started just before it: every attempt of
-    that call waits out its connect and read bounds, and the standard retry mode sleeps at most
-    ``2 ** (attempt - 1)`` seconds before each retry. It must leave at least half of each verb's
-    timeout to the work the verb exists for — the receipt write — which runs on the unbounded
-    default client.
+    The worst case is the deadline plus one capped call started just before it. It must leave at
+    least half of each verb's timeout to the work the verb exists for — the receipt write — which
+    runs on the unbounded default client.
     """
     from arcommon import index_store
-    from cpcommon import clients
+    from cpcommon import budget
 
-    attempts = clients.BOUNDED_MAX_ATTEMPTS
-    per_call = attempts * (clients.BOUNDED_CONNECT_SECONDS + clients.BOUNDED_READ_SECONDS) + sum(
-        2 ** (attempt - 1) for attempt in range(1, attempts)
-    )
-    worst = index_store.INDEX_DEADLINE_SECONDS + per_call
+    worst = index_store.INDEX_DEADLINE_SECONDS + budget.CALL_CAP_SECONDS
 
     for verb in ("write-receipt", "update-receipt"):
         timeout = _verb_row(verb)[0]

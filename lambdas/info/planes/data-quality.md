@@ -121,7 +121,11 @@ Revisit before real users arrive.
 - **The notification IS the completion channel**, and it must carry the report link, because the
   reports folder is hidden.
 - **The runs index is appended under ETag CAS.** S3 lists lexicographically, so a UUID key gives no
-  chronology — the index is what supplies it.
+  chronology — the index is what supplies it. **A stall is bounded as well as swallowed**, as the
+  archive index is: the append runs after the actor has been told the check completed, and a call
+  that never answers raises nothing to catch, so it uses `cpcommon.clients.s3_bounded` under a
+  `cpcommon.budget`, which gives up on a deadline and caps each call, rather than holding
+  assemble-report to its Lambda timeout.
 - **A route that renders a report must not become an existence oracle.** The report view takes its
   space **from the route, never derived**, and an unreachable space renders denied while issuing
   **no S3 request at all**.

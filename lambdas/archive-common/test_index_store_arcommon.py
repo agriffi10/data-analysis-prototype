@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from arcommon import config, index_store
-from cpcommon import cas, clients
+from cpcommon import budget, cas, clients
 
 BUCKET = "user-bkt"
 KEY = "alice/system_settings/archive/index.json"
@@ -46,11 +46,13 @@ class _FakeS3:
         self.objects = {} if stored is None else {KEY: (stored, '"etag-0"')}
         self.get_error = get_error
         self.put_error = put_error
+        self.get_attempts = 0
         self.put_attempts = 0
         self.version = 0
         self.on_put = None
 
     def get_object(self, Bucket, Key):
+        self.get_attempts += 1
         if self.get_error:
             raise self.get_error
         if Key not in self.objects:
@@ -264,12 +266,23 @@ def test_an_entry_that_cannot_be_built_costs_the_label_and_nothing_else():
     assert fake.put_attempts == 0
 
 
-def test_the_index_stops_starting_calls_once_its_deadline_has_passed(monkeypatch):
-    """A stall is not a fault, so nothing would catch it: the loop must give up on the clock."""
-    clock = iter(range(1000))
-    monkeypatch.setattr(index_store.time, "monotonic", lambda: next(clock))
+@pytest.mark.parametrize(
+    ("step", "gets", "puts"),
+    [
+        pytest.param(1, 3, 2, id="refused-before-a-write"),
+        pytest.param(2, 1, 1, id="refused-before-a-read"),
+    ],
+)
+def test_the_index_stops_starting_calls_once_its_deadline_has_passed(monkeypatch, step, gets, puts):
+    """A stall is not a fault, so nothing would catch it: the loop must give up on the clock.
+
+    The clock advances ``step`` seconds per reading, which puts the first call past the deadline on
+    a write in one case and on a read in the other; the exact counts tell the two checks apart.
+    """
+    clock = iter(range(0, 1000, step))
+    monkeypatch.setattr(budget.time, "monotonic", lambda: next(clock))
     fake = _install(put_error=_ClientError("PreconditionFailed", 412))
 
     assert index_store.record_archive(BUCKET, KEY, lambda: _entry()) is False
 
-    assert 0 < fake.put_attempts < cas.MAX_ATTEMPTS
+    assert (fake.get_attempts, fake.put_attempts) == (gets, puts)
