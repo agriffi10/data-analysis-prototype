@@ -42,7 +42,7 @@ export type ListingEnv = {
  * The registry of listings, as an external store the provider and every picker subscribe to.
  *
  * External rather than React state because the actions that change it run from promises — a
- * start's query function, a results read — long after the render that began them. The workspace's
+ * start, a results read — long after the render that began them. The workspace's
  * ledger and recorder ride on it too, refreshed by the provider after each render, for the same
  * reason.
  */
@@ -195,32 +195,47 @@ export function createActions(store: ListingStore) {
     );
   };
 
+  // Every start in flight, by its cache key, so a second request for the same statement — from
+  // another tab, or after an eviction cancelled the cache's copy — joins the one execution rather
+  // than starting another. Each entry is the `runQuery` call itself, which nothing can cancel.
+  const inFlight = new Map<string, Promise<string>>();
+
   const start = (key: string, tabId: string, startKey: QueryKey, sql: string) => {
     store.set((registry) => withKey(registry, key, {status: 'starting'}));
-    const {queryClient, username} = store.env();
-    queryClient
-      .fetchQuery({
-        queryKey: startKey,
-        staleTime: Infinity,
-        gcTime: Infinity,
-        // Starting a query is not idempotent: a retry is a second execution and a second bill.
-        retry: apiRetryPolicy('athena.start'),
-        queryFn: async (): Promise<string> => {
-          const id = unwrap(await runQuery({sql, username})).queryExecutionId;
-          register(id, startKey);
-          link(key, tabId, id, false);
-          return id;
-        }
-      })
-      .then(
-        (id) => link(key, tabId, id, false),
-        (error: unknown) => {
-          // Cancelled by an eviction during the start: the query function still registers what it
-          // started, and asking again here would start a second execution for one gesture.
-          if (isCancelledError(error)) return;
-          store.set((registry) => withKey(registry, key, {status: 'error', error}));
-        }
-      );
+    const hash = JSON.stringify(startKey);
+    let started = inFlight.get(hash);
+    if (!started) {
+      const {queryClient, username} = store.env();
+      const launched = runQuery({sql, username}).then((result) => unwrap(result).queryExecutionId);
+      started = launched;
+      inFlight.set(hash, launched);
+      const forget = () => {
+        if (inFlight.get(hash) === launched) inFlight.delete(hash);
+      };
+      launched.then(forget, forget);
+      // The cache holds the id for the next request, seeded from this one call. An eviction that
+      // cancels it drops only the cache's copy, and the start is forgotten so the next request
+      // starts afresh; everyone already waiting on it is answered by `launched` below.
+      queryClient
+        .fetchQuery({
+          queryKey: startKey,
+          staleTime: Infinity,
+          gcTime: Infinity,
+          // Starting a query is not idempotent: a retry is a second execution and a second bill.
+          retry: apiRetryPolicy('athena.start'),
+          queryFn: () => launched
+        })
+        .catch((error: unknown) => {
+          if (isCancelledError(error)) forget();
+        });
+    }
+    started.then(
+      (id) => {
+        register(id, startKey);
+        link(key, tabId, id, false);
+      },
+      (error: unknown) => store.set((registry) => withKey(registry, key, {status: 'error', error}))
+    );
   };
 
   return {

@@ -59,6 +59,10 @@ export function FilterValueList({
   const [seen, setSeen] = useState<string[]>(selection.values);
   const unseen = selection.values.filter((value) => !seen.includes(value));
   if (unseen.length > 0) setSeen([...seen, ...unseen]);
+  // NULL is remembered the same way: a selection naming it can arrive with no entry to show it,
+  // from a NULL cell before the list lands, or from a filter whose NULL the list cut at the cap.
+  const [seenNull, setSeenNull] = useState(selection.includesNull);
+  if (selection.includesNull && !seenNull) setSeenNull(true);
 
   const entries = listing.status === 'ready' ? listing.entries : [];
   const needle = search.trim().toLowerCase();
@@ -67,6 +71,7 @@ export function FilterValueList({
   const alsoSelected = seen.filter(
     (value) => !entries.some((entry) => entry.value !== null && sameValue(valueKind, entry.value, value))
   );
+  const nullAlsoSelected = seenNull && operatorListsNull(operator) && !entries.some((entry) => entry.value === null);
 
   const isSelected = (value: string) => selection.values.some((selected) => sameValue(valueKind, selected, value));
   const entryTicked = (entry: ColumnValueCount) =>
@@ -204,10 +209,22 @@ export function FilterValueList({
         </fieldset>
       )}
 
-      {alsoSelected.length > 0 && (
+      {(alsoSelected.length > 0 || nullAlsoSelected) && (
         <fieldset>
           <legend className="mb-1 text-xs font-medium text-text-2">{ALSO_SELECTED}</legend>
           <ul className="flex flex-col">
+            {nullAlsoSelected && (
+              <li>
+                <label className="flex min-h-[32px] items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selection.includesNull}
+                    onChange={() => onSelectionChange({...selection, includesNull: !selection.includesNull})}
+                  />
+                  <span className="italic text-text-3">{NULL_DISPLAY}</span>
+                </label>
+              </li>
+            )}
             {alsoSelected.map((value) => (
               <li key={value}>
                 <label className="flex min-h-[32px] items-center gap-2 text-sm">

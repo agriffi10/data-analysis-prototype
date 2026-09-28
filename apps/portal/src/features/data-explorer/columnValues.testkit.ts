@@ -49,6 +49,10 @@ export const isListing = (sql: string) => sql.includes(' AS "value", COUNT(*) AS
 
 type Deferred = {promise: Promise<void>; release: () => void};
 
+// The stand-in the current test installed, so the ledger helpers can tell a listing's execution
+// from an exploration's by the statement it ran, whatever order the starts were answered in.
+let installed: AthenaStandIn | null = null;
+
 /** A gate a listing's status waits behind, so a test can close the dialog while it runs. */
 export function gate(): Deferred {
   let release = () => {};
@@ -78,14 +82,14 @@ export type AthenaStandIn = {
  * @returns The stand-in, whose fields a test changes to steer what Athena answers.
  */
 export function installAthena(): AthenaStandIn {
-  const athena: AthenaStandIn = {
+  const athena: AthenaStandIn = (installed = {
     sqlOf: new Map(),
     listingRows: () => LISTING_ROWS,
     listingState: 'SUCCEEDED',
     listingGate: null,
     failedListingReads: 0,
     explorationResult: () => ({columns: COLUMNS, rows: ROWS})
-  };
+  });
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
   vi.mocked(readSharedConnectionsCache).mockResolvedValue(ok({version: 1, connections: []}) as never);
@@ -128,6 +132,26 @@ export function installAthena(): AthenaStandIn {
     });
   }) as never);
   return athena;
+}
+
+/**
+ * Holds every listing's StartQueryExecution until released, so a test can act while a start is in
+ * flight.
+ *
+ * @param fail - Answer the start with a failure once released.
+ * @returns The gate.
+ */
+export function gateListingStart(fail = false): Deferred {
+  const answer = vi.mocked(runQuery).getMockImplementation();
+  const held = gate();
+  vi.mocked(runQuery).mockImplementation((async (args: {sql: string}) => {
+    if (isListing(args.sql)) {
+      await held.promise;
+      if (fail) return {success: false, error: {message: 'Throttled', code: 'ThrottlingException'}};
+    }
+    return answer?.(args as never);
+  }) as never);
+  return held;
 }
 
 /** Every listing statement started so far, in order. */
@@ -209,7 +233,5 @@ export function billedListings(id: string): Record<string, number> {
 }
 
 function sqlById(executionId: string): string {
-  const index = Number(executionId.replace('exec-', '')) - 1;
-  const call = vi.mocked(runQuery).mock.calls[index];
-  return call ? (call[0] as {sql: string}).sql : '';
+  return installed?.sqlOf.get(executionId) ?? '';
 }

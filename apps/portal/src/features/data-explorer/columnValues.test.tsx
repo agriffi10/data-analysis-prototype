@@ -6,14 +6,17 @@ import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {CACHE_HIT_TEXT} from './CostIndicator';
 import {evictExplorations} from './useExplorationEviction';
 import {readValuesPages} from './columnValuesStore';
-import {getQueryResults} from '../catalog/athena.service';
+import {getQueryResults, getQueryStatus} from '../catalog/athena.service';
 import {ATHENA_QUERY_STRING_MAX, renderExplorationSql} from './renderExplorationSql';
 import {emptyExplorationQuery} from './exploration';
 import {formatBytes} from '../../lib/format';
 import {
   billedListings,
+  explorationStarts,
   gate,
+  gateListingStart,
   installAthena,
+  isListing,
   LISTING_BYTES,
   listingStarts,
   ok,
@@ -304,6 +307,125 @@ describe('a catalog change never starts a listing', () => {
     await cancel(user, dialog);
     await openListing(user);
     await waitFor(() => expect(listingStarts()).toHaveLength(2));
+  });
+});
+
+describe('a start in flight answers everyone who asked', () => {
+  it('bills a start an eviction caught in flight once, and the next open starts one', async () => {
+    const start = gateListingStart();
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await openListing(user);
+
+    act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    await act(async () => start.release());
+
+    expect(await within(dialog).findByRole('checkbox', {name: 'Abilify, 40 rows'})).toBeInTheDocument();
+    await waitFor(() => expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES]));
+    await cancel(user, dialog);
+    await openListing(user);
+    await waitFor(() => expect(listingStarts()).toHaveLength(2));
+  });
+
+  it('offers Try again when a start an eviction caught in flight then fails', async () => {
+    const start = gateListingStart(true);
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await openListing(user);
+
+    act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    await act(async () => start.release());
+
+    expect(await within(dialog).findByRole('button', {name: 'Try again'})).toBeInTheDocument();
+    expect(within(dialog).queryByText('Counting the values…')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['with nothing else happening', false],
+    ['when an eviction caught the start in flight', true]
+  ])('bills a second tab that joined a start %s', async (_case, evict) => {
+    seedTabs([{id: 't1'}, {id: 't2'}], 't1');
+    const start = gateListingStart();
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    await user.click(screen.getByRole('tab', {name: /orders t2/}));
+    await screen.findAllByRole('gridcell');
+    const second = await openListing(user);
+
+    if (evict) act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    await act(async () => start.release());
+
+    expect(await within(second).findByRole('checkbox', {name: 'Abilify, 40 rows'})).toBeInTheDocument();
+    await waitFor(() => expect(Object.values(billedListings('t2'))).toEqual([LISTING_BYTES]));
+    expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES]);
+    expect(listingStarts()).toHaveLength(1);
+  });
+
+  it('bills each of two tabs that asked while it ran, and a reopen is then a cache hit', async () => {
+    seedTabs([{id: 't1'}, {id: 't2'}], 't1');
+    athena.listingGate = gate();
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    await user.click(screen.getByRole('tab', {name: /orders t2/}));
+    await screen.findAllByRole('gridcell');
+    const second = await openListing(user);
+
+    await act(async () => athena.listingGate?.release());
+
+    expect(await within(second).findByText(new RegExp(scannedSentence))).toBeInTheDocument();
+    await waitFor(() => expect(Object.values(billedListings('t2'))).toEqual([LISTING_BYTES]));
+    expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES]);
+    await cancel(user, second);
+    expect(await within(await openListing(user)).findByText(new RegExp(CACHE_HIT_TEXT))).toBeInTheDocument();
+  });
+
+  it('keeps watching when New exploration takes the tab panel away', async () => {
+    athena.listingGate = gate();
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    await user.click(screen.getByRole('button', {name: 'New exploration'}));
+
+    await act(async () => athena.listingGate?.release());
+
+    await waitFor(() => expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES]));
+  });
+
+  it('does not let an older failed run drop the newer run cached in its place', async () => {
+    const gates = new Map<string, ReturnType<typeof gate>>();
+    const gateOf = (id: string) => gates.get(id) ?? gates.set(id, gate()).get(id)!;
+    const failed = new Set<string>();
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) => {
+      const listing = isListing(athena.sqlOf.get(queryExecutionId) ?? '');
+      if (listing) await gateOf(queryExecutionId).promise;
+      return ok({
+        queryExecutionId,
+        state: failed.has(queryExecutionId) ? 'FAILED' : 'SUCCEEDED',
+        dataScannedBytes: listing ? LISTING_BYTES : 2048,
+        engineExecutionTimeMillis: 1
+      });
+    }) as never);
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    // The eviction re-runs the exploration on screen; its grid redraws before the menu is usable.
+    await waitFor(() => expect(explorationStarts()).toHaveLength(2));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    const second = await openListing(user);
+    await waitFor(() => expect(listingStarts()).toHaveLength(2));
+    const [older, newer] = [...athena.sqlOf].filter(([, sql]) => isListing(sql)).map(([id]) => id);
+
+    failed.add(older);
+    await act(async () => gateOf(older).release());
+    await act(async () => gateOf(newer).release());
+
+    await within(second).findByRole('checkbox', {name: 'Abilify, 40 rows'});
+    await cancel(user, second);
+    await within(await openListing(user)).findByRole('checkbox', {name: 'Abilify, 40 rows'});
+    expect(listingStarts()).toHaveLength(2);
   });
 });
 

@@ -412,8 +412,12 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/FilterValuePicker.tsx': {
-    why: 'one checkbox per listed value and per Also selected value, 13px inputs whose TARGET is the wrapping `<label>`, floored at `min-h-[32px]` and as wide as the list, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',
-    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+    why: 'one checkbox per listed value, per Also selected value and for an Also selected NULL, 13px inputs whose TARGET is the wrapping `<label>`, floored at `min-h-[32px]` and as wide as the list, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',
+    controls: [
+      '<input type=checkbox|radio> no size class = 13px',
+      '<input type=checkbox|radio> no size class = 13px',
+      '<input type=checkbox|radio> no size class = 13px'
+    ]
   },
   '/src/features/data-explorer/FilterValuesField.tsx': {
     why: 'the (empty) and NULL boxes under the typed list, 13px inputs whose TARGET is the wrapping `<label>`, floored at `min-h-[24px]`, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',

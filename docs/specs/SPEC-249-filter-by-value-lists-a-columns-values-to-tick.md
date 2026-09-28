@@ -392,8 +392,9 @@ requests the listing (FR-002). It shows:
 - when the listing is ready with no entries, "No rows match the other filters, so there are no
   values to list.";
 - *Also selected*: every value that has been in the selection while the picker is mounted and that
-  no entry holds, ticked when it is in the selection now. While the listing is pending or failed,
-  every selected value is here. On a numeric column a selected value and an entry are the same
+  no entry holds, ticked when it is in the selection now — and NULL, where the operator lists it and
+  no entry is NULL, ticked when `includesNull` is. While the listing is pending or failed, every
+  selected value is here. On a numeric column a selected value and an entry are the same
   value when `Number()` of each is equal, so `10` matches `10.0`; otherwise they match as exact
   text;
 - while the listing runs, a busy state; on failure, the error and *Try again*;
@@ -410,7 +411,9 @@ requests the listing (FR-002). It shows:
   *Also selected* shows `Zyrtec` ticked. Unticking `Zyrtec` reports a selection without it and
   leaves `Zyrtec` under *Also selected*, unticked; ticking it again reports it back.
 - [ ] While the listing is pending, the selection `['Abilify']` shows `Abilify` ticked under *Also
-  selected*.
+  selected*, and a selection naming only NULL shows `NULL` ticked there.
+- [ ] A ready listing `[{'a', 3}]` with the selection `['a']` and NULL shows `NULL` ticked under *Also
+  selected*; unticking it reports the selection without NULL.
 - [ ] `truncated` with `valueCount` 12,345 shows "Showing the 1,000 most common of 12,345 values.…",
   and an untruncated listing shows no note.
 - [ ] A count of 1 renders the accessible name `<value>, 1 row`.

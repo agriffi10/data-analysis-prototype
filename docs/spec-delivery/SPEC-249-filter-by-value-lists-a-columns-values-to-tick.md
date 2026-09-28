@@ -12,7 +12,8 @@
   `ColumnValuesProvider` mounted around the whole workspace. The registry, its actions and the
   page reader `readValuesPages` are `columnValuesStore.ts`. A listing is cached under
   `explorerKeys.execution`, never observed, billed to the tab that asked through the ledger, and
-  not stopped when the dialog closes.
+  not stopped when the dialog closes. Every requester waits on the one `runQuery` call, kept in an
+  in-flight map, so an eviction mid-start or a second tab joining cannot strand a request.
 - **`FilterValuePicker`** is the inline, connected picker the AND/OR builder embeds;
   `FilterValueList` is its presentational half. `columnValues.ts` holds which values can be ticked
   (`refusalOf`), when two values are the same (`sameValue`, by number on a numeric column) and the
@@ -36,6 +37,9 @@
   (the plan review asked for the choice to be made).
 - **A second tab asking for a listing that already settled is billed for it** at that moment, as an
   exploration shown in two tabs is (plan review).
+- **The start was rebuilt after the diff review.** The first build waited on `fetchQuery`'s promise
+  and did its bookkeeping in the query function; an eviction that cancelled the start and then a
+  failed start left the dialog counting for ever, and a second tab that joined was never billed.
 - **`UNFILTERABLE_VALUE` moved** from `ExplorationResultsRegion` to `columnValues.ts` and now says
   "This value…", because it labels a listed value, not the cursor's cell.
 
@@ -54,5 +58,7 @@
 Formatter, both linters, both suites, mypy, `npm run build` and the doc validator green locally.
 Mutation-tested the guards whose failure would be silent: `canonical` and `FILTER_KEYS` on
 `includesNull`, the ledger reads and the post-FAILED eviction in the store, the held-first refusal,
-the clear-all rule's truncation test and the aggregate exclusion. The live check in
+the clear-all rule's truncation test and the aggregate exclusion; after the diff review, billing
+every tab that asked, the id check before dropping a failed start, the still-running watch, a
+joining tab's bookkeeping, the NULL-cell seed and Enter in the search field. The live check in
 `docs/testing/e2e.md` runs on the deployed image.

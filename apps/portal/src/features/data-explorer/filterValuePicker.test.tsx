@@ -111,6 +111,27 @@ describe('the values list', () => {
     expect(screen.getByText('Counting the values…')).toBeInTheDocument();
   });
 
+  it('shows a selected NULL the listing does not hold under Also selected, and unticks it', async () => {
+    const {user, reported} = render({
+      listing: ready([{value: 'a', count: 3}]),
+      selection: {values: ['a'], includesNull: true}
+    });
+    const also = screen.getByRole('group', {name: ALSO_SELECTED});
+
+    await user.click(within(also).getByRole('checkbox', {name: 'NULL'}));
+
+    expect(reported).toHaveBeenLastCalledWith({values: ['a'], includesNull: false});
+    expect(within(also).getByRole('checkbox', {name: 'NULL'})).not.toBeChecked();
+  });
+
+  it('shows a selected NULL under Also selected while the listing is still running', () => {
+    render({listing: {status: 'pending'}, selection: {values: [], includesNull: true}});
+
+    expect(
+      within(screen.getByRole('group', {name: ALSO_SELECTED})).getByRole('checkbox', {name: 'NULL'})
+    ).toBeChecked();
+  });
+
   it.each([
     ['cut at the cap', ready(BRANDS, {valueCount: 12_345, truncated: true}), truncationNote(12_345)],
     ['whole', ready(BRANDS), null]

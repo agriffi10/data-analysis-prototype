@@ -63,9 +63,10 @@ function ListingWatcher({
  * The watch is on the execution's own status key, which an eviction does not touch, so an
  * execution caught mid-run is still recorded once.
  *
- * **The start's bookkeeping happens inside its query function.** An eviction during the start
- * request cancels the caller's promise, but the function runs on; registering the execution
- * there is what keeps a started, billed execution watched and recorded when that happens.
+ * **Every requester waits on the `runQuery` call itself, never on the cache's promise.** An
+ * eviction during the start cancels the cache's copy while the call runs on, and a second tab asking
+ * for the same statement joins that one call; waiting on the call is what keeps a started, billed
+ * execution watched and billed to every tab that asked, whatever the cache does meanwhile.
  */
 export function ColumnValuesProvider({
   activeTabId,
