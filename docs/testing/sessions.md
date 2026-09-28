@@ -39,7 +39,8 @@ among its 1,000 most common, so the `(empty)` rows ran on `explorer150`'s `qty`,
 | U | **Remove all filters and sorts**, then **Filter by value…** on `npi` | "Showing the 1,000 most common of **2,012,902** values", five values at 2 rows and the rest at 1 — consistent with 2,012,907 rows. The windowed count held on a real two-million-group column. |
 | V | `last_name` ⋯ → **Filter: is one of…**, `KING`, tick **NULL**, **Apply filter**; then **Order and filter** → **Apply** untouched | Chip `last_name is one of “KING”, NULL`, 2,284 rows. The dialog's row held `KING` with **NULL** ticked and **(empty)** not; the untouched Apply left the chip, the rows and the 412 MB total as they were. |
 | (empty) | `explorer150` `qty` ⋯ → **Filter by value…**, search `empty` | `(empty), 2 rows` listed; ticked and applied, chip `qty is one of (empty)` and the two blank rows. |
-| 7 | Click an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** at once | While the list still read "Counting the values…", `O'Brien` sat ticked under *Also selected*. Applied: 1 row, and *Generated SQL* read `WHERE ("qty" IN ('') AND "owner" IN ('O''Brien'))`. |
+| Pending apply | With `qty is one of (empty)` still applied, click an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** at once | While the list still read "Counting the values…", `O'Brien` sat ticked under *Also selected*, and the apply wrote it: *Generated SQL* read `WHERE ("qty" IN ('') AND "owner" IN ('O''Brien'))`. |
+| 7 | **Remove all filters and sorts**; `owner`'s own list gave the unfiltered count, `O'Brien, 9 rows`. Then an `O'Brien` cell → **Options** → **Filter by value…** → **Apply filter** | The list opened with `O'Brien, 9 rows` ticked, from the cache. Applied: **9 of 9** rows, and *Generated SQL* read `WHERE "owner" IN ('O''Brien')`. |
 
 ### Observed, not a failure
 
