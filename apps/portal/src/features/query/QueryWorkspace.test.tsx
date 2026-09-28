@@ -1066,6 +1066,45 @@ describe('QueryWorkspace', () => {
       expect(editor()).toHaveValue('SELECT region FROM alice.sales;'); // editor keeps the user's SELECT
     });
 
+    it('Create view wraps only the statement under the cursor, and takes its database from that one', async () => {
+      // The other statement names another database: read whole, the buffer is refused as spanning
+      // two, and the cursor sits in the FIRST so the lazy-editor default of the last cannot pass.
+      seedSingle('SELECT region FROM alice.sales;\nSELECT id FROM bob.orders;');
+      mockRunToCompletion.mockResolvedValue(ok(succeeded('q-view')));
+      const {user} = renderWorkspace();
+      const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
+      ta.setSelectionRange(3, 3);
+
+      await user.click(screen.getByRole('button', {name: 'Create view'}));
+      const dialog = screen.getByRole('dialog', {name: 'Create view'});
+      await user.type(within(dialog).getByLabelText('View name'), 'region_view');
+      await user.click(within(dialog).getByRole('button', {name: 'Create'}));
+
+      expect(await screen.findByText('Saved view region_view')).toBeInTheDocument();
+      expect(mockRunToCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: 'CREATE OR REPLACE VIEW "alice"."region_view" AS SELECT region FROM alice.sales',
+          database: 'alice'
+        })
+      );
+    });
+
+    it('refuses Create view on a selection holding several statements, and says why', async () => {
+      seedSingle('SELECT region FROM alice.sales;\nSELECT id FROM alice.orders;');
+      const {user} = renderWorkspace();
+      const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
+      ta.setSelectionRange(0, ta.value.length);
+
+      await user.click(screen.getByRole('button', {name: 'Create view'}));
+
+      expect(
+        await screen.findByText(
+          'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('dialog', {name: 'Create view'})).not.toBeInTheDocument();
+    });
+
     // --- Save results… (real SaveResultsDialog + DestinationPicker) ---
 
     async function runToSucceeded(user: ReturnType<typeof renderWorkspace>['user']) {

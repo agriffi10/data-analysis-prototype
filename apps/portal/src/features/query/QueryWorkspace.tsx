@@ -151,9 +151,9 @@ export function QueryWorkspace() {
   // `columns_removed` notification carries is resolved by `useRefreshLink`.
   const refreshLink = useRefreshLink(connections, connectionsLoading);
   const refresh = useTableRefresh(toast.push, {target: refreshLink.target, onConsumed: refreshLink.clear});
-  // Create view. The target database is derived from the body.
+  // Create view. The body and the database derived from it are captured when the dialog opens.
   const [createViewOpen, setCreateViewOpen] = useState(false);
-  const [createViewDb, setCreateViewDb] = useState('');
+  const [createViewTarget, setCreateViewTarget] = useState({database: '', body: ''});
   const editorRef = useRef<SqlEditorHandle>(null);
   // Monaco carries its own automatic layout, which reacts a frame late; a drag
   // is continuous, so re-measure it as the pane height lands instead.
@@ -358,19 +358,21 @@ export function QueryWorkspace() {
   // (new execution id) starts from defaults.
   const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
-  // Run Statement — the selection, else the statement under the
-  // cursor, else the sole statement. When the editor handle isn't available
-  // (still lazy-loading), the cursor defaults to the buffer end (last statement).
-  //
+  // The statements Run Statement runs and Create view wraps — the selection, else the statement
+  // under the cursor, else the sole statement. When the editor handle isn't available (still
+  // lazy-loading), the cursor defaults to the buffer end (last statement).
+  const pickStatements = () => {
+    const buffer = activeTab.sql;
+    const selection = editorRef.current?.getSelectionRange() ?? null;
+    const cursor = editorRef.current?.getCursorOffset() ?? buffer.length;
+    return resolveRunStatements(buffer, splitSqlStatements(buffer), selection, cursor);
+  };
+
   // A selection holding several statements runs with the tab-per-statement scope: the scopes
   // differ only in how results are shown, and showing only the last of several statements the
   // user picked out hides every result but one.
   const handleRunStatement = () => {
-    const buffer = activeTab.sql;
-    const statements = splitSqlStatements(buffer);
-    const selection = editorRef.current?.getSelectionRange() ?? null;
-    const cursor = editorRef.current?.getCursorOffset() ?? buffer.length;
-    const resolved = resolveRunStatements(buffer, statements, selection, cursor);
+    const resolved = pickStatements();
     submitBatch(resolved, resolved.length > 1 ? 'script-tabs' : 'statement');
   };
 
@@ -429,16 +431,26 @@ export function QueryWorkspace() {
     setClosing(null);
   };
 
-  // Derive the target database from the view body before opening the
-  // dialog; a non-derivable body raises a clear error and never silently picks
-  // a database.
+  // The view wraps the one statement Run Statement would run, never the whole buffer: Athena
+  // refuses a view body of several statements, and the failure toast cannot say why. A selection
+  // taking in several is refused here, with its reason. The target database is derived from the
+  // statement; a non-derivable one raises a clear error and never silently picks a database.
   const handleOpenCreateView = () => {
-    const target = deriveViewTargetDatabase(stripTrailingSemicolons(activeTab.sql));
+    const picked = pickStatements();
+    if (picked.length !== 1) {
+      toast.push({
+        variant: 'danger',
+        message: 'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
+      });
+      return;
+    }
+    const body = picked[0].sql;
+    const target = deriveViewTargetDatabase(body);
     if ('error' in target) {
       toast.push({variant: 'danger', message: target.error});
       return;
     }
-    setCreateViewDb(target.database);
+    setCreateViewTarget({database: target.database, body});
     setCreateViewOpen(true);
   };
 
@@ -465,15 +477,14 @@ export function QueryWorkspace() {
     onDropTable: setDropping
   });
 
-  // Turn the active tab's SQL into a named view, in the background
-  // (the editor keeps showing the user's SELECT). The target database is derived
-  // from the view body's fully-qualified base tables, captured in
-  // `createViewDb` when the dialog opened.
+  // Turn the statement picked when the dialog opened into a named view, in the background
+  // (the editor keeps showing the user's SQL). The target database is derived from that
+  // statement's fully-qualified base tables, and both are held in `createViewTarget`.
   const handleCreateView = (name: string) => {
-    const database = createViewDb;
+    const {database, body} = createViewTarget;
     if (!database) return;
     ddl.run({
-      sql: buildCreateViewSql(database, name, activeTab.sql),
+      sql: buildCreateViewSql(database, name, body),
       database,
       table: name,
       describe: {success: `Saved view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
@@ -835,7 +846,7 @@ export function QueryWorkspace() {
         createView={{
           open: createViewOpen,
           busy: ddl.busy,
-          targetDatabase: createViewDb,
+          targetDatabase: createViewTarget.database,
           onCreate: handleCreateView,
           onCancel: () => setCreateViewOpen(false)
         }}

@@ -435,8 +435,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'A view is a saved query that behaves like a table: it shows up in the schema rail, you can query it by name, and it runs its SQL again each time it’s read, so it always reflects the latest data.',
         steps: [
-          'Write the query in the editor, naming every table in full as <b>database.table</b>, all from the same database. That is the database the view is created in.',
-          'Click <b>Create view</b> in the toolbar above the editor — in a narrower window it shows only its eye icon. If the query names no database, or more than one, a message says so and nothing is created.',
+          'Write the query in the editor, naming every table in full as <b>database.table</b>, all from the same database. That is the database the view is created in. If the editor holds several statements, the view is made from the one <b>Run Statement</b> would run: the one you have selected, or else the one the cursor is in.',
+          'Click <b>Create view</b> in the toolbar above the editor — in a narrower window it shows only its eye icon. If the query names no database, or more than one, or your selection takes in more than one statement, a message says so and nothing is created.',
           'The dialog names the database the view goes into. Type a <b>View name</b> — 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter — and click <b>Create</b>. If that database already has a view of that name, it is replaced.',
           'A message confirms the view was created, and it appears under that database in the schema rail, for anyone who can see that database.',
           'To remove it, open its <b>⋮</b> menu in the schema rail and choose <b>Drop view</b>.'
