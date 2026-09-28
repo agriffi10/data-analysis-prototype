@@ -14,6 +14,7 @@ import {
   billedListings,
   explorationStarts,
   gate,
+  gateEachListingStart,
   gateListingStart,
   installAthena,
   isListing,
@@ -426,6 +427,66 @@ describe('a start in flight answers everyone who asked', () => {
     await cancel(user, second);
     await within(await openListing(user)).findByRole('checkbox', {name: 'Abilify, 40 rows'});
     expect(listingStarts()).toHaveLength(2);
+  });
+});
+
+describe('a start an eviction forgot', () => {
+  it('lets the same tab ask again, and bills it for both executions Athena ran', async () => {
+    const start = gateListingStart();
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    await waitFor(() => expect(explorationStarts()).toHaveLength(2));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+
+    const again = await openListing(user);
+    await waitFor(() => expect(listingStarts()).toHaveLength(2));
+    await act(async () => start.release());
+
+    expect(await within(again).findByRole('checkbox', {name: 'Abilify, 40 rows'})).toBeInTheDocument();
+    await waitFor(() => expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES, LISTING_BYTES]));
+  });
+
+  it('does not forget the newer start when the forgotten one answers late', async () => {
+    const starts = gateEachListingStart();
+    const {user, queryClient} = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(user, await openListing(user));
+    act(() => evictExplorations(queryClient, USERNAME, 'orders'));
+    await waitFor(() => expect(explorationStarts()).toHaveLength(2));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    await cancel(user, await openListing(user));
+    await waitFor(() => expect(starts).toHaveLength(2));
+
+    await act(async () => starts[0].release());
+    const third = await openListing(user);
+    await act(async () => starts[1].release());
+
+    expect(await within(third).findByRole('checkbox', {name: 'Abilify, 40 rows'})).toBeInTheDocument();
+    expect(listingStarts()).toHaveLength(2);
+  });
+
+  it('joins a start still running when the workspace is left and opened again', async () => {
+    const start = gateListingStart();
+    const first = render();
+    await screen.findAllByRole('gridcell');
+    await cancel(first.user, await openListing(first.user));
+    first.unmount();
+    const second = renderWithProviders(<DataExplorerWorkspace />, {
+      route: '/explore',
+      auth: authenticated(USERNAME),
+      strictMode: true,
+      queryClient: first.queryClient
+    });
+    await screen.findAllByRole('gridcell');
+
+    const dialog = await openListing(second.user);
+    await act(async () => start.release());
+
+    expect(await within(dialog).findByRole('checkbox', {name: 'Abilify, 40 rows'})).toBeInTheDocument();
+    await waitFor(() => expect(Object.values(billedListings('t1'))).toEqual([LISTING_BYTES]));
+    expect(listingStarts()).toHaveLength(1);
   });
 });
 

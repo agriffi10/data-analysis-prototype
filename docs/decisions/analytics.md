@@ -1856,9 +1856,11 @@ cost this feature must not have, and a value past the 1,000 is typed with **Filt
 `explorerKeys.execution`, so a catalog change drops it with the explorations over that table. But
 `resetQueries` refetches every OBSERVED entry, so the start is a `fetchQuery` that nothing observes:
 an eviction drops it, and only the next opening starts one. **Every requester waits on the
-`runQuery` call itself, kept in an in-flight map by cache key, never on `fetchQuery`'s promise.** An
-eviction during the start cancels the cache's copy while the call runs on, and a second tab asking
-for the same statement joins the call rather than the cache. The first build hung its bookkeeping
+`runQuery` call itself, kept in an in-flight map by cache key and per query client, never on
+`fetchQuery`'s promise.** An eviction during the start cancels the cache's copy while the call runs
+on, and a second tab asking for the same statement joins the call rather than the cache; a key
+remembers which start it waits on, so one an eviction forgot asks again, and the map outlives a
+remount of the Explorer, which would otherwise pay for the start twice. The first build hung its bookkeeping
 on the cache's promise and the query function; the diff review drove both escapes — a start that
 failed after the cancel left its key "counting" forever, and a joining tab was never linked or
 billed. The

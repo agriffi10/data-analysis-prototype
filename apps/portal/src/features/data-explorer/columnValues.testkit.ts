@@ -154,6 +154,26 @@ export function gateListingStart(fail = false): Deferred {
   return held;
 }
 
+/**
+ * Holds each listing's StartQueryExecution behind a gate of its own, in the order they arrive, so a
+ * test can let one start answer while a later one is still in flight.
+ *
+ * @returns The gates, filled as starts arrive.
+ */
+export function gateEachListingStart(): Deferred[] {
+  const answer = vi.mocked(runQuery).getMockImplementation();
+  const gates: Deferred[] = [];
+  vi.mocked(runQuery).mockImplementation((async (args: {sql: string}) => {
+    if (isListing(args.sql)) {
+      const held = gate();
+      gates.push(held);
+      await held.promise;
+    }
+    return answer?.(args as never);
+  }) as never);
+  return gates;
+}
+
 /** Every listing statement started so far, in order. */
 export function listingStarts(): string[] {
   return vi

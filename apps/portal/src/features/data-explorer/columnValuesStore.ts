@@ -1,7 +1,6 @@
 import {createContext} from 'react';
 import {isCancelledError, type QueryClient, type QueryKey} from '@tanstack/react-query';
 import {getQueryResults, runQuery} from '../catalog/athena.service';
-import {apiRetryPolicy} from '../../lib/apiClient';
 import {unwrap} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import {EXPLORER_FILTER_VALUES_MAX} from './dataExplorer.constants';
@@ -24,7 +23,8 @@ export type ExecutionEntry = {
 };
 
 export type KeyEntry =
-  | {status: 'starting'}
+  /** `launch` is the start this key waits on, so a key whose start an eviction forgot can ask again. */
+  | {status: 'starting'; launch: Promise<string>}
   | {status: 'resolved'; executionId: string; fromCache: boolean}
   | {status: 'error'; error: unknown};
 
@@ -90,6 +90,9 @@ export type ColumnValuesContextValue = {
 };
 
 export const ColumnValuesContext = createContext<ColumnValuesContextValue | null>(null);
+
+// The starts in flight, per query client; see `createActions`.
+const IN_FLIGHT = new WeakMap<QueryClient, Map<string, Promise<string>>>();
 
 /** The spec's listing key, `{tabId, valuesSql}`, as one string. */
 export const keyOf = (tabId: string, sql: string) => `${tabId}\n${sql}`;
@@ -167,12 +170,19 @@ export function createActions(store: ListingStore) {
   // resolved to this execution alone.
   const link = (key: string, tabId: string, id: string, fresh: boolean) => {
     const current = store.get().keys[key];
-    const execution = store.get().executions[id];
-    if (!execution) return;
+    if (!store.get().executions[id]) return;
     if (fresh || current?.status !== 'resolved' || current.executionId !== id) {
       const fromCache = store.env().ledgerOf(tabId)?.[id] !== undefined;
       store.set((registry) => withKey(registry, key, {status: 'resolved', executionId: id, fromCache}));
     }
+    join(tabId, id);
+  };
+
+  // The tab is billed for an execution it asked for whether or not its key still shows it: a key
+  // that moved on to a newer start still asked for this one, and Athena ran it.
+  const join = (tabId: string, id: string) => {
+    const execution = store.get().executions[id];
+    if (!execution) return;
     if (!execution.tabIds.includes(tabId)) {
       store.set((registry) => withExecution(registry, id, (entry) => ({...entry, tabIds: [...entry.tabIds, tabId]})));
     }
@@ -197,20 +207,29 @@ export function createActions(store: ListingStore) {
 
   // Every start in flight, by its cache key, so a second request for the same statement — from
   // another tab, or after an eviction cancelled the cache's copy — joins the one execution rather
-  // than starting another. Each entry is the `runQuery` call itself, which nothing can cancel.
-  const inFlight = new Map<string, Promise<string>>();
+  // than starting another. Each entry is the `runQuery` call itself, which nothing can cancel. Kept
+  // per query client rather than per provider, so leaving the Explorer and coming back mid-start
+  // joins the start already running instead of paying for a second one.
+  const inFlight = () => {
+    const client = store.env().queryClient;
+    const found = IN_FLIGHT.get(client);
+    if (found) return found;
+    const created = new Map<string, Promise<string>>();
+    IN_FLIGHT.set(client, created);
+    return created;
+  };
 
   const start = (key: string, tabId: string, startKey: QueryKey, sql: string) => {
-    store.set((registry) => withKey(registry, key, {status: 'starting'}));
     const hash = JSON.stringify(startKey);
-    let started = inFlight.get(hash);
+    let started = inFlight().get(hash);
     if (!started) {
       const {queryClient, username} = store.env();
       const launched = runQuery({sql, username}).then((result) => unwrap(result).queryExecutionId);
+      const starts = inFlight();
       started = launched;
-      inFlight.set(hash, launched);
+      starts.set(hash, launched);
       const forget = () => {
-        if (inFlight.get(hash) === launched) inFlight.delete(hash);
+        if (starts.get(hash) === launched) starts.delete(hash);
       };
       launched.then(forget, forget);
       // The cache holds the id for the next request, seeded from this one call. An eviction that
@@ -221,28 +240,41 @@ export function createActions(store: ListingStore) {
           queryKey: startKey,
           staleTime: Infinity,
           gcTime: Infinity,
-          // Starting a query is not idempotent: a retry is a second execution and a second bill.
-          retry: apiRetryPolicy('athena.start'),
+          // Literally never: the query function hands back the one call, so a retry could only
+          // replay its answer, while holding the entry in "fetching" through the backoff.
+          retry: false,
           queryFn: () => launched
         })
         .catch((error: unknown) => {
           if (isCancelledError(error)) forget();
         });
     }
-    started.then(
+    const launch = started;
+    store.set((registry) => withKey(registry, key, {status: 'starting', launch}));
+    const waiting = () => {
+      const current = store.get().keys[key];
+      return current?.status === 'starting' && current.launch === launch;
+    };
+    launch.then(
       (id) => {
         register(id, startKey);
-        link(key, tabId, id, false);
+        join(tabId, id);
+        if (waiting()) link(key, tabId, id, false);
       },
-      (error: unknown) => store.set((registry) => withKey(registry, key, {status: 'error', error}))
+      (error: unknown) => {
+        if (waiting()) store.set((registry) => withKey(registry, key, {status: 'error', error}));
+      }
     );
   };
 
   return {
     request: (tabId: string, scope: readonly [string, string, string], sql: string) => {
       const key = keyOf(tabId, sql);
-      if (store.get().keys[key]?.status === 'starting') return;
       const startKey = explorerKeys.execution(scope, sql);
+      // Already waiting on a start that is still running: it answers this request too. One an
+      // eviction forgot is not waited on — the cached listing is gone, so this asks again.
+      const current = store.get().keys[key];
+      if (current?.status === 'starting' && inFlight().get(JSON.stringify(startKey)) === current.launch) return;
       const cached = store.env().queryClient.getQueryData<string>(startKey);
       if (cached === undefined) {
         if (store.env().username !== '') start(key, tabId, startKey, sql);

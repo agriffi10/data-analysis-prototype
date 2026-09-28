@@ -13,7 +13,8 @@
   page reader `readValuesPages` are `columnValuesStore.ts`. A listing is cached under
   `explorerKeys.execution`, never observed, billed to the tab that asked through the ledger, and
   not stopped when the dialog closes. Every requester waits on the one `runQuery` call, kept in an
-  in-flight map, so an eviction mid-start or a second tab joining cannot strand a request.
+  in-flight map per query client, so an eviction mid-start, a second tab joining or a remount of the
+  Explorer cannot strand a request or pay for a start twice.
 - **`FilterValuePicker`** is the inline, connected picker the AND/OR builder embeds;
   `FilterValueList` is its presentational half. `columnValues.ts` holds which values can be ticked
   (`refusalOf`), when two values are the same (`sameValue`, by number on a numeric column) and the
