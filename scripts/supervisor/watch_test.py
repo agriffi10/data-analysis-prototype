@@ -1,11 +1,13 @@
-"""The fixture corpus for ``watch.sh``'s verdict on main, the line that wakes the supervisor.
+"""The fixture corpus for the supervisor's two readers of main: ``watch.sh`` and ``done_check.py``.
 
 GitHub's list endpoint intermittently serves a page of runs weeks stale in place of the newest, and
 a watch that read main's head off that page printed ``no push run yet`` while main was green — the
 verdict the supervisor's guide treats, when it persists, as a push event GitHub dropped and a
 human's call. Each case here runs the real ``watch.sh`` once against a throwaway checkout and bare
 origin, with a fake ``gh`` first on PATH, and asserts the exact ``MAIN`` or ``ALERT`` line it
-prints about main, including the case the fault produced and the verdict it faked.
+prints about main, including the case the fault produced and the verdict it faked. The same
+fixture then asks ``done_check.main_is_green``, which withholds ARCHIVABLE, and it must answer
+True exactly when the watch printed ``green``: two readers of one head that disagree are one wrong.
 
 The fake's model of the runs endpoint is the queue corpus's ``fake_gh``, imported rather than
 copied, so both readers of main are measured against one model of the stale page: it serves that
@@ -33,14 +35,18 @@ from typing import NamedTuple
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "pr-queue"))
+sys.path.insert(0, str(HERE))
 
+import done_check
 from pre_push_test import (
     HEAD,
     OLDER,
     RUNS_ENDPOINT,
     dependabot,
     fake_gh,
+    gh_run,
     pushed,
+    running,
 )
 
 
@@ -70,6 +76,12 @@ CASES: tuple[Case, ...] = (
     Case("a_failed_push_run_on_the_head_is_red",
          (dependabot("success"), pushed("failure", "Deploy Lambdas"), pushed()),
          "MAIN {sha} RED: Deploy Lambdas"),
+    Case("a_push_run_still_going_is_building",
+         (running("Deploy Lambdas"), pushed()),
+         "MAIN {sha} building"),
+    Case("a_push_run_on_another_branch_at_the_head_is_not_main",
+         (gh_run(HEAD, "push", "failure", "CI", branch="topic"), pushed()),
+         "MAIN {sha} green"),
     Case("a_head_with_only_a_dependabot_job_has_no_push_run_yet",
          (dependabot(), pushed(sha=OLDER)),
          "MAIN {sha} no push run yet"),
@@ -137,7 +149,7 @@ def _fixture(root: pathlib.Path) -> tuple[pathlib.Path, str]:
 
 
 def run(case: Case, root: pathlib.Path) -> list[str]:
-    """Runs ``watch.sh`` once for a case and compares what it said about main.
+    """Runs ``watch.sh`` and ``main_is_green`` once for a case and compares what each said.
 
     Args:
       case: The case.
@@ -171,6 +183,15 @@ def run(case: Case, root: pathlib.Path) -> list[str]:
         problems.append(f"watch.sh exited {done.returncode}: {done.stderr.strip()[:200]!r}")
     if about_main != [want]:
         problems.append(f"said {about_main!r} about main, wanted [{want!r}]")
+    green = done_check.GH, dict(done_check._ENV)
+    done_check.GH = str(bindir / "gh")
+    done_check._ENV["FAKE_GH_STATE"] = str(state)
+    try:
+        archivable = done_check.main_is_green(str(watch.parents[2]))
+    finally:
+        done_check.GH, done_check._ENV = green
+    if archivable != (want == f"MAIN {sha[:8]} green"):
+        problems.append(f"main_is_green said {archivable} where watch.sh said {about_main!r}")
     calls = state.with_suffix(".calls")
     if not calls.is_file() or f"api {RUNS_ENDPOINT}?head_sha={sha}" not in calls.read_text():
         problems.append("the fake gh was never asked for the head's runs, so this measured "

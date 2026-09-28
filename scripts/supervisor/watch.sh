@@ -73,16 +73,15 @@ sha = os.environ["HEAD_SHA"]
 try:
     page = json.load(sys.stdin)
     runs, total = page["workflow_runs"], page["total_count"]
+    mine = [r for r in runs if r["head_sha"] == sha]
+    bad = [r["name"] for r in mine if r["status"] == "completed" and r["conclusion"] not in ("success", "skipped", "neutral")]
+    busy = [r for r in mine if r["status"] != "completed"]
+    verdict = "no push run yet" if not mine else "RED: " + ", ".join(bad) if bad else "building" if busy else "green"
+    if total > len(runs):
+        verdict = "unreadable: %d push runs, one page holds %d" % (total, len(runs))
 except (ValueError, KeyError, TypeError):
-    print("ALERT could not parse the runs of main")
-    sys.exit()
-mine = [r for r in runs if r["head_sha"] == sha]
-bad = [r["name"] for r in mine if r["status"] == "completed" and r["conclusion"] not in ("success", "skipped", "neutral")]
-busy = [r for r in mine if r["status"] != "completed"]
-verdict = "no push run yet" if not mine else "RED: " + ", ".join(bad) if bad else "building" if busy else "green"
-if total > len(runs):
-    verdict = "unreadable: %d push runs, one page holds %d" % (total, len(runs))
-print("MAIN %s %s" % (sha[:8], verdict))'
+    verdict = None
+print("MAIN %s %s" % (sha[:8], verdict) if verdict else "ALERT could not parse the runs of main")'
   else echo "ALERT gh api actions/runs failed"; fi
   "$HERE/overlap.sh" 2>/dev/null | grep -E '^(SHARED|CONFLICT)'
   if done=$(python3 "$HERE/done_check.py" --no-fetch --self "$SELF" 2>&1); then

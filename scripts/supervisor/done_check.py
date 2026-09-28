@@ -276,13 +276,17 @@ def main_is_green(repo: str) -> bool:
              cwd=repo)
     if r.returncode != 0:
         return False
-    page = json.loads(r.stdout)
-    if page["total_count"] > len(page["workflow_runs"]):
+    try:
+        page = json.loads(r.stdout)
+        runs = page["workflow_runs"]
+        if page["total_count"] > len(runs):
+            return False
+        mine = [x for x in runs if x["head_sha"] == sha]
+        return bool(mine) and all(
+            x["status"] == "completed" and x["conclusion"] in ("success", "skipped", "neutral") for x in mine
+        )
+    except (ValueError, KeyError, TypeError):
         return False
-    mine = [x for x in page["workflow_runs"] if x["head_sha"] == sha]
-    return bool(mine) and all(
-        x["status"] == "completed" and x["conclusion"] in ("success", "skipped", "neutral") for x in mine
-    )
 
 
 def lock_branch(repo: str) -> str | None:

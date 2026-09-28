@@ -173,6 +173,10 @@ files = [
     # else pins, so its types and its test's are held here.
     "scripts/supervisor/done_check.py",
     "scripts/supervisor/done_check_test.py",
+    # The corpus for the supervisor's two readers of main joins on the same precedent, entering
+    # at zero, and brings the queue corpus whose fake `gh` it imports, so that import resolves.
+    "scripts/supervisor/watch_test.py",
+    "scripts/pr-queue/pre_push_test.py",
     # The one-shot that moves the app-managed folders. It joins the ratchet WITH the change that
     # creates it, entering at zero, on the precedent above. Its failure mode is the reason: it
     # deletes production objects against a persisted record, so a wrong Optional or a widened dict
