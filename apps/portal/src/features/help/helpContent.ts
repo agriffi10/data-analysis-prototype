@@ -402,7 +402,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'A query here filters with the <b>WHERE</b> you type. To pick values from a list instead — every value a column holds, with how many rows hold each — open the table in the <b>Data Explorer</b>.',
         steps: [
-          'Open a table’s menu in the <b>Databases</b> list and choose <b>Explore data</b>, or click <b>Explore in Data Explorer</b> above a result.',
+          'Hover over a table in the <b>Databases</b> rail, open its <b>⋮</b> menu and choose <b>Explore data</b>, or click <b>Explore in Data Explorer</b> above a result.',
           'In the Data Explorer, open a column’s <b>⋯</b> menu and choose <b>Filter by value…</b>. Tick the values to keep, or choose <b>is not one of</b> to hide them. <b>NULL</b> and <b>(empty)</b> are listed like any other value.',
           'The filter is written out as SQL under <b>Generated SQL</b>, and <b>Open in Query</b> brings that statement back here to edit.'
         ]
