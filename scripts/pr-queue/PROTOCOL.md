@@ -246,8 +246,13 @@ push run for that sha yet; a run that concluded anything other than success/skip
 Dependabot security update that could not be applied into a RED `main` for every session, and
 nothing could clear it: no re-run could succeed while the conflict that failed it stood, only a
 merge moves the head, and the queue was refusing every merge. The API does the filtering
-(`--event push`) rather than the `--jq`, so `--limit` counts push runs alone and a burst of
-Dependabot jobs cannot crowd `main`'s own runs out of the window.
+(`event=push`) rather than the `--jq`, so the page counts push runs alone and a burst of
+Dependabot jobs cannot crowd `main`'s own runs out of it.
+
+**The runs are asked for by the head's sha** (`actions/runs?head_sha=`), never read off a page of
+the branch's newest runs: GitHub's list endpoint intermittently serves a page weeks stale, and a
+head missing from it read as "no push run yet" while `main` was green. One page is read, and a
+head with more push runs than it holds is refused as unreadable rather than judged on a subset.
 
 Its known limits: it can only judge the runs that **exist**, so in the seconds between one workflow
 being created and another it can see a green subset; and a head with **no push run at all** waits

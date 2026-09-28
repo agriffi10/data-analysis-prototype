@@ -20,7 +20,11 @@ These pass locally and fail later — check them as part of the work, not as an 
   judged by its push runs only**: Dependabot's jobs record `main`'s head too, and a failed one beside
   green deploys is not a red `main`, though an unfiltered `gh run list` shows it as one. The filter
   hides the weekly scheduled Security scan too; its result is
-  `gh run list --workflow security.yml --event schedule --limit 1`.
+  `gh run list --workflow security.yml --event schedule --limit 1`. **Nor is the list a reliable
+  read of the newest runs**: its endpoint intermittently serves a page weeks stale, and a head
+  missing from that page reads as "no push run yet" while `main` is green. So every script that
+  judges a commit asks `actions/runs?head_sha=` for it — `watch_ci.py`, the queue's `turn` and the
+  supervisor's watch — and a person reading the list checks its dates first.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.

@@ -60,20 +60,30 @@ snapshot() {
     [ -n "$prs" ] && echo "$prs"
   else echo "ALERT gh pr list failed"; fi
   # main is judged at the remote's head, not at the newest run: a push GitHub dropped leaves the
-  # newest run on the PREVIOUS commit, green, while the merge was never deployed.
+  # newest run on the PREVIOUS commit, green, while the merge was never deployed. Its runs are
+  # asked for by sha, because the list endpoint intermittently serves a page weeks stale, and a
+  # head missing from that page read as "no push run yet" while main was green.
   head=$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')
   if [ -z "$head" ]; then
     echo "ALERT could not read main's head from origin"
-  elif runs=$(gh run list --branch main --event push --limit 20 --json headSha,name,status,conclusion 2>&1); then
+  elif runs=$(gh api "repos/{owner}/{repo}/actions/runs?head_sha=$head&branch=main&event=push&per_page=100" 2>&1); then
     echo "$runs" | HEAD_SHA="$head" python3 -c '
 import json, os, sys
 sha = os.environ["HEAD_SHA"]
-mine = [r for r in json.load(sys.stdin) if r["headSha"] == sha]
+try:
+    page = json.load(sys.stdin)
+    runs, total = page["workflow_runs"], page["total_count"]
+except (ValueError, KeyError, TypeError):
+    print("ALERT could not parse the runs of main")
+    sys.exit()
+mine = [r for r in runs if r["head_sha"] == sha]
 bad = [r["name"] for r in mine if r["status"] == "completed" and r["conclusion"] not in ("success", "skipped", "neutral")]
 busy = [r for r in mine if r["status"] != "completed"]
 verdict = "no push run yet" if not mine else "RED: " + ", ".join(bad) if bad else "building" if busy else "green"
+if total > len(runs):
+    verdict = "unreadable: %d push runs, one page holds %d" % (total, len(runs))
 print("MAIN %s %s" % (sha[:8], verdict))'
-  else echo "ALERT gh run list failed"; fi
+  else echo "ALERT gh api actions/runs failed"; fi
   "$HERE/overlap.sh" 2>/dev/null | grep -E '^(SHARED|CONFLICT)'
   if done=$(python3 "$HERE/done_check.py" --no-fetch --self "$SELF" 2>&1); then
     printf '%s\n' "$done" | awk -F'\t' '$4=="ARCHIVABLE"{print "ARCHIVABLE " $1 " " $2}'

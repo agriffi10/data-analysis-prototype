@@ -255,7 +255,9 @@ def main_is_green(repo: str) -> bool:
 
     The head is read from the remote rather than taken from the newest run: a push event GitHub
     dropped leaves the newest run on the previous commit, green, while the merge that is main's
-    head was never deployed. A head with no push run, or any failed read, is not green.
+    head was never deployed. Its runs are asked for by sha, because the list endpoint
+    intermittently serves a page weeks stale that the head is missing from. A head with no push
+    run, more push runs than one page holds, or any failed read, is not green.
 
     Args:
       repo: The main checkout.
@@ -267,12 +269,17 @@ def main_is_green(repo: str) -> bool:
       None.
     """
     head = _run([GIT, "ls-remote", "origin", "refs/heads/main"], cwd=repo)
-    sha = head.stdout.split()[0] if head.returncode == 0 and head.stdout.strip() else None
-    r = _run([GH, "run", "list", "--branch", "main", "--event", "push", "--limit", "20",
-              "--json", "headSha,status,conclusion"], cwd=repo)
-    if sha is None or r.returncode != 0:
+    if head.returncode != 0 or not head.stdout.strip():
         return False
-    mine = [x for x in json.loads(r.stdout) if x["headSha"] == sha]
+    sha = head.stdout.split()[0]
+    r = _run([GH, "api", f"repos/{{owner}}/{{repo}}/actions/runs?head_sha={sha}&branch=main&event=push&per_page=100"],
+             cwd=repo)
+    if r.returncode != 0:
+        return False
+    page = json.loads(r.stdout)
+    if page["total_count"] > len(page["workflow_runs"]):
+        return False
+    mine = [x for x in page["workflow_runs"] if x["head_sha"] == sha]
     return bool(mine) and all(
         x["status"] == "completed" and x["conclusion"] in ("success", "skipped", "neutral") for x in mine
     )
