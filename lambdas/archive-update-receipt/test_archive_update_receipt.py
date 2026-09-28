@@ -5,6 +5,7 @@ is the thing this file mostly exists to pin. Before the bill a failed write fail
 the data has landed it must not; and the third stage always raises whatever the write did.
 """
 
+import json
 import os
 import sys
 
@@ -27,6 +28,7 @@ _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ID = "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c"
 _ARCHIVE_ROOT = f"personal/alice/archive/{_ARCHIVE_ID}/"
 _RECEIPT_KEY = f"alice/archive/{_ARCHIVE_ID}/receipt.txt"
+_INDEX_KEY = "alice/system_settings/archive/index.json"
 
 #: The vault as a complete archive holds it: five archived objects and this plane's own record,
 #: which ``is_archived_object`` excludes by its exact key at the root. The fixture's
@@ -89,6 +91,9 @@ class _FakeS3:
         self._list_errors = list(list_errors)
         self.listed = []
         self.puts = []
+        self.index = {}
+        self.index_puts = 0
+        self.index_error = None
 
     def get_paginator(self, name):
         fake = self
@@ -109,6 +114,11 @@ class _FakeS3:
         return _P()
 
     def get_object(self, Bucket, Key):
+        if Key == _INDEX_KEY:
+            if Key not in self.index:
+                raise _S3Error("NoSuchKey", 404)
+            body, etag = self.index[Key]
+            return {"Body": _Body(body), "ETag": etag}
         if self._get_error:
             raise self._get_error
         if self._existing is None:
@@ -116,9 +126,33 @@ class _FakeS3:
         return {"Body": _Body(self._existing.encode())}
 
     def put_object(self, **kwargs):
-        if self._put_error:
+        if kwargs["Key"] == _INDEX_KEY:
+            self._put_index(**kwargs)
+        elif self._put_error:
             raise self._put_error
-        self.puts.append(kwargs)
+        else:
+            self.puts.append(kwargs)
+
+
+    def _put_index(self, Key, Body, IfMatch=None, IfNoneMatch=None, **_):
+        """The index's conditional write, kept apart from ``puts`` so the receipt's tests read as before."""
+        self.index_puts += 1
+        if self.index_error:
+            raise self.index_error
+        current = self.index.get(Key)
+        if IfNoneMatch == "*" and current is not None:
+            raise _S3Error("ConditionalRequestConflict", 409)
+        if IfMatch is not None and (current is None or current[1] != IfMatch):
+            raise _S3Error("PreconditionFailed", 412)
+        self.index[Key] = (Body, f'"etag-{self.index_puts}"')
+
+    def seed_index(self):
+        """An index holding this archive's entry, as write-receipt would have left it."""
+        entry = {"archiveId": _ARCHIVE_ID, "name": "Q1", "restore": None}
+        self.index[_INDEX_KEY] = (json.dumps({"version": 1, "archives": [entry]}).encode(), '"etag-0"')
+
+    def restore_recorded(self):
+        return json.loads(self.index[_INDEX_KEY][0])["archives"][0]["restore"]
 
 
 def _install(**kwargs):
@@ -431,3 +465,105 @@ def test_the_receipt_never_says_the_archive_is_intact_and_says_what_it_counted_i
     assert replacement in written
     assert "The archive is intact" not in written
     assert "archive is still intact" not in written
+
+
+# ── The index records each stage, and never costs the run ───────────────────
+
+
+def _indexed(status="restored", **overrides):
+    request = _request(status=status, **overrides)
+    request["archive"] = {**request["archive"], "indexKey": _INDEX_KEY}
+    return request
+
+
+def test_each_stage_is_recorded_on_the_archives_index_entry():
+    fake = _install()
+    fake.seed_index()
+
+    m.handler(_indexed(status="requested"), None)
+    assert fake.restore_recorded()["status"] == "requested"
+    m.handler(_indexed(status="restored"), None)
+
+    recorded = fake.restore_recorded()
+    assert recorded["status"] == "restored"
+    assert recorded["requestedAt"] == "2026-08-12T09:30:00.000Z"
+    assert recorded["updatedAt"] > recorded["requestedAt"]
+
+
+def test_a_requested_stage_whose_receipt_failed_leaves_the_index_alone():
+    """That failure fails the run before anything is billed, so no restore ever started."""
+    fake = _install(put_error=_S3Error("AccessDenied", 403))
+    fake.seed_index()
+
+    with pytest.raises(_S3Error, match="AccessDenied"):
+        m.handler(_indexed(status="requested"), None)
+
+    assert fake.index_puts == 0
+    assert fake.restore_recorded() is None
+
+
+def test_a_finished_restore_is_recorded_even_when_its_receipt_could_not_be():
+    fake = _install(put_error=_S3Error("AccessDenied", 403))
+    fake.seed_index()
+
+    m.handler(_indexed(status="restored"), None)
+
+    assert fake.restore_recorded()["status"] == "restored"
+
+
+def test_an_incomplete_restore_is_recorded_before_the_run_fails():
+    fake = _install(vault=[])
+    fake.seed_index()
+
+    with pytest.raises(TerminalError):
+        m.handler(_indexed(status="incomplete", transferOutcome={"copied": 2, "failed": 3, "expected": 5}), None)
+
+    assert fake.restore_recorded()["status"] == "incomplete"
+
+
+def test_an_index_fault_does_not_change_what_the_stage_returns():
+    fake = _install()
+    fake.seed_index()
+    fake.index_error = _S3Error("AccessDenied", 403)
+
+    out = m.handler(_indexed(status="restored"), None)
+
+    assert fake.index_puts == 1
+    assert out["receiptKey"] == _RECEIPT_KEY
+
+
+def test_a_restore_validated_before_the_index_existed_records_nothing():
+    """Deploy skew: a restore waits hours, so it can be validated by the old front door and
+    finish on the new verb, with no index key on its state."""
+    fake = _install()
+    fake.seed_index()
+
+    out = m.handler(_request(status="restored"), None)
+
+    assert fake.index_puts == 0
+    assert out["receiptKey"] == _RECEIPT_KEY
+
+
+def test_the_rewrite_of_a_named_receipt_changes_only_the_two_restore_lines():
+    named = receipt.render(
+        {
+            "name": "Q1 reports",
+            "requestId": _ARCHIVE_ID,
+            "startedAt": "2026-08-10T14:02:11.123Z",
+            "source": {"bucket": "user-bkt", "root": "alice/"},
+            "archive": {"bucket": "archive-bkt", "root": _ARCHIVE_ROOT},
+            "fileCount": 3,
+            "totalBytes": 10,
+        }
+    )
+
+    rewritten = receipt.rewrite(
+        named, {"status": "restored", "destination": "s3://user-bkt/alice/", "requestedAt": "2026-08-12T09:30:00Z"}
+    )
+
+    labels = (receipt.RESTORE_REQUESTED_LABEL, receipt.RESTORED_TO_LABEL)
+    before = [line for line in named.splitlines() if not line.startswith(labels)]
+    after = [line for line in rewritten.splitlines() if not line.startswith(labels)]
+    assert after == before
+    assert before[0].startswith("Name:") and before[0].endswith("Q1 reports")
+    assert named != rewritten

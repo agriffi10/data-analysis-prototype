@@ -44,7 +44,7 @@ from cpcommon.app_managed import receipt_folder_prefix, vault_archive_prefix
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
-from .config import RECEIPT_NAME, SPACE_KINDS
+from .config import ARCHIVE_INDEX_NAME, RECEIPT_NAME, SPACE_KINDS
 
 _UUID_V4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE
@@ -167,6 +167,25 @@ def receipt_key(name: str, request_id) -> str:
       TerminalError: ``invalid_request`` for a bad request id, ``forbidden`` for an empty name.
     """
     return f"{receipt_root(name, request_id)}{RECEIPT_NAME}"
+
+
+def index_key(name: str) -> str:
+    """Builds the key of the space's archive index, beside the receipt folders it labels.
+
+    ``{name}/system_settings/archive/index.json`` — one per space, in the space's own bucket, in
+    the folder users can read and cannot write. It carries no request id: every archive of the
+    space shares it, which is why its writes are compare-and-swaps.
+
+    Args:
+      name: The space's name, which is also its root prefix.
+
+    Returns:
+      The index's key.
+
+    Raises:
+      TerminalError: ``forbidden`` for an empty name.
+    """
+    return f"{receipt_folder_prefix(normalize_root(name))}{ARCHIVE_INDEX_NAME}"
 
 
 def archived_key(archive_prefix: str, source_root: str, source_key: str) -> str:

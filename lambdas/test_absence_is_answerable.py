@@ -154,6 +154,13 @@ DISPOSITIONS = {
     "lambdas/log-sweep/log_sweep.py::_read_day": FAIL_SAFE_CAS,
     "lambdas/feedback-writer/feedback_writer.py::_read": FAIL_SAFE_CAS,
     "lambdas/table-builder-common/tbcommon/table_lock.py::_read": FAIL_SAFE_CAS,
+    # The archive index: a proven 404 starts a fresh document whose write is create-only, and any
+    # other read fault raises into ``_mutate``, which swallows it with every other index fault.
+    # The archive role holds the covering list grant (SourceDataList on both space buckets), so a
+    # missing index reads as missing and the first archive of a space creates it; were the grant
+    # lost, the cost would be labels in the restore list, never an archive or a restore.
+    "lambdas/archive-common/arcommon/index_store.py::_read": FAIL_SAFE_CAS,
+    "lambdas/archive-common/arcommon/index_store.py::_mutate": FAIL_SAFE_CAS,
     # The record is an optimisation, not a fact, and both docstrings say so: losing it costs one
     # re-head or one skipped cross-check. A throttle is re-raised before the tolerance applies,
     # which is the only way it could cost anything.

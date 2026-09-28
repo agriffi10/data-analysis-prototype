@@ -32,7 +32,12 @@ re-rendered the whole file from the restore's own state would silently blank the
 line. The rewrite is therefore keyed on the two LABELS and keeps every other line verbatim,
 and ``render`` remains the only thing that decides what a fresh document looks like.
 
+**The name, when the user gave one, is the first line**, because it is how they will recognise
+the file among others. It cannot carry a line break — ``arcommon.names`` refuses every character
+that would start one — so it can never masquerade as one of the labels the rewrite keys on.
+
 Attributes:
+  NAME_LABEL: The label of the archive's name, the document's first line.
   RESTORE_REQUESTED_LABEL: The label the rewrite replaces with the restore's timestamp.
   RESTORED_TO_LABEL: The label the rewrite replaces with where the data landed.
   _UNITS: The unit ladder, ending at TB. The ceiling is the shared behaviour, not an oversight:
@@ -55,6 +60,8 @@ from . import messages  # noqa: F401
 from .config import RECEIPT_NAME  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+NAME_LABEL = "Name"
 
 RESTORE_REQUESTED_LABEL = "Restore requested"
 
@@ -141,8 +148,9 @@ def render(record: dict) -> str:
     rewrites this file rather than appending to it, and two renderers would be two formats.
 
     Args:
-      record: The archive's outcome — the request id, the execution's start time, the source and
-        archive locations, the file count and the byte total. The file count leaves folder
+      record: The archive's outcome — the archive's name (None when it has none), the request
+        id, the execution's start time, the source and archive locations, the file count and the
+        byte total. The file count leaves folder
         placeholders out, so ``Files archived`` is the number the notification names whenever
         the archive holds a file. An archive of nothing but empty folders records 0 here, where
         the notification names the empty folders, and its size records what they held.
@@ -159,6 +167,7 @@ def render(record: dict) -> str:
     archive = record.get("archive") or {}
     total_bytes = record.get("totalBytes") or 0
     lines = [
+        _line(NAME_LABEL, record.get("name") or _ABSENT),
         _line("Requested", _timestamp(record.get("startedAt"))),
         _line("Request ID", record.get("requestId") or _ABSENT),
         _line("Original path", f"s3://{source.get('bucket')}/{source.get('root')}"),
