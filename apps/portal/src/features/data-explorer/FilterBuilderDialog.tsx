@@ -263,6 +263,7 @@ export function FilterBuilderDialog({
               className="basis-full"
               label={`${label}: values, one per line`}
               labelHidden
+              column={row.column}
               value={row.listField}
               offersEmpty={draftValueKind(row, valueKindOf) === 'string'}
               offersNull={operatorListsNull(row.operator)}

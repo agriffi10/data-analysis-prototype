@@ -575,8 +575,9 @@ describe('Order and filter refuses what the value dialog refuses', () => {
     await screen.findAllByRole('gridcell');
     const dialog = await openOrderFilter(user);
     expect(within(dialog).getByLabelText('Values for note, one per line')).toHaveValue('a');
-    expect(within(dialog).getByRole('checkbox', {name: '(empty)'})).toBeChecked();
-    expect(within(dialog).getByRole('checkbox', {name: 'NULL'})).toBeChecked();
+    // Named for their column, since one dialog can hold a list field per column.
+    expect(within(dialog).getByRole('checkbox', {name: 'note: (empty)'})).toBeChecked();
+    expect(within(dialog).getByRole('checkbox', {name: 'note: NULL'})).toBeChecked();
 
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
 

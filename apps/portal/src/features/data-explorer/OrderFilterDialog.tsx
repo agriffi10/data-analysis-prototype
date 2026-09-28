@@ -353,6 +353,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   labelHidden
                   value={listFields[column.name] ?? listFieldOf(null)}
                   column={column.name}
+                  boxNamePrefix={column.name}
                   offersEmpty={(filter.valueKind ?? 'string') === 'string'}
                   offersNull={operatorListsNull(filter.operator)}
                   error={errors[column.name] || null}
