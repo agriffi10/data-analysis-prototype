@@ -734,7 +734,7 @@ statement that begins `SELECT "<column>" AS "value"`.
 | R | Tick two brands and `(empty)`, **Apply filter** | **1** execution. The grid shows only those rows; the tab's scanned total rose by the listing plus the apply. |
 | S | Open **Filter by value…** on `brnd_name` again | All three ticked, **zero** new listings, and the line says it was loaded from an earlier run. |
 | T | Choose **is not one of**, **Apply filter** | The grid shows every other brand, and no NULL rows. |
-| U | **Filter by value…** on the ID column | The note reads *Showing the 1,000 most common of N values*, N being the column's true distinct count (check it with `SELECT COUNT(DISTINCT id)` in Query). |
+| U | **Options** → **Remove all filters and sorts**, then **Filter by value…** on the ID column | The note reads *Showing the 1,000 most common of N values*. Check N with `SELECT COUNT(DISTINCT id)` in Query — N is one more than that if the column holds any NULL, because the list counts NULL as a value and `COUNT(DISTINCT)` skips it. The other filters narrow the list, which is why they are removed first. |
 | V | Another text column's **⋯** → **Filter: is one of…**, type one value, tick **NULL**, **Apply filter** | That value's rows and the NULL rows. Then **Options** → **Order and filter** → **Apply** untouched: **zero** executions. |
 
 ### 4.6 Data quality

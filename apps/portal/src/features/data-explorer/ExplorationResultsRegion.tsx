@@ -176,6 +176,9 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 /** Why a column's values cannot be listed: every tick becomes an `is one of`, which only these columns offer. */
 export const FILTER_BY_VALUE_TYPES_REFUSAL = 'Filter by value works on text and number columns.';
+/** Why a grouped view's aggregate cannot be listed: the listing reads the rows before grouping, which have no such column. */
+export const AGGREGATE_FILTER_BY_VALUE_REFUSAL =
+  'This column is worked out by the grouping, so its values can’t be listed.';
 /**
  * Why a held tab's values cannot be listed. The listing carries the filter expression, and a held
  * tab's is SQL from a shared file the user has not yet chosen to run.
@@ -479,8 +482,9 @@ export function ExplorationResultsRegion({
     filterByValueRefusalOf: (column) => {
       const refusal = queryRefusalOf(column);
       if (refusal !== null) return refusal;
-      const aggregate = query.grouping?.aggregates.some((a) => aggregateAlias(a) === column) ?? false;
-      return aggregate || !operatorsFor(typeOf.get(column) ?? '').includes('in') ? FILTER_BY_VALUE_TYPES_REFUSAL : null;
+      if (query.grouping?.aggregates.some((a) => aggregateAlias(a) === column))
+        return AGGREGATE_FILTER_BY_VALUE_REFUSAL;
+      return operatorsFor(typeOf.get(column) ?? '').includes('in') ? null : FILTER_BY_VALUE_TYPES_REFUSAL;
     },
     // `setFilter` drops whichever of the two fields this operator does not read, so a
     // caller cannot leave a stale value behind on the way to a list operator.

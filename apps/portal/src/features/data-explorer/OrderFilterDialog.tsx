@@ -1,6 +1,7 @@
 import {useId, useState} from 'react';
 import {Button} from '../../components/Button';
 import {FormDialog} from '../../components/FormDialog';
+import {REFUSED_CONTROL} from '../../components/fieldStyles';
 import {Input} from '../../components/Input';
 import {cx} from '../../lib/cx';
 import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
@@ -31,9 +32,6 @@ import {isBareNumeric} from './renderExplorationSql';
 import type {ListFieldValue} from './explorationQueryOps';
 import type {ExplorationQuery, FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
-
-/** How a refused control looks: dimmed like `Button.disabledReason`, and still focusable. */
-const REFUSED = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-45';
 
 export type OrderFilterSettings = {
   query: ExplorationQuery;
@@ -216,7 +214,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   type="checkbox"
                   aria-label={`Show ${column.name}`}
                   checked={!hidden}
-                  className={REFUSED}
+                  className={REFUSED_CONTROL}
                   aria-disabled={lastVisible || undefined}
                   aria-describedby={lastVisible ? showReasonId : undefined}
                   onChange={() => {
@@ -239,7 +237,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
 
               <select
                 aria-label={`Sort ${column.name}`}
-                className={cx(SELECT_CLASS, REFUSED)}
+                className={cx(SELECT_CLASS, REFUSED_CONTROL)}
                 aria-disabled={refusal !== null || undefined}
                 aria-describedby={refusal !== null ? queryReasonId : undefined}
                 value={sort?.direction ?? ''}
@@ -279,7 +277,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
 
               <select
                 aria-label={`Filter ${column.name}`}
-                className={cx(SELECT_CLASS, REFUSED)}
+                className={cx(SELECT_CLASS, REFUSED_CONTROL)}
                 aria-disabled={refusal !== null || undefined}
                 aria-describedby={refusal !== null ? queryReasonId : undefined}
                 value={filter?.operator ?? ''}
@@ -316,6 +314,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   label={`Values for ${column.name}, one per line`}
                   labelHidden
                   value={listFields[column.name] ?? listFieldOf(null)}
+                  column={column.name}
                   offersEmpty={(filter.valueKind ?? 'string') === 'string'}
                   offersNull={operatorListsNull(filter.operator)}
                   error={errors[column.name] || null}

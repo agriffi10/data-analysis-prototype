@@ -15,13 +15,15 @@ export type FilterValuesFieldProps = {
   offersEmpty: boolean;
   /** Offer the NULL box: only where the operator can list NULL. */
   offersNull: boolean;
+  /** The column the list is for, which the boxes' group names — several rows of them can share a dialog. */
+  column: string;
   error?: string | null;
   onChange: (value: ListFieldValue) => void;
   className?: string;
 };
 
-/** The group of boxes under the lines, named once so both surfaces and their tests agree. */
-export const ALSO_IN_THE_LIST = 'Also in the list';
+/** The group of boxes under the lines, named once so both surfaces and their tests agree; the column follows it. */
+export const ALSO_IN_THE_LIST = 'Also in the list for';
 
 /**
  * The one-value-per-line field both list-operator surfaces use, with a box for each value a
@@ -49,6 +51,7 @@ export function FilterValuesField({
   value,
   offersEmpty,
   offersNull,
+  column,
   error,
   onChange,
   className
@@ -93,7 +96,7 @@ export function FilterValuesField({
       )}
       {(offersEmpty || offersNull) && (
         <fieldset className="mt-2 flex flex-wrap items-center gap-x-4">
-          <legend className="float-left mr-3 text-xs text-text-2">{ALSO_IN_THE_LIST}</legend>
+          <legend className="float-left mr-3 text-xs text-text-2">{`${ALSO_IN_THE_LIST} ${column}`}</legend>
           {offersEmpty && (
             <label className="flex min-h-[24px] items-center gap-2 text-sm">
               <input

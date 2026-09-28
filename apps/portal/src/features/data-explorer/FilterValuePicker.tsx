@@ -2,6 +2,7 @@ import {useId, useState, type RefObject} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Input} from '../../components/Input';
+import {REFUSED_CONTROL} from '../../components/fieldStyles';
 import {cx} from '../../lib/cx';
 import {CostIndicator} from './CostIndicator';
 import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
@@ -157,9 +158,14 @@ export function FilterValueList({
               const count = `${entry.count.toLocaleString('en-US')} ${entry.count === 1 ? 'row' : 'rows'}`;
               return (
                 <li key={entry.value ?? '\u0000null'}>
-                  <label className="flex min-h-[32px] items-center gap-2 px-3 py-1 text-sm">
+                  <label
+                    className={cx(
+                      'flex min-h-[32px] items-center gap-2 px-3 py-1 text-sm',
+                      refusal !== null && 'cursor-not-allowed'
+                    )}>
                     <input
                       type="checkbox"
+                      className={REFUSED_CONTROL}
                       checked={entryTicked(entry)}
                       aria-label={`${displayOf(entry.value)}, ${count}`}
                       aria-disabled={refusal !== null || undefined}
@@ -168,9 +174,13 @@ export function FilterValueList({
                     />
                     <span
                       aria-hidden="true"
+                      // A long value is cut to the row; its whole text is a hover away, so two values
+                      // sharing a long prefix can still be told apart.
+                      title={displayOf(entry.value)}
                       className={cx(
                         'min-w-0 flex-1 truncate',
-                        entry.value === null || entry.value === '' ? 'italic text-text-3' : 'text-text'
+                        entry.value === null || entry.value === '' || refusal !== null ? 'text-text-3' : 'text-text',
+                        (entry.value === null || entry.value === '') && 'italic'
                       )}>
                       {displayOf(entry.value)}
                     </span>
@@ -206,7 +216,9 @@ export function FilterValueList({
                     checked={selection.values.includes(value)}
                     onChange={() => toggleAlso(value)}
                   />
-                  <span className={cx('min-w-0 truncate', value === '' ? 'italic text-text-3' : 'text-text')}>
+                  <span
+                    title={displayOf(value)}
+                    className={cx('min-w-0 truncate', value === '' ? 'italic text-text-3' : 'text-text')}>
                     {displayOf(value)}
                   </span>
                 </label>

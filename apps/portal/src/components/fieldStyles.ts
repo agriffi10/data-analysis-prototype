@@ -8,6 +8,12 @@
  * already three-way drifted with nobody owning any of them.
  */
 
+/**
+ * How a refused control looks: dimmed like `Button.disabledReason`, and still focusable, because
+ * it is refused by `aria-disabled` so that its reason stays reachable.
+ */
+export const REFUSED_CONTROL = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-45';
+
 /** A field's label, above the control. `Input` renders this for you; a `<legend>` cannot. */
 export const FIELD_LABEL = 'mb-1.5 block text-sm font-medium text-text';
 

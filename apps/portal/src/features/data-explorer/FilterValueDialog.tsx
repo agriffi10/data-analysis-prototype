@@ -116,6 +116,7 @@ export function FilterValueDialog({
           className="mt-3"
           label={VALUES_FIELD_LABEL}
           value={field}
+          column={column}
           offersEmpty={valueKind === 'string'}
           offersNull={operatorListsNull(operator)}
           error={error}

@@ -453,11 +453,15 @@ describe('the list operators from the menu', () => {
     await screen.findAllByRole('gridcell');
     await chooseFromMenu(user, 'note', 'Filter: is one of…');
 
-    await user.click(within(screen.getByRole('group', {name: ALSO_IN_THE_LIST})).getByRole('checkbox', {name: 'NULL'}));
+    await user.click(
+      within(screen.getByRole('group', {name: `${ALSO_IN_THE_LIST} note`})).getByRole('checkbox', {name: 'NULL'})
+    );
     await user.click(screen.getByRole('button', {name: 'Apply filter'}));
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(lastSql()).toContain(`WHERE ("note" IN ('a') OR "note" IS NULL)`);
+    const stored = JSON.parse(sessionStorage.getItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`) ?? '{}');
+    expect(stored.tabs[0].history.past).toHaveLength(1);
   });
 
   it('takes NULL back out of an applied list, and that is a new statement too', async () => {

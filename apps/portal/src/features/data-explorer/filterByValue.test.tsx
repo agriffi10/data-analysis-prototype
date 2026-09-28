@@ -5,6 +5,7 @@ import {authenticated} from '../../test/authFixtures';
 import {explorationOption, chooseExplorationOption} from './explorationOptions.testkit';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {
+  AGGREGATE_FILTER_BY_VALUE_REFUSAL,
   FILTER_BY_VALUE_TYPES_REFUSAL,
   HELD_FILTER_BY_VALUE_REFUSAL,
   NO_CELL_TO_FILTER
@@ -154,6 +155,31 @@ describe('where Filter by value is offered', () => {
     ],
     ['on a date cell', FILTER_BY_VALUE_TYPES_REFUSAL, () => {}, 2],
     [
+      'on a grouped view’s aggregate cell',
+      AGGREGATE_FILTER_BY_VALUE_REFUSAL,
+      () => {
+        seedTabs([
+          {
+            id: 't1',
+            grouping: {
+              columns: ['brnd_name'],
+              aggregates: [{fn: 'COUNT', column: '*'}],
+              duplicatesOnly: false,
+              showPercentage: false
+            }
+          }
+        ]);
+        athena.explorationResult = () => ({
+          columns: [
+            {name: 'brnd_name', type: 'varchar'},
+            {name: 'count_all', type: 'bigint'}
+          ],
+          rows: [['Abilify', '40']]
+        });
+      },
+      1
+    ],
+    [
       'in a tab held until its view is run',
       HELD_FILTER_BY_VALUE_REFUSAL,
       () => seedTabs([{id: 't1', awaitingRun: {space: 'team', leftOut: {links: 0, patterns: 0}}}]),
@@ -170,6 +196,34 @@ describe('where Filter by value is offered', () => {
     await waitFor(() => expect(item).toHaveAttribute('title', refusal));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(listingStarts()).toHaveLength(0);
+  });
+
+  it('starts from NULL on a NULL cell, never from the word the grid shows', async () => {
+    const {user} = render();
+    await user.click((await screen.findAllByRole('gridcell'))[4]); // row 2, brnd_name — SQL NULL
+    await chooseExplorationOption(user, 'Filter by value…');
+    const dialog = await screen.findByRole('dialog', {name: 'Filter brnd_name by value'});
+    expect(await within(dialog).findByRole('checkbox', {name: 'NULL, 2 rows'})).toBeChecked();
+
+    await apply(user, dialog);
+
+    // The cell READS "NULL"; a filter on what it reads would be `= 'NULL'`, a string nobody has.
+    expect(lastExploration()).toContain('WHERE "brnd_name" IS NULL');
+    expect(lastExploration()).not.toContain(`'NULL'`);
+  });
+
+  it('searches on Enter in the search field rather than applying', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const dialog = await openFromHeader(user);
+    // Ticked first, so a submit would have something to apply rather than being refused.
+    await user.click(await within(dialog).findByRole('checkbox', {name: 'Abilify, 40 rows'}));
+    const before = explorationStarts().length;
+
+    await user.type(within(dialog).getByLabelText('Search values'), 'abi{Enter}');
+
+    expect(screen.getByRole('dialog', {name: 'Filter brnd_name by value'})).toBeInTheDocument();
+    expect(explorationStarts()).toHaveLength(before);
   });
 
   it('opens unrefused on a number cell the list cannot tick, with nothing ticked', async () => {

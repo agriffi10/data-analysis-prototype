@@ -478,9 +478,11 @@ that leaves the description unchanged pushes none, as today. *Cancel* applies no
 #### Description:
 
 `ColumnQueryActions` gains `filterByValueRefusalOf(column)`, the one reader both menus ask. It
-returns `queryRefusalOf(column)` when that is non-null; otherwise "Filter by value works on text
-and number columns." when `operatorsOf(column)` lacks `in` or the column is an aggregate alias
-(`aggregateAlias`) of the active grouping; otherwise null.
+returns `queryRefusalOf(column)` when that is non-null; otherwise "This column is worked out by the
+grouping, so its values can’t be listed." when the column is an aggregate alias (`aggregateAlias`)
+of the active grouping; otherwise "Filter by value works on text and number columns." when
+`operatorsOf(column)` lacks `in`; otherwise null. (The aggregate had the text-and-number sentence
+until the diff review: on `count_all`, a number, that sentence was false.)
 
 - **Options menu.** **Filter by this value** becomes **Filter by value…**, in the same position. It
   opens the dialog on the cursor's column, seeded with the cursor's value. It is refused, first to
