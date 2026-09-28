@@ -359,8 +359,9 @@ export function QueryWorkspace() {
   const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
   // The statements Run Statement runs and Create view wraps — the selection, else the statement
-  // under the cursor, else the sole statement. When the editor handle isn't available (still
-  // lazy-loading), the cursor defaults to the buffer end (last statement).
+  // under the cursor, else the sole statement. While the editor is lazy-loading there is no handle
+  // and the cursor defaults to the buffer end (last statement); once there is a handle but Monaco
+  // has not mounted, it reports offset 0 (first statement).
   const pickStatements = () => {
     const buffer = activeTab.sql;
     const selection = editorRef.current?.getSelectionRange() ?? null;
@@ -442,7 +443,7 @@ export function QueryWorkspace() {
         variant: 'danger',
         message:
           picked.length === 0
-            ? 'There is no statement here to save as a view.'
+            ? 'There is no statement to save as a view. Select one, or put the cursor in one.'
             : 'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
       });
       return;
@@ -850,6 +851,7 @@ export function QueryWorkspace() {
           open: createViewOpen,
           busy: ddl.busy,
           targetDatabase: createViewTarget.database,
+          statement: createViewTarget.body,
           onCreate: handleCreateView,
           onCancel: () => setCreateViewOpen(false)
         }}

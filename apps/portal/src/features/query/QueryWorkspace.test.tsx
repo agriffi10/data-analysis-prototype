@@ -1077,6 +1077,9 @@ describe('QueryWorkspace', () => {
 
       await user.click(screen.getByRole('button', {name: 'Create view'}));
       const dialog = screen.getByRole('dialog', {name: 'Create view'});
+      // The picked statement is shown before OR REPLACE acts on it, and the other one is not.
+      expect(within(dialog).getByText('SELECT region FROM alice.sales')).toBeInTheDocument();
+      expect(within(dialog).queryByText(/bob\.orders/)).not.toBeInTheDocument();
       await user.type(within(dialog).getByLabelText('View name'), 'region_view');
       await user.click(within(dialog).getByRole('button', {name: 'Create'}));
 
@@ -1104,7 +1107,9 @@ describe('QueryWorkspace', () => {
 
       ta.setSelectionRange(ta.value.indexOf('--'), ta.value.length);
       await user.click(screen.getByRole('button', {name: 'Create view'}));
-      expect(await screen.findByText('There is no statement here to save as a view.')).toBeInTheDocument();
+      expect(
+        await screen.findByText('There is no statement to save as a view. Select one, or put the cursor in one.')
+      ).toBeInTheDocument();
       expect(screen.queryByRole('dialog', {name: 'Create view'})).not.toBeInTheDocument();
     });
 

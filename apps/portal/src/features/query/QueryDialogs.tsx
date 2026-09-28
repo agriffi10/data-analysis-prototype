@@ -24,6 +24,7 @@ type Props = {
     open: boolean;
     busy: boolean;
     targetDatabase: string;
+    statement: string;
     onCreate: (name: string) => void;
     onCancel: () => void;
   };
@@ -100,6 +101,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
         <CreateViewDialog
           busy={createView.busy}
           targetDatabase={createView.targetDatabase}
+          statement={createView.statement}
           onCreate={createView.onCreate}
           onCancel={createView.onCancel}
         />

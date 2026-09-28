@@ -8,6 +8,13 @@ type Props = {
   busy?: boolean;
   /** The database the view will be created in — derived from the query body, shown read-only. */
   targetDatabase: string;
+  /**
+   * The statement the view wraps, shown read-only. The Query workspace passes it because it picks
+   * one of several statements by selection or cursor, a choice the user cannot otherwise see before
+   * `OR REPLACE` acts on it. An exploration's view wraps the one query on screen, so the Explorer
+   * passes none.
+   */
+  statement?: string;
   onCreate: (name: string) => void;
   onCancel: () => void;
 };
@@ -18,7 +25,7 @@ type Props = {
  * against the shared catalog-safe identifier rule — Create stays disabled, with
  * an inline error, until it passes.
  */
-export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCancel}: Props) {
+export function CreateViewDialog({busy = false, targetDatabase, statement, onCreate, onCancel}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,10 +52,19 @@ export function CreateViewDialog({busy = false, targetDatabase, onCreate, onCanc
       onCancel={onCancel}>
       {/* `mt-3` reproduces the gap the old markup got from an `mb-3` on the heading. */}
       <p className="mb-3 mt-3 text-sm text-text-2">
-        Save the current query as a reusable view in{' '}
+        {statement === undefined ? 'Save the current query' : 'Save this statement'} as a reusable view in{' '}
         <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text">{targetDatabase}</code>. A view
         already there with the same name is replaced.
       </p>
+      {statement !== undefined && (
+        // Capped so a long statement cannot push the database and the name field out of view, and
+        // focusable so a keyboard can scroll what the cap hides.
+        <pre
+          tabIndex={0}
+          className="mb-3 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-text">
+          {statement}
+        </pre>
+      )}
       <Input
         ref={inputRef}
         id="create-view-name"
