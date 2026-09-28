@@ -254,6 +254,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 246 — Archive and Restore Get Their Own Kill Switch | Completed |
 | 247 — A Saved Exploration Reopens as an Exploration | Completed |
 | 248 — A Name Is One User's or One Space's, and Only the Plane Writes a Membership | Draft |
+| 249 — Filter by Value Lists a Column's Values to Tick | Draft |
 | 250 — An Archive Has a Name, and a Restore Picks It From a List | In Progress |
 
 ## Arcs
