@@ -3194,6 +3194,10 @@ list operator and its value cap, so 238 goes first.
 > **SPEC-241 was cancelled (Andrew, 2026-09-16).** Filter by value is not being built. SPEC-238 was
 > trimmed back to what its own typed list can write, so its NULL list entries, its *Also kept* list
 > and the value cap it shared with 241 are gone. The 1,000-value cap itself stays in 238.
+>
+> **Superseded by SPEC-249 (2026-09-28):** Filter by value was approved from outside feedback and
+> built as SPEC-249, outside this arc. A list may hold (empty) and NULL again — see analytics.md's
+> *A column's values are a list you tick* entry.
 
 **Build order, riskiest first:**
 

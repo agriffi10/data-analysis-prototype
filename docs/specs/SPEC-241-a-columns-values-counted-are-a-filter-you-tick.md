@@ -7,6 +7,9 @@
 
 ## Why this spec was cancelled
 
+> **Superseded by SPEC-249 (2026-09-28):** the feature was approved from outside feedback and built
+> as SPEC-249, which reuses this Draft's query, cost and lifecycle decisions.
+
 **Andrew's decision, 2026-09-16: filter by value is not being built.** SPEC-238 had shaped its list
 model for this spec, with NULL list entries and an *Also kept* list. Those were trimmed, and 238 now
 carries only what its own typed list can write. Its 1,000-value cap stays, for its own list only. The rest of this

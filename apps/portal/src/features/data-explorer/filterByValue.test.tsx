@@ -280,7 +280,8 @@ describe('what Apply writes', () => {
     await apply(user, dialog);
 
     expect(lastExploration().match(/'v\d+'/g)).toHaveLength(1000);
-  });
+    // A thousand checkboxes is a slow render in jsdom, slower still beside the rest of the suite.
+  }, 20_000);
 
   it('applies the cell it was opened on before the list has landed', async () => {
     athena.listingGate = gate();
@@ -328,5 +329,6 @@ describe('what Apply refuses', () => {
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(CHOOSE_AT_MOST);
     expect(explorationStarts()).toHaveLength(before);
-  });
+    // A thousand checkboxes is a slow render in jsdom, slower still beside the rest of the suite.
+  }, 20_000);
 });

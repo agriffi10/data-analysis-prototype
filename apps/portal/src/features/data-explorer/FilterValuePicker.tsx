@@ -132,11 +132,11 @@ export function FilterValueList({
             error={listing.error}
             role="status"
           />
-          {listing.retry && (
+          {listing.tryAgain && (
             <Button
               variant="default"
               size="sm"
-              onClick={listing.retry}>
+              onClick={listing.tryAgain}>
               Try again
             </Button>
           )}

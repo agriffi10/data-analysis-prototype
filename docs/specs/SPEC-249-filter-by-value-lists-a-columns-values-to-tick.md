@@ -1,7 +1,7 @@
 # Spec: Filter by Value Lists a Column's Values to Tick
 
 **ID:** SPEC-249
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-28
 **Depends On:** SPEC-238, SPEC-243
 
@@ -499,6 +499,12 @@ and number columns." when `operatorsOf(column)` lacks `in` or the column is an a
   toward the tab's scanned total. The step naming **Filter by this value** is replaced. The typed
   list step names the **(empty)** and **NULL** boxes. The expression step no longer offers "a list
   that should keep the NULL rows too" as a reason to write SQL.
+- **A pointer from Query.** Andrew added it on 2026-09-28, relayed by the supervisor: a person on
+  the Query tab who looks in Help for "filter by value" finds nothing, because filtering lives in
+  the Data Explorer. The Query section gains a short guide, *Filter by value*
+  (`query-filter-by-value`), that says how to reach the Data Explorer from Query and use **Filter
+  by value…** there. Every step names a surface the `dataExplorer` flag hides, so the guide is
+  registered under that flag in `gatedSurfaces.ts`, as well as under its section's `query`.
 
 #### Acceptance Criteria:
 
@@ -515,6 +521,8 @@ and number columns." when `operatorsOf(column)` lacks `in` or the column is an a
   text-and-number reason; in a held tab with "Run the view first." and no execution starts.
 - [ ] On a `double` cell holding `NaN` it is not refused, and opens with nothing ticked.
 - [ ] The guide carries the steps. This is static copy, so the diff review checks it against this FR.
+- [ ] With `dataExplorer` off the Query section's *Filter by value* guide is hidden, and with it on
+  it is shown (the flag registry's walk).
 
 ---
 
@@ -557,7 +565,8 @@ export function narrowingFor(query: ExplorationQuery, column: string): ValuesNar
 // useColumnValues.ts — requests a listing from the workspace's ColumnValuesProvider
 export type ColumnValuesListing =
   | {status: 'pending'}
-  | {status: 'error'; error: unknown; retry: () => void}
+  /** `tryAgain` is null where trying again would fail the same way, as a statement too long to run. */
+  | {status: 'error'; error: unknown; tryAgain: (() => void) | null}
   | {
       status: 'ready';
       entries: ColumnValueCount[];
@@ -581,6 +590,8 @@ export type FilterValuePickerProps = {
   narrowing: ValuesNarrowing;
   selection: ValueSelection;
   onSelectionChange: (next: ValueSelection) => void;
+  /** The search field, for a dialog that focuses it on open. */
+  searchRef?: RefObject<HTMLInputElement | null>;
 };
 
 // ColumnFilterMenu.tsx — ColumnQueryActions gains
@@ -601,9 +612,13 @@ apps/portal/src/features/data-explorer/
 ├── FilterValuesField.tsx                   (FR-003)
 ├── FilterValueDialog.tsx                   (FR-003)
 ├── OrderFilterDialog.tsx                   (FR-003)
-├── useColumnValues.ts (+ test)             (FR-002: provider and hook)
+├── columnValuesStore.ts                    (FR-002: the registry, its actions, the page reader)
+├── ColumnValuesProvider.tsx                (FR-002: the provider and the watchers)
+├── useColumnValues.ts                      (FR-002: the hook)
+├── columnValues.test.tsx, columnValues.testkit.ts (FR-002)
 ├── DataExplorerWorkspace.tsx               (FR-002: renders the provider)
-├── FilterValuePicker.tsx (+ test)          (FR-004)
+├── columnValues.ts                         (FR-004: which values tick, and the sentences)
+├── FilterValuePicker.tsx (+ test)          (FR-004: FilterValueList and the embeddable picker)
 ├── FilterByValueDialog.tsx (+ test)        (FR-005)
 ├── ColumnFilterMenu.tsx                    (FR-006)
 ├── ExplorationGrid.tsx                     (FR-006: threads onFilterByValue)
@@ -611,6 +626,7 @@ apps/portal/src/features/data-explorer/
 ├── ExplorationOptionsMenu.tsx              (FR-006)
 ├── ExplorationResultsRegion.tsx            (FR-003 actions.filter; FR-006)
 apps/portal/src/features/help/helpContent.ts   (FR-006)
+apps/portal/src/features/feature-flags/gatedSurfaces.ts (+ test)   (FR-006: the Query pointer's flag)
 apps/portal/info/component-inventory/data-explorer-feature.md
 ```
 

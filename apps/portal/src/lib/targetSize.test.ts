@@ -407,6 +407,18 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. Each label is floored at `min-h-[24px]`, so the label conforms outright and, in the `gap-1` column, two boxes sit 27.5px apart centre-to-centre, and a box\u2019s centre is 15.5px from the next label — the spacing exception covers them. Bare 16px text rows put them 19.5px apart, which failed',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
+  '/src/features/data-explorer/FilterByValueDialog.tsx': {
+    why: 'the is one of / is not one of radios, 13px inputs whose TARGET is the wrapping `<label>`, which activates the same control and is floored at `min-h-[24px]`, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',
+    controls: ['<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/FilterValuePicker.tsx': {
+    why: 'one checkbox per listed value and per Also selected value, 13px inputs whose TARGET is the wrapping `<label>`, floored at `min-h-[32px]` and as wide as the list, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/FilterValuesField.tsx': {
+    why: 'the (empty) and NULL boxes under the typed list, 13px inputs whose TARGET is the wrapping `<label>`, floored at `min-h-[24px]`, so the label conforms outright. Not measured in a browser: the claim rests on the floor, not on a reading',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
   '/src/features/data-explorer/GroupingPanel.tsx': {
     why: 'the duplicates-only and show-percentage toggles, MEASURED 13x13 at 34.5px centre-to-centre in the panel\u2019s `gap-3` column, so the spacing exception covers them',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']

@@ -396,6 +396,18 @@ export const HELP_SECTIONS: HelpSection[] = [
         ]
       },
       {
+        id: 'query-filter-by-value',
+        title: 'Filter by value',
+        subtitle: 'Pick values from a list, in the Data Explorer.',
+        intro:
+          'A query here filters with the <b>WHERE</b> you type. To pick values from a list instead — every value a column holds, with how many rows hold each — open the table in the <b>Data Explorer</b>.',
+        steps: [
+          'Open a table’s menu in the <b>Databases</b> list and choose <b>Explore data</b>, or click <b>Explore in Data Explorer</b> above a result.',
+          'In the Data Explorer, open a column’s <b>⋯</b> menu and choose <b>Filter by value…</b>. Tick the values to keep, or choose <b>is not one of</b> to hide them. <b>NULL</b> and <b>(empty)</b> are listed like any other value.',
+          'The filter is written out as SQL under <b>Generated SQL</b>, and <b>Open in Query</b> brings that statement back here to edit.'
+        ]
+      },
+      {
         id: 'save-results',
         title: 'Save results to your files',
         subtitle: 'Export a result set back into your files.',
@@ -576,13 +588,14 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'This is what the Explorer is for. Everything here is a click, and each one rewrites the query underneath and runs it again — so the rows you end up with are the real answer over the whole table, not just over what was on screen.',
         steps: [
-          'Click the <b>⋯</b> on a column header to sort it, to filter it, or to hide it with <b>Hide column</b>. The filters read <b>Filter: equals…</b> and so on. A text column offers <b>equals</b>, <b>does not equal</b>, <b>greater than</b> and the other comparisons, <b>contains</b>, <b>does not contain</b>, <b>starts with</b>, <b>ends with</b>, <b>is one of</b>, <b>is not one of</b>, <b>is null</b>, <b>is not null</b>, <b>is empty</b> and <b>is not empty</b>; a number column offers the comparisons, the two list tests and <b>is null</b> / <b>is not null</b>; a date or true/false column offers the comparisons and <b>is null</b> / <b>is not null</b>. <b>Is one of</b> asks for one value per line. A column holds one filter at a time, and filters on several columns all apply together.',
-          'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
+          'Click the <b>⋯</b> on a column header to sort it, to filter it, or to hide it with <b>Hide column</b>. The filters read <b>Filter: equals…</b> and so on. A text column offers <b>equals</b>, <b>does not equal</b>, <b>greater than</b> and the other comparisons, <b>contains</b>, <b>does not contain</b>, <b>starts with</b>, <b>ends with</b>, <b>is one of</b>, <b>is not one of</b>, <b>is null</b>, <b>is not null</b>, <b>is empty</b> and <b>is not empty</b>; a number column offers the comparisons, the two list tests and <b>is null</b> / <b>is not null</b>; a date or true/false column offers the comparisons and <b>is null</b> / <b>is not null</b>. <b>Is one of</b> asks for one value per line, with a box each for <b>(empty)</b> and <b>NULL</b>, which a line can’t hold. A column holds one filter at a time, and filters on several columns all apply together.',
+          'Choose <b>Filter by value…</b> from a column’s <b>⋯</b> menu, or click a cell and choose it from <b>Options</b>, to see every value the column holds, most common first, with how many rows hold each. <b>NULL</b> and <b>(empty)</b> are listed like any other value. Tick the ones you want, then choose <b>is one of</b> to keep those rows or <b>is not one of</b> to hide them. From <b>Options</b>, the cell you are on starts ticked.',
+          'The list follows the filters on the other columns, so it shows only values that are still there. It shows the 1,000 most common, and <b>Search values</b> looks only at those — for a value it doesn’t show, type it with <b>Filter: is one of…</b>. Counting the values runs a query, so it adds to the tab’s scanned total; opening the list again with the same filters is free.',
           "Used to <b>LIKE</b> and <b>NOT LIKE</b>? <b>Contains</b> and <b>does not contain</b> are those, with a <code>%</code> either side of what you type, and <b>starts with</b> and <b>ends with</b> put the <code>%</code> at one end only. They ignore capitals, and a <code>%</code> or <code>_</code> you type is looked for as itself rather than taken as a wildcard, so for a pattern of your own, use the <b>Filter expression</b> box. A <b>LIKE</b> you write there minds capitals: <code>name LIKE 'A%B'</code> matches them exactly, and <code>lower(name) LIKE 'a%b'</code> ignores them. <b>Generated SQL</b> shows each filter written out.",
-          '<b>Is one of</b> and <b>is not one of</b> are <b>IN</b> and <b>NOT IN</b>. As in SQL, <b>does not contain</b>, <b>does not equal</b> and <b>is not one of</b> leave out every row where the column is <b>NULL</b>.',
+          '<b>Is one of</b> and <b>is not one of</b> are <b>IN</b> and <b>NOT IN</b>. As in SQL, <b>does not contain</b>, <b>does not equal</b> and <b>is not one of</b> leave out every row where the column is <b>NULL</b>. <b>Is one of</b> can keep those rows: tick <b>NULL</b>.',
           'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Open <b>Options</b> and choose <b>Columns</b> to hide, show, pin or reorder columns. <b>Show all</b> brings back every hidden column and <b>Unpin all</b> unpins every pinned one; a column you moved stays where you put it.',
-          "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it — two columns compared with each other, an <b>OR</b> between conditions, or a list that should keep the <b>NULL</b> rows too, such as <code>state IN ('NY', 'NJ') OR state IS NULL</code>. Leave out the word <b>WHERE</b>.",
+          "Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it — two columns compared with each other, or an <b>OR</b> between conditions on different columns, such as <code>state = 'NY' OR city = 'Boston'</code>. Leave out the word <b>WHERE</b>.",
           'Every column filter, whether you set it from a column’s menu or in <b>Order and filter</b>, shows as a chip under the <b>Filter expression</b> box. The chips and the expression all apply together, and a chip’s <b>×</b> removes just that filter.',
           'Use <b>‹ Back</b> and <b>Forward ›</b> on the bar to step back and forward through earlier versions of this query, or choose <b>Remove all filters and sorts</b> from <b>Options</b> to start over. It clears the filter expression too, and while you are grouping it reads <b>Remove all filters, sorts and grouping</b>.',
           'In a table built from CSV files a blank cell is empty text, shown as <b>(empty)</b>, and it is not the same as <b>NULL</b>. <b>Is empty</b> finds both; <b>is null</b> finds only the NULLs, so it is the one that comes back with nothing on a table like that.',
@@ -590,7 +603,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'warning',
-          text: 'Every apply runs a real query and scans data, which is what it costs. The line at the bottom shows what the last one scanned and the running total for the tab — that figure is the cost signal, so watch it on a large table. Paging through results is free, and re-applying something you have already run in this tab is too: it says so rather than scanning again.'
+          text: 'Every apply runs a real query and scans data, which is what it costs. The line at the bottom shows what the last one scanned and the running total for the tab — that figure is the cost signal, so watch it on a large table. Paging through results is free, and re-applying something you have already run in this tab is too: it says so rather than scanning again. <b>Filter by value…</b> counts a column’s values with a query of its own, and its list says what that scanned.'
         }
       },
       {

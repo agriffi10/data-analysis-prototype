@@ -7,8 +7,8 @@ import type {ColumnValueCount, ExplorationSource, ValuesNarrowing} from './dataE
 /** A column's values listing, as a picker shows it. */
 export type ColumnValuesListing =
   | {status: 'pending'}
-  /** `retry` is null where trying again would fail the same way, as a statement too long to run. */
-  | {status: 'error'; error: unknown; retry: (() => void) | null}
+  /** `tryAgain` is null where trying again would fail the same way, as a statement too long to run. */
+  | {status: 'error'; error: unknown; tryAgain: (() => void) | null}
   | {
       status: 'ready';
       entries: ColumnValueCount[];
@@ -59,11 +59,11 @@ export function useColumnValues(request: ColumnValuesRequest): {listing: ColumnV
   }, [ask, tabId, scopeKind, scopeFirst, scopeSecond, sql]);
 
   const listing = ((): ColumnValuesListing => {
-    if ('error' in rendered) return {status: 'error', error: rendered.error, retry: null};
+    if ('error' in rendered) return {status: 'error', error: rendered.error, tryAgain: null};
     const key = registry.keys[keyOf(tabId, rendered.sql)];
     const again = () => ask(tabId, [scopeKind, scopeFirst, scopeSecond], rendered.sql);
     if (!key || key.status === 'starting') return {status: 'pending'};
-    if (key.status === 'error') return {status: 'error', error: key.error, retry: again};
+    if (key.status === 'error') return {status: 'error', error: key.error, tryAgain: again};
     const execution = registry.executions[key.executionId];
     if (!execution || execution.status === 'watching' || execution.status === 'reading') return {status: 'pending'};
     if (execution.status === 'error') {
@@ -71,7 +71,7 @@ export function useColumnValues(request: ColumnValuesRequest): {listing: ColumnV
       return {
         status: 'error',
         error: execution.error,
-        retry: failed ? again : () => retryExecution(key.executionId)
+        tryAgain: failed ? again : () => retryExecution(key.executionId)
       };
     }
     return {
