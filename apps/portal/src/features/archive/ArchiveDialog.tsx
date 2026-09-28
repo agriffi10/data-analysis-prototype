@@ -1,5 +1,8 @@
+import {useId, useState} from 'react';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
+import {Input} from '../../components/Input';
 import type {ArchiveItem} from '../../types/archive.types';
+import {ARCHIVE_NAME_MAX_CHARS, archiveNameRefusal, normalizeArchiveName} from './archiveName';
 
 const MAX_NAMES = 5;
 
@@ -20,7 +23,8 @@ type Props = {
   busy: boolean;
   /** The enqueue's failure, already through `toUserMessage` — never raw AWS text. */
   submitError: string | null;
-  onConfirm: () => void;
+  /** Called with the archive's name, normalised; an empty string means the user gave none. */
+  onConfirm: (name: string) => void;
   onCancel: () => void;
 };
 
@@ -38,6 +42,17 @@ type Props = {
  * why this is built on `ConfirmDialog` rather than on `FormDialog`, whose `submitOnEnterRef` is
  * exactly the affordance this dialog must not have. A keystroke should not delete a folder.
  *
+ * **The Name field keeps that true, and it is why the field sits in a `ConfirmDialog` rather than
+ * a form.** The field is inside no `<form>`, so Enter in it has no implicit submission to trigger;
+ * moving this dialog to `FormDialog`, or wrapping the field in a form, would hand the Name field
+ * the one affordance this dialog must never have. The name is checked on **Archive**, not as the
+ * user types, and a refused one keeps the dialog open with the reason on the field.
+ *
+ * **What it says is what the outside reviewers asked for**: where the data goes, where a restore
+ * puts it, what stops a restore, how long one takes, what the storage costs, and how to find the
+ * archive again. The remedy for a restore that is refused is "move or rename" — never a deletion,
+ * because the files in the way can be the only copy.
+ *
  * Escape cancels through the depth-ordered registry, and `busy` locks both buttons and
  * dismissal while the enqueue is in flight, so Escape cannot close a half-submitted request.
  */
@@ -45,6 +60,15 @@ export function ArchiveDialog({items, rootPrefix, busy, submitError, onConfirm, 
   const count = items.length;
   const only = count === 1 ? items[0] : null;
   const folders = items.filter((item) => item.kind === 'folder').length;
+  const [name, setName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const hintId = useId();
+
+  const confirm = () => {
+    const refusal = archiveNameRefusal(name);
+    setNameError(refusal);
+    if (refusal === null) onConfirm(normalizeArchiveName(name));
+  };
 
   let heading: string;
   if (only?.kind === 'folder') {
@@ -64,7 +88,7 @@ export function ArchiveDialog({items, rootPrefix, busy, submitError, onConfirm, 
       busy={busy}
       confirmVariant="danger"
       tone="danger"
-      onConfirm={onConfirm}
+      onConfirm={confirm}
       onCancel={onCancel}>
       {count > 1 && (
         <ul className="mt-3 max-h-36 overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text">
@@ -88,15 +112,44 @@ export function ArchiveDialog({items, rootPrefix, busy, submitError, onConfirm, 
         </p>
       )}
 
-      {/* The two facts the button cannot carry. Stated as consequences, in the order the user
-          meets them: the data goes now, and getting it back is not quick. */}
+      {/* The facts no button label can carry, in the order the user meets them: where the data
+          goes now, then what getting it back involves. */}
       <p className="mt-3 text-sm font-medium text-text">
-        {count === 1 ? 'This will be removed from this space' : 'These will be removed from this space'} and stored in
-        long-term storage.
+        {count === 1 ? 'This moves' : 'These move'} out of this space into separate long-term archive storage, where{' '}
+        {count === 1 ? 'it can’t be opened until it is' : 'they can’t be opened until they are'} restored.
       </p>
-      <p className="mt-1 text-sm text-text-2">
-        You can restore an archive later using its id, but a restore takes <strong>several hours</strong> to complete.
-      </p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-text-2">
+        <li>A restore puts every file back in this space, in the same folder and under the same name it has now.</li>
+        <li>
+          A restore overwrites nothing. While anything sits at one of those paths again — which can include a folder you
+          create with the same name — nothing is restored until you move or rename it, and a file that appears while a
+          restore runs is left as it is. You don’t need to re-create folders: a restore brings them back.
+        </li>
+        <li>
+          A restore takes <strong>several hours</strong>.
+        </li>
+        <li>Long-term storage is charged for at least 90 days, even if you restore sooner.</li>
+      </ul>
+
+      <div className="mt-4">
+        <Input
+          label="Name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          error={nameError}
+          maxLength={ARCHIVE_NAME_MAX_CHARS}
+          aria-describedby={hintId}
+          autoComplete="off"
+          placeholder="e.g. Q1 reports"
+          disabled={busy}
+        />
+        <p
+          id={hintId}
+          className="mt-1 text-xs text-text-3">
+          To find this archive later, choose <span className="font-medium">Restore Archived Data</span> in this space
+          and pick it from the list by this name.
+        </p>
+      </div>
 
       {submitError && (
         <p

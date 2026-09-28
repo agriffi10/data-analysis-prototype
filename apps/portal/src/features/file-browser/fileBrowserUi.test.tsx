@@ -204,6 +204,9 @@ describe('RenameDialog', () => {
       setup();
       const input = screen.getByLabelText(/new name/i) as HTMLInputElement;
       expect(input.value).toBe('report'); // ".pdf" is locked, not in the editable field
+      // Focused AND selected, so typing replaces the old name rather than appending to it.
+      expect(input).toHaveFocus();
+      expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'report'.length]);
       expect(screen.getByText(/extension can’t be changed/i)).toBeInTheDocument();
       expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
     });

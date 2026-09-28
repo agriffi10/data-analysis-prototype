@@ -371,6 +371,10 @@ function undersizedControls(source: string): string[] {
  * offences means a change to any of them is a change to this list.
  */
 const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
+  '/src/features/archive/ArchiveList.tsx': {
+    why: 'the restore list’s radios, each inside a label spanning its whole row, rows 8px apart',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
   '/src/features/file-browser/FileListRowMobile.tsx': {
     why: 'the row selection checkbox, centred in a fixed-width cell at the row edge',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']

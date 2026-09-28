@@ -589,3 +589,32 @@ def test_the_index_path_cannot_outlast_the_verbs_that_run_it():
         assert worst <= timeout / 2, (
             f"the index path can take {worst}s inside {verb}, whose timeout is {timeout}s"
         )
+
+
+def test_the_browser_states_the_same_name_rule():
+    """The name's cap and refused ranges, read as data out of the browser's rule.
+
+    The corpus both sides run holds the LOGIC together; this holds the two constants, which a
+    corpus can only sample — a range narrowed by one code point at an edge no case sits on would
+    pass every corpus case.
+    """
+    source = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "apps"
+        / "portal"
+        / "src"
+        / "features"
+        / "archive"
+        / "archiveName.ts"
+    ).read_text()
+
+    cap = re.search(r"export const ARCHIVE_NAME_MAX_CHARS = (\d+);", source)
+    block = re.search(r"ARCHIVE_NAME_REFUSED_RANGES[^=]*=\s*\[(.*?)\];", source, re.DOTALL)
+    assert cap and block, "the browser no longer declares the name rule under the expected names"
+    ranges = tuple(
+        (int(low, 16), int(high, 16))
+        for low, high in re.findall(r"\[0x([0-9a-fA-F]+),\s*0x([0-9a-fA-F]+)\]", block.group(1))
+    )
+
+    assert int(cap.group(1)) == config.ARCHIVE_NAME_MAX_CHARS
+    assert ranges == config.ARCHIVE_NAME_REFUSED_RANGES

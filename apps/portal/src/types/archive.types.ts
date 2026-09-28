@@ -26,6 +26,11 @@ export type ArchiveRequest = {
   requestId: string;
   space: ArchiveSpace;
   items: ArchiveItem[];
+  /**
+   * What the user called the archive, as typed. The service normalises it and sends it as
+   * `archiveName` only when something is left; absent or empty means the archive has no name.
+   */
+  name?: string;
 };
 
 /** A restore request, as the browser enqueues it. */
@@ -36,4 +41,44 @@ export type RestoreRequest = {
   space: ArchiveSpace;
   /** The archive being restored, pasted by the user. UUID-validated before enqueue. */
   archiveId: string;
+};
+
+/** What an archive's last restore did, as the plane recorded it on the archive's index entry. */
+export type ArchiveRestoreRecord = {
+  status: 'requested' | 'restored' | 'incomplete';
+  /** When the restore was asked for — the restore run's start. */
+  requestedAt: string;
+  /** When this status was recorded. */
+  updatedAt: string;
+};
+
+/**
+ * One archive's entry in its space's index, `{root}system_settings/archive/index.json`, exactly as
+ * `arcommon.index_store` writes it. A label for the restore list, never the record of what exists.
+ */
+export type ArchiveIndexEntry = {
+  archiveId: string;
+  name: string | null;
+  /** The archive run's start, ISO-8601. */
+  archivedAt: string;
+  archivedBy: string;
+  /** The first few selected items, relative to the space root, a folder's with its slash. */
+  items: {kind: 'file' | 'folder'; path: string}[];
+  /** How many items were selected. */
+  itemCount: number;
+  fileCount: number;
+  totalBytes: number;
+  restore: ArchiveRestoreRecord | null;
+};
+
+/** The index document itself. */
+export type ArchiveIndexDocument = {version: 1; archives: ArchiveIndexEntry[]};
+
+/**
+ * One row of the restore list. Every archive with a receipt folder has one; `details` is null for
+ * an archive the index does not label, which is still restored exactly as a labelled one.
+ */
+export type ArchiveListing = {
+  archiveId: string;
+  details: Omit<ArchiveIndexEntry, 'archiveId'> | null;
 };

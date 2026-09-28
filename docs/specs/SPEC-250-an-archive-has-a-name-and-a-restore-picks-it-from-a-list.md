@@ -1,7 +1,7 @@
 # Spec: An Archive Has a Name, and a Restore Picks It From a List
 
 **ID:** SPEC-250
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-28
 **Depends On:** SPEC-168/170/172 (the archive plane, its restore arm and both dialogs), SPEC-246 (the `archive` kill switch, which still gates both entry points)
 
@@ -82,8 +82,10 @@ each fact still appears:
    storage, where it cannot be opened until it is restored.
 2. **Where a restore puts it:** a restore puts every file back in this space, in the same folder
    and under the same name it has now.
-3. **What stops a restore:** a restore overwrites nothing. If any of those files exists again,
-   nothing is restored until the user moves or renames what is in the way. The remedy is "move
+3. **What stops a restore:** a restore overwrites nothing. While anything sits at one of those
+   paths again — including a folder the user re-created, whose placeholder the guard counts as
+   occupied — nothing is restored until the user moves or renames it, and a file that appears
+   during the copy-back is left alone. The user need not re-create folders. The remedy is "move
    or rename" and never a deletion, per the restore-message fence.
 4. **How long:** a restore takes several hours.
 5. **What it costs:** long-term storage is charged for at least 90 days, even when the archive is
@@ -305,7 +307,9 @@ Each row is a native radio input in a `fieldset` whose legend is "Archive to res
     `restored` put every file back, so a second one would be refused, because every destination
     is occupied, or would find nothing if the vault sweep ran. The sweep may have partly failed,
     so "the vault is empty" is not the reason.
-  - `requested`: "Restore requested {requestedAt date}". The row stays selectable, for two reasons.
+  - `requested`: "Restore requested {requestedAt date} — check its notifications before requesting
+    it again". A refused, timed-out or stalled restore never records a later stage, so this can
+    outlive the run it names. The row stays selectable, for two reasons.
     First, this is the ordinary in-flight state and lasts hours, and a second request is safe,
     because the destination guard refuses it once the first one's files land. Second, it is also
     what a restore that stopped before its last write leaves behind, and a disabled row would be a
@@ -339,9 +343,12 @@ target, Enter on a radio is suppressed and submits nothing.
 The dialog also has these states:
 
 - **Loading:** "Loading archives…" in a `role="status"` region.
-- **Empty:** "This space has no archives yet."
+- **Empty:** "No archives are listed for this space. If a notification gave you an archive id,
+  choose Restore by archive id instead."
 - **Error** (the folder listing itself fails): "Couldn't load this space's archives." with a
   **Try again** button that refetches.
+  A re-read that fails while rows are already shown keeps them: every opening re-reads the list,
+  and a transient fault must not take away the archives the user was about to pick from.
 
 The fallback link (FR-005) is present in every state. The list is a TanStack Query keyed per space
 in a feature-local `archiveKeys`. It goes stale at once, so every opening refetches, and cached rows
@@ -407,7 +414,7 @@ switching back. Submitting in id mode sends the typed id, and the list selection
 #### Description:
 
 - **The archived notification** (`arcommon.messages.archived_message`) keeps naming the archive id.
-  Its instruction changes from "... and enter this id" to "... and pick it from the list". The
+  Its instruction changes from "... and enter this id" to "... and pick this archive from the list". The
   shared-space variant keeps naming the space.
 - **Help `archive-files`**: the steps describe:
   - the Name field;
@@ -433,8 +440,8 @@ switching back. Submitting in id mode sends the typed id, and the list selection
 
 #### Acceptance Criteria:
 
-- [ ] `archived_message` for a personal and for a shared archive contains the id and "pick it from
-      the list", and no longer contains "enter this id". The messages module's existing
+- [ ] `archived_message` for a personal and for a shared archive contains the id and "pick this
+      archive from the list", and no longer contains "enter this id". The messages module's existing
       denylist/plant corpus stays green.
 - [ ] The `archive-files` guide mentions "Name", "Restore by archive id instead" and "system_settings".
       A `help.test.tsx` assertion covers the first two.

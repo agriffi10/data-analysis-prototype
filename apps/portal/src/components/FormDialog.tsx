@@ -39,9 +39,13 @@ type FormDialogProps = {
    * control is a radio group, where arrow keys then mutate a choice the user never
    * made; and anything destructive, where `ConfirmDialog`'s "focus Cancel so a stray
    * Enter destroys nothing" reasoning applies.
+   *
+   * Any element, not only an input: a dialog whose body opens on a radio list focuses the list's
+   * heading (given `tabIndex={-1}`), so a screen reader hears what the choice is before arrow
+   * keys can make one.
    */
-  autoFocusRef?: RefObject<HTMLInputElement | null>;
-  /** Select the focused field's text too — for a pre-filled name the user is likely to replace. */
+  autoFocusRef?: RefObject<HTMLElement | null>;
+  /** Select the focused field's text too — for a pre-filled name the user is likely to replace. Inputs only. */
   autoFocusSelect?: boolean;
   /**
    * The ONE field Enter submits from. Defaults to `autoFocusRef`; pass it explicitly
@@ -125,8 +129,9 @@ export function FormDialog({
   // this a dialog that asks for nothing opens a Tab away from its own first control.
   useEffect(() => {
     if (autoFocusRef) {
-      autoFocusRef.current?.focus();
-      if (autoFocusSelect) autoFocusRef.current?.select();
+      const target = autoFocusRef.current;
+      target?.focus();
+      if (autoFocusSelect && target instanceof HTMLInputElement) target.select();
       return;
     }
     const form = formRef.current;

@@ -847,7 +847,16 @@ Tick the folder → **Archive** in the selection toolbar. **Before confirming, r
 
 - The heading names the folder **relative to the space root** — `archive_fixture/`, never
   `agriffith_three/archive_fixture/`.
-- It says the data **will be removed from this space**, and that a restore takes **several hours**.
+- It says the data **moves out of this space into separate long-term archive storage**; that a
+  restore puts every file back in the **same folder**; that a restore **overwrites nothing** and
+  asks you to **move or rename** what is in the way, which can include a folder re-created with the
+  same name, and that you need not re-create folders; that it takes **several hours**; that storage
+  is charged for **at least 90 days**; and how to find the archive again (**Restore Archived
+  Data**). No sentence says to delete anything.
+- Type a **Name** (`Q1 fixture`) — then press Enter **in the Name field**: nothing archives and
+  the dialog stays open. Paste a name holding a tab: **Archive** shows the reason on the field and
+  archives nothing. At 375px with 200 items selected and a 100-character name there is no
+  horizontal scroll.
 - It does **not** say "This can't be undone" — that would be its one false sentence, and its
   absence is deliberate.
 - **Focus is on Cancel, and Enter cancels.** The only dialog in the app where that is wanted, and
@@ -859,9 +868,9 @@ Confirm. Expect:
 
 - A toast saying the archive **started** — never that it finished.
 - Within minutes: `Archived N files (X MB). They have been removed from your space. Archive id:
-  {uuid} - to restore them, choose Restore Archived Data in Files and enter this id.` From a
-  shared space it reads `…, open the {space} space in Files, choose Restore Archived Data and
-  enter this id.`
+  {uuid} - to restore them, choose Restore Archived Data in Files and pick this archive from the
+  list.` From a shared space it reads `…, open the {space} space in Files, choose Restore Archived
+  Data and pick this archive from the list.`
 - **N counts files, not folders.** The zero-byte key **New folder** writes is carried and restored,
   but it adds nothing to N, and the receipt's `Files archived` line agrees. One file inside a
   New-folder folder reads `Archived 1 file`. A folder holding no files reads `Archived 1 empty
@@ -870,7 +879,9 @@ Confirm. Expect:
 - **The notification is a link.** Follow it → you land in `system_settings/archive/{uuid}/`,
   **not** at the space root. A link that drops its prefix looks identical from the inbox.
 - The folder is gone from the listing; `system_settings/archive/{uuid}/receipt.txt` downloads and
-  reads correctly.
+  reads correctly, and its **first line is `Name:` followed by the name you typed**.
+- `system_settings/archive/index.json` exists beside the id folders and downloads as JSON with an
+  entry for this archive — its name, the first items, the counts, `restore: null`.
 
 **Record the archive id.** Everything downstream needs it.
 
@@ -912,8 +923,17 @@ would roll back by deleting the first archive's objects.
 
 **Ask before pressing this. Billed on request, uncancellable, 3–5 hours.**
 
-**Restore Archived Data** → paste nonsense first: an inline error names what a valid id looks like,
-and the submit control is **never merely disabled**. Then paste the real id → Restore.
+**Restore Archived Data** → the dialog opens on a **list of the space's archives**, focus on the
+"Choose an archive" heading and not on a radio. The archive from B1 is the first row, titled with
+its **name**, with its date, what it held, its file count and size; an archive made before
+SPEC-250 shows as **Archive {first 8 of its id}** with "Details unavailable" and its whole id.
+Press **Restore** with nothing chosen: "Choose an archive to restore." and nothing is sent. Pick a
+row, then press Enter on the radio: nothing is sent. At 375px, with a 100-character name and a
+200-character item path in the list, there is no horizontal scroll.
+
+Then **Restore by archive id instead** → paste nonsense: an inline error names what a valid id
+looks like, and the submit control is **never merely disabled**. **Back to the list** keeps your
+choice. Pick the B1 archive → Restore.
 
 **Within a minute, before you walk away:**
 
@@ -935,6 +955,7 @@ Then leave it. Check back at roughly **1 h, 3 h and 5 h** — Phase C fills the 
 | `system_settings/archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
 | The **vault** prefix for that id is gone | **Not observable from the browser** — the sweep is of `dat-prod-archive`, which no human principal can read. `owed.md` carries the CLI check; an **`archive swept`** event in `logs/service=archive/` is what you can see. **Not `cleanup`** — this row said that until 2026-08-31, and a reader grepping for it finds nothing and concludes the sweep never ran. |
 | The receipt's ARCHIVE lines are **byte-identical to before** the restore, with `Restored to` now filled | A blanked `Requested` line is how you would know the rewrite broke. |
+| **Restore Archived Data** now shows the archive's row as **Restored {date}**, and its radio is **disabled** | The index records each restore stage; a row still offered would send a restore that can only be refused. |
 | The loop actually **looped** | `logs/service=archive/` carries a `retrieval polled` event **every five minutes for the whole retrieval** — so tens of them across a 3–5 hour restore, and the count is a function of duration rather than a number to match. It is the SPAN that is hours, not the gap: this row said "hours apart" until two measurements contradicted it. `poll_count` lives under `fields`, not at the top level. |
 | A **child span** survived the pipe (SPEC-226) | Every assertion about child spans is made against an in-process sink; nothing offline shows one surviving the SQS sink, the sweep's read-modify-write and the day object. In `logs/service=archive/` for this run, find a record with `message: "span.start"` and **`function: "copy-batch"`**, and check its **`parent_span_id` is non-null** and equals the `span_id` of the `copy-objects` record in the same `trace_id`. A null parent is the failure that matters — it is what a span emitted where the trace context does not reach looks like, and it reads as instrumented. The same check works per plane: `write-roster` under `service=shared-space`, `download-results` under `service=results-conversion`, `athena-run-ddl` under `service=table-builder`. |
 
