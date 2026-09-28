@@ -1089,19 +1089,22 @@ describe('QueryWorkspace', () => {
       );
     });
 
-    it('refuses Create view on a selection holding several statements, and says why', async () => {
-      seedSingle('SELECT region FROM alice.sales;\nSELECT id FROM alice.orders;');
+    it('refuses Create view on a selection holding several statements, or none, and says which', async () => {
+      seedSingle('SELECT region FROM alice.sales;\nSELECT id FROM alice.orders;\n-- next: by month');
       const {user} = renderWorkspace();
       const ta = (await screen.findByLabelText('SQL editor')) as HTMLTextAreaElement;
+
       ta.setSelectionRange(0, ta.value.length);
-
       await user.click(screen.getByRole('button', {name: 'Create view'}));
-
       expect(
         await screen.findByText(
           'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
         )
       ).toBeInTheDocument();
+
+      ta.setSelectionRange(ta.value.indexOf('--'), ta.value.length);
+      await user.click(screen.getByRole('button', {name: 'Create view'}));
+      expect(await screen.findByText('There is no statement here to save as a view.')).toBeInTheDocument();
       expect(screen.queryByRole('dialog', {name: 'Create view'})).not.toBeInTheDocument();
     });
 

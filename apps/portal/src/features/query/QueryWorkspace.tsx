@@ -440,7 +440,10 @@ export function QueryWorkspace() {
     if (picked.length !== 1) {
       toast.push({
         variant: 'danger',
-        message: 'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
+        message:
+          picked.length === 0
+            ? 'There is no statement here to save as a view.'
+            : 'Create view works on one statement. Select just the one to save as a view, or put the cursor in it.'
       });
       return;
     }
