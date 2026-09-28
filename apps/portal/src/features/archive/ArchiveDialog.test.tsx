@@ -54,6 +54,8 @@ describe('ArchiveDialog', () => {
       /same folder/,
       /overwrites nothing/,
       /move or rename/,
+      /folder you create with the same name/,
+      /re-create folders/,
       /several hours/,
       /90 days/,
       /Restore Archived Data/

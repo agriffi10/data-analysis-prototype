@@ -39,7 +39,8 @@ function statusOf(listing: ArchiveListing): string | null {
   const restore = listing.details?.restore;
   if (!restore) return null;
   if (restore.status === 'restored') return `Restored ${formatAbsoluteDate(restore.updatedAt)}`;
-  if (restore.status === 'requested') return `Restore requested ${formatAbsoluteDate(restore.requestedAt)}`;
+  if (restore.status === 'requested')
+    return `Restore requested ${formatAbsoluteDate(restore.requestedAt)} — check its notifications before requesting it again`;
   return `Last restore did not finish (${formatAbsoluteDate(restore.updatedAt)})`;
 }
 
@@ -88,7 +89,12 @@ export function ArchiveList({status, listings, selectedId, onSelect, showArchive
     );
   }
   if (listings.length === 0) {
-    return <p className="mt-2 text-sm text-text-2">This space has no archives yet.</p>;
+    return (
+      <p className="mt-2 text-sm text-text-2">
+        No archives are listed for this space. If a notification gave you an archive id, choose Restore by archive id
+        instead.
+      </p>
+    );
   }
 
   return (

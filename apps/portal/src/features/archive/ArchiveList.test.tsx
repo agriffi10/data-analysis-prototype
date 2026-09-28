@@ -99,7 +99,7 @@ describe('ArchiveList', () => {
     expect(screen.getByRole('radio', {name: 'Incomplete'})).toBeEnabled();
     const statuses = [
       screen.getByText('Restored Sep 3, 2026'),
-      screen.getByText('Restore requested Sep 2, 2026'),
+      screen.getByText('Restore requested Sep 2, 2026 — check its notifications before requesting it again'),
       screen.getByText('Last restore did not finish (Sep 4, 2026)')
     ];
     for (const status of statuses) expect(status.textContent).not.toMatch(/intact|safe|complete|gone/i);
@@ -120,7 +120,9 @@ describe('ArchiveList', () => {
         onRetry={onRetry}
       />
     );
-    expect(screen.getByText('This space has no archives yet.')).toBeInTheDocument();
+    expect(screen.getByText(/^No archives are listed for this space\./)).toHaveTextContent(
+      /Restore by archive id instead/
+    );
 
     rerender(
       <ArchiveList

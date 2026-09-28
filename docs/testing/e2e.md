@@ -849,7 +849,8 @@ Tick the folder → **Archive** in the selection toolbar. **Before confirming, r
   `agriffith_three/archive_fixture/`.
 - It says the data **moves out of this space into separate long-term archive storage**; that a
   restore puts every file back in the **same folder**; that a restore **overwrites nothing** and
-  asks you to **move or rename** what is in the way; that it takes **several hours**; that storage
+  asks you to **move or rename** what is in the way, which can include a folder re-created with the
+  same name, and that you need not re-create folders; that it takes **several hours**; that storage
   is charged for **at least 90 days**; and how to find the archive again (**Restore Archived
   Data**). No sentence says to delete anything.
 - Type a **Name** (`Q1 fixture`) — then press Enter **in the Name field**: nothing archives and

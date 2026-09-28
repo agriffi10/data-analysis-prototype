@@ -191,7 +191,7 @@ describe('RestoreArchiveDialog — restoring by id instead', () => {
 
     api.on('objects.list', folders());
     renderDialog();
-    await screen.findByText('This space has no archives yet.');
+    await screen.findByText(/^No archives are listed for this space\./);
     expect(screen.getByRole('button', {name: 'Restore by archive id instead'})).toBeInTheDocument();
   });
 
@@ -218,7 +218,9 @@ describe('RestoreArchiveDialog — restoring by id instead', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(field).toHaveAccessibleDescription(/doesn’t look like an archive id.*3f8a1c2e/i);
     expect(politeAnnouncements()).toEqual([expect.stringMatching(/^Archive id: That doesn’t look like an archive id/)]);
-    expect(screen.getByText(/find the id/i)).toHaveTextContent(/system_settings/);
+    // The one user in id mode is the one whose archive has no receipt, so the hint must send them
+    // to the notification rather than to a folder that is not there.
+    expect(screen.getByText(/archive id from the notification/i)).toHaveTextContent(/already in the list/);
   });
 
   it('goes back to the list with the choice still made, and focus on the heading', async () => {

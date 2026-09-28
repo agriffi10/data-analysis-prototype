@@ -121,8 +121,9 @@ export function ArchiveDialog({items, rootPrefix, busy, submitError, onConfirm, 
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-text-2">
         <li>A restore puts every file back in this space, in the same folder and under the same name it has now.</li>
         <li>
-          A restore overwrites nothing: if any of those files exists again, nothing is restored until you move or rename
-          what is in the way.
+          A restore overwrites nothing. While anything sits at one of those paths again — which can include a folder you
+          create with the same name — nothing is restored until you move or rename it, and a file that appears while a
+          restore runs is left as it is. You don’t need to re-create folders: a restore brings them back.
         </li>
         <li>
           A restore takes <strong>several hours</strong>.

@@ -136,9 +136,9 @@ export function RestoreArchiveDialog({space, spaceLabel, busy = false, submitErr
             spellCheck={false}
           />
           <p className="mt-2 text-xs text-text-3">
-            You’ll find the id under <span className="font-medium">system_settings</span> →{' '}
-            <span className="font-medium">archive</span> in your files — each archive has a folder named after its id,
-            holding a receipt you can download.
+            Use the archive id from the notification you got when the archive finished. Every archive that has a receipt
+            under <span className="font-medium">system_settings</span> → <span className="font-medium">archive</span> is
+            already in the list.
           </p>
           <button
             type="button"
