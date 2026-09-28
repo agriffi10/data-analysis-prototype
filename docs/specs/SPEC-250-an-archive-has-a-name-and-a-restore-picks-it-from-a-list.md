@@ -118,7 +118,11 @@ and held equal by a mirror test:
   bidirectional-formatting character**: U+0000–U+001F, U+007F–U+009F, U+061C, U+200E, U+200F,
   U+2028–U+202E and U+2066–U+2069. That includes tab and every line break. The C0 and C1 controls
   and the line separators would inject a line into the receipt. The bidi controls would let a
-  name in a shared space display as something it is not.
+  name in a shared space display as something it is not. **A lone surrogate** (U+D800–U+DFFF
+  when it is not half of a pair) is refused too. It reaches the plane through a JSON escape,
+  passes every other check, and cannot be encoded, so the receipt write would fail after the
+  source had been deleted. Both sides iterate by code point, so only a lone surrogate can match
+  that range: the browser uses `for…of`, never UTF-16 indexing.
 - **Normalised** by collapsing every run of U+0020 spaces to one and trimming U+0020 from both
   ends. Only U+0020 counts, so the browser and Python cannot disagree about what "whitespace"
   means. An empty result means "no name", and the request carries no `archiveName` field.
@@ -189,7 +193,8 @@ a newline.
       one range bound on one side and watch it go red.
 - [ ] One corpus, `lambdas/archive-common/archive_name_corpus.json`, lists raw inputs with their
       expected outcome: a normalised name, or refused. It includes a tab, U+00A0, U+3000, U+061C,
-      U+202E, doubled spaces, 100 and 101 astral characters, and spaces only. The Python name
+      U+202E, a lone surrogate, a surrogate pair, doubled spaces, 100 and 101 astral characters,
+      and spaces only. The Python name
       rule and `archiveName.test.ts` both run every case. The constants alone cannot catch
       diverging logic, such as a `.trim()` that strips U+00A0.
 
@@ -478,7 +483,7 @@ export type ArchiveListing = {
 # lambdas/archive-common/arcommon/config.py
 ARCHIVE_NAME_MAX_CHARS = 100
 ARCHIVE_NAME_REFUSED_RANGES = ((0x00, 0x1F), (0x7F, 0x9F), (0x061C, 0x061C), (0x200E, 0x200F),
-                               (0x2028, 0x202E), (0x2066, 0x2069))
+                               (0x2028, 0x202E), (0x2066, 0x2069), (0xD800, 0xDFFF))
 ARCHIVE_INDEX_MAX_ENTRIES = 200
 ARCHIVE_INDEX_NAME = "index.json"
 ARCHIVE_MAX_ITEM_BYTES = 87 * 1024   # was 89 KiB; the name's bound comes out of it
@@ -509,7 +514,7 @@ useArchiveList(space: ArchiveSpace | null, enabled: boolean): UseQueryResult<Arc
 
 ```python
 # arcommon/index_store.py
-def record_archive(bucket: str, key: str, entry: dict) -> bool: ...   # never raises
+def record_archive(bucket: str, key: str, build_entry: Callable[[], dict]) -> bool: ...   # never raises; builds inside
 def record_restore(bucket: str, key: str, archive_id: str, status: str, requested_at: str) -> bool: ...  # never raises
 # arcommon/paths.py
 def index_key(name: str) -> str: ...

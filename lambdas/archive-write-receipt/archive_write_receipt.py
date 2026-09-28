@@ -105,7 +105,7 @@ def _write_receipt(event) -> dict:
     index_store.record_archive(
         archive.get("receiptBucket"),
         archive.get("indexKey"),
-        index_store.entry_from(event, record["fileCount"]),
+        lambda: index_store.entry_from(event, record["fileCount"]),
     )
 
     logger.info("receipt written to %s", key)

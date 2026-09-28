@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from arcommon import config, index_store
-from cpcommon import clients
+from cpcommon import cas, clients
 
 BUCKET = "user-bkt"
 KEY = "alice/system_settings/archive/index.json"
@@ -104,8 +104,8 @@ def _v1(*entries):
 def test_an_archive_is_recorded_once_however_often_its_verb_runs():
     fake = _install()
 
-    assert index_store.record_archive(BUCKET, KEY, _entry())
-    assert index_store.record_archive(BUCKET, KEY, _entry())
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry())
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry())
 
     assert fake.document() == {"version": 1, "archives": [_entry()]}
 
@@ -113,9 +113,9 @@ def test_an_archive_is_recorded_once_however_often_its_verb_runs():
 def test_two_archives_finishing_together_both_survive_the_race():
     """The second writer's first attempt loses to the first writer; the loop re-reads and keeps both."""
     fake = _install(stored=_v1(_entry(A1)))
-    fake.on_put = lambda: index_store.record_archive(BUCKET, KEY, _entry(A2, "Other"))
+    fake.on_put = lambda: index_store.record_archive(BUCKET, KEY, lambda: _entry(A2, "Other"))
 
-    assert index_store.record_archive(BUCKET, KEY, _entry(A1, "Renamed"))
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry(A1, "Renamed"))
 
     names = {row["archiveId"]: row["name"] for row in fake.document()["archives"]}
     assert names == {A1: "Renamed", A2: "Other"}
@@ -125,7 +125,7 @@ def test_the_index_keeps_the_newest_entries_up_to_its_cap():
     cap = config.ARCHIVE_INDEX_MAX_ENTRIES
     fake = _install(stored=_v1(*(_entry(f"id-{i}") for i in range(cap))))
 
-    index_store.record_archive(BUCKET, KEY, _entry("id-new"))
+    index_store.record_archive(BUCKET, KEY, lambda: _entry("id-new"))
 
     ids = [row["archiveId"] for row in fake.document()["archives"]]
     assert len(ids) == cap
@@ -164,7 +164,7 @@ def test_a_restore_never_creates_or_repairs_an_entry(stored):
 def test_a_corrupt_index_is_rebuilt_around_the_new_archive(stored):
     fake = _install(stored=stored)
 
-    assert index_store.record_archive(BUCKET, KEY, _entry())
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry())
 
     assert fake.document() == {"version": 1, "archives": [_entry()]}
 
@@ -173,7 +173,7 @@ def test_an_index_from_a_newer_build_is_never_overwritten():
     newer = json.dumps({"version": 2, "archives": [], "extra": True}).encode()
     fake = _install(stored=newer)
 
-    index_store.record_archive(BUCKET, KEY, _entry())
+    index_store.record_archive(BUCKET, KEY, lambda: _entry())
 
     assert fake.put_attempts == 0
     assert fake.objects[KEY][0] == newer
@@ -183,7 +183,7 @@ def test_a_read_that_proves_nothing_writes_nothing():
     """A 403 is not an absence: taking it as one would start a fresh index over the real one."""
     fake = _install(stored=_v1(_entry(A2)), get_error=_ClientError("AccessDenied", 403))
 
-    assert index_store.record_archive(BUCKET, KEY, _entry()) is False
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry()) is False
 
     assert fake.put_attempts == 0
 
@@ -191,7 +191,7 @@ def test_a_read_that_proves_nothing_writes_nothing():
 def test_a_write_that_keeps_failing_is_swallowed_after_trying():
     fake = _install(put_error=_ClientError("AccessDenied", 403))
 
-    assert index_store.record_archive(BUCKET, KEY, _entry()) is False
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry()) is False
 
     assert fake.put_attempts == 1
 
@@ -200,7 +200,7 @@ def test_the_index_is_written_unescaped_and_compact():
     """The cap was measured on this encoding; ``ensure_ascii`` would triple a CJK name's bytes."""
     fake = _install()
 
-    index_store.record_archive(BUCKET, KEY, _entry(name="報告"))
+    index_store.record_archive(BUCKET, KEY, lambda: _entry(name="報告"))
 
     body = fake.objects[KEY][0]
     assert "報告".encode() in body
@@ -211,7 +211,7 @@ def test_no_key_on_the_state_skips_the_index():
     """A run validated before the key existed reaches a new verb after a deploy."""
     fake = _install()
 
-    assert index_store.record_archive(BUCKET, None, _entry()) is False
+    assert index_store.record_archive(BUCKET, None, lambda: _entry()) is False
     assert index_store.record_restore(BUCKET, None, A1, "restored", "t") is False
 
     assert fake.put_attempts == 0
@@ -242,3 +242,22 @@ def test_an_entry_names_the_first_items_relative_to_the_space_and_cuts_long_path
     assert len(entry["items"][1]["path"]) == index_store.ITEM_PATH_MAX_CHARS
     assert entry["items"][1]["path"].endswith(index_store.ELLIPSIS)
     assert (entry["itemCount"], entry["fileCount"], entry["name"]) == (4, 7, "Q1")
+
+
+def test_a_writer_that_loses_every_race_gives_up_quietly_after_the_last_attempt():
+    fake = _install(put_error=_ClientError("PreconditionFailed", 412))
+
+    assert index_store.record_archive(BUCKET, KEY, lambda: _entry()) is False
+
+    assert fake.put_attempts == cas.MAX_ATTEMPTS
+
+
+def test_an_entry_that_cannot_be_built_costs_the_label_and_nothing_else():
+    fake = _install()
+
+    def _broken():
+        raise TypeError("a state nobody anticipated")
+
+    assert index_store.record_archive(BUCKET, KEY, _broken) is False
+
+    assert fake.put_attempts == 0

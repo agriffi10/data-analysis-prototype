@@ -21,7 +21,7 @@ os.environ.setdefault("ARCHIVE_BUCKET", "archive-bkt")
 import archive_update_receipt as m
 import pytest
 from arcommon import notify, receipt
-from cpcommon import clients
+from cpcommon import cas, clients
 from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
@@ -521,15 +521,42 @@ def test_an_incomplete_restore_is_recorded_before_the_run_fails():
     assert fake.restore_recorded()["status"] == "incomplete"
 
 
-def test_an_index_fault_does_not_change_what_the_stage_returns():
+_INDEX_FAULTS = pytest.mark.parametrize(
+    ("error", "attempts"),
+    [(_S3Error("AccessDenied", 403), 1), (_S3Error("PreconditionFailed", 412), cas.MAX_ATTEMPTS)],
+    ids=["denied", "every-race-lost"],
+)
+
+
+@_INDEX_FAULTS
+@pytest.mark.parametrize("status", ["requested", "restored"])
+def test_an_index_fault_does_not_change_what_the_stage_returns(status, error, attempts):
     fake = _install()
     fake.seed_index()
-    fake.index_error = _S3Error("AccessDenied", 403)
+    fake.index_error = error
 
-    out = m.handler(_indexed(status="restored"), None)
+    out = m.handler(_indexed(status=status), None)
 
-    assert fake.index_puts == 1
+    assert fake.index_puts == attempts
     assert out["receiptKey"] == _RECEIPT_KEY
+
+
+@_INDEX_FAULTS
+def test_an_index_fault_does_not_change_which_failure_an_incomplete_restore_raises(error, attempts):
+    outcome = {"copied": 2, "failed": 3, "expected": 5}
+    clean = _install(vault=[])
+    clean.seed_index()
+    with pytest.raises(TerminalError) as expected:
+        m.handler(_indexed(status="incomplete", transferOutcome=outcome), None)
+
+    faulty = _install(vault=[])
+    faulty.seed_index()
+    faulty.index_error = error
+    with pytest.raises(TerminalError) as raised:
+        m.handler(_indexed(status="incomplete", transferOutcome=outcome), None)
+
+    assert faulty.index_puts == attempts
+    assert raised.value.reason == expected.value.reason
 
 
 def test_a_restore_validated_before_the_index_existed_records_nothing():

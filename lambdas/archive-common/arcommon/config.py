@@ -242,7 +242,10 @@ Attributes:
     checked on the raw value before normalisation. The C0 and C1 controls and the line and
     paragraph separators would each start a new line in the receipt, where the rewrite keys on a
     line's label; the bidirectional controls would let a name shown to the other members of a
-    shared space read as something it is not.
+    shared space read as something it is not. The surrogate range can only match a LONE
+    surrogate, since Python iterates by code point: one arrives from a JSON escape of half a pair,
+    passes every other check and cannot be encoded, so the receipt write would fail after the
+    source had already been deleted.
   ARCHIVE_INDEX_NAME: The basename of the per-space archive index, beside the receipt folders.
   ARCHIVE_INDEX_MAX_ENTRIES: How many archives the index labels, newest kept. **It is set
     together with the index's unescaped encoding, and is not the data-quality index's cap:**
@@ -319,6 +322,7 @@ ARCHIVE_NAME_REFUSED_RANGES = (
     (0x200E, 0x200F),
     (0x2028, 0x202E),
     (0x2066, 0x2069),
+    (0xD800, 0xDFFF),
 )
 
 ARCHIVE_INDEX_NAME = "index.json"

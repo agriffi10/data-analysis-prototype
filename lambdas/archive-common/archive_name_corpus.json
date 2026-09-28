@@ -77,6 +77,16 @@
       "normalized": null
     },
     {
+      "why": "a lone surrogate cannot be encoded, so it is refused",
+      "raw": "Q1\ud800",
+      "normalized": null
+    },
+    {
+      "why": "a surrogate PAIR is one astral character and is kept",
+      "raw": "Q1 \ud83d\ude00",
+      "normalized": "Q1 \ud83d\ude00"
+    },
+    {
       "why": "a no-break space is a character, not a space, so it survives trimming",
       "raw": "\u00a0Q1\u00a0",
       "normalized": "\u00a0Q1\u00a0"

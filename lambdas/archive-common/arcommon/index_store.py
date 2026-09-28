@@ -245,14 +245,18 @@ def _mutate(bucket: str, key: str, apply, archive_id) -> bool:
     return True
 
 
-def record_archive(bucket, key, entry: dict) -> bool:
+def record_archive(bucket, key, build_entry) -> bool:
     """Records a completed archive in its space's index.
+
+    The entry is BUILT here, inside the boundary that swallows, rather than by the caller: by the
+    time this runs the source is deleted and the receipt written, so even a state shaped in a way
+    nobody anticipated must cost the label and not the run.
 
     Args:
       bucket: The space's bucket.
       key: The index key, as validate-authorize resolved it; None skips the index — a run
         validated before the key existed can reach this verb after a deploy.
-      entry: The entry ``entry_from`` built.
+      build_entry: Returns the entry, as ``entry_from`` builds it.
 
     Returns:
       True when the entry was recorded.
@@ -262,6 +266,11 @@ def record_archive(bucket, key, entry: dict) -> bool:
     """
     if not bucket or not key:
         logger.info("no archive index key on the state; the archive is not labelled")
+        return False
+    try:
+        entry = build_entry()
+    except Exception:
+        logger.exception("could not build the archive's index entry; it is not labelled")
         return False
 
     def _apply(document):

@@ -22,7 +22,7 @@ os.environ.setdefault("ARCHIVE_BUCKET", "archive-bkt")
 import archive_write_receipt as m
 import pytest
 from arcommon import notify
-from cpcommon import clients
+from cpcommon import cas, clients
 from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
@@ -170,19 +170,28 @@ def test_the_receipt_opens_with_the_archives_name_or_a_placeholder():
     assert unnamed.split(":", 1)[1].strip() == "-"
 
 
-def test_the_archive_is_recorded_in_the_spaces_index_after_its_receipt():
+def test_the_archive_is_recorded_in_the_spaces_index_once_however_often_the_verb_runs():
     fake = _install()
+    event = _event(archive={"indexKey": _INDEX_KEY, "name": "Q1 reports"})
 
-    result = m.handler(_event(archive={"indexKey": _INDEX_KEY, "name": "Q1 reports"}), None)
+    result = m.handler(event, None)
+    m.handler(event, None)
 
     assert result["receiptKey"] == f"alice/archive/{_REQUEST_ID}/receipt.txt"
-    (entry,) = fake.index()["archives"]
-    assert entry["archiveId"] == _REQUEST_ID
-    assert entry["name"] == "Q1 reports"
-    assert entry["archivedAt"] == "2026-08-10T14:02:11.123Z"
-    assert entry["items"] == [{"kind": "folder", "path": "reports/"}]
-    assert entry["totalBytes"] == 8_412_339_201
-    assert entry["restore"] is None
+    assert "Files archived:    1204" in fake.puts[0]["Body"].decode()
+    assert fake.index()["archives"] == [
+        {
+            "archiveId": _REQUEST_ID,
+            "name": "Q1 reports",
+            "archivedAt": "2026-08-10T14:02:11.123Z",
+            "archivedBy": "alice",
+            "items": [{"kind": "folder", "path": "reports/"}],
+            "itemCount": 1,
+            "fileCount": 1204,
+            "totalBytes": 8_412_339_201,
+            "restore": None,
+        }
+    ]
 
 
 def test_an_archive_whose_receipt_failed_is_not_indexed():
@@ -196,12 +205,17 @@ def test_an_archive_whose_receipt_failed_is_not_indexed():
     assert fake.index_puts == 0
 
 
-def test_an_index_that_cannot_be_written_does_not_fail_a_completed_archive():
-    fake = _install(index_error=_S3Error("AccessDenied", 403))
+@pytest.mark.parametrize(
+    ("error", "attempts"),
+    [(_S3Error("AccessDenied", 403), 1), (_S3Error("PreconditionFailed", 412), cas.MAX_ATTEMPTS)],
+    ids=["denied", "every-race-lost"],
+)
+def test_an_index_that_cannot_be_written_does_not_fail_a_completed_archive(error, attempts):
+    fake = _install(index_error=error)
 
     result = m.handler(_event(archive={"indexKey": _INDEX_KEY}), None)
 
-    assert fake.index_puts == 1
+    assert fake.index_puts == attempts
     assert result["receiptKey"] == f"alice/archive/{_REQUEST_ID}/receipt.txt"
 
 
