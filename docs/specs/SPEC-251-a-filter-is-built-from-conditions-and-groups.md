@@ -530,7 +530,7 @@ the filter row is there with the `query` flag off — move to a test driven that
 ### Phase 5: Help and the records
 
 - The guide, the register, the inventory, the error message and the live checks (FR-006). The live
-  check, run from a signed-in session after deploy: build `status equals X` and an **any** group of
-  two values on another column. One execution runs, the chips read as specified, and removing the
-  group's chip widens the rows. Then **is like** `A%` on a text column matches values starting with
-  a or A.
+  check, run from a signed-in session after deploy, is `e2e.md` §4.5 W–AA: a condition and an
+  **any** group applied as one execution with the chips as specified, the group's chip removed in
+  one more, **is like** `o%` on `owner` matching capital O, Order and filter over two conditions on
+  one column, and Pick values in the builder.

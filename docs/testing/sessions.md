@@ -10,6 +10,46 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-28 (SPEC-251, the filter builder)
+
+**What was under test.** `e2e.md` §4.5 rows W–AA on the deployed image of #924 (main `c4dcfe1e`,
+Deploy SPA image green): Filter rows… with a group, removing chips, **is like**, Order and filter
+over two conditions on one column, and Pick values in the builder. All on `explorer150`.
+
+**Browser and instruments.** **agriffith**, the Claude desktop app's built-in browser pane (Chromium),
+viewport 716 wide, signed in by Andrew at the Cognito form. Query starts were counted with the
+Resource Timing API (`performance.getEntriesByType('resource')`, paths ending `/v1/queries`),
+because the pane's network reader does not show the API's requests. Selects were set with the
+pane's `form_input`, buttons and checkboxes pressed with its `computer` left click, and text typed
+with its `computer` type; control names, focus and the generated statement were read from the
+DOM.
+
+**Results — all pass.**
+- **W.** One start (1 → 2). Chips `region equals “south”` and
+  `(owner equals “Jones” or owner equals “O'Brien”)`; statement
+  `WHERE ("region" = 'south' AND ("owner" = 'Jones' OR "owner" = 'O''Brien'))`; 38 rows, all
+  `south`, owners Jones and O'Brien. The new group read **any of these**, and Add group put focus
+  on its first condition's column select.
+- **X.** One start (2 → 3); the group left the statement; focus moved to the remaining chip's ×.
+  The row count stayed 38 — the fixture's `south` rows are all Jones or O'Brien, so the script's
+  old "more rows than W" could not hold here; the row now says so. Removing the last chip started
+  nothing (the unfiltered statement was cached) and focus went to **Filter rows…**.
+- **Y.** The value field's description was the pattern hint. `o%` → one start; statement
+  `WHERE lower("owner") LIKE lower('o%')`; 43 rows, owners O'Brien and Okafor — a lowercase
+  pattern matched capital O. The script said `A%` on any text column, which matches nothing in
+  `explorer150`; the run used `o%` on `owner`, and the row now says so.
+- **Z.** Built `owner is like o%` and `owner does not equal Okafor` in Filter rows (one start, 9
+  rows); the header read *Column options: owner, filtered*. Order and filter showed
+  "2 conditions — change them in Filter rows" with no Filter select for owner; sorting region and
+  Apply started one query, kept both chips and added `ORDER BY "region" ASC`.
+- **AA.** An `id is one of` row: no start until **Pick values** was pressed, then one listing,
+  which offered all **150** ids — unnarrowed, where the tab's filters leave 9. Its boxes were
+  named `Condition 3: (empty)` / `Condition 3: NULL`. Ticking 3 filled the field with `3` and kept
+  the picker open; Apply started one query and left one row, id 3.
+
+**Not covered.** Safari, and phone widths. A tab carrying a stored SQL condition (the notice) —
+nothing on prod carries one to open, and the integration tests cover it.
+
 ## Live-check session — 2026-09-28 (SPEC-249's Filter by value)
 
 **What was under test.** SPEC-249 (#923, squash `14a2bfb3`). Deploy SPA image went green on that sha
