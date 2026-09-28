@@ -14,9 +14,8 @@ than restating it** — the second hand-synced copy is how the two drifted befor
    `architecture.md` section you need, the `## Fences` of each `docs/decisions/` area the spec
    touches, and then only the `decisions/` entry / dependency delivery-doc you actually need.
 3. **Confirm `main` is green, verdict first:** `python3 scripts/watch_ci.py --branch main --once`.
-   Then `gh run list --branch main --event push --limit 5` for each path-filtered deploy's last
-   outcome, trusted only once its newest run is main's head (`ci-and-deploy-traps.md` says why and
-   how). Investigate failures before building.
+   Then each path-filtered deploy's last outcome, read as `ci-and-deploy-traps.md` says.
+   Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
 5. **Generate and validate a plan before writing code.** Turn the spec's Implementation Phases into a
    concrete implementation plan, then validate it against the spec (every FR + acceptance criterion is

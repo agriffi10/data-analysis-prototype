@@ -24,10 +24,15 @@ These pass locally and fail later — check them as part of the work, not as an 
   read of the newest runs**: its endpoint intermittently serves a page weeks stale, and a head
   missing from that page reads as "no push run yet" while `main` is green. So every script that
   judges a commit asks `actions/runs?head_sha=` for it — `watch_ci.py`, the queue's `turn`, and the
-  supervisor's watch and archive check. The list stays in the session-start check for what the
-  head's own runs may not include — each path-filtered deploy's last outcome, such as Deploy
-  Infrastructure or Publish Config — and a person reading it trusts it only once its newest run is
-  main's head: the default table shows no sha, so match its title to `git log -1 origin/main`.
+  supervisor's watch and archive check. The session-start check runs `watch_ci.py --branch main
+  --once` for the verdict, then reads what the head's own runs may not include — each
+  path-filtered deploy's last outcome — one workflow at a time, because the two image deploys run
+  on every push and crowd the others out of any short repo-wide list:
+  `for w in deploy-infra deploy-lambdas deploy-config; do gh run list --workflow $w.yml --branch
+  main --event push --limit 1 --json workflowName,conclusion,headSha,createdAt; done`. It is
+  best-effort context beside the verdict, never a verdict: this endpoint has served a weeks-stale
+  run too, and since a path-filtered deploy's newest run is rarely main's head, nothing proves the
+  page fresh. Read each sha and date, and re-read when one looks older than expected.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.

@@ -129,7 +129,7 @@ the spec (`@docs/specs/SPEC-XXX`); (3) pull **only** what the spec touches — t
 Key Decisions area it lands in, the matching `apps/portal/info/component-inventory/` area file(s), a
 dependency's delivery doc; read `architecture.md` whole only for a part of the system you don't
 already hold, and never read the inventory or delivery docs in full. (4) Confirm `main`
-is green, verdict first: `python3 scripts/watch_ci.py --branch main --once`, then the deploy list per
+is green, verdict first: `python3 scripts/watch_ci.py --branch main --once`, then the deploys per
 `session-rhythm.md`; investigate failures before building. (5) Branch from fresh `main`
 (`git fetch && git switch -c <branch> origin/main`). (6) Plan from the spec's phases, validate it
 against the spec, and send it to a **fresh-context reviewer**; (7) send the **PR grouping** to one
