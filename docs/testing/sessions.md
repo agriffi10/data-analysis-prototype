@@ -10,6 +10,77 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-29 (a sweep of every owed row one session can run)
+
+**What was under test.** Whatever `main` had deployed: `cae94d9a`, whose Deploy SPA image finished at
+2026-09-28 22:02:46Z and Deploy Lambdas at 22:10:53Z. Every fix the rows below re-run is older than
+that. All rows ran between 13:25Z and 14:05Z on 2026-09-29. Times are UTC.
+
+**Browser.** The Claude app's Browser pane, as **agriffith**, which Andrew signed in himself at the
+Cognito form. The viewport was emulated at 1200 × 800 in the dark theme, and the page reported
+`visibilityState: visible` throughout. Andrew's own Chrome was signed in too, but only to confirm
+that JavaScript reaches it. No row ran there.
+
+**Instruments, each a way this run differed from a user's.**
+- Real input from the pane's `computer` tool: typing into Monaco (after a second click gives it
+  focus), Cmd+Z, →, Tab, Enter and Backspace, a `left_click_drag`, and pointer clicks on the Query
+  tabs, the Run button, the Start check buttons and the archive confirm's **Archive**. The pane's
+  Enter activated two plain `onClick` buttons (the rail's *Collapse sidebar* and *Show sidebar*),
+  which `e2e.md` §1's trap row said it did not do on 2026-09-21. That row now asks for a control
+  first.
+- `element.click()` for menus, most dialog buttons, checkboxes and radios. Selects were set with the
+  native value setter plus a `change` event. The upload used `DataTransfer` on the page's own input.
+- Query starts were counted with **Resource Timing**, keeping entries whose pathname is exactly
+  `/v1/queries`, and each count was read against a start it had to see. The pane lists no API
+  requests of its own.
+- The hand-built requests — the overwrite copy, the shared-space create, the archive-prefix write and
+  the fixture deletes — were `fetch`es from the page with its own token, returning statuses and
+  codes only.
+- A capture listener recorded where the drag's `pointerdown` and `click` landed.
+
+**Approvals.** Andrew approved, in chat, creating and dropping one throwaway view, the hand-built
+create of a bad-named shared space, and archiving a throwaway folder without restoring it.
+
+| Row | Result |
+|---|---|
+| **The Explorer grid scrolls inside its box** (`owed.md`) | **PASS.** At 1200 × 800 on `explorer150` (100 rows on the page) the page's `scrollHeight` stayed 800 and `scrollTo` left `scrollY` at 0. The grid's box scrolled 3,015 of 3,540px with the header fixed at 201. Same on `live0921_digits`. |
+| **Arrow keys across restored Explorer tabs** | **PASS.** Three explorations, then a reload: one start, for the active tab. → twice moved focus to the other two tabs, the selection stayed, and the start count stayed 1. Enter selected the focused tab and took it to exactly 2. |
+| **Undo stays in its own query tab** | **PASS.** Three Cmd+Z in a new, empty Query 2 left it empty, and Query 1 kept its typed line. The control: the same keys undid `SELECT 2` typed into Query 2, and no further. Query 1's caret came back at the end of line 3. |
+| **The Files rail by keyboard** | **PASS.** Tab reached *Collapse sidebar*, and Enter collapsed the rail (width 0), with focus on *Show sidebar*. Enter reopened it (width 248), with focus on *Collapse sidebar*, and its leaves at the fresh-load left edges. |
+| **A drag released outside Rename** | **PASS for the dialog; the selection NOT OBSERVABLE.** `pointerdown` on the input, `click` on the scrim, and the dialog stayed open. A plain backdrop click closed it. The selection came back collapsed, but so did a plain injected `<input>`'s under the same drag, so that is the instrument. |
+| **Drop view** | **PASS.** `CREATE VIEW agriffith.livecheck0929_v AS SELECT 1 AS x` from Query, then the menu's **Drop view**, confirmed: *"Dropped livecheck0929_v"*, and *Views (6)* became *Views (5)*. The shared-space repeat was not run. |
+| **`QueryTabStrip` spacing** | **PASS.** Two tabs: each ✕ 24 × 24, centres 100.15px apart, tabs 24.5px tall with a 3.5px gap. |
+| **#889 — pre-deploy rows** | **PASS.** All ten rows before this sitting (2026-09-16 to 09-21) carried **Partly checked**, and nothing read **Sampled**. |
+| **#889 — a clean CSV check** | **PASS.** `dq_agree_0916/` (`dq_a.csv`, `dq_b.csv`): **Clean**, no tag, and the name ends *"2 files — clean"*. |
+| **#889 — a JSON check** | **PASS.** `dq_case_json/`: **Clean** and **Partly checked**, the name ends *"2 files — clean, partly checked"*, and the report's banner reads *"No issues found in what could be checked"*. |
+| **The `overwrite` guard's advice** | **PASS.** Sources `livecheck0929_ow/src/{old,new}.csv`, destination `dest/` holding `old.csv`. `submittedAt` 13:40:32.083Z; `dest/new.csv` was written at 13:40:35Z, then the copy was sent with `onConflict: "overwrite"`. The notice read *"Copied 1 of 2 items to "dest". 1 needs your attention: "new.csv" - something was put there after this was sent, so what is there was left alone rather than replaced. Please look at the destination - sending it again now would replace what is there, and that cannot be undone."* `dest/old.csv` then held `src-old` (13:40:48Z), and `dest/new.csv` still held the late write. **Review conflicts**: *"Something was in the way of this item, so Data Quarry left it alone"*, under *"Something is in the way (1)"*, with no *already*. |
+| **A bad shared-space name** | **PASS.** `create` of `live0929 odd` to `POST /v1/enqueue/shared-space`: 200, id echoed. Notice: *"We couldn't create a shared space called "live0929 odd". Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter."* It was absent from the rail, which listed `live0922 odd`, and a listing of it was refused `AccessDenied`. |
+| **A write into a shared space's archive home** | **PASS.** `PUT /v1/objects/content` at `live0922 odd/system_settings/archive/x`: **403 `AccessDenied`**, *"archived locations are not writable"*. The control, `live0922 odd/livecheck0929_route_control.txt`, answered 200. |
+| **The placeholder count** | **PASS for the archive.** `livecheck0929_arch/` from **New folder**, holding `arch0929.csv` (11 B). Notice: *"Archived 1 file (11 B)…"*, archive id `cdd4283e-3c49-4bad-8f2e-ab829dddd067`. Receipt: `Files archived:    1`, `Total size:        11 B (11 bytes)`. The folder left the space. Not restored. |
+| **The archive confirm by pointer** (09-26's unexplained miss) | **PASS.** One pointer click on **Archive** registered as a trusted `click` and started the archive at once. Not reproduced, so the 09-26 miss is still unexplained. |
+| **#879 — Backspace on a middle result tab** | **PASS.** `SELECT 1 AS a; SELECT 2 AS b; SELECT 3 AS c` by **Run Multiple Queries**, then a pointer click on tab 2 and Backspace. Tabs 1 and 3 were left, tab 3 selected and focused, with the panel labelled by it and its grid showing `3`. |
+| **§4.7 — Save from Query, load in Query** | **PASS.** `livecheck0929_q` saved from Query and opened back byte-identical. The Explorer's **Open saved view** listed it and refused it: *"This can’t be opened as a view"*, *"“livecheck0929_q” has no Data Explorer view saved in it."*, with **Open in Query**, and no tab opened. |
+| **SPEC-247 — a shared-space view** | **PASS.** `explorer-shared-lc` from `live0922 odd`'s list: held, with the notice, *"Left out: 1 link column, 1 pattern color rule."* and no grid cells. The Generated SQL textarea held `SELECT * FROM "agriffith"."employees" WHERE ("department" <> 'Sales' AND "salary" > 50000) AND (name <> '') ORDER BY "salary" DESC`. **Save as query** opened with an empty name, in `live0922 odd`. |
+| **SPEC-247 FR-004 — Run against a cold cache** | **PASS.** Nothing in this pane session had run that statement. **Run** took the start count from 1 to 2, it was still 2 five seconds later, and the grid showed 2 rows. |
+| **SPEC-247 — a linked re-save** | **PASS.** `explorer150` saved as `livecheck0929_view` (13:53:36Z), then reopened through **Open saved view**, which linked the new tab to that key. **Save as query** offered `livecheck0929_view` in agriffith, and Save replaced it with no second confirm: one file, now 13:54:20Z. |
+| **SPEC-249 U — the distinct count** | **PASS.** On `order_referring`: `COUNT(*)` 2,012,907, `COUNT(npi)` 2,012,907, `COUNT(DISTINCT npi)` 2,012,902 — the list's *"of 2,012,902 values"* exactly, with no NULL to add. The same query found `COUNT(last_name)` 2,012,907, so `last_name` holds **no** NULL, and 09-28's row V ticked a NULL with no rows. |
+| **SPEC-249 T — is not one of over NULL** | **PASS.** `last_name` has no NULL, so this ran on a Query result explored in the Data Explorer: `x` from `VALUES 'a', 'a', 'b', NULL, NULL`. With `a` ticked and *is not one of* chosen, the list showed NULL ticked and locked, which is the app's rule (*"Is not one of always leaves out the NULL rows."*). Applied: chip `x is not one of “a”`, SQL `WHERE "x" NOT IN ('a')`, one row, `b`. |
+
+**Also closed without a run.** Three `owed.md` rows turned out to have every clause settled already
+and were struck: SPEC-191's notification row (last on 2026-09-22), §G.1 (last row 2026-09-21), and
+SPEC-196's §E.8, which the 2026-09-21 night's two-session membership run settles.
+
+**Still owed.** The drag's selection half. The placeholder count's restore notices, on archive
+`cdd4283e-…`. The Drop view repeat in a shared space whose name needs quoting. Each is on its row in
+`owed.md`.
+
+**Left behind.** Archive `cdd4283e-…` of `livecheck0929_arch/`, not restored, because the restore
+half needs it. Query and Data Explorer tabs in the pane's session storage. Removed: the view,
+`livecheck0929_ow/`, the route control file (each delete gave *"Deleted 1 item."*), and the saved
+queries `livecheck0929_q` and `livecheck0929_view`.
+
+---
+
 ## Live-check session — 2026-09-28 (SPEC-251, the filter builder)
 
 **What was under test.** `e2e.md` §4.5 rows W–AA on the deployed image of #924 (main `c4dcfe1e`,
@@ -88,6 +159,8 @@ among its 1,000 most common, so the `(empty)` rows ran on `explorer150`'s `qty`,
   dialog shrinks and re-centres under the pointer.
 
 ### Not run
+
+**Both ran on 2026-09-29 and passed — see that entry.**
 
 - The `SELECT COUNT(DISTINCT npi)` cross-check row U suggests; the listing's own counts were used
   instead, and they are self-consistent only if `npi` holds no NULL.
@@ -223,7 +296,8 @@ Andrew signed in himself at the Cognito form (the Hosted UI cookie had expired).
 **Still owed from §4.7 and the PRs.** A linked re-save replacing the file with no second confirm; a
 shared-space view's Generated SQL text and its empty-name save; Run counted as one execution against a
 cold cache; §4.7's "Save from Query, load in Query" refusal (a Query-saved file refused with
-**Open in Query**); and the archive confirm by pointer.
+**Open in Query**); and the archive confirm by pointer. **All five ran on 2026-09-29 and passed, as
+did Backspace on a middle result tab — see that entry.**
 
 **Left behind.** `explorer-roundtrip.sql` in agriffith's `saved_queries/` (the edited version; §4.7's
 rows use it), `explorer-shared-lc.sql` in live0922 odd's (the shared rows above still owed use it), and
