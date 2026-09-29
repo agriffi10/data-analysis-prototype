@@ -33,8 +33,8 @@ that JavaScript reaches it. No row ran there.
 - Query starts were counted with **Resource Timing**, keeping entries whose pathname is exactly
   `/v1/queries`, and each count was read against a start it had to see. The pane lists no API
   requests of its own.
-- The hand-built requests — the overwrite copy, the shared-space create, the archive-prefix write and
-  the fixture deletes — were `fetch`es from the page with its own token, returning statuses and
+- The hand-built requests — the overwrite copy, the shared-space create, the archive-prefix write, the
+  file-send and the fixture deletes — were `fetch`es from the page with its own token, returning statuses and
   codes only.
 - A capture listener recorded where the drag's `pointerdown` and `click` landed.
 
@@ -57,6 +57,7 @@ create of a bad-named shared space, and archiving a throwaway folder without res
 | **A bad shared-space name** | **PASS.** `create` of `live0929 odd` to `POST /v1/enqueue/shared-space`: 200, id echoed. Notice: *"We couldn't create a shared space called "live0929 odd". Use 3–63 characters: lowercase letters, digits, or underscore, starting with a letter."* It was absent from the rail, which listed `live0922 odd`, and a listing of it was refused `AccessDenied`. |
 | **A write into a shared space's archive home** | **PASS.** `PUT /v1/objects/content` at `live0922 odd/system_settings/archive/x`: **403 `AccessDenied`**, *"archived locations are not writable"*. The control, `live0922 odd/livecheck0929_route_control.txt`, answered 200. |
 | **The placeholder count** | **PASS for the archive.** `livecheck0929_arch/` from **New folder**, holding `arch0929.csv` (11 B). Notice: *"Archived 1 file (11 B)…"*, archive id `cdd4283e-3c49-4bad-8f2e-ab829dddd067`. Receipt: `Files archived:    1`, `Total size:        11 B (11 bytes)`. The folder left the space. Not restored. |
+| **The placeholder count — file-send** | **PASS.** A second fixture made the same way, `livecheck0929_send/` holding `send0929.csv` (11 B), sent to `live0922 odd` through `POST /v1/enqueue/file-send`. The sender read *"Sent "livecheck0929_send" (1 file) to space "live0922 odd"."*, the recipient's notice said *(1 file)*, and one 11-byte file landed under `shared_files/agriffith/livecheck0929_send/`. Sent by hand-built request because **Send to…** splits its names on spaces, so `live0922 odd` cannot be typed there — the only space mine to send into, since the rest belong to other people. |
 | **The archive confirm by pointer** (09-26's unexplained miss) | **PASS.** One pointer click on **Archive** registered as a trusted `click` and started the archive at once. Not reproduced, so the 09-26 miss is still unexplained. |
 | **#879 — Backspace on a middle result tab** | **PASS.** `SELECT 1 AS a; SELECT 2 AS b; SELECT 3 AS c` by **Run Multiple Queries**, then a pointer click on tab 2 and Backspace. Tabs 1 and 3 were left, tab 3 selected and focused, with the panel labelled by it and its grid showing `3`. |
 | **§4.7 — Save from Query, load in Query** | **PASS.** `livecheck0929_q` saved from Query and opened back byte-identical. The Explorer's **Open saved view** listed it and refused it: *"This can’t be opened as a view"*, *"“livecheck0929_q” has no Data Explorer view saved in it."*, with **Open in Query**, and no tab opened. |
@@ -74,10 +75,16 @@ SPEC-196's §E.8, which the 2026-09-21 night's two-session membership run settle
 `cdd4283e-…`. The Drop view repeat in a shared space whose name needs quoting. Each is on its row in
 `owed.md`.
 
+**Observed, not a failure.** **Send to…** splits its names on spaces and commas, so a space whose name
+holds a space cannot be named there. Only a space created before the create path refused such names
+can have one, and `live0922 odd` is the one known.
+
 **Left behind.** Archive `cdd4283e-…` of `livecheck0929_arch/`, not restored, because the restore
-half needs it. Query and Data Explorer tabs in the pane's session storage. Removed: the view,
-`livecheck0929_ow/`, the route control file (each delete gave *"Deleted 1 item."*), and the saved
-queries `livecheck0929_q` and `livecheck0929_view`.
+half needs it. Query and Data Explorer tabs in the pane's session storage. The 2026-09-26 sitting's
+`explorer-roundtrip.sql` in agriffith and `explorer-shared-lc.sql` in `live0922 odd` are still there;
+no open row needs them now. Removed: the view, `livecheck0929_ow/`, the route control file (each
+delete gave *"Deleted 1 item."*), `livecheck0929_send/` and its delivered copy, and the saved queries
+`livecheck0929_q` and `livecheck0929_view`.
 
 ---
 
@@ -300,7 +307,7 @@ cold cache; §4.7's "Save from Query, load in Query" refusal (a Query-saved file
 did Backspace on a middle result tab — see that entry.**
 
 **Left behind.** `explorer-roundtrip.sql` in agriffith's `saved_queries/` (the edited version; §4.7's
-rows use it), `explorer-shared-lc.sql` in live0922 odd's (the shared rows above still owed use it), and
+rows use it), `explorer-shared-lc.sql` in live0922 odd's (the shared rows above, which ran on 2026-09-29, used it), and
 archive `40085460-…` of `archive-lc.txt`, not restored — a restore is billed and approval-gated, and
 this check needed only the notice. The Chrome tab was closed.
 
