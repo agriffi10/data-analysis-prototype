@@ -17,7 +17,7 @@ deployed from `cae94d9a`; the only merge since, `94e438a1`, changed docs alone. 
 16:14Z.
 
 **Browser.** The Claude app's Browser pane, as **agriffith**, still signed in from the sitting below,
-at the pane's own width. **Instruments:** the statement typed into Monaco with the pane's keys;
+at the pane's own width, measured afterwards as 941 × 798 (`innerWidth` × `innerHeight`). **Instruments:** the statement typed into Monaco with the pane's keys;
 `element.click()` for Run, the rail's refresh, the menu and the confirm; `window.fetch` wrapped in
 the page for the confirm alone, to record the body sent to `/v1/queries`; and a catalog read from the
 page with its own token.
@@ -94,8 +94,8 @@ and were struck: SPEC-191's notification row (last on 2026-09-22), §G.1 (last r
 SPEC-196's §E.8, which the 2026-09-21 night's two-session membership run settles.
 
 **Still owed.** The drag's selection half. The placeholder count's restore notices, on archive
-`cdd4283e-…`. The Drop view repeat in a shared space whose name needs quoting, which ran later the same day (the
-entry above). Each is on its row in `owed.md`.
+`cdd4283e-…`. The Drop view repeat in a shared space whose name needs quoting, which ran later
+the same day (the entry above). Each is on its row in `owed.md`.
 
 **Observed, not a failure.** **Send to…** splits its names on spaces and commas, so a space whose name
 holds a space cannot be named there. Only a space created before the create path refused such names
