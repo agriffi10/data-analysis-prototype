@@ -12,6 +12,11 @@
 # resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
 # CKV_AWS_305); they are here because they pass, which is the whole rule.
 #
+# ONE REMOVED 2026-09-30, when the web tier gained an off switch: 67 IDs. CKV_AWS_150 (ALB
+# deletion protection) now FAILS by design — AWS refuses to delete a protected balancer, so the
+# switch could not take the tier down in one apply. A per-check diff of the scan before and after
+# the change differed in that one ID and nothing else. Argued in docs/security-baseline.md.
+#
 # RE-MEASURED 2026-09-15, after the observability module's policy documents became templates:
 # 68 IDs, eleven fewer. All eleven evaluated only those three aws_iam_policy_document data
 # sources, and this scan cannot read a templatefile() policy, so each would have been enforced
@@ -144,7 +149,6 @@ CKV_AWS_364    # Ensure that AWS Lambda function permissions delegated to AWS se
 CKV2_AWS_20    # Ensure that ALB redirects HTTP requests into HTTPS ones (1)
 CKV2_AWS_76    # Ensure AWS ALB attached WAFv2 WebACL is configured with AMR for Log4j Vulnerability (1)
 CKV_AWS_131    # Ensure that ALB drops HTTP headers (1)
-CKV_AWS_150    # Ensure that Load Balancer has deletion protection enabled (1)
 CKV_AWS_328    # Ensure that ALB is configured with defensive or strictest desync mitigation mode (1)
 CKV_AWS_91     # Ensure the ELBv2 (Application/Network) has access logging enabled (1)
 

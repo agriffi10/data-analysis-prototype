@@ -18,3 +18,30 @@ moved {
   from = aws_iam_role_policy.github_actions_deploy
   to   = module.base.aws_iam_role_policy.github_actions_deploy
 }
+
+# ── The web tier's off switch ─────────────────────────────────────────────────
+# `network` and `spa` gained a count, so their state moves to instance [0]; the registry left `spa`
+# for a module of its own, so it is not destroyed with the tier. The two resource moves are more
+# specific than the module move and win over it, which a local plan over scratch state of the
+# same shape showed: every resource moved, nothing added or destroyed. Keep them while any state
+# may predate the switch.
+
+moved {
+  from = module.network
+  to   = module.network[0]
+}
+
+moved {
+  from = module.spa
+  to   = module.spa[0]
+}
+
+moved {
+  from = module.spa.aws_ecr_repository.spa
+  to   = module.spa_image.aws_ecr_repository.spa
+}
+
+moved {
+  from = module.spa.aws_ecr_lifecycle_policy.spa
+  to   = module.spa_image.aws_ecr_lifecycle_policy.spa
+}

@@ -103,7 +103,9 @@ Routing is `react-router` v8, imported from `react-router` (v8 removed `react-ro
 ## How the SPA reaches a user
 
 **One delivery path.** The SPA is an nginx container on ECS Fargate behind an internet-facing ALB,
-built and deployed on every push to `main`, serving `portal.dataquarry.app`.
+built and deployed on every push to `main`, serving `portal.dataquarry.app`. That web tier — the
+container, the balancer and the VPC they run in — has an off switch for idle periods, and while it
+is off the portal does not resolve and the deploy is skipped (`infra/info/web-tier.md`).
 
 It ran beside a CloudFront + S3 origin for the length of the arc, because two front doors are what
 made the rollback exercisable: both were admitted **additively** to CORS, the CSP and Cognito's

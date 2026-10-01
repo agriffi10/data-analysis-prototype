@@ -67,6 +67,12 @@ concurrency:
 
 jobs:
   deploy:
+    # THE WEB TIER'S OFF SWITCH. With it off there is no cluster, service or balancer, so every
+    # push would build an image and then fail pointing a service that is not there. Skipped, the
+    # run concludes `skipped`, which scripts/watch_ci.py counts as passing, and nothing is pushed;
+    # switching the tier back on is followed by a dispatch of this workflow, which builds this
+    # commit and points the new service at it. infra/info/web-tier.md.
+    if: vars.TF_VAR_web_tier_enabled != 'false'
     runs-on: ubuntu-latest
     # The build is ~3 minutes, the matrix ~2, and `wait services-stable` caps itself at 10; a push
     # that changed the task definition first waits up to 15 for its own apply. Forty bounds a hung

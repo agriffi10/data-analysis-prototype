@@ -13,9 +13,10 @@ resource "aws_lb" "spa" {
   # header carries an identity.
   drop_invalid_header_fields = true
 
-  # A ONE-WAY DOOR while on: the name is ForceNew, so a rename or teardown fails at
-  # DeleteLoadBalancer until this is turned off in a SEPARATE apply first. README.md.
-  enable_deletion_protection = true
+  # OFF, because the web tier has an off switch: AWS refuses DeleteLoadBalancer while this is on,
+  # and Terraform cannot turn it off and delete in one apply. The balancer holds no state, and a
+  # replacement shows in the PR's plan. README.md.
+  enable_deletion_protection = false
 
   access_logs {
     bucket  = var.admin_bucket_name

@@ -9,7 +9,7 @@ variable "environment" {
 }
 
 variable "aws_region" {
-  description = "Region the cluster, the registry and the load balancer live in."
+  description = "Region the cluster and the load balancer live in."
   type        = string
 }
 
@@ -115,6 +115,16 @@ variable "health_check_path" {
   description = "Path the target group polls. What it serves belongs to the image; that it is this path is agreed between the image and this module, and asserted by test."
   type        = string
   default     = "/healthz"
+}
+
+variable "repository_url" {
+  description = "The registry the task definition pulls from. It lives in the spa-image module rather than here so it outlives the web tier's off switch."
+  type        = string
+}
+
+variable "repository_arn" {
+  description = "The same registry's ARN, which the execution role's pull grant is scoped to."
+  type        = string
 }
 
 variable "image_tag" {

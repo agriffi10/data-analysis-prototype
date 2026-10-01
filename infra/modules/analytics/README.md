@@ -179,4 +179,5 @@ live here** — they go to `{username}/system_settings/athenaresults/` in the us
 and delete-protected. This bucket only ever receives a write when a query omits an explicit
 `OutputLocation`. **No CORS, because the browser never reads it.**
 
-Its **first and only bucket policy** is written by `modules/spa`, for the ALB access logs.
+Its **first and only bucket policy** is written by `modules/spa`, for the ALB access logs — so while
+the web tier is switched off, the bucket has no policy at all.

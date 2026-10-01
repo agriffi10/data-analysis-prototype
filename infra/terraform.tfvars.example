@@ -57,6 +57,11 @@ state_lock_table  = "your-tofu-lock-table-name"
 #   gh variable set TF_VAR_spa_desired_count --body '1'
 #   gh variable set TF_VAR_spa_image_tag     --body '<the commit sha that was pushed>'
 #
+# The web tier's off switch is a third, optional one — unset means on. Exactly 'true' or
+# 'false'; infra/info/web-tier.md has the procedure both ways.
+#
+#   gh variable set TF_VAR_web_tier_enabled --body 'false'
+#
 # `max_upload_bytes` is NOT a third variable: deploy-infra.yml supplies it from the
 # VITE_MAX_UPLOAD_BYTES repository variable. It was shared with a second renderer of
 # /config.json so the two could not disagree; there is one renderer now.

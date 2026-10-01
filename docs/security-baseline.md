@@ -314,7 +314,7 @@ rows stay, and three findings survive by decision.
 **The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
 736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
 **52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared then**, and the gate script itself
-reports `enforcing 68 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired, and 79 until the observability module's policy documents became templates — the entries above and below record why, as this file is where an enforce-list removal has to be argued.
+reports `enforcing 67 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired, 79 until the observability module's policy documents became templates, and 68 until the web tier's off switch took the load balancer's deletion protection — the entries above and below record why, as this file is where an enforce-list removal has to be argued.
 
 **Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
 part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
@@ -326,7 +326,8 @@ not only by one that adds six**; two IDs sat outside the gate for twelve days be
 The other 35 are what the new VPC, ECS, ECR, ALB, ACM and API Gateway resources brought — among
 them the ones the spec named as fixes rather than dispositions: ECR immutability and scan-on-push
 (`CKV_AWS_51`, `CKV_AWS_163`), the ALB's TLS policy, dropped invalid headers, deletion protection
-and access logging (`CKV_AWS_103`, `CKV_AWS_131`, `CKV_AWS_150`, `CKV_AWS_91`), the HTTP→HTTPS
+and access logging (`CKV_AWS_103`, `CKV_AWS_131`, `CKV_AWS_150`, `CKV_AWS_91` — **`CKV_AWS_150`
+later came off**, with the web tier's off switch, below), the HTTP→HTTPS
 redirect (`CKV2_AWS_20`), the read-only root filesystem (`CKV_AWS_336`), distinct task and execution
 roles (`CKV_AWS_249`), no automatic public IP (`CKV_AWS_333`, `CKV_AWS_130`), the default security
 group restricting all traffic (`CKV2_AWS_12`), VPC flow logging (`CKV2_AWS_11`) and Container
@@ -438,6 +439,26 @@ enforced. Measured with the file's own regeneration command against the post-del
 **79 passing IDs, nine fewer, nothing newly passing left unenforced**. Reasoning about which IDs a
 deletion takes was wrong by one, and that one would have failed the very apply that removed the
 resource.
+
+### Enforce-list removal — CKV_AWS_150, with the web tier's off switch (2026-09-30)
+
+`CKV_AWS_150` (*Ensure that Load Balancer has deletion protection enabled*) is removed from
+`.github/checkov-enforced.txt`, and unlike the two removals above it **is** a decision rather than
+a subject leaving: `module.spa[0].aws_lb.spa` still exists whenever the tier is on, and now fails
+the check. **Accept.**
+
+The web tier (`network` and `spa`) is now switched off when idle, because it is most of what the
+stack costs ([`infra/info/web-tier.md`](../infra/info/web-tier.md)). AWS refuses
+`DeleteLoadBalancer` while deletion protection is on, and Terraform cannot turn it off and delete
+the balancer in one apply — so keeping it would make every switch-off two applies with a half-torn
+tier between them. What it guarded against was an accidental replacement of a balancer that holds
+no state: its name is ForceNew, the same apply rewrites the alias record that points at it, and a
+replacement shows in the PR's rendered plan before anything applies. Measured with the gate's own
+wrapper against checkov 3.3.9, a per-check diff of the scan before and after the change differed in
+this one ID and nothing else, so no other check went quiet with it.
+
+**Re-open if the balancer ever holds something a replacement would lose** — a WAF association,
+a listener rule set edited outside Terraform — or if the tier stops being switchable.
 
 ### Design finding — notifications `create` spoofing (not scanner-derived)
 

@@ -1,10 +1,13 @@
 # ── The image registry ────────────────────────────────────────────────────────
+# OUTSIDE the spa module because the web tier has an off switch and this must outlive it: a
+# registry destroyed with the tier takes every image with it, and force_delete is unset.
+#
 # IMMUTABLE TAGS ARE THE LOAD-BEARING SETTING. The deploy tags by commit sha, so with mutable
 # tags a re-push under an existing sha silently changes what a rolled-back task definition
 # starts — and nothing in the state records it. There is no :latest. README.md.
 
 resource "aws_ecr_repository" "spa" {
-  name                 = local.spa_name
+  name                 = local.image_name
   image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
@@ -18,7 +21,7 @@ resource "aws_ecr_repository" "spa" {
     encryption_type = "AES256"
   }
 
-  tags = { Name = local.spa_name }
+  tags = { Name = local.image_name }
 }
 
 # With IMMUTABLE tags an untagged image is one a later push orphaned and nothing can

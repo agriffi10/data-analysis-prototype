@@ -1,10 +1,5 @@
 # No spa_origin or spa_host output — both are built at ROOT and passed DOWN. README.md.
 
-output "ecr_repository_url" {
-  description = "Registry the image is pushed to. The push is a later spec's; verification pushes the placeholder by hand."
-  value       = aws_ecr_repository.spa.repository_url
-}
-
 output "ecs_cluster_name" {
   description = "Cluster name, for describe-services during verification and for the deploy that raises the service."
   value       = aws_ecs_cluster.spa.name

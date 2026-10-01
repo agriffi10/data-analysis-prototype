@@ -1550,8 +1550,17 @@ module "api" {
 }
 
 
+# ── The web tier's off switch ─────────────────────────────────────────────────
+# `network` and `spa` exist only to serve the portal, and idle they are most of what the stack
+# costs, so both come and go with web_tier_enabled. Nothing outside them may read their outputs:
+# with the switch off there is no instance to index. infra/info/web-tier.md.
+locals {
+  web_tier_enabled = var.web_tier_enabled == "true"
+}
+
 module "network" {
   source = "./modules/network"
+  count  = local.web_tier_enabled ? 1 : 0
 
   project_name = var.project_name
   environment  = var.environment
@@ -1570,17 +1579,31 @@ module "network" {
 }
 
 
+# ── The SPA image's registry ──────────────────────────────────────────────────
+# Outside the switch: the tier can be off for months, and the registry keeps its images through it.
+module "spa_image" {
+  source = "./modules/spa-image"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  # base grants the deploy role the registry permissions BEFORE anything here lands.
+  depends_on = [module.base]
+}
+
+
 # ── The container platform ────────────────────────────────────────────────────
-# The registry, the cluster, the task definition and the load balancer that serve the SPA.
+# The cluster, the task definition and the load balancer that serve the SPA.
 # It runs the real image, which CI builds and pushes on every commit to main. It is production,
 # and there is no second path: the distribution that used to serve the portal is destroyed.
 #
-# It takes the network's ids rather than building any of its own — the two modules are split
-# because the network outlives the front door, not because the front door is optional to it.
+# It takes the network's ids rather than building any of its own. The two are separate modules,
+# but the switch takes both: the network exists only to carry this.
 # The task security group is the seam: created there with no rules, ruled here, because every
 # one of its rules names a group this module owns.
 module "spa" {
   source = "./modules/spa"
+  count  = local.web_tier_enabled ? 1 : 0
 
   project_name = var.project_name
   environment  = var.environment
@@ -1590,12 +1613,16 @@ module "spa" {
   # defer any data source there, and a deferred read is a hard error where it feeds a for_each.
   account_id = data.aws_caller_identity.current.account_id
 
-  vpc_id                         = module.network.vpc_id
-  public_subnet_ids              = module.network.public_subnet_ids
-  private_subnet_ids             = module.network.private_subnet_ids
-  task_security_group_id         = module.network.task_security_group_id
-  vpc_endpoint_security_group_id = module.network.vpc_endpoint_security_group_id
-  s3_prefix_list_id              = module.network.s3_prefix_list_id
+  # [0] because both modules share one count: the network is there whenever this is.
+  vpc_id                         = module.network[0].vpc_id
+  public_subnet_ids              = module.network[0].public_subnet_ids
+  private_subnet_ids             = module.network[0].private_subnet_ids
+  task_security_group_id         = module.network[0].task_security_group_id
+  vpc_endpoint_security_group_id = module.network[0].vpc_endpoint_security_group_id
+  s3_prefix_list_id              = module.network[0].s3_prefix_list_id
+
+  repository_url = module.spa_image.repository_url
+  repository_arn = module.spa_image.repository_arn
 
   # Built at root from the domain variables, never derived inside the module.
   spa_host        = local.spa_host
