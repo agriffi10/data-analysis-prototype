@@ -68,11 +68,14 @@ resource "aws_acm_certificate" "api" {
 # One validation record per certificate. for_each over domain_validation_options
 # rather than an index: the set is keyed by domain name, so adding a SAN later
 # does not renumber the existing records and propose replacing them. The SPA's
-# flattens over its certificate's count, which keeps the same keys while the tier
-# is on and yields none while it is off.
+# reads its certificate through a conditional, which keeps the same keys while the
+# tier is on and yields none while it is off; the index in the branch not taken is
+# never reported. NOT flatten(): over a new certificate with a second name it is
+# unknown at plan, because a set whose elements are partly unknown has no known
+# length, and every switch-on would fail on an invalid for_each.
 resource "aws_route53_record" "spa_certificate_validation" {
   for_each = {
-    for option in flatten([for certificate in aws_acm_certificate.spa : certificate.domain_validation_options]) :
+    for option in(local.web_tier_enabled ? aws_acm_certificate.spa[0].domain_validation_options : []) :
     option.domain_name => {
       name   = option.resource_record_name
       record = option.resource_record_value

@@ -1204,9 +1204,11 @@ Disposition: `docs/security-baseline.md`.
 a public certificate only while a service uses it, so one kept through an off period spanning its
 renewal window would expire; the provider then reads the validation as gone and fails recreating
 it on an expired certificate, which turns every later apply red, on or off. Destroyed with the
-listener, it is requested again at switch-on. Its validation records flatten over the
-certificate's count, which keeps their domain-name keys, so switching on from the old shape moves
-the certificate and its validation to `[0]` and leaves the records where they are.
+listener, it is requested again at switch-on. Its validation records read the
+certificate's count through a conditional, which keeps their domain-name keys, so the merge's
+apply moves the certificate and its validation to `[0]` and leaves the records where they are.
+Not `flatten()`, which is unknown at plan over a new certificate with a second name and would fail
+every switch-on.
 
 **A change to the IAM in `network` or `spa` merged while the tier is off goes unscanned**: a
 pull request's plan holds neither module, and switch-on is a dispatch that applies without a plan.

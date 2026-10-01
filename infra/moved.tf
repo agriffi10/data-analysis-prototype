@@ -20,12 +20,12 @@ moved {
 }
 
 # ── The web tier's off switch ─────────────────────────────────────────────────
-# `network` and `spa` gained a count, so their state moves to instance [0], and so does the SPA's
-# certificate and its validation; the registry left `spa` for a module of its own, so it is not
-# destroyed with the tier. The certificate's validation records keep their domain-name keys. The two resource moves are more
-# specific than the module move and win over it, which a local plan over scratch state of the
-# same shape showed: every resource moved, nothing added or destroyed. Keep them while any state
-# may predate the switch.
+# `network` and `spa` gained a count, so their state moves to instance [0], and so do the SPA's
+# certificate and its validation; the certificate's validation records keep their domain-name keys
+# and do not move. The registry left `spa` for a module of its own, so it is not destroyed with the
+# tier, and its two moves are more specific than the module move and win over it. Local plans over
+# scratch state of the same shapes showed every resource moved and nothing added or destroyed.
+# Keep them while any state may predate the switch.
 
 moved {
   from = module.network
