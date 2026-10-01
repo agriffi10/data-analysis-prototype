@@ -21,6 +21,7 @@ or belongs to no tree at all.
 | | `lambdas/info/best-practices/` | the Lambda-shape and Python rulebooks |
 | The infrastructure | `infra/info/INDEX.md` | the module index and the shape every control plane shares |
 | | `infra/info/deploy-role-iam.md` | the trap list for adding a new AWS resource type |
+| | `infra/info/web-tier.md` | the web tier's off switch: how to turn it off and on, and what it takes down |
 | | `infra/modules/<name>/README.md` | one README per module, beside its `.tf` |
 
 `docs/best-practices/INDEX.md` is a **cross-tree router** — it names which rulebook lives in which

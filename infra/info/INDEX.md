@@ -40,12 +40,17 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 
 | Module | Owns | README |
 |---|---|---|
-| `spa` | the **container** path — ECR, Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
+| `spa` | the **container** path — Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
+| `spa-image` | the registry CI pushes the SPA container image to, kept outside `spa` so it survives the off switch | [README](../modules/spa-image/README.md) |
 | `api` | the HTTP API, its Lambda, custom domain and DNS record | [README](../modules/api/README.md) |
 
 The container is the only delivery path. CloudFront and the static bucket were destroyed with the
 `app` module; the container reproduces every job the distribution did, with three deliberate
 divergences, and the deploy role's grants on both came off one apply later.
+
+**`network` and `spa` have an off switch.** Idle, they are most of what the stack costs, so
+`web_tier_enabled` removes both whole and builds them back. How to switch it, and what stays up
+while it is off: [`web-tier.md`](web-tier.md).
 
 ## Control planes
 
@@ -108,6 +113,7 @@ Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket 
 
 - [`lambdas/info/INDEX.md`](../../lambdas/info/INDEX.md) — every function, grouped by control plane
 - [`deploy-role-iam.md`](deploy-role-iam.md) — the trap list for adding a new AWS resource type
+- [`web-tier.md`](web-tier.md) — switching the web tier off and back on
 - `docs/architecture.md` → *Infrastructure and delivery* — how this fits the running system
 - [`docs/decisions/INDEX.md`](../../docs/decisions/INDEX.md) — the full reasoning register, one file per area
 - [`../bootstrap/README.md`](../bootstrap/README.md) — remote-state bootstrap

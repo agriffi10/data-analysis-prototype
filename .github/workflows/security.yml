@@ -822,9 +822,16 @@ jobs:
 
       - name: Resolve the target
         id: target
+        env:
+          WEB_TIER_ENABLED: ${{ vars.TF_VAR_web_tier_enabled }}
         run: |
           url="${{ vars.VITE_APP_URL }}"
-          if [ -z "$url" ]; then
+          if [ "$WEB_TIER_ENABLED" = "false" ]; then
+            # The portal is switched off, so the host does not resolve. Skip loudly rather than
+            # scan a host that is not there, which proves nothing either way.
+            echo "::warning title=ZAP::the web tier is switched off (TF_VAR_web_tier_enabled), so there is no portal to scan — skipping the DAST scan."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$url" ]; then
             # Skip loudly rather than fail, and never fall back to a default target —
             # scanning a host we did not mean to scan is worse than not scanning.
             echo "::warning title=ZAP::vars.VITE_APP_URL is not set — skipping the DAST scan."

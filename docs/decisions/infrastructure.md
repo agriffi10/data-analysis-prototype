@@ -36,6 +36,7 @@ entry you need, not the file.**
 - [An account wildcard is a scoping decision nobody made](#an-account-wildcard-is-a-scoping-decision-nobody-made)
 - [A `TF_VAR_` variable reaches Terraform only if a run hands it over, so none renames the deployment](#a-tf_var_-variable-reaches-terraform-only-if-a-run-hands-it-over-so-none-renames-the-deployment)
 - [A module that waits on another reads no data source, because the wait defers the read](#a-module-that-waits-on-another-reads-no-data-source-because-the-wait-defers-the-read)
+- [The web tier has an off switch, and the balancer gave up its deletion protection for it](#the-web-tier-has-an-off-switch-and-the-balancer-gave-up-its-deletion-protection-for-it)
 
 ## Fences
 
@@ -108,6 +109,11 @@ only reads; the API enqueues on its behalf.
   platform is tested for** (the Lambda fleet's registry rides the same rule). A Fargate task volume arrives empty and root-owned and does **not**
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
+- **The web tier has an OFF SWITCH** (`web_tier_enabled`, a string held to exactly `true` or
+  `false`): `network`, `spa` and the SPA's certificate go whole, so **nothing outside them may read
+  their outputs or sit in the VPC**. The registry lives outside in `spa-image` so its images survive,
+  and the ALB carries **no deletion protection**, which is what lets one apply take the tier down.
+  `infra/info/web-tier.md`.
 - **The SPA container is the ONLY front door; it reproduced every CloudFront job bar three
   DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
@@ -1169,3 +1175,51 @@ deferring shape named and three reads nothing defers left silent.
 
 **Do NOT drop a module's `depends_on` to make its reads plan-time**, and do not reach for
 `ignore_changes` either: nothing drifts, so there is nothing to ignore.
+
+## The web tier has an off switch, and the balancer gave up its deletion protection for it
+
+With no users, the web tier was nearly the whole bill: the VPC's interface endpoints, the load
+balancer and its public IPv4 addresses, the Fargate task and Container Insights all bill by the
+hour, while everything else in the stack bills by use. The `network` and `spa` modules exist only to
+serve the portal, so both carry `count` on one switch and go whole; `moved` blocks put their state
+at instance `[0]`, and a local plan over scratch state of the same shape showed every resource
+moved and nothing added or destroyed. Procedure: `infra/info/web-tier.md`.
+
+**The registry left `spa` for a module of its own** (`spa-image`). Inside, it would go with the tier
+— and with `force_delete` deliberately unset the destroy would stop at `DeleteRepository`, while
+with it set the images would go and switching back on would start a service naming a tag that no
+longer exists. The two resource-level `moved` blocks are more specific than the module move and
+win over it.
+
+**The load balancer's deletion protection is off, and `CKV_AWS_150` left the enforced list.** AWS
+refuses `DeleteLoadBalancer` while it is on, and Terraform cannot turn it off and delete in one
+apply, so keeping it would make every switch-off two applies with a half-torn tier between. What it
+guarded was an accidental replacement of a balancer that holds no state, whose alias record the
+same apply rewrites, and which the PR's rendered plan shows. Rolling the switch out needs two
+applies once: the merge that adds it turns protection off with the tier still on, and only then can
+the variable take the tier down.
+Disposition: `docs/security-baseline.md`.
+
+**The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
+a public certificate only while a service uses it, so one kept through an off period spanning its
+renewal window would expire; the provider then reads the validation as gone and fails recreating
+it on an expired certificate, which turns every later apply red, on or off. Destroyed with the
+listener, it is requested again at switch-on. Its validation records read the
+certificate's count through a conditional, which keeps their domain-name keys, so the merge's
+apply moves the certificate and its validation to `[0]` and leaves the records where they are.
+Not `flatten()`, which is unknown at plan over a new certificate with a second name and would fail
+every switch-on.
+
+**A change to the IAM in `network` or `spa` merged while the tier is off goes unscanned**: a
+pull request's plan holds neither module, and switch-on is a dispatch that applies without a plan.
+The runbook says to switch on first.
+
+**The switch is a string, not a bool.** As a bool OpenTofu also accepts `0` and `1`, and the two
+workflows that act without OpenTofu — Deploy SPA image skips its job, and Security its ZAP
+baseline, while the tier is off — compare against the string `false`. A `0` would have taken the
+tier down while they carried on deploying to and scanning nothing. A validation holds it to exactly
+`true` or `false`, so every reader agrees on every value OpenTofu accepts.
+
+**Do NOT** wire another module to a `network` or `spa` output, place a resource in the VPC, or turn
+the balancer's deletion protection back on while the switch exists.
+

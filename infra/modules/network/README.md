@@ -5,6 +5,10 @@ internet gateway. Private subnets carry the ECS tasks and have **no default rout
 is no NAT gateway anywhere in this design, and the three destinations a task actually needs are
 reached by VPC endpoints instead.
 
+**Behind the web tier's off switch**, with `spa`: `web_tier_enabled = false` removes this module
+whole, so nothing outside the two may read its outputs or be placed in the VPC
+([`../../info/web-tier.md`](../../info/web-tier.md)).
+
 | File | Holds |
 |---|---|
 | `main.tf` | the VPC, subnets, route tables, both security groups, and flow logs |

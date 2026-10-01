@@ -121,20 +121,20 @@ output "verification_trail_name" {
 # the private route tables, and that those tables carry no default route. Both are applied-state
 # facts: a gateway endpoint associated with the wrong table applies green and does nothing, and a
 # pull that succeeded through a route somebody added would otherwise read as proof of the
-# endpoints. Neither is checkable from the plan.
+# endpoints. Neither is checkable from the plan. All three are null while the web tier is off.
 output "vpc_id" {
   description = "The VPC the container platform runs in."
-  value       = module.network.vpc_id
+  value       = one(module.network[*].vpc_id)
 }
 
 output "private_route_table_ids" {
   description = "The route tables the ECS tasks' subnets use. The S3 gateway endpoint's RouteTableIds must equal this set, and none of them may carry a default route."
-  value       = module.network.private_route_table_ids
+  value       = one(module.network[*].private_route_table_ids)
 }
 
 output "private_subnet_ids" {
   description = "The subnets the ECS tasks run in. No default route reaches the internet from any of them."
-  value       = module.network.private_subnet_ids
+  value       = one(module.network[*].private_subnet_ids)
 }
 
 output "api_function_name" {
@@ -164,7 +164,7 @@ output "api_host" {
 
 output "spa_certificate_arn" {
   description = "Regional ACM certificate for spa_host, validated. Consumed by the SPA's HTTPS listener."
-  value       = aws_acm_certificate_validation.spa.certificate_arn
+  value       = one(aws_acm_certificate_validation.spa[*].certificate_arn)
 }
 
 output "api_certificate_arn" {
@@ -175,25 +175,26 @@ output "api_certificate_arn" {
 # ── The container platform ────────────────────────────────────────────────────
 # All four are read by hand during verification: the registry CI pushes the image to, the
 # cluster and service to describe, and the load balancer's own name to prove the alias
-# record points at THIS balancer rather than at a stale one.
+# record points at THIS balancer rather than at a stale one. The last three are null while the
+# web tier is off; the registry outlives the switch.
 output "ecr_repository_url" {
   description = "Registry the SPA image is pushed to."
-  value       = module.spa.ecr_repository_url
+  value       = module.spa_image.repository_url
 }
 
 output "ecs_cluster_name" {
   description = "Cluster the SPA service runs in."
-  value       = module.spa.ecs_cluster_name
+  value       = one(module.spa[*].ecs_cluster_name)
 }
 
 output "ecs_service_name" {
   description = "The SPA service — describe-services reads its running count and its event log."
-  value       = module.spa.ecs_service_name
+  value       = one(module.spa[*].ecs_service_name)
 }
 
 output "alb_dns_name" {
   description = "The SPA load balancer's own DNS name, which the spa_host alias record must resolve to."
-  value       = module.spa.alb_dns_name
+  value       = one(module.spa[*].alb_dns_name)
 }
 
 output "lambda_image_repository_url" {

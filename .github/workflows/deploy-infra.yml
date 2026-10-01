@@ -187,6 +187,9 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The web tier's off switch. Unset means on, so nothing is torn down by a variable
+          # nobody set; exactly 'false' turns it off. infra/info/web-tier.md.
+          TF_VAR_web_tier_enabled: ${{ vars.TF_VAR_web_tier_enabled || 'true' }}
           # The commit being applied. Unlike spa_image_tag this carries no fallback and no
           # repository variable: it is an input github.sha already knows, and a stale
           # default would create functions from an image nobody meant.
@@ -566,6 +569,9 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The web tier's off switch. Unset means on, so nothing is torn down by a variable
+          # nobody set; exactly 'false' turns it off. infra/info/web-tier.md.
+          TF_VAR_web_tier_enabled: ${{ vars.TF_VAR_web_tier_enabled || 'true' }}
           # The commit being applied. Unlike spa_image_tag this carries no fallback and no
           # repository variable: it is an input github.sha already knows, and a stale
           # default would create functions from an image nobody meant.

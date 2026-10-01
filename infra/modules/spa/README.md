@@ -1,13 +1,12 @@
 # `spa` — the container delivery path
 
-The SPA served from a Fargate container behind an internet-facing ALB, with its own ECR
-repository. **This is the only delivery path**: the CloudFront distribution it was built to
+The SPA served from a Fargate container behind an internet-facing ALB, pulling from the
+[`spa-image`](../spa-image/README.md) registry. **This is the only delivery path**: the CloudFront distribution it was built to
 reproduce is retired, and with it the rollback. It reproduced every job that distribution did, with
 three deliberate divergences, and those divergences are now simply what the portal serves.
 
 | File | Holds |
 |---|---|
-| `ecr.tf` | the image registry and its lifecycle policy |
 | `ecs.tf` | the cluster, the task definition and the service |
 | `alb.tf` | the load balancer, target group, both listeners, **and the admin bucket's first policy** |
 | `security-groups.tf` | the ALB's group, and **every rule that names the task group** |
@@ -80,26 +79,29 @@ directives are asserted against. **nginx has
 no escaping**, so anything interpolated in is allowlisted — a quote truncates the policy on a
 container reporting healthy.
 
-## The registry: immutable tags are the load-bearing setting
+## The off switch, and why the balancer carries no deletion protection
 
-The deploy tags by **commit sha** and the task definition references that tag, so an image is what its
-tag says it is for as long as the revision exists. **With mutable tags a re-push under an existing sha
-silently changes what a rolled-back task definition starts, and nothing in the state records it.**
-There is no `:latest` to point at.
+This module and `network` exist only to serve the portal, and they are most of what the stack costs
+while nobody uses it — so both are behind `web_tier_enabled`, which removes them whole. How to switch
+it, and what stays up while it is off: [`../../info/web-tier.md`](../../info/web-tier.md).
 
-`AES256, not a CMK` is a deliberate no — the layers are a public SPA bundle, and a CMK buys a key
-policy to maintain rather than a secret to protect. The disposition is in `docs/security-baseline.md`.
-**Revisiting it is a two-step** once the repository holds an image: the block is ForceNew and
-`force_delete` is deliberately unset, so the replacement fails at `DeleteRepository` until the images
-are removed by hand. Deleting a registry full of deployed images should be a deliberate act, not a
-side effect of an encryption change.
+**`enable_deletion_protection` is off, deliberately.** AWS refuses `DeleteLoadBalancer` while it is
+on, and Terraform cannot turn it off and delete in one apply, so with it on every switch-off would
+be two applies with a half-state between them. What it guarded was an accidental replacement — the
+name is ForceNew — of a balancer that holds no state, whose alias record the same apply rewrites,
+and whose replacement shows in the PR's rendered plan. `CKV_AWS_150` came off Checkov's enforced
+list with it; the disposition is in `docs/security-baseline.md`.
 
-## Two one-way doors, and one two-apply change
+**The listener's certificate goes with them** (`infra/certificates.tf`): ACM renews a public
+certificate only while a service uses it, so one kept through a long off period would expire and
+fail every later apply.
 
-- **`enable_deletion_protection` on the load balancer.** The balancer's name is ForceNew, so a rename
-  — or any teardown — **fails at `DeleteLoadBalancer` until this is turned off in a separate apply
-  first**, and Terraform's message names the API refusal rather than the line. The deploy role holds
-  `ModifyLoadBalancerAttributes`, so that first apply is CI's to run rather than a human's.
+**Nothing outside these two modules may depend on them.** Anything wired to a `network` or `spa`
+output has nothing to read while the switch is off, and a resource placed in the VPC is destroyed
+with it.
+
+## One two-apply change, and a name ELBv2 caps
+
 - **The target group's port is ForceNew and the group cannot be replaced in one apply.** A listener
   forwards to it, so `DeleteTargetGroup` returns `ResourceInUse` and a destroy-then-create stops half
   done. `name_prefix` + `create_before_destroy` is the usual answer and is **not available**: the

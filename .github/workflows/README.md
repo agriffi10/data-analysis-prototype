@@ -77,6 +77,7 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
 | `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
 | `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
+| `TF_VAR_web_tier_enabled` | Whether the portal's web tier exists — a cost decision, not a resource attribute | Exactly `true` or `false`; unset means `true`. Read by `deploy-infra.yml`, `deploy-spa-image.yml` (skipped while `false`) and `security.yml` (ZAP skipped while `false`). Procedure: [`infra/info/web-tier.md`](../../infra/info/web-tier.md) |
 | `TF_VAR_verification_principal_arns` | Principals you nominate | **Unset by design.** Empty (the default) means the verification role is not created; every reference supplies `|| '[]'` |
 
 That table is the whole set of `vars.*` any workflow reads — `lambdas/test_config_workflows.py`

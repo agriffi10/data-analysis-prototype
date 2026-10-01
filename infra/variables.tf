@@ -183,6 +183,20 @@ variable "api_subdomain" {
   }
 }
 
+variable "web_tier_enabled" {
+  description = "Whether the portal's web tier exists: the VPC, its endpoints, the load balancer, the Fargate service and the portal's certificate. Idle, these are most of what the stack costs, so false removes them whole and true builds them back; users, files, tables, the API and the image registry are untouched either way. Set as the TF_VAR_web_tier_enabled repo variable — deploy-infra.yml falls back to true when it is unset. The procedure, both ways, is infra/info/web-tier.md."
+  type        = string
+  default     = "true"
+
+  # A STRING, not a bool, so that this is the one place exactness is enforced. As a bool, OpenTofu
+  # reads 0 and 1 too — and 0 would take the tier down while the two workflows that skip without
+  # it, which compare against the string false alone, carried on deploying to nothing.
+  validation {
+    condition     = contains(["true", "false"], var.web_tier_enabled)
+    error_message = "web_tier_enabled must be exactly true or false."
+  }
+}
+
 variable "spa_desired_count" {
   description = "Tasks the SPA service runs. Zero by default, so the very first apply can create a service before any image exists; a running deployment sets it to 1 or more, and the image pipeline REFUSES to report success at zero, where waiting for stability proves nothing. Set as the TF_VAR_spa_desired_count repo variable — deploy-infra.yml falls back to 0 so an unset variable never arrives as the empty string."
   type        = number

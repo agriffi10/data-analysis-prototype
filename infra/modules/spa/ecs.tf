@@ -62,7 +62,7 @@ resource "aws_ecs_task_definition" "spa" {
   container_definitions = jsonencode([
     {
       name      = "spa"
-      image     = "${aws_ecr_repository.spa.repository_url}:${var.image_tag}"
+      image     = "${var.repository_url}:${var.image_tag}"
       essential = true
 
       portMappings = [
