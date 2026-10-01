@@ -17,13 +17,19 @@ off, since there is no portal to scan).
 |---|---|
 | the VPC, subnets, route tables, security groups, the three interface endpoints, the S3 gateway endpoint, flow logs | Cognito and every user account |
 | the load balancer, its listeners and target group, and the `portal.` alias record | every bucket and everything in it |
+| the portal's certificate and its validation record | the API's certificate |
 | the ECS cluster, service, task definition, log group and both task roles | DynamoDB, the Glue catalog and every Lake Formation grant |
 | the admin bucket's policy, which only admits the load balancer's access logs | the API at `api.`, every Lambda, queue and state machine |
-| | the SPA image registry and its images (`spa-image`), and both certificates |
+| | the SPA image registry and its images (`spa-image`) |
 
 **While it is off, the portal does not resolve.** The API still answers, but nobody can sign in
 through the portal, so nothing a user would do works — and no live check that drives the portal can
 run.
+
+**The portal's certificate goes too, on purpose.** ACM renews a public certificate only while a
+service uses it, so one kept through a long off period would expire — and an expired certificate
+makes every later infrastructure apply fail, on or off. Switching on requests a new one and waits
+for its DNS validation, which adds a few minutes to that apply.
 
 ## Turning it off
 
@@ -64,6 +70,9 @@ and sign in.
 - **Do not turn the load balancer's deletion protection back on** without retiring the switch.
   AWS refuses to delete a protected balancer, so the switch would stop half done. The reasoning is in
   `../modules/spa/README.md`, and the Checkov disposition in `docs/security-baseline.md`.
+- **Do not merge IAM changes to `network` or `spa` while the tier is off.** A pull request's plan
+  contains neither module then, so the rendered-plan IAM scan cannot read their policies, and
+  switching on is a dispatch that applies without a plan. Switch on first, or hold the change.
 - **Do not make the variable a bool.** It is a string that accepts exactly `true` or `false`
   because a bool would also take `0` and `1`, and the two workflows that skip while the tier is off
   compare against the string `false` alone — `0` would take the tier down while they carried on.

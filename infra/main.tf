@@ -1552,8 +1552,9 @@ module "api" {
 
 # ── The web tier's off switch ─────────────────────────────────────────────────
 # `network` and `spa` exist only to serve the portal, and idle they are most of what the stack
-# costs, so both come and go with web_tier_enabled. Nothing outside them may read their outputs:
-# with the switch off there is no instance to index. infra/info/web-tier.md.
+# costs, so both come and go with web_tier_enabled, and the SPA's certificate with them
+# (certificates.tf). Nothing outside them may read their outputs: with the switch off there is no
+# instance to index. infra/info/web-tier.md.
 locals {
   web_tier_enabled = var.web_tier_enabled == "true"
 }
@@ -1630,7 +1631,7 @@ module "spa" {
 
   # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge
   # that stops a clean rebuild attaching a still-pending certificate to the listener.
-  spa_certificate_arn = aws_acm_certificate_validation.spa.certificate_arn
+  spa_certificate_arn = aws_acm_certificate_validation.spa[0].certificate_arn
 
   # The admin bucket takes the load balancer's access logs, and this module writes that
   # bucket's first policy. Constructed name, as everywhere else; the ordering edge is the

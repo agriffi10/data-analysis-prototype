@@ -164,7 +164,7 @@ output "api_host" {
 
 output "spa_certificate_arn" {
   description = "Regional ACM certificate for spa_host, validated. Consumed by the SPA's HTTPS listener."
-  value       = aws_acm_certificate_validation.spa.certificate_arn
+  value       = one(aws_acm_certificate_validation.spa[*].certificate_arn)
 }
 
 output "api_certificate_arn" {

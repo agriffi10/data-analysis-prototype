@@ -92,6 +92,10 @@ name is ForceNew — of a balancer that holds no state, whose alias record the s
 and whose replacement shows in the PR's rendered plan. `CKV_AWS_150` came off Checkov's enforced
 list with it; the disposition is in `docs/security-baseline.md`.
 
+**The listener's certificate goes with them** (`infra/certificates.tf`): ACM renews a public
+certificate only while a service uses it, so one kept through a long off period would expire and
+fail every later apply.
+
 **Nothing outside these two modules may depend on them.** Anything wired to a `network` or `spa`
 output has nothing to read while the switch is off, and a resource placed in the VPC is destroyed
 with it.

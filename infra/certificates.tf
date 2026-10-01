@@ -6,8 +6,16 @@
 # the API's custom domain and the SPA's HTTPS listener — so neither can own them.
 # The alias records are NOT here: each lives with the target it points at, which
 # is the only place the target's zone id and hostname are both known.
+#
+# THE SPA'S CERTIFICATE IS ON THE WEB TIER'S OFF SWITCH, because ACM renews a public
+# certificate only while a service uses it. Kept through an off period that spans its
+# renewal window, it would expire, the provider would read the validation as gone, and
+# every later apply would fail recreating it. Destroyed with the listener, it is simply
+# requested again when the tier comes back. infra/info/web-tier.md.
 
 resource "aws_acm_certificate" "spa" {
+  count = local.web_tier_enabled ? 1 : 0
+
   domain_name       = local.spa_host
   validation_method = "DNS"
 
@@ -59,10 +67,12 @@ resource "aws_acm_certificate" "api" {
 
 # One validation record per certificate. for_each over domain_validation_options
 # rather than an index: the set is keyed by domain name, so adding a SAN later
-# does not renumber the existing records and propose replacing them.
+# does not renumber the existing records and propose replacing them. The SPA's
+# flattens over its certificate's count, which keeps the same keys while the tier
+# is on and yields none while it is off.
 resource "aws_route53_record" "spa_certificate_validation" {
   for_each = {
-    for option in aws_acm_certificate.spa.domain_validation_options :
+    for option in flatten([for certificate in aws_acm_certificate.spa : certificate.domain_validation_options]) :
     option.domain_name => {
       name   = option.resource_record_name
       record = option.resource_record_value
@@ -107,7 +117,9 @@ resource "aws_route53_record" "api_certificate_validation" {
 # live, and lands the failure inside the job's own budget where it reads as broken
 # instead of as stuck.
 resource "aws_acm_certificate_validation" "spa" {
-  certificate_arn         = aws_acm_certificate.spa.arn
+  count = local.web_tier_enabled ? 1 : 0
+
+  certificate_arn         = aws_acm_certificate.spa[0].arn
   validation_record_fqdns = [for record in aws_route53_record.spa_certificate_validation : record.fqdn]
 
   timeouts {

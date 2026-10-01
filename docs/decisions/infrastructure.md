@@ -110,9 +110,10 @@ only reads; the API enqueues on its behalf.
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
 - **The web tier has an OFF SWITCH** (`web_tier_enabled`, a string held to exactly `true` or
-  `false`): `network` and `spa` go whole, so **nothing outside them may read their outputs or sit
-  in the VPC**. The registry lives outside in `spa-image` so its images survive, and the ALB carries
-  **no deletion protection**, which is what lets one apply take the tier down. `infra/info/web-tier.md`.
+  `false`): `network`, `spa` and the SPA's certificate go whole, so **nothing outside them may read
+  their outputs or sit in the VPC**. The registry lives outside in `spa-image` so its images survive,
+  and the ALB carries **no deletion protection**, which is what lets one apply take the tier down.
+  `infra/info/web-tier.md`.
 - **The SPA container is the ONLY front door; it reproduced every CloudFront job bar three
   DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
@@ -1198,6 +1199,18 @@ same apply rewrites, and which the PR's rendered plan shows. Rolling the switch 
 applies once: the merge that adds it turns protection off with the tier still on, and only then can
 the variable take the tier down.
 Disposition: `docs/security-baseline.md`.
+
+**The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
+a public certificate only while a service uses it, so one kept through an off period spanning its
+renewal window would expire; the provider then reads the validation as gone and fails recreating
+it on an expired certificate, which turns every later apply red, on or off. Destroyed with the
+listener, it is requested again at switch-on. Its validation records flatten over the
+certificate's count, which keeps their domain-name keys, so switching on from the old shape moves
+the certificate and its validation to `[0]` and leaves the records where they are.
+
+**A change to the IAM in `network` or `spa` merged while the tier is off goes unscanned**: a
+pull request's plan holds neither module, and switch-on is a dispatch that applies without a plan.
+The runbook says to switch on first.
 
 **The switch is a string, not a bool.** As a bool OpenTofu also accepts `0` and `1`, and the two
 workflows that act without OpenTofu — Deploy SPA image skips its job, and Security its ZAP
