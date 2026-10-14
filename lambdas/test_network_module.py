@@ -12,10 +12,14 @@ Attributes:
     depends_on would defer it to apply, and the subnets' for_each cannot take a deferred value.
   GRANT: The deploy-role policy that scopes the flow-logs role by name.
   ENDPOINTS: Its four VPC endpoints.
+  FLOW_LOG_PERMISSIONS: The flow-log delivery role's permissions, which must not let it create
+    its own log group.
   INTERFACE_ENDPOINT_SERVICES: The three interface endpoints a Fargate task needs to start and
     log with no route to the internet.
 """
 
+import fnmatch
+import json
 import pathlib
 import re
 
@@ -27,6 +31,7 @@ MAIN = NETWORK / "main.tf"
 ROOT_MAIN = INFRA / "main.tf"
 GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-platform-frontdoor.json.tftpl"
 ENDPOINTS = NETWORK / "endpoints.tf"
+FLOW_LOG_PERMISSIONS = NETWORK / "policies" / "flow-logs-permissions.json.tftpl"
 
 INTERFACE_ENDPOINT_SERVICES = ("ecr.api", "ecr.dkr", "logs")
 
@@ -159,4 +164,35 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
         f"Ingress rule(s) {cidr_rules} admit a CIDR to the endpoint group. It must be reachable "
         "from the task group alone — a CIDR rule also admits anything else that ever lands in "
         "these subnets, which is the whole difference between the two."
+    )
+
+
+def test_the_flow_log_role_cannot_create_its_own_log_group() -> None:
+    """No action the flow-log role holds, wildcards included, covers ``logs:CreateLogGroup``.
+
+    Delivery outlives a destroyed flow log by seconds and IAM honours a deleted grant for as long,
+    so a role that can create its group recreates it just after a switch-off removes it, and the
+    next switch-on fails on a group that already exists. Re-adding the action applies green.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any statement's action pattern matches ``logs:CreateLogGroup``.
+    """
+    policy = json.loads(FLOW_LOG_PERMISSIONS.read_text())
+    actions = [
+        action
+        for statement in policy["Statement"]
+        for action in ([statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"])
+    ]
+    assert actions, "The flow-log role's policy grants no actions; the template did not parse as expected."
+    granting = [a for a in actions if fnmatch.fnmatchcase("logs:createloggroup", a.lower())]
+    assert not granting, (
+        f"The flow-log role holds {granting}, which covers logs:CreateLogGroup. Terraform owns the "
+        "group; with this grant the delivery service recreates it after a switch-off, and the "
+        "next switch-on stops at ResourceAlreadyExistsException."
     )

@@ -73,6 +73,14 @@ and sign in. **A resolver that looked the portal up while it was off can keep an
 host" for up to fifteen minutes** — the zone's negative-caching time — so a portal that does not
 resolve straight away is not yet a failure.
 
+**If a switch-on stops at `CreateLogGroup` with `ResourceAlreadyExistsException` on
+`/aws/vpc/<prefix>-flow-logs`, a switch-off left that group behind.** Flow-log delivery outlives the
+flow log by seconds, and while the flow-log role could create its own group it recreated it just
+after the apply destroyed it. The role no longer can, but a group left over from before that change
+still blocks the apply. The group holds only the teardown's last few records: delete it from a
+terminal with `aws logs delete-log-group --log-group-name /aws/vpc/<prefix>-flow-logs`, then
+dispatch Deploy Infrastructure again. Everything else the first apply created stays in place.
+
 ## What not to do
 
 - **Do not wire anything outside `network` and `spa` to their outputs, or place anything in the
