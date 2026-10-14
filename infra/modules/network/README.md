@@ -118,12 +118,20 @@ placeholder rule would only teach the next reader that one is required.
 
 ## The flow-log role's wildcard statement
 
-AWS publishes that policy with all five actions on `Resource: "*"`. **Four of them take an ARN**, so
-they are scoped to this log group, and the wildcard statement is left holding the one action that
-genuinely cannot be scoped: `logs:DescribeLogGroups` is a list operation with no resource type at
-all. Copying AWS's document verbatim would have handed a write grant on every log group in the
-account to a role whose entire job is one group — and **the rendered-plan IAM scan reports it**,
-which is how this was caught rather than argued about.
+AWS publishes that policy with all five actions on `Resource: "*"`. Four of them take an ARN; **three
+are scoped to this log group and the fourth is left out**, and the wildcard statement is left holding
+the one action that genuinely cannot be scoped: `logs:DescribeLogGroups` is a list operation with no
+resource type at all. Copying AWS's document verbatim would have handed a write grant on every log
+group in the account to a role whose entire job is one group — and **the rendered-plan IAM scan
+reports it**, which is how this was caught rather than argued about.
+
+**`logs:CreateLogGroup` is omitted on purpose, although AWS lists it in the role's minimum.** The
+service only calls it when the group is missing, and Terraform creates the group. With it, a
+switch-off of the web tier left the group behind: the flow log was deleted, then the policy, then
+the group, but delivery outlives the flow log by seconds and IAM honours a deleted grant for as
+long, so the role's first `CreateLogStream` after the delete got `ResourceNotFoundException` and its
+`CreateLogGroup` succeeded. The next switch-on stopped at `ResourceAlreadyExistsException`. Destroy
+order cannot prevent that; removing the action does. `test_network_module.py` refuses it back.
 
 ## What the offline guard proves, and what it cannot
 

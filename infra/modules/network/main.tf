@@ -139,8 +139,11 @@ resource "aws_iam_role_policy" "flow_logs" {
   name = "flow-logs"
   role = aws_iam_role.flow_logs.id
 
-  # AWS publishes this with all five actions on `Resource: "*"`. FOUR TAKE AN ARN and are
-  # scoped here; the wildcard holds only `logs:DescribeLogGroups`, which has no resource type.
+  # AWS publishes this with all five actions on `Resource: "*"`. Three are scoped to the group
+  # here; the wildcard holds only `logs:DescribeLogGroups`, which has no resource type.
+  # `logs:CreateLogGroup` is left out on purpose: delivery outlives the flow log by seconds and
+  # IAM honours a deleted grant as long, so destroy order cannot stop the role recreating this
+  # group after a switch-off. Reasoning in the README.
   policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {
     log_group_arn = aws_cloudwatch_log_group.flow_logs.arn
   })
