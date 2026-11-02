@@ -255,13 +255,13 @@ Grouped by rule; the count is the number of resources.
 | 4 | CKV_AWS_284 | Step Functions X-Ray | **accept** — same reasoning as CKV_AWS_50. |
 | 2 | CKV_AWS_300 | Abort incomplete multipart uploads | ~~**FIX**~~ **FIXED 2026-08-05.** Rules added to the artifacts and static buckets, and bucket-wide on the admin bucket. The admin one needed the `admin_lifecycle_rules_are_prefix_scoped` check narrowed to rules that actually EXPIRE something — an abort-MPU rule carries no expiration and so cannot reach `logs/`, which the guard exists to protect. The user-space and shared-space buckets already had the rule. |
 | 1 | CKV2_AWS_32 | CloudFront response headers policy | ~~**FIX**~~ **CLEARED by SPEC-140** — was the CSP / HSTS / `X-Frame-Options` gap, and the one finding ZAP reported independently. Two scanners, one cause. |
-| 1 | CKV_AWS_259 | Response header policy enforces HSTS | ~~accept~~ **FIXED 2026-08-03** — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
+| 1 | CKV_AWS_259 | Response header policy enforces HSTS | ~~accept~~ **FAILS BY DECISION since 2026-11-02**: the static portal's policy sets no `preload`. Was FIXED 2026-08-03 — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
 | 1 | CKV_AWS_82 | Athena workgroup enforces configuration | ~~**FIX**~~ **ACCEPT — this disposition was WRONG (corrected 2026-08-05).** "It stops a client overriding the result location" describes the isolation MECHANISM, not a weakness: Athena has no per-user result location, so the app sets `s3://<user-space>/{username}/athenaresults/` on every `StartQueryExecution` and IAM confines each caller to its own prefix (SPEC-032 FR-006). Enforcing workgroup configuration would force every query to the workgroup default — the admin-only bucket — breaking per-user results and query history for every user. `analytics/athena.tf` already carries a comment predicting exactly this fix being attempted. Revisit only if Athena gains a per-user output location. |
 | 1 | CKV_AWS_68 | CloudFront WAF | **defer** — real cost, and this is a pre-production system. |
 | 1 | CKV2_AWS_47 | WAF managed rules for Log4Shell | **accept** — follows from CKV_AWS_68; also no Java anywhere. |
-| 1 | CKV_AWS_86 | CloudFront access logging | **defer** |
-| 1 | CKV_AWS_174 | Viewer certificate TLS ≥ 1.2 | **accept** — the default CloudFront certificate already enforces this; the check fires because no custom cert is configured. |
-| 1 | CKV2_AWS_42 | Custom SSL certificate | **accept** — no custom domain yet. |
+| 1 | CKV_AWS_86 | CloudFront access logging | **defer**, and live again since 2026-11-02: the static portal keeps no access logs, where the balancer logged to the admin bucket. |
+| 1 | CKV_AWS_174 | Viewer certificate TLS ≥ 1.2 | **PASSES and ENFORCED since 2026-11-02**, with a custom certificate on the distribution. Was **accept** — the default CloudFront certificate already enforces this; the check fires because no custom cert is configured. |
+| 1 | CKV2_AWS_42 | Custom SSL certificate | **PASSES and ENFORCED since 2026-11-02.** Was **accept** — no custom domain yet. |
 | 1 | CKV_AWS_310 | Origin failover | **accept** — single S3 origin by design. |
 | 1 | CKV_AWS_374 | Geo restriction | **accept** — no geographic access policy. |
 | 1 | CKV2_AWS_61 | S3 lifecycle configuration | **defer** — subsumed by the CKV_AWS_300 work. |
@@ -431,9 +431,9 @@ command measured ten more IDs passing: `CKV2_AWS_32`, `CKV2_AWS_42`, `CKV2_AWS_4
 
 **`CKV_AWS_259` stays out because it now fails by decision.** It wants HSTS `preload`, which claims
 a submission to hstspreload.org nobody has made, and the container dropped it for that reason. The
-distribution's other findings are the dispositions already recorded here for the rest of the stack,
-no WAF and no access logs on a portal with no production users, plus `CKV_AWS_310` (no origin
-failover: one bucket) and `CKV_AWS_374` (no geo restriction: no such requirement).
+distribution's other findings take the dispositions in the triage table: `CKV_AWS_68` and
+`CKV2_AWS_47` (no WAF), `CKV_AWS_86` (no access logs, which the balancer did have), `CKV_AWS_310`
+(one bucket, so no failover) and `CKV_AWS_374` (no geographic policy).
 
 ### Enforce-list removal — nine IDs, with CloudFront (2026-08-31)
 
@@ -696,7 +696,7 @@ So the statement became two:
 
 ## What remains, and why it is not fixable
 
-> **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
+> **Superseded again 2026-11-02:** the static portal's deploy grant raises both findings for two unscopable CloudFront actions, and `.github/checkov-plan-accepted.txt` carries them. **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
 > role's `cloudfront:*` statement came off one apply later; with it gone the rendered policy reports
 > **zero** CKV_AWS_290 and CKV_AWS_355, so `.github/checkov-plan-accepted.txt` is empty and every IAM
 > finding on the plan now blocks. Measured against the pinned checkov's own scanner, not argued —

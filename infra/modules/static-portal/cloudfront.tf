@@ -15,8 +15,8 @@ resource "aws_cloudfront_origin_access_control" "portal" {
   signing_protocol                  = "sigv4"
 }
 
-# The same posture the container's security-headers snippet serves, and a test holds the two
-# together: nothing offline observes a response header.
+# The same posture the container's security-headers snippet serves. A test compares the values it
+# can read from both: nothing offline observes a response header.
 resource "aws_cloudfront_response_headers_policy" "portal" {
   name    = "${var.project_name}-${var.environment}-portal-security-headers"
   comment = "Security response headers for the portal"

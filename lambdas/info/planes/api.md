@@ -8,7 +8,7 @@ username directory, the feature-flag document, the whole **object surface** (lis
 content read and write, copy, move, delete, free-name, the download presign and the four upload
 routes) and the **catalog surface** — Athena start, status, results, row count and stop, plus Glue get-database
 and list-tables. It is the only thing that turns a token into AWS credentials: the Identity Pool is
-retired, and the container behind `spa_origin` is the only front door.
+retired, and whichever front door the web tier's switch picks answers at `spa_origin`.
 
 **A route may name a resource in its path.** `/v1/queries/{queryExecutionId}` and
 `/v1/catalog/databases/{database}` are matched segment-wise against the contract's templates, and

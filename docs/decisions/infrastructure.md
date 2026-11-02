@@ -37,6 +37,7 @@ entry you need, not the file.**
 - [A `TF_VAR_` variable reaches Terraform only if a run hands it over, so none renames the deployment](#a-tf_var_-variable-reaches-terraform-only-if-a-run-hands-it-over-so-none-renames-the-deployment)
 - [A module that waits on another reads no data source, because the wait defers the read](#a-module-that-waits-on-another-reads-no-data-source-because-the-wait-defers-the-read)
 - [The web tier has an off switch, and the balancer gave up its deletion protection for it](#the-web-tier-has-an-off-switch-and-the-balancer-gave-up-its-deletion-protection-for-it)
+- [CloudFront serves the portal again, because the VPC was the bill](#cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill)
 
 ## Fences
 
@@ -110,12 +111,14 @@ only reads; the API enqueues on its behalf.
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
 - **The web tier has an OFF SWITCH** (`web_tier_enabled`, a string held to exactly `true` or
-  `false`): `network`, `spa` and the SPA's certificate go whole, so **nothing outside them may read
+  `false`): `network` and `spa` go whole, so **nothing outside them may read
   their outputs or sit in the VPC**. The registry lives outside in `spa-image` so its images survive,
   and the ALB carries **no deletion protection**, which is what lets one apply take the tier down.
   `infra/info/web-tier.md`.
-- **The SPA container is the ONLY front door; it reproduced every CloudFront job bar three
-  DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
+- **EXACTLY ONE FRONT DOOR EXISTS, and the web tier's switch picks it**: off is CloudFront over S3
+  (`static-portal`), on is the container. Its first apply after a switch-off leaves an empty bucket
+  answering 403 until `deploy-spa-static.yml` is dispatched.
+- **The SPA container reproduced every CloudFront job bar three DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
   before a location resolves); assert on **responses**, never config text; `/healthz` is
   exact-match, or a probe falls through and a broken container reads healthy.
@@ -1200,7 +1203,7 @@ applies once: the merge that adds it turns protection off with the tier still on
 the variable take the tier down.
 Disposition: `docs/security-baseline.md`.
 
-**The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
+*(Superseded 2026-11-02: the certificate left the switch, because `static-portal` uses it while the tier is off.)* **The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
 a public certificate only while a service uses it, so one kept through an off period spanning its
 renewal window would expire; the provider then reads the validation as gone and fails recreating
 it on an expired certificate, which turns every later apply red, on or off. Destroyed with the
@@ -1218,8 +1221,34 @@ The runbook says to switch on first.
 workflows that act without OpenTofu — Deploy SPA image skips its job, and Security its ZAP
 baseline, while the tier is off — compare against the string `false`. A `0` would have taken the
 tier down while they carried on deploying to and scanning nothing. A validation holds it to exactly
-`true` or `false`, so every reader agrees on every value OpenTofu accepts.
+`true` or `false`, so every reader agrees on every value OpenTofu accepts. *(Since 2026-11-02 ZAP no
+longer skips, because a portal exists on both sides of the switch.)*
 
 **Do NOT** wire another module to a `network` or `spa` output, place a resource in the VPC, or turn
 the balancer's deletion protection back on while the switch exists.
 
+## CloudFront serves the portal again, because the VPC was the bill
+
+The web tier cost about $81 of an $84 monthly bill with nobody using it, and switching it off took
+the portal down with it. CloudFront and S3 bill by use. The container was chosen because a client's
+target environment needed a runtime it controlled and could not go through CloudFront. That
+environment is shelved, so the constraint no longer applies to the live deployment.
+
+**The container stays in the tree, dormant behind the switch, rather than being deleted.** That
+keeps the change small, and it stays the path back if a client environment returns. A private repo,
+`agriffi10/data-quarry-vpc`, holds the tree as it stood before this landed, at `167ca968`.
+
+**`config.json` is a Terraform-owned object, not a deploy step.** The old workflow resolved Terraform
+outputs and rendered the document with `jq`. An object rendered from the root map needs neither, a
+value change reaches it on apply, and a sync pass cannot touch it.
+
+**The deploy workflow has no `paths:` filter**, because a filter cannot see a previous run that
+failed: production would sit on the old bundle behind green merges until the next app change.
+
+**Two deploy-role findings are accepted rather than fixed.** IAM takes no resource for
+`cloudfront:CreateDistribution` or `cloudfront:CreateResponseHeadersPolicy`, measured with
+`simulate-custom-policy` and confirmed in the AWS Service Reference, while the scanner's bundled data
+still calls them restrictable. `.github/checkov-plan-accepted.txt` carries both.
+
+**Do NOT switch the tier on without reading `infra/info/web-tier.md`:** both modules own the same A
+record, so the switching apply can stop on it.

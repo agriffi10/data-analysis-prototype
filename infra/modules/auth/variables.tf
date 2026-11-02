@@ -61,7 +61,7 @@ variable "logs_queue_url" {
 }
 
 variable "spa_origin" {
-  description = "Origin of the container SPA, and the only deployed entry in the app client's callback and logout lists now that the CloudFront one is retired. Built at root from the domain variables. Empty is tolerated because the list compacts, but under normal operation it is always set — an empty value leaves localhost as the only callback and no deployed sign-in can complete."
+  description = "Origin of the SPA, on either side of the web tier's switch, and the only deployed entry in the app client's callback and logout lists. Built at root from the domain variables. Empty is tolerated because the list compacts, but under normal operation it is always set — an empty value leaves localhost as the only callback and no deployed sign-in can complete."
   type        = string
   default     = ""
 }

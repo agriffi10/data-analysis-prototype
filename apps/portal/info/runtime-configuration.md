@@ -28,16 +28,17 @@ The loader is `lib/runtimeConfig.ts`; the shape and its key classification are
   environment renders a working, fully functional portal pointed at the wrong account, and nothing
   on screen distinguishes it. The container sets the header on `/config.json` in its own `location`
   block, and the container matrix asserts it **on a response** rather than in the config text.
-  There is no second delivery path to keep in step: the distribution that needed its own
-  per-behaviour cache policy and its own re-attached header policy is retired, and with it the
-  shape where two paths could serve the same document under different headers.
+  With the web tier off, Terraform writes the document as an S3 object carrying the same header,
+  and the distribution gives its path a behaviour of its own with caching disabled and the header
+  policy re-attached. Both render it from one map at root, so a key added there reaches both.
 - **A production boot with bad configuration fails hard.** Unreachable, unparseable, an unsupported
   version, or a missing required key each render `BootFailure` and mount no route. One `console.error`
   carries the reason and the missing key **names** — never a value.
 - **A dev build falls back to `import.meta.env`; a production build must not.** The fallback's key
   tables are eliminated from the production bundle, asserted on the built output by
   `npm run check:bundle`.
-- **The container refuses to start** when a required key is unset or empty.
+- **The container refuses to start** when a required key is unset or empty. The static path has no
+  such refusal: an empty value leaves the key out, and the portal shows `BootFailure`.
 
 ## A key is wired in five places
 
