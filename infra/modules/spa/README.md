@@ -1,9 +1,9 @@
 # `spa` — the container delivery path
 
 The SPA served from a Fargate container behind an internet-facing ALB, pulling from the
-[`spa-image`](../spa-image/README.md) registry. **This is the only delivery path**: the CloudFront distribution it was built to
-reproduce is retired, and with it the rollback. It reproduced every job that distribution did, with
-three deliberate divergences, and those divergences are now simply what the portal serves.
+[`spa-image`](../spa-image/README.md) registry. **It serves the portal only while the web tier is
+on**; with it off, [`static-portal`](../static-portal/README.md) does. It reproduces every job a
+distribution does, with three deliberate divergences.
 
 | File | Holds |
 |---|---|

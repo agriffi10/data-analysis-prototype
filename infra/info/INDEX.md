@@ -42,15 +42,12 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 |---|---|---|
 | `spa` | the **container** path — Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
 | `spa-image` | the registry CI pushes the SPA container image to, kept outside `spa` so it survives the off switch | [README](../modules/spa-image/README.md) |
+| `static-portal` | the portal without a VPC: the S3 bucket, the distribution and the alias, while the web tier is off | [README](../modules/static-portal/README.md) |
 | `api` | the HTTP API, its Lambda, custom domain and DNS record | [README](../modules/api/README.md) |
 
-The container is the only delivery path. CloudFront and the static bucket were destroyed with the
-`app` module; the container reproduces every job the distribution did, with three deliberate
-divergences, and the deploy role's grants on both came off one apply later.
-
-**`network` and `spa` have an off switch.** Idle, they are most of what the stack costs, so
-`web_tier_enabled` removes both whole and builds them back. How to switch it, and what stays up
-while it is off: [`web-tier.md`](web-tier.md).
+**`network` and `spa` have an off switch, and `static-portal` is its other side.** Idle, the two are
+most of what the stack costs, so `web_tier_enabled = false` removes both whole and CloudFront and S3
+serve the portal instead. How to switch it: [`web-tier.md`](web-tier.md).
 
 ## Control planes
 

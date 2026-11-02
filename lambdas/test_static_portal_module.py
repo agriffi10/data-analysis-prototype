@@ -217,3 +217,27 @@ def test_the_bucket_name_is_inside_the_deploy_grant() -> None:
         in S3.read_text()
     )
     assert "arn:aws:s3:::${project_name}-*-portal-static" in GRANT.read_text()
+
+
+def test_the_deploy_runs_only_while_the_tier_is_off_and_names_the_module_bucket() -> (
+    None
+):
+    """The workflow's gate is the static side of the switch, and its bucket is the module's.
+
+    Inverted, the deploy fails every push with the tier on and leaves the portal unbuilt with it
+    off, while the skip reads as passing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the gate or the bucket's name disagrees with the module.
+    """
+    workflow = (
+        INFRA.parent / ".github" / "workflows" / "deploy-spa-static.yml"
+    ).read_text()
+    assert "if: vars.TF_VAR_web_tier_enabled == 'false'" in workflow
+    assert "BUCKET=dat-prod-portal-static\n" in workflow

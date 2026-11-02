@@ -27,8 +27,8 @@ looks right" is never one. Record the outcome in a dated session file (§5).
 
 | Gate | How |
 |---|---|
-| The web tier is switched on | `gh variable list` — `TF_VAR_WEB_TIER_ENABLED` is unset or `true`. While it is `false` the portal does not resolve and nothing here can run; switching it on is [`infra/info/web-tier.md`](../../infra/info/web-tier.md), and ask Andrew first, since it is a cost decision. |
-| `main` is green, and you know the deployed sha | `python3 scripts/watch_ci.py --branch main --once` for the verdict, then each path-filtered deploy's last outcome as `docs/process/ci-and-deploy-traps.md` reads it. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. **The deployed sha is NOT `git rev-parse HEAD`** — that workflow deploys only when an input to the image changed, so the running bundle is the last commit that changed one. Read it from the service: `aws ecs describe-services --cluster dat-prod-spa --services dat-prod-spa --query 'services[0].taskDefinition' --output text`, then `aws ecs describe-task-definition --task-definition <arn> --query "taskDefinition.containerDefinitions[?name=='spa'].image" --output text` — the tag is the 40-character sha after the last colon. A *green* Deploy SPA image no longer implies HEAD is live. |
+| Which path serves the portal | `gh variable list` — `TF_VAR_WEB_TIER_ENABLED` `false` is CloudFront and S3, `true` or unset is the container. Checks that read nginx behaviour (`/healthz`, the honest 404 on a missing chunk, `Server: nginx`) need the container; switching is [`infra/info/web-tier.md`](../../infra/info/web-tier.md), and ask Andrew first, since it is a cost decision. |
+| `main` is green, and you know the deployed sha | `python3 scripts/watch_ci.py --branch main --once` for the verdict, then each path-filtered deploy's last outcome as `docs/process/ci-and-deploy-traps.md` reads it. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. **With the tier off, the deployed sha is the latest green Deploy SPA static run's** (`gh run list --workflow deploy-spa-static.yml --status success --limit 1`), and the rest of this row does not apply. **With it on, the deployed sha is NOT `git rev-parse HEAD`** — Deploy SPA image deploys only when an input to the image changed, so the running bundle is the last commit that changed one. Read it from the service: `aws ecs describe-services --cluster dat-prod-spa --services dat-prod-spa --query 'services[0].taskDefinition' --output text`, then `aws ecs describe-task-definition --task-definition <arn> --query "taskDefinition.containerDefinitions[?name=='spa'].image" --output text` — the tag is the 40-character sha after the last colon. A *green* Deploy SPA image no longer implies HEAD is live. |
 | You are signed in, and you know as whom | Every result below is meaningless without the username it was observed under. |
 | Feature flags are all on | `config/feature-flags.json` → `environments.prod` is `{}`. A surface that is *absent* under a flag reads exactly like a broken one. |
 
@@ -1383,8 +1383,9 @@ there.
 
 **Folded in when Arc B closed** (2026-09-02, from `arc-b-api-container-e2e.md`, which is deleted —
 its per-spec sections and their dated results are in git history and in [`sessions.md`](sessions.md)).
-`portal.dataquarry.app` is a container on Fargate and **the only front door**; the CloudFront
-distribution and the Identity Pool are destroyed. Run this section on any change to the API, the
+`portal.dataquarry.app` was then a container on Fargate and the only front door, with the CloudFront
+distribution and the Identity Pool destroyed; CloudFront serves it again while the web tier is off.
+Run this section on any change to the API, the
 image, the CSP, the origins or the credential path — none of it is observable offline.
 
 **Classify every other arc's owed checks against this one before trusting them.** Anything asserting

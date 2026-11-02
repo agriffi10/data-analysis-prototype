@@ -28,7 +28,7 @@ govern, in each tree's `info/` folder. Three you will reach for beside this file
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
 Auth is AWS Cognito — a standalone **User Pool**; the Identity Pool is retired and the browser holds
 no AWS credentials. Arc B moved the object surface, the catalog and the nine control-plane queues
-behind an API (`api.dataquarry.app`), and the SPA is a container behind an ALB; what the browser
+behind an API (`api.dataquarry.app`), and the SPA is on CloudFront or an ALB; what the browser
 still calls directly is **presigned S3 bytes** and Cognito through Amplify. Status: greenfield, no
 production users yet.
 

@@ -157,7 +157,7 @@ exactly this reason.
 
 **The attach count is a COUNT, not the constant beside it.** `MAX_ATTACHED_MANAGED_POLICIES = 20`
 in `test_feedback_deploy_grant.py` is the ceiling being asserted against; the role carries
-**seventeen**. A `grep -c` of `aws_iam_role_policy_attachment` returns 20 because it counts matching
+**seventeen**. A `grep -c` of `aws_iam_role_policy_attachment` returns more because it counts matching
 *lines*, not resource blocks — which is how a restructuring once got justified by a ceiling that
 was four attachments away. Count the blocks, or ask the account.
 

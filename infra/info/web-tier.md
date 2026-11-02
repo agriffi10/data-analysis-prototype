@@ -1,35 +1,29 @@
-# The web tier's off switch
+# The web tier's switch
 
 The portal's web tier — the `network` and `spa` modules — bills by the hour whether or not anyone
 uses it: the VPC's interface endpoints, the load balancer and its public IPv4 addresses, the Fargate
 task and Container Insights. Everything else in the stack bills by use and costs close to nothing
-idle. So the tier has an off switch, and turning it off removes those two modules whole.
+idle. So the tier has a switch, and with it off `static-portal` serves the portal from CloudFront
+and S3 at the same hostname.
 
 **The switch is one repository variable, `TF_VAR_web_tier_enabled`, set to exactly `true` or
 `false`.** Unset reads as `true`, so a variable nobody set never tears anything down, and any other
-value fails the infrastructure plan. It is read by three workflows: Deploy Infrastructure (builds or
-removes the tier), Deploy SPA image (skipped while off) and Security (skips the ZAP baseline while
-off, since there is no portal to scan).
+value fails the infrastructure plan. It is read by three workflows: Deploy Infrastructure (builds
+one side and removes the other), Deploy SPA image (skipped while off) and Deploy SPA static (skipped
+while on).
 
 ## What goes, and what stays
 
-| Off removes | Off keeps |
-|---|---|
-| the VPC, subnets, route tables, security groups, the three interface endpoints, the S3 gateway endpoint, flow logs | Cognito and every user account |
-| the load balancer, its listeners and target group, and the `portal.` alias record | every bucket and everything in it |
-| the portal's certificate and its validation record | the API's certificate |
-| the ECS cluster, service, task definition, log group and both task roles | the Glue catalog and every Lake Formation grant |
-| the admin bucket's policy, which only admits the load balancer's access logs | the API at `api.`, every Lambda, queue and state machine |
-| | the SPA image registry and its images (`spa-image`) |
+| Off removes | On removes | Both keep |
+|---|---|---|
+| the VPC, subnets, route tables, security groups, the three interface endpoints, the S3 gateway endpoint, flow logs | the portal's bucket and everything in it, including `config.json` | Cognito and every user account |
+| the load balancer, its listeners and target group, and its `portal.` alias record | the distribution, its origin access control, its response headers policy and its `portal.` alias record | every data bucket and everything in it |
+| the ECS cluster, service, task definition, log group and both task roles | | the portal's and the API's certificates, which ACM renews because one side or the other uses them |
+| the admin bucket's policy, which only admits the load balancer's access logs | | the Glue catalog and every Lake Formation grant |
+| | | the API at `api.`, every Lambda, queue and state machine, and the SPA image registry |
 
-**While it is off, the portal does not resolve.** The API still answers, but nobody can sign in
-through the portal, so nothing a user would do works — and no live check that drives the portal can
-run.
-
-**The portal's certificate goes too, on purpose.** ACM renews a public certificate only while a
-service uses it, so one kept through a long off period would expire — and an expired certificate
-makes every later infrastructure apply fail, on or off. Switching on requests a new one and waits
-for its DNS validation, which adds a few minutes to that apply.
+**The hostname does not change**, so Cognito's callbacks, the buckets' CORS rules, the API's CORS rule
+and the CSP's `connect-src` are the same on both sides.
 
 ## Turning it off
 
@@ -38,13 +32,18 @@ gh variable set TF_VAR_web_tier_enabled --body false
 gh workflow run deploy-infra.yml --ref main
 ```
 
-Then watch that run to green: `gh workflow run` prints the new run's URL, and `gh run watch <id>
+Watch that run to green, then put a build in the new bucket and watch that to green too. Until it
+finishes, every path but `config.json` answers 403, because the fallback page is missing as well:
+
+```bash
+gh workflow run deploy-spa-static.yml --ref main
+```
+
+`gh workflow run` prints the new run's URL, and `gh run watch <id>
 --exit-status` follows it. (A `gh run list` straight after the dispatch can still name the previous
 run, and `scripts/watch_ci.py` counts push runs on `main`, not dispatches.) A dispatch applies
 without a separate plan job, so read what the apply's log says it destroyed: only resources under
-`module.network[0]` and `module.spa[0]`, plus the portal's certificate, its validation and its
-validation record (`aws_acm_certificate.spa[0]`, `aws_acm_certificate_validation.spa[0]`,
-`aws_route53_record.spa_certificate_validation`).
+`module.network[0]` and `module.spa[0]`.
 
 **The load balancer's deletion protection must already be off in AWS.** The merge that added the
 switch turned it off with the tier still on; until that apply has finished, a switch-off stops at
@@ -81,6 +80,11 @@ still blocks the apply. The group holds only the teardown's last few records: de
 terminal with `aws logs delete-log-group --log-group-name /aws/vpc/<prefix>-flow-logs`, then
 dispatch Deploy Infrastructure again. Everything else the first apply created stays in place.
 
+**Either switch can stop on the alias record.** Both modules own an A record for one name, with no
+ordering between them, so the new one can be refused as already existing while the old one is still
+being deleted. This has not been exercised. If it happens, dispatch Deploy Infrastructure again: by
+then the old record is gone.
+
 ## What not to do
 
 - **Do not wire anything outside `network` and `spa` to their outputs, or place anything in the
@@ -93,5 +97,5 @@ dispatch Deploy Infrastructure again. Everything else the first apply created st
   contains neither module then, so the rendered-plan IAM scan cannot read their policies, and
   switching on is a dispatch that applies without a plan. Switch on first, or hold the change.
 - **Do not make the variable a bool.** It is a string that accepts exactly `true` or `false`
-  because a bool would also take `0` and `1`, and the two workflows that skip while the tier is off
-  compare against the string `false` alone — `0` would take the tier down while they carried on.
+  because a bool would also take `0` and `1`, and Deploy SPA image, which skips while the tier is off,
+  compares against the string `false` alone — `0` would take the tier down while it carried on.

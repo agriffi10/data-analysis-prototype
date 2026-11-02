@@ -23,9 +23,8 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
 # No `preload`. It claims a submission to hstspreload.org that this deployment has not made and
 # does not intend, the grant is against the registrable domain and close to irreversible, and
 # these are subdomains of a parent this repository does not own — so the claim would commit
-# sibling services nobody asked. It costs no scanner finding, though not for the reason it looks
-# like: the check that wants `preload` evaluates the CloudFront response-headers policy, which
-# still carries it. This header is invisible to that check.
+# sibling services nobody asked. The check that wants `preload` evaluates only the CloudFront
+# response-headers policy, which makes the same choice and fails that check by decision.
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
 add_header X-Frame-Options "DENY" always;
