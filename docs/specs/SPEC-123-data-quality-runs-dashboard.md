@@ -1,10 +1,15 @@
-# Spec: Data Quality — Runs Dashboard (the parent page)
+---
+type: Spec
+id: SPEC-123
+title: "Data Quality — Runs Dashboard (the parent page)"
+description: "Adds a Data quality dashboard page listing a user's quality-check runs newest first and paginated, linking to each full report, backed by a per-space index kept consistent with compare-and-swap writes."
+spec_status: Completed
+depends_on: [SPEC-112, SPEC-113, SPEC-114, SPEC-085, SPEC-095, SPEC-045, SPEC-106, SPEC-074]
+arc: data-quality
+arc_order: 8
+---
 
-**ID:** SPEC-123
-**Status:** Completed
-**Last Updated:** 2026-07-21
-**Depends On:** SPEC-112 (`assemble-report` — this spec adds the index write to it), SPEC-113 (the report view this drills into), SPEC-114 (notifications), SPEC-085 (side nav), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
-
+**Dependency notes:** SPEC-112 (`assemble-report` — this spec adds the index write to it), SPEC-113 (the report view this drills into), SPEC-114 (notifications), SPEC-085 (side nav), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
 > Dependency note: this spec has **no direct `cpcommon` dependency** — its Lambda-side work rides `dqcommon` (`index_store`) inside the already-shipped `assemble-report` verb; everything else is browser-side. SPEC-107's absence from Depends On is deliberate.
 
 > **Read `docs/data-quality-architecture.md` §6 first.** This spec closes a real gap: today a report is reachable **only** from its notification, so a dismissed notification effectively loses the report.
@@ -19,7 +24,7 @@ The storage model is the one the arc already uses: **a hidden folder of JSON, on
 
 **So each run also appends a small entry to a per-space `index.json`.** One GET renders the whole list. The entry carries only what a row needs; the heavy findings stay in the per-run report, fetched on drill-down.
 
-**The write is a read-modify-write, and it races.** Two checks of *different* locations run in parallel (the request queue's `MessageGroupId` is the hashed location, so only same-location checks serialize **— superseded 2026-09-15: they are only started in order, so same-location checks race too, and the CAS covers both; `docs/decisions/control-planes.md` —**), which means two `assemble-report` invocations can append to the same `index.json` at once and one would silently lose the other's entry. This is the **same lost-update race SPEC-082 already fixed** in the shared-space registry, with the **same fix**: optimistic **ETag compare-and-swap with retry**. It is a precedented pattern in this codebase, not a new one.
+**The write is a read-modify-write, and it races.** Two checks of *different* locations run in parallel (the request queue's `MessageGroupId` is the hashed location, so only same-location checks serialize **— superseded 2026-09-15: they are only started in order, so same-location checks race too, and the CAS covers both; `docs/decisions/control-planes/` —**), which means two `assemble-report` invocations can append to the same `index.json` at once and one would silently lose the other's entry. This is the **same lost-update race SPEC-082 already fixed** in the shared-space registry, with the **same fix**: optimistic **ETag compare-and-swap with retry**. It is a precedented pattern in this codebase, not a new one.
 
 ## Scope
 
@@ -83,7 +88,7 @@ So the FR-006 footer line is worded **"usually"**, not as a guarantee, and a tes
 - [ ] Each row is a link to `/data-quality/{space}/{requestId}` (SPEC-113). The **whole row** is the link target, and its accessible name names the location — never "view" or "here".
 - [ ] The row shows: the **location** (`font-mono`, truncated from the left so the *folder* stays visible when the path is long), the **space** it belongs to, **when** it ran, the **file count**, and a **verdict chip**.
 - [ ] The verdict chip follows the `ConnectionsPage.tsx:506-520` `StatusBadge` pattern — a `bg-current` dot **plus a text label** (`Clean` / `Issues found`), tone `bg-success-soft text-success` / `bg-warning-soft text-warning`. **Never colour-only.**
-- [ ] When `hasApproximateFigures` is true, the row also carries a **`Sampled`** chip. **— Superseded 2026-09-26: `hasApproximateFigures` is true on every report, so the chip sat on every row and said nothing, and read "Sampled" on any check whose bytes were all scanned — every JSON and Parquet check, and any CSV check whose encoding scan read every byte. The row now carries `Partly checked` when `hasIncompleteFigures` is true — the flag the report banner warns on — and says so in its accessible name; an older entry without the flag reads as partly checked. The never-an-unqualified-Clean rule that follows still holds, keyed to that flag. [Register entry](../decisions/analytics.md#data-quality-runs-index--dashboard-spec-123). —** A test asserts a sampled run **never renders as an unqualified `Clean`** — the same rule SPEC-112 and SPEC-114 enforce, applied at the list level, because the list is where a user forms a quick impression.
+- [ ] When `hasApproximateFigures` is true, the row also carries a **`Sampled`** chip. **— Superseded 2026-09-26: `hasApproximateFigures` is true on every report, so the chip sat on every row and said nothing, and read "Sampled" on any check whose bytes were all scanned — every JSON and Parquet check, and any CSV check whose encoding scan read every byte. The row now carries `Partly checked` when `hasIncompleteFigures` is true — the flag the report banner warns on — and says so in its accessible name; an older entry without the flag reads as partly checked. The never-an-unqualified-Clean rule that follows still holds, keyed to that flag. [Register entry](../decisions/analytics/data-quality-runs-index-dashboard.md). —** A test asserts a sampled run **never renders as an unqualified `Clean`** — the same rule SPEC-112 and SPEC-114 enforce, applied at the list level, because the list is where a user forms a quick impression.
 - [ ] Row card classes follow `NotificationRow.tsx:26-30` (`flex items-start gap-3 rounded-md border p-4`, `border-border bg-surface`).
 
 ### FR-004: Navigation

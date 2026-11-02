@@ -1,10 +1,15 @@
-# Spec: Copy Files and Folders (recursive)
+---
+type: Spec
+id: SPEC-039
+title: "Copy Files and Folders (recursive)"
+description: "Adds a copy action for files and folders, single or multi-select and recursive, that leaves the original in place, with warn-and-confirm collisions and a suggested new name when copying into the same folder."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-014, SPEC-015, SPEC-018, SPEC-019]
+arc: file-operations
+arc_order: 7
+---
 
-**ID:** SPEC-039
-**Status:** Completed
-**Last Updated:** 2026-06-17
-**Depends On:** SPEC-013 (`s3:GetObject` + `s3:PutObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation + invalidation), SPEC-018 (selection state), SPEC-019 (`copyObject`, destination picker, collision flow — reused)
-
+**Dependency notes:** SPEC-013 (`s3:GetObject` + `s3:PutObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation + invalidation), SPEC-018 (selection state), SPEC-019 (`copyObject`, destination picker, collision flow — reused)
 ## Overview
 
 Add **copy** to the file browser. Move and rename shipped in SPEC-019 (as copy-then-delete), but a plain copy — duplicate a file or folder, leaving the original in place — was never exposed. This spec surfaces copy as a first-class action (single-row and multi-select), for both files and folders, reusing the `copyObject` primitive SPEC-019 already built. A folder copy is recursive over every contained key. Copy is strictly additive (no source delete), so its failure semantics are simpler than move's — but it shares move's collision handling (warn-and-confirm) and adds one new case: copying into the **same folder**, where the name necessarily collides with the source, so the app proposes a suffixed name (e.g. `report copy.pdf`).

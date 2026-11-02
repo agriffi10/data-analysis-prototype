@@ -1,10 +1,15 @@
-# Spec: File Converter — File-Browser "Convert to Parquet" UI
+---
+type: Spec
+id: SPEC-120
+title: "File Converter — File-Browser \"Convert to Parquet\" UI"
+description: "Would have delivered a Convert to Parquet dialog in the file browser with an editable destination and a warning about writing under an existing table, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-116, SPEC-118, SPEC-119, SPEC-095, SPEC-045, SPEC-106, SPEC-074]
+arc: file-converter
+arc_order: 6
+---
 
-**ID:** SPEC-120
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-116 (enqueue service + contract), SPEC-118/119 (the pipeline actually converts), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content)
-
+**Dependency notes:** SPEC-116 (enqueue service + contract), SPEC-118/119 (the pipeline actually converts), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content)
 > **Read `docs/file-converter-architecture.md` §3.1 and §5 first.** Presentation + enqueue only.
 
 ## Overview

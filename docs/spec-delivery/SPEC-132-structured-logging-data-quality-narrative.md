@@ -23,7 +23,7 @@ name was also the whole verb `archive-write-manifest`'s root span, so a single `
 returned an invocation's total duration and this write's together. The step moved rather than the
 verb because a verb's span name is also its directory suffix, its `locals.tf` key and its state
 machine's wiring, while this step's name was read by nothing else. Full entry:
-`docs/decisions/control-planes.md` → *Where a child span may go, and the four places it may not*.
+`docs/decisions/control-planes/` → *Where a child span may go, and the four places it may not*.
 
 Plus two coverage guards in `test_instrumentation_coverage.py`: every verb must narrate (AST, so a
 docstring mention cannot satisfy it), and no emitter may pass a contents-shaped field name.

@@ -1,11 +1,16 @@
-# Spec: The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote
+---
+type: Spec
+id: SPEC-227
+title: "The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote"
+description: "Brings a run's failure path into the same trace and widens the failure-seed guard to check every state that feeds a failure terminal, for operators and developers."
+spec_status: Completed
+depends_on: [SPEC-225]
+arc: observability-continuation
+arc_order: 4
+---
 
-**ID:** SPEC-227
-**Status:** Completed
-**Last Updated:** 2026-09-09
-**Depends On:** SPEC-225 — **for FR-002 and FR-003 only.** FR-001 is test-only over
+**Dependency notes:** SPEC-225 — **for FR-002 and FR-003 only.** FR-001 is test-only over
 failure-path states SPEC-225 never edited, and lands green against an unthreaded tree.
-
 ## Overview
 
 SPEC-225 puts a run's success path into one trace. The failure path is left out, and it is the half

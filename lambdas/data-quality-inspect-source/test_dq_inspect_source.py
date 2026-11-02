@@ -430,7 +430,7 @@ def test_ACCEPTED_the_span_error_stack_may_carry_file_contents(monkeypatch, capt
     The user accepted this rather than stripping it: `logs/` is admin-only, and a stack is
     diagnostic metadata an admin debugging a failed run needs. The absolute no-file-contents
     rule binds a **field** a verb chooses to emit (asserted by the test above); it does not
-    bind an automatic traceback. See `docs/decisions/control-planes.md` and the module docstring in
+    bind an automatic traceback. See `docs/decisions/control-planes/` and the module docstring in
     `cpcommon/observability.py`.
 
     Kept as a tripwire, NOT deleted: if this starts **failing**, `log-foundry` began stripping

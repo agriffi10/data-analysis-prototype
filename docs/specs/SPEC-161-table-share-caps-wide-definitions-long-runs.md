@@ -1,10 +1,15 @@
-# Spec: Table Share at Scale — Raised Caps, Wide Definitions & the Long-Running Share
+---
+type: Spec
+id: SPEC-161
+title: "Table Share at Scale — Raised Caps, Wide Definitions & the Long-Running Share"
+description: "Raises table share's object and byte caps and adds a recipients-times-objects cap, moves the table definition to an S3 pointer, and adds a state-machine timeout so large shares of wide tables succeed."
+spec_status: Completed
+depends_on: [SPEC-160, SPEC-090, SPEC-152, SPEC-157]
+arc: table-share-at-scale
+arc_order: 2
+---
 
-**ID:** SPEC-161
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-160 (the Distributed-Map transfer engine), SPEC-090 (caps + the copy-plan pointer), SPEC-152 (`NotifyFailure`), SPEC-157 (`TimeoutSeconds` is a top-level ASL field)
-
+**Dependency notes:** SPEC-160 (the Distributed-Map transfer engine), SPEC-090 (caps + the copy-plan pointer), SPEC-152 (`NotifyFailure`), SPEC-157 (`TimeoutSeconds` is a top-level ASL field)
 ## Overview
 
 SPEC-160 moves the copy off a single Lambda, but every ceiling written for that Lambda is still in

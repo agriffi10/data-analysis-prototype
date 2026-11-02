@@ -1,10 +1,15 @@
-# Spec: File Converter — Request Contract, Browser Enqueue & `validate-authorize`
+---
+type: Spec
+id: SPEC-116
+title: "File Converter — Request Contract, Browser Enqueue & `validate-authorize`"
+description: "Would have delivered the file-converter request contract and validate-authorize, vetting the source and a user-chosen destination in the same space, unreserved and empty, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-107, SPEC-115, SPEC-056]
+arc: file-converter
+arc_order: 2
+---
 
-**ID:** SPEC-116
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (file-converter foundation), SPEC-056 (shared-space access model)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-115 (file-converter foundation), SPEC-056 (shared-space access model)
 > **Read `docs/file-converter-architecture.md` §2.3, §3.1 and §6 first.**
 
 ## Overview

@@ -1,10 +1,15 @@
-# Spec: Lambda Layer Consolidation — Folding the Deliberate Twins onto `cpcommon`
+---
+type: Spec
+id: SPEC-156
+title: "Lambda Layer Consolidation — Folding the Deliberate Twins onto `cpcommon`"
+description: "Folds the duplicated Lambda helpers (conditional-write CAS loop, failure-message resolver, results-location builder, JWKS verification) onto cpcommon so a fix reaches one copy instead of several."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-125, SPEC-151, SPEC-153]
+arc: audit-remediation
+arc_order: 7
+---
 
-**ID:** SPEC-156
-**Status:** Completed
-**Last Updated:** 2026-08-07
-**Depends On:** SPEC-107 (`cpcommon`, the shared layer this spec consolidates onto), SPEC-125 (which `dqcommon/index_store.py:20` names as the point where the CAS twins converge — it has shipped), SPEC-151 (fixes `casio.is_precondition` **in place**; this spec then moves it — land 151 first), SPEC-153 (the `conftest` snapshot and paginating fakes that make cross-layer refactoring safe)
-
+**Dependency notes:** SPEC-107 (`cpcommon`, the shared layer this spec consolidates onto), SPEC-125 (which `dqcommon/index_store.py:20` names as the point where the CAS twins converge — it has shipped), SPEC-151 (fixes `casio.is_precondition` **in place**; this spec then moves it — land 151 first), SPEC-153 (the `conftest` snapshot and paginating fakes that make cross-layer refactoring safe)
 > **Reference:** from the 2026-08-05 codebase audit. Pure consolidation in the Lambda layers, with no behaviour change and no new infrastructure.
 >
 > **The ordering matters and is stated once here.** SPEC-151 fixes the 409 predicate *in place* in `casio`; this spec then moves the fixed predicate into `cpcommon`. Doing it the other way round means fixing a bug during a move, which is the combination that makes a refactor unreviewable. Likewise SPEC-153's `conftest` snapshot must cover the domain layers before this spec starts moving modules between them — without it, an unrestored patch in one suite silently changes another.

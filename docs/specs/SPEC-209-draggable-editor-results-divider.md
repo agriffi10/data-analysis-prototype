@@ -1,10 +1,13 @@
-# Spec: The Draggable Editor/Results Divider
+---
+type: Spec
+id: SPEC-209
+title: "The Draggable Editor/Results Divider"
+description: "Replaces the Query workspace's three-preset editor/results segmented control with a draggable divider that sets the split anywhere between the minimum pane heights, for desktop users."
+spec_status: Completed
+depends_on: [SPEC-079, SPEC-035, SPEC-100, SPEC-045, SPEC-064]
+---
 
-**ID:** SPEC-209
-**Status:** Completed
-**Last Updated:** 2026-09-01
-**Depends On:** SPEC-079 (the layout presets this replaces), SPEC-035 (the query workspace), SPEC-100 (Query workspace responsive), SPEC-045 (axe assertions), SPEC-064 (resizable result columns — the precedent for a pointer-driven resize in this workspace)
-
+**Dependency notes:** SPEC-079 (the layout presets this replaces), SPEC-035 (the query workspace), SPEC-100 (Query workspace responsive), SPEC-045 (axe assertions), SPEC-064 (resizable result columns — the precedent for a pointer-driven resize in this workspace)
 ## Overview
 
 The query workspace splits vertically between the SQL editor and the results, and today that split

@@ -1,10 +1,13 @@
-# Spec: Scoped AWS Credentials — Identity Pool ABAC + Shared Portal Role
+---
+type: Spec
+id: SPEC-011
+title: "Scoped AWS Credentials — Identity Pool ABAC + Shared Portal Role"
+description: "Gives each signed-in user temporary AWS credentials through a Cognito Identity Pool, mapping the username claim server-side to an IAM principal tag on one shared portal role so identity cannot be spoofed."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-007, SPEC-010]
+---
 
-**ID:** SPEC-011
-**Status:** Completed
-**Last Updated:** 2026-06-12
-**Depends On:** SPEC-006 (User Pool), SPEC-007 (login/session), SPEC-010 (data module exists)
-
+**Dependency notes:** SPEC-006 (User Pool), SPEC-007 (login/session), SPEC-010 (data module exists)
 > **Note:** This spec deliberately grants the role **no S3 permissions** — those arrive in SPEC-013. Until then, sessions are tagged but can access nothing.
 
 ## Overview

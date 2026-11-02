@@ -1,10 +1,13 @@
-# Spec: File Browser Pagination — 25 Items per Page
+---
+type: Spec
+id: SPEC-037
+title: "File Browser Pagination — 25 Items per Page"
+description: "Changes the file browser's listing page size to 25 items so large folders load incrementally through the existing Load more button instead of fetching up to 1,000 keys at once."
+spec_status: Completed
+depends_on: [SPEC-015]
+---
 
-**ID:** SPEC-037
-**Status:** Completed
-**Last Updated:** 2026-06-17
-**Depends On:** SPEC-015 (TanStack `useInfiniteQuery` listing foundation + "Load more")
-
+**Dependency notes:** SPEC-015 (TanStack `useInfiniteQuery` listing foundation + "Load more")
 ## Overview
 
 The file browser already paginates with TanStack Query's `useInfiniteQuery` and a "Load more" control (SPEC-015), but each page requests up to 1,000 keys from S3 — so for any realistic folder the first request pulls the entire listing and "Load more" never appears. This spec changes the listing **page size to 25 items**, so the browser loads 25 entries at a time from S3 and the user pulls the rest on demand with the existing "Load more" button. The goal is to keep the amount fetched and rendered small and predictable rather than pulling a whole large folder at once.

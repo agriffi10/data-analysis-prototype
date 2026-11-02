@@ -1,10 +1,15 @@
-# Spec: Test & Gate Integrity — Closing the Guards That Pass by Coincidence
+---
+type: Spec
+id: SPEC-153
+title: "Test & Gate Integrity — Closing the Guards That Pass by Coincidence"
+description: "Hardens guards that passed by coincidence, chiefly making the deploy-matrix check confirm the layer zip contains every module, and fixes unreachable pagination branches and a scanner gate that passed with no report."
+spec_status: Completed
+depends_on: [SPEC-137, SPEC-138, SPEC-125, SPEC-149, SPEC-143]
+arc: audit-remediation
+arc_order: 4
+---
 
-**ID:** SPEC-153
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-137 (its post-mortem is this spec's subject — the code/infra split whose gates were all blind), SPEC-138 (the scanner gates and the "did not run is never clean" rule), SPEC-125 (`shared-space-common` and the fakes FR-002 deepens), SPEC-149 (the case-folding premise FR-006 pins), SPEC-143 (the projection reconstruction FR-006 pins)
-
+**Dependency notes:** SPEC-137 (its post-mortem is this spec's subject — the code/infra split whose gates were all blind), SPEC-138 (the scanner gates and the "did not run is never clean" rule), SPEC-125 (`shared-space-common` and the fakes FR-002 deepens), SPEC-149 (the case-folding premise FR-006 pins), SPEC-143 (the projection reconstruction FR-006 pins)
 > **Reference:** from the 2026-08-05 codebase audit. This spec is about the tests that exist to catch a class of failure and cannot.
 >
 > **The theme is guards passing by coincidence.** `test_deploy_matrix.py` was written *because* SPEC-137 shipped instrumented code whose layer attachment was missing and every gate was blind to it — yet it never checks the layer job's copy list against the layer directory, which is the actual failure shape. The fleet's fakes accept a `ContinuationToken` and ignore it, so three continuation branches have never executed. The intrinsic scanner walks one ASL field while its docstring claims every state type. A suite patches a module and never restores it, in a `conftest` whose snapshot covers only five of nine shared modules.

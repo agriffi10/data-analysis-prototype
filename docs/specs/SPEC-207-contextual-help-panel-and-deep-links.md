@@ -1,10 +1,13 @@
-# Spec: Contextual Help — the Guide Panel and Per-Feature Deep Links
+---
+type: Spec
+id: SPEC-207
+title: "Contextual Help — the Guide Panel and Per-Feature Deep Links"
+description: "Turns the top-bar help control into a panel over the current page that already shows that route's guides, adds per-guide deep links, and links on to the full Help page, for portal users."
+spec_status: Completed
+depends_on: [SPEC-074, SPEC-103, SPEC-155, SPEC-162, SPEC-163, SPEC-045]
+---
 
-**ID:** SPEC-207
-**Status:** Completed
-**Last Updated:** 2026-08-28
-**Depends On:** SPEC-074 (Help & guides — the sections, the guide cards, the header link, the hash-addressed section), SPEC-103 (Help responsive), SPEC-155 (`Drawer`, `IconButton`, and the Escape-by-depth registry), SPEC-162/163 (`hiddenHelpIds` and the guide→flag registry in `gatedSurfaces.ts`), SPEC-045 (the axe assertions)
-
+**Dependency notes:** SPEC-074 (Help & guides — the sections, the guide cards, the header link, the hash-addressed section), SPEC-103 (Help responsive), SPEC-155 (`Drawer`, `IconButton`, and the Escape-by-depth registry), SPEC-162/163 (`hiddenHelpIds` and the guide→flag registry in `gatedSurfaces.ts`), SPEC-045 (the axe assertions)
 **Interacts with:** SPEC-210 and SPEC-211 both add a header control. This spec adds **none** — it
 changes what the existing help control does — so the header's mobile width budget is unchanged by it.
 SPEC-211 FR-007 owns the measurement.

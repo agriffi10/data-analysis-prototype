@@ -1,13 +1,17 @@
-# Spec: Give Feedback — the API Route, the Writer Queue and the Daily Document
+---
+type: Spec
+id: SPEC-211
+title: "Give Feedback — the API Route, the Writer Queue and the Daily Document"
+description: "Adds a Give feedback button and modal in the top bar that sends a category and message through an API route and writer queue, filing one JSON record per day in the admin bucket, for users and operators."
+spec_status: Completed
+depends_on: [SPEC-195, SPEC-196, SPEC-197, SPEC-058, SPEC-206, SPEC-129, SPEC-127, SPEC-128, SPEC-130, SPEC-131, SPEC-132, SPEC-133, SPEC-134, SPEC-135, SPEC-136, SPEC-137, SPEC-155, SPEC-106, SPEC-032]
+---
 
-**ID:** SPEC-211
-**Status:** Completed
-**Last Updated:** 2026-08-28
 **Interacts with:** SPEC-207 repoints the existing help control and adds none; SPEC-210 adds a theme
 control. **This spec owns the mobile header decision all three depend on** — FR-007.
 
-**Depends On:** SPEC-195 (the API's auth boundary), SPEC-196 (the identity layer and the two credential planes), SPEC-197 (the transport contract, `apiRequest`, the generated TypeScript), SPEC-058 (the single-writer FIFO pattern), SPEC-206 (the `SenderId` boundary), SPEC-129 (one object per day, appended under ETag CAS), SPEC-127→137 (`cpcommon.observability`), SPEC-155 (`Modal`, `FormDialog`, the Escape registry), SPEC-106 (`toUserMessage`), SPEC-032 (the admin bucket and its prefix-scoped lifecycle)
 
+**Dependency notes:** SPEC-195 (the API's auth boundary), SPEC-196 (the identity layer and the two credential planes), SPEC-197 (the transport contract, `apiRequest`, the generated TypeScript), SPEC-058 (the single-writer FIFO pattern), SPEC-206 (the `SenderId` boundary), SPEC-129 (one object per day, appended under ETag CAS), SPEC-127→137 (`cpcommon.observability`), SPEC-155 (`Modal`, `FormDialog`, the Escape registry), SPEC-106 (`toUserMessage`), SPEC-032 (the admin bucket and its prefix-scoped lifecycle)
 ## Overview
 
 There is no way for a user to tell us anything. Every signal the portal produces is telemetry — what
@@ -55,7 +59,7 @@ somebody else.
   > holding when #724 added the logs backlog alarm (`infra/modules/observability/alarm.tf`); the
   > deploy-role grant names only that alarm, so one here would still need its own. The DLQ still
   > has no alarm, now by Andrew's decision and for the reason in the feedback entry of
-  > `docs/decisions/control-planes.md`.
+  > `docs/decisions/control-planes/`.
 - **Rate limiting beyond what the route already has.** The route is non-idempotent so `apiRequest`
   never retries it, the modal disables its submit while in flight, and the message is capped
   server-side. A per-user quota is not built.

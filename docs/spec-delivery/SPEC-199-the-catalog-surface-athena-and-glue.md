@@ -122,7 +122,7 @@ fix needs an execution→owner record that does not exist.
 > **Superseded by SPEC-232 (2026-09-10): closed.** The output location Athena records is that
 > record. Every route that names an execution proves it is the caller's first, and answers an
 > unknown id and someone else's with one 404:
-> [`decisions/identity-and-access.md`](../decisions/identity-and-access.md#an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it-first-spec-232).
+> [`decisions/identity-and-access/`](../decisions/identity-and-access/an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it.md).
 
 ## Help & guides
 

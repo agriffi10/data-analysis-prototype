@@ -1,10 +1,15 @@
-# Spec: Resizable Query-Result Columns
+---
+type: Spec
+id: SPEC-064
+title: "Resizable Query-Result Columns"
+description: "Lets users drag header boundaries to resize query-result columns, keeping widths across paging and tab switches, resetting on a new query, and truncating overflow with an ellipsis under horizontal scroll."
+spec_status: Completed
+depends_on: [SPEC-038, SPEC-035]
+arc: query-editor-round-4
+arc_order: 2
+---
 
-**ID:** SPEC-064
-**Status:** Completed
-**Last Updated:** 2026-06-29
-**Depends On:** SPEC-038 (query-results Prev/Next pagination + `useQueryResults`), SPEC-035 (query workspace + `QueryResultsTable`)
-
+**Dependency notes:** SPEC-038 (query-results Prev/Next pagination + `useQueryResults`), SPEC-035 (query workspace + `QueryResultsTable`)
 > **Design:** Needs a light design pass. The results table keeps its current visual language (surface, border,
 > `rounded-lg`, `surface-2` uppercase header, monospace rows). New: a thin column-resize handle on each header
 > cell's right edge (hover/active accent), `text-overflow: ellipsis` truncation in cells, and a horizontally

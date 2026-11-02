@@ -1,10 +1,15 @@
-# Spec: Tabbed Dashboard + Query Workspace UI
+---
+type: Spec
+id: SPEC-035
+title: "Tabbed Dashboard + Query Workspace UI"
+description: "Adds a Files and Query tabbed dashboard and a Query workspace where users write SQL in a Monaco editor, run it on Athena, watch execution status, and read results in a table."
+spec_status: Completed
+depends_on: [SPEC-008, SPEC-023, SPEC-028, SPEC-034, SPEC-033]
+arc: analytics
+arc_order: 4
+---
 
-**ID:** SPEC-035
-**Status:** Completed
-**Last Updated:** 2026-06-18
-**Depends On:** SPEC-008 (auth-gated layout + react-router), SPEC-023 (app shell), SPEC-028 (shared UI primitives), SPEC-034 (query engine data layer), SPEC-033 (per-user database exists)
-
+**Dependency notes:** SPEC-008 (auth-gated layout + react-router), SPEC-023 (app shell), SPEC-028 (shared UI primitives), SPEC-034 (query engine data layer), SPEC-033 (per-user database exists)
 > **Design:** This spec is design-led. Build it to `docs/design/query-workspace.html` (the query-workspace mockup) and the additions in `docs/design/design-system.md` §6 (Data analysis surface). Where this spec and the design disagree, the design system wins for visuals; this spec wins for behavior/data wiring.
 
 ## Overview

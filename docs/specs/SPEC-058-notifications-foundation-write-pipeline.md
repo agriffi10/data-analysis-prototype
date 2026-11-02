@@ -1,10 +1,15 @@
-# Spec: Notifications Foundation Infrastructure (Write Pipeline + IAM)
+---
+type: Spec
+id: SPEC-058
+title: "Notifications Foundation Infrastructure (Write Pipeline + IAM)"
+description: "Gives operators a per-user notifications write pipeline, using a FIFO queue and single-writer Lambda that updates each user's notifications.json for create, mark-read, and mark-all-read without lost updates."
+spec_status: Completed
+depends_on: [SPEC-010, SPEC-011, SPEC-012, SPEC-006]
+arc: notifications
+arc_order: 1
+---
 
-**ID:** SPEC-058
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-010 (user-space bucket conventions), SPEC-011 (Identity Pool ABAC + portal role + module wiring), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-006 (Cognito User Pool — token issuer for actor binding)
-
+**Dependency notes:** SPEC-010 (user-space bucket conventions), SPEC-011 (Identity Pool ABAC + portal role + module wiring), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-006 (Cognito User Pool — token issuer for actor binding)
 > **First of the notifications arc (058 → 059 → 060 → 061).** This spec builds the **write side only**:
 > a dedicated **FIFO SQS queue that triggers the notifications-writer Lambda directly** (an SQS event-source
 > mapping — **no EventBridge Pipe, no Step Function**) and a single privileged **notifications-writer role**

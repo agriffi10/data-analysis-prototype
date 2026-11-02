@@ -15,7 +15,7 @@
   a path, query or body field it does not expect names an execution. The one it expects outside
   those routes is results-conversion's body field, which that plane proves with the same predicate.
 - **The record matches.** The register entry *An execution id is a claim, and every route that
-  names one proves it first* and its Fences bullet in `docs/decisions/identity-and-access.md`, the
+  names one proves it first* and its Fences bullet in `docs/decisions/identity-and-access/`, the
   trap on `lambdas/info/planes/api.md`, and supersede markers in SPEC-199's spec and delivery doc,
   where the old premise was stated.
 - Nothing a user sees changed, and there was no browser, contract, IAM or infrastructure change.

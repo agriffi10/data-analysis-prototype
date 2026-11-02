@@ -92,7 +92,7 @@ The review found one real defect and four tightenings, all fixed before merge:
   > table. And "they unmount on navigation" does not hold for the `App.tsx` boundaries: sibling lazy
   > routes render the same element shape into the same slot, so React reuses one boundary instance
   > across them — measured on the three lazy routes of 2026-09-10, once the key no longer remounted
-  > everything above them. Each now carries its own key. Reasoning: `decisions/browser.md`, *Layout
+  > everything above them. Each now carries its own key. Reasoning: `decisions/browser/`, *Layout
   > boundaries reset by prop, never by `key`*.
 - **FR-006's scan could be fooled by a `code:` in a comment or a string.** This codebase writes
   explanatory comments *inside* the returned object, so that was a live hole. Comments and string

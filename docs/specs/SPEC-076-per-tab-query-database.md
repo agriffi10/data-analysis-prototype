@@ -1,10 +1,14 @@
-# Spec: Per-Tab Query Database (+ Saved Query Targets Its Database)
+---
+type: Spec
+id: SPEC-076
+title: "Per-Tab Query Database (+ Saved Query Targets Its Database)"
+description: "Would have delivered a per-tab query database, with opening a saved query selecting its database, but was superseded by cross-database querying that removes the active-database selection entirely."
+spec_status: Superseded
+depends_on: [SPEC-047, SPEC-041, SPEC-043]
+superseded_by: SPEC-077
+---
 
-**ID:** SPEC-076
-**Status:** Superseded (by SPEC-077)
-**Last Updated:** 2026-07-01
-**Depends On:** SPEC-047 (workspace database selector — superseded here), SPEC-041 (multi-tab editor), SPEC-043 (saved queries)
-
+**Dependency notes:** SPEC-047 (workspace database selector — superseded here), SPEC-041 (multi-tab editor), SPEC-043 (saved queries)
 > **Superseded by SPEC-077 (2026-07-01).** Per user feedback, the workspace is
 > dropping the active-database *session* concept altogether (browse-only rail +
 > fully-qualified cross-database queries) rather than making the active database

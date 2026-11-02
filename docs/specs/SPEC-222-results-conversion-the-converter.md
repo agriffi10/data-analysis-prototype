@@ -1,10 +1,15 @@
-# Spec: Results Conversion — The Converter, the Three Writers & the Notification
+---
+type: Spec
+id: SPEC-222
+title: "Results Conversion — The Converter, the Three Writers & the Notification"
+description: "Converts a finished Athena result set to Parquet, newline-delimited JSON or Excel using Athena's own column types, writes it conditionally to the user's chosen destination, and notifies them with a link."
+spec_status: Completed
+depends_on: [SPEC-221, SPEC-069, SPEC-107, SPEC-219]
+arc: results-conversion
+arc_order: 2
+---
 
-**ID:** SPEC-222
-**Status:** Completed
-**Last Updated:** 2026-09-06
-**Depends On:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs), SPEC-219 FR-002 (the execution role already denies `system_settings/` at any depth, so the validator must refuse it by name before this spec's write grant lands, or the refusal arrives as a bare `AccessDenied`)
-
+**Dependency notes:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs), SPEC-219 FR-002 (the execution role already denies `system_settings/` at any depth, so the validator must refuse it by name before this spec's write grant lands, or the refusal arrives as a bare `AccessDenied`)
 ## Overview
 
 With the plane standing and a request proved legitimate, this spec makes it do the work: read the

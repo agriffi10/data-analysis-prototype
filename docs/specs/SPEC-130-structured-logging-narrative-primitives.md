@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Narrative Primitives and Function Identity
+---
+type: Spec
+id: SPEC-130
+title: "Structured Logging — Narrative Primitives and Function Identity"
+description: "Gives developers a sanctioned narrative-logging door (in-span events and child spans) on the observability module, and fixes root spans that all reported function \"handler\" and lost verb identity."
+spec_status: Completed
+depends_on: [SPEC-127, SPEC-128, SPEC-129]
+arc: observability
+arc_order: 4
+---
 
-**ID:** SPEC-130
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-127 (the pipe), SPEC-128 (the pilot), SPEC-129 (FIFO + day objects)
-
+**Dependency notes:** SPEC-127 (the pipe), SPEC-128 (the pilot), SPEC-129 (FIFO + day objects)
 ## Overview
 
 The pipe SPEC-127/128/129 built carries **boundaries only**. Every trace is a `span.start` /

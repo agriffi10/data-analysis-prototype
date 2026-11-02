@@ -1,10 +1,15 @@
-# Spec: The API's Auth Boundary — Verifying the Bearer Token
+---
+type: Spec
+id: SPEC-195
+title: "The API's Auth Boundary — Verifying the Bearer Token"
+description: "Gives the API an auth boundary that verifies the Cognito ID token sent as a bearer against the pool's JWKS and takes the username from the verified claim, leaving sign-in unchanged, for API developers."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-007, SPEC-011, SPEC-106, SPEC-126, SPEC-127, SPEC-130, SPEC-137, SPEC-186, SPEC-150, SPEC-156, SPEC-192, SPEC-193]
+arc: api-layer-and-containerisation
+arc_order: 4
+---
 
-**ID:** SPEC-195
-**Status:** Completed
-**Last Updated:** 2026-08-18
-**Depends On:** SPEC-006/007 (the Cognito User Pool and Managed Login v2 — **unchanged by this spec**), SPEC-011 (the identity is a verified claim, never a caller assertion; the tag SPEC-196 builds from it), SPEC-106 (`toUserMessage` — raw provider text is never rendered), SPEC-126 (the DLQ drain's expiry-relaxed verification, and why this boundary may not reuse it), SPEC-127/130/137/186 (`cpcommon.observability`, the field rule, the `error.stack` exemption this spec re-opens, and `env`/`version` on every record), SPEC-150 (`ServiceResult` and the catch discipline), SPEC-156 (**one** JWKS path in this repo — parameterised here, not forked), SPEC-192 (the runtime accessors, `apiBaseUrl`, and the server-side provider block), SPEC-193 (the API Lambda, its router, its deliberate absence from the VPC, and the API Gateway CORS configuration)
-
+**Dependency notes:** SPEC-006/007 (the Cognito User Pool and Managed Login v2 — **unchanged by this spec**), SPEC-011 (the identity is a verified claim, never a caller assertion; the tag SPEC-196 builds from it), SPEC-106 (`toUserMessage` — raw provider text is never rendered), SPEC-126 (the DLQ drain's expiry-relaxed verification, and why this boundary may not reuse it), SPEC-127/130/137/186 (`cpcommon.observability`, the field rule, the `error.stack` exemption this spec re-opens, and `env`/`version` on every record), SPEC-150 (`ServiceResult` and the catch discipline), SPEC-156 (**one** JWKS path in this repo — parameterised here, not forked), SPEC-192 (the runtime accessors, `apiBaseUrl`, and the server-side provider block), SPEC-193 (the API Lambda, its router, its deliberate absence from the VPC, and the API Gateway CORS configuration)
 ## Overview
 
 Arc B moves the browser's AWS calls behind an API. Before any call can move, the API has to know who is
@@ -85,7 +90,7 @@ genuine token passes both — an API that skips verification entirely works perf
    > **Superseded by SPEC-201.** It is for nothing: the drain takes its recipient from the message's
    > `identity` block, and both `*_ignoring_expiry` entry points are deleted along with the whole
    > Cognito arm of `cpcommon.auth`. Expiry is now unconditional and there is no flag, private or
-   > public, that turns it off. Full entry: `docs/decisions/identity-and-access.md`.
+   > public, that turns it off. Full entry: `docs/decisions/identity-and-access/`.
 4. **The 401 body is deliberately uninformative, and the API's exception paths are scrubbed rather than
    exempted** (FR-004, FR-007). SPEC-197's envelope may add fields to other statuses; the unauthenticated body
    stays identical across every failure. Any later handler added to `lambdas/api/` inherits the interpolation

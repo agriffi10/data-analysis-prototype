@@ -1,9 +1,11 @@
-# Spec: A Restore Never Copies Over a File, and One Archive Id Is One Run
-
-**ID:** SPEC-237
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-169, SPEC-170, SPEC-171
+---
+type: Spec
+id: SPEC-237
+title: "A Restore Never Copies Over a File, and One Archive Id Is One Run"
+description: "Makes an archive restore never overwrite an existing file and ties each archive id to exactly one run using S3 conditional writes, and fixes restore messages that could tell a user to delete their only copy."
+spec_status: Completed
+depends_on: [SPEC-169, SPEC-170, SPEC-171]
+---
 
 ## Overview
 
@@ -30,7 +32,7 @@ anything. It does this with S3's own conditional writes rather than a lock.
   plane's own live run had two restores of one archive overlap on 2026-09-09
   (`docs/testing/sessions.md`, *The archive and restore, run under §4.11's approval gate*). The
   consequences, arm by arm, are in the register entry *The group id orders the STARTS, not the runs,
-  and the restore guard is not absolute at the write* (`docs/decisions/archive-and-restore.md`).
+  and the restore guard is not absolute at the write* (`docs/decisions/archive-and-restore/`).
 - **The copy-back overwrites.** `cpcommon.transfer.copy.copy_one` issues `CopyObject` and
   `CompleteMultipartUpload` with no condition. `ReCheckDestinationClear` heads every destination once,
   before the `CopyBackObjects` Map, and the Map then runs for as long as the archive copy it mirrors.
@@ -565,7 +567,7 @@ lambdas/
 ├── archive-update-receipt/archive_update_receipt.py
 └── test_absence_is_answerable.py                # two DISPOSITIONS rows
 infra/modules/archive/{state-machine.asl.json.tftpl,README.md,sqs.tf,pipe.tf}
-docs/decisions/archive-and-restore.md
+docs/decisions/archive-and-restore/
 docs/testing/owed.md
 ```
 

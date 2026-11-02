@@ -1,9 +1,13 @@
-# Spec: Files — Object Details Panel Gains Download & Rename
-
-**ID:** SPEC-097
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** SPEC-096
+---
+type: Spec
+id: SPEC-097
+title: "Files — Object Details Panel Gains Download & Rename"
+description: "Adds Download and Rename actions to the per-object details panel in the file browser, with folders getting Rename only, now that those single-item actions have left the multi-select toolbar."
+spec_status: Completed
+depends_on: [SPEC-096]
+arc: responsive-and-files-ux
+arc_order: 3
+---
 
 ## Overview
 

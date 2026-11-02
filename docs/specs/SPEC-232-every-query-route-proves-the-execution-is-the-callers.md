@@ -1,9 +1,11 @@
-# Spec: Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim
-
-**ID:** SPEC-232
-**Status:** Completed
-**Last Updated:** 2026-09-16
-**Depends On:** SPEC-199, SPEC-220, SPEC-221
+---
+type: Spec
+id: SPEC-232
+title: "Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim"
+description: "Makes the API's query status, results and stop routes verify that the Athena execution belongs to the caller, answering unknown and foreign ids identically, so one user cannot read or stop another's query."
+spec_status: Completed
+depends_on: [SPEC-199, SPEC-220, SPEC-221]
+---
 
 ## Overview
 
@@ -162,7 +164,7 @@ All readings are from 2026-09-10.
 
   > **Closed by SPEC-233.** After one retry, a failed status poll now ends the tab's run, and the
   > banner gives the error code's wording (a 404 reads "That item no longer exists. Refresh and
-  > try again."). Full entry: `docs/decisions/browser.md`, *A failed status poll ends the Query
+  > try again."). Full entry: `docs/decisions/browser/`, *A failed status poll ends the Query
   > tab's run*.
 - **`start()`, the Glue routes, and the results-conversion enqueue route.** That route's execution
   id travels in the body, and the plane proves it (SPEC-221).
@@ -388,7 +390,7 @@ docs/specs/SPEC-199-*.md, docs/spec-delivery/SPEC-199-*.md # supersede markers
 
 - Docstrings, SPEC-199's supersede markers, the inventory row, the `owed.md` row, and the API
   plane page (FR-006).
-- The register entry in `docs/decisions/identity-and-access.md`, and a clause in its Fences if the
+- The register entry in `docs/decisions/identity-and-access/`, and a clause in its Fences if the
   budget holds one. The code settles the decision and the live check does not, so the entry lands
   with the code, and the supersede markers point at it.
 

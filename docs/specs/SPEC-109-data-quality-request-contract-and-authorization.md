@@ -1,10 +1,15 @@
-# Spec: Data Quality — Request Contract, Browser Enqueue & `validate-authorize`
+---
+type: Spec
+id: SPEC-109
+title: "Data Quality — Request Contract, Browser Enqueue & `validate-authorize`"
+description: "Defines the data-quality request envelope and delivers validate-authorize, with a hashed MessageGroupId and execution-role S3 grants that include an explicit Deny protecting the user's notification inbox."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-108, SPEC-056, SPEC-011]
+arc: data-quality
+arc_order: 2
+---
 
-**ID:** SPEC-109
-**Status:** Completed
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (data-quality foundation), SPEC-056 (shared-space access model), SPEC-011 (Cognito identity)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-108 (data-quality foundation), SPEC-056 (shared-space access model), SPEC-011 (Cognito identity)
 > **Read `docs/data-quality-architecture.md` §2.3, §3 and §7 first.**
 
 ## Overview
@@ -62,7 +67,7 @@ One envelope, minted in the browser, carrying everything the pipeline needs and 
 - [ ] A rationale comment records the failure this prevents: SQS's 128-character `MessageGroupId` cap versus S3's 1024-character keys, failing the send in the browser.
 - [ ] Two checks of the **same** location produce the **same** group id (they serialize); two different locations produce different group ids (they run in parallel). Both asserted.
 
-  > **SUPERSEDED 2026-09-15.** One group id orders the starts, not the runs: the Pipe is `FIRE_AND_FORGET`, so two same-location checks run at once, harmlessly, since every per-run key is the request id — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*. The "same-location-serializes case" below tests the same group id and nothing more.
+  > **SUPERSEDED 2026-09-15.** One group id orders the starts, not the runs: the Pipe is `FIRE_AND_FORGET`, so two same-location checks run at once, harmlessly, since every per-run key is the request id — `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*. The "same-location-serializes case" below tests the same group id and nothing more.
 - [ ] `MessageDeduplicationId` = `requestId`.
 - [ ] The service returns a `ServiceResult<T>` and never throws, per CLAUDE.md's service convention.
 

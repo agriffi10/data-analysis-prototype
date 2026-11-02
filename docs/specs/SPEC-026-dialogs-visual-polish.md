@@ -1,9 +1,11 @@
-# Spec: Dialogs Visual Polish
-
-**ID:** SPEC-026  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-026
+title: "Dialogs Visual Polish"
+description: "Restyles the five file dialogs (create folder, collision prompt, delete confirm, rename, move) with design-system modals, scrim, button variants, and warning and danger status colors."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

@@ -37,7 +37,7 @@
 ## What changed from earlier specs?
 
 - **SPEC-130's `_reset_baggage` is renamed.** Two live register entries in
-  `docs/decisions/control-planes.md` named it and were updated in place.
+  `docs/decisions/control-planes/` named it and were updated in place.
 - **SPEC-127's harness design is partly retired.** The worker retirement it needed is obsolete —
   measured, `configure(sink=…)` alone leaked to the replaced sink on 0.6.0 and redirects correctly
   on 1.0.0 — and could not have stayed regardless, since `log_foundry.decorator._worker` no longer

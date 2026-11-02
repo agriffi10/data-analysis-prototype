@@ -1,10 +1,15 @@
-# Spec: Table Builder — Schema Inference & DDL Generation (polars)
+---
+type: Spec
+id: SPEC-069
+title: "Table Builder — Schema Inference & DDL Generation (polars)"
+description: "Infers a table's columns from a sample file with polars lazy scanners and generates the Athena CREATE EXTERNAL TABLE DDL, with date parsing, all-string CSV columns and partition keys split out."
+spec_status: Completed
+depends_on: [SPEC-066, SPEC-068, SPEC-067]
+arc: table-builder
+arc_order: 4
+---
 
-**ID:** SPEC-069
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-066 (polars Lambda layer + the infer-schema function/role), SPEC-068 (inspect-source output: format, partition keys, sample object, location), SPEC-067 (validated request)
-
+**Dependency notes:** SPEC-066 (polars Lambda layer + the infer-schema function/role), SPEC-068 (inspect-source output: format, partition keys, sample object, location), SPEC-067 (validated request)
 > **Reference:** `docs/table-builder-architecture.md` §4/§5. Fourth of the arc. Implements **`infer-schema`** —
 > the Lambda that opens a sample data object with a **polars LazyFrame**, derives the **data** column schema,
 > maps polars dtypes to Glue/Athena (Hive) types, folds in the **user-declared partition columns** (with their

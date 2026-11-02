@@ -1,10 +1,15 @@
-# Spec: The Lambda Trust Boundary — the Planes Stop Verifying Tokens
+---
+type: Spec
+id: SPEC-201
+title: "The Lambda Trust Boundary — the Planes Stop Verifying Tokens"
+description: "Stops the eight control planes verifying Cognito tokens and has them read the verified actor from the API's identity block, keeping every membership, ownership and containment check, for operators and developers."
+spec_status: Completed
+depends_on: [SPEC-011, SPEC-107, SPEC-125, SPEC-156, SPEC-126, SPEC-152, SPEC-164, SPEC-187, SPEC-191, SPEC-195, SPEC-196, SPEC-200]
+arc: api-layer-and-containerisation
+arc_order: 10
+---
 
-**ID:** SPEC-201
-**Status:** Completed
-**Last Updated:** 2026-08-18
-**Depends On:** SPEC-011 (the identity is a verified claim, never a caller assertion — the invariant this spec relocates without weakening), SPEC-107/125/156 (`cpcommon.auth` — the repo's one JWKS path, whose control-plane callers this spec removes), SPEC-126 (the DLQ drain — its recipient and its redaction both change here), SPEC-152 (`NotifyFailure` on every plane, and the fleet-test discipline this spec's enumeration copies), SPEC-164 (the **flat** `actor` field, shaped around the exposure this spec closes), SPEC-187/191 (Arc A's file-ops plane — the eighth queue), SPEC-195 (the API is now the only verifier; `Principal.username`), SPEC-196 (the assumed role carrying the user's identity), **SPEC-200 (writes the nested `{"identity": {actor, delegated_by, assurance}}` block while still forwarding the token, and declares the `assurance` literal both specs pin — this spec is meaningless and destructive if built before it)**
-
+**Dependency notes:** SPEC-011 (the identity is a verified claim, never a caller assertion — the invariant this spec relocates without weakening), SPEC-107/125/156 (`cpcommon.auth` — the repo's one JWKS path, whose control-plane callers this spec removes), SPEC-126 (the DLQ drain — its recipient and its redaction both change here), SPEC-152 (`NotifyFailure` on every plane, and the fleet-test discipline this spec's enumeration copies), SPEC-164 (the **flat** `actor` field, shaped around the exposure this spec closes), SPEC-187/191 (Arc A's file-ops plane — the eighth queue), SPEC-195 (the API is now the only verifier; `Principal.username`), SPEC-196 (the assumed role carrying the user's identity), **SPEC-200 (writes the nested `{"identity": {actor, delegated_by, assurance}}` block while still forwarding the token, and declares the `assurance` literal both specs pin — this spec is meaningless and destructive if built before it)**
 ## Overview
 
 Eight control planes each verify a Cognito ID token that arrived inside a queue message. That design was

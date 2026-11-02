@@ -231,7 +231,7 @@ def _destructive(text: str) -> list[str]:
     """Every destructive instruction in a sentence, after the allowed negations are stripped.
 
     **The verb list is a DENYLIST, and a denylist is never finished.** That is its known shape and
-    it is recorded in the archive Fences rather than left for the next reader to find out: a review
+    it is recorded in the archive fences rather than left for the next reader to find out: a review
     walked twelve ordinary instructions past the first seven-word version of it. What keeps it
     honest is the escape battery below — a corpus of phrasings that must be caught, rather than a
     claim that all of them are. Widening the list costs one reworded sentence when it is wrong; a

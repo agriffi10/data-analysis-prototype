@@ -1,10 +1,13 @@
-# Spec: `user_settings/` Recovery from an Unreadable Document
+---
+type: Spec
+id: SPEC-159
+title: "`user_settings/` Recovery from an Unreadable Document"
+description: "Lets saving queries and history recover from an unreadable user_settings document by copying it to a quarantine object before writing, with distinct messages for readable, newer-schema and unparseable bodies."
+spec_status: Completed
+depends_on: [SPEC-043, SPEC-048, SPEC-106, SPEC-155]
+---
 
-**ID:** SPEC-159
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-043 (saved queries), SPEC-048 (query history), SPEC-106 (the user-facing error-wording contract), SPEC-155 (`lib/s3Json.ts`, and the `lib/` → `features/` layering rule this must not break)
-
+**Dependency notes:** SPEC-043 (saved queries), SPEC-048 (query history), SPEC-106 (the user-facing error-wording contract), SPEC-155 (`lib/s3Json.ts`, and the `lib/` → `features/` layering rule this must not break)
 > **This spec adds no user-facing feature.** It finishes a fix that stopped halfway: the branch
 > that closed the data-loss path left the resulting failure **permanent**, and this is the
 > recovery route out of it.

@@ -7,7 +7,7 @@ which result page is shown, instead of the loaded-count "N+" form. Frontend-only
 
 > **Superseded in part by SPEC-231 (2026-09-13):** the walk's calls stopped being free when SPEC-199 put the
 > catalog behind the API, and the ceiling below was already gone (#214). The total now comes from Athena's own
-> count in one call, and the walk runs only where Athena does not count. Full entry: `docs/decisions/analytics.md`
+> count in one call, and the walk runs only where Athena does not count. Full entry: `docs/decisions/analytics/`
 > → *A result's total is Athena's own count, and only a SELECT's count is the grid's*.
 
 - **Background page-walk counter (FR-001/FR-005):** new `useResultRowCount(queryExecutionId)` hook — a `useQuery`

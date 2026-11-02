@@ -1,9 +1,13 @@
-# Spec: The Exploration Model, the SQL Renderer and the Execution Cache
-
-**ID:** SPEC-178
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-176, SPEC-177
+---
+type: Spec
+id: SPEC-178
+title: "The Exploration Model, the SQL Renderer and the Execution Cache"
+description: "Builds the Data Explorer's engine for developers: the exploration model, a SQL renderer with a Trino-style literal escaper, and an execution cache, with no route, grid or visible surface."
+spec_status: Completed
+depends_on: [SPEC-176, SPEC-177]
+arc: data-explorer
+arc_order: 3
+---
 
 ## Overview
 

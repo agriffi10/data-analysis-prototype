@@ -1,10 +1,13 @@
-# Spec: Shared-Space Ownership Transfer
+---
+type: Spec
+id: SPEC-208
+title: "Shared-Space Ownership Transfer"
+description: "Lets a shared space's owner transfer it to an existing member who becomes owner while the former owner stays a member, and lets an operator transfer one by CSV when the owner has left."
+spec_status: Completed
+depends_on: [SPEC-051, SPEC-053, SPEC-062, SPEC-073, SPEC-075, SPEC-082, SPEC-125, SPEC-152, SPEC-206, SPEC-106, SPEC-155, SPEC-074]
+---
 
-**ID:** SPEC-208
-**Status:** Completed
-**Last Updated:** 2026-09-01
-**Depends On:** SPEC-051/053 (the shared-space control plane, `create` and member management), SPEC-062 (single-task verb Lambdas), SPEC-073 (join status is display-only; access is granted at add time), SPEC-075 (the roster fan-out), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-206 (the `SenderId` role-id boundary — the mechanism the operator path reuses), SPEC-106 (`toUserMessage`), SPEC-155 (`ConfirmDialog`), SPEC-074 (Help content)
-
+**Dependency notes:** SPEC-051/053 (the shared-space control plane, `create` and member management), SPEC-062 (single-task verb Lambdas), SPEC-073 (join status is display-only; access is granted at add time), SPEC-075 (the roster fan-out), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-206 (the `SenderId` role-id boundary — the mechanism the operator path reuses), SPEC-106 (`toUserMessage`), SPEC-155 (`ConfirmDialog`), SPEC-074 (Help content)
 **Interacts with:** SPEC-205 empties a space rather than destroying it. Transfer is the other exit —
 the one that keeps the space alive with someone else holding it — so a space no longer has to be
 emptied just because its owner is leaving.
@@ -229,7 +232,7 @@ request per data row, then moves the object aside.
 > request rather than one per row. The `space,new_owner` header below is rejected by name. Every
 > other criterion in this FR — the whole-file refusal, the move to `processed/` and `rejected/`,
 > the listing order, the row cap and the deferral — still holds. Full entry:
-> [`decisions/control-planes.md`](../decisions/control-planes.md#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217).
+> [`decisions/control-planes/`](../decisions/control-planes/the-operator-door-widens-to-member-management-and-that-is-a-threat.md).
 
 #### Acceptance Criteria:
 
@@ -281,7 +284,7 @@ trusted.
 > `identity` block, which `cpcommon.actor` reads. Every criterion below therefore reads "identity
 > block" where it said "ID token" — the SenderId half is unchanged, and it was always the half that
 > mattered. Two further corrections the build made, both recorded in
-> `docs/decisions/control-planes.md`: `origin` is **not** declared on the API's request type (the
+> `docs/decisions/control-planes/`: `origin` is **not** declared on the API's request type (the
 > contract refuses an undeclared key, which is what stops a signed-in caller claiming operator
 > origin at all), and the acting identity is recorded as `origin` on the context while `actor`
 > carries the space's current owner — `operator` is a catalog-valid username and would address a

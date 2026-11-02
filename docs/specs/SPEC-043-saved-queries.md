@@ -1,10 +1,15 @@
-# Spec: Saved Queries + Global Workspace Bar
+---
+type: Spec
+id: SPEC-043
+title: "Saved Queries + Global Workspace Bar"
+description: "Lets users save named queries from any query tab, then list, open, update, and delete them in a slide-out drawer, with history showing which saved query ran, and moves History and Saved to a global workspace bar."
+spec_status: Completed
+depends_on: [SPEC-041, SPEC-036, SPEC-034, SPEC-026, SPEC-028]
+arc: query-editor-round-2
+arc_order: 1
+---
 
-**ID:** SPEC-043
-**Status:** Completed
-**Last Updated:** 2026-06-19
-**Depends On:** SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-036 (history drawer pattern + history panel), SPEC-034 (query-history JSON store + `QueryHistoryEntry`), SPEC-026 (dialog pattern), SPEC-028 (Button / Input primitives)
-
+**Dependency notes:** SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-036 (history drawer pattern + history panel), SPEC-034 (query-history JSON store + `QueryHistoryEntry`), SPEC-026 (dialog pattern), SPEC-028 (Button / Input primitives)
 > **Design:** Needs a design pass (done after this spec, with SPEC-044). Reuses the SPEC-036 right-drawer pattern for the saved-queries list, the SPEC-026 modal pattern for the name prompt and delete confirm, and the `db-chip`/ghost/primary buttons from `design-system.md` §6. Two layout changes: a **Save** button joins the editor toolbar (the Run bar), and **History + Saved queries** move out of the per-tab toolbar to a **global bar** on the tab-strip row.
 
 ## Overview

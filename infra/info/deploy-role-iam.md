@@ -88,7 +88,7 @@ role already holds and why it is split across one managed policy per resource fa
     imperatives: (a) a **mapping ARN and a function ARN are different resource types** — check
     every resource type an action accepts before scoping, not just the one you have in mind;
     (b) **a green `plan` is not proof the apply will work** — IAM is eventually consistent.
-    Narrative: `docs/decisions/infrastructure.md` → *Deploy-role refresh deadlock*.
+    Narrative: `docs/decisions/infrastructure/` → *Deploy-role refresh deadlock*.
 - **Resource policies (bucket/KMS) can lock out the deploy role too.** Always **except the deploy role**
   from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
   provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same
@@ -276,4 +276,4 @@ not look like it could cause.
 
 - [`INDEX.md`](INDEX.md) — the module index, and the five-point version of this page
 - [`../modules/base/README.md`](../modules/base/README.md) — every grant the deploy role holds
-- [`docs/decisions/infrastructure.md`](../../docs/decisions/infrastructure.md) — the full reasoning register for this area
+- [`docs/decisions/infrastructure/`](../../docs/decisions/infrastructure/) — the full reasoning register for this area

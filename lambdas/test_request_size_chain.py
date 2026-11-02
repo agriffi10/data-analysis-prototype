@@ -1165,7 +1165,7 @@ def test_the_overshoot_the_register_cites_is_the_one_this_model_computes(monkeyp
 
     assert breaches == {"archive": 263_533, "file-send": 271_446}, (
         f"the overshoot at the old caps is now {breaches}. The pair is quoted in "
-        f"docs/decisions/control-planes.md and nowhere else — correct it there, and check whether "
+        f"docs/decisions/control-planes/ and nowhere else — correct it there, and check whether "
         f"the model moved for a reason or by accident before you do"
     )
     assert all(size > cp_config.STATE_PAYLOAD_LIMIT_BYTES for size in breaches.values())

@@ -1,9 +1,13 @@
-# Spec: Move the App-Managed Folders, Then Narrow
-
-**ID:** SPEC-220
-**Status:** Completed
-**Last Updated:** 2026-09-09
-**Depends On:** SPEC-219
+---
+type: Spec
+id: SPEC-220
+title: "Move the App-Managed Folders, Then Narrow"
+description: "Moves the athenaresults and archive folders under a real system_settings folder in each space, via a CI migration that copies, verifies and deletes old objects, then removes old-path rules; shared_tables stays."
+spec_status: Completed
+depends_on: [SPEC-219]
+arc: system-settings-prefix
+arc_order: 3
+---
 
 ## Overview
 

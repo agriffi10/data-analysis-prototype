@@ -1,10 +1,15 @@
-# Spec: Leave & Delete a Shared Space
+---
+type: Spec
+id: SPEC-054
+title: "Leave & Delete a Shared Space"
+description: "Lets members leave a shared connection and owners delete one, with delete cascading to the files, tables, Glue database, every member's access slot, and the registry entry, while owners cannot leave."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-056, SPEC-051, SPEC-052, SPEC-053, SPEC-026, SPEC-044]
+arc: shared-connections
+arc_order: 6
+---
 
-**ID:** SPEC-054
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-050 (Step Function, registry storage, orchestrator Glue/LF/S3/Cognito perms), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + registry/cache shapes), SPEC-052 (connections screen + status), SPEC-053 (member model), SPEC-026 (confirm dialog), SPEC-044 (`Toast`)
-
+**Dependency notes:** SPEC-050 (Step Function, registry storage, orchestrator Glue/LF/S3/Cognito perms), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + registry/cache shapes), SPEC-052 (connections screen + status), SPEC-053 (member model), SPEC-026 (confirm dialog), SPEC-044 (`Toast`)
 > **Reference:** `docs/shared-spaces-architecture.md` (§2 pipeline, §3 slot revoke, §4 registry, §5 data layout).
 > Two terminal lifecycle actions: a **member leaves** (revokes only their own access); an **owner deletes** (cascades
 > away the whole space). Both go through the pipeline and are authorized server-side.

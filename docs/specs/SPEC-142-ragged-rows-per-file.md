@@ -1,10 +1,13 @@
-# Spec: Ragged Rows Counted Per File, Not Against the Union
+---
+type: Spec
+id: SPEC-142
+title: "Ragged Rows Counted Per File, Not Against the Union"
+description: "Fixes the data-quality ragged-row check to compare each line with its own file's column count rather than the union, so folders with differing CSV columns stop showing a fabricated ragged-row figure."
+spec_status: Completed
+depends_on: [SPEC-110, SPEC-112, SPEC-114]
+---
 
-**ID:** SPEC-142
-**Status:** Completed
-**Last Updated:** 2026-08-04
-**Depends On:** SPEC-110 (the manifest this reads), SPEC-112 (the ragged + cross-file checks), SPEC-114 (the report the numbers land in)
-
+**Dependency notes:** SPEC-110 (the manifest this reads), SPEC-112 (the ragged + cross-file checks), SPEC-114 (the report the numbers land in)
 ## Overview
 
 On a folder whose CSV files disagree about their columns, the data-quality report shows a

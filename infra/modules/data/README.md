@@ -97,7 +97,7 @@ tag matches nothing and gets an implicit deny. The tag variable is escaped as
 - **The username directory** is one statement: `GetObject` on `_directory/*`. **No `ListBucket`
   widening** (so `_directory/` is invisible to the file browser and the browser needs no change) and
   **no write** (the daily builder is the only writer). The disclosure is intended and accepted, not
-  incidental — recorded in `docs/decisions/storage.md`.
+  incidental — recorded in `docs/decisions/storage/`.
 - **The feature flags** are the same shape on `_config/*`, with the same two omissions. A feature
   flag is **presentation, never authorization**, so turning one off revokes no grant. The bucket
   choice is what makes it one line: this bucket already has CORS, its host is already in the

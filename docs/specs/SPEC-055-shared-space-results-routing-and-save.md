@@ -1,10 +1,15 @@
-# Spec: Shared-Space Query Results Routing & Save
+---
+type: Spec
+id: SPEC-055
+title: "Shared-Space Query Results Routing & Save"
+description: "Routes query results to the shared space when the active database is a shared connection, and extends Save results to save from a shared result and into a shared-space folder or the user's own space."
+spec_status: Completed
+depends_on: [SPEC-052, SPEC-050, SPEC-056, SPEC-047, SPEC-034, SPEC-049, SPEC-039]
+arc: shared-connections
+arc_order: 7
+---
 
-**ID:** SPEC-055
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-052 (shared connections selectable in the workspace), SPEC-050 (shared bucket), SPEC-056 (membership-slot S3 perms incl. results-prefix + delete-deny), SPEC-047 (per-tab selected database), SPEC-034 (`runQuery` `OutputLocation`, history `database`), SPEC-049 (Save results to workspace), SPEC-039 (`copyObject`, `DestinationPicker`)
-
+**Dependency notes:** SPEC-052 (shared connections selectable in the workspace), SPEC-050 (shared bucket), SPEC-056 (membership-slot S3 perms incl. results-prefix + delete-deny), SPEC-047 (per-tab selected database), SPEC-034 (`runQuery` `OutputLocation`, history `database`), SPEC-049 (Save results to workspace), SPEC-039 (`copyObject`, `DestinationPicker`)
 > **Reference:** `docs/shared-spaces-architecture.md` §5 — results for a shared-DB query route to
 > `dat-prod-shared-space/{name}/athenaresults/{username}/` (each member under their own sub-prefix, delete-denied)
 > so collaborators can see each other's outputs. Personal-DB queries are unchanged (SPEC-034).

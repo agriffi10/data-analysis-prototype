@@ -1,10 +1,15 @@
-# Spec: One Run, One Trace — the Mechanism and the Success Path
+---
+type: Spec
+id: SPEC-225
+title: "One Run, One Trace — the Mechanism and the Success Path"
+description: "Makes each control-plane run one trace on its success path by minting the traceparent at the API, threading it through the state and adopting it in every verb before its span opens, for operators."
+spec_status: Completed
+depends_on: [SPEC-128, SPEC-130, SPEC-224]
+arc: observability-continuation
+arc_order: 2
+---
 
-**ID:** SPEC-225
-**Status:** Completed
-**Last Updated:** 2026-09-08
-**Depends On:** SPEC-128 (Completed), SPEC-130 (Completed), SPEC-224
-
+**Dependency notes:** SPEC-128 (Completed), SPEC-130 (Completed), SPEC-224
 ## Overview
 
 A control-plane run is one user action carried out by many Lambda invocations — ten for a
@@ -353,7 +358,7 @@ finally:
 
 - FR-005's file-send and archive guards, mutation-tested three ways.
 - Replace "one run is nine traces" at `lambdas/info/shared-layer.md:184`,
-  `docs/decisions/control-planes.md:235` (the **entry**; the Fences say nothing about trace counts)
+  `docs/decisions/control-planes/` (the **entry**; the fence says nothing about trace counts)
   and `docs/specs/ARCS.md`.
 - Full local gates green by exit code, including `tofu validate`, `tofu fmt -recursive -check` and
   `validate_docs.py`.

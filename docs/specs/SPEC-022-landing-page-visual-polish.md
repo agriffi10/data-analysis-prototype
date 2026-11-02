@@ -1,9 +1,11 @@
-# Spec: Landing Page Visual Polish
-
-**ID:** SPEC-022  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-022
+title: "Landing Page Visual Polish"
+description: "Restyles the unauthenticated landing page as a centered auth gate with a brand mark, clear hierarchy, indigo accent, and the design system's type scale and button styles."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

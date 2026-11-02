@@ -1,10 +1,15 @@
-# Spec: Shared-Space Foundation Infrastructure (Bucket 2 + Control Plane)
+---
+type: Spec
+id: SPEC-050
+title: "Shared-Space Foundation Infrastructure (Bucket 2 + Control Plane)"
+description: "Stands up the shared-connections scaffold for operators: the shared-space bucket, a pipeline-only registry, and an SQS, EventBridge Pipe, Step Function, and Lambda control plane, with no user-visible behavior."
+spec_status: Completed
+depends_on: [SPEC-032, SPEC-010, SPEC-012, SPEC-011]
+arc: shared-connections
+arc_order: 1
+---
 
-**ID:** SPEC-050
-**Status:** Completed
-**Last Updated:** 2026-06-26
-**Depends On:** SPEC-032 (analytics foundation: admin bucket + LF bootstrap/hybrid registration), SPEC-010 (user-space bucket conventions), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
-
+**Dependency notes:** SPEC-032 (analytics foundation: admin bucket + LF bootstrap/hybrid registration), SPEC-010 (user-space bucket conventions), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
 > **Reference:** `docs/shared-spaces-architecture.md` — read it first. This spec builds the **plumbing only**:
 > the shared bucket, the registry storage, and the async control plane (SQS → EventBridge Pipe → Step Function
 > + provisioner Lambda) with a privileged orchestrator role. It deliberately ships **no access model and no
@@ -214,7 +219,7 @@ Reversible/technical choices made during build (per `docs/process/session-rhythm
   > hop is `FIRE_AND_FORGET`, the Pipe sends the next message once `StartExecution` returns, so
   > requests run in parallel and the requirement above, as worded, is not met. The conditional
   > `PutObject` is the whole duplicate-name guard, not one half of it —
-  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+  > `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.
 - **One privileged orchestrator role for BOTH the Step Function and the Lambda**
   (trust = `states.amazonaws.com` + `lambda.amazonaws.com`), per FR-003's "the single
   privileged IAM role the Step Function/Lambda run under." A separate SFN execution role

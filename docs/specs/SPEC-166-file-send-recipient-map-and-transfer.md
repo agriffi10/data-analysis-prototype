@@ -1,10 +1,15 @@
-# Spec: Send Files — Recipient Guard, Distributed-Map Transfer & Terminal States
+---
+type: Spec
+id: SPEC-166
+title: "Send Files — Recipient Guard, Distributed-Map Transfer & Terminal States"
+description: "Adds Send Files' recipient guard, Distributed-Map transfer and terminal states, so a validated send actually copies files to each recipient with failures attributed per recipient."
+spec_status: Completed
+depends_on: [SPEC-165, SPEC-160, SPEC-164, SPEC-091]
+arc: send-files
+arc_order: 3
+---
 
-**ID:** SPEC-166
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-165 (copy plan + destination layout), SPEC-160 (`cpcommon.transfer` — manifest, batch copy, result attribution), SPEC-164 (validated recipients), SPEC-091 (the conflict-guard precedent)
-
+**Dependency notes:** SPEC-165 (copy plan + destination layout), SPEC-160 (`cpcommon.transfer` — manifest, batch copy, result attribution), SPEC-164 (validated recipients), SPEC-091 (the conflict-guard precedent)
 ## Overview
 
 Everything up to here decides *what* moves; this spec moves it. The shape is the one SPEC-160

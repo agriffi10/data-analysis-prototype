@@ -112,5 +112,5 @@ Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket 
 - [`deploy-role-iam.md`](deploy-role-iam.md) — the trap list for adding a new AWS resource type
 - [`web-tier.md`](web-tier.md) — switching the web tier off and back on
 - `docs/architecture.md` → *Infrastructure and delivery* — how this fits the running system
-- [`docs/decisions/INDEX.md`](../../docs/decisions/INDEX.md) — the full reasoning register, one file per area
+- [`docs/decisions/index.yaml`](../../docs/decisions/index.yaml) — the fences of the reasoning register, one directory per area
 - [`../bootstrap/README.md`](../bootstrap/README.md) — remote-state bootstrap

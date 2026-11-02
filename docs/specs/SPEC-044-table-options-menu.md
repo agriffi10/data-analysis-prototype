@@ -1,10 +1,15 @@
-# Spec: Schema Browser — Table Options Menu
+---
+type: Spec
+id: SPEC-044
+title: "Schema Browser — Table Options Menu"
+description: "Adds a per-table options menu to the schema browser with View source files, View DDL, View data (SELECT preview), and Drop table with confirmation, connecting the schema list to the file browser."
+spec_status: Completed
+depends_on: [SPEC-035, SPEC-041, SPEC-034, SPEC-013, SPEC-026, SPEC-028]
+arc: query-editor-round-2
+arc_order: 2
+---
 
-**ID:** SPEC-044
-**Status:** Completed
-**Last Updated:** 2026-06-19
-**Depends On:** SPEC-035 (schema browser + query workspace), SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-034 (Glue `location` on `GlueTableSummary`, Athena `runQuery`/results, history store), SPEC-013 (authenticated user-space file browser), SPEC-026 (dialog pattern), SPEC-028 (Button primitive)
-
+**Dependency notes:** SPEC-035 (schema browser + query workspace), SPEC-041 (query tabs + `openTab` named-tab API + tab-limit dialog), SPEC-034 (Glue `location` on `GlueTableSummary`, Athena `runQuery`/results, history store), SPEC-013 (authenticated user-space file browser), SPEC-026 (dialog pattern), SPEC-028 (Button primitive)
 > **Design:** Needs a design pass (done after this spec, with SPEC-043). Adds a per-table **kebab (⋮) menu** to the schema-browser table rows in `design-system.md` §6 — a small popover menu (no existing menu/popover primitive in the app, so this spec introduces one). Reuses the SPEC-026 confirm-modal for Drop, and a lightweight transient **toast** for Drop feedback.
 
 ## Overview

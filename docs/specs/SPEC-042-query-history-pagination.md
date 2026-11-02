@@ -1,10 +1,15 @@
-# Spec: Query History Pagination — 7 per Page
+---
+type: Spec
+id: SPEC-042
+title: "Query History Pagination — 7 per Page"
+description: "Paginates the query history drawer client-side at 7 entries per page, newest first, with a Prev/Next pager over the in-memory list and no new fetch."
+spec_status: Completed
+depends_on: [SPEC-036, SPEC-034]
+arc: query-editor-follow-ups
+arc_order: 3
+---
 
-**ID:** SPEC-042
-**Status:** Completed
-**Last Updated:** 2026-06-19
-**Depends On:** SPEC-036 (query history panel UI), SPEC-034 (`getQueryHistory` / `useQueryHistory` — unchanged)
-
+**Dependency notes:** SPEC-036 (query history panel UI), SPEC-034 (`getQueryHistory` / `useQueryHistory` — unchanged)
 > **Design:** Built to the history drawer in `docs/design/query-workspace.html` + `design-system.md` §6 (history drawer). Adds a Prev/Next pager at the foot of the drawer, mirroring the results pager pattern from SPEC-038.
 
 ## Overview

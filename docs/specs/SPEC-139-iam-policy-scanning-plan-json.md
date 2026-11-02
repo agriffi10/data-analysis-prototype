@@ -1,10 +1,13 @@
-# Spec: Scan the Rendered IAM Policies (Checkov over the plan JSON)
+---
+type: Spec
+id: SPEC-139
+title: "Scan the Rendered IAM Policies (Checkov over the plan JSON)"
+description: "Adds a Checkov scan over the rendered IAM policy documents in the OpenTofu plan JSON, so the principal-tag isolation policies built from templatefile() are checked for escalation and exfiltration risks."
+spec_status: Completed
+depends_on: [SPEC-138, SPEC-005]
+---
 
-**ID:** SPEC-139
-**Status:** Completed
-**Last Updated:** 2026-08-02
-**Depends On:** SPEC-138 (the gate + summary scripts and the report-only convention), SPEC-005 (`deploy-infra.yml`, which already produces the plan)
-
+**Dependency notes:** SPEC-138 (the gate + summary scripts and the report-only convention), SPEC-005 (`deploy-infra.yml`, which already produces the plan)
 ## Overview
 
 SPEC-138 shipped Checkov over `infra/` and recorded, at the step itself, that it cannot see the

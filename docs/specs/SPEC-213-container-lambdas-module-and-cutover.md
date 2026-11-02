@@ -1,10 +1,15 @@
-# Spec: Container Lambdas — the `docker-lambda` Module and the Cutover
+---
+type: Spec
+id: SPEC-213
+title: "Container Lambdas — the `docker-lambda` Module and the Cutover"
+description: "Puts every Lambda function on the container image through one docker-lambda Terraform module that outputs name and ARN, with CI pointing each function at the new image on every deploy, for operators."
+spec_status: Completed
+depends_on: [SPEC-212, SPEC-193, SPEC-194]
+arc: container-lambdas
+arc_order: 2
+---
 
-**ID:** SPEC-213
-**Status:** Completed
-**Last Updated:** 2026-08-28
-**Depends On:** SPEC-212 (the image and the repository this spec deploys), SPEC-193/194 (the ECS precedent: `ignore_changes` on the artifact reference means **CI must point the resource**, and a pipeline that publishes without pointing leaves a failure indistinguishable from the one the platform is tested for), the seven control-plane modules and the standalone functions
-
+**Dependency notes:** SPEC-212 (the image and the repository this spec deploys), SPEC-193/194 (the ECS precedent: `ignore_changes` on the artifact reference means **CI must point the resource**, and a pipeline that publishes without pointing leaves a failure indistinguishable from the one the platform is tested for), the seven control-plane modules and the standalone functions
 **Arc:** Container Lambdas (212 → 213 → 214). Narrative in `ARCS.md`.
 
 ## Overview

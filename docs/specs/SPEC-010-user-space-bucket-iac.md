@@ -1,10 +1,13 @@
-# Spec: User-Space Bucket IaC — `data` Module
+---
+type: Spec
+id: SPEC-010
+title: "User-Space Bucket IaC — `data` Module"
+description: "Gives operators an OpenTofu data module that provisions the user-space S3 bucket, where each user's files live under their own username prefix, with its browser CORS configuration and deploy-role permissions."
+spec_status: Completed
+depends_on: [SPEC-003, SPEC-005]
+---
 
-**ID:** SPEC-010
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-003 (IaC project), SPEC-005 (deploy-infra workflow)
-
+**Dependency notes:** SPEC-003 (IaC project), SPEC-005 (deploy-infra workflow)
 ## Overview
 
 Provision Bucket 1 — the user-space S3 bucket where each user's files live under their own username prefix — in a new bounded-context module `infra/modules/data/`. This is pure infrastructure: the bucket, its CORS configuration for browser SDK access, and the deploy role permissions needed to manage it. No IAM access policies for users are created here (SPEC-011/013) and no application code changes. This bucket is the foundation for the entire SPEC-010→014 data-access arc.

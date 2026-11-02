@@ -1,10 +1,15 @@
-# Spec: Create View from Query + Views in the Schema Browser
+---
+type: Spec
+id: SPEC-048
+title: "Create View from Query + Views in the Schema Browser"
+description: "Lets users create a view from the current SELECT with a Create view action, and makes the schema browser list views with a badge, using view-specific DDL and drop behavior and disabling source files for views."
+spec_status: Completed
+depends_on: [SPEC-047, SPEC-044, SPEC-041, SPEC-034, SPEC-033, SPEC-026, SPEC-028]
+arc: query-editor-round-3
+arc_order: 3
+---
 
-**ID:** SPEC-048
-**Status:** Completed
-**Last Updated:** 2026-06-22
-**Depends On:** SPEC-047 (per-tab selected database / connection selector), SPEC-044 (`TableActionsMenu`, `getTableDdl`, `DropTableDialog`, `Toast`, `runStatementToCompletion`), SPEC-041 (query tabs + Run path), SPEC-034 (`runQuery`, `listTables`/`GlueTableSummary.tableType`, history append, `invalidateSchema`), SPEC-033 (catalog-safe identifier rule; LF `CREATE_TABLE`/`ALTER`/`DROP` grant on the user's DB), SPEC-026 (dialog pattern), SPEC-028 (Button/Input)
-
+**Dependency notes:** SPEC-047 (per-tab selected database / connection selector), SPEC-044 (`TableActionsMenu`, `getTableDdl`, `DropTableDialog`, `Toast`, `runStatementToCompletion`), SPEC-041 (query tabs + Run path), SPEC-034 (`runQuery`, `listTables`/`GlueTableSummary.tableType`, history append, `invalidateSchema`), SPEC-033 (catalog-safe identifier rule; LF `CREATE_TABLE`/`ALTER`/`DROP` grant on the user's DB), SPEC-026 (dialog pattern), SPEC-028 (Button/Input)
 > **Design:** Needs a design pass. Adds a **Create view** button to the editor toolbar (same group as Run/Save, `design-system.md` §6) and a **view** badge + view-aware options in the schema browser table rows (SPEC-044 menu). Reuses the SPEC-026 name-prompt modal shape and the SPEC-044 `Toast`.
 
 ## Overview

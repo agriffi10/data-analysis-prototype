@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Table-Share Control Plane
+---
+type: Spec
+id: SPEC-136
+title: "Structured Logging — Instrument the Table-Share Control Plane"
+description: "Gives operators structured events for the fan-out table-share plane, tagging each event with its recipient so partial success across concurrent per-recipient copies can be told apart."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-134, SPEC-133]
+arc: observability
+arc_order: 10
+---
 
-**ID:** SPEC-136
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
 ## Overview
 
 Table-share is the only control plane that **fans out**. `validate-authorize` and `inspect-source`

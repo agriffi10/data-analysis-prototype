@@ -1,10 +1,13 @@
-# Spec: Cognito User Pool IaC — `auth` Module
+---
+type: Spec
+id: SPEC-006
+title: "Cognito User Pool IaC — `auth` Module"
+description: "Gives operators an OpenTofu auth module that provisions the Cognito User Pool, SPA app client, and Hosted UI domain, and exports the identifiers the frontend needs as environment variables."
+spec_status: Completed
+depends_on: [SPEC-003, SPEC-005]
+---
 
-**ID:** SPEC-006
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-003 (IaC project), SPEC-005 (deploy-infra workflow applies changes)
-
+**Dependency notes:** SPEC-003 (IaC project), SPEC-005 (deploy-infra workflow applies changes)
 ## Overview
 
 Provision the standalone AWS Cognito User Pool that will authenticate portal users, managed by OpenTofu as a new bounded-context module `infra/modules/auth/`. This is the infrastructure half of authentication: it creates the User Pool, the SPA app client, and the Hosted UI domain, and exports the identifiers the frontend needs as `VITE_*` env vars. No application code changes occur in this spec. SPEC-007 (login flow), SPEC-008 (gated layout), and SPEC-009 (signup) all depend on the resources created here.

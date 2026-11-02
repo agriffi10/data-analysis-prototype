@@ -1,10 +1,13 @@
-# Spec: Shared-Space Entitlements as Grants — the Projection that Replaces the Tag
+---
+type: Spec
+id: SPEC-204
+title: "Shared-Space Entitlements as Grants — the Projection that Replaces the Tag"
+description: "Would have delivered a projection of shared-space membership into access grants to replace the per-user session tag, cancelled before it was built; the design moved into the transition plan."
+spec_status: Cancelled
+depends_on: [SPEC-203, SPEC-196, SPEC-051, SPEC-052, SPEC-053, SPEC-054, SPEC-055, SPEC-073, SPEC-075, SPEC-125, SPEC-151, SPEC-152, SPEC-157, SPEC-107, SPEC-156, SPEC-106, SPEC-127, SPEC-128, SPEC-129, SPEC-130, SPEC-131, SPEC-132, SPEC-133, SPEC-134, SPEC-135, SPEC-136, SPEC-137, SPEC-186]
+---
 
-**ID:** SPEC-204
-**Status:** Cancelled
-**Last Updated:** 2026-09-01
-**Depends On:** SPEC-203 (the per-user membership index, the interim tag plane this spec eventually retires, and the index staleness residual FR-005's sweep closes), SPEC-196 (the tag set being replaced), SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs and its FIFO queue), SPEC-073 (acknowledge is display-only — access is granted at add time), SPEC-075 (the roster fan-out, and why its best-effort posture does **not** transfer here), SPEC-125 (`shared-space-common`, the domain layer), SPEC-151 (a partial teardown never frees the name — the ordering rule this spec extends), SPEC-152 (every plane notifies on a pre-verb failure), SPEC-157 (FIFO orders delivery, not executions), SPEC-107/156 (`cpcommon`, and the one-implementation rule), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
-
+**Dependency notes:** SPEC-203 (the per-user membership index, the interim tag plane this spec eventually retires, and the index staleness residual FR-005's sweep closes), SPEC-196 (the tag set being replaced), SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs and its FIFO queue), SPEC-073 (acknowledge is display-only — access is granted at add time), SPEC-075 (the roster fan-out, and why its best-effort posture does **not** transfer here), SPEC-125 (`shared-space-common`, the domain layer), SPEC-151 (a partial teardown never frees the name — the ordering rule this spec extends), SPEC-152 (every plane notifies on a pre-verb failure), SPEC-157 (FIFO orders delivery, not executions), SPEC-107/156 (`cpcommon`, and the one-implementation rule), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 **Transition context:** `transition_plan.md` §3.4, §3.9 and Phase 5. This spec was the work those
 sections named and no spec owned; that work is now §3.11 of the plan itself.
 

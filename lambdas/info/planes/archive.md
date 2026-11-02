@@ -113,7 +113,7 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   paths named. A refused write is RESOLVED by comparing destination against source, never read as
   occupied outright, or a batch retrying after a transient fault would report the files it just
   restored as collisions —
-  [the register](../../../docs/decisions/archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
+  [the register](../../../docs/decisions/archive-and-restore/the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is.md)
   says what overlap still costs.
 - **Retrieval is the point of no return.** `RetrieveObjects` tolerates **no** failure, where
   `CopyBackObjects` tolerates 100% — a fault there means nothing was copied and the archive is
@@ -131,7 +131,7 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   is its second writer**: a running `delete-source` outlives the machine's ceiling, so the door
   claims the verdict as `stopped` where there is none — which `delete-source` follows by deleting
   nothing — and says nothing was deleted only when the record makes that true
-  ([the decision](../../../docs/decisions/archive-and-restore.md#a-timeout-does-not-stop-a-running-verb-so-the-timeout-door-claims-the-deletion-verdict)).
+  ([the decision](../../../docs/decisions/archive-and-restore/a-timeout-does-not-stop-a-running-verb-so-the-timeout-door-claims-the.md)).
 - `archive-delete-archived` is the one deletion allowed to fail quietly — it sweeps the vault after
   a successful restore, and a leftover object costs storage, not data. **The vault sweep may fail
   quietly and the source deletion may not**, on the same algorithm with opposite consequences: a
@@ -198,7 +198,7 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
   body at all: `request_id_reused`, refused in `InspectSource` when the archive prefix already holds
   objects **or when another execution holds the id's create-only claim**, is told to nobody, because
   the run that holds that id is the one that reports
-  ([the decision](../../../docs/decisions/control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
+  ([the decision](../../../docs/decisions/control-planes/a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is.md)).
 
 ## The two budgets
 

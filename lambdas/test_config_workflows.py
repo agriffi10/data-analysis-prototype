@@ -787,7 +787,7 @@ def test_the_image_deploys_carry_no_path_filter_on_their_push() -> None:
     what point the service at a revision Terraform registered on its own and heal a deploy
     that failed, so a filter skips the pushes that would do either, and production keeps the
     old revision behind a green ``main``. The full reasoning for both is
-    ``docs/decisions/infrastructure.md``, "The SPA deploy decides from what is running".
+    ``docs/decisions/infrastructure/``, "The SPA deploy decides from what is running".
 
     The push's branch is asserted first, since a workflow that no longer runs on a push to
     ``main`` has no filter there either. A job- or step-level ``if:`` that skips the build

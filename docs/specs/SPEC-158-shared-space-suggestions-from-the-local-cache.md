@@ -1,10 +1,15 @@
-# Spec: Shared-Space Suggestions from the Local Cache
+---
+type: Spec
+id: SPEC-158
+title: "Shared-Space Suggestions from the Local Cache"
+description: "Suggests the signed-in user's own shared spaces, from the cached connections list, in Table Share's Shared spaces field, without publishing a directory of every space name."
+spec_status: Completed
+depends_on: [SPEC-147, SPEC-148, SPEC-051, SPEC-052, SPEC-093]
+arc: cross-arc-follow-ups
+arc_order: 2
+---
 
-**ID:** SPEC-158
-**Status:** Completed
-**Last Updated:** 2026-08-09
-**Depends On:** SPEC-147 (`UsernameCombobox`, whose data source this generalises), SPEC-148 (`TableShareDialog`'s current wiring), SPEC-051/052 (the per-user shared-connections cache this reads), SPEC-093 (the dialog's combined recipient list)
-
+**Dependency notes:** SPEC-147 (`UsernameCombobox`, whose data source this generalises), SPEC-148 (`TableShareDialog`'s current wiring), SPEC-051/052 (the per-user shared-connections cache this reads), SPEC-093 (the dialog's combined recipient list)
 > **Browser-only. No Lambda, no published document, no IAM, no env var, no new AWS call** — the
 > data is already in the browser, fetched by `useConnections` for the Connections page and the
 > Query rail.

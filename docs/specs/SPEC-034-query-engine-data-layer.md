@@ -1,10 +1,15 @@
-# Spec: Query Engine Data Layer — Athena/Glue Services + Per-User History
+---
+type: Spec
+id: SPEC-034
+title: "Query Engine Data Layer — Athena/Glue Services + Per-User History"
+description: "Gives developers the query data layer with no UI: services to run, poll, page through, and cancel Athena queries, list the user's Glue database, tables and columns, and keep a private per-user history in S3."
+spec_status: Completed
+depends_on: [SPEC-011, SPEC-013, SPEC-015, SPEC-032, SPEC-033]
+arc: analytics
+arc_order: 3
+---
 
-**ID:** SPEC-034
-**Status:** Completed
-**Last Updated:** 2026-06-18
-**Depends On:** SPEC-011 (`getS3Client()` + scoped credentials), SPEC-013 (user-space prefix derivation), SPEC-015 (TanStack Query foundation, `ServiceResult`, presigned-URL pattern), SPEC-032 (workgroup, results bucket, IAM), SPEC-033 (per-user Glue database)
-
+**Dependency notes:** SPEC-011 (`getS3Client()` + scoped credentials), SPEC-013 (user-space prefix derivation), SPEC-015 (TanStack Query foundation, `ServiceResult`, presigned-URL pattern), SPEC-032 (workgroup, results bucket, IAM), SPEC-033 (per-user Glue database)
 ## Overview
 
 This is the data-layer foundation of the query feature — the engine the SPEC-035 query workspace UI and the SPEC-036 history panel consume, with **no UI of its own** (mirroring how SPEC-015 laid the file-operations data foundation before the file UI specs). It adds a new `src/features/query/` feature folder with: service functions that run an Athena query (with a per-user results location), poll it to completion, fetch paginated results, and cancel it; Glue service functions that list the user's own database and its tables/columns for the schema browser; and a per-user **query history** store kept as a JSON file in the user's own S3 prefix — the only way to give each user a private history given the shared Athena workgroup exposes everyone's executions.

@@ -1,9 +1,13 @@
-# Spec: The Grid, Cell Selection, the Value Panel and the Record View
-
-**ID:** SPEC-180
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-178, SPEC-179
+---
+type: Spec
+id: SPEC-180
+title: "The Grid, Cell Selection, the Value Panel and the Record View"
+description: "Gives the Data Explorer its grid: resizable, reorderable, pinnable and hideable columns, cell range selection, a Value panel, and Record and Text presentations of the same rows."
+spec_status: Completed
+depends_on: [SPEC-178, SPEC-179]
+arc: data-explorer
+arc_order: 5
+---
 
 ## Overview
 

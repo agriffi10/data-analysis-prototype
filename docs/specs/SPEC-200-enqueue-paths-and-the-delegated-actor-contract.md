@@ -1,10 +1,15 @@
-# Spec: The Enqueue Paths & the Delegated Actor Contract
+---
+type: Spec
+id: SPEC-200
+title: "The Enqueue Paths & the Delegated Actor Contract"
+description: "Moves the browser's ten sends to the eight control-plane queues behind the API, which adds a nested identity block holding the verified actor to each message while the planes still verify tokens, for developers."
+spec_status: Completed
+depends_on: [SPEC-195, SPEC-196, SPEC-197, SPEC-011, SPEC-126, SPEC-157, SPEC-164, SPEC-165, SPEC-166, SPEC-167, SPEC-168, SPEC-170, SPEC-187, SPEC-190, SPEC-106, SPEC-127, SPEC-137, SPEC-186]
+arc: api-layer-and-containerisation
+arc_order: 9
+---
 
-**ID:** SPEC-200
-**Status:** Completed
-**Last Updated:** 2026-08-29
-**Depends On:** SPEC-195 (the verified bearer, `Principal.username`, and the `error.stack` treatment this spec extends to a module that holds the raw token), SPEC-196 (the credential planes — every route here is `Plane.API`, and the failure mapping this spec deliberately diverges from), SPEC-197 (the transport contract: route ids, the envelope, the generated TS, `apiRequest`, the retry rule, the correlation trap, `PASSTHROUGH_CODES`), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-126 (the DLQ drain's per-plane `token_field` table and its flat `_redacted`), SPEC-157 (FIFO orders **delivery**, not executions — no AC here may say otherwise), SPEC-164/165/166/167 (the file-send envelope: flat `actor` as the raw token, and the per-submit `requestId`), SPEC-168/170 (the archive plane's two modes and its per-mode allowed-field set), SPEC-187/190 (Arc A's file-ops plane, its queue, its FIFO rules and the browser submit path this spec re-routes), SPEC-106 (`toUserMessage` is the only source of user-facing wording), SPEC-127/137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
-
+**Dependency notes:** SPEC-195 (the verified bearer, `Principal.username`, and the `error.stack` treatment this spec extends to a module that holds the raw token), SPEC-196 (the credential planes — every route here is `Plane.API`, and the failure mapping this spec deliberately diverges from), SPEC-197 (the transport contract: route ids, the envelope, the generated TS, `apiRequest`, the retry rule, the correlation trap, `PASSTHROUGH_CODES`), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-126 (the DLQ drain's per-plane `token_field` table and its flat `_redacted`), SPEC-157 (FIFO orders **delivery**, not executions — no AC here may say otherwise), SPEC-164/165/166/167 (the file-send envelope: flat `actor` as the raw token, and the per-submit `requestId`), SPEC-168/170 (the archive plane's two modes and its per-mode allowed-field set), SPEC-187/190 (Arc A's file-ops plane, its queue, its FIFO rules and the browser submit path this spec re-routes), SPEC-106 (`toUserMessage` is the only source of user-facing wording), SPEC-127/137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 ## Overview
 
 Eight FIFO queues are the browser's only privileged writes. Every one of them is reached the same

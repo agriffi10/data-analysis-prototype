@@ -34,7 +34,7 @@ nothing. SPEC-222 adds the converter, SPEC-223 the browser.
 - **The two properties everything downstream rests on** — the input is the execution's result
   object rather than the source table, and an execution is the actor's iff Athena wrote it under
   the one shared results prefix — are recorded once, in
-  [`decisions/control-planes.md`](../decisions/control-planes.md#a-conversion-reads-the-result-never-the-source-and-ownership-is-a-question-about-a-path-spec-221).
+  [`decisions/control-planes/`](../decisions/control-planes/a-conversion-reads-the-result-never-the-source-and-ownership-is-a.md).
 - **The API** — `ResultsConversionEnqueueRequest`, `POST /v1/enqueue/results-conversion`, the
   `results-conversion` queue, FIFO keys (group is the actor's username, dedup is the request id)
   with a golden vector, and the generated TypeScript.
@@ -80,7 +80,7 @@ something grew. Its floor, its extractor and its unknown-field refusal each refu
 doing what a plane does, and its `environment` leg — the fourth — was **retired** with its replacement named
 (`test_fleet_environment.py`, live rather than frozen) after two attempts to patch it. The full
 account is in
-[`decisions/gates-and-tests.md`](../decisions/gates-and-tests.md#a-parity-fixture-becomes-a-floor-once-the-cutover-it-guarded-is-closed-2026-09-05).
+[`decisions/gates-and-tests/`](../decisions/gates-and-tests/a-parity-fixture-becomes-a-floor-once-the-cutover-it-guarded-is-closed.md).
 
 ## Verification
 

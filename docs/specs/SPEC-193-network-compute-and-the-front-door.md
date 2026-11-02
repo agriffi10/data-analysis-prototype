@@ -1,10 +1,15 @@
-# Spec: The Network, the Compute and the Front Door
+---
+type: Spec
+id: SPEC-193
+title: "The Network, the Compute and the Front Door"
+description: "Builds the ground for the container move: VPC, ECS Fargate runtime, load balancer, ECR, an API Gateway HTTP API on a placeholder Lambda, two subdomains with certificates, and deploy-role IAM, for operators."
+spec_status: Completed
+depends_on: [SPEC-012, SPEC-107, SPEC-125, SPEC-137, SPEC-138, SPEC-139, SPEC-140, SPEC-141, SPEC-164, SPEC-186, SPEC-192]
+arc: api-layer-and-containerisation
+arc_order: 2
+---
 
-**ID:** SPEC-193
-**Status:** Completed
-**Last Updated:** 2026-08-26
-**Depends On:** SPEC-012 (the Lambda code/infra split every new function obeys), SPEC-107/125/137 (the `cpcommon` layer, and why a missing attachment is only visible at cold start), SPEC-138/139 (the scanner gates and the rendered-plan IAM scan this spec must not redden), SPEC-140/141 (the CloudFront response-headers policy and cache scheme SPEC-194 must reproduce — named here only so the boundary is explicit), SPEC-164 (`infra/modules/file-send/` as the module-shape model), SPEC-186 (`ENV_NAME` + the in-package `BUILD_VERSION` stamp the placeholder API must carry), SPEC-192 (the runtime-configuration accessors that will consume this spec's two origins)
-
+**Dependency notes:** SPEC-012 (the Lambda code/infra split every new function obeys), SPEC-107/125/137 (the `cpcommon` layer, and why a missing attachment is only visible at cold start), SPEC-138/139 (the scanner gates and the rendered-plan IAM scan this spec must not redden), SPEC-140/141 (the CloudFront response-headers policy and cache scheme SPEC-194 must reproduce — named here only so the boundary is explicit), SPEC-164 (`infra/modules/file-send/` as the module-shape model), SPEC-186 (`ENV_NAME` + the in-package `BUILD_VERSION` stamp the placeholder API must carry), SPEC-192 (the runtime-configuration accessors that will consume this spec's two origins)
 ## Overview
 
 The portal is a static bundle on CloudFront whose browser calls AWS directly. The client environment

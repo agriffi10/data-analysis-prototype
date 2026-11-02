@@ -1,10 +1,13 @@
-# Spec: CloudFront Response Headers Policy
+---
+type: Spec
+id: SPEC-140
+title: "CloudFront Response Headers Policy"
+description: "Attaches a CloudFront response headers policy giving the portal CSP, HSTS, anti-clickjacking, MIME-sniffing, Permissions-Policy and cross-origin headers, and removing the S3 server banner."
+spec_status: Completed
+depends_on: [SPEC-138, SPEC-139]
+---
 
-**ID:** SPEC-140
-**Status:** Completed
-**Last Updated:** 2026-08-03
-**Depends On:** SPEC-138 (security scanning — produced the findings), SPEC-139 (rendered-plan IaC scan)
-
+**Dependency notes:** SPEC-138 (security scanning — produced the findings), SPEC-139 (rendered-plan IaC scan)
 ## Overview
 
 The portal is served from CloudFront with **no security response headers at all**. A browser loading

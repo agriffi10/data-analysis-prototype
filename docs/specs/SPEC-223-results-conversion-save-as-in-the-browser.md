@@ -1,10 +1,15 @@
-# Spec: Results Conversion — "Save as" in the Browser, the Flag & Help
+---
+type: Spec
+id: SPEC-223
+title: "Results Conversion — \"Save as\" in the Browser, the Flag & Help"
+description: "Adds Parquet, JSON and Excel to Save results to my files in the Query workspace and Data Explorer, asking about name collisions before the request leaves, behind a resultsConversion presentation flag."
+spec_status: Completed
+depends_on: [SPEC-222, SPEC-049, SPEC-185, SPEC-162, SPEC-163, SPEC-207]
+arc: results-conversion
+arc_order: 3
+---
 
-**ID:** SPEC-223
-**Status:** Completed
-**Last Updated:** 2026-09-07
-**Depends On:** SPEC-222 (the converter and its notification), SPEC-049 and SPEC-185 (the two Save-results surfaces and `useSaveResults`), SPEC-162/163 (feature flags and the gated-surfaces registry), SPEC-207 (Help)
-
+**Dependency notes:** SPEC-222 (the converter and its notification), SPEC-049 and SPEC-185 (the two Save-results surfaces and `useSaveResults`), SPEC-162/163 (feature flags and the gated-surfaces registry), SPEC-207 (Help)
 ## Overview
 
 The plane exists and converts; this spec lets a user ask it to. **Save results to my files** on the

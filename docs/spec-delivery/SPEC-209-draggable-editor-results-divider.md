@@ -32,8 +32,8 @@ above.
 
 - **Three constants the spec's Data Model did not list** — `EDITOR_SPLIT_DIVIDER_HEIGHT`,
   `MIN_EDITOR_FRACTION`, `MAX_EDITOR_FRACTION`. The spec was amended in the same PR rather than the
-  divergence being left in a plan file. Reasoning: [`decisions/browser.md` → *One split, two clamp
-  domains*](../decisions/browser.md#one-split-two-clamp-domains-and-the-pair-has-to-agree-spec-209).
+  divergence being left in a plan file. Reasoning: [`decisions/browser/` → *One split, two clamp
+  domains*](../decisions/browser/one-split-two-clamp-domains-and-the-pair-has-to-agree.md).
 - **FR-006 AC3's literal names were wrong and were corrected in the spec.** It asked for the absence
   of a control named `Editor` / `Even` / `Results`; the shipped control's accessible names were
   `Default layout: …` / `Query Editor layout: …` / `Results layout: …`, so the criterion matched
@@ -44,7 +44,7 @@ above.
   the query workspace met WCAG 2.5.7 before this spec, and a drag-only divider would have *caused* a
   regression rather than inherited one. Escalated mid-build and answered "add the steppers"; the
   spec gained FR-002 AC6. `ColumnResizeHandle` has never had such a path and is untouched — a
-  standing gap, not this one. Full entry: [`decisions/browser.md` → *The divider needs a click path*](../decisions/browser.md#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209).
+  standing gap, not this one. Full entry: [`decisions/browser/` → *The divider needs a click path*](../decisions/browser/the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to.md).
 - **FR-001 AC2 is settled arithmetically and structurally, not by measurement.** jsdom lays nothing
   out, so a swept test pins `editor + divider + results ≤ column` with the results side never under
   its floor, and the DOM test pins the three flex children and which one takes the remainder. It does

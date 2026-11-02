@@ -18,7 +18,7 @@ name: Deploy Lambda image
 # into a red main — 19 of the 40 merges measured for the SPA change touched `infra/`. The saving
 # would be about a minute on the 10 in 40 that touch no Lambda input. Full reasoning, including
 # the content-addressed scheme that WOULD work and why it is still the wrong trade:
-# docs/decisions/infrastructure.md, "The SPA deploy decides from what is running". The PR-side
+# docs/decisions/infrastructure/, "The SPA deploy decides from what is running". The PR-side
 # gate (lambda-image.yml) IS filtered, because it only proves the image.
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. If this pipeline lands broken, the registry is IMMUTABLE:

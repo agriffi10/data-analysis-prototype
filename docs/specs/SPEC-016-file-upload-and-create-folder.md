@@ -1,10 +1,15 @@
-# Spec: File Upload (managed, auto-multipart + progress) + Create Folder
+---
+type: Spec
+id: SPEC-016
+title: "File Upload (managed, auto-multipart + progress) + Create Folder"
+description: "Lets users upload a file into the current folder with automatic multipart upload above 5 MiB and live progress, and create empty folders, with a warn-and-confirm prompt on name collisions."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-015]
+arc: file-operations
+arc_order: 2
+---
 
-**ID:** SPEC-016
-**Status:** Completed
-**Last Updated:** 2026-06-15
-**Depends On:** SPEC-013 (write access to own prefix), SPEC-015 (TanStack Query data foundation)
-
+**Dependency notes:** SPEC-013 (write access to own prefix), SPEC-015 (TanStack Query data foundation)
 ## Overview
 
 Give users the first write operations of the filesystem experience: uploading a

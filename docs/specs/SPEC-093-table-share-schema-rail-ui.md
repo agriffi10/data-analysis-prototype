@@ -1,10 +1,15 @@
-# Spec: Table Share — "Share table" UI (Query Schema Rail)
+---
+type: Spec
+id: SPEC-093
+title: "Table Share — \"Share table\" UI (Query Schema Rail)"
+description: "Adds a Share table action to the per-table menu in the Query schema rail, opening a modal where users choose users or shared spaces as recipients, name the resulting table and enqueue the request."
+spec_status: Completed
+depends_on: [SPEC-089, SPEC-044, SPEC-052, SPEC-063]
+arc: table-share
+arc_order: 6
+---
 
-**ID:** SPEC-093
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-089 (enqueue contract), SPEC-044 (schema-rail table options menu), SPEC-052 (`useConnections` — known spaces), SPEC-063 (schema-rail tree)
-
+**Dependency notes:** SPEC-089 (enqueue contract), SPEC-044 (schema-rail table options menu), SPEC-052 (`useConnections` — known spaces), SPEC-063 (schema-rail tree)
 > **Read `docs/table-share-architecture.md` §1, §8 first.** Server-side validation (SPEC-089→092) owns eligibility; the UI is a thin, forgiving front door.
 
 ## Overview

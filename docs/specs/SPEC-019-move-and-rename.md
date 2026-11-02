@@ -1,10 +1,15 @@
-# Spec: Move & Rename (files and folders, recursive)
+---
+type: Spec
+id: SPEC-019
+title: "Move & Rename (files and folders, recursive)"
+description: "Lets users move and rename files and folders recursively, implemented as copy-then-delete with safe partial-failure handling and a warn-and-confirm prompt for name collisions."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-014, SPEC-015, SPEC-018]
+arc: file-operations
+arc_order: 5
+---
 
-**ID:** SPEC-019
-**Status:** Completed
-**Last Updated:** 2026-06-16
-**Depends On:** SPEC-013 (`s3:GetObject` + `s3:PutObject` + `s3:DeleteObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation), SPEC-018 (selection state)
-
+**Dependency notes:** SPEC-013 (`s3:GetObject` + `s3:PutObject` + `s3:DeleteObject` on own prefix), SPEC-014 (marker), SPEC-015 (data foundation), SPEC-018 (selection state)
 ## Overview
 
 Present **move** and **rename** as first-class filesystem actions, even though

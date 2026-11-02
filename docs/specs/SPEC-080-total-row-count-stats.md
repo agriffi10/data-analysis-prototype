@@ -1,10 +1,15 @@
-# Spec: Total Row Count in Query Stats
+---
+type: Spec
+id: SPEC-080
+title: "Total Row Count in Query Stats"
+description: "Shows the exact total row count of a succeeded query in the status bar on any page, by counting every result page in the background instead of a partial figure such as 20+ rows."
+spec_status: Completed
+depends_on: [SPEC-038, SPEC-035]
+arc: query-editor-round-5
+arc_order: 4
+---
 
-**ID:** SPEC-080
-**Status:** Completed
-**Last Updated:** 2026-07-01
-**Depends On:** SPEC-038 (results pager / `useQueryResults`), SPEC-035 (status bar)
-
+**Dependency notes:** SPEC-038 (results pager / `useQueryResults`), SPEC-035 (status bar)
 ## Overview
 
 The query status bar reports rows as the count **currently loaded** into the pager

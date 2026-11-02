@@ -1,6 +1,40 @@
+---
+type: Rulebook
+title: "Python best practices"
+description: "Python language style for coding agents: naming, interfaces, types, exceptions and docstrings, layered over the linter and type-checker."
+sources:
+  - id: pep-8
+    resource: https://peps.python.org/pep-0008/
+    title: "PEP 8 – Style Guide for Python Code"
+  - id: pep-257
+    resource: https://peps.python.org/pep-0257/
+    title: "PEP 257 – Docstring Conventions"
+  - id: pep-484
+    resource: https://peps.python.org/pep-0484/
+    title: "PEP 484 – Type Hints"
+  - id: pep-526
+    resource: https://peps.python.org/pep-0526/
+    title: "PEP 526 – Syntax for Variable Annotations"
+  - id: pep-563
+    resource: https://peps.python.org/pep-0563/
+    title: "PEP 563 – Postponed Evaluation of Annotations"
+  - id: pep-585
+    resource: https://peps.python.org/pep-0585/
+    title: "PEP 585 – Type Hinting Generics In Standard Collections"
+  - id: pep-604
+    resource: https://peps.python.org/pep-0604/
+    title: "PEP 604 – Allow writing union types as X | Y"
+  - id: google-style
+    resource: https://google.github.io/styleguide/pyguide.html
+    title: "Google Python Style Guide"
+  - id: aws-python-image
+    resource: https://docs.aws.amazon.com/lambda/latest/dg/python-image.html
+    title: "Deploy Python Lambda Event Functions with container images"
+stale_after: 2027-11-02T00:00:00Z
+---
 # Python Best Practices — Agent Reference
 
-> Token-efficient rulebook for LLM coding agents writing/refactoring Python in this repo (runtime **Python 3.12**; the only Python here is AWS Lambda source under `lambdas/` + shared layers). Distilled from **PEP 8** (+ PEP 257 docstrings, PEP 484/526 typing) and the **[Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)**, adapted to this repo. Each section is self-contained; load only what the task needs. Rules are imperative; ✅ = do, 🔴 = don't.
+> Token-efficient rulebook for LLM coding agents writing/refactoring Python in this repo (runtime **Python 3.12**; the only Python here is AWS Lambda source under `lambdas/` + shared layers). Distilled from **PEP 8**[^pep-8] (+ PEP 257 docstrings[^pep-257], PEP 484/526 typing[^pep-484][^pep-526]) and the **[Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)**[^google-style], adapted to this repo. Each section is self-contained; load only what the task needs. Rules are imperative; ✅ = do, 🔴 = don't.
 >
 > **Lint and type-check; don't hand-argue style.** The linter is a required gate and the formatter is not enforced (§1); this doc is for the choices a tool can't make (naming, interfaces, idioms) and for review. Style is *guidance*: the repo's configured tools win (line length, quote style), and "a foolish consistency is the hobgoblin of little minds" — when a rule hurts readability in a specific case, deviate and flag it (§1).
 >
@@ -9,7 +43,7 @@
 ## How to use this doc
 - Find the relevant section ID(s) in the Index below; read only those. Sections are cross-linked by ID (e.g. "see §7").
 - Defer to the repo's configured tools (line length, formatter, import order, typing strictness) over the defaults here; when a rule conflicts with existing code, follow the rule and **flag the conflict** unless the user says otherwise.
-- Repo defaults: lint with **`ruff check`** (a required gate; `ruff format` is not enforced), type-check with **`mypy`**, test with **`pytest`** + AWS stubs (`moto`/botocore stubbers). Runtime = 3.12; pin + minimize `requirements.txt`.
+- Repo defaults: lint with **`ruff check`** (a required gate; `ruff format` is not enforced), type-check with **`mypy`**, test with **`pytest`** + AWS stubs (`moto`/botocore stubbers). Runtime = 3.12, the `public.ecr.aws/lambda/python:3.12` AWS base image[^aws-python-image] that `lambdas/Dockerfile` pins; pin + minimize `requirements.txt`.
 
 ## Index
 - **§1 Tooling & the "foolish consistency" rule** — the linter and type-checker are required gates, the formatter is not enforced; when to deviate; don't churn diffs.
@@ -45,7 +79,7 @@ Every file is linted, and the packages mypy is configured for are type-checked �
 The rules below are PEP 8 and Google layout, not `ruff format`'s, which differs on several of them. Nothing enforces them on this tree, so know them for hand-edits and stay consistent with the surrounding file.
 
 - ✅ **4-space indent**, never tabs; never mix tabs and spaces. One statement per line (a single `if foo: bar()` with no `else` is the only same-line allowance; never for `try`/`except`). 🔴 No `;`-joined statements.
-- ✅ **Line length:** use the project's configured limit; PEP 8 default is 79 (72 for docstrings/comments), Google caps at 80, many teams raise to 99/100. Don't argue with the configured value. Long imports, URLs/paths in comments, and `# noqa`-style directives may exceed.
+- ✅ **Line length:** use the project's configured limit; PEP 8 default is 79 (72 for docstrings/comments)[^pep-8], Google caps at 80[^google-style], many teams raise to 99/100. Don't argue with the configured value. Long imports, URLs/paths in comments, and `# noqa`-style directives may exceed.
 - 🔴 **No backslash line continuation.** ✅ Use implicit joining inside `()`/`[]`/`{}`; add parens around an expression if needed. Continuation lines either align with the opening delimiter or use a 4-space hanging indent (no argument on the opening line). Break at the highest syntactic level.
 - ✅ **Break *before* binary operators** (Knuth style) so operator and operand line up:
   ```python
@@ -105,12 +139,12 @@ Exceptions are allowed but disciplined; never swallow, never use `assert` for re
 ## §8 Types & annotations
 Annotate public surfaces; make `None` explicit; prefer abstract types in signatures.
 
-- ✅ Annotate **public function/method signatures** (PEP 484) and module/class-level variables (PEP 526) where it adds clarity; you needn't annotate everything. Don't annotate `self`/`cls` or `__init__`'s `None` return. Follow the project's strictness (e.g. `mypy --strict`).
-- ✅ **Explicit `X | None`** for nullable args (3.10+ union syntax preferred over `Optional[X]`); a nullable arg *must* be declared nullable — no implicit `a: str = None`.
-- ✅ In signatures prefer **abstract containers** (`collections.abc.Sequence`, `Mapping`) over concrete `list`/`dict`; use built-in generics (`list[int]`, `tuple[str, ...]`) over `typing.List`/`Tuple`. Always parameterize generics (`Mapping[int, str]`, not bare `Mapping` → implicit `Any`).
+- ✅ Annotate **public function/method signatures** (PEP 484[^pep-484]) and module/class-level variables (PEP 526[^pep-526]) where it adds clarity; you needn't annotate everything. Don't annotate `self`/`cls`[^google-style]. `__init__`'s return is the one place the two sources differ: Google does not require `-> None`[^google-style], PEP 484 asks for it so an argument-less `__init__` is still type-checked[^pep-484] — write it here, where `pyproject.toml` sets `check_untyped_defs = false` and mypy skips the body of an `__init__` with no annotation at all. Follow the project's strictness (e.g. `mypy --strict`).
+- ✅ **Explicit `X | None`** for nullable args (3.10+ union syntax[^pep-604] preferred over `Optional[X]`[^google-style]); a nullable arg *must* be declared nullable — no implicit `a: str = None`[^pep-484][^google-style].
+- ✅ In signatures prefer **abstract containers** (`collections.abc.Sequence`, `Mapping`) over concrete `list`/`dict`[^google-style]; use built-in generics (`list[int]`, `tuple[str, ...]`) over `typing.List`/`Tuple`[^pep-585]. Always parameterize generics (`Mapping[int, str]`, not bare `Mapping` → implicit `Any`)[^google-style].
 - 🔴 **Never use a mutable default argument** (`def f(a, b=[])`, `={}`) — created once and shared across every call. ✅ Default to `None` and build inside: `def f(a, b: Sequence | None = None): b = [] if b is None else b`. (Empty tuple `()` is fine — immutable.)
 - ✅ **Spacing:** `def f(x: int = 0) -> str:` — space after `:`, and spaces around `=` *because* the parameter is annotated (§3).
-- ✅ `CapWords` type aliases (`_Private` if module-local); forward refs via `from __future__ import annotations` or string names; `str` for text, `bytes` for binary; typing-only imports under `if TYPE_CHECKING:`.
+- ✅ `CapWords` type aliases (`_Private` if module-local); forward refs via `from __future__ import annotations`[^pep-563] or string names; `str` for text, `bytes` for binary; typing-only imports under `if TYPE_CHECKING:`.
 
 ## §9 Functions, classes & properties
 One job per function; small and testable; classes and properties only where they earn their keep.
@@ -194,7 +228,7 @@ Docstrings describe the interface and are the **primary source of context**; com
 > for `cpcommon`, the plane's own page otherwise — not in
 > the file. Sections use **2-space** indentation under the header.
 
-- ✅ Triple-double-quoted `"""` docstrings (PEP 257) for every public module, function, class, and method — plus any nontrivial or non-obvious function. First line a summary ending in a period, ≤ the docstring line limit; multi-line = summary, blank line, details, closing `"""` on its own line. 🔴 No docstring on a `lambda`. Enough info to call it without reading the body.
+- ✅ Triple-double-quoted `"""` docstrings (PEP 257[^pep-257]) for every public module, function, class, and method — plus any nontrivial or non-obvious function. First line a summary ending in a period, ≤ the docstring line limit; multi-line = summary, blank line, details, closing `"""` on its own line. 🔴 No docstring on a `lambda`. Enough info to call it without reading the body.
 - ✅ Use the section format when it adds info: **`Args:`** (each param + description; note types if not annotated), **`Returns:`** (or **`Yields:`** for generators; omit if it only returns `None` or the summary already says it), **`Raises:`** (exceptions relevant to the interface). Under `lambdas/` these are **not optional** — see the block above.
 - ✅ Class docstring below the `class` line summarizing what an **instance represents** (an `Exception` subclass says what it *represents*, not when it's raised); document public attributes in an `Attributes:` section.
 - ✅ **When code needs explaining, prefer expanding the docstring over adding comments.** Docstrings are discoverable (`help()`, hover, generated docs); scattered comments are not.
@@ -216,3 +250,17 @@ Modules stay importable; avoid Python's fancy machinery.
 - ✅ If a file is executable, put the work in a **`main()`** and guard `if __name__ == '__main__': main()` so importing (for tests/`pydoc`) doesn't run it. 🔴 Don't do real work at module top level. (Lambda source is imported by the runtime — no `__main__` guard needed; the entry point is `handler`.)
 - 🔴 **Avoid power features** — custom metaclasses, bytecode access, dynamic inheritance, reflection tricks (`getattr` hacks), `__del__` cleanup, import hacks. Stdlib/framework internals that use them (`dataclasses`, `enum`, `abc.ABCMeta`) are fine to *use*.
 - ✅ `from __future__ import` is encouraged to adopt modern semantics per-file (e.g. `annotations`).
+
+---
+
+## Sources
+
+[^pep-8]: PEP 8 – Style Guide for Python Code — https://peps.python.org/pep-0008/
+[^pep-257]: PEP 257 – Docstring Conventions — https://peps.python.org/pep-0257/
+[^pep-484]: PEP 484 – Type Hints — https://peps.python.org/pep-0484/
+[^pep-526]: PEP 526 – Syntax for Variable Annotations — https://peps.python.org/pep-0526/
+[^pep-563]: PEP 563 – Postponed Evaluation of Annotations — https://peps.python.org/pep-0563/
+[^pep-585]: PEP 585 – Type Hinting Generics In Standard Collections — https://peps.python.org/pep-0585/
+[^pep-604]: PEP 604 – Allow writing union types as X | Y — https://peps.python.org/pep-0604/
+[^google-style]: Google Python Style Guide — https://google.github.io/styleguide/pyguide.html
+[^aws-python-image]: Deploy Python Lambda Event Functions with container images — https://docs.aws.amazon.com/lambda/latest/dg/python-image.html

@@ -1,10 +1,15 @@
-# Spec: File Converter — Notification Producer
+---
+type: Spec
+id: SPEC-121
+title: "File Converter — Notification Producer"
+description: "Would have delivered the file-converter notification telling users where converted output landed and warning when a column fell back to text, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-058, SPEC-107, SPEC-115, SPEC-119, SPEC-120]
+arc: file-converter
+arc_order: 7
+---
 
-**ID:** SPEC-121
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-115 (the `notify-failure` placeholder this spec wires), SPEC-119 (the summary payload), SPEC-120 (the UI that starts the conversion)
-
+**Dependency notes:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-115 (the `notify-failure` placeholder this spec wires), SPEC-119 (the summary payload), SPEC-120 (the UI that starts the conversion)
 > **Read `docs/file-converter-architecture.md` §7 first.** Mirrors SPEC-072 (table-builder) and SPEC-094 (table-share).
 
 ## Overview

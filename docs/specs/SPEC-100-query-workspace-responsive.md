@@ -1,9 +1,13 @@
-# Spec: Query Workspace — Responsive Layout
-
-**ID:** SPEC-100  
-**Status:** Completed  
-**Last Updated:** 2026-08-03  
-**Depends On:** SPEC-095
+---
+type: Spec
+id: SPEC-100
+title: "Query Workspace — Responsive Layout"
+description: "Makes the Query workspace responsive, with a tighter icon-only tablet layout and a browse-first mobile surface where users run saved queries and history entries and read paginated results as row cards."
+spec_status: Completed
+depends_on: [SPEC-095]
+arc: responsive-and-files-ux
+arc_order: 6
+---
 
 ## Overview
 

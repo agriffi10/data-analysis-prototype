@@ -37,15 +37,16 @@ Attributes:
     one — a raise here is a deliberate edit, and so is the reduction that should follow.
   CLAUDE_MAX_BYTES: The always-loaded file's budget. The file has been cut structurally five
     times, and the fifth (2026-09-05) changed its shape: the Key Decisions digest left it
-    altogether — each area's fences now head that area's ``docs/decisions/<area>.md`` under a
-    ``## Fences`` entry, and CLAUDE.md keeps an eight-row table pointing at them — and the method
-    it points to became ``docs/process/``, a router and one file per part. Before that cut the
+    altogether — each decision's fence is now its own file's ``description``, listed in the
+    generated ``docs/decisions/index.yaml``, and CLAUDE.md keeps an eight-row table naming the
+    areas — and the method it points to became ``docs/process/``, a router and one file per part.
+    Before that cut the
     file carried deliberate headroom, because the completion ritual folded a clause into it on
     every architectural close and a ratchet at the measured level made each close a forced prune
     of another area's fences (it happened once; #568 is titled for the prune it forced). The fold
-    now lands in the area file, so that reason is gone. What still grows this file is a Tech Stack
-    row when a dependency is added and the ``## Specs`` current-work paragraph, so the ratchet sits
-    above the measurement by roughly two Tech Stack rows and one such paragraph, and no more. Past that the answer is a cut, never a raise: every one of the five was
+    now lands in a decision's own file, so that reason is gone. What still grows this file is a Tech Stack
+    row when a dependency is added and the ``## Specs`` current-work paragraph, and that room has been
+    spent: what is left is a sentence's worth, so the next row or paragraph pays for itself. The answer is a cut, never a raise: every one of the five was
     structural, and the next candidate is the conventions block, which a rulebook already carries
     in full. The measured size is deliberately not written here — it is a property of the file
     beside this one, and any edit would falsify it.
@@ -58,19 +59,19 @@ Attributes:
     ratchet just above the measured level: nothing mandates appending to either file, so under
     byte pressure defer the addition, or move a paragraph into one of the on-demand parts behind
     a pointer. Raising this number so a grown file passes is the failure the gate exists to catch.
-  DIGEST_MAX_CHARS: The longest a single Fences bullet may be, measured on the LOGICAL bullet —
-    continuation lines joined — under the ``## Fences`` entry of each register area file, where
-    the CLAUDE.md digest now lives. It was measured per physical line until 2026-08-26, which
-    stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
-    physical line went from 846 characters to 103, so the guard could no longer fire on anything
-    while still being advertised as a fence. A fence is a reminder with the reasoning in the
-    entries beneath it; past this length it has become the reasoning.
+  FENCE_MAX_BYTES: The longest a decision's fence may be, its frontmatter ``description``
+    unescaped, in bytes. A fence is written on one line, so wrapping cannot hide one from this cap
+    the way wrapped prose once hid a digest entry from a per-line one. It is the template's number
+    and the old per-bullet cap's: when the register split on 2026-11-02 the curated bullets moved
+    verbatim, so this was re-derived against them rather than carried over, and they sit close
+    under it. A fence is a reminder with the reasoning in the body beneath it; past this length it
+    has become the reasoning.
   PROCESS_ROUTER: The ``docs/process/`` router. Its "Loaded every session" table is the ONE
     statement of which process files every session reads, and ``always_loaded_process`` derives
     the pair ``PROCESS_MAX_BYTES`` bounds from it rather than transcribing it — a transcribed copy
     passed a plant that added a third row to the table. Its method table is the closed set of
     process files, held the way the register's areas are.
-  RULE_BODY: The whole body of a ``.claude/rules/<area>.md``, rendered per area. A committed
+  RULE_BODY: The whole body of a ``.claude/rules/decisions-<slug>.md``, rendered per area. A committed
     rule reaches every teammate's session on any Read of a matching file, so the body is held
     EQUAL to this template rather than merely short: a length cap leaves room for a line that is
     not a pointer, and a template does not.
@@ -95,19 +96,33 @@ Attributes:
     per-phase approval the session rhythm retired; either parked in the spec is a decision deferred
     to whoever builds it.
   SPEC_PLACEHOLDERS: The template's unfilled markers, reported as a WARNING wherever they appear.
-    ``YYYY-MM-DD`` is deliberately not in this tuple: three specs describe a date format in prose,
-    so that marker is looked for on the ``**Last Updated:**`` header line and nowhere else.
+    ``YYYY-MM-DD`` is deliberately not in this tuple: three specs describe a date format in prose.
   SPEC_SHAPE_EXEMPT: The statuses ``check_spec_shape`` does not judge. The Completed specs written
     from an earlier template carry its retired ``#### Checkpoint`` and ``## Open Questions``
     headings — sixty closed specs would fail at the commit that introduced the check, and a reader
     can re-measure that by emptying this set — and a Cancelled spec is reduced to a tombstone with
-    no sections to require (``docs/process/spec-lifecycle.md``). The exemption keys on the Status header alone and
+    no sections to require (``docs/process/spec-lifecycle.md``). The exemption keys on ``spec_status`` alone and
     fails CLOSED: a spec with no readable status, or any status outside this set — Draft, In
     Progress, Superseded, a misspelling — is judged in full.
   WARNING: The prefix a check puts on a finding that is reported but does not fail the run. The
     exit code is decided by the findings without it.
-  STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
-    ``INDEX.md``, which is the only place it can be kept true.
+  STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in each
+    spec's ``spec_status``, which is the only place it can be kept true.
+  SPEC_STATUSES: The values ``spec_status`` may hold (``docs/process/knowledge-layout.md``).
+    Cancelled and Superseded are this repo's, on top of the template's three, because it has
+    specs in both states and ``SPEC_SHAPE_EXEMPT`` keys on one of them.
+  SPEC_HEADER_LINE: A bold header line of the layout this replaced. Its values now live in the
+    frontmatter, so one surviving in a body is a second copy nothing compares.
+  FRONTMATTER_READER: The one reader of a governed file's frontmatter, taken whole from the
+    template with the generator beside it, so an index is never generated from one reading of a
+    file and linted against another.
+  GEN_INDEX: The generator of ``docs/specs/index.yaml`` and ``docs/decisions/index.yaml``.
+  RULEBOOK_TREES: Where the rulebooks live, beside the code they govern. Every ``.md`` under one
+    but its ``INDEX.md`` router is a rulebook.
+  STALE_WARNING_DAYS: How long before a rulebook's ``stale_after`` this gate starts warning. The
+    template fails on the date and keeps that check out of CI, because a clock-driven red lands on
+    unrelated work. This gate IS CI, so the date gets a month of notice first, then the same hard
+    stop; a re-read is one short pull request.
   SOURCE_TREES: Where source lives, per language, for the citation check.
   CITATION_RE: A spec, PR or issue citation in a comment, including a bare requirement number.
     Matched on the whole line rather than on comment syntax, because four languages' comment
@@ -147,11 +162,13 @@ Attributes:
     every page under it, and refuses to pass having found none.
 """
 
+import datetime
 import fnmatch
 import functools
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import typing
 
@@ -202,26 +219,19 @@ TESTING_INFLIGHT_MAX = 1
 FIXTURES_MAX_SCRIPTS = 2
 CLAUDE_MAX_BYTES = 17_000
 PROCESS_MAX_BYTES = 15_000
-DIGEST_MAX_CHARS = 1_400
+FENCE_MAX_BYTES = 1_400
+FENCE_LINK_RE = re.compile(r"\]\([^)\s]+\)")
 DELIVERY_MAX_LINES = 260
 FR_CEILING = 8
 SPEC_OVERSIZE_MAX = 40
-def decision_table() -> list[tuple[str, str]]:
-    """Read the Key Decisions table in ``CLAUDE.md``: each area, and the register file it points at.
-
-    DERIVED, never transcribed. A hard-coded copy of the eight area strings is what this replaced,
-    and it had already drifted: one area's wording differed from the heading it claimed to mirror,
-    while the docstring beside it asserted the two agreed. That is the failure mode a second copy
-    always has — the copy is not checked against the original, so the claim of agreement is the
-    only thing holding, and a claim is not a check. The table is the authority for the closed set
-    of areas AND their order; the register's INDEX and the rules directory are held to it.
+def _key_decisions_section() -> list[str]:
+    """The lines of ``CLAUDE.md``'s Key Decisions section, heading excluded.
 
     Args:
       None.
 
     Returns:
-      ``(area, target)`` pairs in table order, where ``target`` is the link path as written
-      (``docs/decisions/<area>.md#fences``).
+      The lines up to the next ``## `` heading.
 
     Raises:
       None.
@@ -229,29 +239,44 @@ def decision_table() -> list[tuple[str, str]]:
     lines = (ROOT / "CLAUDE.md").read_text().split("\n")
     start = next(i for i, line in enumerate(lines) if line.startswith("## Key Decisions"))
     end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("## "))
-    rows = []
-    for line in lines[start:end]:
-        match = re.match(r"^\|\s*(?P<area>[^|]+?)\s*\|\s*\[[^\]]+\]\((?P<target>[^)]+)\)\s*\|$", line)
-        if match and match.group("area") not in ("Area", "---"):
-            rows.append((match.group("area"), match.group("target")))
-    return rows
+    return lines[start + 1 : end]
 
 
-def decision_areas() -> list[str]:
-    """The area labels ``CLAUDE.md``'s Key Decisions table declares, in its order.
+def decision_table() -> list[tuple[str, str]]:
+    """Read the Key Decisions table in ``CLAUDE.md``: each area, and the directory that holds it.
+
+    DERIVED, never transcribed. A hard-coded copy of the eight area strings is what this replaced,
+    and it had already drifted: one area's wording differed from the heading it claimed to mirror,
+    while the docstring beside it asserted the two agreed. That is the failure mode a second copy
+    always has — the copy is not checked against the original, so the claim of agreement is the
+    only thing holding, and a claim is not a check. The table is the authority for the closed set
+    of areas; each area's concept and the rules directory are held to it.
 
     Args:
       None.
 
     Returns:
-      The area labels, in table order.
+      ``(area, slug)`` pairs in table order, where ``slug`` names ``docs/decisions/<slug>/``.
 
     Raises:
       None.
     """
-    return [area for area, _ in decision_table()]
+    return [(found.group("area"), found.group("slug"))
+            for found in map(TABLE_ROW_RE.match, _key_decisions_section()) if found]
 
 
+#: A row of the Key Decisions table, the one form the section may hold a row in.
+TABLE_ROW_RE = re.compile(r"^\|\s*(?P<area>[^|]+?)\s*\|\s*`docs/decisions/(?P<slug>[^/`]+)/`\s*\|$")
+#: A line that is a fence marker's shape: its run of backticks or tildes, and what follows the run.
+FENCE_MARKER_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+#: A code span of any backtick run: it closes only on a run of the same length.
+ANY_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+SPEC_STATUSES = ("Draft", "In Progress", "Completed", "Cancelled", "Superseded")
+SPEC_HEADER_LINE = re.compile(r"^\*\*(?:ID|Status|Last Updated|Depends On):?\*\*")
+FRONTMATTER_READER = "scripts/frontmatter.awk"
+GEN_INDEX = "scripts/gen-index.sh"
+RULEBOOK_TREES = ("apps/portal/info/best-practices", "lambdas/info/best-practices", "infra/info/best-practices", "docs/best-practices")
+STALE_WARNING_DAYS = 30
 SPEC_REQUIRED_SECTIONS = ("## Overview", "## Scope", "## Functional Requirements", "## Implementation Phases")
 SPEC_BANNED_HEADINGS = ("Open Questions", "Checkpoint")
 SPEC_PLACEHOLDERS = ("[Feature Name]", "[Requirement Name]", "SPEC-XXX")
@@ -341,6 +366,109 @@ def anchor(text: str) -> str:
     """
     cleaned = re.sub(r"[^\w \-]", "", text.replace("`", "").replace("*", "").strip().lower())
     return cleaned.replace(" ", "-")
+
+
+class Frontmatter(typing.NamedTuple):
+    """What the shared reader made of one governed file's frontmatter.
+
+    Attributes:
+      errors: ``(line, message)`` for every line the subset refuses, empty when the file reads.
+      keys: The scalar keys, unquoted and unescaped.
+      lists: The flow-list keys and their elements, in order.
+      sources: The ``sources`` block, each item's fields under its 1-based number.
+      body_line: The 1-based number of the first line after the closing ``---``.
+    """
+
+    errors: list[tuple[int, str]]
+    keys: dict[str, str]
+    lists: dict[str, list[str]]
+    sources: dict[int, dict[str, str]]
+    body_line: int
+
+
+@functools.cache
+def read_frontmatter(path: pathlib.Path) -> Frontmatter:
+    """Read one governed file through ``frontmatter.awk``, failing closed on a reader that did not run.
+
+    Two things are checked because neither alone is enough: the exit status, and that exactly one
+    verdict came back. An awk that dies prints nothing, and every check downstream of a reader that
+    printed nothing iterates over nothing and passes.
+
+    Args:
+      path: An absolute path under ``ROOT``.
+
+    Returns:
+      What the reader printed; a failed reader comes back as one error on line 0.
+
+    Raises:
+      None.
+    """
+    rel = path.relative_to(ROOT).as_posix()
+    # Both operands are ours: the reader's path is a constant and the file came from this tree's
+    # own listing. Run from ROOT with the path relative, so a checkout path holding a `=` cannot
+    # read as an awk assignment.
+    done = subprocess.run(  # noqa: S603
+        ["awk", "-f", FRONTMATTER_READER, rel],  # noqa: S607
+        cwd=ROOT, env={**os.environ, "LC_ALL": "C"}, capture_output=True, encoding="utf-8", errors="replace",
+        check=False)
+    records = [line.split("\t") for line in done.stdout.split("\n") if line]
+    if done.returncode != 0 or sum(r[1] == "F" for r in records) != 1:
+        reason = done.stderr.strip().split("\n")[0] or "no single verdict"
+        return Frontmatter([(0, f"the frontmatter reader failed: {reason}")], {}, {}, {}, 1)
+    fields = Frontmatter([], {}, {}, {}, 1)
+    body_line = 1
+    for record in records:
+        kind = record[1]
+        if kind == "E":
+            fields.errors.append((int(record[2]), record[3]))
+        elif kind == "K":
+            fields.keys[record[2]] = record[3] if len(record) > 3 else ""
+        elif kind == "L":
+            fields.lists[record[2]] = []
+        elif kind == "I":
+            fields.lists[record[2]].append(record[3])
+        elif kind == "S":
+            fields.sources.setdefault(int(record[2]), {})[record[3]] = record[4] if len(record) > 4 else ""
+        elif kind == "B":
+            body_line = int(record[2])
+    return fields._replace(body_line=body_line)
+
+
+def _refusals(rel: str, fields: Frontmatter) -> list[str]:
+    """The reader's refusals of one file, one message per line it refused.
+
+    Args:
+      rel: The file as a message names it.
+      fields: What the reader made of it.
+
+    Returns:
+      One message per refusal, pointing at the subset's one statement.
+
+    Raises:
+      None.
+    """
+    return [f"{rel}:{line}: frontmatter: {message} (docs/process/knowledge-layout.md → Frontmatter)"
+            for line, message in fields.errors]
+
+
+def _listed_scalars(rel: str, fields: Frontmatter, lists: tuple[str, ...]) -> list[str]:
+    """Refuse a key written as a flow list where it takes one value.
+
+    The reader files a list apart from a scalar, so without this ``status: [draft]`` is a key no check
+    of ``status`` ever sees, and the index lists the decision as stable.
+
+    Args:
+      rel: The file as a message names it.
+      fields: What the reader made of it.
+      lists: The keys this kind of file may hold a list under.
+
+    Returns:
+      One message per such key.
+
+    Raises:
+      None.
+    """
+    return [f"{rel}: frontmatter `{key}` is a list; it takes one value" for key in sorted(fields.lists) if key not in lists]
 
 
 def check_testing_layout() -> list[str]:
@@ -548,9 +676,8 @@ def check_process_router() -> list[str]:
 def check_claude_budget() -> list[str]:
     """Hold the always-loaded file to its budget.
 
-    A ratchet just above the measured level, with the headroom ``CLAUDE_MAX_BYTES`` names and no
-    more. What used to grow this file — the Key Decisions digest — now heads each register area
-    file and is measured there (``check_fences``).
+    A ratchet just above the measured level, whose headroom ``CLAUDE_MAX_BYTES`` accounts for. What used to grow this file — the Key Decisions digest — is now each decision's own fence,
+    measured there (``check_decisions_register``).
 
     Args:
       None.
@@ -568,226 +695,259 @@ def check_claude_budget() -> list[str]:
         (
             f"CLAUDE.md is {size:,} bytes against a {CLAUDE_MAX_BYTES:,} budget. It loads every "
             "session: move the detail into docs/ behind a pointer. Every previous fix was a "
-            "structural cut, and the headroom this budget carries is sized for a Tech Stack row and "
-            "a current-work paragraph, not for a new section — see CLAUDE_MAX_BYTES above."
+            "structural cut, and this budget has almost no headroom left — see CLAUDE_MAX_BYTES above."
         )
     ]
 
 
-def _logical_bullets(lines: list[str]) -> list[str]:
-    """Join wrapped bullet continuations so a bullet is measured whole.
-
-    Measuring the physical line stopped meaning anything when the digest became wrapped prose:
-    the longest line fell from 846 characters to 103, and a guard that cannot fire is worse than
-    none — it is advertised as a fence.
+def _register_files() -> list[tuple[str, pathlib.Path]]:
+    """Every readable register file as ``(slug, path)``: each area's concept and its decisions.
 
     Args:
-      lines: The lines of one section.
+      None.
 
     Returns:
-      One string per ``- `` bullet, continuation lines appended with a space.
+      The ``.md`` files directly inside an area directory, in order.
 
     Raises:
       None.
     """
-    bullets: list[str] = []
-    current = None
-    for line in lines:
-        if line.startswith("- "):
-            if current is not None:
-                bullets.append(current)
-            current = line
-        elif current is not None:
-            if line.startswith("  ") and line.strip():
-                current += " " + line.strip()
-            else:
-                bullets.append(current)
-                current = None
-    if current is not None:
-        bullets.append(current)
-    return bullets
+    register = ROOT / "docs" / "decisions"
+    return [(area.name, path) for area in sorted(p for p in register.iterdir() if p.is_dir())
+            for path in sorted(area.glob("*.md"))]
 
 
-def fences_section(path: pathlib.Path) -> list[str] | None:
-    """The lines of a register file's ``## Fences`` entry, or ``None`` when it has no such entry.
+def _body_prose(path: pathlib.Path, start: int) -> list[tuple[int, str]]:
+    """A governed file's body outside fences and comments, by the file's own line numbers.
 
     Args:
-      path: A ``docs/decisions/<area>.md`` file.
+      path: The file.
+      start: The 1-based first body line, from the reader.
 
     Returns:
-      The lines between ``## Fences`` and the next ``## `` heading, heading excluded; ``None`` if
-      the file carries no Fences entry.
+      ``(line number, line)`` pairs from the body.
 
     Raises:
       None.
     """
-    lines = path.read_text().split("\n")
-    start = next((i for i, line in enumerate(lines) if line.strip() == "## Fences"), None)
-    if start is None:
-        return None
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    return lines[start + 1 : end]
+    return [(number, line) for number, line in _prose_lines(path.read_text()) if number >= start]
 
 
-def check_fences() -> list[str]:
-    """Require each register area to open with its Fences, reachable from the CLAUDE.md table.
+def _says_something(number: int, line: str, kind: str) -> bool:
+    """Whether one body line is an entry's content: not a blank, a heading, a rule, a comment or a marker.
 
-    The fences are the traps that apply green and fail later. They were CLAUDE.md's always-loaded
-    digest until 2026-09-05; they now head the area file that carries their reasoning, and the
-    CLAUDE.md table is how a session reaches them. So: every table row resolves to a file whose
-    first entry after its Contents is ``## Fences``, listed first in that Contents, and every
-    bullet under it is a reminder rather than the reasoning — ``DIGEST_MAX_CHARS`` on the logical
-    bullet. A Fences entry that is not first is the register's old shape coming back, where the
-    fence is somewhere in a file nobody reads whole.
+    A fenced block's content counts and its markers do not, so an empty pair of fences is no entry.
 
     Args:
-      None.
+      number: The line's number, unused but for the shape ``_classified_lines`` yields.
+      line: The line.
+      kind: What ``_classified_lines`` called it.
 
     Returns:
-      One message per table row that does not resolve, per area file whose Fences is missing or
-      not first, and per over-long bullet.
+      True when the line carries content.
+
+    Raises:
+      None.
+    """
+    if kind == "code":
+        return bool(line.strip())
+    return kind == "prose" and bool(line.strip()) and not re.match(r"^\s*(?:#{1,6}(?:\s|$)|([-*_])\1{2,}\s*$)", line)
+
+
+def _decision_body_problems(rel: str, fields: Frontmatter, path: pathlib.Path) -> list[str]:
+    """What is wrong with one decision's body: its entry and its History.
+
+    The entry is a line that says something above the History (``_says_something``), so a lone
+    heading, comment or empty fence does not pass for reasoning: a fence is never the only home of a fact. The
+    History closes the body, one ``### YYYY-MM-DD`` per date, newest first, none after today, each
+    with a bullet; and a deprecated decision's newest date must say so.
+
+    Args:
+      rel: The file as a message names it.
+      fields: What the reader made of it.
+      path: The decision.
+
+    Returns:
+      One message per problem.
 
     Raises:
       None.
     """
     errors = []
-    for area, target in decision_table():
-        rel, _, fragment = target.partition("#")
-        path = ROOT / rel
-        if fragment != "fences" or not path.exists():
-            errors.append(f"CLAUDE.md: the '{area}' row points at {target}, which is not an existing file's #fences")
-            continue
-        lines = path.read_text().split("\n")
-        contents_at = next((i for i, line in enumerate(lines) if line.strip() == "## Contents"), None)
-        if contents_at is None:
-            continue  # check_decisions_register reports the missing Contents
-        first_item = next((line for line in lines[contents_at + 1 :] if line.startswith("- [")), "")
-        if first_item.strip() != "- [Fences](#fences)":
-            errors.append(f"{rel}: the Contents does not list [Fences](#fences) first")
-        first_entry = next((line for line in lines[contents_at + 1 :] if line.startswith("## ")), "")
-        if first_entry.strip() != "## Fences":
-            errors.append(
-                f"{rel}: the first entry after the Contents is '{first_entry[3:].strip()}', not 'Fences' — "
-                "the fences head the file so a session reads them before the area's code"
-            )
-        for bullet in _logical_bullets(fences_section(path) or []):
-            if len(bullet) > DIGEST_MAX_CHARS:
-                errors.append(
-                    f"{rel}: a Fences bullet is {len(bullet)} chars (cap {DIGEST_MAX_CHARS}): "
-                    f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in the entries below."
-                )
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
+    prose = _body_prose(path, fields.body_line)
+    at = [i for i, (_, line) in enumerate(prose) if line.rstrip() == "## History"]
+    if len(at) != 1:
+        return [f"{rel}: has {len(at)} `## History` headings, not one — the dated record closes the body"]
+    history_at = prose[at[0]][0]
+    if not any(fields.body_line <= number < history_at and _says_something(number, line, kind)
+               for number, line, kind in _classified_lines(path.read_text())):
+        errors.append(f"{rel}: has no entry above its History — a fence is never the only home of a fact")
+    dates: list[str] = []
+    newest: list[str] = []
+    bullets: dict[str, int] = {}
+    for number, line in prose[at[0] + 1:]:
+        if line.startswith("## "):
+            errors.append(f"{rel}:{number}: '{line.strip()}' follows the History, which closes the body")
+        elif line.startswith("### "):
+            date = line[4:].strip()
+            try:
+                datetime.date.fromisoformat(date)
+                valid = re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) is not None
+            except ValueError:
+                valid = False
+            if not valid:
+                errors.append(f"{rel}:{number}: '{line.strip()}' is not a `### YYYY-MM-DD` History heading")
+                continue
+            if date > today:
+                errors.append(f"{rel}:{number}: History date {date} is after today")
+            if dates and date >= dates[-1]:
+                errors.append(f"{rel}:{number}: History date {date} is not older than {dates[-1]} — newest first, one heading per date")
+            dates.append(date)
+            bullets[date] = 0
+        elif dates:
+            if line.startswith("- "):
+                bullets[dates[-1]] += 1
+            if len(dates) == 1:
+                newest.append(line)
+        elif line.strip():
+            errors.append(f"{rel}:{number}: History text before its first date")
+    if not dates:
+        errors.append(f"{rel}: its History has no `### YYYY-MM-DD` entry — the first is when the decision was settled")
+    errors.extend(f"{rel}: History {date} has no bullet" for date, count in bullets.items() if not count)
+    if fields.keys.get("status") == "deprecated" and dates and "deprecat" not in " ".join(newest).lower():
+        errors.append(f"{rel}: has status: deprecated, but its newest History entry does not say so — deprecating a decision is a reversal too")
     return errors
 
 
 def check_decisions_register() -> list[str]:
-    """Require one register file per AREA, one heading level per entry, and a reaching Contents.
+    """Hold the register to one file per decision, one directory per area, and its table.
 
-    The register is pulled entry by entry, so an entry outside its file's Contents is only findable
-    by reading the whole file — which is the cost the layering exists to avoid.
-
-    The areas are a CLOSED set, and they are the rows of ``CLAUDE.md``'s Key Decisions table. That
-    is the point of checking them: the table is how a session reaches an area's fences, so a reader
-    who finds an area there must find the same area here. The register was ONE file ordered by spec number
-    until 2026-08-28, which made it read as a changelog and feel disposable; it is now one file per
-    area under ``docs/decisions/``, routed by ``INDEX.md``. An area file that exists under no table
-    row, or a table row with no file, is the first step back to a register nobody can look
-    something up in.
+    The areas are a CLOSED set, and they are the rows of ``CLAUDE.md``'s Key Decisions table: every
+    row a directory, every directory a row, in slug order, the order the index lists them, each row
+    naming its area by the concept's title. An area file under no row is the first step back to a
+    register nobody can look something up in. Every file reads through the shared reader and
+    carries the keys for its kind; a decision has a fence within ``FENCE_MAX_BYTES``, an entry and a
+    History (``_decision_body_problems``); nothing sits flat, a level too deep, or under a name OKF
+    reserves. ``docs/process/knowledge-layout.md`` is the prose of all this.
 
     Args:
       None.
 
     Returns:
-      One message per unlisted entry, per unknown area file, per missing area file and per entry
-      sitting above its file's Contents.
+      One message per problem.
 
     Raises:
       None.
     """
     register = ROOT / "docs" / "decisions"
     errors = []
-
-    expected_areas = decision_areas()
-    if not expected_areas:
+    table = decision_table()
+    if not table:
         errors.append("CLAUDE.md: no area rows in the Key Decisions table — the register has no closed set")
-
-    index = register / "INDEX.md"
-    if not index.exists():
-        return [*errors, "docs/decisions/: INDEX.md is missing — the register has no router"]
-
-    files = sorted(p for p in register.glob("*.md") if p.name != "INDEX.md")
-    titles: dict[str, pathlib.Path] = {}
-    for path in files:
-        first = path.read_text().split("\n", 1)[0]
-        if not first.startswith("# "):
-            errors.append(f"{path.relative_to(ROOT)}: does not open with an '# Area' heading")
+    slugs = [slug for _, slug in table]
+    errors.extend(f"CLAUDE.md: docs/decisions/{slug}/ has more than one row in the Key Decisions table"
+                  for slug in sorted({slug for slug in slugs if slugs.count(slug) > 1}))
+    for line in _key_decisions_section():
+        if line.startswith("- "):
+            errors.append(f"CLAUDE.md: the Key Decisions section holds a bullet, {line[:60]!r} — a fence lives in its decision's file, and this section is prose and the table")
+        elif line.startswith("|") and not TABLE_ROW_RE.match(line) and line.strip() != "| Area | Directory |" and not re.fullmatch(r"\|[-| :]+\|", line.strip()):
+            errors.append(f"CLAUDE.md: {line[:60]!r} is not a Key Decisions row — one is `| Area | `docs/decisions/<slug>/` |`")
+    if slugs != sorted(slugs):
+        errors.append(f"CLAUDE.md: the Key Decisions rows are not in slug order, the order the index lists areas: {sorted(slugs)}")
+    for path in sorted(register.rglob("*")):
+        if path.is_dir() or path.name == ".DS_Store":
             continue
-        area = first[2:].strip()
-        if area in titles:
-            errors.append(
-                f"{path.relative_to(ROOT)}: '{area}' is already held by {titles[area].name}. Two files "
-                "claiming one area means one of them is unreachable, and nothing else here would notice."
-            )
+        rel = path.relative_to(ROOT)
+        depth = len(path.relative_to(register).parts)
+        if depth == 1 and path.name != "index.yaml":
+            errors.append(f"{rel}: sits flat under docs/decisions/ — a decision lives in docs/decisions/<area>/")
+        elif depth == 2 and path.suffix != ".md":
+            errors.append(f"{rel}: only .md files and the index belong in the register")
+        elif depth > 2:
+            errors.append(f"{rel}: sits a level below an area, where the index does not read")
+    on_disk = {p.name for p in register.iterdir() if p.is_dir()}
+    errors.extend(f"docs/decisions/{slug}/: no row in CLAUDE.md's Key Decisions table — add the row with the area" for slug in sorted(on_disk - set(slugs)))
+    errors.extend(f"CLAUDE.md: the '{area}' row names docs/decisions/{slug}/, which does not exist" for area, slug in table if slug not in on_disk)
+    titles = {slug: area for area, slug in table}
+    for slug in sorted(on_disk):
+        if not (register / slug / f"{slug}.md").exists():
+            errors.append(f"docs/decisions/{slug}/ has no {slug}.md — an area's concept is what names it")
+    for slug, path in _register_files():
+        rel = path.relative_to(ROOT).as_posix()
+        fields = read_frontmatter(path)
+        if path.name in ("index.md", "log.md"):
+            errors.append(f"{rel}: is named {path.name}, which OKF reserves — a decision takes a name of its own")
+        if fields.errors:
+            errors.extend(_refusals(rel, fields))
             continue
-        titles[area] = path
-
-    for area in titles:
-        if area not in expected_areas:
-            errors.append(
-                f"docs/decisions/{titles[area].name}: '{area}' is not one of the areas in CLAUDE.md's "
-                f"Key Decisions table. Add a row there first, or file the entry under an existing one: {expected_areas}"
-            )
-    index_text = index.read_text()
-    for expected in expected_areas:
-        if expected not in titles:
-            errors.append(f"docs/decisions/: no file holds the '{expected}' area")
-        if expected not in index_text:
-            errors.append(f"docs/decisions/INDEX.md: the '{expected}' area is not routed")
-
-    # The INDEX and the table are read as parallel lists, so they are checked as parallel lists.
-    # Membership alone lets the two orders drift apart while both still "agree".
-    routed = [a for _, a in sorted((index_text.index(a), a) for a in expected_areas if a in index_text)]
-    if routed != [a for a in expected_areas if a in index_text]:
-        errors.append(
-            "docs/decisions/INDEX.md: the areas are routed in a different order from CLAUDE.md's "
-            f"Key Decisions table. Table order: {expected_areas}"
-        )
-
-    for path in files:
-        lines = path.read_text().split("\n")
-        contents_at = next((i for i, line in enumerate(lines) if line.strip() == "## Contents"), None)
-        if contents_at is None:
-            errors.append(f"{path.relative_to(ROOT)}: has no '## Contents' — the file is only readable whole")
+        errors.extend(f"{rel}:{n}: '{line.strip()}' is a title line — the title's one home is the frontmatter"
+                      for n, line in _body_prose(path, fields.body_line) if line.startswith("# "))
+        errors.extend(_listed_scalars(rel, fields, ("governs",) if path.stem == slug else ()))
+        if path.stem == slug:
+            if fields.keys.get("type") != "Decision Area":
+                errors.append(f"{rel}: type is {fields.keys.get('type')!r}, not 'Decision Area' — {slug}.md is the area concept")
+            if not fields.keys.get("title", "").strip():
+                errors.append(f"{rel}: frontmatter has no `title` — the area name the Key Decisions row repeats")
+            elif slug in titles and fields.keys["title"] != titles[slug]:
+                errors.append(f"{rel}: title {fields.keys['title']!r} is not what CLAUDE.md's row says, {titles[slug]!r}")
+            if "governs" not in fields.lists:
+                errors.append(f"{rel}: `governs` is not a flow list — write `governs: [dir/**]`, or `governs: []` for none")
+            if "status" in fields.keys:
+                errors.append(f"{rel}: an area concept carries no `status`; a decision does")
             continue
-        listed = set(re.findall(r"\]\(#([^)]+)\)", "\n".join(lines)))
-        seen: dict[str, int] = {}
-        for i, line in enumerate(lines):
-            if not line.startswith("## ") or line.strip() == "## Contents":
-                continue
-            heading = line[3:].strip()
-            if i < contents_at:
-                errors.append(f"{path.relative_to(ROOT)}: '{heading}' sits above the Contents")
-            base = anchor(heading)
-            seen[base] = seen.get(base, 0) + 1
-            target = base if seen[base] == 1 else f"{base}-{seen[base] - 1}"
-            if target not in listed:
-                errors.append(f"{path.relative_to(ROOT)}: '{heading}' is not in the Contents (anchor #{target})")
-        headings = {
-            anchor(line[3:].strip())
-            for line in lines[contents_at:]
-            if line.startswith("## ") and line.strip() != "## Contents"
-        }
-        for target in sorted(listed):
-            if target.rstrip("-0123456789") not in headings and target not in headings:
-                errors.append(
-                    f"{path.relative_to(ROOT)}: the Contents links to #{target}, which is no entry in "
-                    "this file — the entry was moved or deleted and its listing was left behind"
-                )
-        for line in lines:
-            if line.startswith("### "):
-                errors.append(
-                    f"{path.relative_to(ROOT)}: '{line[4:].strip()}' is a second heading level — "
-                    "every entry sits at '##' so the Contents reaches all of them"
-                )
+        if fields.keys.get("type") != "Decision":
+            errors.append(f"{rel}: type is {fields.keys.get('type')!r}, not 'Decision' — every .md in an area but its concept is one decision")
+        if not fields.keys.get("title", "").strip():
+            errors.append(f"{rel}: frontmatter has no `title` — the decision label")
+        fence = fields.keys.get("description", "")
+        if not fence.strip():
+            errors.append(f"{rel}: has no fence — its frontmatter has no `description`, the claim and its constraint in one line")
+        elif len(fence.encode()) > FENCE_MAX_BYTES:
+            errors.append(f"{rel}: its fence is {len(fence.encode())} bytes (cap {FENCE_MAX_BYTES}): {fence[:70]}… — the reasoning goes in the entry below")
+        if FENCE_LINK_RE.search(fence):
+            errors.append(f"{rel}: its fence holds a markdown link, and a fence is read in the index, where a path relative to this file is dead — name the file in backticks")
+        status = fields.keys.get("status")
+        if status == "draft":
+            errors.append(f"{rel}: status is 'draft' — a register holds settled decisions; an unsettled one belongs in its spec")
+        elif "status" in fields.keys and status not in ("stable", "deprecated"):
+            errors.append(f"{rel}: status {status!r} is not stable or deprecated (absent means stable)")
+        errors.extend(_decision_body_problems(rel, fields, path))
+    return errors
+
+
+def check_indexes() -> list[str]:
+    """Regenerate each index and refuse a committed copy whose bytes differ.
+
+    The frontmatter is the authority and an index a view of it, written by ``gen-index.sh`` and
+    never by hand. The generator is deterministic, so a byte comparison is a freshness check. It
+    refuses a tree it cannot read, and a refusal is reported here rather than read as an empty
+    index.
+
+    Args:
+      None.
+
+    Returns:
+      One message per missing, stale or refused index.
+
+    Raises:
+      None.
+    """
+    errors = []
+    for tree, rel in (("specs", "docs/specs/index.yaml"), ("decisions", "docs/decisions/index.yaml")):
+        # Both operands are ours: a constant script path and a constant tree name.
+        done = subprocess.run(  # noqa: S603
+            ["sh", GEN_INDEX, "--print", tree],  # noqa: S607
+            cwd=ROOT, capture_output=True, check=False)
+        if done.returncode != 0:
+            reason = done.stderr.decode(errors="replace").strip()
+            errors.append(f"{rel} cannot be regenerated, because {GEN_INDEX} refused the tree:\n{reason}")
+            continue
+        committed = ROOT / rel
+        if not committed.exists():
+            errors.append(f"{rel} is missing — run `sh {GEN_INDEX}` and commit what it writes")
+        elif committed.read_bytes() != done.stdout:
+            errors.append(f"{rel} is stale against the frontmatter — run `sh {GEN_INDEX}` and commit what it writes; a conflict in an index is resolved the same way, never by hand")
     return errors
 
 
@@ -815,7 +975,7 @@ def check_arcs() -> list[str]:
         for word in STATUS_WORDS:
             if word in lowered:
                 errors.append(
-                    f"ARCS.md: '{heading}' carries status. INDEX.md owns status — "
+                    f"ARCS.md: '{heading}' carries status. Each spec's spec_status owns status — "
                     "a heading that repeats it goes stale without anyone noticing."
                 )
                 break
@@ -824,100 +984,243 @@ def check_arcs() -> list[str]:
     return errors
 
 
-def spec_status(text: str) -> str | None:
-    """A spec's Status header, lower-cased and stripped, or ``None`` when it has none.
+def spec_status(path: pathlib.Path) -> str | None:
+    """A spec's ``spec_status``, lower-cased, or ``None`` when it has none or cannot be read.
 
-    One reader for the three checks that key on it, so they cannot disagree about what counts as
-    a status line.
+    One reader for the checks that key on it, so they cannot disagree about what counts as a
+    status. ``None`` is what makes ``check_spec_shape`` judge an unreadable spec in full.
 
     Args:
-      text: The spec's full text.
+      path: The spec.
 
     Returns:
-      The status as written, normalised; ``None`` if no header parses.
+      The status, normalised; ``None`` if the frontmatter does not state one.
 
     Raises:
       None.
     """
-    found = re.search(r"^\**Status:?\**[:\s]*\**\s*([A-Za-z ]+)", text, re.MULTILINE)
-    return found.group(1).strip().lower() if found else None
+    status = read_frontmatter(path).keys.get("spec_status")
+    return status.lower() if status else None
+
+
+def _classified_lines(text: str) -> list[tuple[int, str, str]]:
+    """Every line of a document, with its 1-based number and what kind of line it is.
+
+    One scanner for every check that reads prose. A leading frontmatter block is taken verbatim and
+    opens no state: a fence saying ``Strip <!-- markers.`` is a value, not a comment. A comment closes
+    before a fence opens, so a fence marker quoted inside a comment cannot swallow the rest of the
+    file; a one-line ``<!-- ... -->`` is stripped rather than skipped, so a heading with a trailing
+    note still counts. A ``<!--`` written in a code span opens nothing. A fence closes only on a run
+    of its own character at least as long as the one that opened it, with nothing after it, so a
+    four-backtick fence can quote a three-backtick one and an opener with an info string cannot close
+    anything. Both exclusions are load-bearing for every check that reads headings: a spec quoting
+    one in an example, or commenting one out while splitting, would otherwise be judged on text it
+    does not carry.
+
+    Args:
+      text: The document's full text.
+
+    Returns:
+      ``(line number, line, kind)``, in order. ``kind`` is ``frontmatter``, ``prose``, ``comment``,
+      ``marker`` (a fence's own line) or ``code`` (inside a fence). A ``prose`` line has its one-line
+      comments removed.
+
+    Raises:
+      None.
+    """
+    lines = text.splitlines()
+    found: list[tuple[int, str, str]] = []
+    start = 0
+    if lines and lines[0].rstrip() == "---":
+        close = next((i for i in range(1, len(lines)) if lines[i].rstrip() == "---"), None)
+        if close is not None:
+            start = close + 1
+            found.extend((i + 1, lines[i], "frontmatter") for i in range(start))
+    fence = None
+    in_comment = False
+    for index in range(start, len(lines)):
+        number, raw = index + 1, lines[index]
+        if in_comment:
+            in_comment = "-->" not in raw
+            found.append((number, raw, "comment"))
+            continue
+        marker = FENCE_MARKER_RE.match(raw)
+        if fence:
+            closes = marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip()
+            if closes:
+                fence = None
+            found.append((number, raw, "marker" if closes else "code"))
+            continue
+        if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
+            fence = marker.group(1)
+            found.append((number, raw, "marker"))
+            continue
+        line = re.sub(r"<!--.*?-->", "", raw)
+        if "<!--" in ANY_CODE_SPAN_RE.sub("", line):
+            in_comment = True
+            found.append((number, raw, "comment"))
+            continue
+        found.append((number, line, "prose"))
+    return found
 
 
 def _prose_lines(text: str) -> list[tuple[int, str]]:
-    """A spec's lines outside fenced blocks and HTML comments, each with its 1-based number.
-
-    A comment closes before a fence opens, so a fence marker quoted inside a comment cannot
-    swallow the rest of the file. A one-line ``<!-- ... -->`` is stripped rather than skipped, so a heading with
-    a trailing note still counts. Both exclusions are load-bearing for every check that reads
-    headings: a spec quoting a heading in an example, or commenting one out while splitting, would
-    otherwise be judged on text it does not carry.
+    """A document's lines outside fenced blocks and HTML comments, each with its 1-based number.
 
     Args:
-      text: The spec's full text.
+      text: The document's full text.
 
     Returns:
-      ``(line number, line)`` pairs, in order, with inline comments removed.
+      ``(line number, line)`` pairs, in order, the frontmatter included, with inline comments removed.
 
     Raises:
       None.
     """
-    fence = re.compile(r"^\s*(?:```|~~~)")
-    inline_comment = re.compile(r"<!--[^>]*-->")
-    kept: list[tuple[int, str]] = []
-    in_fence = in_comment = False
-    for number, raw in enumerate(text.splitlines(), 1):
-        if in_comment:
-            in_comment = "-->" not in raw
-            continue
-        if in_fence:
-            if fence.match(raw):
-                in_fence = False
-            continue
-        if fence.match(raw):
-            in_fence = True
-            continue
-        line = inline_comment.sub("", raw)
-        if "<!--" in line:
-            in_comment = True
-            continue
-        kept.append((number, line))
-    return kept
+    return [(number, line) for number, line, kind in _classified_lines(text) if kind in ("frontmatter", "prose")]
 
 
 def check_spec_status() -> list[str]:
-    """Require each spec's own header to agree with its ``INDEX.md`` row, and Completed to deliver.
-
-    Both places claim to be authoritative, so a disagreement means neither is.
+    """Require a Completed spec to have delivered.
 
     Args:
       None.
 
     Returns:
-      One message per disagreement, per missing status header, and per Completed spec with no
-      delivery doc.
+      One message per Completed spec with no delivery doc.
 
     Raises:
       None.
     """
     specs = ROOT / "docs" / "specs"
     delivery = ROOT / "docs" / "spec-delivery"
-    index = (specs / "INDEX.md").read_text()
-    rows = dict(re.findall(r"^\|\s*(\d{3})[^|]*\|\s*([^|]+?)\s*\|", index, re.MULTILINE))
-    errors = []
-    for path in sorted(specs.glob("SPEC-*.md")):
-        number = path.name[5:8]
-        stated = spec_status(path.read_text())
-        if number not in rows:
-            errors.append(f"{path.name} has no row in INDEX.md")
+    return [
+        f"SPEC-{path.name[5:8]} is Completed with no docs/spec-delivery/ write-up"
+        for path in sorted(specs.glob("SPEC-*.md"))
+        if spec_status(path) == "completed" and not list(delivery.glob(f"SPEC-{path.name[5:8]}-*.md"))
+    ]
+
+
+def check_spec_frontmatter() -> list[str]:
+    """Hold every spec's frontmatter to its keys, and the cross-spec claims those keys make.
+
+    The frontmatter is the one home of a spec's title, status and dependencies, and the index is
+    generated from it, so this is what makes the index worth reading: the reader's refusals, the
+    required keys, ``type``, ``id`` against the filename, the status vocabulary, that every
+    ``depends_on`` names a spec in the directory and not itself, that no dependency leads back to
+    the spec, that a Superseded spec and only a Superseded spec names a real successor, the arc keys
+    both or neither, no two specs in one arc place, no spec depending on one later in its own arc, no
+    two files sharing a number, nothing in the directory but specs, ``ARCS.md`` and the index, and that neither a bold header line nor a
+    ``# `` title survives in the body as a second copy. Cross-spec lookups resolve from FILENAMES,
+    so one broken neighbour does not cascade into a failure on every spec that names it.
+
+    Args:
+      None.
+
+    Returns:
+      One message per problem.
+
+    Raises:
+      None.
+    """
+    paths = sorted((ROOT / "docs" / "specs").glob("SPEC-*.md"))
+    known: dict[str, list[str]] = {}
+    errors_named: list[str] = []
+    for path in paths:
+        prefix = re.match(r"SPEC-\d+", path.name)
+        if prefix:
+            known.setdefault(prefix.group(0), []).append(path.name)
+        else:
+            errors_named.append(f"docs/specs/{path.name}: the filename has no SPEC-<number> prefix, so its id cannot be checked against it")
+    numbers: dict[int, list[str]] = {}
+    for spec, names in known.items():
+        numbers.setdefault(int(spec[5:]), []).extend(names)
+    errors = [*errors_named, *(f"docs/specs/: spec number {number} is shared by {', '.join(sorted(names))} — two specs cannot have one number"
+                               for number, names in sorted(numbers.items()) if len(names) > 1)]
+    errors.extend(f"docs/specs/{entry.name}: only specs named SPEC-<number>-<slug>.md, ARCS.md and the index belong here — nothing reads anything else"
+                  for entry in sorted((ROOT / "docs" / "specs").iterdir())
+                  if entry.name not in ("ARCS.md", "index.yaml", ".DS_Store") and not fnmatch.fnmatch(entry.name, "SPEC-*.md"))
+    arcs: dict[str, dict[str, int]] = {}
+    places: dict[tuple[str, int], str] = {}
+    depends: dict[str, list[str]] = {}
+    for path in paths:
+        rel = f"docs/specs/{path.name}"
+        prefix = re.match(r"SPEC-\d+", path.name)
+        fields = read_frontmatter(path)
+        if fields.errors:
+            errors.extend(_refusals(rel, fields))
             continue
-        if stated is None:
-            errors.append(f"{path.name} has no Status header")
-            continue
-        indexed = rows[number].strip().lower()
-        if not indexed.startswith(stated) and not stated.startswith(indexed):
-            errors.append(f"{path.name}: header says '{stated}', INDEX.md says '{indexed}'")
-        if stated == "completed" and not list(delivery.glob(f"SPEC-{number}-*.md")):
-            errors.append(f"SPEC-{number} is Completed with no docs/spec-delivery/ write-up")
+        keys = fields.keys
+        errors.extend(_listed_scalars(rel, fields, ("depends_on",)))
+        for key in ("type", "id", "title", "description", "spec_status"):
+            if not keys.get(key, "").strip():
+                errors.append(f"{rel}: frontmatter has no `{key}` — a spec carries type, id, title, description, spec_status and depends_on")
+        if keys.get("type") and keys["type"] != "Spec":
+            errors.append(f"{rel}: type is {keys['type']!r}, not 'Spec'")
+        if keys.get("id") and prefix and keys["id"] != prefix.group(0):
+            errors.append(f"{rel}: id {keys['id']!r} is not the filename prefix {prefix.group(0)} — the id and the filename name one spec")
+        if keys.get("spec_status") and keys["spec_status"] not in SPEC_STATUSES:
+            errors.append(f"{rel}: spec_status {keys['spec_status']!r} is not one of {', '.join(SPEC_STATUSES)}")
+        if "depends_on" not in fields.lists:
+            errors.append(f"{rel}: depends_on is not a flow list — write `depends_on: [SPEC-001, SPEC-002]`, or `[]`")
+        own = prefix.group(0) if prefix else ""
+        deps = fields.lists.get("depends_on", [])
+        for dep in deps:
+            if dep == own:
+                errors.append(f"{rel}: depends_on names {dep}, which is this spec")
+            elif dep not in known:
+                errors.append(f"{rel}: depends_on names {dep}, but no {dep}-*.md is in the spec directory")
+        if len(set(deps)) != len(deps):
+            errors.append(f"{rel}: depends_on lists a spec twice")
+        depends[own] = deps
+        successor = keys.get("superseded_by")
+        if keys.get("spec_status") == "Superseded" and not successor:
+            errors.append(f"{rel}: is Superseded with no `superseded_by` naming what replaced it")
+        if successor:
+            if keys.get("spec_status") != "Superseded":
+                errors.append(f"{rel}: has a `superseded_by` but is {keys.get('spec_status')!r}, not Superseded")
+            if successor == own:
+                errors.append(f"{rel}: superseded_by names {successor}, which is this spec")
+            elif successor not in known:
+                errors.append(f"{rel}: superseded_by names {successor}, but no {successor}-*.md is in the spec directory")
+        arc, order = keys.get("arc"), keys.get("arc_order")
+        if bool(arc) != bool(order):
+            errors.append(f"{rel}: arc and arc_order go together — arc names the arc, arc_order the place in it")
+        elif arc:
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", arc):
+                errors.append(f"{rel}: arc {arc!r} is not a slug")
+            if not re.fullmatch(r"[1-9][0-9]*", order or ""):
+                errors.append(f"{rel}: arc_order {order!r} is not a positive integer")
+            else:
+                place = (arc, int(order or 0))
+                if place in places:
+                    errors.append(f"{rel}: arc {arc!r} has arc_order {order} here and in {places[place]} — give each spec its own place")
+                places[place] = path.name
+                arcs.setdefault(arc, {})[own] = int(order or 0)
+        for number, line in _body_prose(path, fields.body_line):
+            if line.startswith("# "):
+                errors.append(f"{rel}:{number}: '{line.strip()}' is a title line — the title's one home is the frontmatter")
+            elif SPEC_HEADER_LINE.match(line):
+                errors.append(f"{rel}:{number}: '{line.strip()[:50]}' is a bold header line — its value's one home is the frontmatter")
+    for members in arcs.values():
+        for spec, order in members.items():
+            for dep in depends.get(spec, []):
+                if members.get(dep, 0) > order:
+                    errors.append(f"docs/specs: {spec} depends on {dep}, which comes later in its own arc — the authored order contradicts the dependency")
+
+    def leads_back(start: str) -> bool:
+        seen: set[str] = set()
+        stack = list(depends.get(start, []))
+        while stack:
+            spec = stack.pop()
+            if spec == start:
+                return True
+            if spec not in seen:
+                seen.add(spec)
+                stack.extend(depends.get(spec, []))
+        return False
+
+    errors.extend(f"docs/specs: {spec}'s depends_on leads back to itself — a cycle, so no build order exists"
+                  for spec in sorted(depends) if spec and leads_back(spec))
     return errors
 
 
@@ -948,7 +1251,7 @@ def check_spec_size() -> list[str]:
     unparsed: list[str] = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
         text = path.read_text()
-        if spec_status(text) == "cancelled":
+        if spec_status(path) == "cancelled":
             continue
         ids = set()
         for _, line in _prose_lines(text):
@@ -997,9 +1300,8 @@ def check_spec_shape() -> list[str]:
     author deferred to the builder, the second the per-phase approval the session rhythm retired,
     and both are resolved in authoring or in session rather than parked in the file. Two findings
     are WARNINGS, reported and not failed, as the template's own linter treats them: an unfilled
-    placeholder — ``[Feature Name]``, ``[Requirement Name]``, ``SPEC-XXX``, and ``YYYY-MM-DD`` on
-    the ``**Last Updated:**`` line only, because three specs describe a date format in prose — and
-    ``### FR-`` headings with no ``Acceptance Criteria`` anywhere.
+    placeholder — ``[Feature Name]``, ``[Requirement Name]``, ``SPEC-XXX`` — and ``### FR-``
+    headings with no ``Acceptance Criteria`` anywhere.
 
     The check reads the spec outside fenced blocks and HTML comments (``_prose_lines``), so a
     heading quoted in an example or commented out is not a heading.
@@ -1008,7 +1310,7 @@ def check_spec_shape() -> list[str]:
     carry ``#### Checkpoint`` and ``## Open Questions`` headings, and a Cancelled spec is a
     tombstone with nothing to require. Rewriting sixty closed files to satisfy a rule that governs
     specs still being built would be churn with no reader, so ``SPEC_SHAPE_EXEMPT`` skips them —
-    keyed on the Status header alone. Everything else is judged in full: no status,
+    keyed on ``spec_status`` alone. Everything else is judged in full: no status,
     Draft, In Progress, Superseded, or a status nobody can parse. An exemption that widened to
     "anything that does not say Draft" would let the next unlabelled spec through, which is the
     silent direction.
@@ -1032,7 +1334,7 @@ def check_spec_shape() -> list[str]:
     findings = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
         text = path.read_text()
-        if spec_status(text) in SPEC_SHAPE_EXEMPT:
+        if spec_status(path) in SPEC_SHAPE_EXEMPT:
             continue
         lines = _prose_lines(text)
         for section in SPEC_REQUIRED_SECTIONS:
@@ -1049,8 +1351,6 @@ def check_spec_shape() -> list[str]:
         placeholders = [
             marker for marker in SPEC_PLACEHOLDERS if any(marker in line for _, line in lines)
         ]
-        if any(line.startswith("**Last Updated") and "YYYY-MM-DD" in line for _, line in lines):
-            placeholders.append("YYYY-MM-DD")
         if placeholders:
             findings.append(
                 f"{WARNING}{path.name}: unfilled template placeholder(s): {', '.join(placeholders)}"
@@ -1974,8 +2274,8 @@ def check_always_loaded_pointers() -> list[str]:
 
     CLAUDE.md is a router: it carries pointers instead of the detail it points at, and every cut
     has deepened that reliance. The same is true of the two always-loaded process files and of
-    each area's Fences, which carry the pointers the digest carried when it lived in CLAUDE.md —
-    the identity fences point at the API plane page, for one. A pointer is only a cut worth
+    each decision's fence, which carries the pointers the digest carried when it lived in CLAUDE.md
+    — the identity fences point at the API plane page, for one. A pointer is only a cut worth
     making while it resolves, and nothing else here reads it — ``check_links`` matches
     ``[text](target)`` markdown links, and ``check_doc_paths_everywhere`` walks code suffixes, so
     a bare ``@`` pointer in a ``.md`` file falls between them. Verified by planting a broken one,
@@ -1985,13 +2285,13 @@ def check_always_loaded_pointers() -> list[str]:
       None.
 
     Returns:
-      One message per ``@`` pointer in an always-loaded file or a Fences entry that names a
+      One message per ``@`` pointer in an always-loaded file or a fence that names a
       ``.md`` file under ``DOC_TREES`` and does not resolve. Deliberately narrow, and the gaps are
       real: a pointer to a DIRECTORY (``@docs/testing/``), to a tree outside ``DOC_TREES``
       (``@scripts/…``), or with the tree itself misspelt (``@doc/process/INDEX.md``) is invisible
       to this, and CLAUDE.md carries live pointers of the first kind. Widening it needs the glob
-      placeholders (``@docs/specs/SPEC-XXX-*.md``, ``@docs/decisions/<area>.md``) handled
-      deliberately rather than by accident of this character class.
+      placeholder (``@docs/specs/SPEC-XXX-*.md``) handled deliberately rather than by accident of
+      this character class.
 
     Raises:
       None.
@@ -2003,16 +2303,22 @@ def check_always_loaded_pointers() -> list[str]:
     for rel in always_loaded_process():
         if (ROOT / rel).exists():
             sources.append((rel, (ROOT / rel).read_text()))
-    for _, target in decision_table():
-        rel = target.partition("#")[0]
-        if (ROOT / rel).exists():
-            sources.append((rel + " (Fences)", "\n".join(fences_section(ROOT / rel) or [])))
-    return [
+    for _, path in _register_files():
+        fence = read_frontmatter(path).keys.get("description")
+        if fence:
+            sources.append((f"{path.relative_to(ROOT).as_posix()} (fence)", fence))
+    errors = [
         f"{name}: points at a missing doc -> @{target}"
         for name, text in sources
         for target in sorted(set(pattern.findall(text)))
         if not (ROOT / target).exists()
     ]
+    errors.extend(
+        f"{name}: imports @{target} bare, which loads the whole index every session — write the pointer in backticks"
+        for name, text in sources
+        for target in sorted(set(re.findall(r"(?<!`)@(docs/(?:specs|decisions)/index\.yaml)", text)))
+    )
+    return errors
 
 
 def check_doc_paths_everywhere() -> list[str]:
@@ -2073,8 +2379,8 @@ def check_doc_paths_everywhere() -> list[str]:
 
 
 RULE_BODY = (
-    "This file is in the **{area}** area of the Key Decisions register.\n"
-    "Before changing it, read `{target}` — the traps there apply green and fail later.\n"
+    "Files matching these paths are governed by the **{area}** decisions in `docs/decisions/{slug}/`.\n"
+    "Read the area's fences in `docs/decisions/index.yaml` first — they are not loaded with CLAUDE.md.\n"
 )
 
 
@@ -2135,14 +2441,14 @@ def _paths_globs(frontmatter: str) -> list[str] | None:
 
 
 def check_rules() -> list[str]:
-    """Require one path-scoped pointer rule per Key Decisions area, and nothing else in it.
+    """Require one path-scoped pointer rule per area that governs code, and nothing else in it.
 
-    ``.claude/rules/<area>.md`` is Claude Code's mechanism for loading a file only when a
+    ``.claude/rules/decisions-<slug>.md`` is Claude Code's mechanism for loading a file only when a
     matching source file is read. Here each rule is a backstop that points a session touching an
-    area's code at that area's Fences; the fence itself has one home, in the register. So a rule
-    is held to being exactly that: named for the register file, a ``paths`` list at byte 0 whose
-    every glob matches something in the tree, and a body carrying a pointer that
-    resolves — a body that IS the rendered ``RULE_BODY`` and nothing more, because a committed rule
+    area's code at that area's fences; the fence itself has one home, in the register. So a rule
+    is held to being exactly that: named for the area, a ``paths`` list at byte 0 equal to what the
+    area's concept declares in ``governs``, whose every glob matches something in the tree, and a
+    body that IS the rendered ``RULE_BODY`` and nothing more, because a committed rule
     reaches every teammate's session on any Read of a matching file, and a body held to a template
     is the only shape that leaves no room for a line that is not a pointer. Each glob's first
     segment must be literal, which bounds a rule to one top-level tree; how wide it reaches within
@@ -2171,18 +2477,23 @@ def check_rules() -> list[str]:
       None.
 
     Returns:
-      One message per area without a rule, per rule for no area, and per rule breaking the shape.
+      One message per governing area without a rule, per rule for no area or for an area that
+      governs nothing, per glob ``governs`` and ``paths`` disagree on, and per rule breaking the shape.
 
     Raises:
       None.
     """
     rules_dir = ROOT / ".claude" / "rules"
-    expected = {pathlib.Path(target.partition("#")[0]).stem: (area, target) for area, target in decision_table()}
+    expected = {}
+    for area, slug in decision_table():
+        concept = ROOT / "docs" / "decisions" / slug / f"{slug}.md"
+        governs = read_frontmatter(concept).lists.get("governs") if concept.exists() else None
+        expected[f"decisions-{slug}"] = (area, slug, governs)
     found = {p.stem: p for p in rules_dir.glob("*.md")} if rules_dir.is_dir() else {}
     errors = [
-        f".claude/rules/{stem}.md is missing — every Key Decisions area has one pointer rule"
-        for stem in expected
-        if stem not in found
+        f".claude/rules/{stem}.md is missing — every area that governs a tree has one pointer rule"
+        for stem, (_, _, governs) in expected.items()
+        if stem not in found and governs
     ]
     nested = [p for p in rules_dir.rglob("*.md") if p.parent != rules_dir] if rules_dir.is_dir() else []
     errors.extend(
@@ -2193,13 +2504,20 @@ def check_rules() -> list[str]:
     for stem, path in sorted(found.items()):
         rel = f".claude/rules/{path.name}"
         if stem not in expected:
-            errors.append(f"{rel}: names no Key Decisions area — a rule is a pointer to an area's Fences, nothing else")
+            errors.append(f"{rel}: names no Key Decisions area — a rule is a pointer to an area's fences, nothing else")
+            continue
+        area, slug, governs = expected[stem]
+        if governs == []:
+            errors.append(f"{rel}: its area governs nothing (`governs: []`), and an area that governs no tree has no rule")
             continue
         text = path.read_text()
         if not text.startswith("---\n") or "\n---\n" not in text[4:]:
             errors.append(f"{rel}: does not open with a ----fenced frontmatter block — Claude Code would load it every session")
             continue
         frontmatter, body = text[4:].split("\n---\n", 1)
+        extra_keys = re.findall(r"^[^\s:]+:", frontmatter, re.MULTILINE)
+        if extra_keys != ["paths:"] and extra_keys and extra_keys[0] == "paths:":
+            errors.append(f"{rel}: its frontmatter holds {extra_keys[1:]} as well as `paths:` — a rule is a path scope and nothing else")
         globs = _paths_globs(frontmatter)
         if globs is None:
             errors.append(f"{rel}: writes `paths:` inline — write the list one `- \"glob\"` per line so this check can read it")
@@ -2218,12 +2536,117 @@ def check_rules() -> list[str]:
                 files = _tree_files()
             if not any(fnmatch.fnmatch(f, glob) for f in files):
                 errors.append(f"{rel}: the glob {glob!r} matches no file in the tree")
-        area, target = expected[stem]
-        if body.strip() != RULE_BODY.format(area=area, target=target).strip():
-            errors.append(f"{rel}: body is not the rendered RULE_BODY for '{area}' — a rule is a pointer to {target} and nothing else")
-        elif fences_section(ROOT / target.partition("#")[0]) is None:
-            errors.append(f"{rel}: points at {target}, which has no ## Fences entry")
+        if governs is not None:
+            errors.extend(f"{rel}: lists {glob!r}, which the area's `governs` does not" for glob in globs if glob not in governs)
+            errors.extend(f"{rel}: does not list {glob!r}, which the area's `governs` does" for glob in governs if glob not in globs)
+        if body.strip() != RULE_BODY.format(area=area, slug=slug).strip():
+            errors.append(f"{rel}: body is not the rendered RULE_BODY for '{area}' — a rule is a pointer to the area's fences and nothing else")
     return errors
+
+
+FOOTNOTE_RE = re.compile(r"\[\^([^\]\s]+)\]")
+
+
+def _rulebook_problems(path: pathlib.Path, now: datetime.datetime) -> list[str]:
+    """What is wrong with one rulebook: its keys, its sources, its date and its citations.
+
+    A rulebook states rules an agent follows without checking them, so a rule resting on a
+    version-specific fact says where the fact came from, by a footnote whose label is the source's
+    id. Code spans and fenced blocks are skipped, so a regex such as ``[^a-z]`` written in a rule
+    is not read as a footnote.
+
+    Args:
+      path: The rulebook.
+      now: The current instant, UTC.
+
+    Returns:
+      One message per problem; a rulebook inside its warning window yields one ``WARNING`` message.
+
+    Raises:
+      None.
+    """
+    rel = path.relative_to(ROOT).as_posix()
+    fields = read_frontmatter(path)
+    if fields.errors:
+        return _refusals(rel, fields)
+    errors = _listed_scalars(rel, fields, ())
+    keys = fields.keys
+    if keys.get("type") != "Rulebook":
+        errors.append(f"{rel}: type is {keys.get('type')!r}, not 'Rulebook'")
+    errors.extend(f"{rel}: frontmatter has no `{key}`" for key in ("title", "description", "stale_after") if not keys.get(key, "").strip())
+    if not fields.sources:
+        errors.append(f"{rel}: frontmatter has no `sources` — a rulebook says where its version-specific facts came from")
+    ids: list[str] = []
+    by_id: dict[str, dict[str, str]] = {}
+    for number, source in sorted(fields.sources.items()):
+        errors.extend(f"{rel}: source {number} has no `{key}`" for key in ("id", "resource", "title") if not source.get(key))
+        if source.get("id") in ids:
+            errors.append(f"{rel}: source id {source['id']!r} is used twice")
+        if source.get("id"):
+            ids.append(source["id"])
+            by_id[source["id"]] = source
+        if source.get("resource") and not re.fullmatch(r"https?://\S+", source["resource"]):
+            errors.append(f"{rel}: source {number}'s resource {source['resource']!r} is not a URL")
+    stale_after = keys.get("stale_after", "")
+    if stale_after:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stale_after):
+                raise ValueError(stale_after)
+            when = datetime.datetime.strptime(stale_after, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.UTC)
+        except ValueError:
+            errors.append(f"{rel}: stale_after {stale_after!r} is not a real YYYY-MM-DDTHH:MM:SSZ instant")
+        else:
+            if now >= when:
+                errors.append(f"{rel}: is stale since {stale_after}: re-fetch every source it cites, correct any rule a source no longer supports, and move stale_after forward about a year")
+            elif now >= when - datetime.timedelta(days=STALE_WARNING_DAYS):
+                errors.append(f"{WARNING}{rel}: goes stale at {stale_after}, and this gate fails from then on: re-fetch every source it cites, correct any rule a source no longer supports, and move stale_after forward about a year")
+    prose = _body_prose(path, fields.body_line)
+    defined: set[str] = set()
+    cited: set[str] = set()
+    for number, line in prose:
+        definition = re.match(r"^\[\^([^\]\s]+)\]:", line)
+        if definition:
+            name = definition.group(1)
+            if name in defined:
+                errors.append(f"{rel}:{number}: footnote [^{name}] is defined twice")
+            defined.add(name)
+            line = line[definition.end():]
+            if name not in ids:
+                errors.append(f"{rel}:{number}: footnote [^{name}] names no source in the frontmatter")
+            elif by_id[name].get("resource", "") not in line or by_id[name].get("title", "") not in line:
+                errors.append(f"{rel}:{number}: footnote [^{name}]'s definition does not give its source's title and URL")
+        for reference in FOOTNOTE_RE.findall(ANY_CODE_SPAN_RE.sub("", line)):
+            cited.add(reference)
+            if reference not in ids:
+                errors.append(f"{rel}:{number}: footnote [^{reference}] names no source in the frontmatter")
+    errors.extend(f"{rel}: footnote [^{name}] is cited and never defined" for name in sorted(cited - defined))
+    errors.extend(f"{rel}: source {name!r} is cited nowhere — a source that supports no version-specific rule is cited once, in the opening paragraph" for name in ids if name not in cited)
+    return errors
+
+
+def check_rulebooks() -> list[str]:
+    """Hold every rulebook to its frontmatter and its sources, and to the date they must be re-read by.
+
+    Reads the clock as well as the tree, the one check here that does: the same commit passes before
+    the instant and fails after it. ``STALE_WARNING_DAYS`` says why this gate warns first, where the
+    template does not. There is no "now" override, which would be a bypass; the corpus uses dates
+    far in the past and future, and one computed from today for the window.
+
+    Args:
+      None.
+
+    Returns:
+      One message per problem, and one when no rulebook was found at all, since a check that read
+      nothing reads exactly like a clean one.
+
+    Raises:
+      None.
+    """
+    now = datetime.datetime.now(datetime.UTC)
+    books = [path for tree in RULEBOOK_TREES if (ROOT / tree).is_dir() for path in _docs_in(tree) if path.name != "INDEX.md"]
+    if not books:
+        return [f"no rulebook found under {', '.join(RULEBOOK_TREES)} — this check read nothing. If they moved, move RULEBOOK_TREES with them."]
+    return [problem for path in books for problem in _rulebook_problems(path, now)]
 
 
 def main() -> int:
@@ -2247,10 +2670,12 @@ def main() -> int:
         check_claude_budget,
         check_process_budget,
         check_decisions_register,
-        check_fences,
+        check_indexes,
         check_rules,
+        check_rulebooks,
         check_process_router,
         check_arcs,
+        check_spec_frontmatter,
         check_spec_status,
         check_spec_shape,
         check_spec_size,

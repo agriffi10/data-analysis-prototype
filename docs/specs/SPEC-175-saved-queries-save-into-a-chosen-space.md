@@ -1,10 +1,15 @@
-# Spec: Saved Queries — Saving into a Chosen Space
+---
+type: Spec
+id: SPEC-175
+title: "Saved Queries — Saving into a Chosen Space"
+description: "Lets users save a query into their own space or any shared space they actively belong to, writing a .sql file every member of that space can find and run."
+spec_status: Completed
+depends_on: [SPEC-173, SPEC-174, SPEC-163]
+arc: saved-queries-in-spaces
+arc_order: 3
+---
 
-**ID:** SPEC-175
-**Status:** Completed
-**Last Updated:** 2026-08-11
-**Depends On:** SPEC-173 (the store and the folder), SPEC-174 (the space selector and the load surface), SPEC-163 (the gated-surface registry)
-
+**Dependency notes:** SPEC-173 (the store and the folder), SPEC-174 (the space selector and the load surface), SPEC-163 (the gated-surface registry)
 ## Overview
 
 SPEC-174 let a user load a saved query from any space they belong to, but every save still landed in their own. This spec closes the loop: saving a query starts by choosing where it goes — the user's own space, or any shared space they are an active member of — and writes a `.sql` file there that every member of that space can then find and run. It is the half of the feature that makes a shared space's `saved_queries/` folder ever contain anything.

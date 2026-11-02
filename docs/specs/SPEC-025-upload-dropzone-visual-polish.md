@@ -1,9 +1,11 @@
-# Spec: Upload Dropzone Visual Polish
-
-**ID:** SPEC-025  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-025
+title: "Upload Dropzone Visual Polish"
+description: "Restyles the upload dropzone with a dashed drop target that turns indigo on drag-over and a 6px accent progress bar with percentage, and aligns the new-folder control to design system button styles."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

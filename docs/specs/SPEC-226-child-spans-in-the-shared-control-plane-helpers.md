@@ -1,10 +1,15 @@
-# Spec: Child Spans for the Seven Flat Planes
+---
+type: Spec
+id: SPEC-226
+title: "Child Spans for the Seven Flat Planes"
+description: "Adds child spans around bounded internal steps in the seven planes that had none (archive, file-ops, file-send, results-conversion, shared-space, table-builder, table-share), for operators diagnosing slow verbs."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-224]
+arc: observability-continuation
+arc_order: 3
+---
 
-**ID:** SPEC-226
-**Status:** Completed
-**Last Updated:** 2026-09-08
-**Depends On:** SPEC-130 (Completed), SPEC-224 (Completed)
-
+**Dependency notes:** SPEC-130 (Completed), SPEC-224 (Completed)
 ## Overview
 
 `cpcommon.observability.step(name)` opens a child span around one named internal step, turning "the
@@ -93,7 +98,7 @@ fleet-wide guard now sweeps every step name against every verb name.
 > **Amended since (no spec — a papercut fix).** The pre-existing collision this spec excused by name
 > is gone: data-quality's step is `write-inspection-manifest`, so the guard excuses nothing and both
 > the named item and its staleness companion have been deleted. Full entry:
-> `docs/decisions/control-planes.md` → *Where a child span may go, and the four places it may not*.
+> `docs/decisions/control-planes/` → *Where a child span may go, and the four places it may not*.
 
 The literal table is asserted as a **sorted list, not a set**: set equality hides two functions
 sharing one span name.

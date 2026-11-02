@@ -1,8 +1,13 @@
-# Spec: Cross-Database Querying (drop the active-database session)
-
-**ID:** SPEC-077
-**Status:** Completed
-**Last Updated:** 2026-07-03
+---
+type: Spec
+id: SPEC-077
+title: "Cross-Database Querying (drop the active-database session)"
+description: "Lets users query any database they can access and join across databases in one query by removing the active-database concept, making the schema rail browse-only and requiring database.table names."
+spec_status: Completed
+depends_on: [SPEC-047, SPEC-052, SPEC-063, SPEC-065]
+arc: query-editor-round-5
+arc_order: 1
+---
 
 > **Implementation notes (2026-07-03, user decisions).** Two scope changes were confirmed with the user during
 > implementation:
@@ -15,8 +20,8 @@
 > - Run-time shared-result routing (the SPEC-055 `resultOutputLocation` path) is removed with the active database —
 >   results always land in the personal prefix; a shared destination is chosen only at Save time (unchanged
 >   SPEC-049/055 picker). The now-orphaned `resultOutputLocation` was deleted.
-**Depends On:** SPEC-047 (workspace database selector — superseded here), SPEC-052 (`useConnections`), SPEC-063 (schema-rail tree), SPEC-065 (editor autocomplete)
 
+**Dependency notes:** SPEC-047 (workspace database selector — superseded here), SPEC-052 (`useConnections`), SPEC-063 (schema-rail tree), SPEC-065 (editor autocomplete)
 ## Overview
 
 Today the query workspace forces the user to pick **one** active database (SPEC-047,

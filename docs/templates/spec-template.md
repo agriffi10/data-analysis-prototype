@@ -1,9 +1,19 @@
-# Spec: [Feature Name]
+---
+type: Spec
+id: SPEC-XXX
+title: "[Feature Name]"
+description: "[Feature Name] in one sentence: what it delivers, and for whom."
+spec_status: Draft
+depends_on: []
+---
 
-**ID:** SPEC-XXX  
-**Status:** Draft | In Progress | Completed  
-**Last Updated:** YYYY-MM-DD  
-**Depends On:** SPEC-XXX, SPEC-XXX (or "None")
+<!--
+  The frontmatter above is the ONE home of this spec's id, title, status and dependencies: never
+  restate them in the body. id is SPEC-<number> and equals the filename prefix; depends_on lists the
+  spec ids this one needs, e.g. [SPEC-003, SPEC-007], or [] for none. A spec in an arc adds two keys,
+  arc: <slug> and arc_order: <place>. Run `sh scripts/gen-index.sh` after any frontmatter change.
+  docs/process/knowledge-layout.md is the full statement. Delete this comment.
+-->
 
 ## Overview
 

@@ -1,9 +1,11 @@
-# Spec: Count a Result's Rows from Athena's Own Statistics, Not by Walking Every Page
-
-**ID:** SPEC-231
-**Status:** Completed
-**Last Updated:** 2026-09-13
-**Depends On:** SPEC-080, SPEC-199
+---
+type: Spec
+id: SPEC-231
+title: "Count a Result's Rows from Athena's Own Statistics, Not by Walking Every Page"
+description: "Shows a succeeded query's exact row count from Athena's runtime statistics through one API route instead of walking every result page, still counting by walking where Athena does not count, for Query users."
+spec_status: Completed
+depends_on: [SPEC-080, SPEC-199]
+---
 
 ## Overview
 

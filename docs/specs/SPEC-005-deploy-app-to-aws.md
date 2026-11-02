@@ -1,10 +1,13 @@
-# Spec: Deploy App to AWS — GitHub Actions Pipeline
+---
+type: Spec
+id: SPEC-005
+title: "Deploy App to AWS — GitHub Actions Pipeline"
+description: "Gives operators GitHub Actions pipelines that deploy the SPA to S3 and CloudFront and apply OpenTofu infra changes on merge to main, authenticating to AWS through GitHub OIDC with no stored credentials."
+spec_status: Completed
+depends_on: [SPEC-003, SPEC-004]
+---
 
-**ID:** SPEC-005  
-**Status:** Completed  
-**Last Updated:** 2026-06-09  
-**Depends On:** SPEC-003 (OIDC provider, deployment role, static assets S3 bucket, and CloudFront distribution must exist), SPEC-004 (CI must be passing before deploy runs)
-
+**Dependency notes:** SPEC-003 (OIDC provider, deployment role, static assets S3 bucket, and CloudFront distribution must exist), SPEC-004 (CI must be passing before deploy runs)
 ---
 
 ## Overview

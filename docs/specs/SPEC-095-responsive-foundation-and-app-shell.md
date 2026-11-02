@@ -1,9 +1,13 @@
-# Spec: Responsive Foundation & App Shell
-
-**ID:** SPEC-095
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None
+---
+type: Spec
+id: SPEC-095
+title: "Responsive Foundation & App Shell"
+description: "Gives developers the shared responsive foundation, a breakpoint vocabulary, hamburger off-canvas nav drawer, responsive top bar, mobile bottom action bar and bottom-sheet Modal and Drawer, for later surface specs."
+spec_status: Completed
+depends_on: []
+arc: responsive-and-files-ux
+arc_order: 1
+---
 
 ## Overview
 

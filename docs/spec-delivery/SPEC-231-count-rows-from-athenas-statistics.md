@@ -30,7 +30,7 @@
   was a 200.
 - **Docs:** the "GetQueryResults calls are free" premise is corrected. `e2e.md` §4.3 has four
   row-count live checks, and §4.5 rows 5 and 15 are corrected. The `owed.md` defect is closed, the
-  register entry is in `docs/decisions/analytics.md` with a Fences clause, and `ARCS.md` marks
+  register entry is in `docs/decisions/analytics/` with a Fences clause, and `ARCS.md` marks
   SPEC-080's line superseded.
 
 ### Deliberate deviations

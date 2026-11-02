@@ -1,10 +1,13 @@
-# Spec: Read-Only Member Roster for Shared-Connection Members
+---
+type: Spec
+id: SPEC-075
+title: "Read-Only Member Roster for Shared-Connection Members"
+description: "Lets every member of a shared connection see a read-only roster of all members, with the owner tagged and listed first and no add or remove controls, reversing the earlier owner-only visibility."
+spec_status: Completed
+depends_on: [SPEC-053, SPEC-056, SPEC-062, SPEC-073]
+---
 
-**ID:** SPEC-075
-**Status:** Completed
-**Last Updated:** 2026-07-03
-**Depends On:** SPEC-053 (owner member management), SPEC-056 (access model + registry), SPEC-062 (decomposed control plane), SPEC-073 (per-member join status)
-
+**Dependency notes:** SPEC-053 (owner member management), SPEC-056 (access model + registry), SPEC-062 (decomposed control plane), SPEC-073 (per-member join status)
 > **Implementation note (2026-07-03).** This spec's Data Model says the roster is `members: string[]`, written
 > before SPEC-073 shipped per-member join status. SPEC-073 changed the owner projection (and the frontend
 > `SharedConnectionEntry.members`) to `Member[]` (`{username, status}`). So the member roster is implemented as

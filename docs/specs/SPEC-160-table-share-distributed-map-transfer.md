@@ -1,10 +1,15 @@
-# Spec: Table Share at Scale — Transfer Manifest & Distributed-Map Copy
+---
+type: Spec
+id: SPEC-160
+title: "Table Share at Scale — Transfer Manifest & Distributed-Map Copy"
+description: "Replaces table share's single-Lambda copy with a Step Functions Distributed Map over an admin-bucket transfer manifest, in a shared cpcommon copy engine, so large tables can be shared with unchanged behavior."
+spec_status: Completed
+depends_on: [SPEC-090, SPEC-091, SPEC-092, SPEC-152, SPEC-156]
+arc: table-share-at-scale
+arc_order: 1
+---
 
-**ID:** SPEC-160
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-090 (copy plan + cloned definition), SPEC-091 (recipient Map, `tscommon.copy`), SPEC-092 (create-table + terminal states), SPEC-152 (`NotifyFailure` on every plane), SPEC-156 (`cpcommon` owns the algorithm)
-
+**Dependency notes:** SPEC-090 (copy plan + cloned definition), SPEC-091 (recipient Map, `tscommon.copy`), SPEC-092 (create-table + terminal states), SPEC-152 (`NotifyFailure` on every plane), SPEC-156 (`cpcommon` owns the algorithm)
 ## Overview
 
 Sharing a table today copies every object inside **one** `copy-objects` Lambda invocation per

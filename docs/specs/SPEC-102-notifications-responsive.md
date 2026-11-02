@@ -1,9 +1,13 @@
-# Spec: Notifications page — responsive layout
-
-**ID:** SPEC-102
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** SPEC-095
+---
+type: Spec
+id: SPEC-102
+title: "Notifications page — responsive layout"
+description: "Makes the Notifications page responsive, keeping the inline header on desktop and tablet and stacking it on mobile with a full-width Mark-read button under each message and touch-sized pager buttons."
+spec_status: Completed
+depends_on: [SPEC-095]
+arc: responsive-and-files-ux
+arc_order: 8
+---
 
 ## Overview
 

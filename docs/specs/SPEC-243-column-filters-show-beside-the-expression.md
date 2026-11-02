@@ -1,10 +1,15 @@
-# Spec: A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query
+---
+type: Spec
+id: SPEC-243
+title: "A Column Filter Shows Beside the Expression, and the Generated SQL Opens in Query"
+description: "Shows each Data Explorer column filter as a removable chip beside the expression box and adds Open in Query to the Generated SQL panel, copying the statement into a new editable Query tab, for users."
+spec_status: Completed
+depends_on: [SPEC-181, SPEC-183, SPEC-238, SPEC-242]
+arc: tester-feedback
+arc_order: 6
+---
 
-**ID:** SPEC-243
-**Status:** Completed
-**Last Updated:** 2026-09-21
-**Depends On:** SPEC-181, SPEC-183, SPEC-238, SPEC-242, and the Copy SQL control #804 added
-
+**Dependency notes:** SPEC-181, SPEC-183, SPEC-238, SPEC-242, and the Copy SQL control #804 added
 ## Overview
 
 Three testers ran into the same wall between the Data Explorer's two ways of filtering. A filter set

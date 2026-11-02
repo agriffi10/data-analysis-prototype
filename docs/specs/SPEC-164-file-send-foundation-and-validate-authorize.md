@@ -1,10 +1,15 @@
-# Spec: Send Files — Foundation Infrastructure, Request Contract & validate-authorize
+---
+type: Spec
+id: SPEC-164
+title: "Send Files — Foundation Infrastructure, Request Contract & validate-authorize"
+description: "Builds the Send Files control plane (queue, pipe, state machine, role, domain layer) and its first verb, validate-authorize, which checks the sender can read the files and every recipient exists."
+spec_status: Completed
+depends_on: [SPEC-088, SPEC-089, SPEC-107, SPEC-125, SPEC-156, SPEC-126, SPEC-152, SPEC-160]
+arc: send-files
+arc_order: 1
+---
 
-**ID:** SPEC-164
-**Status:** Completed
-**Last Updated:** 2026-08-11
-**Depends On:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
-
+**Dependency notes:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
 ## Overview
 
 A user can copy and move files anywhere **inside** a space they can reach, and can share a *table*

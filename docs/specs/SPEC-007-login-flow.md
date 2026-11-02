@@ -1,10 +1,13 @@
-# Spec: User Login Flow — Cognito Hosted UI + Amplify
+---
+type: Spec
+id: SPEC-007
+title: "User Login Flow — Cognito Hosted UI + Amplify"
+description: "Lets users sign in and out through the Cognito Hosted UI with Amplify managing the session, and exposes the authenticated user's identity to the rest of the app without yet restricting any page."
+spec_status: Completed
+depends_on: [SPEC-006]
+---
 
-**ID:** SPEC-007
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-006 (Cognito User Pool must exist and be applied)
-
+**Dependency notes:** SPEC-006 (Cognito User Pool must exist and be applied)
 ## Overview
 
 Give users the ability to sign in to and out of the portal. The app redirects to the Cognito Hosted UI for credential entry; on return, Amplify v6 establishes and persists the session, and the app exposes the authenticated user's identity to the rest of the UI. This spec delivers session management as a capability — it does **not** yet restrict access to any page (SPEC-008) or connect authentication to S3 access (future spec: the shared IAM role and STS integration are not yet provisioned).

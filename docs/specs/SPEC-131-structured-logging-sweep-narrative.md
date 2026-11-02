@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Narrate the Log Sweep
+---
+type: Spec
+id: SPEC-131
+title: "Structured Logging — Narrate the Log Sweep"
+description: "Makes the log sweep narrate its own intake, destinations and per-destination success or failure as structured events, without emitting one event per consumed message."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-127, SPEC-129]
+arc: observability
+arc_order: 5
+---
 
-**ID:** SPEC-131
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-127/129 (the sweep itself)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-127/129 (the sweep itself)
 > **Superseded in part, 2026-09-11.** A later wave loop made FR-001's `receive` span and
 > `received` event, FR-002's `append-day` span and per-destination events, and FR-003's per-retry,
 > per-read and failed-delete warnings fire once per wave, in a function that emits into the queue

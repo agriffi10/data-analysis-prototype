@@ -698,7 +698,7 @@ Two constraints on this model, both confirmed:
 One constraint of ours, from the app side: the Query page shows Athena's own message for a query
 that failed on the user's SQL, and three of the classes it shows quote the failing cell value. Before
 a row predicate ships, confirm Athena applies the filter before the user's predicate, or drop those
-classes — the rule and its reasoning are in `docs/decisions/browser.md`, *User-facing error messaging*.
+classes — the rule and its reasoning are in `docs/decisions/browser/`, *User-facing error messaging*.
 
 ### 3.8 The reconciler
 
@@ -1155,7 +1155,7 @@ missing entitlement is total loss of access.
 operator break-glass transfer should be able to reach somebody who is not a member, the UI staying
 members-only. It waits for this projection: on the interim plane it would contradict the transfer
 verb's own stated premise that membership does not change, and would be rebuilt against grants
-straight after. The threat model is not open — `docs/decisions/control-planes.md`'s SPEC-217 entry
+straight after. The threat model is not open — `docs/decisions/control-planes/`'s SPEC-217 entry
 already records that an operator row grants a stranger live access, which is the objection SPEC-208
 raised in putting a non-member transfer out of scope. What the work carries is a rule still stated
 as absolute in the API contract, the browser types, the refusal copy and the Help, and this
@@ -1700,7 +1700,7 @@ built the answer — a runtime `/config.json`, same-origin and `no-store`, read 
 `lib/env.ts`'s literal table kept as the dev fallback and a dynamic import in `main.tsx` because a
 module's static imports evaluate before its first statement runs. The contract is
 `apps/portal/info/runtime-configuration.md` and the reasoning is in
-`docs/decisions/infrastructure.md`; SPEC-215 later moved the values themselves out of repository
+`docs/decisions/infrastructure/`; SPEC-215 later moved the values themselves out of repository
 variables and into Terraform state.
 
 **The superseded marker SPEC-192 asked this section for, stated once so nobody hunts it:** this
@@ -1989,7 +1989,7 @@ what remains is **one configured claim name in one verifier** (`oidc_username_cl
 `infra/main.tf`), plus the SPA's own `getCurrentUser().username`, which is not the claim string at
 all but **fans out to roughly twenty call sites building S3 prefixes and Glue database names**. A
 fleet sweep fails if any shipped Lambda module writes a provider's claim name as a literal, so the
-list cannot silently regrow. The full record of what moved and where: `docs/decisions/identity-and-access.md`.
+list cannot silently regrow. The full record of what moved and where: `docs/decisions/identity-and-access/`.
 
 **The [B] guardrail is a security control, not hygiene.** The app client must **not** have write
 permission on whatever attribute carries the username. Cognito custom attributes are writable by
@@ -2749,10 +2749,10 @@ the bucket registration, the user-space bucket policy template, and the shared-s
 verb all **stay**. The portal owns them in the successor account (§4.2).
 
 Documentation to rewrite when this lands: `docs/architecture.md` (*Identity*, *Authorization*, and
-the ADR rows for both, which §3.5 breaks), `docs/decisions/identity-and-access.md` (auth and
-shared-space material) and `docs/decisions/analytics.md` (Lake Formation), plus a new entry for the
-federated claim — the register is one file per area with a Contents at the top of each, so find the
-entry by its heading rather than reading the file,
+the ADR rows for both, which §3.5 breaks), `docs/decisions/identity-and-access/` (auth and
+shared-space material) and `docs/decisions/analytics/` (Lake Formation), plus a new entry for the
+federated claim — the register is one file per decision, so find the
+entry through its area's block in `docs/decisions/index.yaml`,
 `lambdas/info/planes/shared-spaces.md` (ownership model), and the in-app help content per the
 SPEC-074 rule.
 

@@ -31,11 +31,11 @@ tree, and holds no rules of its own.
 
 | File(s) | Loaded | Authoritative for |
 |---|---|---|
-| `docs/specs/INDEX.md` + each spec header | on demand | spec **status**, one row per spec |
+| `docs/specs/index.yaml` (generated from each spec's frontmatter) | on demand | spec **status**, dependencies and arc order |
 | `docs/specs/SPEC-XXX-*.md` | the one you're building | requirements + phases |
 | `docs/specs/ARCS.md` | the arc you're in | why an arc exists, how its specs compose |
 | `docs/architecture.md` | whole, when you need orientation | **how the system works** — the pieces, how a request travels, and the ADR table indexing the decisions that shaped it. Short by design; it holds no rules and no trap lists |
-| `docs/decisions/INDEX.md` → one area file | the *entry* for your area | settled decisions in full and the "do NOT build" fences, **one file per area, matching the rows of CLAUDE.md's Key Decisions table** |
+| `docs/decisions/index.yaml` → one decision's file | your area's block, then the *entry* you need | settled decisions in full and the "do NOT build" fences, **one file per decision, one directory per row of CLAUDE.md's Key Decisions table** |
 | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
 | `docs/testing/e2e.md` + `owed.md` + `sessions.md` | when running live checks | how to validate the deployed app, what is still owed, and what has actually been run |
 | `docs/reviewer-contract.md` | when you are about to spend a reviewer, and when a build hits two FRs that cannot both hold | how many reviewers and where they run, briefing one, rotating the frame, adjudicating two FRs that cannot both hold, and when to stop — the method behind `session-rhythm.md`'s gate |

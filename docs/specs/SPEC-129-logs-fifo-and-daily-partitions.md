@@ -1,10 +1,15 @@
-# Spec: Logs Queue → FIFO, and One Object Per Service-Day
+---
+type: Spec
+id: SPEC-129
+title: "Logs Queue → FIFO, and One Object Per Service-Day"
+description: "Converts the structured-log queue to FIFO and halves the sweep cadence so each service-day lands in one object instead of one object per run, ending the many-tiny-files pattern for operators."
+spec_status: Completed
+depends_on: [SPEC-127, SPEC-128]
+arc: observability
+arc_order: 3
+---
 
-**ID:** SPEC-129
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-127 (the queue, the sweep), SPEC-128 (the data-quality producer)
-
+**Dependency notes:** SPEC-127 (the queue, the sweep), SPEC-128 (the data-quality producer)
 ## Overview
 
 Three changes to the structured-logging pipe SPEC-127/128 shipped, all driven by what running it

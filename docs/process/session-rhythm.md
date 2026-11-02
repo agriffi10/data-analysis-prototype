@@ -11,8 +11,8 @@ than restating it** — the second hand-synced copy is how the two drifted befor
    read the spec file as it exists now.
 2. For reuse, read the `apps/portal/info/component-inventory/<area>.md` file(s) the spec touches, and
    the `lambdas/info/planes/<plane>.md` page for any plane it changes; pull only the
-   `architecture.md` section you need, the `## Fences` of each `docs/decisions/` area the spec
-   touches, and then only the `decisions/` entry / dependency delivery-doc you actually need.
+   `architecture.md` section you need, the block in `docs/decisions/index.yaml` of each area the spec
+   touches, and then only the decision file / dependency delivery-doc you actually need.
 3. **Confirm `main` is green, verdict first:** `python3 scripts/watch_ci.py --branch main --once`.
    Then each path-filtered deploy's last outcome, read as `ci-and-deploy-traps.md` says: a red row
    is a failure to investigate, a green one proves nothing. Investigate failures before building.

@@ -1,9 +1,13 @@
-# Spec: A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell
-
-**ID:** SPEC-238
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-178, SPEC-181, SPEC-184
+---
+type: Spec
+id: SPEC-238
+title: "A Column Filter Can Match Part of a Value, a List of Values, or an Empty Cell"
+description: "Adds contains, does not contain, starts with, ends with, is one of, is not one of, is empty and is not empty as Data Explorer column filters, with the empty tests in Colors rules, for users."
+spec_status: Completed
+depends_on: [SPEC-178, SPEC-181, SPEC-184]
+arc: tester-feedback
+arc_order: 1
+---
 
 ## Overview
 

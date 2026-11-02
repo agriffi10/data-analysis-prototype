@@ -1,10 +1,15 @@
-# Spec: Structured Logging Foundation (`log-foundry` → logs queue → admin bucket)
+---
+type: Spec
+id: SPEC-127
+title: "Structured Logging Foundation (`log-foundry` → logs queue → admin bucket)"
+description: "Gives developers the zero-dependency log-foundry structured-logging library and a pipe that sweeps its JSON span records from an SQS queue into Hive-partitioned NDJSON under logs/ in the admin bucket."
+spec_status: Completed
+depends_on: [SPEC-032, SPEC-107, SPEC-126]
+arc: observability
+arc_order: 1
+---
 
-**ID:** SPEC-127
-**Status:** Completed
-**Last Updated:** 2026-07-22
-**Depends On:** SPEC-032 (admin bucket), SPEC-107 (`cpcommon` layer), SPEC-126 (the pull-sweep pattern this reuses)
-
+**Dependency notes:** SPEC-032 (admin bucket), SPEC-107 (`cpcommon` layer), SPEC-126 (the pull-sweep pattern this reuses)
 ## Overview
 
 Every Lambda in this repo logs with stdlib `logging` to CloudWatch, as free-form English.

@@ -1,10 +1,15 @@
-# Spec: Shared-Workspace Notification Producer
+---
+type: Spec
+id: SPEC-061
+title: "Shared-Workspace Notification Producer"
+description: "Makes each shared-space lifecycle Lambda (create, add members, remove members, leave, delete) send a notification to the affected users through the notifications queue, so people hear about space events."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-050, SPEC-051, SPEC-053, SPEC-054, SPEC-062]
+arc: notifications
+arc_order: 4
+---
 
-**ID:** SPEC-061
-**Status:** Completed
-**Last Updated:** 2026-06-29
-**Depends On:** SPEC-058 (notifications queue + `create` contract + writer), SPEC-050 (shared-space control plane: orchestrator role + Step Function), SPEC-051 (create path), SPEC-053 (add/remove members path), SPEC-054 (leave + delete-cascade path), SPEC-062 (control-plane decomposition: the single-task **verb Lambdas** + shared `notify` helper that host the emit calls)
-
+**Dependency notes:** SPEC-058 (notifications queue + `create` contract + writer), SPEC-050 (shared-space control plane: orchestrator role + Step Function), SPEC-051 (create path), SPEC-053 (add/remove members path), SPEC-054 (leave + delete-cascade path), SPEC-062 (control-plane decomposition: the single-task **verb Lambdas** + shared `notify` helper that host the emit calls)
 > **Structure note (SPEC-062):** the control plane is **single-task verb Lambdas** orchestrated by the Step
 > Function (`validate-authorize → Choice(action) → create-space | add-members | remove-members | leave |
 > delete-space`). The emit happens **inline in each verb Lambda** via a shared `emit_notification` helper in

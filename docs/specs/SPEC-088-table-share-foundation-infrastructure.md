@@ -1,10 +1,15 @@
-# Spec: Table Share — Foundation Infrastructure + Common Layer
+---
+type: Spec
+id: SPEC-088
+title: "Table Share — Foundation Infrastructure + Common Layer"
+description: "Gives developers the dedicated table-share control plane skeleton, a FIFO queue with DLQ, Pipe, Step Function with a recipient Map, shared Lambda layer and placeholder Lambdas, with no sharing logic yet."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-066, SPEC-032]
+arc: table-share
+arc_order: 1
+---
 
-**ID:** SPEC-088
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-050 (control-plane pattern), SPEC-066 (table-builder foundation — the mirrored precedent), SPEC-032 (analytics buckets/workgroup/LF)
-
+**Dependency notes:** SPEC-050 (control-plane pattern), SPEC-066 (table-builder foundation — the mirrored precedent), SPEC-032 (analytics buckets/workgroup/LF)
 > **Read `docs/table-share-architecture.md` first.** This spec builds the plumbing for the table-share arc (SPEC-088→094); it is deliberately behavior-free.
 
 ## Overview

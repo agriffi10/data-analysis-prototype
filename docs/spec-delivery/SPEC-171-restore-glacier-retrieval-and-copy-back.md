@@ -203,7 +203,7 @@ wording has to be argued for rather than merely passing.
   in kind: seconds of overlap is a double-submit, and hours is the user acting on a message this
   plane sent them. **— Superseded 2026-09-15: the residual is not seconds.** The heads run once,
   before a copy-back Map that runs for as long as the archive copy it mirrors, and a second restore
-  of one archive runs beside the first. `docs/decisions/archive-and-restore.md` (*The group id
+  of one archive runs beside the first. `docs/decisions/archive-and-restore/` (*The group id
   orders the STARTS, not the runs*) has both.
 - **FR-007 AC4 is DISCHARGED (2026-08-12, post-apply).** Thirteen rows against the deployed role,
   every denial paired with an `allowed` control — see the table in the live-check script. The four

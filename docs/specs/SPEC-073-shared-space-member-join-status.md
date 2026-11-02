@@ -1,10 +1,13 @@
-# Spec: Shared-Space Member Join Status (Pending / Active)
+---
+type: Spec
+id: SPEC-073
+title: "Shared-Space Member Join Status (Pending / Active)"
+description: "Shows shared-space owners a Pending or Active chip beside each member in Manage members, so they can see who has signed in since being added and can actually open the space."
+spec_status: Completed
+depends_on: [SPEC-053, SPEC-056, SPEC-062, SPEC-051, SPEC-050]
+---
 
-**ID:** SPEC-073
-**Status:** Completed
-**Last Updated:** 2026-07-03
-**Depends On:** SPEC-053 (add/remove members + owner-readable member projection), SPEC-056 (membership-slot principal tag), SPEC-062 (control-plane verb Lambdas + `shared-space-common` layer), SPEC-051/050 (FIFO SQS → EventBridge Pipe → Step Function control plane)
-
+**Dependency notes:** SPEC-053 (add/remove members + owner-readable member projection), SPEC-056 (membership-slot principal tag), SPEC-062 (control-plane verb Lambdas + `shared-space-common` layer), SPEC-051/050 (FIFO SQS → EventBridge Pipe → Step Function control plane)
 > **Origin:** UI feedback (2026-06-30). The Manage-members surface should distinguish a member who has
 > been *invited* (added by the owner, a valid user, but who has not yet picked up the space) from one who
 > has actually *joined* (signed in since being added, so their scoped credentials now carry the membership

@@ -1,10 +1,13 @@
-# Spec: Shared Spaces in the File Browser
+---
+type: Spec
+id: SPEC-057
+title: "Shared Spaces in the File Browser"
+description: "Lets users browse and operate on shared connections' files like their own, with a sidebar listing the personal space and each active shared connection, and every file operation rooted at the selected space."
+spec_status: Completed
+depends_on: [SPEC-052, SPEC-050, SPEC-056, SPEC-013, SPEC-015, SPEC-016, SPEC-017, SPEC-018, SPEC-019, SPEC-020, SPEC-039, SPEC-035, SPEC-044]
+---
 
-**ID:** SPEC-057
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-052 (`useConnections` returns personal + shared; status/role), SPEC-050 (shared bucket), SPEC-056 (membership-slot S3 perms incl. shared delete-denies), SPEC-013 (authenticated file browser + prefix model), SPEC-015→020 + SPEC-039 (file operations — all already `bucket`-parameterized), SPEC-035 (app shell / `Sidebar`), SPEC-044 (`/files?prefix=` deep-link)
-
+**Dependency notes:** SPEC-052 (`useConnections` returns personal + shared; status/role), SPEC-050 (shared bucket), SPEC-056 (membership-slot S3 perms incl. shared delete-denies), SPEC-013 (authenticated file browser + prefix model), SPEC-015→020 + SPEC-039 (file operations — all already `bucket`-parameterized), SPEC-035 (app shell / `Sidebar`), SPEC-044 (`/files?prefix=` deep-link)
 > **Reference:** `docs/shared-spaces-architecture.md` §3/§5. The **Files** surface lists the user's personal space and
 > their shared connections in **one** list; selecting a shared space browses `dat-prod-shared-space/{name}/` with the
 > same file browser. Per the user's model: "My Files would have alice, marketing_data, sales…". Managing connections

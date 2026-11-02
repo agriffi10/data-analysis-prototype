@@ -1,9 +1,13 @@
-# Spec: Saving an Exploration as a Saved Query
-
-**ID:** SPEC-183
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-177, SPEC-178, SPEC-181
+---
+type: Spec
+id: SPEC-183
+title: "Saving an Exploration as a Saved Query"
+description: "Lets users save a Data Explorer exploration's rendered SQL as a .sql file in a chosen space's saved_queries/ folder; loading a .sql file as an exploration source is deferred."
+spec_status: Completed
+depends_on: [SPEC-177, SPEC-178, SPEC-181]
+arc: data-explorer
+arc_order: 8
+---
 
 ## Overview
 
@@ -31,7 +35,7 @@ would reintroduce exactly the JSON store that spec deleted, plus a second artifa
 sync with a file users can freely rename, edit or delete from the file browser.
 
 > **Superseded by SPEC-247.** The view now rides on one comment line inside the `.sql` file, which
-> reopens as an exploration with its chips; the sidecar stays rejected. The entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one comment line, and a shared space's is held*.
+> reopens as an exploration with its chips; the sidecar stays rejected. The entry is `docs/decisions/analytics/` → *A saved exploration carries its view on one comment line, and a shared space's is held*.
 
 ## Scope
 

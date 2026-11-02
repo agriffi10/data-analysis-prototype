@@ -136,7 +136,7 @@ def _absent(key: str) -> bool:
     **Superseded on one point: the conditioned grant alone would have fixed the read.** This
     docstring first said a ``GetObject`` carries no prefix for the condition to match, reasoning
     from an IAM simulate; production disagrees, and the evidence is in
-    ``docs/decisions/infrastructure.md`` → *A role that cannot list a bucket cannot be told an
+    ``docs/decisions/infrastructure/`` → *A role that cannot list a bucket cannot be told an
     object is absent*. What breaks is holding no statement, not holding a conditioned one. So this
     probe is belt-and-braces rather than the thing making absence answerable — worth keeping,
     because it is also the only part that still answers if the condition ever stops covering the

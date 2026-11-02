@@ -1,10 +1,15 @@
-# Spec: Container Lambdas — Retiring the Layers and the Deploy Tables
+---
+type: Spec
+id: SPEC-214
+title: "Container Lambdas — Retiring the Layers and the Deploy Tables"
+description: "Deletes the layer machinery that container Lambdas made obsolete (two deploy tables, the layer build script, the attach-order loop and their tests) after proving the image smoke test covers every function."
+spec_status: Completed
+depends_on: [SPEC-212, SPEC-213]
+arc: container-lambdas
+arc_order: 3
+---
 
-**ID:** SPEC-214
-**Status:** Completed
-**Last Updated:** 2026-09-03
-**Depends On:** SPEC-212 (the image and its import smoke test — the replacement guard), SPEC-213 (every function already running the image)
-
+**Dependency notes:** SPEC-212 (the image and its import smoke test — the replacement guard), SPEC-213 (every function already running the image)
 **Arc:** Container Lambdas (212 → 213 → 214). Narrative in `ARCS.md`.
 
 **Interacts with:** SPEC-215, order-independently — FR-003 and SPEC-215 FR-001 each state the

@@ -1,10 +1,13 @@
-# Spec: Project IaC — OpenTofu AWS Infrastructure
+---
+type: Spec
+id: SPEC-003
+title: "Project IaC — OpenTofu AWS Infrastructure"
+description: "Gives operators the OpenTofu project that provisions all AWS infrastructure for the portal and exports bucket names, Cognito pool IDs, the CloudFront domain, and the IAM role ARN for app configuration."
+spec_status: Completed
+depends_on: []
+---
 
-**ID:** SPEC-003  
-**Status:** Completed  
-**Last Updated:** 2026-05-23  
-**Depends On:** None (infrastructure is independent of application code)
-
+**Dependency notes:** None (infrastructure is independent of application code)
 ---
 
 ## Overview

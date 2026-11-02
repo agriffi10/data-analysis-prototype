@@ -1,10 +1,15 @@
-# Spec: Shared `control-plane-common` Lambda Layer
+---
+type: Spec
+id: SPEC-107
+title: "Shared `control-plane-common` Lambda Layer"
+description: "Merges the near-duplicate table-builder and table-share helpers for auth, errors, clients, registry, listing and notify into one shared cpcommon control-plane Lambda layer for developers."
+spec_status: Completed
+depends_on: [SPEC-062, SPEC-066, SPEC-088, SPEC-106]
+arc: control-plane-common
+arc_order: 1
+---
 
-**ID:** SPEC-107
-**Status:** Completed
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-062 (shared-space verb decomposition), SPEC-066 (`tbcommon`), SPEC-088 (`tscommon`), SPEC-106 (error messaging)
-
+**Dependency notes:** SPEC-062 (shared-space verb decomposition), SPEC-066 (`tbcommon`), SPEC-088 (`tscommon`), SPEC-106 (error messaging)
 > **Read `docs/architecture-review-2026-07-11.md` §5.5 first.** This is a **prerequisite refactor**, not a feature. It exists so the data-quality (SPEC-108→114) and file-converter (SPEC-115→121, +122 optional) arcs do not create a third and fourth independent copy of the JWT verification path. It ships **no user-visible change**.
 
 ## Overview

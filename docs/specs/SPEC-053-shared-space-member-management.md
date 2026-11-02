@@ -1,10 +1,15 @@
-# Spec: Shared-Space Member Management (Owner)
+---
+type: Spec
+id: SPEC-053
+title: "Shared-Space Member Management (Owner)"
+description: "Lets a shared connection's owner add and remove members by username, singly or in bulk, from a Manage members drawer, with server-side owner authorization, username validation, and silent skipping of unknown users."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-056, SPEC-051, SPEC-052, SPEC-036, SPEC-026, SPEC-028, SPEC-044]
+arc: shared-connections
+arc_order: 5
+---
 
-**ID:** SPEC-053
-**Status:** Completed
-**Last Updated:** 2026-06-21
-**Depends On:** SPEC-050 (Step Function, registry storage, orchestrator role perms incl. `AdminGetUser`/`ListUsers`/`AdminUpdateUserAttributes`), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + cache/registry shapes), SPEC-052 (Connections tab — hosts the **Manage** entry point + roles/status), SPEC-036 (right slide-over `Drawer` pattern), SPEC-026 (dialog), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
-
+**Dependency notes:** SPEC-050 (Step Function, registry storage, orchestrator role perms incl. `AdminGetUser`/`ListUsers`/`AdminUpdateUserAttributes`), SPEC-056 (request contract, membership slots, actor binding/validate), SPEC-051 (create + cache/registry shapes), SPEC-052 (Connections tab — hosts the **Manage** entry point + roles/status), SPEC-036 (right slide-over `Drawer` pattern), SPEC-026 (dialog), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
 > **Reference:** `docs/shared-spaces-architecture.md` (§2 validate-then-grant; §3 membership tag; §4 registry as
 > source of truth). Owner-only; all mutations go through the pipeline and are authorized server-side.
 

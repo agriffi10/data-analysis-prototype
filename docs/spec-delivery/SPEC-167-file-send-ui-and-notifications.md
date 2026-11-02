@@ -47,7 +47,7 @@ Two tests held the two languages together: one read the route's `startsWith` gat
 rule. The first version pinned only the route's gate and compared against a hardcoded value, which
 would have stayed green through exactly the rename it existed to catch. Both were deleted with their
 file in `a41bda69d`; one test on the handler's side holds the rules now, described in
-`docs/decisions/storage.md` under *Why the link carries the recipient's root*.
+`docs/decisions/storage/` under *Why the link carries the recipient's root*.
 
 **The link is feature-gated too**, and that was a review finding rather than a design: with
 `files` off it was a live anchor into the unavailable page, and with `sharedWorkspaces` off the

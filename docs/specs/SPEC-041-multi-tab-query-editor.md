@@ -1,10 +1,15 @@
-# Spec: Multi-Tab Query Editor
+---
+type: Spec
+id: SPEC-041
+title: "Multi-Tab Query Editor"
+description: "Adds multiple query tabs to the editor, each with independent SQL, increasing Query N labels, and its own run state, with tabs, order, and active tab persisting across switches and reloads in the session."
+spec_status: Completed
+depends_on: [SPEC-040, SPEC-035, SPEC-034]
+arc: query-editor-follow-ups
+arc_order: 2
+---
 
-**ID:** SPEC-041
-**Status:** Completed
-**Last Updated:** 2026-06-19
-**Depends On:** SPEC-040 (editor draft persistence + Clear — superseded by the per-tab model here), SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
-
+**Dependency notes:** SPEC-040 (editor draft persistence + Clear — superseded by the per-tab model here), SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
 > **Design:** **Needs new design work.** Introduces a query-tab strip above the editor that does not exist in `docs/design/query-workspace.html` / `design-system.md` §6. Phase 1 of this spec is a design pass (mockup + §6 addition) before any code. Reuse existing tokens (tabs, ghost buttons, accent underline) — see Open Questions.
 
 > **Amended 2026-06-19 (pre-build):** two changes folded in before implementation. (1) The 10-tab cap is now enforced by a **"close a tab first" dialog** on any attempt to exceed it — the `+` is **not** disabled (FR-008). (2) Tabs may be opened **programmatically with a provided label and SQL** (and an optional linked saved-query id) by SPEC-043 (saved queries) and SPEC-044 (table options menu); only blank `+` tabs use the monotonic `Query N` label (FR-009). All tab-open paths route through one `openTab` guard so the cap dialog applies uniformly.

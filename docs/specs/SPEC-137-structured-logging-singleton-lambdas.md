@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Singleton Lambdas
+---
+type: Spec
+id: SPEC-137
+title: "Structured Logging — Instrument the Singleton Lambdas"
+description: "Brings notifications-writer and the pre-signup and post-confirmation Cognito triggers into the structured-logging pipe, attaching the cpcommon layer without the import-time environment variables it normally needs."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-134, SPEC-133]
+arc: observability
+arc_order: 11
+---
 
-**ID:** SPEC-137
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
 ## Overview
 
 The last three functions outside the pipe, and the only three that are not control-plane verbs:

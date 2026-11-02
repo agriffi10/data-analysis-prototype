@@ -1,9 +1,13 @@
-# Spec: Shared Connections — Responsive Reflow
-
-**ID:** SPEC-101  
-**Status:** Completed  
-**Last Updated:** 2026-07-08  
-**Depends On:** SPEC-095
+---
+type: Spec
+id: SPEC-101
+title: "Shared Connections — Responsive Reflow"
+description: "Makes the Shared connections page reflow across breakpoints so connection cards stack and wrap and the member drawers go full-width on small screens, with no change to content or actions."
+spec_status: Completed
+depends_on: [SPEC-095]
+arc: responsive-and-files-ux
+arc_order: 7
+---
 
 ## Overview
 

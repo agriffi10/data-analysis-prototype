@@ -1,10 +1,15 @@
-# Spec: Container Lambdas — the Base Image, ECR and the Build Pipeline
+---
+type: Spec
+id: SPEC-212
+title: "Container Lambdas — the Base Image, ECR and the Build Pipeline"
+description: "Builds the one container image and ECR build pipeline that every Lambda function will run, with a per-function import smoke test, and changes no function, for developers."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-125, SPEC-156, SPEC-137, SPEC-193, SPEC-194, SPEC-138, SPEC-139]
+arc: container-lambdas
+arc_order: 1
+---
 
-**ID:** SPEC-212
-**Status:** Completed
-**Last Updated:** 2026-08-28
-**Depends On:** SPEC-107/125/156 (`cpcommon` and the domain layers this image absorbs), SPEC-137 (the cold-start `ModuleNotFoundError` that broke sign-up for nine days — the failure this arc's smoke test is aimed at), SPEC-193/194 (the ECR repository, immutable commit-sha tags and the image behaviour-matrix pattern), SPEC-138/139 (the scanners the image joins)
-
+**Dependency notes:** SPEC-107/125/156 (`cpcommon` and the domain layers this image absorbs), SPEC-137 (the cold-start `ModuleNotFoundError` that broke sign-up for nine days — the failure this arc's smoke test is aimed at), SPEC-193/194 (the ECR repository, immutable commit-sha tags and the image behaviour-matrix pattern), SPEC-138/139 (the scanners the image joins)
 **Arc:** Container Lambdas (212 → 213 → 214). Narrative in `ARCS.md`.
 
 ## Overview

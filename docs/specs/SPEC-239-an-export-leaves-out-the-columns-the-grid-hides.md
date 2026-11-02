@@ -1,9 +1,13 @@
-# Spec: An Export Leaves Out the Columns the Grid Hides
-
-**ID:** SPEC-239
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-185, SPEC-221, SPEC-222, SPEC-223, SPEC-229
+---
+type: Spec
+id: SPEC-239
+title: "An Export Leaves Out the Columns the Grid Hides"
+description: "Makes a Data Explorer export save only the columns the grid shows, in grid order, by teaching the results-conversion plane to keep a chosen column list and write CSV, with no second query billed."
+spec_status: Completed
+depends_on: [SPEC-185, SPEC-221, SPEC-222, SPEC-223, SPEC-229]
+arc: tester-feedback
+arc_order: 2
+---
 
 ## Overview
 
@@ -124,7 +128,7 @@ Read from the code at `73c66eef`.
 - A CSV writer in convert (FR-004).
 - The Data Explorer's export, `useSaveResults`, `SaveResultsDialog`, and the *Copy or save what you
   found* guide (FR-005).
-- At completion: an entry in `docs/decisions/control-planes.md` saying a conversion can keep a
+- At completion: an entry in `docs/decisions/control-planes/` saying a conversion can keep a
   subset of the result's columns. The Fences clause *A conversion's input is the EXECUTION'S RESULT
   OBJECT* gains "and it may keep a subset of its columns", and the contract docstring's "deliberately
   excludes CSV" sentence is replaced where it stands.

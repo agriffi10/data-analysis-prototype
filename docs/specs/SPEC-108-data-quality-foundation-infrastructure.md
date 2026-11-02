@@ -1,10 +1,15 @@
-# Spec: Data Quality — Foundation Infrastructure + `dqcommon` Layer + Athena Workgroup
+---
+type: Spec
+id: SPEC-108
+title: "Data Quality — Foundation Infrastructure + `dqcommon` Layer + Athena Workgroup"
+description: "Gives developers the data-quality control plane skeleton, a queue, Pipe, Step Function that polls Athena in the state machine, placeholder Lambdas, the dqcommon layer and a dedicated Athena workgroup."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-032, SPEC-088]
+arc: data-quality
+arc_order: 1
+---
 
-**ID:** SPEC-108
-**Status:** Completed
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon` layer), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent)
-
+**Dependency notes:** SPEC-107 (`cpcommon` layer), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent)
 > **Read `docs/data-quality-architecture.md` §0 and §2 first.** This spec builds the plumbing for the data-quality arc (SPEC-108→114); it is deliberately behavior-free.
 
 > **Superseded 2026-07-21 (PR #252):** the `ParseError` state was REMOVED from every

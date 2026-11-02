@@ -1,9 +1,11 @@
-# Spec: Metadata Panel Visual Polish
-
-**ID:** SPEC-027  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-027
+title: "Metadata Panel Visual Polish"
+description: "Restyles the file metadata slide-over drawer with design-system shadow, hairline border, uppercase muted field labels, standard value text, and the ghost close button."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

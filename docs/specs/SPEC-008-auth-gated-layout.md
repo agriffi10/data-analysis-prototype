@@ -1,10 +1,13 @@
-# Spec: Auth-Gated Layout — Protect the S3 Interface
+---
+type: Spec
+id: SPEC-008
+title: "Auth-Gated Layout — Protect the S3 Interface"
+description: "Restricts the file browser to signed-in users with react-router and a protected layout, showing visitors a public landing and login page and sending authenticated users to the files page."
+spec_status: Completed
+depends_on: [SPEC-007]
+---
 
-**ID:** SPEC-008
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-007 (auth state must exist)
-
+**Dependency notes:** SPEC-007 (auth state must exist)
 ## Overview
 
 Restrict the S3 file browser to authenticated users. This spec introduces client-side routing (react-router) and a protected layout: unauthenticated visitors see a public landing/login page and are never shown the file browser; authenticated users land on the files page. This is a UX gate, not a security boundary — real enforcement happens at the IAM layer once STS integration lands — but it prevents non-authenticated users from accessing the S3 interface page and establishes the route structure for all future pages.

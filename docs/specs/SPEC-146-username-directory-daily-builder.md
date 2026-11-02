@@ -1,10 +1,15 @@
-# Spec: Username Directory — Daily Builder Lambda & Published Index
+---
+type: Spec
+id: SPEC-146
+title: "Username Directory — Daily Builder Lambda & Published Index"
+description: "Adds a daily Lambda that lists personal-workspace prefixes in the user-space bucket and publishes a sorted, advisory usernames.json directory for the browser to read."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-126, SPEC-137, SPEC-013]
+arc: username-directory
+arc_order: 1
+---
 
-**ID:** SPEC-146
-**Status:** Completed
-**Last Updated:** 2026-08-03
-**Depends On:** SPEC-107 (`cpcommon` — `observability`, `clients`, `config`), SPEC-126 (the scheduled-sweep Lambda pattern this copies), SPEC-137 (the singleton-Lambda shape and its cold-start trap), SPEC-013 (the user-space bucket policy and its principal allowlist)
-
+**Dependency notes:** SPEC-107 (`cpcommon` — `observability`, `clients`, `config`), SPEC-126 (the scheduled-sweep Lambda pattern this copies), SPEC-137 (the singleton-Lambda shape and its cold-start trap), SPEC-013 (the user-space bucket policy and its principal allowlist)
 > **Reference:** first of the username-directory arc (146 → 147 → 148).
 >
 > **This is a new AWS resource type in a new module, so the `CLAUDE.md` infra rule binds:** the deploy role's IAM expands as in-scope work, and `docs/architecture.md` → *Deploy-role IAM — adding a new resource type* and *Lambda code/infra split* are read **first**. **This spec ships as two PRs** — the deploy-role grant applies before the module's resources, the same sequencing every foundation spec in this repo has used.

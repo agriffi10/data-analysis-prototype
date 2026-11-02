@@ -1,9 +1,13 @@
-# Spec: Admit `system_settings/` Additively
-
-**ID:** SPEC-219
-**Status:** Completed
-**Last Updated:** 2026-09-06
-**Depends On:** SPEC-218
+---
+type: Spec
+id: SPEC-219
+title: "Admit `system_settings/` Additively"
+description: "Makes every IAM Deny, browser rule and plane rule protect the new system_settings location as a second home beside the old one before any write moves, so the later move opens no unprotected window."
+spec_status: Completed
+depends_on: [SPEC-218]
+arc: system-settings-prefix
+arc_order: 2
+---
 
 ## Overview
 

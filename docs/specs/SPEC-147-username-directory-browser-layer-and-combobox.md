@@ -1,10 +1,15 @@
-# Spec: Username Directory — Browser Data Layer & Typeahead Combobox
+---
+type: Spec
+id: SPEC-147
+title: "Username Directory — Browser Data Layer & Typeahead Combobox"
+description: "Gives developers the browser data layer for the username directory, a memoised trie with prefix-then-substring search, plus the typeahead combobox and chips field built on it."
+spec_status: Completed
+depends_on: [SPEC-146, SPEC-028, SPEC-095, SPEC-045]
+arc: username-directory
+arc_order: 2
+---
 
-**ID:** SPEC-147
-**Status:** Completed
-**Last Updated:** 2026-08-03
-**Depends On:** SPEC-146 (the published document and the portal role's read grant), SPEC-028 (`Input`), SPEC-095 (`Menu` — the repo's existing keyboard-popover precedent, and why a combobox is *not* built on it), SPEC-045 (the `vitest-axe` suite this component must satisfy)
-
+**Dependency notes:** SPEC-146 (the published document and the portal role's read grant), SPEC-028 (`Input`), SPEC-095 (`Menu` — the repo's existing keyboard-popover precedent, and why a combobox is *not* built on it), SPEC-045 (the `vitest-axe` suite this component must satisfy)
 > **Reference:** second of the username-directory arc (146 → **147** → 148).
 >
 > **Browser-side only: no new IAM, no new AWS resource, no new Lambda, no new env var.** SPEC-146 shipped the grant; the object's location comes from the existing `userSpaceBucket()` helper.

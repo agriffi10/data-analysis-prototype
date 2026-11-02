@@ -1,10 +1,15 @@
-# Spec: Archive — Foundation Infrastructure, the Archive Bucket & validate-authorize
+---
+type: Spec
+id: SPEC-168
+title: "Archive — Foundation Infrastructure, the Archive Bucket & validate-authorize"
+description: "Builds the Archive control plane and a Glacier archive bucket with a seven-year lifecycle, plus its first verb, validate-authorize, which checks the actor may read what they are archiving."
+spec_status: Completed
+depends_on: [SPEC-088, SPEC-089, SPEC-107, SPEC-125, SPEC-156, SPEC-126, SPEC-152, SPEC-160]
+arc: archival
+arc_order: 1
+---
 
-**ID:** SPEC-168
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
-
+**Dependency notes:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
 ## Overview
 
 Data that a user no longer works with still costs S3 Standard rates, still fills the file browser,
@@ -179,7 +184,7 @@ The infrastructure, following the shared control-plane pattern.
 
       > **SUPERSEDED 2026-09-15.** They do not serialize: the Pipe starts executions
       > `FIRE_AND_FORGET`, so the group orders only the starts and two archives from one space run
-      > at once. The commit gate is what keeps that safe — `docs/decisions/archive-and-restore.md`,
+      > at once. The commit gate is what keeps that safe — `docs/decisions/archive-and-restore/`,
       > *The group id orders the STARTS, not the runs*.
 - [ ] `MessageDeduplicationId` is `requestId`; content dedup is off on the queue, so that id is the
       only double-submit guard.

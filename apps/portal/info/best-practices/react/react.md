@@ -1,6 +1,49 @@
+---
+type: Rulebook
+title: "React best practices"
+description: "Imperative React rules for coding agents: purity, state, effects, Hooks, performance, tooling, JSDoc, responsive design and tests."
+sources:
+  - id: react-rules
+    resource: https://react.dev/reference/rules
+    title: "Rules of React"
+  - id: react-19
+    resource: https://react.dev/blog/2024/12/05/react-19
+    title: "React v19"
+  - id: react-19-upgrade
+    resource: https://react.dev/blog/2024/04/25/react-19-upgrade-guide
+    title: "React 19 Upgrade Guide"
+  - id: new-jsx-transform
+    resource: https://legacy.reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html
+    title: "Introducing the New JSX Transform"
+  - id: react-19-2
+    resource: https://react.dev/blog/2025/10/01/react-19-2
+    title: "React 19.2"
+  - id: use-effect-event
+    resource: https://react.dev/reference/react/useEffectEvent
+    title: "useEffectEvent"
+  - id: react-compiler
+    resource: https://react.dev/learn/react-compiler/introduction
+    title: "React Compiler: Introduction"
+  - id: react-compiler-target
+    resource: https://react.dev/reference/react-compiler/target
+    title: "React Compiler: target"
+  - id: eslint-plugin-react-hooks
+    resource: https://react.dev/reference/eslint-plugin-react-hooks
+    title: "eslint-plugin-react-hooks"
+  - id: tailwind-responsive
+    resource: https://tailwindcss.com/docs/responsive-design
+    title: "Responsive design - Tailwind CSS"
+  - id: tanstack-retries
+    resource: https://tanstack.com/query/v5/docs/framework/react/guides/query-retries
+    title: "Query Retries - TanStack Query v5"
+  - id: rtl-async
+    resource: https://testing-library.com/docs/dom-testing-library/api-async/
+    title: "Async Methods - Testing Library"
+stale_after: 2027-11-02T00:00:00Z
+---
 # React Best Practices — Agent Reference
 
-> Token-efficient rulebook for LLM coding agents writing/refactoring React. Each section is self-contained; load only the sections relevant to the task. Rules are imperative; ✅ = do, 🔴 = don't. Defaults assume function components + Hooks, React 18/19.
+> Token-efficient rulebook for LLM coding agents writing/refactoring React. Each section is self-contained; load only the sections relevant to the task. Rules are imperative; ✅ = do, 🔴 = don't. Defaults assume function components + Hooks, React 19.2+ as pinned in `apps/portal/package.json` (19 is stable[^react-19]); purity and the Hooks rules (§1, §5) are the Rules of React[^react-rules]. A rule that holds only from a given version says so where it is stated.
 
 ## How to use this doc
 - Find the relevant section ID(s) in the Index below.
@@ -90,7 +133,7 @@ Treat all React inputs as read-only snapshots for a given render.
 - **+ Context**: split into a state context and a dispatch context, wrap in a provider, expose via custom hooks — gives app-wide state without prop drilling (§8).
 
 ## §8 Context
-- For sharing data across distant components without prop drilling (theme, auth, locale, user prefs). `createContext` once; `<Ctx.Provider value>` defines value for its subtree; `useContext(Ctx)` reads nearest provider (else `defaultValue`).
+- For sharing data across distant components without prop drilling (theme, auth, locale, user prefs). `createContext` once; `<Ctx.Provider value>` defines value for its subtree (from React 19 `<Ctx value>` does the same, and `.Provider` is slated for deprecation[^react-19]); `useContext(Ctx)` reads nearest provider (else `defaultValue`).
 - **Re-render pitfall**: Provider compares `value` by `Object.is`. A fresh object literal `value={{user, setUser}}` is a new reference every render → all consumers re-render. ✅ `useMemo` the value (and `useCallback` functions in it).
 - ✅ **Split contexts** by concern / by change frequency (e.g. data vs actions/dispatch) so consumers subscribe only to what they use.
 - ✅ Place Providers as low in the tree as possible to limit update scope.
@@ -142,10 +185,10 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 ## §13 Events vs Effects
 - **Event handler logic is non-reactive**: runs only on the specific interaction; can read latest reactive values without re-running. Put interaction-caused logic here (e.g. send message on click).
 - **Effect logic is reactive**: re-runs whenever a read reactive value changes. Put "stay synchronized" logic here (e.g. connect to room).
-- **useEffectEvent** extracts a non-reactive slice out of a reactive Effect — it always sees the latest props/state but does NOT trigger re-sync. Use it when part of an Effect shouldn't react (e.g. read latest `theme`/`isMuted`/`numberOfItems`/a prop callback inside a connection Effect).
+- **useEffectEvent** (new in **React 19.2**[^react-19-2], which this repo's pin satisfies) extracts a non-reactive slice out of a reactive Effect — it always sees the latest props/state but does NOT trigger re-sync. Use it when part of an Effect shouldn't react (e.g. read latest `theme`/`isMuted`/`numberOfItems`/a prop callback inside a connection Effect).
   - Declared with `const onX = useEffectEvent(() => {...})`.
-  - 🔴 Omit Effect Events from the deps array (they're non-reactive). 🔴 Only call them inside Effects; never pass to other components/Hooks. Declare next to the Effect that uses them.
-- Use it to avoid suppressing the linter when you want "react to A but not B" (§12).
+  - 🔴 Omit Effect Events from the deps array (they're non-reactive; their identity changes every render). 🔴 Only call them inside Effects or other Effect Events; never during render, from an event handler, or passed to other components/Hooks[^use-effect-event]. Declare next to the Effect that uses them.
+- Use it only for logic that is genuinely an event fired from an Effect, never to avoid specifying a dependency the Effect really has[^use-effect-event]. Where "react to A but not B" is that shape, it replaces suppressing the linter (§12).
 
 ## §14 Custom Hooks
 - Extract shared **stateful logic** (state + Effects + other Hooks) into a `useX` function. Components express intent (`useOnlineStatus()`) instead of implementation.
@@ -153,7 +196,7 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 - Custom Hooks share **logic, not state** — each call has its own independent state. To share state itself, lift it up (§3).
 - Custom Hooks re-run on every render, get latest props/state, and must be **pure** like components.
 - ✅ Name after a concrete high-level purpose: `useData(url)`, `useChatRoom(opts)`, `useMediaQuery(q)`. 🔴 Avoid generic lifecycle wrappers: `useMount`, `useEffectOnce`, `useUpdateEffect` (they hide reactivity from the linter and don't fit the model).
-- When a custom Hook takes an event-handler arg, wrap it in `useEffectEvent` so it isn't a dep (§13).
+- When a custom Hook takes an event-handler arg, wrap it in `useEffectEvent` so it isn't a dep (§13; React 19.2+).
 - Wrapping Effects in custom Hooks makes data flow explicit and eases later migration (e.g. to `useSyncExternalStore` or `use`).
 
 ## §15 Performance
@@ -161,13 +204,13 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 - **`useMemo(fn, deps)`** — cache an expensive calculation between renders; runs only when deps change; must be a pure calc. Don't help first render; helps updates. Measure with `console.time` before adding (significant ≈ ≥1ms; test on throttled CPU / production build).
 - **`useCallback(fn, deps)`** — memoize a function reference, mainly when passing it to memoized children or as an Effect/Hook dep.
 - **`React.memo(Component)`** — skip re-render when props are referentially unchanged; pair with stable props (useMemo/useCallback).
-- **React Compiler (React 19)** auto-memoizes much of this — manual `useMemo`/`useCallback`/`memo` often become unnecessary. Still useful for very hot paths, function/object props, or libs relying on reference equality.
+- **React Compiler** auto-memoizes much of this. It is a separate build-time tool (a Babel plugin), **not part of React 19**[^react-compiler]: it targets React 17, 18 and 19, and 17/18 need the `react-compiler-runtime` package[^react-compiler-target]. With it on: in new code rely on the compiler and keep `useMemo`/`useCallback` as escape hatches for precise control; leave existing memoization in place unless you test its removal — removing it can change the compiled output[^react-compiler]. **This repo does not enable it** (`apps/portal/vite.config.ts` calls plain `react()` and the compiler plugin is not installed), so the rules above apply as written.
 - Note: splitting one state object into several variables does NOT reduce re-renders by itself; any state change re-renders the component.
 
 ## §16 Architecture & mental model
 - **Declarative > imperative**: describe *what* the UI should be for the current state; let React do the DOM ops. Use `map`/`filter`, conditional rendering, and state declarations instead of manual DOM mutation.
 - **`react` vs `react-dom`**: `react` is the platform-agnostic core (components, elements/Virtual DOM, Hooks, state, context, refs); `react-dom` is the browser renderer (mounting, DOM diffing/commit, events). Split enables React Native, SSR, Server Components.
-- **React Elements** are plain objects (`{$$typeof, type, key, ref, props}`) describing UI. JSX `<div/>` → `React.createElement('div', ...)` → element object. `type` is a tag string or a component reference. Reconciliation diffs these objects; keys identify list items.
+- **React Elements** are plain objects (`{$$typeof, type, key, props}`; in React 19 `ref` lives in `props` and `element.ref` is deprecated[^react-19-upgrade]) describing UI. JSX `<div/>` → `jsx('div', ...)` from `react/jsx-runtime`, via the new JSX transform[^new-jsx-transform] that React 19 requires[^react-19-upgrade] → element object. `type` is a tag string or a component reference. Reconciliation diffs these objects; keys identify list items.
 - **Functional-programming principles** React leans on: first-class functions (handlers, render props, HOCs), pure functions (predictable/testable/skippable renders), immutability (reference-based change detection), composition (build complex UIs from small components; prefer composition + `children` over inheritance), currying (e.g. `action => id => e => …` handlers).
 
 ## §17 Build workflow (Thinking in React)
@@ -179,7 +222,7 @@ Effects are an escape hatch for syncing with external systems. If no external sy
 
 ## §18 Tooling
 - ✅ Enable **StrictMode** (`<React.StrictMode>`) in dev — double-invokes renders and remounts Effects once to surface impurities and missing cleanup. No production effect.
-- ✅ Use **`eslint-plugin-react-hooks`** — enforces Hook call rules (§5) and `exhaustive-deps` (§12).
+- ✅ Use **`eslint-plugin-react-hooks`** — enforces Hook call rules (§5) and `exhaustive-deps` (§12). Its `recommended` preset, which `apps/portal/eslint.config.js` enables, also carries compiler-diagnostic rules (`purity`, `refs`, `immutability`, `set-state-in-effect`, …) that apply even where the compiler is not adopted[^eslint-plugin-react-hooks].
 - 🔴 **Never suppress the dependency linter** (`// eslint-disable-next-line react-hooks/exhaustive-deps`). It "lies" to React about what the Effect depends on and causes stale-value bugs. The linter only flags *wrong* deps, not the *best* fix — change the code instead (§12, §13). Treat lint errors as compile errors.
 
 ## §19 JSDoc component documentation
@@ -224,13 +267,13 @@ export const ShopLabel = ({ shopName, className = '' }: ShopLabelProps) => {
 ```
 
 - ✅ **Extend native element props** by intersecting your props with the right React attribute type, so consumers get `onClick`, `aria-*`, etc. with correct types: `React.HTMLAttributes<HTMLParagraphElement> & ShopLabelProps`. For inputs use `React.InputHTMLAttributes<HTMLInputElement>` (gives a correctly-typed `onChange`); spread `...props` onto the element.
-- ✅ **Element-type reference** (for prop/return types): `JSX.Element` = a single element (typical component return; prefer over `React.JSX.Element`). `ReactNode` = the wider union (elements, arrays, strings, booleans) — use for a `children`/`fallback` prop that accepts anything renderable. `React.FC` / `React.ComponentType` = the *component itself*, for an `as`/render-component prop (`as={Badge}`), not an already-rendered element.
+- ✅ **Element-type reference** (for prop/return types): `React.JSX.Element` = a single element (typical component return; React 19's types removed the global `JSX` namespace in favor of `React.JSX`[^react-19-upgrade], so a bare global `JSX.Element` is gone). `ReactNode` = the wider union (elements, arrays, strings, booleans) — use for a `children`/`fallback` prop that accepts anything renderable. `React.FC` / `React.ComponentType` = the *component itself*, for an `as`/render-component prop (`as={Badge}`), not an already-rendered element.
 - If a **plain-JS** (`.jsx`) file ever needs typing without TS, the article's typed JSDoc (`@typedef`/`@param {ShopLabelProps}` / `React.HTMLAttributes<*>` intersection) is the fallback — but in this repo prefer converting to `.tsx` over annotating JS with JSDoc types.
 
 Source: [Writing JSDoc for React Components — Thomas Schoffelen](https://schof.co/writing-jsdoc-for-react-components/).
 
 ## §20 Responsive design
-The app targets three widths with **project-custom breakpoints** (SPEC-095), not Tailwind's defaults. The defaults (`sm`/`md`/`lg`/`xl`/`2xl`) are reset to `initial` in `src/index.css` `@theme`; only two self-documenting prefixes compile:
+The app targets three widths with **project-custom breakpoints** (SPEC-095), not Tailwind's defaults. The defaults (`sm`/`md`/`lg`/`xl`/`2xl`) are reset to `initial`[^tailwind-responsive] in `src/index.css` `@theme`; only two self-documenting prefixes compile:
 
 | Tier | Prefix | Threshold |
 |---|---|---|
@@ -240,7 +283,7 @@ The app targets three widths with **project-custom breakpoints** (SPEC-095), not
 
 - ✅ **Mobile-first.** Unprefixed utilities *are* the mobile (`< 900px`) layout; `tablet:` / `desktop:` layer changes on top. A prefix means "at that width **and up**".
 - 🔴 **Never use a prefix to *target* mobile.** There is no lower prefix — mobile is the unprefixed base. (This is why the defaults are removed: a `md:` that secretly meant 900px is a footgun.)
-- ✅ **Tablet-band-only** styles use the stacked `tablet:max-desktop:` variant (≥900 and <1300). `max-tablet:` / `max-desktop:` are also available.
+- ✅ **Tablet-band-only** styles use the stacked `tablet:max-desktop:` variant (≥900 and <1300)[^tailwind-responsive]. `max-tablet:` / `max-desktop:` are also available.
 - ✅ **Responsive by default (FR-008).** Restyle across breakpoints — spacing, direction, column counts, alignment, ordering, per-cell show/hide — with utility variants on **one** element (`flex-col` → `tablet:flex-row`, `grid-cols-1` → `tablet:grid-cols-3`, `hidden`/`desktop:block`, `order-*`, `gap-*`). Keep behavior, state, refs, and a11y in one place.
 - ✅ **A separate component / `tablet:hidden` markup branch is allowed only when the two presentations are genuinely, structurally different** (different DOM/semantics, not just spacing) — the canonical case is the Files **data table vs. mobile card list** (SPEC-099). State the structural justification in the spec and still reuse the same data + shared child components/handlers (no forked logic).
 - ✅ Two cases CSS alone can't express, which always justify a branch: **mounting cost / distinct interaction** (e.g. not mounting Monaco on phones — `hidden` still instantiates it) and **mobile-only chrome** (the `MobileActionBar`, the hamburger — `tablet:hidden`).
@@ -276,7 +319,7 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
   *would* retry (`{retry: 1, retryDelay: 0}`) and counting the calls. The same caution applies to
   any behaviour the harness normalises away. The converse is visible: a hook that sets its OWN
   positive `retry` retries under the harness, at once, because its client carries `retryDelay: 0`
-  — TanStack's one-second backoff is exactly `waitFor`'s window.
+  — TanStack's one-second backoff[^tanstack-retries] is exactly `waitFor`'s window[^rtl-async].
 - ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
 - ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
 
@@ -313,3 +356,20 @@ carefully already would.
 - **Component/feature test** — behavior a user drives through the UI, with services mocked at the boundary. Don't re-assert service parsing here.
 - **Hook test** (`renderHookWithProviders`) — only for hooks with non-trivial state/derivation not better exercised through a component.
 - 🔴 Don't test the same logic at two levels. If the service test covers a parse branch, the component test asserts the *rendered outcome*, not the parse.
+
+---
+
+## Sources
+
+[^react-rules]: Rules of React — https://react.dev/reference/rules
+[^react-19]: React v19 — https://react.dev/blog/2024/12/05/react-19
+[^react-19-upgrade]: React 19 Upgrade Guide — https://react.dev/blog/2024/04/25/react-19-upgrade-guide
+[^new-jsx-transform]: Introducing the New JSX Transform — https://legacy.reactjs.org/blog/2020/09/22/introducing-the-new-jsx-transform.html
+[^react-19-2]: React 19.2 — https://react.dev/blog/2025/10/01/react-19-2
+[^use-effect-event]: useEffectEvent — https://react.dev/reference/react/useEffectEvent
+[^react-compiler]: React Compiler: Introduction — https://react.dev/learn/react-compiler/introduction
+[^react-compiler-target]: React Compiler: target — https://react.dev/reference/react-compiler/target
+[^eslint-plugin-react-hooks]: eslint-plugin-react-hooks — https://react.dev/reference/eslint-plugin-react-hooks
+[^tailwind-responsive]: Responsive design - Tailwind CSS — https://tailwindcss.com/docs/responsive-design
+[^tanstack-retries]: Query Retries - TanStack Query v5 — https://tanstack.com/query/v5/docs/framework/react/guides/query-retries
+[^rtl-async]: Async Methods - Testing Library — https://testing-library.com/docs/dom-testing-library/api-async/

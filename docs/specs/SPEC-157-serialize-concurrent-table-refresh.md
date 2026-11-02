@@ -1,10 +1,15 @@
-# Spec: Serialize Concurrent Table Refresh
+---
+type: Spec
+id: SPEC-157
+title: "Serialize Concurrent Table Refresh"
+description: "Adds a per-table lock so a second concurrent Refresh Table on the same table is refused with a notification instead of racing and silently committing a stale schema."
+spec_status: Completed
+depends_on: [SPEC-149, SPEC-143, SPEC-066, SPEC-123]
+arc: cross-arc-follow-ups
+arc_order: 1
+---
 
-**ID:** SPEC-157
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-149 (the in-place `glue:UpdateTable` apply, and the exposure this closes), SPEC-143 (refresh eligibility + `load-table-definition`), SPEC-066 (the table-builder control plane, its FIFO queue and Pipe), SPEC-123 (the ETag-CAS precedent this reuses)
-
+**Dependency notes:** SPEC-149 (the in-place `glue:UpdateTable` apply, and the exposure this closes), SPEC-143 (refresh eligibility + `load-table-definition`), SPEC-066 (the table-builder control plane, its FIFO queue and Pipe), SPEC-123 (the ETag-CAS precedent this reuses)
 > **This spec adds no user-facing feature.** It closes the one exposure SPEC-149 left open, and
 > the whole of it is a correctness change inside the table-builder control plane.
 >
@@ -62,7 +67,7 @@ than racing.
   > and the per-database ordering this spec leans on below orders the starts only. The no-op was
   > reported as a created table until later the same day, when execute-ddl gained a read-back that
   > refuses `table_exists` unless the catalog carries the run's own declaration; the create path
-  > still takes no lock. — `docs/decisions/control-planes.md`, *A group id orders the STARTS,
+  > still takes no lock. — `docs/decisions/control-planes/`, *A group id orders the STARTS,
   > not the runs*.
 - **The other three control planes.** Table-share, data-quality and shared-space have their own
   FIFO groups and none of them performs a read-modify-write on a shared catalog object.

@@ -1,9 +1,14 @@
-# Spec: Landing / Sign-in Page — Responsive Reflow
+---
+type: Spec
+id: SPEC-104
+title: "Landing / Sign-in Page — Responsive Reflow"
+description: "Makes the public landing and sign-in page responsive at mobile, tablet and desktop widths, restoring nav on mobile, scaling the hero headline, stacking CTAs and adding a tablet feature grid."
+spec_status: Completed
+depends_on: []
+arc: responsive-and-files-ux
+arc_order: 10
+---
 
-**ID:** SPEC-104
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None
 <!-- May optionally reuse the SPEC-095 shared `Menu` primitive (`src/components/Menu.tsx`) if present; a lightweight local disclosure is an acceptable fallback. -->
 
 ## Overview

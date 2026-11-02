@@ -1,10 +1,15 @@
-# Spec: Data Quality — Temp Tables + the Athena Profile Query
+---
+type: Spec
+id: SPEC-111
+title: "Data Quality — Temp Tables + the Athena Profile Query"
+description: "Builds the data-quality profiling stage, creating throwaway Glue temp tables, launching the Athena profile queries and dropping the tables on success and failure while the Step Function does the waiting."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-108, SPEC-109, SPEC-110, SPEC-032, SPEC-069, SPEC-070]
+arc: data-quality
+arc_order: 4
+---
 
-**ID:** SPEC-111
-**Status:** Completed
-**Last Updated:** 2026-07-20
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation, incl. the polling loop), SPEC-109 (authorization), SPEC-110 (the manifest), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-108 (foundation, incl. the polling loop), SPEC-109 (authorization), SPEC-110 (the manifest), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
 > **Read `docs/data-quality-architecture.md` §0, §2.1, §5.1 and §7 first.** This is the spec that makes the arc work at 250 GB, and the spec that spends the arc's IAM budget.
 
 ## Overview

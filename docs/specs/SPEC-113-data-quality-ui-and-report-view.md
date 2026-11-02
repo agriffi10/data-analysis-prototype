@@ -1,10 +1,15 @@
-# Spec: Data Quality — File-Browser UI + the Report View
+---
+type: Spec
+id: SPEC-113
+title: "Data Quality — File-Browser UI + the Report View"
+description: "Adds a Check data quality action to the file browser with a confirm dialog and toast, hides the reports folder, and provides the report view users open to read a check's findings."
+spec_status: Completed
+depends_on: [SPEC-109, SPEC-112, SPEC-058, SPEC-095, SPEC-045, SPEC-106, SPEC-074, SPEC-120]
+arc: data-quality
+arc_order: 6
+---
 
-**ID:** SPEC-113
-**Status:** Completed
-**Last Updated:** 2026-07-21
-**Depends On:** SPEC-109 (enqueue service + contract), SPEC-112 (the pipeline actually produces a report), SPEC-058 (the notifications pipeline FR-008 amends), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content), SPEC-120 (**optional** — FR-006 only)
-
+**Dependency notes:** SPEC-109 (enqueue service + contract), SPEC-112 (the pipeline actually produces a report), SPEC-058 (the notifications pipeline FR-008 amends), SPEC-095 (responsive foundation), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help content), SPEC-120 (**optional** — FR-006 only)
 > **Read `docs/data-quality-architecture.md` §1 and §6 first.** Presentation + enqueue only — no new AWS calls beyond the SPEC-109 service and a read of the report object — plus **one contract change to the shipped notifications pipeline (FR-008)**. This spec is browser-side only and has **no `cpcommon` dependency**, which is why SPEC-107 is deliberately absent from Depends On.
 
 ## Overview

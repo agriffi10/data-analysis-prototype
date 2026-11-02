@@ -1,9 +1,13 @@
-# Spec: Presentation and Formatting
-
-**ID:** SPEC-184
-**Status:** Completed
-**Last Updated:** 2026-08-14
-**Depends On:** SPEC-180, SPEC-181
+---
+type: Spec
+id: SPEC-184
+title: "Presentation and Formatting"
+description: "Adds Data Explorer presentation features that fetch nothing new: conditional row and cell colouring, colour by data type, group striping, and per-column value transformers including a safe URL template."
+spec_status: Completed
+depends_on: [SPEC-180, SPEC-181]
+arc: data-explorer
+arc_order: 9
+---
 
 ## Overview
 

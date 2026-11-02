@@ -1,10 +1,15 @@
-# Spec: Refresh Table — Schema Diff & Apply
+---
+type: Spec
+id: SPEC-144
+title: "Refresh Table — Schema Diff & Apply"
+description: "Adds the refresh pipeline's schema diff, classifying changes as additive, retyped or removed and refusing column removals unless the request opts in, naming the columns in a notification."
+spec_status: Completed
+depends_on: [SPEC-143, SPEC-069, SPEC-070, SPEC-111, SPEC-114]
+arc: refresh-table
+arc_order: 2
+---
 
-**ID:** SPEC-144
-**Status:** Completed
-**Last Updated:** 2026-08-04
-**Depends On:** SPEC-143 (the `mode` branch, `load-table-definition`, and the normalised state this spec diffs against), SPEC-069 (polars inference — reused unchanged), SPEC-070 (`cpcommon.athena.run_ddl` and the terminal-state pair), SPEC-111 (the drop-and-recreate precedent — data-quality's temp tables), SPEC-114 (`TerminalError.tokens` and the notification-is-the-completion-channel rule)
-
+**Dependency notes:** SPEC-143 (the `mode` branch, `load-table-definition`, and the normalised state this spec diffs against), SPEC-069 (polars inference — reused unchanged), SPEC-070 (`cpcommon.athena.run_ddl` and the terminal-state pair), SPEC-111 (the drop-and-recreate precedent — data-quality's temp tables), SPEC-114 (`TerminalError.tokens` and the notification-is-the-completion-channel rule)
 > **Reference:** `docs/architecture.md` → *Control Planes → Table Builder* (DDL + projection). Second of the refresh-table arc (143 → **144** → 145).
 >
 > **What 144 ships:** the two states that replace SPEC-143's `not_implemented` stub — `diff-schema`, which compares the freshly inferred columns against the table's existing ones and decides whether the change is permitted, and `apply-refresh`, which rebuilds the table. Together they make the feature real. The browser still cannot request one; SPEC-145 does that.

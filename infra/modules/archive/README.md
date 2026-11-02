@@ -311,6 +311,6 @@ so a bucket-wide list would hand it every shared space's name and then every ros
 name is the only thing gating that read.
 
 Why a conditioned grant is sufficient, why the IAM simulate suggests otherwise, and the production
-evidence settling it: `docs/decisions/infrastructure.md` → *A role that cannot list a bucket cannot
+evidence settling it: `docs/decisions/infrastructure/` → *A role that cannot list a bucket cannot
 be told an object is absent*. `lambdas/test_absence_is_answerable.py` holds every registry-reading
 directory to this, and fails closed on one it cannot map to a role.

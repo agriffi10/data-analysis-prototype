@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Data-Quality Control Plane (pilot)
+---
+type: Spec
+id: SPEC-128
+title: "Structured Logging — Instrument the Data-Quality Control Plane (pilot)"
+description: "Gives operators queryable structured spans from all nine data-quality verbs, joined on request_id, so a slow or failed run can be traced without opening nine CloudWatch log groups."
+spec_status: Completed
+depends_on: [SPEC-127, SPEC-108, SPEC-109, SPEC-110, SPEC-111, SPEC-112, SPEC-113, SPEC-114, SPEC-123, SPEC-124]
+arc: observability
+arc_order: 2
+---
 
-**ID:** SPEC-128
-**Status:** Completed
-**Last Updated:** 2026-07-22
-**Depends On:** SPEC-127 (the queue, the sweep, `cpcommon.observability`), SPEC-108→114 + 123/124 (the data-quality arc being instrumented)
-
+**Dependency notes:** SPEC-127 (the queue, the sweep, `cpcommon.observability`), SPEC-108→114 + 123/124 (the data-quality arc being instrumented)
 ## Overview
 
 SPEC-127 builds the pipe and proves it with one self-instrumenting producer. This spec puts real

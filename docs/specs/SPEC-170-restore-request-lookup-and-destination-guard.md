@@ -1,10 +1,15 @@
-# Spec: Restore — Request Contract, Archive Lookup & the Destination Guard
+---
+type: Spec
+id: SPEC-170
+title: "Restore — Request Contract, Archive Lookup & the Destination Guard"
+description: "Adds Restore's request contract, archive lookup and destination guard, refusing the whole restore if any file already exists at the target before any Glacier retrieval is paid for."
+spec_status: Completed
+depends_on: [SPEC-168, SPEC-169]
+arc: archival
+arc_order: 3
+---
 
-**ID:** SPEC-170
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-168 (the plane, the bucket, the `mode` branch, `arcommon`), SPEC-169 (the archive key layout and the receipt)
-
+**Dependency notes:** SPEC-168 (the plane, the bucket, the `mode` branch, `arcommon`), SPEC-169 (the archive key layout and the receipt)
 ## Overview
 
 An archive is only worth having if it comes back. The user pastes the UUID from a receipt, and this
@@ -84,7 +89,7 @@ means a restore still works when the manifest is missing and refuses when it dis
       > run and can both pass the guard. And a run does delete: the first to finish sweeps the
       > vault, and the second's copy-back can overwrite a file the user edited after the first
       > restored it.
-      > `docs/decisions/archive-and-restore.md`, *The group id orders the STARTS, not the runs*.
+      > `docs/decisions/archive-and-restore/`, *The group id orders the STARTS, not the runs*.
 - [x] **The space comes from the request, not from the archive.** The route the user is standing in
       names the space, exactly as the data-quality report view takes its space from the route rather
       than deriving it (SPEC-113). Authorization is then a question about *that* space, and an

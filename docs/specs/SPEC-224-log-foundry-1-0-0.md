@@ -1,10 +1,15 @@
-# Spec: Log Foundry 1.0.0
+---
+type: Spec
+id: SPEC-224
+title: "Log Foundry 1.0.0"
+description: "Upgrades the fleet's log-foundry logging library from 0.6.0 to 1.0.0 and settles what the move changes in this repo's test harnesses, as the precondition for trace stitching, for developers and operators."
+spec_status: Completed
+depends_on: [SPEC-127, SPEC-130]
+arc: observability-continuation
+arc_order: 1
+---
 
-**ID:** SPEC-224
-**Status:** Completed
-**Last Updated:** 2026-09-08
-**Depends On:** SPEC-127, SPEC-130 (both Completed)
-
+**Dependency notes:** SPEC-127, SPEC-130 (both Completed)
 ## Overview
 
 The fleet's structured logging runs on `log-foundry` 0.6.0, pinned exactly because one image
@@ -269,7 +274,7 @@ judgement call at build time**, because "except where it is describing history" 
 builder discharges by classifying whatever is left as history. Live sites, all of which move:
 `lambdas/control-plane-common/requirements.txt` (the block FR-001 rewrites),
 `lambdas/Dockerfile:58`, `lambdas/info/shared-layer.md:188`,
-`docs/decisions/control-planes.md:235` and `:253`, `docs/decisions/identity-and-access.md:595`,
+`docs/decisions/control-planes/`, `docs/decisions/identity-and-access/`,
 `docs/testing/owed.md:336`, and `infra/modules/observability/README.md:22`. Completed spec files
 and delivery docs under `docs/specs/` and `docs/spec-delivery/` are history and are **not** edited.
 
@@ -312,7 +317,7 @@ branch rather than a cold start in production.
 > those two listers as the case under its own "not on a generator function" prohibition. The guard
 > this paragraph justifies is unaffected and still earns its place — the fleet is held to it, and
 > the reason it exists is that the refusal is a cold start rather than a bad span. What changed is
-> only the consumer this sentence predicted. Entry: `decisions/control-planes.md` (*Where a child
+> only the consumer this sentence predicted. Entry: `decisions/control-planes/` (*Where a child
 > span may go*).
 
 **`fields` became a reserved parameter name on the emitters.** The signature went from

@@ -108,7 +108,7 @@ Besides a request with no verified actor, which has no inbox, **one refusal writ
 `request_id_reused`**, raised when a plan under the id names another
 execution. That run reports under the id and its outcome row settles the card, so a refusal row could
 only settle it as *Didn’t finish* for an operation that may have finished
-([the decision](../../../docs/decisions/control-planes.md#a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is-the-one-that-reports-data-quality-file-operations-archive)).
+([the decision](../../../docs/decisions/control-planes/a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is.md)).
 
 The link is the destination when anything landed, the source otherwise, and for a `delete` the common
 folder of the items' **parents**. Its prefix is **percent-encoded**, which no other plane's link

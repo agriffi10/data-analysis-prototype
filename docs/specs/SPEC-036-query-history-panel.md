@@ -1,10 +1,15 @@
-# Spec: Query History Panel UI
+---
+type: Spec
+id: SPEC-036
+title: "Query History Panel UI"
+description: "Gives users a private, persistent drawer of the queries they have run, read only from their own per-user history store so they can revisit, reopen, and re-run past work."
+spec_status: Completed
+depends_on: [SPEC-034, SPEC-035]
+arc: analytics
+arc_order: 5
+---
 
-**ID:** SPEC-036
-**Status:** Completed
-**Last Updated:** 2026-06-18
-**Depends On:** SPEC-034 (per-user history store + `useQueryHistory`), SPEC-035 (query workspace + editor)
-
+**Dependency notes:** SPEC-034 (per-user history store + `useQueryHistory`), SPEC-035 (query workspace + editor)
 > **Design:** Design-led. Build to the history panel in `docs/design/query-workspace.html` and `docs/design/design-system.md` §6 (the "drawer pattern (query history / saved queries)" reuse noted there). Visuals follow the design; behavior/data wiring follows this spec.
 
 ## Overview

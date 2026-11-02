@@ -1,10 +1,15 @@
-# Spec: Data Quality — `byte-scan` + Report Assembly
+---
+type: Spec
+id: SPEC-112
+title: "Data Quality — `byte-scan` + Report Assembly"
+description: "Delivers the data-quality byte-scan, a sampled invalid-UTF-8 check with a per-request byte budget and reported coverage, and assemble-report, which joins all findings into the report users read."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-108, SPEC-109, SPEC-110, SPEC-111]
+arc: data-quality
+arc_order: 5
+---
 
-**ID:** SPEC-112
-**Status:** Completed
-**Last Updated:** 2026-07-21
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (S3 grants), SPEC-110 (the manifest + per-file columns), SPEC-111 (the Athena results)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (S3 grants), SPEC-110 (the manifest + per-file columns), SPEC-111 (the Athena results)
 > **Read `docs/data-quality-architecture.md` §5.2, §5.3 and §6 first.**
 
 ## Overview

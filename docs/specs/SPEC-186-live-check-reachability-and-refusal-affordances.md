@@ -1,9 +1,11 @@
-# Spec: Live-Check Reachability, Refusal Affordances & Observability Fields
-
-**ID:** SPEC-186
-**Status:** Completed
-**Last Updated:** 2026-08-14
-**Depends On:** SPEC-144, SPEC-145, SPEC-157, SPEC-158, SPEC-170, SPEC-172, SPEC-173
+---
+type: Spec
+id: SPEC-186
+title: "Live-Check Reachability, Refusal Affordances & Observability Fields"
+description: "Makes owed live checks reachable, announces two silent refusals, and fixes nine full-width dialogs, a clipped listbox, empty env and version log fields and a Pending-versus-Active roster mismatch."
+spec_status: Completed
+depends_on: [SPEC-144, SPEC-145, SPEC-157, SPEC-158, SPEC-170, SPEC-172, SPEC-173]
+---
 
 ## Overview
 

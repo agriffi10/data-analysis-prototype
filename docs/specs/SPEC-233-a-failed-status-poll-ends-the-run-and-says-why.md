@@ -1,9 +1,11 @@
-# Spec: A Failed Status Poll Ends the Query Tab's Run, and Says Why
-
-**ID:** SPEC-233
-**Status:** Completed
-**Last Updated:** 2026-09-13
-**Depends On:** SPEC-078, SPEC-106
+---
+type: Spec
+id: SPEC-233
+title: "A Failed Status Poll Ends the Query Tab's Run, and Says Why"
+description: "Makes a failed status poll end a Query tab's run after one retry and show the error code's wording in the tab's error banner, instead of spinning on Running for five minutes with no message."
+spec_status: Completed
+depends_on: [SPEC-078, SPEC-106]
+---
 
 ## Overview
 

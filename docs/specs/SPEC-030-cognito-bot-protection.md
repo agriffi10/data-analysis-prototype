@@ -1,10 +1,13 @@
-# Spec: Cognito Bot Signup Protection
+---
+type: Spec
+id: SPEC-030
+title: "Cognito Bot Signup Protection"
+description: "Makes automated bot sign-ups harder at no AWS cost, by preventing account enumeration, tightening the Cognito password policy, and extending the pre-signup Lambda to reject disposable email domains."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-012]
+---
 
-**ID:** SPEC-030  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-006 (Cognito User Pool IaC), SPEC-012 (Pre-Signup Lambda)
-
+**Dependency notes:** SPEC-006 (Cognito User Pool IaC), SPEC-012 (Pre-Signup Lambda)
 ## Overview
 
 The Cognito User Pool's Hosted UI signup endpoint is publicly reachable. For a demo application, the goal is to make automated bot signups difficult without incurring any additional AWS cost. Two free, IaC-manageable layers achieve this:

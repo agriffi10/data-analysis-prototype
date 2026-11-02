@@ -1,10 +1,13 @@
-# Spec: User-Facing Error Messaging — Friendly, Consistent, No AWS Leaks
+---
+type: Spec
+id: SPEC-106
+title: "User-Facing Error Messaging — Friendly, Consistent, No AWS Leaks"
+description: "Replaces raw AWS, Cognito and Athena error text everywhere users see it, including control-plane notifications, with short friendly messages that say how to fix it or to contact the Administrator."
+spec_status: Completed
+depends_on: []
+---
 
-**ID:** SPEC-106
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None (touches existing SPA services/UI + Lambda notification producers; no infra/IAM change)
-
+**Dependency notes:** None (touches existing SPA services/UI + Lambda notification producers; no infra/IAM change)
 ## Overview
 
 Today every error a user can hit is surfaced by passing the raw AWS/Cognito/Athena error text

@@ -1,9 +1,13 @@
-# Spec: Copy, Export, Help and the Arc's Live Checks
-
-**ID:** SPEC-185
-**Status:** Completed
-**Last Updated:** 2026-08-14
-**Depends On:** SPEC-180, SPEC-182, SPEC-184
+---
+type: Spec
+id: SPEC-185
+title: "Copy, Export, Help and the Arc's Live Checks"
+description: "Adds Data Explorer copy (plain and advanced with headers and formats), export of the current result into a chosen space, Help guides, and the live-check script that closes the feature."
+spec_status: Completed
+depends_on: [SPEC-180, SPEC-182, SPEC-184]
+arc: data-explorer
+arc_order: 10
+---
 
 ## Overview
 

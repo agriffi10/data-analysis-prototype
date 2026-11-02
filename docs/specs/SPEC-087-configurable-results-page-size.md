@@ -1,10 +1,13 @@
-# Spec: Configurable Query-Results Page Size (default 100)
+---
+type: Spec
+id: SPEC-087
+title: "Configurable Query-Results Page Size (default 100)"
+description: "Raises the query-results page size default to 100 and adds a rows-per-page control above the results table, applying to every result tab at once and persisting for the browser session."
+spec_status: Completed
+depends_on: [SPEC-038, SPEC-078, SPEC-080, SPEC-079]
+---
 
-**ID:** SPEC-087
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-038 (results pager / `useQueryResults`), SPEC-078 (result tabs), SPEC-080 (row-count stats), SPEC-079 (session-persisted per-user preference pattern)
-
+**Dependency notes:** SPEC-038 (results pager / `useQueryResults`), SPEC-078 (result tabs), SPEC-080 (row-count stats), SPEC-079 (session-persisted per-user preference pattern)
 ## Overview
 
 The query-results table shows a **fixed 20 rows per page** (SPEC-038 `QUERY_RESULTS_PAGE_SIZE`). Users want to see more rows at a glance and to control that number themselves. This spec (a) raises the **default page size to 100** and (b) adds a **user-adjustable "rows per page" control** above the results table. The chosen value is **workspace-global**: it applies to every result tab (SPEC-078) at once, and every currently-open result tab re-pages to the new size immediately — there is no per-tab page size. The preference persists per user for the browser session (matching the SPEC-079 layout-preset pattern), so it survives tab switches and reloads within a session and resets to the default when the session ends.

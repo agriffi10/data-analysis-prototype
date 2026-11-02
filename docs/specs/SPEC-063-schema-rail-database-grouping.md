@@ -1,10 +1,15 @@
-# Spec: Schema Rail — Collapsible Databases with Tables/Views Groups
+---
+type: Spec
+id: SPEC-063
+title: "Schema Rail — Collapsible Databases with Tables/Views Groups"
+description: "Restructures the schema rail into a tree of collapsible databases, each with collapsible Tables and Views groups, so users can browse any accessible database without changing their active query target."
+spec_status: Completed
+depends_on: [SPEC-047, SPEC-035, SPEC-048, SPEC-034, SPEC-044]
+arc: query-editor-round-4
+arc_order: 1
+---
 
-**ID:** SPEC-063
-**Status:** Completed
-**Last Updated:** 2026-06-29
-**Depends On:** SPEC-047 (workspace database switcher + `useConnections`), SPEC-035 (schema browser), SPEC-048 (views in the schema browser), SPEC-034 (`useSchema` + Glue services), SPEC-044 (per-table actions menu)
-
+**Dependency notes:** SPEC-047 (workspace database switcher + `useConnections`), SPEC-035 (schema browser), SPEC-048 (views in the schema browser), SPEC-034 (`useSchema` + Glue services), SPEC-044 (per-table actions menu)
 > **Design:** Needs a design pass. The schema rail's flat *Database → Tables* layout becomes a **tree**: each
 > database is a **collapsible node**, and under an expanded database sit two **collapsible groups — Tables and
 > Views** — keeping a database's tables and views grouped together next to the database they belong to. The

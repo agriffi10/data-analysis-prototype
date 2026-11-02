@@ -1,10 +1,15 @@
-# Spec: Shared-Space Access Model & Request Contract (Membership Tags + Portal Slots + LF)
+---
+type: Spec
+id: SPEC-056
+title: "Shared-Space Access Model & Request Contract (Membership Tags + Portal Slots + LF)"
+description: "Gives operators the shared-space access model: ten membership slots mapped to principal tags and portal-role policies scoping S3 and Glue, Lake Formation setup, and a trusted-actor request contract for the control plane."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-032, SPEC-033, SPEC-011, SPEC-013, SPEC-006]
+arc: shared-connections
+arc_order: 2
+---
 
-**ID:** SPEC-056
-**Status:** Completed
-**Last Updated:** 2026-06-26
-**Depends On:** SPEC-050 (shared bucket, registry storage, SQS/Pipe/Step Function + orchestrator role, provisioner Lambda infra), SPEC-032 (LF enforcement bootstrap + hybrid registration pattern; admin bucket), SPEC-033 (per-DB LF grant pattern; catalog-safe identifier rule), SPEC-011/013 (shared portal role + `username` principal tag), SPEC-006 (Cognito User Pool + Identity Pool)
-
+**Dependency notes:** SPEC-050 (shared bucket, registry storage, SQS/Pipe/Step Function + orchestrator role, provisioner Lambda infra), SPEC-032 (LF enforcement bootstrap + hybrid registration pattern; admin bucket), SPEC-033 (per-DB LF grant pattern; catalog-safe identifier rule), SPEC-011/013 (shared portal role + `username` principal tag), SPEC-006 (Cognito User Pool + Identity Pool)
 > **Reference:** `docs/shared-spaces-architecture.md` §3 (membership principal tag), §4 (registry), §5 (results
 > layout), §6. This is the **access-model half** of the original SPEC-050 split: it adds the membership-tag
 > machinery, the portal-role membership slots, Lake Formation registration of the shared bucket, and the

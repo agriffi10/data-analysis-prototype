@@ -1,10 +1,13 @@
-# Spec: Sign-Up End to End — Account Creation to Authenticated Session
+---
+type: Spec
+id: SPEC-009
+title: "Sign-Up End to End — Account Creation to Authenticated Session"
+description: "Delivers the end-to-end sign-up journey for new users, with a Create account entry point, Hosted UI signup and email verification, handled failure paths, and a documented acceptance test across the auth specs."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-007, SPEC-008]
+---
 
-**ID:** SPEC-009
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-006 (self-signup enabled on the pool), SPEC-007 (login flow), SPEC-008 (gated layout)
-
+**Dependency notes:** SPEC-006 (self-signup enabled on the pool), SPEC-007 (login flow), SPEC-008 (gated layout)
 ## Overview
 
 Deliver the complete journey from "I don't have an account" to "I'm signed in looking at the files page." Signup itself happens on the Cognito Hosted UI (per the architecture decision — no custom forms): the user creates a username/password, verifies their email with a code, and returns to the portal authenticated. This spec makes that journey first-class: an explicit "Create account" entry point in the app, a verified Hosted UI signup configuration, sensible verification emails, handled failure paths, and a documented end-to-end acceptance test that exercises SPEC-006 through SPEC-009 together.

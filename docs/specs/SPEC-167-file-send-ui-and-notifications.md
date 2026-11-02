@@ -1,10 +1,15 @@
-# Spec: Send Files — "Send to…" UI & Notification Producer
+---
+type: Spec
+id: SPEC-167
+title: "Send Files — \"Send to…\" UI & Notification Producer"
+description: "Adds a Send to... action and dialog to the file browser's selection toolbar, with recipient typeahead and notifications telling the sender each outcome and the recipient what arrived."
+spec_status: Completed
+depends_on: [SPEC-166, SPEC-147, SPEC-148, SPEC-158, SPEC-093, SPEC-058, SPEC-059, SPEC-060, SPEC-061, SPEC-155, SPEC-163]
+arc: send-files
+arc_order: 4
+---
 
-**ID:** SPEC-167
-**Status:** Completed
-**Last Updated:** 2026-08-11
-**Depends On:** SPEC-166 (terminal per-recipient summary), SPEC-147/148/158 (`UsernameChipsField`, `SuggestionSource`, `useSpaceSuggestions`), SPEC-093 (the Share-table dialog as the pattern), SPEC-058→061 (notifications), SPEC-155 (`FormDialog`, Escape depth, Enter-to-submit), SPEC-163 (the gated-surface registry)
-
+**Dependency notes:** SPEC-166 (terminal per-recipient summary), SPEC-147/148/158 (`UsernameChipsField`, `SuggestionSource`, `useSpaceSuggestions`), SPEC-093 (the Share-table dialog as the pattern), SPEC-058→061 (notifications), SPEC-155 (`FormDialog`, Escape depth, Enter-to-submit), SPEC-163 (the gated-surface registry)
 ## Overview
 
 The last piece: a way to ask, and a way to find out. The file browser's selection toolbar gains

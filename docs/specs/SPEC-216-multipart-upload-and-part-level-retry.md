@@ -1,10 +1,13 @@
-# Spec: Multipart Upload & Part-Level Retry
+---
+type: Spec
+id: SPEC-216
+title: "Multipart Upload & Part-Level Retry"
+description: "Uploads files as presigned multipart parts with part-level retry, sizing parts to finish inside one presigned window on the slowest supported link and capping single-PUT size by the same constant, for users."
+spec_status: Completed
+depends_on: [SPEC-198, SPEC-196, SPEC-197, SPEC-020, SPEC-172, SPEC-161]
+---
 
-**ID:** SPEC-216
-**Status:** Completed
-**Last Updated:** 2026-08-29
-**Depends On:** SPEC-198 (the presigned upload this supersedes — `objects.uploadUrl`, the `XMLHttpRequest` requirement, the `expiresAt` clamp, and the accepted residual this spec discharges), SPEC-196 (the user credential plane, `signing_client(covering=…)` and the one-hour role-chaining ceiling), SPEC-197 (the route table, the **closed** error enum, the closed type vocabulary, the declared-per-route `idempotent` flag and `Route.plane`), SPEC-020 (the upload queue, which stays in the browser and gains no state), SPEC-172 (`isWriteLockedPrefix` and the archive Deny), SPEC-161 (a cap is computed by a test against the budget that sized it)
-
+**Dependency notes:** SPEC-198 (the presigned upload this supersedes — `objects.uploadUrl`, the `XMLHttpRequest` requirement, the `expiresAt` clamp, and the accepted residual this spec discharges), SPEC-196 (the user credential plane, `signing_client(covering=…)` and the one-hour role-chaining ceiling), SPEC-197 (the route table, the **closed** error enum, the closed type vocabulary, the declared-per-route `idempotent` flag and `Route.plane`), SPEC-020 (the upload queue, which stays in the browser and gains no state), SPEC-172 (`isWriteLockedPrefix` and the archive Deny), SPEC-161 (a cap is computed by a test against the budget that sized it)
 ## Overview
 
 An upload is **one presigned `PUT`** today, and two things follow that a user feels. A dropped
@@ -335,7 +338,7 @@ Multipart costs a create, N sign calls and a complete. For a small file that is 
       change.** The two paths differ (`/v1/objects/upload` vs `/v1/objects/upload-url`), so nothing
       obstructs keeping both. Retiring in the same change would break every live upload for the
       length of an SPA rollout, and the reason is **not** the one an earlier draft gave. It claimed
-      `decisions/identity-and-access.md`'s "the API deploys before the SPA image" as fact; measured
+      `decisions/identity-and-access/`'s "the API deploys before the SPA image" as fact; measured
       over the last real deploys that is **false in the direction that matters** — the three
       workflows fire independently on a push to `main` with **no ordering between them**, and
       `Deploy App` (CloudFront, a live SPA surface) finished *first* every time, beating
@@ -489,7 +492,7 @@ deliberately.
 
 - [ ] SPEC-198 FR-005 AC6's residual — "there is **no part-level retry** any more" — is marked
       superseded **in place** at every site that states it: the spec itself,
-      `decisions/storage.md`'s *Bytes go to S3 presigned* entry, the CLAUDE.md digest clause, and
+      `decisions/storage/`'s *Bytes go to S3 presigned* entry, the CLAUDE.md digest clause, and
       **`architecture.md`'s constraint prose plus ADR row 39**, which the completion ritual names
       explicitly and which an earlier draft of this criterion missed.
 - [ ] **`owed.md` is edited across THREE rows, not one, and none is deleted.** The row carrying the

@@ -1,9 +1,11 @@
-# Spec: Landing Page Full Design
-
-**ID:** SPEC-029  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021, SPEC-022
+---
+type: Spec
+id: SPEC-029
+title: "Landing Page Full Design"
+description: "Replaces the minimal landing card with the full marketing page, adding a frosted-glass nav, hero with calls to action, three-column features, accent call-to-action strip, and footer, and hides the app header there."
+spec_status: Completed
+depends_on: [SPEC-021, SPEC-022]
+---
 
 ## Overview
 

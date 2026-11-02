@@ -1,15 +1,17 @@
-# Spec: A Run That Ends on an Error No Catch Takes Still Tells the User
-
-**ID:** SPEC-236
-**Status:** Cancelled
-**Last Updated:** 2026-09-16
-**Depends On:** SPEC-152, SPEC-161, SPEC-201
+---
+type: Spec
+id: SPEC-236
+title: "A Run That Ends on an Error No Catch Takes Still Tells the User"
+description: "Would have delivered a second EventBridge rule per control plane that tells the user when a run fails on States.DataLimitExceeded or States.Runtime, which no Catch takes, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-152, SPEC-161, SPEC-201]
+---
 
 ## Why this spec was cancelled
 
 **Andrew's decision, 2026-09-16: the work is not being done.** The spec was never built. The gap it
 describes is still live: a run ending on `States.DataLimitExceeded` or `States.Runtime` reaches no
-notifier. The gap is recorded as accepted in `docs/decisions/control-planes.md`, in the entry *Every
+notifier. The gap is recorded as accepted in `docs/decisions/control-planes/`, in the entry *Every
 plane notifies on a pre-verb failure*, together with the traps a later fix would meet. The rest of this file is the Draft as it stood.
 
 ## Overview
@@ -193,7 +195,7 @@ Read from the code at `d42a3b42`, and from the vendor pages named.
   two per-plane tests that copy its first-pattern idiom, change to read every `event_pattern`
   (FR-006).
 - The prose that states the old rule or the old gap. That means the Fences in
-  `docs/decisions/control-planes.md` and `infra/info/control-plane-shape.md`; a new register entry;
+  `docs/decisions/control-planes/` and `infra/info/control-plane-shape.md`; a new register entry;
   ADR 27 in `docs/architecture.md`; and the "never `FAILED`" lines in the module READMEs, plane
   pages and `stepfunction.tf` comments. It also means the notify-failure docstrings' "Two Step
   Functions errors never reach it by either door" and "The two doors cannot double-notify"
@@ -439,14 +441,14 @@ state the filtered exception.
   - (j) a plane whose handler module never calls `is_uncaught_failure` is refused.
 - [ ] Every check in the gate is mutation-tested once: break it, watch its corpus case fail, restore
   it. The PR names each check and its case.
-- [ ] The Fences of `docs/decisions/control-planes.md` and the traps in
+- [ ] The Fences of `docs/decisions/control-planes/` and the traps in
   `infra/info/control-plane-shape.md` carry the amended clause.
 - [ ] A case-insensitive search for `never[ \`]*FAILED` over `docs/`, `infra/` and `lambdas/`,
   excluding `docs/specs/` and `docs/spec-delivery/`, returns only lines that also state the
   filtered exception. The pattern covers the capitalised `NEVER FAILED` in the `stepfunction.tf`
   comments and the RST double backticks in the handler docstrings. A search for
   `NOT re-checked` in `lambdas/*-notify-failure/` returns nothing.
-- [ ] A new entry in `docs/decisions/control-planes.md` records this decision and its rejected
+- [ ] A new entry in `docs/decisions/control-planes/` records this decision and its rejected
   alternatives. ADR 27's "so the failure mode is silence" in `docs/architecture.md` names the door.
 
 ### FR-007: The door is measured in production

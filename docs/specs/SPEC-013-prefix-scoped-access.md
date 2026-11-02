@@ -1,10 +1,13 @@
-# Spec: Prefix-Scoped S3 Access — Policy + File Browser Switchover
+---
+type: Spec
+id: SPEC-013
+title: "Prefix-Scoped S3 Access — Policy + File Browser Switchover"
+description: "Isolates each user's storage with an IAM policy limiting each session to its own username prefix in the user-space bucket, and switches the file browser from the test bucket to that scoped prefix."
+spec_status: Completed
+depends_on: [SPEC-010, SPEC-011, SPEC-012]
+---
 
-**ID:** SPEC-013
-**Status:** Completed
-**Last Updated:** 2026-06-12
-**Depends On:** SPEC-010 (bucket), SPEC-011 (identity-tagged credentials), SPEC-012 (validated usernames)
-
+**Dependency notes:** SPEC-010 (bucket), SPEC-011 (identity-tagged credentials), SPEC-012 (validated usernames)
 > **Note:** Do not start this spec until SPEC-011's principal tag mapping is verified in CloudTrail — the policy below is a no-op (denies everything) without the `username` principal tag.
 
 ## Overview

@@ -1,9 +1,11 @@
-# Spec: GitHub Actions CI
-
-**ID:** SPEC-004  
-**Status:** Completed  
-**Last Updated:** 2026-06-09  
-**Depends On:** None
+---
+type: Spec
+id: SPEC-004
+title: "GitHub Actions CI"
+description: "Gives developers a GitHub Actions CI workflow that installs dependencies, lints, runs unit tests, and builds on every push and pull request, so failures block merges."
+spec_status: Completed
+depends_on: []
+---
 
 ---
 

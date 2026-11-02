@@ -1,9 +1,13 @@
-# Spec: Autocomplete Offers the Columns of the Tables the Statement Names
-
-**ID:** SPEC-244
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-065, SPEC-077, SPEC-078
+---
+type: Spec
+id: SPEC-244
+title: "Autocomplete Offers the Columns of the Tables the Statement Names"
+description: "Makes Query editor column autocomplete follow the statement under the cursor, offering only columns of tables named in FROM and JOIN or after an alias dot and quoting names that need it, for users."
+spec_status: Completed
+depends_on: [SPEC-065, SPEC-077, SPEC-078]
+arc: tester-feedback
+arc_order: 7
+---
 
 ## Overview
 
@@ -39,7 +43,7 @@ Read from the code at `73c66eef`.
   quotes) and `sqlDdlIdentifier` (Hive DDL, backticks), and the analytics Fences say the wrong one
   fails silently. SPEC-065 settled that accepting a suggestion inserts the bare identifier.
 - **The completion tests live in `queryPure.test.ts`**, merged there from `sqlCompletions.test.ts`.
-- **There is no active database** (`docs/decisions/analytics.md`, Fences): every base table is
+- **There is no active database** (`docs/decisions/analytics/`, Fences): every base table is
   qualified as `database.table`.
 - **Names that need quoting reach the editor.** The table builder refuses new column names outside
   `[a-z0-9_]` (Fences), but a refresh skips that check to keep older tables working, a view's column

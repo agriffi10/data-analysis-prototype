@@ -1,10 +1,15 @@
-# Spec: Restore — Glacier Retrieval, the Wait Loop, Copy-Back & Terminals
+---
+type: Spec
+id: SPEC-171
+title: "Restore — Glacier Retrieval, the Wait Loop, Copy-Back & Terminals"
+description: "Adds Restore's Glacier retrieval, hours-long wait loop, copy-back, archive deletion and receipt rewrite, so a validated restore returns the archived files to where they came from."
+spec_status: Completed
+depends_on: [SPEC-170, SPEC-169, SPEC-160]
+arc: archival
+arc_order: 4
+---
 
-**ID:** SPEC-171
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-170 (the restore contract, the lookup and the guard), SPEC-169 (the archive layout and the receipt), SPEC-160 (`cpcommon.transfer`)
-
+**Dependency notes:** SPEC-170 (the restore contract, the lookup and the guard), SPEC-169 (the archive layout and the receipt), SPEC-160 (`cpcommon.transfer`)
 ## Overview
 
 SPEC-170 stops the moment it knows a restore is legal and unobstructed. This spec is the part that

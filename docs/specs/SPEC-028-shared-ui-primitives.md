@@ -1,9 +1,11 @@
-# Spec: Shared UI Primitives
-
-**ID:** SPEC-028  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-028
+title: "Shared UI Primitives"
+description: "Gives developers a small set of typed shared UI primitives for buttons, inputs, banners, and pills, replacing duplicated class strings across components without changing the visual design."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

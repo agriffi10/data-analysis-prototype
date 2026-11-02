@@ -29,7 +29,7 @@
   is the bare name with its quotes doubled, closed only when nothing closes it already. `label` is
   never quoted, so filtering and reading are unchanged.
 - **The record matches.** The register entry *Suggestions follow the statement, and a Trino insert is
-  quoted where the name needs it* in `docs/decisions/analytics.md`, one clause added to that file's
+  quoted where the name needs it* in `docs/decisions/analytics/`, one clause added to that file's
   Fences identifier-escaper bullet, two component-inventory rows, the live check in
   `docs/testing/e2e.md` §4.3, and superseded markers in `docs/design/design-system.md`,
   `docs/specs/SPEC-065-…` (its acceptance criterion and its contract line) and `docs/specs/ARCS.md`.

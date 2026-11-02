@@ -1,10 +1,15 @@
-# Spec: Connections Tab, Connection Lists & Refresh
+---
+type: Spec
+id: SPEC-052
+title: "Connections Tab, Connection Lists & Refresh"
+description: "Adds a Connections tab listing the user's shared spaces with role and status, merges shared connections into the database and space lists, and adds a Refresh connections control that applies new memberships."
+spec_status: Completed
+depends_on: [SPEC-047, SPEC-051, SPEC-056, SPEC-035, SPEC-046, SPEC-044]
+arc: shared-connections
+arc_order: 4
+---
 
-**ID:** SPEC-052
-**Status:** Completed
-**Last Updated:** 2026-06-21
-**Depends On:** SPEC-047 (`useConnections` seam + schema-rail database list), SPEC-051 (per-user cache shape + create flow), SPEC-056 (membership tags; token-refresh requirement), SPEC-035 (`PrimaryNav` Files | Query tabs), SPEC-046 (refresh-button pattern), SPEC-044 (`Toast`), SPEC-053 (member-management drawer — opened from here), SPEC-054 (leave/delete — invoked from here)
-
+**Dependency notes:** SPEC-047 (`useConnections` seam + schema-rail database list), SPEC-051 (per-user cache shape + create flow), SPEC-056 (membership tags; token-refresh requirement), SPEC-035 (`PrimaryNav` Files | Query tabs), SPEC-046 (refresh-button pattern), SPEC-044 (`Toast`), SPEC-053 (member-management drawer — opened from here), SPEC-054 (leave/delete — invoked from here)
 > **Reference:** `docs/shared-spaces-architecture.md` §6 (async UX: pending state + manual refresh that forces a
 > token refresh so newly-granted membership tags take effect). This spec is the **read/display + navigation** layer:
 > it adds the **Connections** top-level tab (where spaces are managed), extends `useConnections` so shared

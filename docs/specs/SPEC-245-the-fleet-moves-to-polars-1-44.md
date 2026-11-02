@@ -1,9 +1,11 @@
-# Spec: The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing
-
-**ID:** SPEC-245
-**Status:** Completed
-**Last Updated:** 2026-09-21
-**Depends On:** None
+---
+type: Spec
+id: SPEC-245
+title: "The Fleet Moves to polars 1.44, So a Result Holding Line Breaks Converts Instead of Refusing"
+description: "Moves the Lambda fleet from polars 1.12 to 1.44 so query results containing line breaks convert to Parquet, JSON or column-subset CSV instead of being refused, re-measuring the probe and Excel caps."
+spec_status: Completed
+depends_on: []
+---
 
 ## Overview
 
@@ -369,7 +371,7 @@ in production, with a positive control run before the deploy.
 - [ ] Each of these states what 1.44.2 does, or marks the 1.12 behaviour as history:
       - the results-conversion Traps entries for the fast count, the streaming mis-split and
         `schema_overrides`;
-      - `docs/decisions/control-planes.md` at its `schema_overrides` passage and its fast-count
+      - `docs/decisions/control-planes/` at its `schema_overrides` passage and its fast-count
         passage;
       - SPEC-239's two "after close" markers, in its spec and its delivery doc;
       - `lambdas/info/shared-layer.md`'s polars size figure, and the same figure in
@@ -447,7 +449,7 @@ No wire type, state-machine field or TypeScript type changes.
 - `lambdas/results-conversion-convert/rc_convert.py` and its test,
   `lambdas/results-conversion-common/rccommon/{messages,reasons,config}.py` and the plane suite —
   FR-003, FR-004
-- `lambdas/info/planes/results-conversion.md`, `docs/decisions/control-planes.md`,
+- `lambdas/info/planes/results-conversion.md`, `docs/decisions/control-planes/`,
   `docs/testing/e2e.md`, SPEC-239's spec and delivery doc — FR-004, FR-005
 
 ## Implementation Phases

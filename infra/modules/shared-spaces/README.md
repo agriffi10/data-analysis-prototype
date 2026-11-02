@@ -33,7 +33,7 @@ id orders only the starts. **The registry's atomic conditional `PutObject` (`If-
 whole guard**: when two users submit one name at once, one write is refused whatever order their
 runs reach it in. The other registry writes, bar the final delete, and the cache and membership
 index writes are compare-and-swaps; what overlap still costs is recorded in
-`docs/decisions/control-planes.md` (*A group id orders the STARTS, not the runs*).
+`docs/decisions/control-planes/` (*A group id orders the STARTS, not the runs*).
 
 ## The portal role's third inline policy
 

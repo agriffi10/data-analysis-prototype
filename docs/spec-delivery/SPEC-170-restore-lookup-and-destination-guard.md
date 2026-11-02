@@ -92,7 +92,7 @@ carry, and here neither run deletes anything. **— Superseded 2026-09-15: the g
 this.** The Pipe starts executions `FIRE_AND_FORGET`, so two restores of one archive still run at
 once — and "neither run deletes anything" no longer holds: the first to finish sweeps the vault, and
 the second's copy-back can overwrite a file the user edited after the first restored it.
-`docs/decisions/archive-and-restore.md` (*The group id orders the STARTS, not the runs*) has what
+`docs/decisions/archive-and-restore/` (*The group id orders the STARTS, not the runs*) has what
 follows.
 
 ## What changed from earlier specs

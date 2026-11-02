@@ -1,10 +1,15 @@
-# Spec: Browser Shared Primitives & Component Decomposition
+---
+type: Spec
+id: SPEC-155
+title: "Browser Shared Primitives & Component Decomposition"
+description: "Extracts shared browser primitives (S3 JSON reader, dialog footer, focus-on-mount, feedback stanza, pager) and splits QueryWorkspace and FileBrowser into smaller units for developers, with no user-visible change."
+spec_status: Completed
+depends_on: [SPEC-150, SPEC-154, SPEC-106, SPEC-095]
+arc: audit-remediation
+arc_order: 6
+---
 
-**ID:** SPEC-155
-**Status:** Completed
-**Last Updated:** 2026-08-07
-**Depends On:** SPEC-150 (its FR-004/FR-005/FR-009 change the same `lib/` files this spec refactors — land 150 first), SPEC-154 (the journey tests that make the decomposition in Phase 5 safe), SPEC-106 (`toUserMessage`, whose call-site ergonomics FR-008 addresses), SPEC-095 (the responsive rules any extracted component must keep)
-
+**Dependency notes:** SPEC-150 (its FR-004/FR-005/FR-009 change the same `lib/` files this spec refactors — land 150 first), SPEC-154 (the journey tests that make the decomposition in Phase 5 safe), SPEC-106 (`toUserMessage`, whose call-site ergonomics FR-008 addresses), SPEC-095 (the responsive rules any extracted component must keep)
 > **Reference:** from the 2026-08-05 codebase audit. This is the reuse and structure work, deliberately separated from behaviour change so a reviewer can read a diff and know nothing user-visible moved.
 >
 > **The prerequisite is not negotiable.** Phase 5 decomposes two components of 1772 and 1300 lines. That is only safe on top of SPEC-154's journey tests — today `QueryWorkspace` has genuinely good coverage but `FileBrowser`'s upload and collision paths do not, and those are exactly the paths a decomposition would break silently. **If SPEC-154 has not landed, stop before Phase 5** and ship Phases 1–4, which stand alone.

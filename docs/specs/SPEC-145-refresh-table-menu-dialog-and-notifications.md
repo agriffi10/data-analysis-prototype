@@ -1,10 +1,15 @@
-# Spec: Refresh Table — Menu Item, Dialog & Notifications
+---
+type: Spec
+id: SPEC-145
+title: "Refresh Table — Menu Item, Dialog & Notifications"
+description: "Adds a Refresh table item to the Query schema rail's table menu with a confirmation dialog and a removals opt-in, including the mode opened from the notification link, so users can refresh a schema in one action."
+spec_status: Completed
+depends_on: [SPEC-143, SPEC-144, SPEC-044, SPEC-067, SPEC-060]
+arc: refresh-table
+arc_order: 4
+---
 
-**ID:** SPEC-145
-**Status:** Completed
-**Last Updated:** 2026-08-03
-**Depends On:** SPEC-143 (the `mode` field, the `TableBuildSpace` type, and the eligibility rules the dialog's copy must match), SPEC-144 (`allowRemovals`, the `columns_removed` outcome, and the notification **link** this spec parses), SPEC-044 (`TableActionsMenu` and the `TableActions` prop contract), SPEC-067 (`enqueueTableBuild` and `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-060 (the notifications surface these outcomes arrive on)
-
+**Dependency notes:** SPEC-143 (the `mode` field, the `TableBuildSpace` type, and the eligibility rules the dialog's copy must match), SPEC-144 (`allowRemovals`, the `columns_removed` outcome, and the notification **link** this spec parses), SPEC-044 (`TableActionsMenu` and the `TableActions` prop contract), SPEC-067 (`enqueueTableBuild` and `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-060 (the notifications surface these outcomes arrive on)
 > **Reference:** third and last of the refresh-table arc (143 → 144 → **145**). This is the only spec in the arc a user can see.
 >
 > **Browser-side only: no new IAM, no new AWS call, no new Lambda change, no new env var.** The portal role already holds `sqs:SendMessage` on the table-builder request queue (SPEC-067), the queue URL is already wired, and `enqueueTableBuild` already sends the envelope this spec extends.
