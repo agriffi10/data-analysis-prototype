@@ -20,9 +20,7 @@ moved {
 }
 
 # ── The web tier's off switch ─────────────────────────────────────────────────
-# `network` and `spa` gained a count, so their state moves to instance [0], and so do the SPA's
-# certificate and its validation; the certificate's validation records keep their domain-name keys
-# and do not move. The registry left `spa` for a module of its own, so it is not destroyed with the
+# `network` and `spa` gained a count, so their state moves to instance [0]. The registry left `spa` for a module of its own, so it is not destroyed with the
 # tier, and its two moves are more specific than the module move and win over it. Local plans over
 # scratch state of the same shapes showed every resource moved and nothing added or destroyed.
 # Keep them while any state may predate the switch.
@@ -45,14 +43,4 @@ moved {
 moved {
   from = module.spa.aws_ecr_lifecycle_policy.spa
   to   = module.spa_image.aws_ecr_lifecycle_policy.spa
-}
-
-moved {
-  from = aws_acm_certificate.spa
-  to   = aws_acm_certificate.spa[0]
-}
-
-moved {
-  from = aws_acm_certificate_validation.spa
-  to   = aws_acm_certificate_validation.spa[0]
 }

@@ -363,13 +363,9 @@ locals {
   # it may execute, style, fetch a font from, spawn a worker as — so the two
   # halves have different owners and only this one is environment-shaped.
   #
-  # NO Terraform resource reads this string any more — the distribution that did is
-  # retired. It stays because it is the container's DECLARED policy: the image bakes
-  # every directive but `connect-src`, and `lambdas/test_spa_image.py` asserts the baked
-  # set against this computation. Delete it and the image's directives have no source of
-  # truth at all, which nothing observes offline — which is the whole reason the assertion
-  # exists. The container takes `csp_connect_src` from its task environment and inherits
-  # the rest from this.
+  # The distribution reads this string whole. The container bakes every directive but
+  # `connect-src`, which it takes from its task environment, and `lambdas/test_spa_image.py`
+  # asserts the baked set against this computation: nothing observes either offline.
   #
   # ASSEMBLED FROM VARIABLES, NEVER LITERALS. A hardcoded region or bucket has
   # to be found and edited by hand during the client-environment transition
@@ -418,15 +414,14 @@ locals {
     "upgrade-insecure-requests",
   ])
 
-  # ── The runtime configuration document, as the container receives it ────────
+  # ── The runtime configuration document ──────────────────────────────────────
   # Every key the portal's runtime-configuration classification declares, with its value. The
-  # container renders /config.json from these, and it is the only renderer — the second path
-  # rendered the same document from repository variables and went with the distribution.
+  # container renders /config.json from these, and modules/static-portal writes it as an object.
   #
   # THE KEYS ARE NAMED HERE AND NOWHERE ELSE IN THE INFRASTRUCTURE. modules/spa renders one
   # CONFIG_<key> environment entry per map entry, so a key added to the classification is
   # wired by adding its value here — there is no second list to keep in step, and no shape in
-  # which a container ships carrying only some of the document.
+  # which a portal ships carrying only some of the document.
   #
   # `appUrl` IS THE CONTAINER'S OWN ORIGIN. Amplify builds redirectSignIn and redirectSignOut
   # from it, so a container serving any other origin sends a sign-in STARTED here somewhere
@@ -1552,8 +1547,7 @@ module "api" {
 
 # ── The web tier's off switch ─────────────────────────────────────────────────
 # `network` and `spa` exist only to serve the portal, and idle they are most of what the stack
-# costs, so both come and go with web_tier_enabled, and the SPA's certificate with them
-# (certificates.tf). Nothing outside them may read their outputs: with the switch off there is no
+# costs, so both come and go with web_tier_enabled. Nothing outside them may read their outputs: with the switch off there is no
 # instance to index. infra/info/web-tier.md.
 locals {
   web_tier_enabled = var.web_tier_enabled == "true"
@@ -1580,6 +1574,26 @@ module "network" {
 }
 
 
+# ── The portal without a VPC ─────────────────────────────────────────────────
+# The other side of the switch: exactly one of this and the web tier serves the portal.
+module "static_portal" {
+  source = "./modules/static-portal"
+  count  = local.web_tier_enabled ? 0 : 1
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  spa_host                = local.spa_host
+  route53_zone_id         = var.route53_zone_id
+  spa_certificate_arn     = aws_acm_certificate_validation.spa.certificate_arn
+  content_security_policy = local.content_security_policy
+  runtime_config          = local.spa_runtime_config
+
+  # base grants the deploy role the bucket and distribution permissions BEFORE anything here lands.
+  depends_on = [module.base]
+}
+
+
 # ── The SPA image's registry ──────────────────────────────────────────────────
 # Outside the switch: the tier can be off for months, and the registry keeps its images through it.
 module "spa_image" {
@@ -1595,8 +1609,7 @@ module "spa_image" {
 
 # ── The container platform ────────────────────────────────────────────────────
 # The cluster, the task definition and the load balancer that serve the SPA.
-# It runs the real image, which CI builds and pushes on every commit to main. It is production,
-# and there is no second path: the distribution that used to serve the portal is destroyed.
+# It runs the real image, which CI builds and pushes on every commit to main, while the switch is on.
 #
 # It takes the network's ids rather than building any of its own. The two are separate modules,
 # but the switch takes both: the network exists only to carry this.
@@ -1631,7 +1644,7 @@ module "spa" {
 
   # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge
   # that stops a clean rebuild attaching a still-pending certificate to the listener.
-  spa_certificate_arn = aws_acm_certificate_validation.spa[0].certificate_arn
+  spa_certificate_arn = aws_acm_certificate_validation.spa.certificate_arn
 
   # The admin bucket takes the load balancer's access logs, and this module writes that
   # bucket's first policy. Constructed name, as everywhere else; the ordering edge is the

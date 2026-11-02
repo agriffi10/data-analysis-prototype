@@ -314,7 +314,7 @@ rows stay, and three findings survive by decision.
 **The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
 736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
 **52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared then**, and the gate script itself
-reports `enforcing 67 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired, 79 until the observability module's policy documents became templates, and 68 until the web tier's off switch took the load balancer's deletion protection — the entries above and below record why, as this file is where an enforce-list removal has to be argued.
+reports `enforcing 77 check ID(s); 0 finding(s) on them`. It was 67 until CloudFront came back to serve the portal, and 89 until the Identity Pool and then CloudFront were retired, 79 until the observability module's policy documents became templates, and 68 until the web tier's off switch took the load balancer's deletion protection — the entries above and below record why, as this file is where an enforce-list removal has to be argued.
 
 **Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
 part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
@@ -422,6 +422,18 @@ API's execution role and nothing else, so no browser can assume it at all.
 `54`, `72` and `CKV_AWS_34`, `216`, `259`, `305` with it, for the same reason. `CKV_AWS_70` is the
 one to measure rather than reason about — the distribution's bucket policy is one of five, and
 whether it is that ID's only subject cannot be settled by reading.
+
+### Enforce-list addition — ten IDs, with the static portal (2026-11-02)
+
+CloudFront came back to serve the portal while the web tier is off, and the file's regeneration
+command measured ten more IDs passing: `CKV2_AWS_32`, `CKV2_AWS_42`, `CKV2_AWS_46`, `CKV2_AWS_54`,
+`CKV2_AWS_72`, `CKV_AWS_174`, `CKV_AWS_216`, `CKV_AWS_305`, `CKV_AWS_34` and `CKV_AWS_70`.
+
+**`CKV_AWS_259` stays out because it now fails by decision.** It wants HSTS `preload`, which claims
+a submission to hstspreload.org nobody has made, and the container dropped it for that reason. The
+distribution's other findings are the dispositions already recorded here for the rest of the stack,
+no WAF and no access logs on a portal with no production users, plus `CKV_AWS_310` (no origin
+failover: one bucket) and `CKV_AWS_374` (no geo restriction: no such requirement).
 
 ### Enforce-list removal — nine IDs, with CloudFront (2026-08-31)
 
