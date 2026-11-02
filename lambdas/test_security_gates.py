@@ -69,7 +69,7 @@ CHECK_ID = re.compile(r"^CKV[0-9]*_[A-Z]+_[0-9]+$")
 #: eleven IDs that only the observability module's policy data sources gave anything to evaluate —
 #: and most recently by CKV_AWS_150, which the web tier's off switch makes fail by design.
 #: Each measurement, and each removal's argument, is a dated section of docs/security-baseline.md.
-ENFORCED_COUNT = 67
+ENFORCED_COUNT = 77
 
 #: The same pin for the dockerfile framework's list, for the same reason. Measured at 38 passed /
 #: 2 failed against checkov 3.3.9 on lambdas/Dockerfile; the two failures — no HEALTHCHECK and no
