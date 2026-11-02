@@ -35,7 +35,15 @@ for attempt in $(seq 1 30); do
   echo "Waiting for ${FUNCTION} (attempt ${attempt}/30)…"
   sleep 10
 done
-aws lambda wait function-active-v2 --function-name "$FUNCTION"
+
+# NOT FOR AN INACTIVE ONE. Lambda parks a function idle for a few weeks as Inactive, and nothing but
+# an invoke or this update wakes it, so the waiter would spend its five minutes and fail on every
+# function in the fleet: a shard of them outlasts the job's timeout and nothing gets pointed.
+STATE=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
+  --query 'State' --output text)
+if [ "$STATE" != "Inactive" ]; then
+  aws lambda wait function-active-v2 --function-name "$FUNCTION"
+fi
 
 PACKAGE_TYPE=$(aws lambda get-function --function-name "$FUNCTION" \
   --query 'Configuration.PackageType' --output text)
@@ -111,6 +119,17 @@ if [ "$STATUS" != "Successful" ]; then
   echo "::error::${FUNCTION} finished its update as ${STATUS}: ${REASON}"
   exit 1
 fi
+
+# An update is what wakes an idle function, and a Successful status does not say it woke: the
+# function would report this deploy as landed and fail its first invoke. Read rather than waited on
+# when still Inactive, because the waiter would spend five minutes finding that out, per function.
+STATE=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
+  --query 'State' --output text)
+if [ "$STATE" = "Inactive" ]; then
+  echo "::error::${FUNCTION} is still Inactive after an update that finished as Successful."
+  exit 1
+fi
+aws lambda wait function-active-v2 --function-name "$FUNCTION"
 
 # READ THE EFFECT BACK, not the exit status of the call that asked for it. `Code.ImageUri` carries
 # the TAG that was requested; `Code.ResolvedImageUri` carries the digest it resolved to, which

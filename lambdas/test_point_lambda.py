@@ -31,7 +31,7 @@ REPOSITORY = "123456789012.dkr.ecr.us-east-1.amazonaws.com/dat-prod-lambda"
 
 
 def _harness(tmp_path, package_type, *, landed=None, status="Successful",
-             image_present=True, function_present=True):
+             image_present=True, function_present=True, state="Active", state_after="Active"):
     """Builds a bin/ holding a fake `aws` and a `sleep` that returns at once.
 
     The fake `aws` answers only the queries this script makes and logs every invocation, so a
@@ -46,6 +46,9 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
       status: What `LastUpdateStatus` reports.
       image_present: Whether `describe-images` finds the tag.
       function_present: Whether `get-function` finds the function.
+      state: What `State` reports before the update. The active waiter fails on Inactive, as the
+        real one does: it waits for Active, and an idle function never gets there unaided.
+      state_after: What `State` reports once the update has been made.
 
     Returns:
       A tuple of (bin directory, call-log path).
@@ -73,6 +76,11 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
             echo "{REPOSITORY}" ;;
           *"describe-images"*)
             [ "{image_present}" = "True" ] || exit 254 ;;
+          *"get-function-configuration"*"--query State"*)
+            if grep -q update-function-code {log}; then echo "{state_after}"; else echo "{state}"; fi ;;
+          *"wait function-active-v2"*)
+            if grep -q update-function-code {log}; then now="{state_after}"; else now="{state}"; fi
+            [ "$now" != "Inactive" ] || exit 255 ;;
           *"wait function-updated-v2"*)
             # The REAL waiter has a terminal failure state on LastUpdateStatus == Failed and
             # exits non-zero. A stub that always succeeds makes the script's failure branch
@@ -184,6 +192,50 @@ def test_an_image_function_is_pointed_at_this_commit_s_image(tmp_path, staged):
     assert "--query Code.ImageUri" in calls, (
         "the script must read the effect back; the API call returning is not the deploy landing"
     )
+
+
+def test_an_inactive_function_is_updated_without_waiting_for_active(tmp_path, staged):
+    """An idle function goes straight to the update, which is what wakes it.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the script waits on a state the function cannot reach by itself.
+    """
+    binary, log = _harness(tmp_path, "Image", state="Inactive")
+    result = _run(binary, staged)
+    calls = log.read_text()
+
+    assert result.returncode == 0, result.stderr + calls
+    update = calls.index(f"update-function-code --function-name dat-prod-archive-copy-objects --image-uri {REPOSITORY}:abc123")
+    assert "wait function-active-v2" not in calls[:update]
+    assert "wait function-active-v2" in calls[update:], "the deploy must leave it awake, not merely updated"
+
+
+def test_a_function_the_update_did_not_wake_fails_by_name(tmp_path, staged):
+    """Still Inactive after a Successful update is a failed deploy, reported without the wait.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a function left asleep reports success, or costs the waiter's minutes.
+    """
+    binary, log = _harness(tmp_path, "Image", state="Inactive", state_after="Inactive")
+    result = _run(binary, staged)
+
+    assert result.returncode == 1
+    assert "dat-prod-archive-copy-objects is still Inactive" in result.stdout
+    assert "wait function-active-v2" not in log.read_text()
 
 
 def test_an_update_that_finishes_as_failed_fails_the_function(tmp_path, staged):
