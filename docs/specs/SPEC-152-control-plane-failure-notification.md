@@ -1,10 +1,15 @@
-# Spec: Control-Plane Failure Notification — Telling the User When No Verb Ran
+---
+type: Spec
+id: SPEC-152
+title: "Control-Plane Failure Notification — Telling the User When No Verb Ran"
+description: "Notifies users when a control-plane execution dies before any verb runs, extending the data-quality NotifyFailure pattern to table-builder, table-share and shared-spaces so no request fails silently."
+spec_status: Completed
+depends_on: [SPEC-114, SPEC-126, SPEC-129, SPEC-134, SPEC-135, SPEC-136, SPEC-107]
+arc: audit-remediation
+arc_order: 3
+---
 
-**ID:** SPEC-152
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-114 (the notification **is** the completion channel — the rule this spec extends to a case it never covered), SPEC-126 (the DLQ drain, which covers the adjacent case and shows where its coverage stops), SPEC-129 (`cpcommon.errors.failure_reason`, written for this and currently used once), SPEC-134/135/136 (the `@notifies_on_failure` instrumentation whose limitation this spec addresses), SPEC-107 (`cpcommon`)
-
+**Dependency notes:** SPEC-114 (the notification **is** the completion channel — the rule this spec extends to a case it never covered), SPEC-126 (the DLQ drain, which covers the adjacent case and shows where its coverage stops), SPEC-129 (`cpcommon.errors.failure_reason`, written for this and currently used once), SPEC-134/135/136 (the `@notifies_on_failure` instrumentation whose limitation this spec addresses), SPEC-107 (`cpcommon`)
 > **Reference:** from the 2026-08-05 codebase audit. There is a silent-failure hole that the repo's own design already names but only closed in one of four planes.
 >
 > **The mechanism, precisely.** `@notifies_on_failure` needs handler code to run. The DLQ drain (SPEC-126) covers messages that never *started* an execution. Neither covers the gap in between: an execution that started and then failed **before or outside** any verb's Python — a `States.Timeout`, a `States.DataLimitExceeded`, a task-level throttle, or a Lambda that fails at **import**. In that window the user is told nothing at all: no notification, no DLQ message, and the request simply never completes.

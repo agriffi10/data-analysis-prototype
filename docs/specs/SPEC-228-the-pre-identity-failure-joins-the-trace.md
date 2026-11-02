@@ -1,12 +1,15 @@
-# Spec: The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries
+---
+type: Spec
+id: SPEC-228
+title: "The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries"
+description: "Lets a pre-identity failure's notify-failure verb join the run's trace by reading the traceparent from the raw queue envelope already on the state, which it adds to the four planes lacking it, for operators."
+spec_status: Completed
+depends_on: [SPEC-227, SPEC-229]
+---
 
-**ID:** SPEC-228
-**Status:** Completed
-**Last Updated:** 2026-09-09
-**Depends On:** SPEC-227 (Completed), SPEC-229 (Completed) — **SPEC-229 landed first.** It bounds the
+**Dependency notes:** SPEC-227 (Completed), SPEC-229 (Completed) — **SPEC-229 landed first.** It bounds the
 state this spec makes bigger, and the window between widening and bounding is a reachable silent
 failure rather than a tidiness concern.
-
 ## Overview
 
 A run is one trace on the success path (SPEC-225) and on the failure path (SPEC-227), with one
@@ -394,7 +397,7 @@ infra/modules/{archive,data-quality,file-ops,file-send,
   results-conversion,shared-spaces,table-builder,
   table-share}/state-machine.asl.json.tftpl                  # FR-002
 lambdas/info/shared-layer.md                                 # FR-004
-docs/decisions/control-planes.md                             # FR-004 (three sites)
+docs/decisions/control-planes/                             # FR-004 (three sites)
 docs/specs/ARCS.md                                           # FR-004 (two paragraphs)
 docs/specs/SPEC-227-the-failure-path-joins-the-trace.md       # FR-004
 docs/spec-delivery/SPEC-227-the-failure-path-joins-the-trace.md # FR-004

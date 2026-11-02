@@ -1,10 +1,15 @@
-# Spec: File Operations — Notifications, Help & the Arc's Live Checks
+---
+type: Spec
+id: SPEC-191
+title: "File Operations — Notifications, Help & the Arc's Live Checks"
+description: "Notifies a user when an asynchronous file operation finishes, with enough detail to act on refused items, updates the guides, and writes the arc's offline-unprovable checks as a runnable live-check script."
+spec_status: Completed
+depends_on: [SPEC-189, SPEC-190, SPEC-058, SPEC-059, SPEC-061, SPEC-114, SPEC-106, SPEC-074, SPEC-167, SPEC-172]
+arc: file-operations-control-plane
+arc_order: 5
+---
 
-**ID:** SPEC-191
-**Status:** Completed
-**Last Updated:** 2026-08-17
-**Depends On:** SPEC-189 (the terminals and their per-item outcome list), SPEC-190 (the browser's async model and its conflict view), SPEC-058/059/061 (the notifications plane, whose wire shape this spec extends), SPEC-114 (the notification-is-the-completion-channel rule), SPEC-106 (user-facing wording), SPEC-074 (Help & guides), SPEC-167/172 (producer precedents)
-
+**Dependency notes:** SPEC-189 (the terminals and their per-item outcome list), SPEC-190 (the browser's async model and its conflict view), SPEC-058/059/061 (the notifications plane, whose wire shape this spec extends), SPEC-114 (the notification-is-the-completion-channel rule), SPEC-106 (user-facing wording), SPEC-074 (Help & guides), SPEC-167/172 (producer precedents)
 ## Overview
 
 The plane works and the browser drives it, but the user is still told nothing. This spec closes the

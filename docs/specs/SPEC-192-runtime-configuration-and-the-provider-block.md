@@ -1,10 +1,15 @@
-# Spec: Runtime Configuration & the Provider Block
+---
+type: Spec
+id: SPEC-192
+title: "Runtime Configuration & the Provider Block"
+description: "Makes the SPA read its configuration at runtime from a same-origin config document rendered at container start, so one image promotes across environments, and defines the API's token-verifier provider block."
+spec_status: Completed
+depends_on: [SPEC-162, SPEC-141, SPEC-140, SPEC-106, SPEC-153, SPEC-186]
+arc: api-layer-and-containerisation
+arc_order: 1
+---
 
-**ID:** SPEC-192
-**Status:** Completed
-**Last Updated:** 2026-08-24
-**Depends On:** SPEC-162 (`VITE_ENVIRONMENT`, and the "an unusable document falls back silently, which is why the live check reads a 200 rather than a screen" reasoning this spec inverts), SPEC-141 (the static-asset cache passes a fourth pass now joins, and the 404→`/index.html`→**200** mapping that makes a missing document look like a served one), SPEC-140 (the response-header surface SPEC-194 inherits), SPEC-106 (`toUserMessage` is the only source of user-facing wording, including at boot), SPEC-153/186 (the `?raw` sweep technique the key-set agreement tests use)
-
+**Dependency notes:** SPEC-162 (`VITE_ENVIRONMENT`, and the "an unusable document falls back silently, which is why the live check reads a 200 rather than a screen" reasoning this spec inverts), SPEC-141 (the static-asset cache passes a fourth pass now joins, and the 404→`/index.html`→**200** mapping that makes a missing document look like a served one), SPEC-140 (the response-header surface SPEC-194 inherits), SPEC-106 (`toUserMessage` is the only source of user-facing wording, including at boot), SPEC-153/186 (the `?raw` sweep technique the key-set agreement tests use)
 ## Overview
 
 Every `VITE_*` variable is inlined into the bundle by Vite at build time. That was correct while the

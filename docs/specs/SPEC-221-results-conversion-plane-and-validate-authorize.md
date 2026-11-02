@@ -1,10 +1,15 @@
-# Spec: Results Conversion — The Plane, the Request Contract & validate-authorize
+---
+type: Spec
+id: SPEC-221
+title: "Results Conversion — The Plane, the Request Contract & validate-authorize"
+description: "Builds the results-conversion plane (queue, pipe, state machine, role, API enqueue route) with validate-authorize and describe-results verbs that check the actor may write the destination and read the result's schema."
+spec_status: Completed
+depends_on: [SPEC-187, SPEC-189, SPEC-200, SPEC-152, SPEC-126, SPEC-218]
+arc: results-conversion
+arc_order: 1
+---
 
-**ID:** SPEC-221
-**Status:** Completed
-**Last Updated:** 2026-09-05
-**Depends On:** SPEC-187/189 (the file-ops plane as the pattern, and its destination rules), SPEC-200 (the enqueue paths and the `identity` block), SPEC-152 (`NotifyFailure` on every plane), SPEC-126 (DLQ drain), SPEC-218 (one builder per app-managed path — the protected-folder set this plane refuses as a destination, which today lives only in `focommon` and the browser)
-
+**Dependency notes:** SPEC-187/189 (the file-ops plane as the pattern, and its destination rules), SPEC-200 (the enqueue paths and the `identity` block), SPEC-152 (`NotifyFailure` on every plane), SPEC-126 (DLQ drain), SPEC-218 (one builder per app-managed path — the protected-folder set this plane refuses as a destination, which today lives only in `focommon` and the browser)
 ## Overview
 
 A user can save a query's result set as a CSV today, because Athena already wrote one. Saving it as

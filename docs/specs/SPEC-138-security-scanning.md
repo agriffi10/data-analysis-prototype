@@ -1,10 +1,13 @@
-# Spec: Security Scanning — SAST, Dependencies, Secrets, IaC and DAST
+---
+type: Spec
+id: SPEC-138
+title: "Security Scanning — SAST, Dependencies, Secrets, IaC and DAST"
+description: "Adds a report-only security workflow running SAST, dependency, secrets, IaC and OWASP ZAP baseline scans over the portal, Lambdas and infra, so the true finding set is measured and written down."
+spec_status: Completed
+depends_on: [SPEC-004, SPEC-005]
+---
 
-**ID:** SPEC-138
-**Status:** Completed
-**Last Updated:** 2026-08-02
-**Depends On:** SPEC-004 (the CI workflow this sits beside), SPEC-005 (the deployed URL DAST targets)
-
+**Dependency notes:** SPEC-004 (the CI workflow this sits beside), SPEC-005 (the deployed URL DAST targets)
 ## Overview
 
 The repo has no security scanning. `ci.yml` runs ESLint + Prettier + Vitest on the SPA and ruff +
@@ -226,7 +229,7 @@ and emails always out) applies to CI output for the same reason it applies to `l
 > read: each scan runs through a wrapper that stops when the scanner reports configuration from
 > anywhere but its command line. A
 > false positive would be accepted on the invocation in `security.yml`, and the wrapper taught to
-> allow it. Full entry: `docs/decisions/gates-and-tests.md` → *A scanner's configuration is its
+> allow it. Full entry: `docs/decisions/gates-and-tests/` → *A scanner's configuration is its
 > command line, and what it discovers is refused*.
 - [ ] The job concludes green when a finding is present.
 

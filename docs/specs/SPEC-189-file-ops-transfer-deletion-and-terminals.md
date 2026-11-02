@@ -1,10 +1,15 @@
-# Spec: File Operations — the Transfer, the Source Deletion & the Terminals
+---
+type: Spec
+id: SPEC-189
+title: "File Operations — the Transfer, the Source Deletion & the Terminals"
+description: "Adds File Operations' Distributed-Map transfer, source deletion and terminal states, with every gate per selected item and the shared copy engine generalised beyond table-share recipients."
+spec_status: Completed
+depends_on: [SPEC-188, SPEC-187, SPEC-160, SPEC-161, SPEC-166, SPEC-169, SPEC-171]
+arc: file-operations-control-plane
+arc_order: 3
+---
 
-**ID:** SPEC-189
-**Status:** Completed
-**Last Updated:** 2026-08-17
-**Depends On:** SPEC-188 (the plan, its ETags, the guard verb and the per-item outcome list), SPEC-187 (the per-item model and Premises 1–3), SPEC-160/161 (`cpcommon.transfer`), SPEC-166 (the Distributed-Map transfer precedent), SPEC-169 (the commit gate and the delete-Deny set), SPEC-171 (the second guard pass)
-
+**Dependency notes:** SPEC-188 (the plan, its ETags, the guard verb and the per-item outcome list), SPEC-187 (the per-item model and Premises 1–3), SPEC-160/161 (`cpcommon.transfer`), SPEC-166 (the Distributed-Map transfer precedent), SPEC-169 (the commit gate and the delete-Deny set), SPEC-171 (the second guard pass)
 ## Overview
 
 Everything up to here decides *what* moves and *whether*; this spec moves it. The shape is the one

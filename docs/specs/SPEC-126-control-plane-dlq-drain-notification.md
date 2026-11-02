@@ -1,10 +1,13 @@
-# Spec: Control-Plane DLQ Drain → User Notification
+---
+type: Spec
+id: SPEC-126
+title: "Control-Plane DLQ Drain → User Notification"
+description: "Drains each control plane's request dead-letter queue into the notifications pipeline so users are told when their request never started, replacing the dropped CloudWatch DLQ alarms."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-107, SPEC-114]
+---
 
-**ID:** SPEC-126
-**Status:** Completed
-**Last Updated:** 2026-07-21
-**Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.auth` / `notify` / `messages`), SPEC-114 (the data-quality producer whose FR-005 this replaces)
-
+**Dependency notes:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.auth` / `notify` / `messages`), SPEC-114 (the data-quality producer whose FR-005 this replaces)
 ## Overview
 
 Every control plane dead-letters a request it cannot process. When that happens the user is

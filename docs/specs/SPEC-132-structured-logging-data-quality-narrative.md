@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Narrate the Data-Quality Control Plane
+---
+type: Spec
+id: SPEC-132
+title: "Structured Logging — Narrate the Data-Quality Control Plane"
+description: "Gives operators structured events from all nine data-quality verbs recording what each found, which step it was in and why it stopped, while keeping the 30-second poll and per-file loops from amplifying."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-128]
+arc: observability
+arc_order: 6
+---
 
-**ID:** SPEC-132
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-128 (the nine verbs are traced)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-128 (the nine verbs are traced)
 ## Overview
 
 SPEC-128 put all nine data-quality verbs in the pipe, and what the pipe carries is nine
@@ -109,7 +114,7 @@ that is the selection criterion, not importance.
 > root span, so one `function` value returned an invocation's total duration and this write's
 > together. The step moved rather than the verb because a verb's span name is also its directory
 > suffix, its `locals.tf` key and its state machine's wiring, while this step's name was read by
-> nothing else. Full entry: `docs/decisions/control-planes.md` → *Where a child span may go, and the four
+> nothing else. Full entry: `docs/decisions/control-planes/` → *Where a child span may go, and the four
 > places it may not*.
 
 \* `probe-columns` and `scan` wrap the **whole loop**, in `_probe_all` / `_scan_all`, not the

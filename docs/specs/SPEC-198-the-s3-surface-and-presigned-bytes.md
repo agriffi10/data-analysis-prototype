@@ -1,10 +1,15 @@
-# Spec: The S3 Surface & Presigned Bytes
+---
+type: Spec
+id: SPEC-198
+title: "The S3 Surface & Presigned Bytes"
+description: "Moves the browser's S3 calls behind the API, with presigned PUT and GET for file bytes, XHR upload progress, a one-route free-name probe, per-user prefix scoping and widened bucket CORS, for file browser users."
+spec_status: Completed
+depends_on: [SPEC-197, SPEC-196, SPEC-195, SPEC-192, SPEC-193, SPEC-187, SPEC-190, SPEC-020, SPEC-106, SPEC-113, SPEC-155, SPEC-159, SPEC-172, SPEC-173, SPEC-174, SPEC-175, SPEC-185]
+arc: api-layer-and-containerisation
+arc_order: 7
+---
 
-**ID:** SPEC-198
-**Status:** Completed
-**Last Updated:** 2026-08-29
-**Depends On:** SPEC-197 (the transport contract this spec is the first bulk consumer of — the route table, the error envelope, `lib/apiClient.ts`, the generated TS↔Python contract, the declared-per-route retry rule, and the `409`/`413` codes it reserved for exactly this spec), SPEC-196 (the user credential plane — the assumed role that signs both the direct calls and the presigned URLs, and its `DurationSeconds` 3600 which bounds every URL minted), SPEC-195 (the verified bearer and the `error.stack` scrub a route handling presigned URLs inherits), SPEC-192 (`configValue`, and the five dev-unauth `import.meta.env` reads it deliberately left for this spec), SPEC-193 (`spa_origin`, the module output the bucket CORS allowlist gains), SPEC-187/190 (the file-ops plane — folder copy/move/delete belong there and may not reappear here; the single-file synchronous paths this spec ports), SPEC-020 (the upload queue, which stays in the browser), SPEC-106 (`toUserMessage` — and the five `passthrough` codes this surface owns), SPEC-113 (no existence oracle), SPEC-155 (the `abortSignal` guarantee this spec must restate honestly), SPEC-159 (the user-settings quarantine, which stays client-side), SPEC-172 (`isWriteLockedPrefix`, the archive write gate and the IAM Deny behind it), SPEC-173/174/175 (the saved-queries store, its top-level `.sql` filter and `Delimiter: '/'`), SPEC-185 (save-results, a single-object copy)
-
+**Dependency notes:** SPEC-197 (the transport contract this spec is the first bulk consumer of — the route table, the error envelope, `lib/apiClient.ts`, the generated TS↔Python contract, the declared-per-route retry rule, and the `409`/`413` codes it reserved for exactly this spec), SPEC-196 (the user credential plane — the assumed role that signs both the direct calls and the presigned URLs, and its `DurationSeconds` 3600 which bounds every URL minted), SPEC-195 (the verified bearer and the `error.stack` scrub a route handling presigned URLs inherits), SPEC-192 (`configValue`, and the five dev-unauth `import.meta.env` reads it deliberately left for this spec), SPEC-193 (`spa_origin`, the module output the bucket CORS allowlist gains), SPEC-187/190 (the file-ops plane — folder copy/move/delete belong there and may not reappear here; the single-file synchronous paths this spec ports), SPEC-020 (the upload queue, which stays in the browser), SPEC-106 (`toUserMessage` — and the five `passthrough` codes this surface owns), SPEC-113 (no existence oracle), SPEC-155 (the `abortSignal` guarantee this spec must restate honestly), SPEC-159 (the user-settings quarantine, which stays client-side), SPEC-172 (`isWriteLockedPrefix`, the archive write gate and the IAM Deny behind it), SPEC-173/174/175 (the saved-queries store, its top-level `.sql` filter and `Delimiter: '/'`), SPEC-185 (save-results, a single-object copy)
 ## Overview
 
 Every remaining S3 call the browser makes moves behind the API, and the file **bytes** stop travelling
@@ -390,7 +395,7 @@ sends the bytes to S3 itself.
       **> SUPERSEDED by SPEC-216 (2026-09-01): the residual is discharged — part-level retry exists
       > again, and the trio was built with a fourth route for abort. Consequence (1) still holds,
       > but the ceiling is now enforced by the create route rather than by S3, which only ever
-      > enforced it for a single `PUT`. Full entry: `decisions/storage.md` → *An upload's shape is
+      > enforced it for a single `PUT`. Full entry: `decisions/storage/` → *An upload's shape is
       > the server's decision*.**
       (3) `MULTIPART_PART_SIZE` and `PART_CONCURRENCY` become dead and are deleted.
 - [ ] `MAX_UPLOAD_BYTES` is **clamped**: `min(configured, S3_SINGLE_PUT_MAX_BYTES)` where the latter is

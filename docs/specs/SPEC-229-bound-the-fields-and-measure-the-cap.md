@@ -1,9 +1,11 @@
-# Spec: Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds
-
-**ID:** SPEC-229
-**Status:** Completed
-**Last Updated:** 2026-09-09
-**Depends On:** None
+---
+type: Spec
+id: SPEC-229
+title: "Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds"
+description: "Bounds every caller-controlled field in the control-plane request chain and re-derives the message cap from the Step Functions 256 KiB limit, so no request can overflow a state and silence its failure notice."
+spec_status: Completed
+depends_on: []
+---
 
 ## Overview
 

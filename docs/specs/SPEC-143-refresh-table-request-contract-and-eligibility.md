@@ -1,10 +1,15 @@
-# Spec: Refresh Table — Request Contract, Mode Branch & Table Eligibility
+---
+type: Spec
+id: SPEC-143
+title: "Refresh Table — Request Contract, Mode Branch & Table Eligibility"
+description: "Defines the Refresh Table request contract, mode branch and table-eligibility checks in the table-builder plane, refusing views, managed tables, out-of-space locations and Glue-partitioned tables."
+spec_status: Completed
+depends_on: [SPEC-067, SPEC-068, SPEC-069, SPEC-070, SPEC-090, SPEC-107, SPEC-135]
+arc: refresh-table
+arc_order: 1
+---
 
-**ID:** SPEC-143
-**Status:** Completed
-**Last Updated:** 2026-08-04
-**Depends On:** SPEC-067 (the table-builder request envelope and `validate-authorize`), SPEC-068 (`check-table-absent`, the verb this one mirrors in the negative), SPEC-069 (the declared-partition-key shape this spec must reconstruct), SPEC-070 (`execute-ddl` and the terminal-state pair), SPEC-090 (`tscommon.glue.clone_definition` — the existing, tested reader of a live Glue table), SPEC-107 (`cpcommon`), SPEC-135 (the table-builder plane's observability)
-
+**Dependency notes:** SPEC-067 (the table-builder request envelope and `validate-authorize`), SPEC-068 (`check-table-absent`, the verb this one mirrors in the negative), SPEC-069 (the declared-partition-key shape this spec must reconstruct), SPEC-070 (`execute-ddl` and the terminal-state pair), SPEC-090 (`tscommon.glue.clone_definition` — the existing, tested reader of a live Glue table), SPEC-107 (`cpcommon`), SPEC-135 (the table-builder plane's observability)
 > **Reference:** `docs/architecture.md` → *Control Planes → Table Builder* (orchestration, authz, DDL + projection, infra). First of the refresh-table arc (143 → 144 → 145).
 >
 > **This arc adds no new control plane.** It extends the **existing** table-builder plane with a second path through the **same** FIFO queue, the **same** EventBridge Pipe, the **same** Step Function and the **same** shared execution role. That is deliberate and load-bearing: a refresh is a re-run of inspect-source and infer-schema against a table that already exists, and those two verbs — with the **polars layer** attached only to `infer-schema` — are the expensive, hard-won parts. A second module would duplicate them.
@@ -78,7 +83,7 @@ One field selects the branch. It is optional so that every shipped producer keep
 - [ ] `validate-authorize` emits `mode` on its output payload, normalised to the literal string (never `None`), so the `Choice` state never evaluates a missing field.
 - [ ] `MessageGroupId` remains `space.database` and `MessageDeduplicationId` remains `requestId` for both modes — a refresh and a create against the same database serialize against each other, which is what makes a refresh safe to fire while a build is in flight.
 
-  > **SUPERSEDED 2026-09-15.** They are started in order and then overlap, because the Pipe is `FIRE_AND_FORGET`. A refresh is safe beside a build because it needs the table to exist and refuses otherwise, and refreshes of one table are serialized by their own lock — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+  > **SUPERSEDED 2026-09-15.** They are started in order and then overlap, because the Pipe is `FIRE_AND_FORGET`. A refresh is safe beside a build because it needs the table to exist and refuses otherwise, and refreshes of one table are serialized by their own lock — `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.
 
 ### FR-002: Refresh requests carry no partition keys, and their prefix is still authorized
 

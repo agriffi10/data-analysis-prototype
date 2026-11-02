@@ -1,9 +1,13 @@
-# Spec: Data Explorer — the Feature Flag, the `/explore` Route and the Shell
-
-**ID:** SPEC-179
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-176, SPEC-178
+---
+type: Spec
+id: SPEC-179
+title: "Data Explorer — the Feature Flag, the `/explore` Route and the Shell"
+description: "Makes the Data Explorer reachable with a fifth feature flag, a /explore route and nav tab, a source picker, exploration tabs and an Explore data item on a table's menu, showing rows in a plain table."
+spec_status: Completed
+depends_on: [SPEC-176, SPEC-178]
+arc: data-explorer
+arc_order: 4
+---
 
 ## Overview
 

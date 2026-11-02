@@ -1,10 +1,15 @@
-# Spec: File Operations — Source Expansion, the Copy Plan & the Destination Guard
+---
+type: Spec
+id: SPEC-188
+title: "File Operations — Source Expansion, the Copy Plan & the Destination Guard"
+description: "Adds File Operations' source expansion into an S3 plan and a per-selected-item destination guard, so each item's conflict decides whether that item proceeds."
+spec_status: Completed
+depends_on: [SPEC-187, SPEC-165, SPEC-090, SPEC-160, SPEC-161, SPEC-170, SPEC-150, SPEC-172, SPEC-173]
+arc: file-operations-control-plane
+arc_order: 2
+---
 
-**ID:** SPEC-188
-**Status:** Completed
-**Last Updated:** 2026-08-17
-**Depends On:** SPEC-187 (the validated request, the authorized roots, the per-item model and its five Premises), SPEC-165 (the expansion and copy-plan precedent), SPEC-090 (copy-plan-as-pointer), SPEC-160/161 (`cpcommon.transfer`), SPEC-170 (the destination guard — its HEAD shape, its concurrency bound and its short-circuit), SPEC-150/172/173 (protected folders)
-
+**Dependency notes:** SPEC-187 (the validated request, the authorized roots, the per-item model and its five Premises), SPEC-165 (the expansion and copy-plan precedent), SPEC-090 (copy-plan-as-pointer), SPEC-160/161 (`cpcommon.transfer`), SPEC-170 (the destination guard — its HEAD shape, its concurrency bound and its short-circuit), SPEC-150/172/173 (protected folders)
 ## Overview
 
 Given a validated request, work out exactly what each selected item will touch and where every

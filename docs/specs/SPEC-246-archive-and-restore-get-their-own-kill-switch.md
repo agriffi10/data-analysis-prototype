@@ -1,10 +1,13 @@
-# Spec: Archive and Restore Get Their Own Kill Switch
+---
+type: Spec
+id: SPEC-246
+title: "Archive and Restore Get Their Own Kill Switch"
+description: "Gives archive and restore their own archive feature flag, so an operator can withdraw both entry points by publishing the flag document without an app build or disabling the whole file browser."
+spec_status: Completed
+depends_on: [SPEC-162, SPEC-163, SPEC-172, SPEC-190]
+---
 
-**ID:** SPEC-246
-**Status:** Completed
-**Last Updated:** 2026-09-26
-**Depends On:** SPEC-162/163 (the flag document and the gated-surfaces registry), SPEC-172 (the archive and restore entry points), SPEC-190 (the first kill switch, `asyncFileOperations`)
-
+**Dependency notes:** SPEC-162/163 (the flag document and the gated-surfaces registry), SPEC-172 (the archive and restore entry points), SPEC-190 (the first kill switch, `asyncFileOperations`)
 ## Overview
 
 Archive is the one place in the portal where a mistake cannot be undone: it copies a user's files
@@ -169,7 +172,7 @@ an operator can find how to throw the switch and what it will not do.
       `lambdas/test_feature_flags_config.py`'s docstring, which is already stale and is corrected
       to the real number; and `docs/testing/e2e.md`, which calls `asyncFileOperations` "the odd one
       out — a kill switch".
-- [ ] A new entry in `docs/decisions/browser.md`, beside *The kill switch is a flag key, and it is
+- [ ] A new entry in `docs/decisions/browser/`, beside *The kill switch is a flag key, and it is
       the sixth*, records why `archive` is a key: the only other off switch was `files: false`;
       one key covers both directions because they share a state machine; the switch is
       presentation-only and leaves the API routes live; notifications and the receipt folder are
@@ -278,7 +281,7 @@ apps/portal/src/test/renderWithProviders.tsx                  (edit — a `featu
 apps/portal/info/component-inventory/test-utilities.md        (edit — that option)
 apps/portal/info/runtime-configuration.md                     (edit)
 apps/portal/info/component-inventory/feature-flags-feature.md (edit)
-docs/decisions/browser.md                                     (edit)
+docs/decisions/browser/                                     (edit)
 docs/specs/ARCS.md, docs/specs/SPEC-172-*.md                  (superseded markers)
 docs/testing/e2e.md, docs/testing/sessions.md                (the archive sitting)
 ```

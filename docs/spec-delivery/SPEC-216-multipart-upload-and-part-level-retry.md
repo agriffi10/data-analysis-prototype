@@ -27,7 +27,7 @@ race and a same-change switch can put a bundle in front of an API that has not g
 ### Deliberate deviations
 
 - **The spec's deploy-ordering premise was inverted, and is corrected in place.** FR-005 AC1 cited
-  `decisions/identity-and-access.md`'s "the API deploys before the SPA image" as fact. Measured:
+  `decisions/identity-and-access/`'s "the API deploys before the SPA image" as fact. Measured:
   `Deploy App` finished **4m28s** before `Deploy Lambdas` on `8a3992b4` and **4m51s** on `696c3fdc`.
   The deploys are unordered; only a narrow `lambdas/api/**` plan lets the API win. The conclusion
   survives — the operative reason to defer a retirement is **already-loaded clients**.
@@ -51,7 +51,7 @@ race and a same-change switch can put a bundle in front of an API that has not g
 ## What changed from earlier specs?
 
 - **SPEC-198's "no part-level retry" residual is discharged** — marked superseded in place at all
-  four sites FR-009 names: the spec, `decisions/storage.md`, the CLAUDE.md digest clause, and
+  four sites FR-009 names: the spec, `decisions/storage/`, the CLAUDE.md digest clause, and
   `architecture.md`'s constraint prose plus ADR row 39 (which gains a pointer to new row 48).
 - **`uploadFile` keeps its exact signature**, but `onProgress` is now the aggregate across parts.
   Every caller is unchanged.

@@ -1,9 +1,13 @@
-# Spec: Files — Parent-Folder (`..`) Row
-
-**ID:** SPEC-098
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None
+---
+type: Spec
+id: SPEC-098
+title: "Files — Parent-Folder (`..`) Row"
+description: "Adds a parent-folder (..) row at the top of every file-browser listing that navigates up one level, hidden at the space root and excluded from selection and select-all."
+spec_status: Completed
+depends_on: []
+arc: responsive-and-files-ux
+arc_order: 4
+---
 
 ## Overview
 

@@ -1,9 +1,11 @@
-# Spec: Design Token Baseline
-
-**ID:** SPEC-021  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** None
+---
+type: Spec
+id: SPEC-021
+title: "Design Token Baseline"
+description: "Gives developers the design system's semantic tokens for color, type, spacing, radius, and shadow in a Tailwind v4 theme block in the CSS entry point, replacing the Vite boilerplate styles."
+spec_status: Completed
+depends_on: []
+---
 
 ## Overview
 

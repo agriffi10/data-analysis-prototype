@@ -74,7 +74,7 @@ The SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so repeated sends **out 
 serialized.** The Pipe starts the machine `FIRE_AND_FORGET` and this plane holds no lock, so a second
 send of an item to one recipient, submitted before the first run's copy of that name lands, clears
 `check-target-absent` beside it and re-copies over what the first delivered — a file the recipient
-edited in between included. `docs/decisions/control-planes.md`, *A group id orders the STARTS, not
+edited in between included. `docs/decisions/control-planes/`, *A group id orders the STARTS, not
 the runs*, has the decided repair.
 
 **SQS caps the group id at 128 characters and an S3 key reaches 1024**, so the raw form would be a
@@ -203,6 +203,6 @@ so a bucket-wide list would hand it every shared space's name and then every ros
 name is the only thing gating that read.
 
 Why a conditioned grant is sufficient, why the IAM simulate suggests otherwise, and the production
-evidence settling it: `docs/decisions/infrastructure.md` → *A role that cannot list a bucket cannot
+evidence settling it: `docs/decisions/infrastructure/` → *A role that cannot list a bucket cannot
 be told an object is absent*. `lambdas/test_absence_is_answerable.py` holds every registry-reading
 directory to this, and fails closed on one it cannot map to a role.

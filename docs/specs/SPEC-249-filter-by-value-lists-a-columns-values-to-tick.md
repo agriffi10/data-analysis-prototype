@@ -1,9 +1,11 @@
-# Spec: Filter by Value Lists a Column's Values to Tick
-
-**ID:** SPEC-249
-**Status:** Completed
-**Last Updated:** 2026-09-28
-**Depends On:** SPEC-238, SPEC-243
+---
+type: Spec
+id: SPEC-249
+title: "Filter by Value Lists a Column's Values to Tick"
+description: "Replaces the one-cell Filter by this value action with a Filter by value dialog listing a column's values with row counts to tick as is-one-of or is-not-one-of, for Data Explorer users."
+spec_status: Completed
+depends_on: [SPEC-238, SPEC-243]
+---
 
 ## Overview
 
@@ -665,4 +667,4 @@ apps/portal/info/component-inventory/data-explorer-feature.md
   runs nothing. Fold it
   into `docs/testing/e2e.md` at completion, where rows 7 of the Explorer walk and the **Options**
   row still drive **Filter by this value**; and mark superseded the SPEC-238 entry's sentence in
-  `docs/decisions/analytics.md` that the stored-document check refuses an empty string.
+  `docs/decisions/analytics/` that the stored-document check refuses an empty string.

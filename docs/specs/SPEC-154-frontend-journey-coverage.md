@@ -1,10 +1,15 @@
-# Spec: Frontend Journey Coverage — Testing the Wires Between Tested Halves
+---
+type: Spec
+id: SPEC-154
+title: "Frontend Journey Coverage — Testing the Wires Between Tested Halves"
+description: "Adds portal journey tests that wire together separately tested pieces (sign-in and sign-out, collisions, uploads, table share from its menu, results paging) and moves hand-rolled test providers onto the shared harness."
+spec_status: Completed
+depends_on: [SPEC-045, SPEC-078, SPEC-093, SPEC-150]
+arc: audit-remediation
+arc_order: 5
+---
 
-**ID:** SPEC-154
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-045 (`vitest-axe` and the a11y assertion practice), SPEC-215-era test rework (`src/test/renderWithProviders.tsx`, the harness this spec finishes adopting), SPEC-078 (the run scopes whose keyboard entry points SPEC-150 FR-010 covers and this spec builds on), SPEC-093 (table share, the feature with no integration coverage), SPEC-150 (whose FR-010 fixes the Monaco mock this spec's script tests depend on)
-
+**Dependency notes:** SPEC-045 (`vitest-axe` and the a11y assertion practice), SPEC-215-era test rework (`src/test/renderWithProviders.tsx`, the harness this spec finishes adopting), SPEC-078 (the run scopes whose keyboard entry points SPEC-150 FR-010 covers and this spec builds on), SPEC-093 (table share, the feature with no integration coverage), SPEC-150 (whose FR-010 fixes the Monaco mock this spec's script tests depend on)
 > **Reference:** from the 2026-08-05 codebase audit. The frontend suite is in better shape than its size suggests — 168 files, 1301 tests, and almost none of the anti-patterns you would look for first. **Verified absent:** snapshot tests, `toBeTruthy()` on a render, zero-assertion `it` blocks, tautological mock-return assertions, and `data-testid` in source (zero occurrences). All 13 `*.service.test.ts` mock the **SDK client**, never the service under test.
 >
 > **So this spec is not a cleanup.** It closes one specific structural gap: **a hook tested with `renderHook`, a component tested with a stub callback, and nothing testing the wire between them.** Both halves are green; the wire is what breaks in production. Table share is the clearest case — three separate test files cover its pieces and not one drives its only user flow.

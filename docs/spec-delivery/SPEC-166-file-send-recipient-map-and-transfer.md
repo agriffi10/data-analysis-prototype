@@ -159,7 +159,7 @@ treated as available.
   What the key must buy is that a *Retry* rewrites one object rather than leaving two. **—
   Superseded 2026-09-15: a new message reusing the id after the dedup window is not a redelivery,
   and nothing refuses it, so a hand-built request can share both keys with a run still going
-  (`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*).**
+  (`docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*).**
 - **A third cap, `SEND_MAX_TRANSFER_ITEMS`, beyond the two the spec's own notes anticipated.** The
   manifest is `objects × recipients`; without it the legal worst case is a million lines, which is
   neither verb's memory. Recorded here rather than left as "the spec said two".

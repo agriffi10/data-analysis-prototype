@@ -2038,7 +2038,7 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
 - **SPA: a container on ECS Fargate behind an ALB.** It cannot go through CloudFront. `infra/modules/app`
   (CloudFront + static site) is retired. *(Superseded 2026-11-02 for the live deployment: the client
   environment behind that constraint is shelved, and CloudFront serves the portal while the web tier
-  is off. `docs/decisions/infrastructure.md`.)*
+  is off. `docs/decisions/infrastructure/`.)*
 > **SUPERSEDED for this arc by SPEC-195 (2026-08-27) — the NEXT THREE BULLETS describe the
 > DEFERRED design, inherited by the later arc rather than cancelled.** What shipped is a
 > **verifier, not an OIDC client**: no code exchange, no refresh token, no session, no cookie.

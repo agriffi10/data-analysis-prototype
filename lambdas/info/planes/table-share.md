@@ -22,7 +22,7 @@ attribution after the fact. A conflict (the name exists, or the target prefix is
 `database.table`, which orders the starts and not the runs: the Pipe is `FIRE_AND_FORGET`, so a
 heavy copy can overlap itself, and a second same-name share guarded before the first lands clears
 the guard beside it and re-copies the same keys unconditionally — the conflict guard narrows that
-race and does not close it (`docs/decisions/control-planes.md`).
+race and does not close it (`docs/decisions/control-planes/`).
 
 ## What it accepts
 
@@ -95,7 +95,7 @@ written, and every one is **computed by a test** from the constants rather than 
 **The two product caps exist because the per-source caps cannot express them.** Every manifest item
 is a full copy, so both what the Map lists and what it moves scale with the recipient count. 20,000
 objects is fine and 50 recipients is fine and together they are a million lines; 1 TiB is fine and 50
-recipients is fine and together they are 50 TiB. **Read `docs/decisions/analytics.md` before changing any of
+recipients is fine and together they are 50 TiB. **Read `docs/decisions/analytics/` before changing any of
 these** — five review rounds found four bounds measured against the wrong quantity, and the tests are
 what hold the models now.
 

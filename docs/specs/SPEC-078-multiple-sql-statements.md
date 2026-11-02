@@ -1,10 +1,15 @@
-# Spec: Multiple SQL Statements in One Editor
+---
+type: Spec
+id: SPEC-078
+title: "Multiple SQL Statements in One Editor"
+description: "Lets users write several SQL statements in one editor and run them sequentially, as Run Statement, Run Script with a single result, or Run Script with a tab per statement, shown in result tabs."
+spec_status: Completed
+depends_on: [SPEC-041, SPEC-038, SPEC-034, SPEC-036]
+arc: query-editor-round-5
+arc_order: 2
+---
 
-**ID:** SPEC-078
-**Status:** Completed
-**Last Updated:** 2026-07-03
-**Depends On:** SPEC-041 (multi-tab editor), SPEC-038 (results pager), SPEC-034/036 (history)
-
+**Dependency notes:** SPEC-041 (multi-tab editor), SPEC-038 (results pager), SPEC-034/036 (history)
 > **Design pass complete.** The run/display model that was previously open is now
 > resolved (see **§ Run model (resolved)** and FR-005…FR-007). The settled execution
 > mechanics (statement splitting, sequential execution, stop-on-error, per-statement

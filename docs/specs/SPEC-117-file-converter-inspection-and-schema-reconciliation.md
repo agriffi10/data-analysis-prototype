@@ -1,10 +1,15 @@
-# Spec: File Converter — Source Inspection + Schema Reconciliation
+---
+type: Spec
+id: SPEC-117
+title: "File Converter — Source Inspection + Schema Reconciliation"
+description: "Would have delivered file-converter source inspection and schema reconciliation, probing every file and unioning their schemas into one CAST list, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-107, SPEC-115, SPEC-116]
+arc: file-converter
+arc_order: 3
+---
 
-**ID:** SPEC-117
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (request contract + authorization)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (request contract + authorization)
 > **Read `docs/file-converter-architecture.md` §4 first.** This spec produces the target schema everything downstream converts against.
 
 ## Overview

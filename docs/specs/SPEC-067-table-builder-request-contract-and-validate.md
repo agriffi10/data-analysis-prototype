@@ -1,10 +1,15 @@
-# Spec: Table Builder — Request Contract, Browser Enqueue & Validate-Authorize
+---
+type: Spec
+id: SPEC-067
+title: "Table Builder — Request Contract, Browser Enqueue & Validate-Authorize"
+description: "Defines the create-table request the browser enqueues with the caller's ID token and delivers validate-authorize, which verifies the token offline and authorizes personal or shared-space targets."
+spec_status: Completed
+depends_on: [SPEC-066, SPEC-056, SPEC-006, SPEC-034, SPEC-011]
+arc: table-builder
+arc_order: 2
+---
 
-**ID:** SPEC-067
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-066 (table-builder control plane skeleton + Lambda stubs + roles), SPEC-056 (shared-spaces registry = membership source of truth + ID-token actor binding), SPEC-006 (Cognito User Pool — token issuer), SPEC-034 (analytics clients + Glue per-DB model), SPEC-011 (portal role + module wiring)
-
+**Dependency notes:** SPEC-066 (table-builder control plane skeleton + Lambda stubs + roles), SPEC-056 (shared-spaces registry = membership source of truth + ID-token actor binding), SPEC-006 (Cognito User Pool — token issuer), SPEC-034 (analytics clients + Glue per-DB model), SPEC-011 (portal role + module wiring)
 > **Reference:** `docs/table-builder-architecture.md` §2/§3. Second of the arc. This spec defines the **request
 > message contract**, gives the **browser** the one new permission it needs (`sqs:SendMessage` + the queue URL),
 > and implements the **first real pipeline step — `validate-authorize`** (verify the caller's ID token → actor;
@@ -18,7 +23,7 @@ Define how a create-table request is expressed and prove the first, security-cri
 browser, using its existing scoped credentials, enqueues a **request envelope** describing the target space
 (bucket + prefix + the Glue database the space maps to), the desired table name, and the caller's Cognito **ID
 token** — onto the SPEC-066 FIFO queue with **`MessageGroupId` = the target database** (so same-DB requests
-serialize **— superseded 2026-09-15: are started in order, and then overlap; `docs/decisions/control-planes.md` —**). The pipeline's first Lambda, **`validate-authorize`**, verifies the token offline against the User
+serialize **— superseded 2026-09-15: are started in order, and then overlap; `docs/decisions/control-planes/` —**). The pipeline's first Lambda, **`validate-authorize`**, verifies the token offline against the User
 Pool JWKS and derives the **actor** server-side (never trusting a body username), then **authorizes** the
 request: for a **personal** target the DB must be the actor's own username; for a **shared** target the actor
 must be an **active member** per the shared-spaces registry (SPEC-056). It also validates that the table name is

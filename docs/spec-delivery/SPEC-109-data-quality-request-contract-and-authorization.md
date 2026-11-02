@@ -19,7 +19,7 @@ applied in SPEC-108 PR1.
   for exactly the users with the deepest folders. (The other producers get away with raw ids
   only because they group by a bounded catalog identifier.) Tests pin: a >128-char location
   still yields a 64-char group id and sends; the same location → same group id (serializes **—
-  superseded 2026-09-15: ordered starts only, and the runs overlap; `docs/decisions/control-planes.md`
+  superseded 2026-09-15: ordered starts only, and the runs overlap; `docs/decisions/control-planes/`
   —**); different locations → different ids (parallel); trailing-slash variants collapse.
   `MessageDeduplicationId = requestId` (content dedup is OFF on the queue).
 - **`validate-authorize`** — the real verb. Verifies the ID token via `cpcommon.auth`

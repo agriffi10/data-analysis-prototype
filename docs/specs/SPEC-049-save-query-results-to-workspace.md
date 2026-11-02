@@ -1,10 +1,15 @@
-# Spec: Save Query Results to Workspace
+---
+type: Spec
+id: SPEC-049
+title: "Save Query Results to Workspace"
+description: "Replaces the Download CSV button with a Save results to my files action that server-side copies the full Athena result CSV into a folder and file name the user chooses in their own space."
+spec_status: Completed
+depends_on: [SPEC-034, SPEC-039, SPEC-044, SPEC-035, SPEC-026, SPEC-028]
+arc: query-editor-round-3
+arc_order: 4
+---
 
-**ID:** SPEC-049
-**Status:** Completed
-**Last Updated:** 2026-06-22
-**Depends On:** SPEC-034 (`runQuery` result routing to `{username}/athenaresults/`, `QueryStatus.outputLocation`, `getResultCsvUrl`/`parseS3Url`), SPEC-039 (`copyObject`, `DestinationPicker`, collision warn-and-confirm), SPEC-044 (`Toast`, `/files?prefix=` deep-link), SPEC-035 (`QueryStatusBar`), SPEC-026 (dialog pattern), SPEC-028 (Button/Input)
-
+**Dependency notes:** SPEC-034 (`runQuery` result routing to `{username}/athenaresults/`, `QueryStatus.outputLocation`, `getResultCsvUrl`/`parseS3Url`), SPEC-039 (`copyObject`, `DestinationPicker`, collision warn-and-confirm), SPEC-044 (`Toast`, `/files?prefix=` deep-link), SPEC-035 (`QueryStatusBar`), SPEC-026 (dialog pattern), SPEC-028 (Button/Input)
 > **Design:** Needs a design pass. Replaces the **Download CSV** affordance in the `QueryStatusBar` (`design-system.md` §6) with a **Save results** action that opens a destination/filename modal reusing the SPEC-039 `DestinationPicker`, and confirms with the SPEC-044 `Toast`.
 
 ## Overview

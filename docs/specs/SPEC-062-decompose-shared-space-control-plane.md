@@ -1,10 +1,15 @@
-# Spec: Decompose Shared-Space Control Plane into Single-Task Lambdas
+---
+type: Spec
+id: SPEC-062
+title: "Decompose Shared-Space Control Plane into Single-Task Lambdas"
+description: "Refactors the shared-space control plane for developers and operators into a validate-authorize Lambda and single-task verb Lambdas with least-privilege roles, behind a Step Function Choice, preserving behavior."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-056, SPEC-051, SPEC-053, SPEC-054, SPEC-012]
+arc: control-plane-refactor
+arc_order: 1
+---
 
-**ID:** SPEC-062
-**Status:** Completed
-**Last Updated:** 2026-06-29
-**Depends On:** SPEC-050 (control-plane infra: SQS + Pipe + Step Function + orchestrator role + deploy IAM), SPEC-056 (request contract + actor binding + validate state), SPEC-051 (create verb), SPEC-053 (add/remove-members verbs), SPEC-054 (leave + delete verbs), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`)
-
+**Dependency notes:** SPEC-050 (control-plane infra: SQS + Pipe + Step Function + orchestrator role + deploy IAM), SPEC-056 (request contract + actor binding + validate state), SPEC-051 (create verb), SPEC-053 (add/remove-members verbs), SPEC-054 (leave + delete verbs), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`)
 > **Refactor, not a feature.** The shared-space control plane shipped (SPEC-050→054) as a **single
 > 711-line provisioner Lambda** (`shared_space_provisioner.py`) with an `action`-switch
 > (`create`/`add_members`/`remove_members`/`leave`/`delete`) plus inline JWT verification and every

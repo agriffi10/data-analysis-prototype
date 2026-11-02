@@ -1,10 +1,13 @@
-# Spec: Configuration from Terraform State — Retiring the Repository Variables
+---
+type: Spec
+id: SPEC-215
+title: "Configuration from Terraform State — Retiring the Repository Variables"
+description: "Makes the deploy workflows read bucket names, queue URLs, Cognito ids and the API base URL from Terraform outputs instead of hand-copied repository variables, leaving only genuine inputs, for operators."
+spec_status: Completed
+depends_on: [SPEC-005, SPEC-192, SPEC-194, SPEC-162]
+---
 
-**ID:** SPEC-215
-**Status:** Completed
-**Last Updated:** 2026-08-28
-**Depends On:** SPEC-005 (the deploy workflows), SPEC-192 (the runtime configuration document and its six wiring sites), SPEC-194 (the container entrypoint that renders the document), SPEC-162 (the flag-document publish, which resolves its bucket from a repository variable)
-
+**Dependency notes:** SPEC-005 (the deploy workflows), SPEC-192 (the runtime configuration document and its six wiring sites), SPEC-194 (the container entrypoint that renders the document), SPEC-162 (the flag-document publish, which resolves its bucket from a repository variable)
 **Interacts with:** SPEC-214 becomes a fourth consumer of `tofu output`; FR-001's derived version
 set is written for that, and both specs state the obligation for either landing order.
 

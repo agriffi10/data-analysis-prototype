@@ -1,10 +1,15 @@
-# Spec: Table Share — Source Resolution & Copy Plan (inspect-source)
+---
+type: Spec
+id: SPEC-090
+title: "Table Share — Source Resolution & Copy Plan (inspect-source)"
+description: "Implements table-share inspect-source, which confirms the source is a shareable base external table, clones its Glue definition, lists its data objects, enforces copy caps and emits the copy plan."
+spec_status: Completed
+depends_on: [SPEC-089, SPEC-068, SPEC-032]
+arc: table-share
+arc_order: 3
+---
 
-**ID:** SPEC-090
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-089 (validated request + actor), SPEC-068 (`tbcommon.s3_listing` precedent), SPEC-032 (LF-registered buckets)
-
+**Dependency notes:** SPEC-089 (validated request + actor), SPEC-068 (`tbcommon.s3_listing` precedent), SPEC-032 (LF-registered buckets)
 > **Read `docs/table-share-architecture.md` §4 first.**
 
 > **Corrected 2026-07-21 (PR #256):** the object list no longer rides on the Step Functions

@@ -1,10 +1,15 @@
-# Spec: Per-Database Schema Refresh (Look for New Tables/Views)
+---
+type: Spec
+id: SPEC-086
+title: "Per-Database Schema Refresh (Look for New Tables/Views)"
+description: "Adds a per-database Refresh control to each schema-rail node so users can re-read that database's tables and views on demand, picking up objects created elsewhere without reloading the app."
+spec_status: Completed
+depends_on: [SPEC-063, SPEC-034, SPEC-047, SPEC-028]
+arc: app-shell-one-offs
+arc_order: 2
+---
 
-**ID:** SPEC-086
-**Status:** Completed
-**Last Updated:** 2026-07-02
-**Depends On:** SPEC-063 (schema rail `DatabaseNode` + per-node `useSchema`), SPEC-034 (`useSchema` + Glue services + `invalidateSchema`), SPEC-047 (`useConnections`), SPEC-028 (`IconButton`)
-
+**Dependency notes:** SPEC-063 (schema rail `DatabaseNode` + per-node `useSchema`), SPEC-034 (`useSchema` + Glue services + `invalidateSchema`), SPEC-047 (`useConnections`), SPEC-028 (`IconButton`)
 > **Design:** A minor addition to each schema-rail database node (SPEC-063). Reuses the SPEC-028
 > `IconButton` (ghost icon) placed in the `DatabaseNode` header row beside the active-target radio — no new
 > design surface. See `design-system.md` §6.

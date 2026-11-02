@@ -1,10 +1,15 @@
-# Spec: Extracting `features/catalog/` — the Shared Catalog & Execution Layer
+---
+type: Spec
+id: SPEC-176
+title: "Extracting `features/catalog/` — the Shared Catalog & Execution Layer"
+description: "Moves the Glue catalog reader, Athena execution layer, results pager and column-width code into a shared features/catalog/ for developers, with no user-visible change, ahead of the Data Explorer."
+spec_status: Completed
+depends_on: []
+arc: data-explorer
+arc_order: 1
+---
 
-**ID:** SPEC-176
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** None (pure refactor of shipped code; first spec of the Data Explorer arc)
-
+**Dependency notes:** None (pure refactor of shipped code; first spec of the Data Explorer arc)
 ## Overview
 
 The portal is about to gain a second feature that reads the Glue catalog and runs Athena

@@ -1,8 +1,11 @@
-# Spec: Help & Guides Page (Top-Bar Icon + Documentation Page)
-
-**ID:** SPEC-074
-**Status:** Completed
-**Last Updated:** 2026-07-03
+---
+type: Spec
+id: SPEC-074
+title: "Help & Guides Page (Top-Bar Icon + Documentation Page)"
+description: "Adds a Help & guides page, opened from a top-bar icon beside the notifications bell, with a section rail and expandable step-by-step guide cards documenting only what the portal can actually do."
+spec_status: Completed
+depends_on: [SPEC-008, SPEC-023, SPEC-028, SPEC-052, SPEC-057, SPEC-060, SPEC-031, SPEC-045]
+---
 
 > **Implementation note (2026-07-03).** FR-005's exclusion examples were authored 2026-06-30 when Table Builder
 > (SPEC-066→072) and shared-space join status (SPEC-073) were still Draft. Both **shipped before this spec was
@@ -10,8 +13,8 @@
 > are now **in scope and documented**: a "Create a table from a folder" guide under **Files**, and pending/active
 > join status folded into the **Shared connections** section. The examples in Out of Scope / FR-005 below are
 > retained for historical context but are superseded. See the delivery doc.
-**Depends On:** SPEC-008 (auth-gated layout + react-router routes), SPEC-023 (app shell: `Header`, `PageLayout`), SPEC-028 (shared UI primitives), SPEC-052/057 (`Sidebar` left-rail pattern), SPEC-060 (`NotificationsBell` header-icon pattern to mirror), SPEC-031 (document title), SPEC-045 (axe a11y baseline)
 
+**Dependency notes:** SPEC-008 (auth-gated layout + react-router routes), SPEC-023 (app shell: `Header`, `PageLayout`), SPEC-028 (shared UI primitives), SPEC-052/057 (`Sidebar` left-rail pattern), SPEC-060 (`NotificationsBell` header-icon pattern to mirror), SPEC-031 (document title), SPEC-045 (axe a11y baseline)
 > **Standalone UI/content spec.** Adds an in-app **Help & guides** surface: a new **help icon in the top
 > bar** (mirroring the notifications bell) that links to a dedicated **`/help` page**. The page uses the
 > **Files/Query left-rail layout** — a sidebar lists the app's user-facing features (Files, Query, Shared

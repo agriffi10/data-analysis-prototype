@@ -1,10 +1,13 @@
-# Spec: A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End
+---
+type: Spec
+id: SPEC-235
+title: "A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End"
+description: "Makes a CSV table's refresh keep its existing column order and add new columns at the end, so older files are not read shifted, and updates the removal warning, Refresh dialog and Help guide, for users."
+spec_status: Completed
+depends_on: [SPEC-144, SPEC-145, SPEC-149]
+---
 
-**ID:** SPEC-235
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-144, SPEC-145, SPEC-149, and the Refresh table copy fix, #755 (see *Scope*)
-
+**Dependency notes:** SPEC-144, SPEC-145, SPEC-149, and the Refresh table copy fix, #755 (see *Scope*)
 ## Overview
 
 Athena reads a table built from CSV files by column position. The table's first column takes each
@@ -98,7 +101,7 @@ map each row's fields to the table's columns by position.
   where prose that contradicts itself merges without a conflict. Both FRs are stated against the
   wording on `main` at build time. Any sentence quoted here from the earlier copy is context, not
   the target.
-- At completion: an entry in `docs/decisions/analytics.md`, with a Fences clause saying a CSV
+- At completion: an entry in `docs/decisions/analytics/`, with a Fences clause saying a CSV
   table's column list is a positional contract that a refresh never reorders. The live check in
   *Implementation Phases* is folded into `docs/testing/e2e.md`.
 

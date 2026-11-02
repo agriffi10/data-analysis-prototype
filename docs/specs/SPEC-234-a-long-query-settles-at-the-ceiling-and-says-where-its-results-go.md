@@ -1,9 +1,11 @@
-# Spec: A Long Query Settles at the Ceiling, and Says Where Its Results Go
-
-**ID:** SPEC-234
-**Status:** Completed
-**Last Updated:** 2026-09-14
-**Depends On:** SPEC-078, SPEC-106, SPEC-233
+---
+type: Spec
+id: SPEC-234
+title: "A Long Query Settles at the Ceiling, and Says Where Its Results Go"
+description: "Raises the Query and Data Explorer polling ceiling to 30 minutes and ends a longer watch visibly, saying the query still runs in Athena and where its results will be saved, with Help guides updated."
+spec_status: Completed
+depends_on: [SPEC-078, SPEC-106, SPEC-233]
+---
 
 ## Overview
 

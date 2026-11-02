@@ -1,9 +1,13 @@
-# Spec: Files — Selection Toolbar Narrowed to Copy / Move / Delete
-
-**ID:** SPEC-096
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None
+---
+type: Spec
+id: SPEC-096
+title: "Files — Selection Toolbar Narrowed to Copy / Move / Delete"
+description: "Narrows the file browser's multi-select toolbar to the whole-selection actions Copy, Move and Delete, removing the single-item Download and Rename actions that move to the details panel."
+spec_status: Completed
+depends_on: []
+arc: responsive-and-files-ux
+arc_order: 2
+---
 
 ## Overview
 

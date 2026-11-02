@@ -1,10 +1,15 @@
-# Spec: File Operations — the Plane, the Request Contract & validate-authorize
+---
+type: Spec
+id: SPEC-187
+title: "File Operations — the Plane, the Request Contract & validate-authorize"
+description: "Builds the File Operations control plane (queue, pipe, state machine, role, per-space lock) for server-side folder copy, move and delete, with a validate-authorize verb checking source and destination."
+spec_status: Completed
+depends_on: [SPEC-164, SPEC-165, SPEC-166, SPEC-167, SPEC-107, SPEC-125, SPEC-156, SPEC-126, SPEC-152, SPEC-157, SPEC-160, SPEC-161, SPEC-168, SPEC-169, SPEC-150, SPEC-172, SPEC-173]
+arc: file-operations-control-plane
+arc_order: 1
+---
 
-**ID:** SPEC-187
-**Status:** Completed
-**Last Updated:** 2026-08-17
-**Depends On:** SPEC-164/165/166/167 (the file-send plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-157 (the per-target lock, and why FIFO is not serialization), SPEC-160/161 (`cpcommon.transfer`), SPEC-168 (`mode`-branching one plane; a role that ships with no S3 grant), SPEC-169 (the commit gate, and the delete-Deny set), SPEC-150/172/173 (the protected-folder rules this plane must now enforce)
-
+**Dependency notes:** SPEC-164/165/166/167 (the file-send plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-157 (the per-target lock, and why FIFO is not serialization), SPEC-160/161 (`cpcommon.transfer`), SPEC-168 (`mode`-branching one plane; a role that ships with no S3 grant), SPEC-169 (the commit gate, and the delete-Deny set), SPEC-150/172/173 (the protected-folder rules this plane must now enforce)
 ## Overview
 
 Copying, moving and deleting a **folder** is the only thing this application does whose cost grows

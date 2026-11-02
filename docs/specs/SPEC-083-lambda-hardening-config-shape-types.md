@@ -1,10 +1,15 @@
-# Spec: Code-Quality Hardening — Lambda Config/Shape/Types + Lambda & SPA Cleanup
+---
+type: Spec
+id: SPEC-083
+title: "Code-Quality Hardening — Lambda Config/Shape/Types + Lambda & SPA Cleanup"
+description: "Hardens the table-builder and shared-space Lambdas with consistent config, event-shape and type handling from a best-practices audit, and folds in smaller Lambda and SPA cleanups without behavior change."
+spec_status: Completed
+depends_on: []
+arc: best-practice-audit-follow-ups
+arc_order: 2
+---
 
-**ID:** SPEC-083
-**Status:** Completed
-**Last Updated:** 2026-07-02
-**Depends On:** None (touches existing Lambda groups; no infra/IAM change)
-
+**Dependency notes:** None (touches existing Lambda groups; no infra/IAM change)
 ## Overview
 
 A best-practices audit of the table-builder and shared-space Lambda groups against

@@ -1,10 +1,15 @@
-# Spec: Table Builder — Foundation Infrastructure + polars Runtime
+---
+type: Spec
+id: SPEC-066
+title: "Table Builder — Foundation Infrastructure + polars Runtime"
+description: "Gives developers the dedicated table-builder control plane skeleton, an SQS queue, EventBridge Pipe and Step Function over five stub Lambdas with least-privilege roles, plus the polars layer."
+spec_status: Completed
+depends_on: [SPEC-032, SPEC-050, SPEC-012, SPEC-011]
+arc: table-builder
+arc_order: 1
+---
 
-**ID:** SPEC-066
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-032 (analytics foundation: admin bucket + Athena workgroup + LF bootstrap), SPEC-050 (shared bucket + the control-plane pattern this mirrors), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
-
+**Dependency notes:** SPEC-032 (analytics foundation: admin bucket + Athena workgroup + LF bootstrap), SPEC-050 (shared bucket + the control-plane pattern this mirrors), SPEC-012 (Lambda code/infra split + `deploy-lambdas.yml`), SPEC-011 (deploy role + module wiring)
 > **Reference:** `docs/table-builder-architecture.md` — read it first. **First of the table-builder arc
 > (066 → 067 → 068 → 069 → 070 → 071, + 072 producer).** This spec builds the **plumbing only**: a dedicated
 > FIFO control plane (SQS → EventBridge Pipe → Step Function skeleton), the five single-task Lambda **infra
@@ -84,7 +89,7 @@ a table.
   role can `sqs:ReceiveMessage`/`DeleteMessage`/`GetQueueAttributes` on the queue and `states:StartExecution` on
   the machine. (Intake is serial per `MessageGroupId`; the producer sets it = target database — SPEC-067.
   **Superseded 2026-09-15: intake orders the starts only, and the runs overlap —
-  `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.**)
+  `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.**)
 - [ ] The **Step Function** (Standard) is created with explicit states wiring the five Lambda Tasks **in order**
   (`validate-authorize → check-table-absent → inspect-source → infer-schema → execute-ddl`) plus `Retry`/`Catch`
   scaffolding and terminal **succeed** / **recorded-failure** states; here every Task invokes a **stub** Lambda

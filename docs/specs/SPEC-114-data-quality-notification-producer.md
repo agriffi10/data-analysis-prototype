@@ -1,10 +1,15 @@
-# Spec: Data Quality — Notification Producer
+---
+type: Spec
+id: SPEC-114
+title: "Data Quality — Notification Producer"
+description: "Sends the data-quality completion notification giving the verdict, deep-linking to the report view and saying when figures are approximate because the encoding scan was sampled."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-107, SPEC-108, SPEC-112, SPEC-113]
+arc: data-quality
+arc_order: 7
+---
 
-**ID:** SPEC-114
-**Status:** Completed
-**Last Updated:** 2026-07-21
-**Depends On:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-108 (the `notify-failure` placeholder Lambda this spec wires), SPEC-112 (the summary payload), SPEC-113 (the UI + the report view this links to)
-
+**Dependency notes:** SPEC-058 (notifications write pipeline), SPEC-107 (`cpcommon.notify` / `messages`), SPEC-108 (the `notify-failure` placeholder Lambda this spec wires), SPEC-112 (the summary payload), SPEC-113 (the UI + the report view this links to)
 > **Read `docs/data-quality-architecture.md` §8 first.** Mirrors SPEC-072 (table-builder) and SPEC-094 (table-share).
 
 ## Overview

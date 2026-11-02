@@ -1,10 +1,15 @@
-# Spec: Table Builder — Execute DDL & Terminal States
+---
+type: Spec
+id: SPEC-070
+title: "Table Builder — Execute DDL & Terminal States"
+description: "Runs the generated table DDL through Athena in the shared workgroup, polls to a success or recorded-failure end state, and finalizes the execute-ddl role's Lake Formation, Glue, Athena and S3 grants."
+spec_status: Completed
+depends_on: [SPEC-069, SPEC-068, SPEC-067, SPEC-066, SPEC-032, SPEC-033]
+arc: table-builder
+arc_order: 5
+---
 
-**ID:** SPEC-070
-**Status:** Completed
-**Last Updated:** 2026-06-30
-**Depends On:** SPEC-069 (generated DDL + resolved columns + projection properties), SPEC-068 (layout-validated source), SPEC-067 (validated target DB/location), SPEC-066 (control plane + execute-ddl function/role), SPEC-032 (Athena workgroup + Lake Formation hybrid registration), SPEC-033 (per-DB LF grant pattern)
-
+**Dependency notes:** SPEC-069 (generated DDL + resolved columns + projection properties), SPEC-068 (layout-validated source), SPEC-067 (validated target DB/location), SPEC-066 (control plane + execute-ddl function/role), SPEC-032 (Athena workgroup + Lake Formation hybrid registration), SPEC-033 (per-DB LF grant pattern)
 > **Reference:** `docs/table-builder-architecture.md` §5. Fifth of the arc — completes the **end-to-end** create
 > (sans notifications/UI). Implements **`execute-ddl`**: run the generated `CREATE EXTERNAL TABLE` (incl.
 > partition-**projection** `TBLPROPERTIES`) via **Athena** against the target database and record terminal
@@ -49,7 +54,7 @@ scoped as tightly as the model allows.
   table queryable immediately.
 - **Idempotency / replay-safety** — `CREATE … IF NOT EXISTS` (SPEC-069) + the SPEC-068 pre-check make a re-run a
   no-op success. A replayed terminal request is a no-op success (`lambdas.md` §3).
-  **Superseded 2026-09-15: a re-run of the SAME request is still a no-op success, but a DIFFERENT request whose no-op landed over someone else's table is now refused `table_exists` by execute-ddl's read-back — `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.**
+  **Superseded 2026-09-15: a re-run of the SAME request is still a no-op success, but a DIFFERENT request whose no-op landed over someone else's table is now refused `table_exists` by execute-ddl's read-back — `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.**
 - **Terminal states across the machine** — finalize the SFN **succeed** state (after execute/repair) and the
   shared **recorded-failure** state that every verb's `Catch` targets, carrying `{ requestId, actor, database,
   tableName, status:'failed', reason }` (and `status:'created'` on success) — the structured outcome SPEC-072
@@ -119,7 +124,7 @@ scoped as tightly as the model allows.
   > **not** hold for a different request whose no-op landed over a table someone else built — that
   > run is now refused `table_exists` at execute-ddl rather than told its table is ready, so
   > `table_exists` is no longer the pre-create check's alone.
-  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+  > `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.
 - [ ] A replay of an already-terminal request reaches the same terminal state without duplicate side effects
   (`lambdas.md` §3).
 

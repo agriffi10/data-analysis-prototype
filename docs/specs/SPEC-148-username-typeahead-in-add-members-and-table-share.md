@@ -1,10 +1,15 @@
-# Spec: Username Typeahead in Add Members & Table Share
+---
+type: Spec
+id: SPEC-148
+title: "Username Typeahead in Add Members & Table Share"
+description: "Replaces free-text user entry in the Add Members and Table Share dialogs with username typeahead, flagging unknown or malformed names as the user types instead of by a late notification to the owner."
+spec_status: Completed
+depends_on: [SPEC-147, SPEC-053, SPEC-075, SPEC-093]
+arc: username-directory
+arc_order: 3
+---
 
-**ID:** SPEC-148
-**Status:** Completed
-**Last Updated:** 2026-08-03
-**Depends On:** SPEC-147 (`UsernameCombobox`, `UsernameChipsField`, `useUserDirectory`, `parseMemberInputDetailed`), SPEC-053 (`AddMembersDialog` and `useManageMembers`), SPEC-075 (the member roster this dialog sits over), SPEC-093 (`TableShareDialog` and its recipient chips)
-
+**Dependency notes:** SPEC-147 (`UsernameCombobox`, `UsernameChipsField`, `useUserDirectory`, `parseMemberInputDetailed`), SPEC-053 (`AddMembersDialog` and `useManageMembers`), SPEC-075 (the member roster this dialog sits over), SPEC-093 (`TableShareDialog` and its recipient chips)
 > **Reference:** third and last of the username-directory arc (146 → 147 → **148**). This is the only spec in the arc a user can see.
 >
 > **Browser-side only: no new IAM, no new AWS call, no new Lambda change, no new env var, no request-contract change.** Both dialogs enqueue exactly the messages they enqueue today; only the way the names are collected changes.

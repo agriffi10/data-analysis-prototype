@@ -1,10 +1,15 @@
-# Spec: Data Quality — Source Inspection (`inspect-source`)
+---
+type: Spec
+id: SPEC-110
+title: "Data Quality — Source Inspection (`inspect-source`)"
+description: "Implements data-quality inspect-source, which lists a folder, enforces one consistent format including Parquet, probes every file's header, detects Hive partitions and writes a manifest to S3."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-108, SPEC-109]
+arc: data-quality
+arc_order: 3
+---
 
-**ID:** SPEC-110
-**Status:** Completed
-**Last Updated:** 2026-07-16
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (request contract + authorization)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-108 (foundation), SPEC-109 (request contract + authorization)
 > **Read `docs/data-quality-architecture.md` §4 first.**
 
 ## Overview

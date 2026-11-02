@@ -1,10 +1,13 @@
-# Spec: Query Results Pagination — 20 Rows per Page
+---
+type: Spec
+id: SPEC-038
+title: "Query Results Pagination — 20 Rows per Page"
+description: "Limits the query results table to 20 rows per page with a Prev/Next pager that replaces the visible rows, fetching later Athena pages lazily and caching them so paging back is instant."
+spec_status: Completed
+depends_on: [SPEC-034, SPEC-035]
+---
 
-**ID:** SPEC-038
-**Status:** Completed
-**Last Updated:** 2026-06-17
-**Depends On:** SPEC-034 (`getQueryResults` + `NextToken`), SPEC-035 (query workspace + results table)
-
+**Dependency notes:** SPEC-034 (`getQueryResults` + `NextToken`), SPEC-035 (query workspace + results table)
 > **Design:** Built to the results region of `docs/design/query-workspace.html` + `design-system.md` §6 (results table). This spec replaces SPEC-035 FR-006's results "Load more" with a fixed-size **pager**.
 
 ## Overview

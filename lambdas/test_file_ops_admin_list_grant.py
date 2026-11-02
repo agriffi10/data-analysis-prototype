@@ -9,7 +9,7 @@ Measured live: the plane's first execution failed at ``InspectSource`` on exactl
 **Superseded on one point (2026-08-30): a conditioned grant DOES fix the read.** The paragraph
 below reasons from ``simulate-principal-policy``, which answers what IAM decides given the context
 *you* supply rather than what S3 supplies. Production settles it the other way — see
-``docs/decisions/infrastructure.md`` → *A role that cannot list a bucket cannot be told an object
+``docs/decisions/infrastructure/`` → *A role that cannot list a bucket cannot be told an object
 is absent*. Holding **no** statement is what breaks, which is what this role had. The grant and its
 scoping below are still right; the probe is belt-and-braces rather than load-bearing.
 

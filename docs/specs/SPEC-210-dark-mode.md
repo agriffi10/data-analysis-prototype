@@ -1,14 +1,18 @@
-# Spec: Dark Mode — the Measured Dark Palette, the Theme Switch and Monaco
+---
+type: Spec
+id: SPEC-210
+title: "Dark Mode — the Measured Dark Palette, the Theme Switch and Monaco"
+description: "Adds a user-chosen Light, Dark or System theme remembered in the browser, with a dark palette and Monaco theme measured by a WCAG contrast harness that also covers the light palette, for portal users."
+spec_status: Completed
+depends_on: [SPEC-021, SPEC-023, SPEC-024, SPEC-026, SPEC-027, SPEC-029, SPEC-035, SPEC-045, SPEC-095, SPEC-155, SPEC-184, SPEC-192, SPEC-194]
+---
 
-**ID:** SPEC-210
-**Status:** Completed
-**Last Updated:** 2026-08-28
 **Interacts with:** SPEC-211 also adds a header control, and SPEC-207 adds none. SPEC-211 FR-007
 owns the mobile header-width measurement all three depend on; this spec's FR-005 mobile placement
 follows whatever that measurement establishes.
 
-**Depends On:** SPEC-021 (the design-token baseline in `index.css`), SPEC-023/024/026/027/029 (the surfaces the tokens paint), SPEC-035 (the Monaco editor and its existing custom theme), SPEC-045 (the axe suite), SPEC-095 (the breakpoints), SPEC-155 (`Menu`, `IconButton`), SPEC-184 (the Data Explorer's `FORMATTING_TOKEN_HEX` mirror of the palette), SPEC-192/194 (the runtime config document and the container that serves the shell)
 
+**Dependency notes:** SPEC-021 (the design-token baseline in `index.css`), SPEC-023/024/026/027/029 (the surfaces the tokens paint), SPEC-035 (the Monaco editor and its existing custom theme), SPEC-045 (the axe suite), SPEC-095 (the breakpoints), SPEC-155 (`Menu`, `IconButton`), SPEC-184 (the Data Explorer's `FORMATTING_TOKEN_HEX` mirror of the palette), SPEC-192/194 (the runtime config document and the container that serves the shell)
 ## Overview
 
 The portal is light-only. Every colour is a Tailwind v4 `@theme` token in `index.css`, each one

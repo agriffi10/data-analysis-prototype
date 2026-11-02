@@ -1,9 +1,11 @@
-# Spec: File Browser Visual Polish
-
-**ID:** SPEC-024  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-024
+title: "File Browser Visual Polish"
+description: "Restyles the file browser as a table-forward layout with a bordered surface container, uppercase headers, 48px rows with hover and selection states, SVG icons, type pills, and a selection toolbar."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

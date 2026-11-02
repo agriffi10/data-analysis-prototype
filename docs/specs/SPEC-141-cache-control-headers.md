@@ -1,10 +1,13 @@
-# Spec: Cache-Control for the SPA Shell and Hashed Assets
+---
+type: Spec
+id: SPEC-141
+title: "Cache-Control for the SPA Shell and Hashed Assets"
+description: "Gives the SPA explicit Cache-Control headers, permanent for hashed assets and revalidate-always for the shell, so returning browsers stop getting a white screen from a cached index.html."
+spec_status: Completed
+depends_on: [SPEC-140]
+---
 
-**ID:** SPEC-141
-**Status:** Completed
-**Last Updated:** 2026-08-04
-**Depends On:** SPEC-140 (response headers policy — shares `cloudfront.tf` and the deploy path)
-
+**Dependency notes:** SPEC-140 (response headers policy — shares `cloudfront.tf` and the deploy path)
 ## Overview
 
 Nothing the portal serves carries a `Cache-Control` header — not the SPA shell, not the hashed

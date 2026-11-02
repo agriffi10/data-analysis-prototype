@@ -1,10 +1,15 @@
-# Spec: Refresh History Button
+---
+type: Spec
+id: SPEC-046
+title: "Refresh History Button"
+description: "Adds a Refresh control to the query history drawer that re-reads the per-user history store from S3 on demand, so users can pick up history written from another tab, device, or session."
+spec_status: Completed
+depends_on: [SPEC-036, SPEC-042, SPEC-034]
+arc: query-editor-round-3
+arc_order: 1
+---
 
-**ID:** SPEC-046
-**Status:** Completed
-**Last Updated:** 2026-06-22
-**Depends On:** SPEC-036 (query history panel/drawer), SPEC-042 (history pagination), SPEC-034 (per-user history store + `useQueryHistory`)
-
+**Dependency notes:** SPEC-036 (query history panel/drawer), SPEC-042 (history pagination), SPEC-034 (per-user history store + `useQueryHistory`)
 > **Design:** Minor addition to the existing history drawer (`docs/design/query-workspace.html` + `design-system.md` §6). Reuses the SPEC-028 `IconButton` (ghost icon) in the drawer header accessory slot — no new design surface.
 
 ## Overview

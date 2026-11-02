@@ -1,10 +1,13 @@
-# Spec: Automated Accessibility (axe) Test Suite
+---
+type: Spec
+id: SPEC-045
+title: "Automated Accessibility (axe) Test Suite"
+description: "Gives developers an automated accessibility test layer that runs axe-core against rendered components and routes in the Vitest suite, catching machine-detectable WCAG A and AA failures at pull request time."
+spec_status: Completed
+depends_on: [SPEC-004, SPEC-026, SPEC-028]
+---
 
-**ID:** SPEC-045
-**Status:** Completed
-**Last Updated:** 2026-06-22
-**Depends On:** PR #89 (WCAG 2.2 AA pass — contrast, labels, keyboard, semantics, forms, live regions), SPEC-004 (Vitest CI), SPEC-026 (dialog pattern), SPEC-028 (Button/Input primitives)
-
+**Dependency notes:** PR #89 (WCAG 2.2 AA pass — contrast, labels, keyboard, semantics, forms, live regions), SPEC-004 (Vitest CI), SPEC-026 (dialog pattern), SPEC-028 (Button/Input primitives)
 > **Context:** PR #89 brought the app to strong WCAG 2.2 **AA** conformance by hand. This spec locks that in with an automated `axe-core` regression suite so accessibility defects fail in CI instead of being re-discovered by manual audit. It is a **testing/tooling** spec — no user-facing feature or infra change.
 
 ## Overview

@@ -1,10 +1,15 @@
-# Spec: Saved Queries as Files — the `saved_queries/` Folder, Its Protections and the Space-Scoped Store
+---
+type: Spec
+id: SPEC-173
+title: "Saved Queries as Files — the `saved_queries/` Folder, Its Protections and the Space-Scoped Store"
+description: "Turns saved queries into .sql files in a protected saved_queries/ folder at a space's root, with a space-scoped store, and cuts the query editor over to it for the user's own space."
+spec_status: Completed
+depends_on: [SPEC-043, SPEC-057, SPEC-150, SPEC-163]
+arc: saved-queries-in-spaces
+arc_order: 1
+---
 
-**ID:** SPEC-173
-**Status:** Completed
-**Last Updated:** 2026-08-11
-**Depends On:** SPEC-043 (the store this replaces), SPEC-057 (shared spaces in the file browser), SPEC-150 (the protected-folder refusals), SPEC-163 (the gated-surface registry)
-
+**Dependency notes:** SPEC-043 (the store this replaces), SPEC-057 (shared spaces in the file browser), SPEC-150 (the protected-folder refusals), SPEC-163 (the gated-surface registry)
 ## Overview
 
 Today a user's saved queries are rows in one private JSON document (`{username}/user_settings/saved-queries.json`) that only the query editor can read and only its author can reach. A saved query is a *file* — it is SQL, it has a name, and the person who wrote it usually wants to keep it beside the data it queries and often wants a teammate to be able to run it. This spec turns saved queries into real `.sql` objects in a real folder, `saved_queries/`, at the root of a space — the user's own space today, any space they belong to once the rest of the arc lands. It is an ordinary folder in every respect a user can see — browsable, uploadable into, a valid move/copy destination, its files openable, downloadable and deletable by anyone with access to the space — with exactly one protection: the folder itself cannot be deleted or renamed. It is kept alive by the same hidden `DO_NOT_DELETE.txt` marker every space root already uses. What keeps the query editor's load list coherent is not a lock on the folder but a filter: the editor offers top-level `.sql` files and nothing else.

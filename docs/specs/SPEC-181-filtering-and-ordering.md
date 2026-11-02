@@ -1,9 +1,13 @@
-# Spec: Filtering and Ordering
-
-**ID:** SPEC-181
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-178, SPEC-180
+---
+type: Spec
+id: SPEC-181
+title: "Filtering and Ordering"
+description: "Adds Data Explorer filtering and ordering on explicit user gesture, each rendering new SQL and a new Athena execution server-side, with per-column menus that safely escape values taken from cells."
+spec_status: Completed
+depends_on: [SPEC-178, SPEC-180]
+arc: data-explorer
+arc_order: 6
+---
 
 ## Overview
 

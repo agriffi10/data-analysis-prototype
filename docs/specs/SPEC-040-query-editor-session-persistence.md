@@ -1,10 +1,15 @@
-# Spec: Query Editor Session Persistence + Clear Button
+---
+type: Spec
+id: SPEC-040
+title: "Query Editor Session Persistence + Clear Button"
+description: "Keeps the SQL in the query editor across Files and Query tab switches and page reloads within a browser session by persisting it to sessionStorage, and adds a Clear query button next to Run."
+spec_status: Completed
+depends_on: [SPEC-035, SPEC-034]
+arc: query-editor-follow-ups
+arc_order: 1
+---
 
-**ID:** SPEC-040
-**Status:** Completed
-**Last Updated:** 2026-06-19
-**Depends On:** SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
-
+**Dependency notes:** SPEC-035 (query workspace + Monaco editor + Run/Stop toolbar), SPEC-034 (query data layer — unchanged)
 > **Design:** Built to the editor toolbar in `docs/design/query-workspace.html` + `design-system.md` §6 (editor toolbar). Adds a **Clear** control to the existing toolbar (alongside History / Stop / Run) and a draft-persistence behavior with no new visual surface. Toolbar layout is an additive change to the §6 toolbar spec.
 
 ## Overview

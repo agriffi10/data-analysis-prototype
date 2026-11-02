@@ -1510,7 +1510,7 @@ browser, with which instruments, and what each check returned. Then update:
 
 1. [`owed.md`](owed.md) — move discharged rows out, add anything newly found unrunnable.
 2. The delivery docs that still state the old status.
-3. The Fences of the area's `docs/decisions/` file.
+3. The area's fences in `docs/decisions/index.yaml`.
 
 **An unrunnable check is a finding, not a failure.** If a step here cannot produce the outcome it
 claims, fix the step and say so — that has been the most valuable output of several sessions.

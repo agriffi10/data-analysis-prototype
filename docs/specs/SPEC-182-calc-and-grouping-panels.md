@@ -1,9 +1,13 @@
-# Spec: The Calc and Grouping Panels
-
-**ID:** SPEC-182
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-180, SPEC-181
+---
+type: Spec
+id: SPEC-182
+title: "The Calc and Grouping Panels"
+description: "Adds the Data Explorer's Calc panel, aggregating selected cells client-side, and Grouping panel, which renders a GROUP BY server-side and shows the SQL it generates."
+spec_status: Completed
+depends_on: [SPEC-180, SPEC-181]
+arc: data-explorer
+arc_order: 7
+---
 
 ## Overview
 

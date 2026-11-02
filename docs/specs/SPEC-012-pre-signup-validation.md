@@ -1,10 +1,13 @@
-# Spec: Pre-Signup Username Validation — Cognito Trigger Lambda
+---
+type: Spec
+id: SPEC-012
+title: "Pre-Signup Username Validation — Cognito Trigger Lambda"
+description: "Rejects sign-ups whose username is unsafe as an S3 prefix or IAM tag value, using a Cognito pre-signup trigger Lambda that shows a clear error on the Hosted UI."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-009]
+---
 
-**ID:** SPEC-012
-**Status:** Completed
-**Last Updated:** 2026-06-12
-**Depends On:** SPEC-006 (User Pool), SPEC-009 (signup flow this validates)
-
+**Dependency notes:** SPEC-006 (User Pool), SPEC-009 (signup flow this validates)
 > **Amendment (2026-06-17, SPEC-033 FR-001):** The analytics arc names each user's Glue database after their username and isolates it with the `username` IAM principal tag, so the username must also be a valid Glue/Athena identifier. The validation pattern is therefore **tightened** from `^[a-zA-Z0-9._@-]{3,64}$` to **`^[a-z][a-z0-9_]{2,62}$`** (lowercase, starts with a letter, letters/digits/underscore only). This removes email-style usernames (`@ . -`). Safe to change because no production users exist yet. SPEC-033 owns the implementation of this change; this note records that FR-001 below is superseded by the tighter rule.
 
 ## Overview

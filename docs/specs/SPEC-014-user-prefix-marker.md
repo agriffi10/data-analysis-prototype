@@ -1,10 +1,13 @@
-# Spec: User Prefix Marker — DO_NOT_DELETE.txt on First Login
+---
+type: Spec
+id: SPEC-014
+title: "User Prefix Marker — DO_NOT_DELETE.txt on First Login"
+description: "Writes an idempotent DO_NOT_DELETE.txt marker in each user's prefix on first load of the files page, hiding it from listings and protecting it from deletion so every user space physically exists."
+spec_status: Completed
+depends_on: [SPEC-011, SPEC-013, SPEC-008]
+---
 
-**ID:** SPEC-014
-**Status:** Completed
-**Last Updated:** 2026-06-15
-**Depends On:** SPEC-011 (STS credentials), SPEC-013 (write access to own prefix), SPEC-008 (`/files` route)
-
+**Dependency notes:** SPEC-011 (STS credentials), SPEC-013 (write access to own prefix), SPEC-008 (`/files` route)
 > **Note:** Last spec in the 010→014 arc — the app can only write the marker once it has scoped write credentials (SPEC-013).
 
 ## Overview

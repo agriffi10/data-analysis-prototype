@@ -1,10 +1,15 @@
-# Spec: Table Share — Recipient Table Creation & Terminal States (create-table)
+---
+type: Spec
+id: SPEC-092
+title: "Table Share — Recipient Table Creation & Terminal States (create-table)"
+description: "Completes table sharing end to end by creating each recipient's table as an exact clone of the source over the copied data via Athena, with success and failure end states and the role's grants."
+spec_status: Completed
+depends_on: [SPEC-091, SPEC-090, SPEC-070, SPEC-032]
+arc: table-share
+arc_order: 5
+---
 
-**ID:** SPEC-092
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-091 (copied data + per-recipient item), SPEC-090 (cloned definition), SPEC-070 (Athena-DDL + LF-admin precedent), SPEC-032 (workgroup + LF)
-
+**Dependency notes:** SPEC-091 (copied data + per-recipient item), SPEC-090 (cloned definition), SPEC-070 (Athena-DDL + LF-admin precedent), SPEC-032 (workgroup + LF)
 > **Read `docs/table-share-architecture.md` §6, §7 first.**
 
 > **Superseded 2026-07-21 (PR #252):** the `ParseError` state was REMOVED from every

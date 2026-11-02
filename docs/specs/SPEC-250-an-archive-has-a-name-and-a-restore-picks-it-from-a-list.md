@@ -1,10 +1,13 @@
-# Spec: An Archive Has a Name, and a Restore Picks It From a List
+---
+type: Spec
+id: SPEC-250
+title: "An Archive Has a Name, and a Restore Picks It From a List"
+description: "Lets a user name an archive and pick a restore from a list of the space's archives by name, date and contents instead of pasting an id, and explains in the confirmation where data goes and how restore works."
+spec_status: Completed
+depends_on: [SPEC-168, SPEC-170, SPEC-172, SPEC-246]
+---
 
-**ID:** SPEC-250
-**Status:** Completed
-**Last Updated:** 2026-09-28
-**Depends On:** SPEC-168/170/172 (the archive plane, its restore arm and both dialogs), SPEC-246 (the `archive` kill switch, which still gates both entry points)
-
+**Dependency notes:** SPEC-168/170/172 (the archive plane, its restore arm and both dialogs), SPEC-246 (the `archive` kill switch, which still gates both entry points)
 ## Overview
 
 Outside reviewers asked us to make archive and restore easier to follow: where archived data goes,
@@ -22,7 +25,7 @@ archive the list cannot show — one whose receipt failed to write, whose failur
 the user to keep its id.
 
 Nothing about how an archive is stored, restored or deleted changes. The restore guard, the commit
-gate and every other fence in `docs/decisions/archive-and-restore.md` stand as they are. What
+gate and every other fence in `docs/decisions/archive-and-restore/` stand as they are. What
 changes is what the user is told, one optional field on the archive request (and a selection cap
 2 KiB lower to make room for it), one line on the receipt, and a per-space index that exists to
 label the list.
@@ -431,7 +434,7 @@ switching back. Submitting in id mode sends the typed id, and the list selection
   - `lambdas/info/planes/archive.md` gains the index in *The key layout* and a line in the layer
     table. Its fence bullet about the archive coming "from a pasted id" is marked in place: the id
     is now picked from a list or pasted, and the server treats it the same.
-  - `docs/decisions/archive-and-restore.md` gains one entry: the receipt folder is the authority,
+  - `docs/decisions/archive-and-restore/` gains one entry: the receipt folder is the authority,
     the index is a label that may be lost, the name rule, and why a `requested` row stays
     selectable.
   - The 90-day entry's claim that the dialog shows the charge becomes true again.

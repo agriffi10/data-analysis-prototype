@@ -152,4 +152,4 @@ around SQS redelivery.
 
 The Lambda side — the verbs, the shared-code split, and each plane's own fences — is
 [`lambdas/info/INDEX.md`](../../lambdas/info/INDEX.md) and its `planes/` pages. The long-form
-reasoning is `docs/architecture.md` → *The control planes* and [`docs/decisions/control-planes.md`](../../docs/decisions/control-planes.md).
+reasoning is `docs/architecture.md` → *The control planes* and [`docs/decisions/control-planes/`](../../docs/decisions/control-planes/).

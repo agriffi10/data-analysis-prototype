@@ -1,10 +1,15 @@
-# Spec: File Converter — Foundation Infrastructure + Layers + Athena Workgroup
+---
+type: Spec
+id: SPEC-115
+title: "File Converter — Foundation Infrastructure + Layers + Athena Workgroup"
+description: "Would have delivered the file-converter control plane skeleton for converting files to Parquet through Athena UNLOAD, with queue, Pipe, Step Function, layers and workgroup, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-107, SPEC-032, SPEC-088, SPEC-066]
+arc: file-converter
+arc_order: 1
+---
 
-**ID:** SPEC-115
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon` layer + the combined layer-size guard), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent), SPEC-066 (the polars-layer packaging approach)
-
+**Dependency notes:** SPEC-107 (`cpcommon` layer + the combined layer-size guard), SPEC-032 (Athena/Glue/Lake Formation foundation), SPEC-088 (the mirrored control-plane precedent), SPEC-066 (the polars-layer packaging approach)
 > **Read `docs/file-converter-architecture.md` §0 and §2 first.** This spec builds the plumbing for the file-converter arc (SPEC-115→121); it is deliberately behavior-free.
 
 ## Overview

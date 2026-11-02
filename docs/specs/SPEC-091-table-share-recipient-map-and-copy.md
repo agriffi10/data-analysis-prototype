@@ -1,10 +1,15 @@
-# Spec: Table Share — Recipient Map + Copy (check-target-absent + copy-objects)
+---
+type: Spec
+id: SPEC-091
+title: "Table Share — Recipient Map + Copy (check-target-absent + copy-objects)"
+description: "Adds the table-share recipient Map that, per recipient, checks the target name and prefix are free then copies the data server-side, so one recipient's failure never aborts the others."
+spec_status: Completed
+depends_on: [SPEC-090, SPEC-089]
+arc: table-share
+arc_order: 4
+---
 
-**ID:** SPEC-091
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-090 (copy plan + cloned definition), SPEC-089 (validated recipients)
-
+**Dependency notes:** SPEC-090 (copy plan + cloned definition), SPEC-089 (validated recipients)
 > **Read `docs/table-share-architecture.md` §5, §9 first.**
 
 ## Overview

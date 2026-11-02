@@ -115,7 +115,7 @@ The SHA-256 hex digest of the canonical target location, so two checks of the **
 **started** in order while different locations start independently. They are not serialized — the
 Pipe starts the machine `FIRE_AND_FORGET`, so two same-location checks run at once — and nothing
 needs them to be: every per-run key is derived from the request id, and the runs index is written
-under ETag CAS (`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*).
+under ETag CAS (`docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*).
 **The digest rather than the raw location is
 deliberate: SQS caps `MessageGroupId` at 128 characters and S3 keys reach 1024**, so a raw location
 would be rejected outright. The other producers get away with raw ids only because they group by a
@@ -159,6 +159,6 @@ so a bucket-wide list would hand it every shared space's name and then every ros
 name is the only thing gating that read.
 
 Why a conditioned grant is sufficient, why the IAM simulate suggests otherwise, and the production
-evidence settling it: `docs/decisions/infrastructure.md` → *A role that cannot list a bucket cannot
+evidence settling it: `docs/decisions/infrastructure/` → *A role that cannot list a bucket cannot
 be told an object is absent*. `lambdas/test_absence_is_answerable.py` holds every registry-reading
 directory to this, and fails closed on one it cannot map to a role.

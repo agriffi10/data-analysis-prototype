@@ -1,10 +1,15 @@
-# Spec: Archive & Restore — File-Browser UI, the Receipt Surface & Notifications
+---
+type: Spec
+id: SPEC-172
+title: "Archive & Restore — File-Browser UI, the Receipt Surface & Notifications"
+description: "Adds the file-browser UI for archive and restore: an Archive action with a deletion-warning dialog, Restore Archived Data, a read-only archive/ folder, and notifications for every outcome."
+spec_status: Completed
+depends_on: [SPEC-168, SPEC-169, SPEC-170, SPEC-171, SPEC-155, SPEC-058, SPEC-059, SPEC-060, SPEC-061, SPEC-074, SPEC-095, SPEC-099]
+arc: archival
+arc_order: 5
+---
 
-**ID:** SPEC-172
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-168 → SPEC-171 (the plane), SPEC-155 (`FormDialog`, the Escape registry), SPEC-058→061 (notifications), SPEC-074 (Help & guides), SPEC-095/099 (responsive)
-
+**Dependency notes:** SPEC-168 → SPEC-171 (the plane), SPEC-155 (`FormDialog`, the Escape registry), SPEC-058→061 (notifications), SPEC-074 (Help & guides), SPEC-095/099 (responsive)
 ## Overview
 
 Four specs of privileged machinery and no way to reach it. This spec puts **Archive** on the
@@ -55,7 +60,7 @@ folder** on the current prefix at all, so a user who navigates into `archive/` a
   > **Superseded by SPEC-246 (2026-09-26).** Archive and restore gained their own key, `archive`, a
   > kill switch: the only other way to withdraw the one irreversible gesture was `files: false`, which
   > removes the whole file browser. The `files` rows this spec registered stay, beside the new ones.
-  > Full entry: `docs/decisions/browser.md` → *Archive and restore get their own kill switch*.
+  > Full entry: `docs/decisions/browser/` → *Archive and restore get their own kill switch*.
 
 ---
 

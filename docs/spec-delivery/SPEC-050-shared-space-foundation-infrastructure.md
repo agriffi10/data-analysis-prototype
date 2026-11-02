@@ -13,7 +13,7 @@ Plumbing for the shared-connections arc — **no access model, no action semanti
 - **Deploy-role IAM** — shared-space grants (SQS/Pipes/Step Functions/Lambda/roles+`PassRole`/logs, scoped to `{project}-*-shared-space-*`) shipped as a **customer-managed policy** `dat-deploy-shared-spaces` (not inline), plus deploy-role self-management of its own managed policies.
 - Root wiring + outputs; smoke test `docs/testing/e2e.md` (**executed green**).
 
-Deviations (all in the spec's "Implementation Decisions" section): FIFO+single-MessageGroupId for serial intake (user requirement; dup-name correctness is SPEC-051's conditional `PutObject`) **— superseded 2026-09-15: that intake orders the starts only, and the runs overlap (`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*) —**; one orchestrator role (per FR-003); FR-002 via prefix-scoped expiry (S3 can't exclude a prefix); deploy grants as a **managed** policy (the 10,240-char inline limit is a per-role *aggregate*).
+Deviations (all in the spec's "Implementation Decisions" section): FIFO+single-MessageGroupId for serial intake (user requirement; dup-name correctness is SPEC-051's conditional `PutObject`) **— superseded 2026-09-15: that intake orders the starts only, and the runs overlap (`docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*) —**; one orchestrator role (per FR-003); FR-002 via prefix-scoped expiry (S3 can't exclude a prefix); deploy grants as a **managed** policy (the 10,240-char inline limit is a per-role *aggregate*).
 
 ## What changed from earlier specs?
 

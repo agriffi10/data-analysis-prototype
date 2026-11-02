@@ -1,10 +1,15 @@
-# Spec: Refresh Table — In-Place Rebuild via `glue:UpdateTable`
+---
+type: Spec
+id: SPEC-149
+title: "Refresh Table — In-Place Rebuild via `glue:UpdateTable`"
+description: "Changes Refresh Table to replace the definition in place with glue:UpdateTable instead of drop-and-recreate, so the table never disappears and keeps its description, owner and Lake Formation grants."
+spec_status: Completed
+depends_on: [SPEC-143, SPEC-144, SPEC-070, SPEC-107]
+arc: refresh-table
+arc_order: 3
+---
 
-**ID:** SPEC-149
-**Status:** Completed
-**Last Updated:** 2026-08-04
-**Depends On:** SPEC-143 (the refresh branch, `load-table-definition`, the reconstructed partition keys), SPEC-144 (`diff-schema`, `apply-refresh`, the removal opt-in and the message layer this spec edits), SPEC-070 (`execute-ddl`, whose Athena DDL path this spec deliberately does **not** follow), SPEC-107 (`cpcommon`)
-
+**Dependency notes:** SPEC-143 (the refresh branch, `load-table-definition`, the reconstructed partition keys), SPEC-144 (`diff-schema`, `apply-refresh`, the removal opt-in and the message layer this spec edits), SPEC-070 (`execute-ddl`, whose Athena DDL path this spec deliberately does **not** follow), SPEC-107 (`cpcommon`)
 > **Reference:** `docs/architecture.md` → *Control Planes → Table Builder*; `docs/decisions/` → *Removing a column requires an explicit opt-in*. Sequenced **between SPEC-144 and SPEC-145**, and that ordering is the point — see the Overview.
 >
 > **This spec changes ONE verb's mechanism and deletes more than it adds.** `apply-refresh` stops issuing DDL through Athena and calls `glue:UpdateTable` instead. The diff, the opt-in, the eligibility checks, the notifications and the state machine's shape are all unchanged.

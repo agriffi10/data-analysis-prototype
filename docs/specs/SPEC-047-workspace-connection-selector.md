@@ -1,10 +1,15 @@
-# Spec: Workspace Database Switcher (Schema-Rail Connection List)
+---
+type: Spec
+id: SPEC-047
+title: "Workspace Database Switcher (Schema-Rail Connection List)"
+description: "Turns the schema browser's database area into a list of accessible databases whose selection sets a workspace-global active database, retargeting every query tab and the schema, with a read-only chip in the toolbar."
+spec_status: Completed
+depends_on: [SPEC-035, SPEC-041, SPEC-034, SPEC-033]
+arc: query-editor-round-3
+arc_order: 2
+---
 
-**ID:** SPEC-047
-**Status:** Completed
-**Last Updated:** 2026-06-22
-**Depends On:** SPEC-035 (query workspace + schema browser), SPEC-041 (query tabs), SPEC-034 (Glue services + `useSchema`), SPEC-033 (per-user Glue DB = username)
-
+**Dependency notes:** SPEC-035 (query workspace + schema browser), SPEC-041 (query tabs), SPEC-034 (Glue services + `useSchema`), SPEC-033 (per-user Glue DB = username)
 > **Design:** Needs a design pass. The schema browser's **Database** section becomes a **switchable list** of the
 > databases the user can query (personal + — later — shared); selecting one is how you change the workspace's
 > target database. The editor toolbar's `db-chip` (`design-system.md` §6) becomes a **read-only indicator** of the

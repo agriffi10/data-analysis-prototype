@@ -1,9 +1,11 @@
-# Spec: Bound Excel by Cells, Because the Converter's Memory Binds per Cell and Not per Byte
-
-**ID:** SPEC-230
-**Status:** Completed
-**Last Updated:** 2026-09-10
-**Depends On:** SPEC-222
+---
+type: Spec
+id: SPEC-230
+title: "Bound Excel by Cells, Because the Converter's Memory Binds per Cell and Not per Byte"
+description: "Bounds Excel result saves by cell count rather than bytes, refusing an over-limit export within seconds with a message naming rows, cells and the limit instead of timing out after ten minutes, for users."
+spec_status: Completed
+depends_on: [SPEC-222]
+---
 
 ## Overview
 
@@ -460,7 +462,7 @@ infra/modules/results-conversion/{locals.tf,state-machine.asl.json.tftpl}   (com
 apps/portal/src/features/help/helpContent.ts
 scripts/measure_excel_peak.py, pyproject.toml (mypy files)
 docs/testing/{e2e,owed}.md, docs/testing/fixtures/results-conversion-plane.sh
-docs/decisions/control-planes.md, lambdas/info/planes/results-conversion.md
+docs/decisions/control-planes/, lambdas/info/planes/results-conversion.md
 ```
 
 ## Implementation Phases

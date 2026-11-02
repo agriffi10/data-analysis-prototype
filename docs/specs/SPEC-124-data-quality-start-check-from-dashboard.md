@@ -1,10 +1,15 @@
-# Spec: Data Quality — Start a Check from the Dashboard (the target picker)
+---
+type: Spec
+id: SPEC-124
+title: "Data Quality — Start a Check from the Dashboard (the target picker)"
+description: "Lets users start a data-quality check from the dashboard's New quality check modal by picking a space and browsing to a folder or file, sharing one hook and request envelope with the Files entry point."
+spec_status: Completed
+depends_on: [SPEC-123, SPEC-113, SPEC-109, SPEC-039, SPEC-055, SPEC-057, SPEC-052, SPEC-095, SPEC-045, SPEC-106, SPEC-074]
+arc: data-quality
+arc_order: 9
+---
 
-**ID:** SPEC-124
-**Status:** Completed
-**Last Updated:** 2026-07-14
-**Depends On:** SPEC-123 (the `/data-quality` page this action lives on), SPEC-113 (`useDataQualityCheck` — the enqueue path, the reassurance copy, the hidden reports folder), SPEC-109 (the request envelope + `enqueueQualityCheck`), SPEC-039 (`DestinationPicker`), SPEC-055 (the space-selector-over-picker precedent in `SaveResultsDialog`), SPEC-057 (`usableSpaceTargets` — the space→bucket/rootPrefix derivation this reuses), SPEC-052 (`useConnections`), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
-
+**Dependency notes:** SPEC-123 (the `/data-quality` page this action lives on), SPEC-113 (`useDataQualityCheck` — the enqueue path, the reassurance copy, the hidden reports folder), SPEC-109 (the request envelope + `enqueueQualityCheck`), SPEC-039 (`DestinationPicker`), SPEC-055 (the space-selector-over-picker precedent in `SaveResultsDialog`), SPEC-057 (`usableSpaceTargets` — the space→bucket/rootPrefix derivation this reuses), SPEC-052 (`useConnections`), SPEC-095 (responsive), SPEC-045 (a11y), SPEC-106 (error messaging), SPEC-074 (help)
 > **Hard sequencing: 109 → 113 → 123 → 124.** None of the arc is built yet — every spec it depends on is `Draft`, there is no `features/data-quality/`, no `useDataQualityCheck`, no `/data-quality` route. This spec is written against those specs' **contracts**, not against shipped code, and cannot start before they ship.
 >
 > Browser-side only: **no new IAM, no new AWS call, no new Lambda change, no new env var.** The picker lists with the same `ListObjectsV2` the file browser already makes under the user's own role (`fileBrowser.service.ts`), and `SaveResultsDialog` already drives that picker against **both** the user-space and shared-space buckets. It does newly cause the `/data-quality` page to read `VITE_S3_USER_SPACE_BUCKET` and `VITE_S3_SHARED_SPACE_BUCKET` — existing vars, new reader (FR-002).

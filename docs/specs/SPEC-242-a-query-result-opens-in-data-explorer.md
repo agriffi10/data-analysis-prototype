@@ -1,9 +1,13 @@
-# Spec: A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each
-
-**ID:** SPEC-242
-**Status:** Completed
-**Last Updated:** 2026-09-21
-**Depends On:** SPEC-078, SPEC-178, SPEC-179, SPEC-183, SPEC-238
+---
+type: Spec
+id: SPEC-242
+title: "A Query Result Opens in Data Explorer, and a Selection of Statements Gets a Tab Each"
+description: "Gives a multi-statement selection in Query one result tab per statement and adds Explore in Data Explorer to a query result, opening a Data Explorer tab whose source is the statement, for users."
+spec_status: Completed
+depends_on: [SPEC-078, SPEC-178, SPEC-179, SPEC-183, SPEC-238]
+arc: tester-feedback
+arc_order: 5
+---
 
 ## Overview
 

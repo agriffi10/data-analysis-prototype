@@ -1,10 +1,15 @@
-# Spec: Delete Files and Folders (single + multi-select, recursive)
+---
+type: Spec
+id: SPEC-018
+title: "Delete Files and Folders (single + multi-select, recursive)"
+description: "Lets users delete files and folders, singly or by multi-select, with confirmation and recursive folder removal in batches of up to 1,000 keys, while the DO_NOT_DELETE marker stays protected."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-014, SPEC-015]
+arc: file-operations
+arc_order: 4
+---
 
-**ID:** SPEC-018
-**Status:** Completed
-**Last Updated:** 2026-06-16
-**Depends On:** SPEC-013 (`s3:DeleteObject` + marker IAM deny), SPEC-014 (service-layer marker guard), SPEC-015 (data foundation)
-
+**Dependency notes:** SPEC-013 (`s3:DeleteObject` + marker IAM deny), SPEC-014 (service-layer marker guard), SPEC-015 (data foundation)
 ## Overview
 
 Let users delete their files and folders. Deletion is destructive and there is

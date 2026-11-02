@@ -1,10 +1,15 @@
-# Spec: File Download + File-Operations Data Foundation
+---
+type: Spec
+id: SPEC-015
+title: "File Download + File-Operations Data Foundation"
+description: "Adds file download through short-lived presigned S3 URLs, plus the shared data foundation for file operations: TanStack Query caching and invalidation and pagination for folders with over 1,000 objects."
+spec_status: Completed
+depends_on: [SPEC-011, SPEC-013, SPEC-014]
+arc: file-operations
+arc_order: 1
+---
 
-**ID:** SPEC-015
-**Status:** Completed
-**Last Updated:** 2026-06-15
-**Depends On:** SPEC-011 (`getS3Client()`), SPEC-013 (browser on authenticated user-space bucket), SPEC-014 (marker filtering)
-
+**Dependency notes:** SPEC-011 (`getS3Client()`), SPEC-013 (browser on authenticated user-space bucket), SPEC-014 (marker filtering)
 ## Overview
 
 This is the first spec of the file-operations arc (SPEC-015→020) that turns the

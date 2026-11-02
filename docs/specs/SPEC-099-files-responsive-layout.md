@@ -1,9 +1,13 @@
-# Spec: Files — Responsive Layout
-
-**ID:** SPEC-099
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** SPEC-095, SPEC-096, SPEC-097, SPEC-098
+---
+type: Spec
+id: SPEC-099
+title: "Files — Responsive Layout"
+description: "Makes the Files page usable on a phone by reflowing it across three breakpoints, with a data table on desktop and tablet, a two-line card list on mobile, an off-canvas Spaces rail and a bottom action bar."
+spec_status: Completed
+depends_on: [SPEC-095, SPEC-096, SPEC-097, SPEC-098]
+arc: responsive-and-files-ux
+arc_order: 5
+---
 
 ## Overview
 

@@ -1,10 +1,15 @@
-# Spec: File Converter — `finalize` + Terminal States
+---
+type: Spec
+id: SPEC-119
+title: "File Converter — `finalize` + Terminal States"
+description: "Would have delivered file-converter finalize, verifying completeness against the UNLOAD manifest and flagging text-fallback columns, with terminal states, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-107, SPEC-115, SPEC-116, SPEC-117, SPEC-118]
+arc: file-converter
+arc_order: 5
+---
 
-**ID:** SPEC-119
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (authorization), SPEC-117 (the target schema), SPEC-118 (the `UNLOAD` path — `finalize` verifies its output)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-115 (foundation), SPEC-116 (authorization), SPEC-117 (the target schema), SPEC-118 (the `UNLOAD` path — `finalize` verifies its output)
 > **Read `docs/file-converter-architecture.md` §5.3 first.**
 > **Scope note:** this spec was originally "The Excel Path (`convert-excel`) + `finalize`". The Excel path was **removed from scope entirely by user decision 2026-07-13** — `.xlsx` is a terminal `unsupported_format` at inspection (SPEC-117 FR-001) — leaving `finalize` and the terminal states.
 

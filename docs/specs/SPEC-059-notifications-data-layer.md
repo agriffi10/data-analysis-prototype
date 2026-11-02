@@ -1,10 +1,15 @@
-# Spec: Notifications Data Layer (Read Service + Hook)
+---
+type: Spec
+id: SPEC-059
+title: "Notifications Data Layer (Read Service + Hook)"
+description: "Gives developers a typed notifications data layer: a read service and hook that load a user's notifications.json, derive the unread flag, enqueue mark-read changes optimistically, and poll every 60 seconds."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-034, SPEC-015]
+arc: notifications
+arc_order: 2
+---
 
-**ID:** SPEC-059
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-058 (notifications write pipeline + queue + contract), SPEC-034 (S3 client + `withCredentialRetry` + per-user `user_settings` JSON precedent), SPEC-015 (TanStack Query foundation)
-
+**Dependency notes:** SPEC-058 (notifications write pipeline + queue + contract), SPEC-034 (S3 client + `withCredentialRetry` + per-user `user_settings` JSON precedent), SPEC-015 (TanStack Query foundation)
 > **Second of the notifications arc (058 → 059 → 060 → 061).** This spec is the **browser data layer**: a
 > read-only `notifications.service.ts` that **reads** `{username}/user_settings/notifications.json`, the
 > **enqueue helpers** that `SendMessage` to the SPEC-058 queue for the two user-actions

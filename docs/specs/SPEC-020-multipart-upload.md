@@ -1,10 +1,15 @@
-# Spec: Upload Queue — multi-file, concurrency, cancel
+---
+type: Spec
+id: SPEC-020
+title: "Upload Queue — multi-file, concurrency, cancel"
+description: "Turns uploading into a multi-file queue for users, with bounded concurrency, per-file progress, and cancelling of in-flight uploads, built purely as client-side state and UI over the existing upload service."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-015, SPEC-016]
+arc: file-operations
+arc_order: 6
+---
 
-**ID:** SPEC-020
-**Status:** Completed
-**Last Updated:** 2026-06-17
-**Depends On:** SPEC-013 (portal role + bucket), SPEC-015 (data foundation), SPEC-016 (`uploadFile` — managed/auto-multipart upload with `onProgress` + `signal`)
-
+**Dependency notes:** SPEC-013 (portal role + bucket), SPEC-015 (data foundation), SPEC-016 (`uploadFile` — managed/auto-multipart upload with `onProgress` + `signal`)
 ## Overview
 
 SPEC-016 made a **single** upload a complete, correct operation: managed by

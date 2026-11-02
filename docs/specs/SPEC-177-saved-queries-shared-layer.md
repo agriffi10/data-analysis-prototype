@@ -1,9 +1,13 @@
-# Spec: Extracting `features/saved-queries/` — the Shared `.sql` Store
-
-**ID:** SPEC-177
-**Status:** Completed
-**Last Updated:** 2026-08-13
-**Depends On:** SPEC-176
+---
+type: Spec
+id: SPEC-177
+title: "Extracting `features/saved-queries/` — the Shared `.sql` Store"
+description: "Moves the saved-queries store (folder, space memory, pager, save flow) into a shared features/saved-queries/ and generalizes useSaveQuery to take {sql, link}, with no user-visible change."
+spec_status: Completed
+depends_on: [SPEC-176]
+arc: data-explorer
+arc_order: 2
+---
 
 ## Overview
 

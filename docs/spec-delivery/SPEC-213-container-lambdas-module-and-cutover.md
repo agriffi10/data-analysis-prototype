@@ -62,7 +62,7 @@ nowhere; this spec put every function on it and made CI keep them there.
   (which the image removed, so the doc asserted a safety property that no longer holds),
   `lambdas/info/INDEX.md`, four module READMEs, `analytics.md`, `docs/process/`, `ecr.tf` and
   `lambdas/info/deployment.md`. `architecture.md`'s ADR rows 31 and 47, and
-  `docs/decisions/identity-and-access.md`'s layer sentence, carry superseded markers.
+  `docs/decisions/identity-and-access/`'s layer sentence, carry superseded markers.
 - **The infra rollback was documented and is now documented as not viable.** Reverting recreates 86
   functions from placeholder zips that no pipeline can replace — the code rollback is the one that
   exists, and it is the one that was exercised.

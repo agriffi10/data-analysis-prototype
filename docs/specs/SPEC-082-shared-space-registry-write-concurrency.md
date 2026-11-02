@@ -1,10 +1,15 @@
-# Spec: Shared-Space Registry Write Concurrency (optimistic CAS)
+---
+type: Spec
+id: SPEC-082
+title: "Shared-Space Registry Write Concurrency (optimistic CAS)"
+description: "Makes the shared-space registry writers use optimistic compare-and-swap on the object ETag, so concurrent verbs such as add and remove members no longer lose updates or regress a deleting status."
+spec_status: Completed
+depends_on: [SPEC-056, SPEC-062]
+arc: best-practice-audit-follow-ups
+arc_order: 1
+---
 
-**ID:** SPEC-082
-**Status:** Completed
-**Last Updated:** 2026-07-02
-**Depends On:** SPEC-056, SPEC-062 (shared-space control plane + verb Lambdas)
-
+**Dependency notes:** SPEC-056, SPEC-062 (shared-space control plane + verb Lambdas)
 ## Overview
 
 The shared-space **registry** (`{admin}/shared-spaces/<name>.json`) is the declared source of

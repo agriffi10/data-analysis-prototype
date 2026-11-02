@@ -1,10 +1,13 @@
-# Spec: S3 File Listing
+---
+type: Spec
+id: SPEC-001
+title: "S3 File Listing"
+description: "Delivers the core S3 file listing for developers: an S3 client using static environment credentials that lists bucket objects and renders them in a file browser component, with auth out of scope."
+spec_status: Completed
+depends_on: []
+---
 
-**ID:** SPEC-001  
-**Status:** Completed  
-**Last Updated:** 2026-05-21  
-**Depends On:** None (no auth in this phase)
-
+**Dependency notes:** None (no auth in this phase)
 ---
 
 ## Overview

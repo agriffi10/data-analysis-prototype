@@ -1,10 +1,15 @@
-# Spec: Feature Flags — Gating Nav, Routes & Cross-Feature Entry Points
+---
+type: Spec
+id: SPEC-163
+title: "Feature Flags — Gating Nav, Routes & Cross-Feature Entry Points"
+description: "Makes a disabled feature flag remove every way into that feature (its tab, route and cross-feature buttons and links), using a registry of gated surfaces and a test that walks it."
+spec_status: Completed
+depends_on: [SPEC-162, SPEC-074, SPEC-045, SPEC-155]
+arc: feature-flags
+arc_order: 2
+---
 
-**ID:** SPEC-163
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-162 (the resolved flag set), SPEC-074 (Help & guides content), SPEC-045 (axe assertions), SPEC-155 (`components/` may not import `features/`)
-
+**Dependency notes:** SPEC-162 (the resolved flag set), SPEC-074 (Help & guides content), SPEC-045 (axe assertions), SPEC-155 (`components/` may not import `features/`)
 ## Overview
 
 SPEC-162 resolves four booleans that nothing reads. This spec makes them do their job: when a

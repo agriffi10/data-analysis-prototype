@@ -1,10 +1,15 @@
-# Spec: Notifications UI (Header Bell Link + Notifications Page)
+---
+type: Spec
+id: SPEC-060
+title: "Notifications UI (Header Bell Link + Notifications Page)"
+description: "Adds a header bell link with an unread indicator and a Notifications page listing the user's notifications newest first, 10 per page, where users can mark one or all as read."
+spec_status: Completed
+depends_on: [SPEC-059, SPEC-008, SPEC-028, SPEC-038, SPEC-042, SPEC-044, SPEC-049, SPEC-031]
+arc: notifications
+arc_order: 3
+---
 
-**ID:** SPEC-060
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-059 (notifications data layer: `useNotifications`), SPEC-008 (auth-gated layout + react-router routes), SPEC-028 (`IconButton`/`Badge`), SPEC-038/042 (`Pager` + client-side pagination pattern), SPEC-044/049 (`Toast`), SPEC-031 (document title management)
-
+**Dependency notes:** SPEC-059 (notifications data layer: `useNotifications`), SPEC-008 (auth-gated layout + react-router routes), SPEC-028 (`IconButton`/`Badge`), SPEC-038/042 (`Pager` + client-side pagination pattern), SPEC-044/049 (`Toast`), SPEC-031 (document title management)
 > **Third of the notifications arc (058 → 059 → 060 → 061).** This spec is **UI only** — it makes the
 > header notifications **bell a link** (left of the username, with an **unread indicator**) to a brand-new
 > **`/notifications` page** inside the authenticated dashboard. The page lists notifications newest-first

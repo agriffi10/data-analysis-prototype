@@ -1,10 +1,15 @@
-# Spec: Table Builder — Name Uniqueness + Source Inspection & Format Validation
+---
+type: Spec
+id: SPEC-068
+title: "Table Builder — Name Uniqueness + Source Inspection & Format Validation"
+description: "Makes the table-builder pipeline fail clearly on name collisions and unusable sources, checking the table name is free and the folder holds one supported format matching the declared partition keys."
+spec_status: Completed
+depends_on: [SPEC-066, SPEC-067, SPEC-034]
+arc: table-builder
+arc_order: 3
+---
 
-**ID:** SPEC-068
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-066 (control plane + Lambda stubs/roles), SPEC-067 (validated request payload + the validate→check handoff shape), SPEC-034 (Glue services / catalog model)
-
+**Dependency notes:** SPEC-066 (control plane + Lambda stubs/roles), SPEC-067 (validated request payload + the validate→check handoff shape), SPEC-034 (Glue services / catalog model)
 > **Reference:** `docs/table-builder-architecture.md` §4. Third of the arc. Implements the two **gathering /
 > validation** Lambdas that run after `validate-authorize`: **`check-table-absent`** (the requested table must not
 > already exist in the target DB) and **`inspect-source`** (is it a single supported, consistent format; do the

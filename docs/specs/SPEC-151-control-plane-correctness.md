@@ -1,10 +1,15 @@
-# Spec: Control-Plane Correctness — Single-File Checks, Teardown Integrity & DDL Escaping
+---
+type: Spec
+id: SPEC-151
+title: "Control-Plane Correctness — Single-File Checks, Teardown Integrity & DDL Escaping"
+description: "Fixes control-plane guard gaps so single-file data-quality checks stop profiling the whole parent folder, plus shared-space teardown errors, a stale-roster CAS, a missing 409 predicate and unescaped DDL partition values."
+spec_status: Completed
+depends_on: [SPEC-110, SPEC-112, SPEC-054, SPEC-125, SPEC-107, SPEC-070]
+arc: audit-remediation
+arc_order: 2
+---
 
-**ID:** SPEC-151
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-110 (`dq_inspect_source` and the manifest this spec re-scopes), SPEC-112 (the data-quality report shape whose internal consistency FR-001 restores), SPEC-054 (the shared-space teardown acceptance criterion FR-003 finally meets), SPEC-125 (`shared-space-common`, `casio`), SPEC-107 (`cpcommon`), SPEC-070 (`cpcommon.ddl` and the create path FR-006 escapes)
-
+**Dependency notes:** SPEC-110 (`dq_inspect_source` and the manifest this spec re-scopes), SPEC-112 (the data-quality report shape whose internal consistency FR-001 restores), SPEC-054 (the shared-space teardown acceptance criterion FR-003 finally meets), SPEC-125 (`shared-space-common`, `casio`), SPEC-107 (`cpcommon`), SPEC-070 (`cpcommon.ddl` and the create path FR-006 escapes)
 > **Reference:** from the 2026-08-05 codebase audit. Six correctness defects in the Python control planes, none of which needs new infrastructure, a new Lambda, a new IAM action or a new env var. **If a task here starts editing `infra/` beyond nothing, it has gone wrong** — the one finding that does need new states and a new verb is SPEC-152, deliberately split out because CLAUDE.md's infra rule gives it a different risk profile.
 >
 > **Two of these are data-integrity defects, not cosmetics.** FR-001/FR-002 can hand a user a report that says `verdict: "clean"` about data it never read. FR-003 can free a shared-space name while another tenant's objects are still under it. Everything else is a smaller correctness gap.

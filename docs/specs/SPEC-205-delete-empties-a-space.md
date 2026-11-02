@@ -1,10 +1,15 @@
-# Spec: A Delete Empties a Space and Destroys Nothing
+---
+type: Spec
+id: SPEC-205
+title: "A Delete Empties a Space and Destroys Nothing"
+description: "Makes deleting a shared space remove every member's access, owner included, while keeping its objects, Glue database and active registry record, so an administrator can recover a space deleted by mistake."
+spec_status: Completed
+depends_on: [SPEC-051, SPEC-052, SPEC-053, SPEC-054, SPEC-055, SPEC-073, SPEC-075, SPEC-125, SPEC-151, SPEC-157, SPEC-113, SPEC-106, SPEC-074, SPEC-155, SPEC-127, SPEC-128, SPEC-129, SPEC-130, SPEC-131, SPEC-132, SPEC-133, SPEC-134, SPEC-135, SPEC-136, SPEC-137, SPEC-186]
+arc: transition-identity
+arc_order: 2
+---
 
-**ID:** SPEC-205
-**Status:** Completed
-**Last Updated:** 2026-08-31
-**Depends On:** SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs, and the criterion that the registry record is the name lock), SPEC-073 (acknowledge is display-only), SPEC-075 (the roster fan-out), SPEC-125 (`shared-space-common`), SPEC-151 (a partial teardown never frees the name — retained in full on the one route that still destroys), SPEC-157 (FIFO orders delivery, not executions — FR-008), SPEC-113 (no existence oracle), SPEC-106 (`toUserMessage`), SPEC-074 (Help content), SPEC-155 (`ConfirmDialog`, and its `irreversible` line), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
-
+**Dependency notes:** SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs, and the criterion that the registry record is the name lock), SPEC-073 (acknowledge is display-only), SPEC-075 (the roster fan-out), SPEC-125 (`shared-space-common`), SPEC-151 (a partial teardown never frees the name — retained in full on the one route that still destroys), SPEC-157 (FIFO orders delivery, not executions — FR-008), SPEC-113 (no existence oracle), SPEC-106 (`toUserMessage`), SPEC-074 (Help content), SPEC-155 (`ConfirmDialog`, and its `irreversible` line), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 **Downstream:** **SPEC-204** is written against these semantics and cannot be built until this ships.
 **SPEC-203**'s index writer is simpler because of them.
 

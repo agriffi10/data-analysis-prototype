@@ -1,10 +1,13 @@
-# Spec: Fold `shared-space-common` onto the `cpcommon` layer
+---
+type: Spec
+id: SPEC-125
+title: "Fold `shared-space-common` onto the `cpcommon` layer"
+description: "Folds the shared-space Lambdas' duplicated clients, config, ID-token verification, notify and error-code helpers onto the cpcommon layer, so a token-verification fix is made in one place."
+spec_status: Completed
+depends_on: [SPEC-107, SPEC-062, SPEC-082]
+---
 
-**ID:** SPEC-125
-**Status:** Completed
-**Last Updated:** 2026-07-18
-**Depends On:** SPEC-107 (`cpcommon` layer), SPEC-062 (shared-space verb decomposition), SPEC-082 (registry CAS)
-
+**Dependency notes:** SPEC-107 (`cpcommon` layer), SPEC-062 (shared-space verb decomposition), SPEC-082 (registry CAS)
 > **Prerequisite refactor, not a feature — ships no user-visible change.** This completes the consolidation SPEC-107 deliberately deferred ("The `shared-space-common` layer… Folding it in is a **follow-up**, not this spec"). SPEC-107 folded `tbcommon`/`tscommon` onto `cpcommon`, and the 2026-07 code-health follow-ups (PRs #234/#235) folded the data-quality verbs' shared bits on too — so `shared-space-common` is now the **last** control-plane layer still carrying its own copy of the JWT-verification / boto-client / notification path.
 >
 > **Do NOT build this while the deploy pipeline (CI) is disabled.** FR-001 attaches the `cpcommon` layer to 8 production Lambdas, and `cpcommon.config` runs an import-time `_require("ATHENA_WORKGROUP")` at cold start (a var those verbs don't set today) — the exact failure mode as prod break PR #196. That is only truly verified by a real deploy. This spec was filed *because* it can't be safely validated with CI off; it waits for CI to come back.

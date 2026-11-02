@@ -1,9 +1,11 @@
-# Spec: App Shell Visual Polish
-
-**ID:** SPEC-023  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** SPEC-021
+---
+type: Spec
+id: SPEC-023
+title: "App Shell Visual Polish"
+description: "Restyles the app shell with the design system's 56px topbar showing a brand mark, username, initials avatar, and sign-out or sign-in buttons, and updates the root background and loading state."
+spec_status: Completed
+depends_on: [SPEC-021]
+---
 
 ## Overview
 

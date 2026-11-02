@@ -1,10 +1,15 @@
-# Spec: The Membership Index — Where the Tags Come From Without a Claim
+---
+type: Spec
+id: SPEC-203
+title: "The Membership Index — Where the Tags Come From Without a Claim"
+description: "Builds a per-user membership index in the admin bucket, written by the existing roster fan-out, so the API can say which shared spaces a caller belongs to without Cognito claims, proved against those claims."
+spec_status: Completed
+depends_on: [SPEC-196, SPEC-195, SPEC-197, SPEC-198, SPEC-199, SPEC-011, SPEC-051, SPEC-053, SPEC-056, SPEC-073, SPEC-075, SPEC-113, SPEC-123, SPEC-146, SPEC-151, SPEC-106, SPEC-127, SPEC-128, SPEC-129, SPEC-130, SPEC-131, SPEC-132, SPEC-133, SPEC-134, SPEC-135, SPEC-136, SPEC-137, SPEC-186]
+arc: transition-identity
+arc_order: 1
+---
 
-**ID:** SPEC-203
-**Status:** Completed
-**Last Updated:** 2026-08-18
-**Depends On:** SPEC-196 (the AWS identity layer — the tag set, the per-container credential cache keyed on the whole tag set, and the claim-sourced implementation this spec makes one of two), SPEC-195 (the verified bearer and `Principal.username`), SPEC-197 (the transport contract), SPEC-198 (`apicommon/spaces.py` — the route-level membership check this spec must also re-source, FR-004), SPEC-199 (the query route, whose body names no space — the reason FR-002 is an index and not a request scan), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-051/053/056/073/075 (the shared-space registry, the slots, the propagation contract, and `cache.write_roster_to_all` — the fan-out this spec rides), SPEC-113 (no existence oracle), SPEC-123 (an admin-bucket index under ETag CAS — **the precedent this spec follows**), SPEC-146 (a published directory that is advisory and never an authorization input — the rule this spec's index deliberately breaks, and says so), SPEC-151 (a partial teardown never frees the name), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
-
+**Dependency notes:** SPEC-196 (the AWS identity layer — the tag set, the per-container credential cache keyed on the whole tag set, and the claim-sourced implementation this spec makes one of two), SPEC-195 (the verified bearer and `Principal.username`), SPEC-197 (the transport contract), SPEC-198 (`apicommon/spaces.py` — the route-level membership check this spec must also re-source, FR-004), SPEC-199 (the query route, whose body names no space — the reason FR-002 is an index and not a request scan), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-051/053/056/073/075 (the shared-space registry, the slots, the propagation contract, and `cache.write_roster_to_all` — the fan-out this spec rides), SPEC-113 (no existence oracle), SPEC-123 (an admin-bucket index under ETag CAS — **the precedent this spec follows**), SPEC-146 (a published directory that is advisory and never an authorization input — the rule this spec's index deliberately breaks, and says so), SPEC-151 (a partial teardown never frees the name), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 ## Overview
 
 SPEC-196 builds a user's AWS session tags from the claims of their verified ID token: `username` from
@@ -126,7 +131,7 @@ but NOT its position.** A grant is written before the registry commit and only a
 it, because a delete's revocation landing between an add's commit and its index write let the add
 re-create the entry over an emptied space. `create-space` is the one exception, and its own
 docstring says why. See *A group id orders the STARTS, not the runs* in
-`docs/decisions/control-planes.md`.
+`docs/decisions/control-planes/`.
 
 **It does not inherit that fan-out's best-effort posture.** A stale roster is cosmetic — one member
 sees an out-of-date member list. A stale index is an authorization input that is wrong, in the
@@ -148,7 +153,7 @@ grant direction on a removal.
       **Superseded 2026-09-15:** a GRANT is written *before* the commit and only a revocation
       after it. Writing a grant here let a delete's revocation land between an add's commit and
       its index write, and the add then re-created the entry over an emptied space — see *A group
-      id orders the STARTS, not the runs* in `docs/decisions/control-planes.md`.
+      id orders the STARTS, not the runs* in `docs/decisions/control-planes/`.
 - [ ] **An index write failure fails the run**, and is notified through SPEC-152's `NotifyFailure`.
       It is not swallowed the way a roster write is. The AC states the divergence and its reason so
       an implementer reusing the fan-out does not inherit its `except: log and continue`.

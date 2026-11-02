@@ -1,10 +1,15 @@
-# Spec: File Converter — "Create table from the converted files" (chain to Table Builder)
+---
+type: Spec
+id: SPEC-122
+title: "File Converter — \"Create table from the converted files\" (chain to Table Builder)"
+description: "Would have delivered a convert-dialog checkbox chaining a trusted Table Builder request to create a table from the converted files, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-115, SPEC-116, SPEC-117, SPEC-118, SPEC-119, SPEC-120, SPEC-121, SPEC-066, SPEC-067, SPEC-068, SPEC-069, SPEC-070, SPEC-071, SPEC-072, SPEC-058]
+arc: file-converter
+arc_order: 8
+---
 
-**ID:** SPEC-122
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-115→121 (the file-converter arc must work end to end first), SPEC-066→072 (Table Builder — this spec extends its request contract), SPEC-058 (notifications)
-
+**Dependency notes:** SPEC-115→121 (the file-converter arc must work end to end first), SPEC-066→072 (Table Builder — this spec extends its request contract), SPEC-058 (notifications)
 > **Read `docs/file-converter-architecture.md` §8.1 first.** This is an **optional, additive** capability on top of a working converter. It is deliberately the **last** spec in the arc: nothing else depends on it, and it can be dropped without touching anything already built.
 
 ## Overview

@@ -1,10 +1,15 @@
-# Spec: File Metadata Panel
+---
+type: Spec
+id: SPEC-017
+title: "File Metadata Panel"
+description: "Lets users open a read-only side panel showing a file's size, content type, last-modified time, ETag, storage class, and custom metadata, fetched with a single HeadObject call."
+spec_status: Completed
+depends_on: [SPEC-013, SPEC-015]
+arc: file-operations
+arc_order: 3
+---
 
-**ID:** SPEC-017
-**Status:** Completed
-**Last Updated:** 2026-06-11
-**Depends On:** SPEC-013 (read access to own prefix), SPEC-015 (TanStack Query data foundation)
-
+**Dependency notes:** SPEC-013 (read access to own prefix), SPEC-015 (TanStack Query data foundation)
 ## Overview
 
 Let users inspect the details of one of their files without leaving the browser

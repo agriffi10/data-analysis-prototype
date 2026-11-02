@@ -1,10 +1,15 @@
-# Spec: The SPA Container
+---
+type: Spec
+id: SPEC-194
+title: "The SPA Container"
+description: "Packages the SPA as a container image served by nginx behind the load balancer, reproducing each job CloudFront did (fallback routing, cache headers, CSP, health check) or naming the divergence, for operators."
+spec_status: Completed
+depends_on: [SPEC-192, SPEC-193, SPEC-140, SPEC-141, SPEC-186, SPEC-138, SPEC-162]
+arc: api-layer-and-containerisation
+arc_order: 3
+---
 
-**ID:** SPEC-194
-**Status:** Completed
-**Last Updated:** 2026-08-27
-**Depends On:** SPEC-192 (the runtime configuration document — its shape, its accessor and its required/optional classification; this spec renders and serves it, and defines none of it), SPEC-193 (the ECR repository, ECS cluster/service/task definition, target group and ALB listener this image runs inside), SPEC-140 (the response-headers policy and enforcing CSP this container must reproduce, and its verification rules), SPEC-141 (the per-class cache scheme, and the orphan class this spec retires), SPEC-186 (the `BUILD_VERSION` stamping convention — the stamp travels in the artefact, never in the environment), SPEC-138 (the ZAP baseline and `security-baseline.md`, the measuring stick for the header set), SPEC-162 (`VITE_ENVIRONMENT` — the flag document's environment key becomes a runtime value here)
-
+**Dependency notes:** SPEC-192 (the runtime configuration document — its shape, its accessor and its required/optional classification; this spec renders and serves it, and defines none of it), SPEC-193 (the ECR repository, ECS cluster/service/task definition, target group and ALB listener this image runs inside), SPEC-140 (the response-headers policy and enforcing CSP this container must reproduce, and its verification rules), SPEC-141 (the per-class cache scheme, and the orphan class this spec retires), SPEC-186 (the `BUILD_VERSION` stamping convention — the stamp travels in the artefact, never in the environment), SPEC-138 (the ZAP baseline and `security-baseline.md`, the measuring stick for the header set), SPEC-162 (`VITE_ENVIRONMENT` — the flag document's environment key becomes a runtime value here)
 ## Overview
 
 The SPA moves from CloudFront over an S3 origin to a container behind an ALB. Producing the image is

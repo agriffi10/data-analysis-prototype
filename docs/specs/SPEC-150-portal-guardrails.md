@@ -1,10 +1,15 @@
-# Spec: Portal Guardrails — Typecheck Gate, Enqueue Re-entrancy & the Error-Code Contract
+---
+type: Spec
+id: SPEC-150
+title: "Portal Guardrails — Typecheck Gate, Enqueue Re-entrancy & the Error-Code Contract"
+description: "Closes ten portal guard gaps: declared strict typecheck, failing coverage floors, a null-safe error adapter, a chunk-404 error boundary, refresh double-click re-entrancy and unreachable not-configured messages."
+spec_status: Completed
+depends_on: [SPEC-106, SPEC-057, SPEC-145, SPEC-078, SPEC-149]
+arc: audit-remediation
+arc_order: 1
+---
 
-**ID:** SPEC-150
-**Status:** Completed
-**Last Updated:** 2026-08-05
-**Depends On:** SPEC-106 (`lib/errorMessages.ts`, `toUserMessage`, the `ErrorRule` shape and the `passthrough` mechanism this spec extends), SPEC-057 (the `athenaresults/` delete-deny acceptance criterion this spec finally meets), SPEC-145 (`useTableRefresh`, whose re-entrancy guard FR-003 replaces), SPEC-078 (the three run-scope keybindings FR-010 covers), SPEC-149 (the concurrent-refresh race FR-003 narrows from the browser side)
-
+**Dependency notes:** SPEC-106 (`lib/errorMessages.ts`, `toUserMessage`, the `ErrorRule` shape and the `passthrough` mechanism this spec extends), SPEC-057 (the `athenaresults/` delete-deny acceptance criterion this spec finally meets), SPEC-145 (`useTableRefresh`, whose re-entrancy guard FR-003 replaces), SPEC-078 (the three run-scope keybindings FR-010 covers), SPEC-149 (the concurrent-refresh race FR-003 narrows from the browser side)
 > **Reference:** this spec comes from a codebase audit (2026-08-05), not from a product need. Its unifying theme is **guards that exist in principle but do not hold in practice** — a strict-mode guarantee the project asserts but never declares, an error-mapping mechanism whose codes are never set, a re-entrancy guard written correctly in one hook and by state in its two siblings, an acceptance criterion recorded in SPEC-057 and never implemented, and a test double that cannot distinguish the three keybindings it exists to cover. Every item is a small, local change; the value is that each closes a hole something in the repo already claims is closed.
 >
 > **This is browser + CI only. No Lambda change, no IAM change, no infra change, no new env var, no new AWS call.** If a task in this spec starts editing `lambdas/` or `infra/`, it has gone wrong — the control-plane findings are deferred (see Out of Scope).

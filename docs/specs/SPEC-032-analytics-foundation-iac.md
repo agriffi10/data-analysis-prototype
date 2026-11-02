@@ -1,10 +1,15 @@
-# Spec: Analytics Foundation IaC — Athena Workgroup, Lake Formation, Results Layout
+---
+type: Spec
+id: SPEC-032
+title: "Analytics Foundation IaC — Athena Workgroup, Lake Formation, Results Layout"
+description: "Gives operators the analytics infrastructure for in-app Athena queries: a shared Athena workgroup, Lake Formation governance, per-user results layout, and portal-role Glue permissions scoped by username tag."
+spec_status: Completed
+depends_on: [SPEC-010, SPEC-011, SPEC-013]
+arc: analytics
+arc_order: 1
+---
 
-**ID:** SPEC-032
-**Status:** Completed
-**Last Updated:** 2026-06-17
-**Depends On:** SPEC-010 (user-space bucket), SPEC-011 (Identity Pool + portal role + `username` principal tag), SPEC-013 (prefix-scoped role policy)
-
+**Dependency notes:** SPEC-010 (user-space bucket), SPEC-011 (Identity Pool + portal role + `username` principal tag), SPEC-013 (prefix-scoped role policy)
 ## Overview
 
 This spec lays the infrastructure foundation for the in-app Athena query feature (the SPEC-032→036 analytics arc). It provisions the single shared Athena workgroup every user queries through, a Lake Formation governance layer, the per-user results layout, and the Athena/Glue/LF permissions added to the existing shared portal role (SPEC-011/013).

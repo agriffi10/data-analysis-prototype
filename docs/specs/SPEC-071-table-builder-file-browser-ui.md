@@ -1,10 +1,15 @@
-# Spec: Table Builder — "Create Table from this Folder" (File Browser UI)
+---
+type: Spec
+id: SPEC-071
+title: "Table Builder — \"Create Table from this Folder\" (File Browser UI)"
+description: "Lets users create a queryable table from a folder in the file browser by naming it and declaring any Hive partition keys, with the outcome delivered later to their notifications inbox."
+spec_status: Completed
+depends_on: [SPEC-067, SPEC-057, SPEC-066, SPEC-016, SPEC-028]
+arc: table-builder
+arc_order: 6
+---
 
-**ID:** SPEC-071
-**Status:** Completed
-**Last Updated:** 2026-07-01
-**Depends On:** SPEC-067 (request contract + portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-057 (file-browser space model — `useFileSpace` / `FileSpaceTarget`: bucket/rootPrefix/kind/label), SPEC-066 (queue), SPEC-016/028 (dialog + UI primitives), `lib/sqsClient` + `lib/awsCredentials.getIdToken`
-
+**Dependency notes:** SPEC-067 (request contract + portal-role `sqs:SendMessage` + `VITE_TABLE_BUILD_QUEUE_URL`), SPEC-057 (file-browser space model — `useFileSpace` / `FileSpaceTarget`: bucket/rootPrefix/kind/label), SPEC-066 (queue), SPEC-016/028 (dialog + UI primitives), `lib/sqsClient` + `lib/awsCredentials.getIdToken`
 > **Reference:** `docs/table-builder-architecture.md` §1/§4/§5/§6. Sixth of the arc — the **only** browser
 > surface. Adds a **"Create table from this folder"** action to the file browser that prompts for a table name
 > **and (optionally) the partition keys**, then **enqueues** a create-table request (SPEC-067 contract) for the

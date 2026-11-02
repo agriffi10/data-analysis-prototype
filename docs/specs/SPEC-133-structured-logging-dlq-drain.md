@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Control-Plane DLQ Drain
+---
+type: Spec
+id: SPEC-133
+title: "Structured Logging — Instrument the Control-Plane DLQ Drain"
+description: "Brings the control-plane DLQ drain into the structured-logging pipe, writing each redacted dead-lettered request body as a durable event that outlives the 14-day DLQ log retention."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-126, SPEC-127, SPEC-129]
+arc: observability
+arc_order: 7
+---
 
-**ID:** SPEC-133
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-126 (the drain), SPEC-127/129 (the pipe)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-126 (the drain), SPEC-127/129 (the pipe)
 ## Overview
 
 `control-plane-dlq-drain` is the only shared control-plane function with neither

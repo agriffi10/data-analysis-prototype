@@ -1,9 +1,13 @@
-# Spec: A Data-Quality Report Shows Where Its Issues Are
-
-**ID:** SPEC-240
-**Status:** Completed
-**Last Updated:** 2026-09-20
-**Depends On:** SPEC-111, SPEC-112, SPEC-113
+---
+type: Spec
+id: SPEC-240
+title: "A Data-Quality Report Shows Where Its Issues Are"
+description: "Shows a data-quality report's per-file row counts and encoding-error locations, and makes the check keep up to five of the most-repeated duplicate rows with their counts, for users reading the report."
+spec_status: Completed
+depends_on: [SPEC-111, SPEC-112, SPEC-113]
+arc: tester-feedback
+arc_order: 3
+---
 
 ## Overview
 
@@ -140,7 +144,7 @@ Read from the code at `73c66eef`, and the data-quality claims re-read at `053ecb
 - The page shows the samples (FR-005).
 - The *Check data quality* guide (`check-data-quality`) in `helpContent.ts`, which describes what a
   report holds, says the report lists up to five of the most repeated rows and the rows in each file.
-- At completion: an entry in `docs/decisions/control-planes.md` saying the report holds sampled
+- At completion: an entry in `docs/decisions/control-planes/` saying the report holds sampled
   rows of the user's data and is bounded by the document cap. `lambdas/info/planes/data-quality.md`
   gains the samples.
 

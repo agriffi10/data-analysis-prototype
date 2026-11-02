@@ -1,9 +1,11 @@
-# Spec: Document Title Management
-
-**ID:** SPEC-031  
-**Status:** Completed  
-**Last Updated:** 2026-06-16  
-**Depends On:** None
+---
+type: Spec
+id: SPEC-031
+title: "Document Title Management"
+description: "Gives every page a meaningful browser tab title in the form 'Page — S3 File Portal' through a small reusable hook, replacing the Vite default title for users and screen readers."
+spec_status: Completed
+depends_on: []
+---
 
 ## Overview
 

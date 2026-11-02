@@ -1,11 +1,14 @@
-# Spec: A Filter Is Built From Conditions and Groups, Not Typed as SQL
+---
+type: Spec
+id: SPEC-251
+title: "A Filter Is Built From Conditions and Groups, Not Typed as SQL"
+description: "Replaces the Data Explorer's raw-SQL Filter expression box with a Filter rows builder of conditions grouped as all or any, plus is like and is not like, keeping existing expressions read-only."
+spec_status: Completed
+depends_on: [SPEC-238, SPEC-243, SPEC-247, SPEC-249]
+---
 
-**ID:** SPEC-251
-**Status:** Completed
-**Last Updated:** 2026-09-28
-**Depends On:** SPEC-238, SPEC-243, SPEC-247, SPEC-249 (FR-003's list input), and the Help session's
+**Dependency notes:** SPEC-238, SPEC-243, SPEC-247, SPEC-249 (FR-003's list input), and the Help session's
 `help-dbeaver-vocabulary` branch (FR-006), both merged before this spec's PR
-
 ## Overview
 
 An outside review compared the Data Explorer with DBeaver, and Andrew approved its filtering changes
@@ -383,7 +386,7 @@ pattern of the user's own to the expression box, names **is like** instead. No g
 **Filter expression** or **Apply expression**, and a `help.test.tsx` assertion holds that for every
 guide, so a later Help edit cannot bring the control back into the words.
 
-In `docs/decisions/analytics.md`, the SPEC-238 entry's "Rejected: raw `LIKE` / `NOT LIKE`" line is
+In `docs/decisions/analytics/`, the SPEC-238 entry's "Rejected: raw `LIKE` / `NOT LIKE`" line is
 marked superseded in place. Every other register or arc line that describes the expression bar as
 live is marked where it stands: the SPEC-243 entry, `analytics.md`'s note that the bar passes the
 user's SQL through, the two `browser.md` lines listing it among the surfaces and the toolbar, and
@@ -495,7 +498,7 @@ apps/portal/src/features/data-explorer/
 apps/portal/src/features/help/helpContent.ts, help.test.tsx    (FR-006)
 apps/portal/src/lib/errorMessages.ts                           (FR-006)
 apps/portal/info/component-inventory/data-explorer-feature.md  (FR-006)
-docs/decisions/analytics.md, browser.md, docs/specs/ARCS.md    (FR-006)
+docs/decisions/analytics/, browser.md, docs/specs/ARCS.md    (FR-006)
 docs/testing/e2e.md                                            (FR-006)
 ```
 

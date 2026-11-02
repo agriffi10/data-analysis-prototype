@@ -1,14 +1,20 @@
-# Spec: File Operations — the Browser's Async Model & In-Flight State
+---
+type: Spec
+id: SPEC-190
+title: "File Operations — the Browser's Async Model & In-Flight State"
+description: "Gives the file browser an async model for copy, move, delete and rename, routing each gesture to the file-operations plane, showing work in flight and catching the listing up when it finishes later."
+spec_status: Completed
+depends_on: [SPEC-187, SPEC-188, SPEC-189, SPEC-155, SPEC-186]
+arc: file-operations-control-plane
+arc_order: 4
+---
 
-**ID:** SPEC-190
-**Status:** Completed
-**Last Updated:** 2026-08-23
 **Build order note:** this spec lands **after SPEC-191**, not before — it consumes 191's wire shape and
 its producer, and without them a folder move would acknowledge "you'll get a notification" that never
 arrives, with in-flight entries that never settle.
 
-**Depends On:** SPEC-187 (the request contract, `targetName`, `onConflict`, `submittedAt`, FR-002's routing predicate, FR-009's waiting lock), SPEC-188 (the per-item outcome vocabulary), SPEC-189 (the terminals), SPEC-191 (the extended notification wire shape this spec's conflict view reads), SPEC-155 (`OperationFeedback`, `useFileBrowserDialogs`), SPEC-186 (`Button.disabledReason`)
 
+**Dependency notes:** SPEC-187 (the request contract, `targetName`, `onConflict`, `submittedAt`, FR-002's routing predicate, FR-009's waiting lock), SPEC-188 (the per-item outcome vocabulary), SPEC-189 (the terminals), SPEC-191 (the extended notification wire shape this spec's conflict view reads), SPEC-155 (`OperationFeedback`, `useFileBrowserDialogs`), SPEC-186 (`Button.disabledReason`)
 ## Overview
 
 The file browser's copy, move, delete and rename have always been synchronous: click, watch a

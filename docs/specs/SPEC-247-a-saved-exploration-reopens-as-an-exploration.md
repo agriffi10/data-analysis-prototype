@@ -1,9 +1,11 @@
-# Spec: A Saved Exploration Reopens as an Exploration
-
-**ID:** SPEC-247
-**Status:** Completed
-**Last Updated:** 2026-09-25
-**Depends On:** SPEC-183, SPEC-242, SPEC-243
+---
+type: Spec
+id: SPEC-247
+title: "A Saved Exploration Reopens as an Exploration"
+description: "Lets a saved Data Explorer view reopen as an exploration with its filters, sort, grouping and columns restored, via a checksummed view comment in the saved .sql file and an Open saved view entry, for users."
+spec_status: Completed
+depends_on: [SPEC-183, SPEC-242, SPEC-243]
+---
 
 ## Overview
 

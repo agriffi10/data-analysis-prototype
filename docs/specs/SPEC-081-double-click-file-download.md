@@ -1,10 +1,15 @@
-# Spec: Double-Click a File to Download
+---
+type: Spec
+id: SPEC-081
+title: "Double-Click a File to Download"
+description: "Lets file-browser users download a file by double-clicking its row, reusing the existing presigned-URL download path, to match the way a single click already opens a folder."
+spec_status: Completed
+depends_on: [SPEC-015, SPEC-018]
+arc: query-editor-round-5
+arc_order: 5
+---
 
-**ID:** SPEC-081
-**Status:** Completed
-**Last Updated:** 2026-07-01
-**Depends On:** SPEC-015 (file download), SPEC-018 (selection model)
-
+**Dependency notes:** SPEC-015 (file download), SPEC-018 (selection model)
 ## Overview
 
 In the file browser, opening a folder is a single click on its row, but downloading a

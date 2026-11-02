@@ -1,10 +1,15 @@
-# Spec: Schema-Aware Editor Autocomplete (Table & Column Names)
+---
+type: Spec
+id: SPEC-065
+title: "Schema-Aware Editor Autocomplete (Table & Column Names)"
+description: "Gives the SQL editor schema-aware autocomplete, suggesting table, view and column names of the active database alongside keywords and falling back to keywords when no schema is loaded."
+spec_status: Completed
+depends_on: [SPEC-035, SPEC-034, SPEC-047]
+arc: query-editor-round-4
+arc_order: 3
+---
 
-**ID:** SPEC-065
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-035 (Monaco `SqlEditor` + query workspace), SPEC-034 (`useSchema` + Glue services), SPEC-047 (workspace-global active database)
-
+**Dependency notes:** SPEC-035 (Monaco `SqlEditor` + query workspace), SPEC-034 (`useSchema` + Glue services), SPEC-047 (workspace-global active database)
 > **Design:** No visual design needed — this rides Monaco's native completion widget (already themed by the
 > SPEC-035 `file-portal-sql` theme). The only UX surface is the suggestion popup's content and ordering.
 
@@ -75,7 +80,7 @@ A Monaco completion provider for the `sql` language contributes table/view/colum
 > `quoteIdentifierIfNeeded`, so a name that is uppercase, holds a space, or is reserved **by
 > Athena** — whose `SELECT` list adds four words Trino's omits — arrives double-quoted. The Hive
 > DDL keeps this criterion's behaviour. `label` is still always bare. Full entry:
-> `docs/decisions/analytics.md` → *Suggestions follow the statement, and a Trino insert is quoted
+> `docs/decisions/analytics/` → *Suggestions follow the statement, and a Trino insert is quoted
 > where the name needs it*.
 
 ### FR-002: Scoped to the active database, updates on switch

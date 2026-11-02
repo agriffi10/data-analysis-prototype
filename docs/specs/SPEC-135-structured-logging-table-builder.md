@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Table-Builder Control Plane
+---
+type: Spec
+id: SPEC-135
+title: "Structured Logging — Instrument the Table-Builder Control Plane"
+description: "Gives operators structured events for the table-builder plane recording the DDL run, its target database, its outcome and whether the table existed afterwards, so silent no-table failures become queryable."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-134, SPEC-133]
+arc: observability
+arc_order: 9
+---
 
-**ID:** SPEC-135
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-134 (the coverage harness), SPEC-133 (the infra pattern)
 ## Overview
 
 Table-builder is the plane with the most instructive failure in this repo's history, and it is

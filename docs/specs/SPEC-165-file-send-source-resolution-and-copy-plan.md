@@ -1,10 +1,15 @@
-# Spec: Send Files — Source Resolution & Copy Plan (inspect-source)
+---
+type: Spec
+id: SPEC-165
+title: "Send Files — Source Resolution & Copy Plan (inspect-source)"
+description: "Adds Send Files' inspect-source verb, which expands the selected files and folders into a copy plan in S3 landing under each recipient's shared_files/{sender}/ inbox."
+spec_status: Completed
+depends_on: [SPEC-164, SPEC-090, SPEC-160, SPEC-150]
+arc: send-files
+arc_order: 2
+---
 
-**ID:** SPEC-165
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-164 (validated request + authorized source root), SPEC-090 (the copy-plan-as-pointer precedent), SPEC-160 (`cpcommon.transfer`), SPEC-150 (protected folders)
-
+**Dependency notes:** SPEC-164 (validated request + authorized source root), SPEC-090 (the copy-plan-as-pointer precedent), SPEC-160 (`cpcommon.transfer`), SPEC-150 (protected folders)
 ## Overview
 
 Given a validated request, work out exactly what will be copied and where each object will land.

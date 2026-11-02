@@ -1,10 +1,15 @@
-# Spec: The Catalog Surface — Athena & Glue
+---
+type: Spec
+id: SPEC-199
+title: "The Catalog Surface — Athena & Glue"
+description: "Moves the six Athena and Glue calls behind the API so the Query workspace and Data Explorer run unchanged, with Lake Formation grants still enforcing per user and granted and refused users told apart."
+spec_status: Completed
+depends_on: [SPEC-197, SPEC-196, SPEC-195, SPEC-192, SPEC-032, SPEC-033, SPEC-034, SPEC-077, SPEC-078, SPEC-106, SPEC-176, SPEC-178, SPEC-180, SPEC-181, SPEC-182, SPEC-185, SPEC-127, SPEC-137, SPEC-186]
+arc: api-layer-and-containerisation
+arc_order: 8
+---
 
-**ID:** SPEC-199
-**Status:** Completed
-**Last Updated:** 2026-08-29
-**Depends On:** SPEC-197 (the transport contract — route ids, the success/error envelopes, the generated TS↔Python agreement, `lib/apiClient.ts`, `apiRetryPolicy`, and the frozen `ServiceResult<T>`), SPEC-196 (the user credential plane — `user_client(service, identity)`, the assumed portal role that Lake Formation grants attach to, its per-container session cache, the three failure conditions this spec's routes surface, and **its Phase 5 item 4 — the Lake Formation verification, re-homed here because it needs an Athena route that does not exist until this spec**), SPEC-195 (the verified ID token whose `cognito:username` claim replaces the `username` parameter on the wire), SPEC-192 (`lib/runtimeConfig.ts` — the key this spec **removes**), SPEC-032/033/034 (the workgroup, the per-user results prefix, and the `username`-tagged Glue/Athena isolation this spec must not touch), SPEC-077/078 (no active database; the client-side `;` split), SPEC-106 (`toUserMessage` is the only source of user-facing wording, and the Athena engine-message rules that depend on `stateChangeReason` reaching the browser), SPEC-176 (`features/catalog/` — the layer being ported), SPEC-178/180/181/182/185 (the cost ledger, `null` ≠ `''`, the failure banner, the SQL disclosure, and export's `outputLocation`), SPEC-127/137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
-
+**Dependency notes:** SPEC-197 (the transport contract — route ids, the success/error envelopes, the generated TS↔Python agreement, `lib/apiClient.ts`, `apiRetryPolicy`, and the frozen `ServiceResult<T>`), SPEC-196 (the user credential plane — `user_client(service, identity)`, the assumed portal role that Lake Formation grants attach to, its per-container session cache, the three failure conditions this spec's routes surface, and **its Phase 5 item 4 — the Lake Formation verification, re-homed here because it needs an Athena route that does not exist until this spec**), SPEC-195 (the verified ID token whose `cognito:username` claim replaces the `username` parameter on the wire), SPEC-192 (`lib/runtimeConfig.ts` — the key this spec **removes**), SPEC-032/033/034 (the workgroup, the per-user results prefix, and the `username`-tagged Glue/Athena isolation this spec must not touch), SPEC-077/078 (no active database; the client-side `;` split), SPEC-106 (`toUserMessage` is the only source of user-facing wording, and the Athena engine-message rules that depend on `stateChangeReason` reaching the browser), SPEC-176 (`features/catalog/` — the layer being ported), SPEC-178/180/181/182/185 (the cost ledger, `null` ≠ `''`, the failure banner, the SQL disclosure, and export's `outputLocation`), SPEC-127/137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 ## Overview
 
 Everything analytical in this product runs through six calls: `StartQueryExecution`,
@@ -78,7 +83,7 @@ Things a reader would reasonably assume travel with "the catalog moved behind th
   > results prefix, so it IS an execution→owner record, and results-conversion already proved
   > ownership from it. Status, results and stop now prove the execution is the caller's before
   > they answer or act, and give an unknown id and someone else's one identical 404:
-  > [`decisions/identity-and-access.md`](../decisions/identity-and-access.md#an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it-first-spec-232).
+  > [`decisions/identity-and-access/`](../decisions/identity-and-access/an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it.md).
 - **`glue:GetTableVersions` and `glue:GetTable`.** The browser calls neither today; the refresh
   plane's read-backs are Python and the verification role's are CLI. No route is added for a caller
   that does not exist.

@@ -1,10 +1,15 @@
-# Spec: File Converter — The Athena `UNLOAD` Path
+---
+type: Spec
+id: SPEC-118
+title: "File Converter — The Athena `UNLOAD` Path"
+description: "Would have delivered the file-converter Athena UNLOAD path writing typed Parquet from CSV or JSON into the user's destination via a temp table, cancelled before it was built."
+spec_status: Cancelled
+depends_on: [SPEC-107, SPEC-115, SPEC-116, SPEC-117, SPEC-032, SPEC-069, SPEC-070]
+arc: file-converter
+arc_order: 4
+---
 
-**ID:** SPEC-118
-**Status:** Cancelled
-**Last Updated:** 2026-07-13
-**Depends On:** SPEC-107 (`cpcommon`), SPEC-115 (foundation, incl. the polling loop + the workgroup env vars), SPEC-116 (authorization + S3 grants), SPEC-117 (the manifest + target schema), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
-
+**Dependency notes:** SPEC-107 (`cpcommon`), SPEC-115 (foundation, incl. the polling loop + the workgroup env vars), SPEC-116 (authorization + S3 grants), SPEC-117 (the manifest + target schema), SPEC-032 (Athena/Glue/LF), SPEC-069/070 (table-builder's DDL + projection machinery, reused here)
 > **Read `docs/file-converter-architecture.md` §0, §2.1, §5 and §6 first.** This is the spec that makes 250 GB possible, and the spec that spends the arc's IAM budget.
 
 ## Overview

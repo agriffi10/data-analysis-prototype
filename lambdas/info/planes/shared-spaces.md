@@ -85,7 +85,7 @@ machine and every verb.
   given back (`membership.reinstate_owner`, granted first and confirmed by a read after). **That
   confirmation holds only because every roster removal revokes after a write the read can see**:
   delete and forget claim before revoking, and leave and remove clear again after their commit
-  ([entry](../../../docs/decisions/control-planes.md#a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot-take-the-owner-off-the-roster-2026-09-26)).
+  ([entry](../../../docs/decisions/control-planes/a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot.md)).
 - **A teardown touches only a database the space made.** A space's database and a user's personal
   one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,
   and `teardown.owns_database` gates the revoke and the drop the same way.
@@ -196,7 +196,7 @@ and it is not optional.
 > `OWNER_ONLY_ACTIONS` and now decide the same way, for the same reason and through the same
 > `RefusedSeed` arm — which needed no change, having been written action-independent. Read "a
 > transfer" below as any of the three. Full entry:
-> [*The operator door widens to member management*](../../../docs/decisions/control-planes.md#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217).
+> [*The operator door widens to member management*](../../../docs/decisions/control-planes/the-operator-door-widens-to-member-management-and-that-is-a-threat.md).
 
 The validator's `Catch` carries no `ResultPath` — you cannot merge a key into the raw SQS array it
 was handed — so a raise there **replaces** the state, and `ValidateFailureSeed` seeds `actor: null`.
@@ -218,4 +218,4 @@ action and a space.
   completes a real transfer.
 
 The full reasoning, and the rejected alternatives, are in
-[`../../../docs/decisions/control-planes.md`](../../../docs/decisions/control-planes.md).
+[`../../../docs/decisions/control-planes/`](../../../docs/decisions/control-planes/).

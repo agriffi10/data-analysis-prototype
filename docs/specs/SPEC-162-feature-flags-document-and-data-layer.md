@@ -1,10 +1,15 @@
-# Spec: Feature Flags — Document, Publish Pipeline & Browser Data Layer
+---
+type: Spec
+id: SPEC-162
+title: "Feature Flags — Document, Publish Pipeline & Browser Data Layer"
+description: "Adds a git-controlled per-environment feature-flag document, published by CI to the user-space bucket, with the browser data layer that resolves the flags for Files, Query, Shared Workspaces and Data Quality."
+spec_status: Completed
+depends_on: [SPEC-146, SPEC-147, SPEC-155, SPEC-138]
+arc: feature-flags
+arc_order: 1
+---
 
-**ID:** SPEC-162
-**Status:** Completed
-**Last Updated:** 2026-08-10
-**Depends On:** SPEC-146/147 (the advisory-document precedent), SPEC-155 (`lib/s3Json.ts` `readJsonDocument`), SPEC-138 (a bad gate value is a hard error)
-
+**Dependency notes:** SPEC-146/147 (the advisory-document precedent), SPEC-155 (`lib/s3Json.ts` `readJsonDocument`), SPEC-138 (a bad gate value is a hard error)
 ## Overview
 
 The portal ships every feature to every environment the moment it merges. There is no way to hold a

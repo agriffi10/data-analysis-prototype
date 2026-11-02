@@ -1,10 +1,15 @@
-# Spec: Table Share — Request Contract, Enqueue & Validate-Authorize
+---
+type: Spec
+id: SPEC-089
+title: "Table Share — Request Contract, Enqueue & Validate-Authorize"
+description: "Defines the table-share request envelope and implements validate-authorize, which verifies the caller's token, authorizes read access to the source table and validates the result name and each recipient."
+spec_status: Completed
+depends_on: [SPEC-088, SPEC-056, SPEC-067, SPEC-033, SPEC-048]
+arc: table-share
+arc_order: 2
+---
 
-**ID:** SPEC-089
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-088 (foundation), SPEC-056 (registry + ID-token actor), SPEC-067 (table-builder request-contract precedent), SPEC-033/048 (`CATALOG_IDENTIFIER_RE`)
-
+**Dependency notes:** SPEC-088 (foundation), SPEC-056 (registry + ID-token actor), SPEC-067 (table-builder request-contract precedent), SPEC-033/048 (`CATALOG_IDENTIFIER_RE`)
 > **Read `docs/table-share-architecture.md` §2–3 first.**
 
 ## Overview

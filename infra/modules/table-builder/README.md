@@ -51,7 +51,7 @@ duplicate-name race and does not close it**. Two same-name creates can both pass
 second's DDL is a no-op over whatever the first one defined. Nothing is overwritten, and since
 2026-09-15 nothing is misreported either: `execute-ddl` reads the table back and refuses
 `table_exists` unless the catalog carries this run's own LOCATION, partition keys and projection.
-`docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+`docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.
 
 ## `TimeoutSeconds = 3600`, and it is a prerequisite of the refresh lock
 
@@ -120,6 +120,6 @@ so a bucket-wide list would hand it every shared space's name and then every ros
 name is the only thing gating that read.
 
 Why a conditioned grant is sufficient, why the IAM simulate suggests otherwise, and the production
-evidence settling it: `docs/decisions/infrastructure.md` → *A role that cannot list a bucket cannot
+evidence settling it: `docs/decisions/infrastructure/` → *A role that cannot list a bucket cannot
 be told an object is absent*. `lambdas/test_absence_is_answerable.py` holds every registry-reading
 directory to this, and fails closed on one it cannot map to a role.

@@ -1,10 +1,15 @@
-# Spec: Saved Queries — Loading from a Chosen Space
+---
+type: Spec
+id: SPEC-174
+title: "Saved Queries — Loading from a Chosen Space"
+description: "Lets users load a saved query from any space they belong to by choosing the space first, then paging through that space's saved queries in the query editor."
+spec_status: Completed
+depends_on: [SPEC-173, SPEC-163, SPEC-042, SPEC-100]
+arc: saved-queries-in-spaces
+arc_order: 2
+---
 
-**ID:** SPEC-174
-**Status:** Completed
-**Last Updated:** 2026-08-11
-**Depends On:** SPEC-173 (the store and the folder), SPEC-163 (the gated-surface registry), SPEC-042 (the drawer pager pattern), SPEC-100 (the mobile query surface)
-
+**Dependency notes:** SPEC-173 (the store and the folder), SPEC-163 (the gated-surface registry), SPEC-042 (the drawer pager pattern), SPEC-100 (the mobile query surface)
 ## Overview
 
 SPEC-173 made a saved query a `.sql` file in a space's `saved_queries/` folder, but the query editor still only ever looks in one place: the user's own space. This spec makes loading a saved query start with a question — *which space?* — and then show every saved query in that space, a page at a time. A user who belongs to three shared spaces can open a colleague's saved query from any of them without leaving the editor, and a space with two hundred saved queries pages rather than dumping a wall of rows.

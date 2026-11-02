@@ -1,10 +1,15 @@
-# Spec: Create Shared Connection
+---
+type: Spec
+id: SPEC-051
+title: "Create Shared Connection"
+description: "Lets any signed-in user create a named shared connection through a dialog, with the pipeline asynchronously validating name uniqueness, creating the shared prefix and Glue database, and granting the creator membership."
+spec_status: Completed
+depends_on: [SPEC-050, SPEC-056, SPEC-033, SPEC-047, SPEC-026, SPEC-028, SPEC-044]
+arc: shared-connections
+arc_order: 3
+---
 
-**ID:** SPEC-051
-**Status:** Completed
-**Last Updated:** 2026-06-27
-**Depends On:** SPEC-050 (shared bucket, request queue, Step Function, registry storage, orchestrator role), SPEC-056 (request contract, membership slots, portal `sqs:SendMessage`, actor binding/validate), SPEC-033 (catalog-safe identifier rule; Glue DB + LF grant pattern), SPEC-047 (`useConnections` seam), SPEC-026 (dialog pattern), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
-
+**Dependency notes:** SPEC-050 (shared bucket, request queue, Step Function, registry storage, orchestrator role), SPEC-056 (request contract, membership slots, portal `sqs:SendMessage`, actor binding/validate), SPEC-033 (catalog-safe identifier rule; Glue DB + LF grant pattern), SPEC-047 (`useConnections` seam), SPEC-026 (dialog pattern), SPEC-028 (Button/Input), SPEC-044 (`Toast`)
 > **Reference:** `docs/shared-spaces-architecture.md` (§2 pipeline, §3 enforcement, §4 registry, §6 async UX).
 > This spec delivers the **create** action end-to-end: the browser enqueues a `create` request; the Step
 > Function validates uniqueness, provisions the prefix + Glue DB + registry entry, grants the creator a
@@ -200,7 +205,7 @@ the creator can query `database/{name}` and read/write `dat-prod-shared-space/{n
   + `MessageDeduplicationId = requestId`.
 
   > **SUPERSEDED 2026-09-15.** The constant group orders the starts only; the runs overlap —
-  > `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the runs*.
+  > `docs/decisions/control-planes/`, *A group id orders the STARTS, not the runs*.
 - **Optimistic pending is LOCAL/in-memory** (FR-003) — the browser never writes the
   cache. The pipeline writes the per-user cache (active/failed); SPEC-052 reads it.
 - **DATA_LOCATION_ACCESS = a single Terraform grant** on the whole registered shared

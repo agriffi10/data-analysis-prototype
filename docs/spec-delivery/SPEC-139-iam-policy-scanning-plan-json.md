@@ -21,7 +21,7 @@ Every per-user isolation policy passed — `portal-role-permissions` has three s
 AWS does not permit to be resource-scoped; the available hardening is a `lambda:FunctionArn`
 condition key, left as its own PR.
 
-> **Corrected 2026-09-07.** Three of those four actions — `Get`, `Update` and `DeleteEventSourceMapping` — DO accept an `event-source-mapping` ARN; only `Create` and `List` take none. The wildcard is still right, because the mapping's UUID does not exist when the policy is written and `lambda:FunctionArn` pins what an ARN pattern would. Method and evidence: `docs/decisions/infrastructure.md`.
+> **Corrected 2026-09-07.** Three of those four actions — `Get`, `Update` and `DeleteEventSourceMapping` — DO accept an `event-source-mapping` ARN; only `Create` and `List` take none. The wildcard is still right, because the mapping's UUID does not exist when the policy is written and `lambda:FunctionArn` pins what an ARN pattern would. Method and evidence: `docs/decisions/infrastructure/`.
 
 
 ## What changed from earlier specs?

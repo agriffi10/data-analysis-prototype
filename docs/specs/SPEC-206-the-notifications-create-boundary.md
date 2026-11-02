@@ -1,10 +1,13 @@
-# Spec: The Notifications `create` Boundary
+---
+type: Spec
+id: SPEC-206
+title: "The Notifications `create` Boundary"
+description: "Enforces that the notifications plane's create action is trusted-producer-only with an infrastructure-set marker, so a signed-in user can no longer enqueue a notification naming anybody with any text or link."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-059, SPEC-060, SPEC-061, SPEC-126, SPEC-166, SPEC-138, SPEC-191]
+---
 
-**ID:** SPEC-206
-**Status:** Completed
-**Last Updated:** 2026-08-24
-**Depends On:** SPEC-058→061 (the notifications plane, its single-writer FIFO model and its stated anti-spoofing rule), SPEC-126 (the DLQ drain, and why this queue's DLQ is undrained), SPEC-166 (an expected refusal is a return value, not a raise), SPEC-138 (findings and dispositions live in `security-baseline.md`), SPEC-191 (which re-found this while building the file-ops producer)
-
+**Dependency notes:** SPEC-058→061 (the notifications plane, its single-writer FIFO model and its stated anti-spoofing rule), SPEC-126 (the DLQ drain, and why this queue's DLQ is undrained), SPEC-166 (an expected refusal is a return value, not a raise), SPEC-138 (findings and dispositions live in `security-baseline.md`), SPEC-191 (which re-found this while building the file-ops producer)
 ## Overview
 
 The notifications plane has always said that `create` is trusted-producer-only. Its writer takes the

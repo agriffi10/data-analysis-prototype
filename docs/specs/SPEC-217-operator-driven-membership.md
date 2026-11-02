@@ -1,10 +1,13 @@
-# Spec: Operator-Driven Shared-Space Membership
+---
+type: Spec
+id: SPEC-217
+title: "Operator-Driven Shared-Space Membership"
+description: "Lets an operator's CSV in the admin bucket add and remove shared-space members as well as transfer a space, reusing the owner verbs, with member refusals that now notify instead of raising, for operators."
+spec_status: Completed
+depends_on: [SPEC-208, SPEC-206, SPEC-205, SPEC-051, SPEC-053, SPEC-082, SPEC-125, SPEC-152, SPEC-201]
+---
 
-**ID:** SPEC-217
-**Status:** Completed
-**Last Updated:** 2026-09-02
-**Depends On:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values, the verb's own refusal fence), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
-
+**Dependency notes:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values, the verb's own refusal fence), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
 **Interacts with:** SPEC-203's membership index and the roster fan-out are written by the existing
 verbs and are untouched — this spec changes who may ask for a membership change and how a request
 arrives, never what a membership change *does*.
@@ -445,7 +448,7 @@ bucket's prefix, its lifecycle rules and the reader's IAM move from `ownership-t
       `ownership-transfers/inbox/` and a `space,new_owner` file. Left as they are, the next operator
       writes a file this reader rejects.
 - [ ] Every other site still stating the old shape is corrected in the same change: the plane page
-      `lambdas/info/planes/shared-spaces.md`, the SPEC-208 entry in `docs/decisions/control-planes.md`
+      `lambdas/info/planes/shared-spaces.md`, the SPEC-208 entry in `docs/decisions/control-planes/`
       (which describes the queue's second producer as reading "an operator's CSV of ownership
       transfers"), `shared-space-common/config.py`'s `OPERATOR_ACTIONS` docstring, and SPEC-208's own
       spec and delivery doc, marked in place rather than left to disagree.

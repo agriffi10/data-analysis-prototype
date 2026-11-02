@@ -1,9 +1,13 @@
-# Spec: A Column's Values, Counted, Are a Filter You Tick
-
-**ID:** SPEC-241
-**Status:** Cancelled
-**Last Updated:** 2026-09-16
-**Depends On:** SPEC-238, SPEC-178, SPEC-181
+---
+type: Spec
+id: SPEC-241
+title: "A Column's Values, Counted, Are a Filter You Tick"
+description: "Would have delivered a Filter by values column-menu item listing a column's counted values to tick as an is-one-of filter, cancelled before it was built and superseded by SPEC-249."
+spec_status: Cancelled
+depends_on: [SPEC-238, SPEC-178, SPEC-181]
+arc: tester-feedback
+arc_order: 4
+---
 
 ## Why this spec was cancelled
 

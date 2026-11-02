@@ -1,10 +1,15 @@
-# Spec: Query Editor Autocomplete Lifecycle Fix (Monaco completion provider)
+---
+type: Spec
+id: SPEC-084
+title: "Query Editor Autocomplete Lifecycle Fix (Monaco completion provider)"
+description: "Fixes the query editor so schema-aware autocomplete no longer goes silently dead or duplicates after a StrictMode remount or query-tab switch, by making the Monaco provider's lifecycle robust."
+spec_status: Completed
+depends_on: [SPEC-035, SPEC-047]
+arc: best-practice-audit-follow-ups
+arc_order: 3
+---
 
-**ID:** SPEC-084
-**Status:** Completed
-**Last Updated:** 2026-07-02
-**Depends On:** SPEC-035 (Monaco SQL editor), SPEC-047 (schema-aware completions)
-
+**Dependency notes:** SPEC-035 (Monaco SQL editor), SPEC-047 (schema-aware completions)
 ## Overview
 
 The SQL editor's schema-aware autocomplete is registered as a **module-level singleton** Monaco

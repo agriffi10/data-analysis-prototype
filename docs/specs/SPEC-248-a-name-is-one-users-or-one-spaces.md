@@ -1,13 +1,16 @@
-# Spec: A Name Is One User's or One Space's, and Only the Plane Writes a Membership
+---
+type: Spec
+id: SPEC-248
+title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
+description: "Closes the access gap where a signup or shared-space name could be claimed as the other's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships."
+spec_status: Draft
+depends_on: [SPEC-012, SPEC-051, SPEC-056]
+---
 
-**ID:** SPEC-248
-**Status:** Draft
-**Last Updated:** 2026-09-26
-**Depends On:** SPEC-012, SPEC-051, SPEC-056, and the control-plane data-loss audit
+**Dependency notes:** SPEC-012, SPEC-051, SPEC-056, and the control-plane data-loss audit
 (`audit/control-planes`, commit `394cfce8`), which was **not on `main`** when this spec was written.
 FR-003 to FR-006 read that commit's database marker, and they do not start until it has merged.
 FR-001 and FR-002 depend on nothing else in this list, and FR-001 lands first.
-
 ## Overview
 
 A username and a shared-space name are both used as the name of a Glue database, and there is only
@@ -674,8 +677,8 @@ apps/portal/src/features/
 
 ### Phase 6: Where the decisions are written down
 
-- A register entry in `docs/decisions/control-planes.md`, and one in
-  `docs/decisions/identity-and-access.md`.
+- A register entry in `docs/decisions/control-planes/`, and one in
+  `docs/decisions/identity-and-access/`.
 - Clauses in the identity fences:
   - The slot claims are an authorization input only because the client cannot write them.
   - A name is a user's or a space's, and pre-signup and create are the two doors.

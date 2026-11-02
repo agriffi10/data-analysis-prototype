@@ -44,7 +44,7 @@ plane and come back as a notification with a link to the folder.
 ## What changed from earlier specs?
 
 - **`resultsConversion` is the seventh flag key and the third kind** — neither an area nor a kill
-  switch but presentation over one control. The taxonomy in `decisions/browser.md` said five areas
+  switch but presentation over one control. The taxonomy in `decisions/browser/` said five areas
   and one kill switch, which was a complete account of a set that had grown.
 - **"No browser surface until SPEC-223" was stated in four live places**, and the first pass at this
   found two — both `owed.md` rows — because it grepped one file and stopped. The two it missed were

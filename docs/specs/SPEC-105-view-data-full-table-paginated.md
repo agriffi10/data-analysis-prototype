@@ -1,9 +1,11 @@
-# Spec: View Data — Full Table, Paginated (drop the 10-row preview limit)
-
-**ID:** SPEC-105
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** None
+---
+type: Spec
+id: SPEC-105
+title: "View Data — Full Table, Paginated (drop the 10-row preview limit)"
+description: "Changes the schema rail's View data action to run an unbounded SELECT * on the table, so users can page through the whole table at their configured rows per page instead of seeing only 10 rows."
+spec_status: Completed
+depends_on: []
+---
 
 ## Overview
 

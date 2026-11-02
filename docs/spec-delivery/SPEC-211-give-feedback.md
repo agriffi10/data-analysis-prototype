@@ -29,7 +29,7 @@ admin bucket. Nothing is read back — feedback is write-only from the browser's
   the category renders inline and the browser derives its own alias from the generated request
   type. The spec's Data Model was corrected in the same PR.
 - **The feedback queue is not in `contract.QUEUES`** and the route is not an `EnqueueRoute`.
-  Reasoning in `docs/decisions/control-planes.md`. The coverage this costs — the swapped-pair
+  Reasoning in `docs/decisions/control-planes/`. The coverage this costs — the swapped-pair
   wiring guard — is written out explicitly instead.
 - **No CloudWatch alarm on DLQ depth**, and no drain. Both named in the spec as decisions; the
   DLQ reason is now also in `dlq_drain.UNDRAINED_QUEUES`' docstring.

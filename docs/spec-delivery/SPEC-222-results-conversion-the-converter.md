@@ -48,7 +48,7 @@ is SPEC-223 — so the route is live and unflagged and no UI enqueues into it.
   > is not a multiple of the CSV. It is spent per cell, and a narrow result costs far more than
   > 32× — a 1,048,575 × 15 one-character result under the 64 MB cap ran the converter out of time
   > at its full memory. Excel is now bounded by a cell count — 4,100,000 then, and 3,900,000 since
-  > SPEC-245 re-measured it on polars 1.44.2 — counted before the workbook is built. Full entry: `docs/decisions/control-planes.md` → *Excel is bounded by cells, because
+  > SPEC-245 re-measured it on polars 1.44.2 — counted before the workbook is built. Full entry: `docs/decisions/control-planes/` → *Excel is bounded by cells, because
   > the converter's memory is spent per cell*.
 
 ## What changed from earlier specs?
@@ -91,7 +91,7 @@ so a live conversion needs an authenticated API call rather than a click.
 > its steps are `e2e.md` §4.3 and §4.5. What still needs a hand-crafted request is narrower: the
 > raw envelope, and `destination_occupied` raced past the browser's pre-flight probe — which the
 > browser cannot stage at all, since the probe turns an occupied destination into the overwrite
-> question. Full entry: `docs/decisions/control-planes.md` → *The destination prefix is relative*.
+> question. Full entry: `docs/decisions/control-planes/` → *The destination prefix is relative*.
 
 ## The apply is the only thing that knows an account quota
 
@@ -105,6 +105,6 @@ Lambda's *documented* range, and a plan never calls `CreateFunction`. The apply 
 refused — which `Deploy Lambdas` then reported as *"planned but never pointed at this commit's
 code"*, the reconcile gate's signature for a refused create.
 
-The fence is in [`decisions/infrastructure.md`](../decisions/infrastructure.md#fences); the guard
+The fence is in [`decisions/infrastructure/`](../decisions/infrastructure/); the guard
 is `test_fleet_derivation.py`, fleet-wide because the next function to want more memory will be
 in a different module and its author will have the same information: none.

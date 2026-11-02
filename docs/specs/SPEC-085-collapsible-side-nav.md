@@ -1,10 +1,15 @@
-# Spec: Collapsible Side Nav (Shared Base Rail + Collapse Control)
+---
+type: Spec
+id: SPEC-085
+title: "Collapsible Side Nav (Shared Base Rail + Collapse Control)"
+description: "Lets users collapse and reopen the left navigation rail on the Files and Query pages through one shared base rail component, remembering the choice per browser."
+spec_status: Completed
+depends_on: [SPEC-023, SPEC-057, SPEC-063, SPEC-028]
+arc: app-shell-one-offs
+arc_order: 1
+---
 
-**ID:** SPEC-085
-**Status:** Completed
-**Last Updated:** 2026-07-02
-**Depends On:** SPEC-023 (app shell / layouts), SPEC-057 (Files spaces `Sidebar`), SPEC-063 (Query `SchemaBrowser` rail), SPEC-028 (`Button`/`IconButton` primitives)
-
+**Dependency notes:** SPEC-023 (app shell / layouts), SPEC-057 (Files spaces `Sidebar`), SPEC-063 (Query `SchemaBrowser` rail), SPEC-028 (`Button`/`IconButton` primitives)
 > **Design:** The two authenticated left rails — the Files spaces `Sidebar` and the Query `SchemaBrowser`
 > — today declare the **same** 248px panel chrome independently (`hidden w-[248px] shrink-0 … md:flex`).
 > This spec factors that chrome into one **base collapsible-rail** component and adds a collapse control.

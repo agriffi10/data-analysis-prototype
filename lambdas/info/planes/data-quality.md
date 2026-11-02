@@ -41,7 +41,7 @@ bucket naming the execution ARN that `StampExecution` stamps. Its own Task retry
 any other execution is refused `request_id_reused`, silently, before it lists a file. Claims never
 expire. Only a lower-case UUID is accepted as a request id, because a table's name is the id without
 its hyphens and Glue folds case, so two spellings of one id would share a table.
-[The decision](../../../docs/decisions/control-planes.md#a-data-quality-request-id-is-claimed-by-one-execution-before-anything-is-named-from-it-data-quality).
+[The decision](../../../docs/decisions/control-planes/a-data-quality-request-id-is-claimed-by-one-execution-before-anything.md).
 
 **A check cannot target the space root** (`location_is_space_root`, in `validate-authorize`). The
 temp table's `LOCATION` is the target folder and Athena reads one recursively, so a check at the top

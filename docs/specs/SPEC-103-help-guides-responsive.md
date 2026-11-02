@@ -1,9 +1,13 @@
-# Spec: Help & guides — responsive layout
-
-**ID:** SPEC-103
-**Status:** Completed
-**Last Updated:** 2026-07-08
-**Depends On:** SPEC-095
+---
+type: Spec
+id: SPEC-103
+title: "Help & guides — responsive layout"
+description: "Makes the Help & guides page responsive, replacing the hidden section rail with a scrollable chip selector on mobile and a narrower rail on tablet so sections and guide cards work at every width."
+spec_status: Completed
+depends_on: [SPEC-095]
+arc: responsive-and-files-ux
+arc_order: 9
+---
 
 ## Overview
 

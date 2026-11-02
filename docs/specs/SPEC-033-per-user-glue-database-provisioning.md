@@ -1,10 +1,15 @@
-# Spec: Per-User Glue Database Provisioning — Post-Confirmation Lambda + LF Grant
+---
+type: Spec
+id: SPEC-033
+title: "Per-User Glue Database Provisioning — Post-Confirmation Lambda + LF Grant"
+description: "Creates a Glue database named exactly as the username for every new user, through a Cognito post-confirmation Lambda that grants the shared portal role access via Lake Formation."
+spec_status: Completed
+depends_on: [SPEC-006, SPEC-011, SPEC-012, SPEC-032]
+arc: analytics
+arc_order: 2
+---
 
-**ID:** SPEC-033
-**Status:** Completed
-**Last Updated:** 2026-06-18
-**Depends On:** SPEC-006 (User Pool), SPEC-011 (portal role + `username` principal tag), SPEC-012 (Lambda infra pattern + `deploy-lambdas.yml` + artifacts bucket; username rule amended here), SPEC-032 (workgroup, LF enforcement bootstrap, hybrid registration)
-
+**Dependency notes:** SPEC-006 (User Pool), SPEC-011 (portal role + `username` principal tag), SPEC-012 (Lambda infra pattern + `deploy-lambdas.yml` + artifacts bucket; username rule amended here), SPEC-032 (workgroup, LF enforcement bootstrap, hybrid registration)
 ## Overview
 
 Give every user their own Glue database the moment they finish signing up. A Cognito **post-confirmation** trigger Lambda creates a Glue database **named exactly as the user's username**, then issues a Lake Formation `GrantPermissions` granting the **shared portal role** full access to that database. Per-user isolation does *not* come from this grant (all users share the role) — it comes from the portal role's IAM policy scoping Glue to `database/${aws:PrincipalTag/username}` (SPEC-032 FR-006). The LF grant simply lets the role use the database at all under LF enforcement; IAM's principal tag is the per-user gate. For that gate to work, the database name must equal the username, so this spec also tightens the signup username rule to be a catalog-safe identifier (amending SPEC-012).

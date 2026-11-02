@@ -502,7 +502,7 @@ portal role, which no signed-in user now can, a way to drown the plane's only op
 The second fix shape this entry proposed — splitting `create` onto its own queue — was **rejected with
 reasons** rather than merely not chosen: two queues means two event-source mappings and two concurrent
 invocations read-modify-writing one `notifications.json`, trading a spoofing bug for a data-loss bug.
-See `docs/decisions/control-planes.md` → *The notifications `create` boundary*.
+See `docs/decisions/control-planes/` → *The notifications `create` boundary*.
 
 **Two limits, stated so they are not read as closed.** ~~The grant itself is still unconditioned and
 must be — no SQS condition key reaches a field inside a message body — so this is a runtime control,
@@ -742,7 +742,7 @@ a function ARN are different resource types**, and AWS's service reference lists
 `ListTags`. That broke `main`: the next refresh needed the permission the pending fix restored, so
 plan, apply *and revert* all failed on the same `AccessDenied`.
 
-Recovered with the new `skip_refresh` dispatch lever (`docs/decisions/infrastructure.md`), then confirmed with an
+Recovered with the new `skip_refresh` dispatch lever (`docs/decisions/infrastructure/`), then confirmed with an
 ordinary refresh-enabled run.
 
 Two things worth carrying forward:
@@ -992,7 +992,7 @@ The observability module built its three IAM documents from `aws_iam_policy_docu
 sources, the last such sources in `infra/`. They are `templatefile()` renders now, because the
 module waits on `module.base` and a data source behind that edge is read at apply, which left the
 documents unknown on every pull request changing a deploy grant (the reasoning is in
-`docs/decisions/infrastructure.md`). Eleven enforced IDs had evaluated those three data sources and
+`docs/decisions/infrastructure/`). Eleven enforced IDs had evaluated those three data sources and
 nothing else, since the `.tf` scan cannot read a `templatefile()` policy: `CKV2_AWS_40`,
 `CKV_AWS_1`, `CKV_AWS_49`, `CKV_AWS_107` to `CKV_AWS_111`, `CKV_AWS_283`, `CKV_AWS_356` and
 `CKV_AWS_358`. Measured through `checkov-scan.sh` against checkov 3.3.9: on the parent tree the gate

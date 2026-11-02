@@ -1,10 +1,15 @@
-# Spec: The AWS Identity Layer — Role Assumption, the Two Credential Planes
+---
+type: Spec
+id: SPEC-196
+title: "The AWS Identity Layer — Role Assumption, the Two Credential Planes"
+description: "Lets the API assume the portal role server-side with session tags read from the verified token's claims, so every existing IAM, bucket and Lake Formation policy keeps isolating users unchanged."
+spec_status: Completed
+depends_on: [SPEC-011, SPEC-013, SPEC-016, SPEC-032, SPEC-056, SPEC-033, SPEC-106, SPEC-127, SPEC-128, SPEC-129, SPEC-130, SPEC-131, SPEC-132, SPEC-133, SPEC-134, SPEC-135, SPEC-136, SPEC-137, SPEC-186, SPEC-193, SPEC-195]
+arc: api-layer-and-containerisation
+arc_order: 5
+---
 
-**ID:** SPEC-196
-**Status:** Completed
-**Last Updated:** 2026-08-27
-**Depends On:** SPEC-011 (the Identity Pool ABAC model this spec preserves — the `username` principal tag stamped server-side from the verified claim), SPEC-013/016/032/056 (the portal role's prefix-, Glue- and membership-scoped policies that must keep enforcing unchanged), SPEC-033 (the catalog-safe username rule the session name is validated against), SPEC-106 (`toUserMessage` — raw AWS text is never rendered), SPEC-127→137 (`cpcommon.observability`, the one door, and the field rule), SPEC-186 (`env` + `version` on every log record; the deployed-role IAM simulation discipline), SPEC-193 (the API Lambda, its execution role and the placeholder route this spec proves itself with), SPEC-195 (the API's auth boundary — the verified ID token whose claims this layer reads its tag values from)
-
+**Dependency notes:** SPEC-011 (the Identity Pool ABAC model this spec preserves — the `username` principal tag stamped server-side from the verified claim), SPEC-013/016/032/056 (the portal role's prefix-, Glue- and membership-scoped policies that must keep enforcing unchanged), SPEC-033 (the catalog-safe username rule the session name is validated against), SPEC-106 (`toUserMessage` — raw AWS text is never rendered), SPEC-127→137 (`cpcommon.observability`, the one door, and the field rule), SPEC-186 (`env` + `version` on every log record; the deployed-role IAM simulation discipline), SPEC-193 (the API Lambda, its execution role and the placeholder route this spec proves itself with), SPEC-195 (the API's auth boundary — the verified ID token whose claims this layer reads its tag values from)
 ## Overview
 
 Today the browser holds AWS credentials. Amplify exchanges the Cognito ID token with the Identity

@@ -1,9 +1,13 @@
-# Spec: One Builder Per App-Managed Path
-
-**ID:** SPEC-218
-**Status:** Completed
-**Last Updated:** 2026-09-05
-**Depends On:** None
+---
+type: Spec
+id: SPEC-218
+title: "One Builder Per App-Managed Path"
+description: "Gives developers one path builder per fact for the athenaresults, archive and shared_tables folders, so moving them under system_settings does not silently break depth-anchored rules; no user-visible change."
+spec_status: Completed
+depends_on: []
+arc: system-settings-prefix
+arc_order: 1
+---
 
 ## Overview
 

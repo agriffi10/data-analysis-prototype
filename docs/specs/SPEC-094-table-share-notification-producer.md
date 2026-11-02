@@ -1,10 +1,15 @@
-# Spec: Table Share — Notification Producer (sender + recipients)
+---
+type: Spec
+id: SPEC-094
+title: "Table Share — Notification Producer (sender + recipients)"
+description: "Sends table-share outcomes to the notifications inbox, telling the sender how each recipient fared, telling user recipients or a shared space's owner on success, and telling only the sender on failure."
+spec_status: Completed
+depends_on: [SPEC-058, SPEC-092, SPEC-061, SPEC-072]
+arc: table-share
+arc_order: 7
+---
 
-**ID:** SPEC-094
-**Status:** Completed
-**Last Updated:** 2026-07-04
-**Depends On:** SPEC-058 (notifications write pipeline + `create` contract), SPEC-092 (per-recipient outcomes + shared role), SPEC-061/072 (emit-pattern precedents)
-
+**Dependency notes:** SPEC-058 (notifications write pipeline + `create` contract), SPEC-092 (per-recipient outcomes + shared role), SPEC-061/072 (emit-pattern precedents)
 > **Read `docs/table-share-architecture.md` §8 first.**
 
 ## Overview

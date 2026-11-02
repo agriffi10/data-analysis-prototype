@@ -1,9 +1,11 @@
-# Spec: Browse Prefixes — File Browser Against Test Bucket
-
-**ID:** SPEC-002  
-**Status:** Completed 
-**Last Updated:** 2026-05-23
-**Depends On:** SPEC-001
+---
+type: Spec
+id: SPEC-002
+title: "Browse Prefixes — File Browser Against Test Bucket"
+description: "Gives developers a locally runnable file browser pointed at a real test bucket, with a configurable root prefix, folder navigation, and a block on navigating above that root."
+spec_status: Completed
+depends_on: [SPEC-001]
+---
 
 ---
 

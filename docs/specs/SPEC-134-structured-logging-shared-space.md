@@ -1,10 +1,15 @@
-# Spec: Structured Logging — Instrument the Shared-Space Control Plane
+---
+type: Spec
+id: SPEC-134
+title: "Structured Logging — Instrument the Shared-Space Control Plane"
+description: "Gives operators structured events across the shared-space control plane's registry, per-user cache, Glue, Lake Formation and Cognito steps, so disagreement between those stores can be diagnosed by query."
+spec_status: Completed
+depends_on: [SPEC-130, SPEC-133, SPEC-125]
+arc: observability
+arc_order: 8
+---
 
-**ID:** SPEC-134
-**Status:** Completed
-**Last Updated:** 2026-07-23
-**Depends On:** SPEC-130 (the emitters and `step`), SPEC-133 (the infra pattern), SPEC-125 (`cpcommon` on this plane)
-
+**Dependency notes:** SPEC-130 (the emitters and `step`), SPEC-133 (the infra pattern), SPEC-125 (`cpcommon` on this plane)
 ## Overview
 
 The first of four rollout specs taking the SPEC-130 narrative to every remaining Lambda. Shared
