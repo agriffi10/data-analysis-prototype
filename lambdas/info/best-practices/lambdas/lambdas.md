@@ -1,6 +1,34 @@
+---
+type: Rulebook
+title: "AWS Lambda best practices"
+description: "Lambda shape for coding agents: single-task functions, thin handlers, idempotency, retries, least privilege, Step Function orchestration and the fleet's one container image."
+sources:
+  - id: aws-best-practices
+    resource: https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html
+    title: "Best practices for working with AWS Lambda Event Functions"
+  - id: aws-runtimes
+    resource: https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html
+    title: "Lambda Event Function runtimes"
+  - id: aws-python-image
+    resource: https://docs.aws.amazon.com/lambda/latest/dg/python-image.html
+    title: "Deploy Python Lambda Event Functions with container images"
+  - id: aws-container-images
+    resource: https://docs.aws.amazon.com/lambda/latest/dg/images-create.html
+    title: "Create a Lambda Event Function using a container image"
+  - id: aws-s3-conditional-writes
+    resource: https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
+    title: "How to prevent object overwrites with conditional writes"
+  - id: aws-sfn-quotas
+    resource: https://docs.aws.amazon.com/step-functions/latest/dg/service-quotas.html
+    title: "Step Functions service quotas"
+  - id: pep-8
+    resource: https://peps.python.org/pep-0008/
+    title: "PEP 8 – Style Guide for Python Code"
+stale_after: 2027-11-02T00:00:00Z
+---
 # AWS Lambda Best Practices — Agent Reference
 
-> Token-efficient rulebook for LLM coding agents writing/refactoring AWS Lambda functions (Python 3.12 in this repo; principles are language-agnostic). Each section is self-contained; load only the sections relevant to the task. Rules are imperative; ✅ = do, 🔴 = don't. Defaults assume event-driven functions invoked by a Step Function task, an EventBridge Pipe, SQS, or a Cognito trigger.
+> Token-efficient rulebook for LLM coding agents writing/refactoring AWS Lambda functions (Python 3.12 in this repo; principles are language-agnostic). Client reuse (§5), idempotency (§3), configuration in environment variables (§6) and least privilege (§7) follow AWS's own Lambda best practices[^aws-best-practices]. Each section is self-contained; load only the sections relevant to the task. Rules are imperative; ✅ = do, 🔴 = don't. Defaults assume event-driven functions invoked by a Step Function task, an EventBridge Pipe, SQS, or a Cognito trigger.
 
 ## How to use this doc
 - Find the relevant section ID(s) in the Index below.
@@ -49,7 +77,7 @@ Keep the entry point thin; push logic into pure, testable functions.
 Every event source here is **at-least-once** (SQS, Pipes, SFN retries). A function **will** be invoked twice for one logical request — design for it.
 
 - ✅ Make each operation **replay-safe**: re-running it produces the same end state, no duplicate side effects. Tolerate "already exists / already granted / already absent" as success, not error (mirrors the SPEC-033 post-confirmation Lambda).
-- ✅ Use a **conditional/atomic** primitive where uniqueness matters (e.g. S3 `PutObject If-None-Match:*` for create-once; a `requestId` you can check) instead of "read-then-write" races.
+- ✅ Use a **conditional/atomic** primitive where uniqueness matters (e.g. S3 `PutObject If-None-Match:*`[^aws-s3-conditional-writes] for create-once; a `requestId` you can check) instead of "read-then-write" races.
 - ✅ Carry a stable **`requestId`/dedupe key** through the workflow; treat a replay of an already-terminal request as a no-op success.
 - 🔴 Don't append/emit unconditionally on every invocation if a duplicate would be harmful (e.g. double-charging). For low-harm emits (notifications), at-least-once duplicates may be acceptable — **decide and document** (see SPEC-061).
 - ✅ Order writes so a mid-way failure is **recoverable on replay** (e.g. remove the source-of-truth record *last* in a cascade), never leaving a dangling "success" pointer.
@@ -70,7 +98,7 @@ Initialize reusable resources once per container, not per invocation.
 - ✅ Create SDK clients (`boto3.client(...)`), JWKS clients, and other reusable, **invocation-independent** objects at **module scope** (outside `handler`) so they're reused across warm invocations.
 - ✅ **Lazy-init** genuinely heavy/optional resources behind a cached accessor (e.g. a `_client()` that memoizes) so functions that don't need them don't pay the cost.
 - 🔴 Don't construct a new client inside the handler on every call, and don't put per-request state at module scope (§2).
-- ✅ Keep the deployment package **small** and deps **minimal** (§12) — fewer/lighter imports = faster cold starts. Prefer the standard library and the AWS SDK already present.
+- ✅ Keep the deployment package **small** and deps **minimal** (§12) — fewer/lighter imports = faster cold starts. Prefer the standard library and the AWS SDK the base image already carries (§12 says why that holds here).
 - ✅ Favor many small functions over one large one partly *because* each cold-starts faster with a narrower dependency set (§1).
 
 ## §6 Configuration
@@ -114,7 +142,7 @@ Put the **workflow** in the state machine; keep each **Task** a single-task Lamb
 - ✅ Model multi-step work as explicit states: a **validate** step, then a **`Choice`** that routes by `action` to the right verb Task (e.g. `event → validate-authorize → create-space`, or `event → validate-authorize → add-members`). Each branch is its own workflow.
 - 🔴 Don't implement the router as an `if action == …` ladder **inside one Lambda** — that's the monolith. ✅ The `Choice` state is the router; verb Lambdas don't know about each other.
 - ✅ Use the state machine for **retry/backoff (`Retry`)**, **error routing (`Catch` → recorded-failure state)**, **fan-out (`Map`)**, and **parallelism (`Parallel`)** instead of coding those in a Lambda (§4).
-- ✅ Keep state-passed **payloads small** — pass ids/keys and let each Task fetch what it needs (§2); large blobs between states are an anti-pattern and hit size limits.
+- ✅ Keep state-passed **payloads small** — pass ids/keys and let each Task fetch what it needs (§2); large blobs between states are an anti-pattern and hit size limits[^aws-sfn-quotas].
 - ✅ Make each Task **idempotent** (§3) so SFN retries are safe.
 - ✅ Shared concerns that must run on **every** branch (e.g. emit a notification, record terminal status) are either a **common helper** each verb calls or a dedicated terminal state — decide per project (this repo: verb Lambdas emit inline via a shared helper, SPEC-061).
 
@@ -135,20 +163,32 @@ Code and infrastructure live apart; share code deliberately; ship small.
 
 - ✅ This repo: function **source** under `lambdas/<name>/` (snake_case filename); **Terraform** owns the function as a call to [`docker-lambda`](../../../../infra/modules/docker-lambda/README.md) carrying **`ignore_changes = [image_uri]`**, and `deploy-lambdas.yml` points every function at the fleet's one image, deriving the fleet from those module calls — its own `strategy.matrix` is over **shards**, not functions. Adding a function adds a code dir **and** its infra, and nothing else: [`../../deployment.md`](../../deployment.md).
 - 🔴 **Never name a verb's module `handler.py`.** `pytest lambdas/` flattens EVERY verb directory into ONE module namespace, so the first `import handler` wins for the whole session and other verbs' tests silently import and assert against the wrong module — green CI, wrong code. "Each function is its own zip, so the directory disambiguates" was true of Lambda and false of pytest (SPEC-108 shipped that; SPEC-110 reversed it across nine verbs) — and the container image removed the half that was true, since all 86 functions now share ONE task root where a repeated module name does not collide but silently wins for the whole fleet. ✅ Name the module for the VERB, **arc-prefixed** where the bare name is taken: `dq_inspect_source.py`, `table_share_inspect_source.py` — table-builder owns the unprefixed `inspect_source` / `validate_authorize`. Same rule for test files: basenames are globally unique (`test_dq_inspect_source.py`, `test_table_share_inspect_source.py`).
-- ✅ The TF `command` string and the module filename **move together** — the command IS `<module>.<handler>`, the same string the function carried as its `handler` under the old packaging. A mismatch deploys a function whose entrypoint does not exist, and **nothing but a live invoke or the image's own import matrix catches it**: `tofu validate`, the test suite and the deploy all pass. Assert the parity when you rename.
+- ✅ The TF `command` string and the module filename **move together** — the command IS `<module>.<handler>`[^aws-python-image], the same string the function carried as its `handler` under the old packaging. A mismatch deploys a function whose entrypoint does not exist, and **nothing but a live invoke or the image's own import matrix catches it**: `tofu validate`, the test suite and the deploy all pass. Assert the parity when you rename.
 - ✅ A shared-layer module that imports a **conditional dependency** (e.g. `cpcommon/type_mapping.py` → polars) is safe only while the package `__init__` imports no submodules, so it loads iff explicitly imported. Say so loudly in its docstring, and check what every importer can actually reach in the image, which is now the whole of it (§6's env-union trap in another guise).
 - ✅ Put **shared code** (auth/JWT verify, registry I/O, client factories, the notification emit helper) in a **`lambdas/*-common/` directory** imported by each single-task function — don't copy-paste across verb functions (§1). There are no Lambda layers: the image assembler copies what those directories hold onto `/opt/python`, and a directory that is neither a function nor `*-common` is refused rather than guessed at.
-- ✅ **Pin and minimize** dependencies (`requirements.txt`); prefer stdlib + the bundled AWS SDK; every extra dep grows the package and cold start (§5).
-- 🔴 Don't fetch network resources, write outside `/tmp`, or assume local state persists across invocations (only `/tmp` is writable and only within a warm container).
+- ✅ **Pin and minimize** dependencies (`requirements.txt`); prefer stdlib + the AWS SDK the base image bundles; every extra dep grows the package and cold start (§5). Relying on that bundled SDK departs from AWS on purpose: it recommends packaging the SDK your code uses, for control of your dependencies and for compatibility across automatic runtime updates[^aws-runtimes]. An image-based function takes no automatic update, since rebuilding it is your job[^aws-runtimes], and this base is pinned by digest, so the SDK moves only at a build, where `lambdas/Dockerfile` asserts the botocore parameters the restore needs.
+- 🔴 Don't fetch network resources, write outside `/tmp`, or assume local state persists across invocations (only `/tmp` is writable[^aws-container-images] and only within a warm container).
 - ✅ Keep each function independently deployable; a missing optional dependency degrades to a no-op (§6), not a deploy-order deadlock.
 
 ## §13 Language conventions
 A Lambda is also ordinary code in a language — §1–§12 govern its *Lambda* shape, not its *language* style. Apply the language's own best practices **on top of** these rules.
 
 - ✅ **Python Lambdas follow Python best practices.** If a Python rulebook exists in `best-practices/` (e.g. `python/python.md`), route to it via `best-practices/INDEX.md` and load the relevant sections; otherwise apply standard Python conventions below.
-- ✅ **PEP 8** style + a formatter/linter (e.g. `black` + `ruff`/`flake8`); snake_case functions/modules, CONSTANT_CASE module constants (matches the repo's existing `lambdas/`).
+- ✅ **PEP 8**[^pep-8] style + a formatter/linter (e.g. `black` + `ruff`/`flake8`); snake_case functions/modules, CONSTANT_CASE module constants (matches the repo's existing `lambdas/`).
 - ✅ **Type hints** on function signatures + `mypy`-clean where practical; makes the thin handler → pure-function boundary (§2) explicit and testable (§11).
 - ✅ **Specific exceptions**, not bare `except:`; define domain exception types (§4) and never `except: pass` (§4 swallowing rule).
 - ✅ Pythonic structure: small pure functions, docstrings on the public ones, `pathlib`/context managers for I/O, f-strings, comprehensions over manual loops where clearer — and **stdlib first** before adding a dependency (§5/§12).
-- ✅ Pin the runtime (this repo: **Python 3.12**) and keep `requirements.txt` pinned + minimal (§12).
+- ✅ Pin the runtime (this repo: **Python 3.12**, the `public.ecr.aws/lambda/python:3.12` AWS base image[^aws-python-image] pinned by digest in `lambdas/Dockerfile`; AWS sends no deprecation notice for an image-based function, so check its date in the runtimes table[^aws-runtimes]) and keep `requirements.txt` pinned + minimal (§12).
 - The same applies to any other language a Lambda is written in: layer its ecosystem's conventions over §1–§12.
+
+---
+
+## Sources
+
+[^aws-best-practices]: Best practices for working with AWS Lambda Event Functions — https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html
+[^aws-runtimes]: Lambda Event Function runtimes — https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html
+[^aws-python-image]: Deploy Python Lambda Event Functions with container images — https://docs.aws.amazon.com/lambda/latest/dg/python-image.html
+[^aws-container-images]: Create a Lambda Event Function using a container image — https://docs.aws.amazon.com/lambda/latest/dg/images-create.html
+[^aws-s3-conditional-writes]: How to prevent object overwrites with conditional writes — https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
+[^aws-sfn-quotas]: Step Functions service quotas — https://docs.aws.amazon.com/step-functions/latest/dg/service-quotas.html
+[^pep-8]: PEP 8 – Style Guide for Python Code — https://peps.python.org/pep-0008/

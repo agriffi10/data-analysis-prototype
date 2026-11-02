@@ -25,7 +25,9 @@ Usage: ``python3 scripts/validate_docs_test.py`` — takes no arguments, imports
 the standard library, and exits non-zero if any case does not behave as declared.
 """
 
+import datetime
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -38,9 +40,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # that depends on it. Paths inside them are assembled the way D() assembles every fixture path, so
 # this file states no doc-path claim for the scan to refuse.
 CLAUDE = (
-    "# P\n\n## Key Decisions (settled)\n\nIntro.\n\n| Area | Fences |\n|---|---|\n"
-    "| Area one | [`area-one.md`](docs/decisions" + "/area-one.md#fences) |\n"
-    "| Identity and access | [`identity-and-access.md`](docs/decisions" + "/identity-and-access.md#fences) |\n\n"
+    "# P\n\n## Key Decisions (settled)\n\nIntro.\n\n| Area | Directory |\n|---|---|\n"
+    "| Area one | `docs/decisions/area-one/` |\n"
+    "| Identity and access | `docs/decisions/identity-and-access/` |\n\n"
     "## Out of Scope\n\nx\n")
 ROUTER = (
     "# Process\n\n## Loaded every session\n\n| File | Authoritative for |\n|---|---|\n"
@@ -50,12 +52,31 @@ ROUTER = (
     "| [`session-rhythm.md`](session-rhythm.md) | rhythm | every session |\n"
     "| [`authoring-a-spec.md`](authoring-a-spec.md) | authoring | when writing |\n"
     "| [`completion-ritual.md`](completion-ritual.md) | closing | when closing |\n"
-    "| [`spec-lifecycle.md`](spec-lifecycle.md) | statuses | when status changes |\n")
-AREA_ONE = (
-    "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n"
-    "## Fences\n\n- **Alpha** — fence.\n\n## Alpha\n\nR.\n")
-RULE = ("---\npaths:\n  - \"{glob}\"\n---\n\nThis file is in the **{label}** area of the Key Decisions register.\n"
-        "Before changing it, read `docs/decisions" + "/{area}.md#fences` — the traps there apply green and fail later.\n")
+    "| [`spec-lifecycle.md`](spec-lifecycle.md) | statuses | when status changes |\n"
+    "| [`knowledge-layout.md`](knowledge-layout.md) | frontmatter | when it fails |\n")
+HISTORY = "## History\n\n### 2026-01-02\n\n- **Settled:** a spec.\n"
+
+
+def _concept(title="Area one", governs="lambdas/**", extra=""):
+    """An area concept: the file that names an area and says what it governs."""
+    return f'---\ntype: Decision Area\ntitle: "{title}"\ngoverns: [{governs}]\n{extra}---\n\nWhat the area settles.\n'
+
+
+def _decision(fence="The fence.", extra="", body="The entry.\n\n" + HISTORY, kind="Decision", title="Alpha"):
+    """One decision: its fence in the frontmatter, its entry and History in the body."""
+    return f'---\ntype: {kind}\ntitle: "{title}"\ndescription: "{fence}"\n{extra}---\n\n{body}'
+
+
+ALPHA = ("decisions", "area-one", "alpha.md")
+RULE = ("---\npaths:\n  - \"{glob}\"\n---\nFiles matching these paths are governed by the **{label}** decisions in "
+        "`docs/decisions/{area}/`.\nRead the area's fences in `docs/decisions/index.yaml` first — they are not "
+        "loaded with CLAUDE.md.\n")
+# The rulebook every case starts from: one source, cited once. Its date is far enough out that a
+# case about the clock always writes its own.
+BOOK = "lambdas/info" + "/best-practices/demo/demo.md"
+BOOK_FM = ('---\ntype: Rulebook\ntitle: "Demo"\ndescription: "Rules, for an agent."\nsources:\n  - id: one\n'
+           '    resource: https://example.com/one\n    title: "One"\nstale_after: 2999-01-01T00:00:00Z\n---\n')
+BOOK_BODY = "# Demo\n\nA rule on a version.[^one]\n\n[^one]: One — https://example.com/one\n"
 # The inventory page every case starts from: the directory it covers declared in its H1, and one
 # row on line 7, so a row a case appends is on line 8.
 DEMO = "apps/portal/src/features/demo"
@@ -67,10 +88,10 @@ def build(root: pathlib.Path) -> None:
     """Write the smallest documentation tree that passes every check.
 
     Every file here is load-bearing for at least one check, which is why the baseline is this
-    large: the checks are cross-referential. The decisions register must be routed by its INDEX
-    and its areas must match the rows of CLAUDE.md's Key Decisions table, each of which
-    resolves to a file opening with its Fences and to a pointer rule under ``.claude/rules/``; the workflows README must have a row
-    per workflow; and ``check_doc_paths_everywhere`` reads the doc paths named in
+    large: the checks are cross-referential. The areas of the decisions register must match the
+    rows of CLAUDE.md's Key Decisions table, each of which resolves to a directory with its concept
+    and to a pointer rule under ``.claude/rules/``; both indexes must be fresh, so the reader and the
+    generator are copied in beside the validator; the workflows README must have a row per workflow; and ``check_doc_paths_everywhere`` reads the doc paths named in
     ``validate_docs.py``'s OWN docstrings, so those files have to exist here too.
 
     Args:
@@ -83,7 +104,8 @@ def build(root: pathlib.Path) -> None:
       None.
     """
     (root / "scripts").mkdir(parents=True)
-    shutil.copy(REPO / "scripts" / "validate_docs.py", root / "scripts" / "validate_docs.py")
+    for script in ("validate_docs.py", "frontmatter.awk", "gen-index.sh"):
+        shutil.copy(REPO / "scripts" / script, root / "scripts" / script)
     # The citation ratchet is EXACT — a count below it is an error too, because a fall means
     # either a repair or a scan that stopped looking. The fixture tree has no stale citation, so
     # its ratchet is zero; leaving the repository's own number here would fail every case.
@@ -97,21 +119,20 @@ def build(root: pathlib.Path) -> None:
     (root / "CLAUDE.md").write_text(CLAUDE)
     (root / "docs" / "process" / "INDEX.md").write_text(ROUTER)
     (root / "docs" / "process" / "session-rhythm.md").write_text("# Rhythm\n")
-    for name in ("authoring-a-spec.md", "completion-ritual.md", "spec-lifecycle.md"):  # named in validate_docs.py's docstrings
+    for name in ("authoring-a-spec.md", "completion-ritual.md", "spec-lifecycle.md", "knowledge-layout.md"):  # named in validate_docs.py and gen-index.sh
         (root / "docs" / "process" / name).write_text("# On demand\n")
-    (root / ".claude" / "rules" / "area-one.md").write_text(RULE.format(glob="lambdas/**", label="Area one", area="area-one"))
-    (root / ".claude" / "rules" / "identity-and-access.md").write_text(
+    (root / ".claude" / "rules" / "decisions-area-one.md").write_text(RULE.format(glob="lambdas/**", label="Area one", area="area-one"))
+    (root / ".claude" / "rules" / "decisions-identity-and-access.md").write_text(
         RULE.format(glob=".github/**", label="Identity and access", area="identity-and-access"))
     (root / "docs" / "reviewer-contract.md").write_text("# Reviewer contract\n")
     for name in ("e2e.md", "owed.md", "sessions.md"):
         (root / "docs" / "testing" / name).write_text("# t\n")
-    (root / "docs" / "decisions" / "INDEX.md").write_text(
-        "# Decisions\n\n- [Area one](area-one.md)\n- [Identity and access](identity-and-access.md)\n")
-    (root / "docs" / "decisions" / "area-one.md").write_text(AREA_ONE)
-    (root / "docs" / "decisions" / "identity-and-access.md").write_text(
-        "# Identity and access\n\n## Contents\n\n- [Fences](#fences)\n- [X](#x)\n\n"
-        "## Fences\n\n- **X** — fence.\n\n## X\n\nR.\n")
-    (root / "docs" / "specs" / "INDEX.md").write_text("# Index\n")
+    _write(root, D("decisions", "area-one", "area-one.md"), _concept())
+    _write(root, D(*ALPHA), _decision())
+    _write(root, D("decisions", "identity-and-access", "identity-and-access.md"),
+           _concept("Identity and access", ".github/**"))
+    _write(root, D("decisions", "identity-and-access", "x.md"), _decision(title="X"))
+    _write(root, BOOK, BOOK_FM + BOOK_BODY)
     (root / "docs" / "specs" / "ARCS.md").write_text("# Arcs\n")
     (root / "lambdas" / "info" / "planes" / "api.md").write_text("# API plane\n")
     (root / ".github" / "workflows" / "ci.yml").write_text(
@@ -140,6 +161,26 @@ def build(root: pathlib.Path) -> None:
     # from, so the baseline carries one page whose one row resolves.
     _write(root, INV("demo-feature.md"), INVENTORY_PAGE)
     _write(root, DEMO + "/Widget.tsx", "export const Widget = 1;\n")
+    _regen(root)
+
+
+def _regen(root: pathlib.Path) -> None:
+    """Write the fixture's two indexes, the step a change to any frontmatter owes.
+
+    Exit status deliberately ignored: a tree the generator refuses leaves its index as it was, and
+    what the validator then says about that is what a refusal case asserts.
+
+    Args:
+      root: The fixture repository.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    # Both operands are ours: `sh` and a script path this file wrote.
+    subprocess.run(["sh", str(root / "scripts" / "gen-index.sh")], capture_output=True, check=False)  # noqa: S603, S607
 
 
 def run(root: pathlib.Path) -> tuple[int, str]:
@@ -205,11 +246,17 @@ def _touch(root, *rels):
         _write(root, rel, f"export const {pathlib.PurePosixPath(rel).name.split('.')[0]} = 1;\n")
 
 
-def _spec(n, frs, status="Draft"):
+def _fm(n, status="Draft", extra=""):
+    """A spec's frontmatter, on its own, for a case that writes the body itself."""
+    return (f'---\ntype: Spec\nid: SPEC-{n:03d}\ntitle: "SPEC-{n:03d}: Thing"\ndescription: "A thing, for a user."\n'
+            f"spec_status: {status}\ndepends_on: []\n{extra}---\n\n")
+
+
+def _spec(n, frs, status="Draft", extra=""):
     """A spec in the template's shape: the four required sections, each FR with acceptance criteria."""
     body = "\n".join(f"### FR-{i:03d} A requirement\n\nText.\n\n#### Acceptance Criteria:\n\n- [ ] a\n"
                      for i in range(1, frs + 1))
-    return (f"# SPEC-{n:03d}: Thing\n\nStatus: {status}\n\n## Overview\n\nWhy.\n\n## Scope\n\nWhat.\n\n"
+    return (_fm(n, status, extra) + "## Overview\n\nWhy.\n\n## Scope\n\nWhat.\n\n"
             f"## Functional Requirements\n\n{body}\n## Implementation Phases\n\n### Phase 1\n\n- do\n")
 
 
@@ -238,8 +285,6 @@ def _citation_ratchet(root, value):
     to appear exactly once, so a renamed constant fails here instead of leaving the cases to pass
     against a ratchet that no longer exists.
     """
-    import re
-
     script = root / "scripts" / "validate_docs.py"
     text = script.read_text()
     found = re.findall(r"^TEST_CITATION_MAX = \d+$", text, re.MULTILINE)
@@ -248,11 +293,21 @@ def _citation_ratchet(root, value):
     script.write_text(text.replace(found[0], f"TEST_CITATION_MAX = {value}"))
 
 
+def _days_from_now(days):
+    """A ``stale_after`` instant this many days from the clock the validator will read."""
+    instant = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days)
+    return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _cite(root, value, rel, body):
     """Plant one citation with the ratchet at zero, so a single stale name decides the exit code."""
     _citation_ratchet(root, value)
     _write(root, rel, body)
 
+
+# The cases about a stale or missing index, for which regenerating after the mutation would undo the
+# thing under test. Every other case gets a fresh index, as a real change to frontmatter would.
+KEEP_INDEX = {"index_missing", "index_stale_against_a_new_spec", "index_edited_by_hand"}
 
 CASES = [
     # ---- check_testing_layout -------------------------------------------------------------
@@ -281,10 +336,6 @@ CASES = [
     ("claude_over_budget",
      lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text() + "\nfiller " * 9000),
      1, "CLAUDE.md is"),
-    ("fences_bullet_too_long",
-     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("- **Alpha** — fence.", "- **Alpha** — " + "reasoning " * 150)),
-     1, "a Fences bullet is"),
-
     # ---- check_process_budget -------------------------------------------------------------
     ("process_pair_over_budget",
      lambda r: _write(r, D("process", "session-rhythm.md"), "# Rhythm\n" + ("filler line of prose. " * 900)),
@@ -292,15 +343,6 @@ CASES = [
     ("process_always_loaded_file_missing",
      lambda r: (r / D("process", "session-rhythm.md")).unlink(),
      1, "session-rhythm.md is missing"),
-
-    # ---- check_decisions_register ---------------------------------------------------------
-    ("register_entry_unlisted",
-     lambda r: _write(r, D("decisions", "area-one.md"),
-                      "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n\n## Beta\n\nR.\n"),
-     1, "Contents"),
-    ("register_area_unrouted",
-     lambda r: _write(r, D("decisions", "INDEX.md"), "# Decisions\n\n- [Area one](area-one.md)\n"),
-     1, "not routed"),
 
     # ---- check_arcs -----------------------------------------------------------------------
     # The heading is LISTED deliberately. Without the list entry the fixture also trips the
@@ -318,22 +360,13 @@ CASES = [
     # ---- check_spec_status ----------------------------------------------------------------
     # The spec carries FRs deliberately. Without them `check_spec_size` fires instead and the
     # case passes for the wrong reason — which is what mutation-testing this corpus caught.
-    # The delivery doc exists deliberately: without it, `Status: Completed` also trips the
-    # "Completed with no write-up" exit and the case passes with the disagreement rule disabled.
-    ("spec_status_disagrees",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3).replace("Status: Draft", "Status: Completed")),
-                _write(r, D("spec-delivery", "SPEC-001-thing.md"), "# Completed Spec — SPEC-001\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
-     1, "INDEX.md says"),
     ("spec_completed_without_delivery_doc",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3).replace("Status: Draft", "Status: Completed")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Completed |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3, "Completed"))],
      1, "no docs/spec-delivery/ write-up"),
 
     # ---- check_spec_size -------------------------------------------------------------------
     ("spec_with_no_fr_headings",
-     lambda r: [_write(r, D("specs", "SPEC-002-thing.md"), "# SPEC-002: Thing\n\nStatus: Draft\n\nProse only.\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 002 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-002-thing.md"), _fm(2) + "Prose only.\n")],
      1, "size ratchet cannot see"),
 
     # ---- check_delivery_size --------------------------------------------------------------
@@ -374,62 +407,45 @@ CASES = [
      1, "nowhere.md"),
 
     # ---- silence cases ---------------------------------------------------------------------
-    # ---- check_fences ---------------------------------------------------------------------
-    ("fences_not_first",
-     lambda r: _write(r, D("decisions", "area-one.md"),
-                      "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n- [Fences](#fences)\n\n## Alpha\n\nR.\n\n## Fences\n\n- **Alpha** — fence.\n"),
-     1, "not 'Fences'"),
-    ("fences_missing",
-     lambda r: _write(r, D("decisions", "area-one.md"), "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n"),
-     1, "does not list [Fences](#fences) first"),
-    ("claude_table_row_points_nowhere",
-     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("/area-one.md#fences", "/area-two.md#fences")),
-     1, "is not an existing file's #fences"),
-    ("claude_table_missing_an_area",
-     lambda r: _write(r, "CLAUDE.md", "\n".join(line for line in CLAUDE.split("\n") if not line.startswith("| Area one")) ),
-     1, "is not one of the areas in CLAUDE.md's"),
-    ("register_index_order_differs",
-     lambda r: _write(r, D("decisions", "INDEX.md"), "# Decisions\n\n- [Identity and access](identity-and-access.md)\n- [Area one](area-one.md)\n"),
-     1, "different order"),
     ("fences_pointer_resolves_to_nothing",
-     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("fence.", "fence, see `@" + D("nowhere.md") + "`.")),
-     1, "(Fences): points at a missing doc"),
+     lambda r: _write(r, D(*ALPHA), _decision("The fence, see `@" + D("nowhere.md") + "`.")),
+     1, "(fence): points at a missing doc"),
     # ---- check_rules ----------------------------------------------------------------------
     ("rule_missing_for_an_area",
-     lambda r: (r / ".claude" / "rules" / "area-one.md").unlink(),
-     1, "area-one.md is missing"),
+     lambda r: (r / ".claude" / "rules" / "decisions-area-one.md").unlink(),
+     1, "decisions-area-one.md is missing"),
     ("rule_for_no_area",
      lambda r: _write(r, ".claude/rules/other.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one")),
      1, "names no Key Decisions area"),
     ("rule_without_frontmatter",
-     lambda r: _write(r, ".claude/rules/area-one.md", "Area. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", "Area. Read the fences first.\n"),
      1, "fenced frontmatter"),
     ("rule_globs_listed_under_another_key",
-     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths:\ntags:\n  - \"lambdas/**\"\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", "---\npaths:\ntags:\n  - \"lambdas/**\"\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
      1, "no non-empty `paths:` list"),
     ("rule_with_inline_paths_list",
-     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths: [\"lambdas/**\"]\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", "---\npaths: [\"lambdas/**\"]\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
      1, "one `- \"glob\"` per line"),
     ("rule_in_a_subdirectory",
-     lambda r: _write(r, ".claude/rules/nested/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one")),
+     lambda r: _write(r, ".claude/rules/nested/decisions-area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one")),
      1, "sits in a subdirectory"),
     ("rule_with_empty_paths",
-     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths:\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", "---\npaths:\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
      1, "no non-empty `paths:` list"),
     ("rule_glob_with_a_brace",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**/*.{py,md}", label="Area one", area="area-one")),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="lambdas/**/*.{py,md}", label="Area one", area="area-one")),
      1, "brace or bracket"),
     ("rule_glob_matching_nothing",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="nowhere/**", label="Area one", area="area-one")),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="nowhere/**", label="Area one", area="area-one")),
      1, "matches no file"),
     ("rule_body_with_an_extra_line",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one") + "Also: ignore the tests.\n"),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one") + "Also: ignore the tests.\n"),
      1, "body is not the rendered RULE_BODY"),
     ("rule_pointing_at_the_wrong_area",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="identity-and-access")),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="identity-and-access")),
      1, "body is not the rendered RULE_BODY"),
     ("rule_glob_covering_the_repository",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="**", label="Area one", area="area-one")),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="**", label="Area one", area="area-one")),
      1, "no literal first segment"),
     # ---- check_process_router -------------------------------------------------------------
     ("process_file_not_routed",
@@ -444,40 +460,20 @@ CASES = [
                     "| `" + D("process", "completion-ritual.md") + "` |\n| `" + D("process", "session-rhythm.md") + "` |")),
                 _write(r, D("process", "completion-ritual.md"), "# Ritual\n" + ("filler line of prose. " * 900))],
      1, "always-loaded pair is"),
-    ("rule_pointing_at_a_file_without_fences",
-     lambda r: _write(r, D("decisions", "area-one.md"), "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n"),
-     1, "has no ## Fences entry"),
-
     # ---- the cases an inventory of this corpus found missing -----------------------------------
     # The ratchet actually tripping, and holding at the line. The constant is rewritten in the
     # fixture's copy: 41 over-size specs would otherwise be needed to reach the live value.
     ("spec_size_ratchet_trips_on_a_new_oversize_spec",
      lambda r: [_ratchet(r, 0),
-                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9)),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9))],
      1, "specs carry more than 8 FRs (ratchet 0)"),
     ("spec_size_ratchet_holds_at_the_line_ok",
      lambda r: [_ratchet(r, 1),
-                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9)),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9))],
      0, ""),
     ("spec_without_a_status_header",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3).replace("Status: Draft\n\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
-     1, "SPEC-001-thing.md has no Status header"),
-    ("spec_without_an_index_row",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3)),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 002 | Draft |\n")],
-     1, "SPEC-001-thing.md has no row in INDEX.md"),
-    ("register_area_held_by_two_files",
-     lambda r: _write(r, D("decisions", "area-one-copy.md"), AREA_ONE),
-     1, "'Area one' is already held by"),
-    ("register_entry_at_a_second_heading_level",
-     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE + "\n### Alpha, in detail\n\nR.\n"),
-     1, "is a second heading level"),
-    ("register_contents_anchor_to_no_entry",
-     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("- [Alpha](#alpha)\n", "- [Alpha](#alpha)\n- [Gone](#gone)\n")),
-     1, "links to #gone, which is no entry in this file"),
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3).replace("spec_status: Draft\n", ""))],
+     1, "SPEC-001-thing.md: frontmatter has no `spec_status`"),
     ("testing_two_arc_scripts_in_flight",
      lambda r: [_write(r, D("testing", "arc-b-e2e.md"), "# b\n"),
                 _write(r, D("testing", "arc-c-e2e.md"), "# c\n")],
@@ -487,172 +483,680 @@ CASES = [
      1, "spec-221-conversion.sh is named after a SPEC"),
 
     # ---- check_spec_shape -----------------------------------------------------------------
-    # Every case indexes its spec: the status check runs beside the shape check, and a spec with
-    # no INDEX row would fail for that reason and pass the shape assertion vacuously.
     ("spec_missing_a_required_section",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n\nWhat.\n\n", ""))],
      1, "SPEC-001-thing.md: missing required section '## Scope'"),
     ("spec_section_only_at_a_deeper_level",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "### Scope\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "### Scope\n"))],
      1, "missing required section '## Scope'"),
     ("spec_section_name_is_only_a_prefix",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "## Scoped\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "## Scoped\n"))],
      1, "missing required section '## Scope'"),
     # Several sections missing at once, and several specs at once: a check that stops after the
     # first missing section, or returns after the first file, passes every single-section,
     # single-spec case above.
     ("spec_missing_two_sections_names_each",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
-                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "").replace("## Implementation Phases\n", "## Phases\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "").replace("## Implementation Phases\n", "## Phases\n"))],
      1, "missing required section '## Implementation Phases'"),
     # One case per required section, so dropping any ONE name from SPEC_REQUIRED_SECTIONS reddens
     # something: with only Scope and Phases ever removed, Overview and Functional Requirements
     # could vanish from the tuple with the corpus green — measured by a reviewer's plant.
     ("spec_missing_overview",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n\nWhy.\n\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n\nWhy.\n\n", ""))],
      1, "missing required section '## Overview'"),
     ("spec_missing_functional_requirements",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Functional Requirements\n", "## Requirements\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Functional Requirements\n", "## Requirements\n"))],
      1, "missing required section '## Functional Requirements'"),
     ("spec_second_of_two_specs_fails",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
-                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("## Scope\n\nWhat.\n\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n| 002 | Draft |\n")],
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("## Scope\n\nWhat.\n\n", ""))],
      1, "SPEC-002-thing.md: missing required section '## Scope'"),
     ("spec_two_warnings_on_one_spec",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
-                       _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", "") + "\nSee SPEC-XXX.\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                       _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", "") + "\nSee SPEC-XXX.\n")],
      0, "2 warning(s)"),
     ("spec_sections_in_any_case_ok",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
                        _spec(1, 2).replace("## Overview", "## overview").replace("## Scope", "## SCOPE")
                        .replace("## Functional Requirements", "## Functional requirements")
-                       .replace("## Implementation Phases", "## implementation phases")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                       .replace("## Implementation Phases", "## implementation phases"))],
      0, ""),
     ("spec_banned_heading_at_any_level",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n#### Checkpoint: pause here\n\nno\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n#### Checkpoint: pause here\n\nno\n")],
      1, "banned heading '#### Checkpoint: pause here'"),
     ("spec_banned_heading_names_its_line",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), "# S\n\nStatus: Draft\n\n## Open Questions\n\n" + _spec(1, 2).split("\n", 4)[4]),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
-     1, "SPEC-001-thing.md line 5: banned heading"),
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n", "## Open Questions\n\n## Overview\n"))],
+     1, "SPEC-001-thing.md line 10: banned heading"),
     ("spec_banned_heading_in_any_case",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n## open questions\n\nnone\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n## open questions\n\nnone\n")],
      1, "banned heading '## open questions'"),
     ("spec_banned_heading_inside_a_fence_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n#### Checkpoint\n```\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n#### Checkpoint\n```\n")],
      0, ""),
     ("spec_banned_heading_inside_a_comment_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\n## Open Questions\n-->\n<!-- #### Checkpoint -->\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\n## Open Questions\n-->\n<!-- #### Checkpoint -->\n")],
      0, ""),
     # A comment opened mid-line swallows the lines after it until it closes: the banned heading
     # inside is not a heading. A reader that only enters comment state on a line STARTING with
     # `<!--` passes every other comment case here.
     ("spec_banned_heading_after_a_midline_comment_opener_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nNote <!-- draft\n## Open Questions\n-->\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nNote <!-- draft\n## Open Questions\n-->\n")],
      0, ""),
     ("spec_banned_heading_inside_a_tilde_fence_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n~~~\n## Open Questions\n#### Checkpoint\n~~~\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n~~~\n## Open Questions\n#### Checkpoint\n~~~\n")],
      0, ""),
     ("spec_banned_heading_deep_inside_a_comment_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\ndraft note\n## Open Questions\n-->\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\ndraft note\n## Open Questions\n-->\n")],
      0, ""),
     ("spec_fence_never_closed_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n")],
      0, ""),
     # The banned word anywhere in the heading, not only at its start — the template's semantics.
     ("spec_banned_word_inside_a_heading",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n### Phase 2 checkpoint\n\nno\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n### Phase 2 checkpoint\n\nno\n")],
      1, "banned heading '### Phase 2 checkpoint'"),
     ("spec_required_section_inside_a_fence_does_not_count",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
-                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "```\n## Scope\n```\n\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "```\n## Scope\n```\n\n"))],
      1, "missing required section '## Scope'"),
     # The exemption. A Completed spec from the earlier template, with both retired headings, is
     # left alone; so is a Cancelled tombstone with none of the required sections.
     ("spec_completed_before_the_rule_is_exempt_ok",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
                        _spec(1, 2, "Completed") + "\n#### Checkpoint: old\n\n## Open Questions\n\nnone\n"),
-                _write(r, D("spec-delivery", "SPEC-001-thing.md"), "# Completed Spec — SPEC-001\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Completed |\n")],
+                _write(r, D("spec-delivery", "SPEC-001-thing.md"), "# Completed Spec — SPEC-001\n")],
      0, ""),
     ("spec_cancelled_tombstone_is_exempt_ok",
      lambda r: [_write(r, D("specs", "SPEC-003-thing.md"),
-                       "# SPEC-003: Thing\n\n**Status:** Cancelled\n\n## Why\n\nMoved.\n\n## Where the work went\n\nElsewhere.\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 003 | Cancelled |\n")],
+                       _fm(3, "Cancelled") + "## Why\n\nMoved.\n\n## Where the work went\n\nElsewhere.\n")],
      0, ""),
     # ...and it fails CLOSED: a status outside the exempt set, and no status at all, are judged.
     ("spec_superseded_is_not_exempt",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded") + "\n## Open Questions\n\nnone\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Superseded |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded") + "\n## Open Questions\n\nnone\n")],
      1, "banned heading '## Open Questions'"),
     ("spec_in_progress_is_not_exempt",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "In Progress") + "\n## Open Questions\n\nnone\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | In Progress |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "In Progress") + "\n## Open Questions\n\nnone\n")],
      1, "banned heading '## Open Questions'"),
     ("spec_without_a_status_is_judged",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
-                       _spec(1, 2).replace("Status: Draft\n\n", "").replace("## Scope\n\nWhat.\n\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+                       _spec(1, 2).replace("spec_status: Draft\n", "").replace("## Scope\n\nWhat.\n\n", ""))],
      1, "missing required section '## Scope'"),
     # The warnings: reported, exit 0. One case per placeholder, so dropping one from the tuple
     # is a red case rather than a quieter corpus.
     ("spec_placeholder_feature_name_warns",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("SPEC-001: Thing", "SPEC-001: [Feature Name]")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("SPEC-001: Thing", "SPEC-001: [Feature Name]"))],
      0, "SPEC-001-thing.md: unfilled template placeholder(s): [Feature Name]"),
     ("spec_placeholder_requirement_name_warns",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("FR-001 A requirement", "FR-001: [Requirement Name]")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("FR-001 A requirement", "FR-001: [Requirement Name]"))],
      0, "unfilled template placeholder(s): [Requirement Name]"),
     ("spec_placeholder_spec_xxx_warns",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nSee SPEC-XXX.\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nSee SPEC-XXX.\n")],
      0, "unfilled template placeholder(s): SPEC-XXX"),
-    ("spec_placeholder_last_updated_warns",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("Status: Draft\n", "Status: Draft\n**Last Updated:** YYYY-MM-DD\n")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
-     0, "unfilled template placeholder(s): YYYY-MM-DD"),
     ("spec_date_format_described_in_prose_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nKeys are `logs/dt=YYYY-MM-DD/`.\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nKeys are `logs/dt=YYYY-MM-DD/`.\n")],
      0, ""),
     ("spec_placeholder_inside_a_fence_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\nSee SPEC-XXX.\n```\n"),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\nSee SPEC-XXX.\n```\n")],
      0, ""),
     ("spec_frs_without_acceptance_criteria_warn",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", "")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", ""))],
      0, "SPEC-001-thing.md: has FR-* requirements but no 'Acceptance Criteria'"),
     ("spec_acceptance_criteria_in_any_case_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("Acceptance Criteria", "acceptance criteria")),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("Acceptance Criteria", "acceptance criteria"))],
      0, ""),
     # The live template, unfilled: its structure passes and its placeholders warn. Exit 0 is the
     # structural claim — a missing section would fail — and the text is the placeholder one.
     ("spec_template_unfilled_passes_its_shape_and_warns",
-     lambda r: [_write(r, D("specs", "SPEC-000-template.md"), (REPO / "docs" / "templates" / "spec-template.md").read_text()),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 000 | Draft |\n")],
-     0, "SPEC-000-template.md: unfilled template placeholder(s): [Feature Name], [Requirement Name], SPEC-XXX, YYYY-MM-DD"),
+     lambda r: [_write(r, D("specs", "SPEC-000-template.md"), (REPO / "docs" / "templates" / "spec-template.md").read_text().replace("id: SPEC-XXX", "id: SPEC-000"))],
+     0, "SPEC-000-template.md: unfilled template placeholder(s): [Feature Name], [Requirement Name]"),
+
+    # ---- check_spec_frontmatter ------------------------------------------------------------
+    ("spec_frontmatter_refused_names_the_line",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("depends_on: []\n", "\ndepends_on: []\n")),
+     1, "SPEC-001-thing.md:7: frontmatter:"),
+    ("spec_in_the_old_layout_is_refused",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), "# Spec: Thing\n\n**ID:** SPEC-001\n**Status:** Draft\n"),
+     1, "SPEC-001-thing.md:1: frontmatter:"),
+    ("spec_missing_a_required_key",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace('description: "A thing, for a user."\n', "")),
+     1, "frontmatter has no `description`"),
+    ("spec_wrong_type",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("type: Spec", "type: Decision")),
+     1, "type is 'Decision', not 'Spec'"),
+    ("spec_id_not_its_filename",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("id: SPEC-001", "id: SPEC-009")),
+     1, "id 'SPEC-009' is not the filename prefix SPEC-001"),
+    ("spec_status_outside_the_vocabulary",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Shipped")),
+     1, "spec_status 'Shipped' is not one of"),
+    ("spec_superseded_and_cancelled_are_in_the_vocabulary_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded", "superseded_by: SPEC-002\n")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _fm(2, "Cancelled") + "## Why\n\nMoved.\n")],
+     0, ""),
+    ("spec_depends_on_not_a_list",
+     lambda r: _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: SPEC-001")),
+     1, "depends_on is not a flow list"),
+    ("spec_depends_on_a_spec_not_there",
+     lambda r: _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-009]")),
+     1, "depends_on names SPEC-009, but no SPEC-009-*.md"),
+    ("spec_depends_on_itself",
+     lambda r: _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-002]")),
+     1, "depends_on names SPEC-002, which is this spec"),
+    ("spec_depends_on_twice",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-001, SPEC-001]"))],
+     1, "depends_on lists a spec twice"),
+    ("spec_dependency_cycle",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("depends_on: []", "depends_on: [SPEC-002]")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-001]"))],
+     1, "depends_on leads back to itself"),
+    ("spec_dependency_chain_is_not_a_cycle_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-001]")),
+                _write(r, D("specs", "SPEC-003-thing.md"), _spec(3, 2).replace("depends_on: []", "depends_on: [SPEC-001, SPEC-002]"))],
+     0, ""),
+    ("spec_arc_without_an_order",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: one\n")),
+     1, "arc and arc_order go together"),
+    ("spec_order_without_an_arc",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc_order: 1\n")),
+     1, "arc and arc_order go together"),
+    ("spec_arc_is_not_a_slug",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: One_Arc\narc_order: 1\n")),
+     1, "arc 'One_Arc' is not a slug"),
+    ("spec_arc_order_is_not_a_positive_integer",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: one\narc_order: 0\n")),
+     1, "arc_order '0' is not a positive integer"),
+    ("spec_arc_place_held_twice",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: one\narc_order: 1\n")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2, extra="arc: one\narc_order: 1\n"))],
+     1, "has arc_order 1 here and in SPEC-001-thing.md"),
+    ("spec_depends_on_one_later_in_its_arc",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: one\narc_order: 1\n").replace("depends_on: []", "depends_on: [SPEC-002]")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2, extra="arc: one\narc_order: 2\n"))],
+     1, "SPEC-001 depends on SPEC-002, which comes later in its own arc"),
+    ("spec_arc_in_order_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: one\narc_order: 1\n")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2, extra="arc: one\narc_order: 2\n").replace("depends_on: []", "depends_on: [SPEC-001]"))],
+     0, ""),
+    ("spec_number_shared_by_two_files",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+                _write(r, D("specs", "SPEC-001-other.md"), _spec(1, 2))],
+     1, "spec number 1 is shared by"),
+    ("spec_number_shared_across_paddings",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+                _write(r, D("specs", "SPEC-1-other.md"), _spec(1, 2).replace("id: SPEC-001", "id: SPEC-1"))],
+     1, "spec number 1 is shared by"),
+    ("spec_bold_header_survives_in_the_body",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n**Status:** Draft\n"),
+     1, "is a bold header line"),
+    ("spec_title_line_survives_in_the_body",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n# Spec: Thing\n"),
+     1, "is a title line"),
+    ("spec_header_and_title_inside_a_fence_ok",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n# a comment\n**Status:** Draft\n```\n"),
+     0, ""),
+    ("spec_dependency_notes_are_not_a_header_ok",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n", "**Dependency notes:** none yet.\n\n## Overview\n")),
+     0, ""),
+    # The reader failing is not a file that passed. An awk that dies prints nothing, and every check
+    # downstream of a reader that printed nothing iterates over nothing.
+    ("frontmatter_reader_that_dies_fails_closed",
+     lambda r: _write(r, "scripts/frontmatter.awk", "BEGIN { this is not awk\n"),
+     1, "frontmatter: the frontmatter reader failed"),
+
+    # The same fail-closed, by the other road: exit 0 and no verdict reads like a file with no refusals.
+    ("frontmatter_reader_with_no_verdict_fails_closed",
+     lambda r: _write(r, "scripts/frontmatter.awk", "BEGIN { exit 0 }\n"),
+     1, "frontmatter: the frontmatter reader failed: no single verdict"),
+    ("spec_filename_with_no_number",
+     lambda r: _write(r, D("specs", "SPEC-abc-thing.md"), _spec(1, 2)),
+     1, "the filename has no SPEC-<number> prefix"),
+    ("spec_cycle_that_does_not_pass_through_it_ends",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("depends_on: []", "depends_on: [SPEC-002]")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("depends_on: []", "depends_on: [SPEC-003]")),
+                _write(r, D("specs", "SPEC-003-thing.md"), _spec(3, 2).replace("depends_on: []", "depends_on: [SPEC-002]"))],
+     1, "SPEC-002's depends_on leads back to itself"),
+
+    # ---- check_decisions_register ---------------------------------------------------------
+    ("claude_table_row_with_no_directory",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("| Identity and access |", "| Zed |\n| Identity and access |").replace("| Zed |\n", "| Zed | `docs/decisions/zed/` |\n")),
+     1, "row names docs/decisions/zed/, which does not exist"),
+    ("register_directory_with_no_row",
+     lambda r: _write(r, "CLAUDE.md", "\n".join(line for line in CLAUDE.split("\n") if not line.startswith("| Identity"))),
+     1, "docs/decisions/identity-and-access/: no row in CLAUDE.md"),
+    ("claude_table_not_in_slug_order",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("| Area one | `docs/decisions/area-one/` |\n| Identity and access | `docs/decisions/identity-and-access/` |\n",
+                                                      "| Identity and access | `docs/decisions/identity-and-access/` |\n| Area one | `docs/decisions/area-one/` |\n")),
+     1, "not in slug order"),
+    ("claude_table_with_no_rows",
+     lambda r: _write(r, "CLAUDE.md", "\n".join(line for line in CLAUDE.split("\n") if "docs/decisions" not in line)),
+     1, "no area rows in the Key Decisions table"),
+    ("register_file_sitting_flat",
+     lambda r: _write(r, D("decisions", "stray.md"), _decision()),
+     1, "stray.md: sits flat under"),
+    ("register_non_markdown_in_an_area",
+     lambda r: _write(r, D("decisions", "area-one") + "/notes.txt", "x\n"),
+     1, "only .md files and the index"),
+    ("register_file_a_level_too_deep",
+     lambda r: _write(r, D("decisions", "area-one", "sub", "deep.md"), _decision()),
+     1, "sits a level below an area"),
+    ("register_area_without_a_concept",
+     lambda r: (r / D("decisions", "area-one", "area-one.md")).unlink(),
+     1, "docs/decisions/area-one/ has no area-one.md — an area's concept is what names it"),
+    ("register_decision_with_a_reserved_name",
+     lambda r: _write(r, D("decisions", "area-one", "log.md"), _decision()),
+     1, "is named log.md, which OKF reserves"),
+    ("register_frontmatter_refused",
+     lambda r: _write(r, D(*ALPHA), "The entry, with no frontmatter.\n"),
+     1, "alpha.md:1: frontmatter:"),
+    ("concept_wrong_type",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept().replace("Decision Area", "Decision")),
+     1, "not 'Decision Area'"),
+    ("concept_title_missing",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept().replace('title: "Area one"\n', "")),
+     1, "frontmatter has no `title` — the area name"),
+    ("concept_title_differs_from_the_row",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept("Area uno")),
+     1, "is not what CLAUDE.md's row says"),
+    ("concept_governs_not_a_list",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept().replace("governs: [lambdas/**]", "governs: lambdas")),
+     1, "`governs` is not a flow list"),
+    ("concept_carries_a_status",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept(extra="status: stable\n")),
+     1, "an area concept carries no `status`"),
+    ("concept_title_line_in_the_body",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept() + "\n# Area one\n"),
+     1, "is a title line"),
+    ("decision_wrong_type",
+     lambda r: _write(r, D(*ALPHA), _decision(kind="Decision Area")),
+     1, "not 'Decision'"),
+    ("decision_title_missing",
+     lambda r: _write(r, D(*ALPHA), _decision().replace('title: "Alpha"\n', "")),
+     1, "frontmatter has no `title` — the decision label"),
+    ("decision_without_a_fence",
+     lambda r: _write(r, D(*ALPHA), _decision().replace('description: "The fence."\n', "")),
+     1, "has no fence"),
+    ("decision_fence_holding_a_link",
+     lambda r: _write(r, D(*ALPHA), _decision("See [the entry](other.md).")),
+     1, "its fence holds a markdown link"),
+    ("decision_fence_naming_a_file_in_backticks_ok",
+     lambda r: _write(r, D(*ALPHA), _decision("See `other.md` for more [sic] (and more).")),
+     0, ""),
+    ("decision_fence_over_the_cap",
+     lambda r: _write(r, D(*ALPHA), _decision("x" * 1401)),
+     1, "its fence is 1401 bytes"),
+    ("decision_fence_at_the_cap_ok",
+     lambda r: _write(r, D(*ALPHA), _decision("x" * 1400)),
+     0, ""),
+    # Bytes, not characters: 701 two-byte characters is 1402 bytes.
+    ("decision_fence_cap_counts_bytes",
+     lambda r: _write(r, D(*ALPHA), _decision("é" * 701)),
+     1, "its fence is 1402 bytes"),
+    ("decision_status_draft",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: draft\n")),
+     1, "status is 'draft'"),
+    ("decision_status_outside_the_vocabulary",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: retired\n")),
+     1, "status 'retired' is not stable or deprecated"),
+    ("decision_deprecated_with_no_record",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: deprecated\n")),
+     1, "newest History entry does not say so"),
+    ("decision_deprecated_in_an_older_entry_only",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: deprecated\n", body="The entry.\n\n## History\n\n### 2026-02-02\n\n- **Changed:** reworded.\n\n### 2026-01-02\n\n- **Deprecated:** gone.\n")),
+     1, "newest History entry does not say so"),
+    ("decision_deprecated_with_its_record_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: deprecated\n", body="The entry.\n\n## History\n\n### 2026-02-02\n\n- **Deprecated:** retired with no replacement.\n\n### 2026-01-02\n\n- **Settled:** a spec.\n")),
+     0, ""),
+    ("decision_stable_status_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: stable\n")),
+     0, ""),
+    ("decision_with_no_entry",
+     lambda r: _write(r, D(*ALPHA), _decision(body=HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_whose_entry_is_a_lone_heading",
+     lambda r: _write(r, D(*ALPHA), _decision(body="### Why\n\n<!-- todo -->\n\n" + HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_whose_entry_is_a_fenced_block_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="```\nthe entry\n```\n\n" + HISTORY)),
+     0, ""),
+    ("decision_with_no_history",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n")),
+     1, "has 0 `## History` headings"),
+    ("decision_with_two_histories",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n" + HISTORY + "\n" + HISTORY)),
+     1, "has 2 `## History` headings"),
+    ("decision_history_is_not_last",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n" + HISTORY + "\n## More\n\nx\n")),
+     1, "follows the History"),
+    ("decision_history_with_no_date",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n")),
+     1, "its History has no `### YYYY-MM-DD` entry"),
+    ("decision_history_heading_is_not_a_date",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### Long ago\n\n- x\n")),
+     1, "is not a `### YYYY-MM-DD` History heading"),
+    ("decision_history_date_is_not_a_real_day",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 2026-02-30\n\n- x\n")),
+     1, "is not a `### YYYY-MM-DD` History heading"),
+    ("decision_history_date_after_today",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 2999-01-01\n\n- x\n")),
+     1, "History date 2999-01-01 is after today"),
+    ("decision_history_oldest_first",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 2026-01-01\n\n- x\n\n### 2026-02-02\n\n- y\n")),
+     1, "History date 2026-02-02 is not older than 2026-01-01"),
+    ("decision_history_one_date_twice",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 2026-01-01\n\n- x\n\n### 2026-01-01\n\n- y\n")),
+     1, "History date 2026-01-01 is not older than 2026-01-01"),
+    ("decision_history_date_with_no_bullet",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 2026-01-01\n\nProse only.\n")),
+     1, "History 2026-01-01 has no bullet"),
+    ("decision_history_text_before_its_first_date",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\nA note.\n\n### 2026-01-01\n\n- x\n")),
+     1, "History text before its first date"),
+    ("decision_title_line_in_the_body",
+     lambda r: _write(r, D(*ALPHA), _decision(body="# Alpha\n\nThe entry.\n\n" + HISTORY)),
+     1, "is a title line"),
+    ("decision_quoting_a_history_heading_in_a_fence_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n```\n## History\n# a comment\n```\n\n" + HISTORY)),
+     0, ""),
+
+    # ---- check_indexes --------------------------------------------------------------------
+    # These three keep the index the case left: the runner regenerates after every other mutation.
+    ("index_missing",
+     lambda r: (r / D("specs") / "index.yaml").unlink(),
+     1, "docs/specs/index.yaml is missing"),
+    ("index_stale_against_a_new_spec",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+     1, "docs/specs/index.yaml is stale"),
+    ("index_edited_by_hand",
+     lambda r: _write(r, D("decisions") + "/index.yaml", (r / D("decisions") / "index.yaml").read_text().replace("The fence.", "A better fence.")),
+     1, "docs/decisions/index.yaml is stale"),
+    ("index_generator_refuses_a_tree",
+     lambda r: _write(r, D(*ALPHA), _decision().replace('description: "The fence."\n', "")),
+     1, "because scripts/gen-index.sh refused the tree"),
+    ("index_generator_missing_fails_closed",
+     lambda r: (r / "scripts" / "gen-index.sh").unlink(),
+     1, "cannot be regenerated"),
+
+    # ---- check_rules against governs ------------------------------------------------------
+    ("rule_lists_a_glob_governs_does_not",
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md",
+                      RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('  - "lambdas/**"\n', '  - "lambdas/**"\n  - "infra/**"\n')),
+     1, "lists 'infra/**', which the area's `governs` does not"),
+    ("governs_lists_a_glob_the_rule_does_not",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept(governs="lambdas/**, infra/**")),
+     1, "does not list 'infra/**', which the area's `governs` does"),
+    ("rule_for_an_area_that_governs_nothing",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept(governs="")),
+     1, "its area governs nothing"),
+    ("area_that_governs_nothing_has_no_rule_ok",
+     lambda r: [_write(r, D("decisions", "area-one", "area-one.md"), _concept(governs="")),
+                (r / ".claude" / "rules" / "decisions-area-one.md").unlink()],
+     0, ""),
+
+    # ---- check_rulebooks ------------------------------------------------------------------
+    ("rulebook_none_found",
+     lambda r: (r / BOOK).unlink(),
+     1, "no rulebook found under"),
+    ("rulebook_router_is_not_a_rulebook_ok",
+     lambda r: _write(r, "lambdas/info" + "/best-practices/INDEX.md", "# Router\n\nNo frontmatter.\n"),
+     0, ""),
+    ("rulebook_frontmatter_refused",
+     lambda r: _write(r, BOOK, BOOK_BODY),
+     1, "demo.md:1: frontmatter:"),
+    ("rulebook_wrong_type",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("type: Rulebook", "type: Book") + BOOK_BODY),
+     1, "type is 'Book', not 'Rulebook'"),
+    ("rulebook_without_a_title",
+     lambda r: _write(r, BOOK, BOOK_FM.replace('title: "Demo"\n', "") + BOOK_BODY),
+     1, "frontmatter has no `title`"),
+    ("rulebook_without_a_description",
+     lambda r: _write(r, BOOK, BOOK_FM.replace('description: "Rules, for an agent."\n', "") + BOOK_BODY),
+     1, "frontmatter has no `description`"),
+    ("rulebook_without_stale_after",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("stale_after: 2999-01-01T00:00:00Z\n", "") + BOOK_BODY),
+     1, "frontmatter has no `stale_after`"),
+    ("rulebook_without_sources",
+     lambda r: _write(r, BOOK, re.sub(r"sources:\n(?:  .*\n)+", "", BOOK_FM) + "# Demo\n\nA rule.\n"),
+     1, "frontmatter has no `sources`"),
+    ("rulebook_source_without_a_field",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("    resource: https://example.com/one\n", "") + BOOK_BODY),
+     1, "source 1 has no `resource`"),
+    ("rulebook_source_id_twice",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("stale_after:", '  - id: one\n    resource: https://example.com/two\n    title: "Two"\nstale_after:') + BOOK_BODY),
+     1, "source id 'one' is used twice"),
+    ("rulebook_stale_after_bad_form",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", "2999-01-01") + BOOK_BODY),
+     1, "is not a real YYYY-MM-DDTHH:MM:SSZ instant"),
+    ("rulebook_stale_after_not_a_real_day",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", "2999-02-30T00:00:00Z") + BOOK_BODY),
+     1, "is not a real YYYY-MM-DDTHH:MM:SSZ instant"),
+    ("rulebook_stale",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", "2001-01-01T00:00:00Z") + BOOK_BODY),
+     1, "is stale since 2001-01-01T00:00:00Z"),
+    # Dates computed from the clock, because the window is measured from it. Both edges: a window
+    # that widened or narrowed silently is the failure a fixed far-future date cannot see.
+    ("rulebook_inside_the_warning_window_warns",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", _days_from_now(29)) + BOOK_BODY),
+     0, "goes stale at"),
+    ("rulebook_outside_the_warning_window_ok",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", _days_from_now(31)) + BOOK_BODY),
+     0, ""),
+    ("rulebook_footnote_cited_and_never_defined",
+     lambda r: _write(r, BOOK, BOOK_FM + "# Demo\n\nA rule.[^one]\n"),
+     1, "footnote [^one] is cited and never defined"),
+    ("rulebook_footnote_names_no_source",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY.replace("version.[^one]", "version.[^one] Another.[^two]")),
+     1, "footnote [^two] names no source"),
+    ("rulebook_definition_names_no_source",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY + "[^three]: Three\n"),
+     1, "footnote [^three] names no source"),
+    ("rulebook_source_cited_nowhere",
+     lambda r: _write(r, BOOK, BOOK_FM + "# Demo\n\nA rule.\n\n[^one]: One — https://example.com/one\n"),
+     1, "source 'one' is cited nowhere"),
+    ("rulebook_regex_in_a_code_span_is_not_a_footnote_ok",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY + "\nMatch with `[^a-z]`.\n"),
+     0, ""),
+    ("rulebook_regex_in_a_fence_is_not_a_footnote_ok",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY + "\n```\n[^a-z]\n```\n"),
+     0, ""),
+    ("rulebook_citation_in_a_code_span_does_not_count",
+     lambda r: _write(r, BOOK, BOOK_FM + "# Demo\n\nWrite `x[^one]`.\n\n[^one]: One — https://example.com/one\n"),
+     1, "source 'one' is cited nowhere"),
+
+    # ---- what the first diff review found the gate let through ------------------------------
+    ("spec_superseded_with_no_successor",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded")),
+     1, "is Superseded with no `superseded_by`"),
+    ("spec_successor_that_is_not_there",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded", "superseded_by: SPEC-999\n")),
+     1, "superseded_by names SPEC-999, but no SPEC-999-*.md"),
+    ("spec_superseded_by_itself",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded", "superseded_by: SPEC-001\n")),
+     1, "superseded_by names SPEC-001, which is this spec"),
+    ("spec_successor_on_a_live_spec",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="superseded_by: SPEC-002\n")),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2))],
+     1, "has a `superseded_by` but is 'Draft'"),
+    ("spec_filename_of_the_wrong_case",
+     lambda r: _write(r, D("specs", "spec-777-lower.md"), _spec(777, 2)),
+     1, "spec-777-lower.md: only specs named"),
+    ("spec_old_index_resurrected",
+     lambda r: _write(r, D("specs", "INDEX.md"), "# Index\n"),
+     1, "INDEX.md: only specs named"),
+    ("spec_in_a_subdirectory",
+     lambda r: _write(r, D("specs", "sub", "SPEC-778-x.md"), _spec(778, 2)),
+     1, "docs/specs/sub: only specs named"),
+    # A key written as a list is filed apart from a scalar: every scalar check would miss it.
+    ("decision_status_written_as_a_list",
+     lambda r: _write(r, D(*ALPHA), _decision(extra="status: [draft]\n")),
+     1, "frontmatter `status` is a list"),
+    ("concept_status_written_as_a_list",
+     lambda r: _write(r, D("decisions", "area-one", "area-one.md"), _concept(extra="status: [stable]\n")),
+     1, "frontmatter `status` is a list"),
+    ("spec_arc_written_as_a_list",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc: [one]\n")),
+     1, "frontmatter `arc` is a list"),
+    ("spec_arc_order_written_as_a_list",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, extra="arc_order: [1]\n")),
+     1, "frontmatter `arc_order` is a list"),
+    ("rulebook_title_written_as_a_list",
+     lambda r: _write(r, BOOK, BOOK_FM.replace('title: "Demo"', "title: [Demo]") + BOOK_BODY),
+     1, "frontmatter `title` is a list"),
+    # The scanner, both ways: what it must not be blinded by, and what it must not misread.
+    ("spec_comment_holding_a_gt_does_not_blind_the_checks",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!-- a -> b -->\n\n## Open Questions\n"),
+     1, "banned heading '## Open Questions'"),
+    ("spec_title_after_a_comment_holding_a_gt",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!-- a -> b -->\n\n# Spec: Thing\n"),
+     1, "is a title line"),
+    ("spec_section_after_a_comment_holding_a_gt_ok",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "<!-- if a > b -->\n## Scope\n")),
+     0, ""),
+    ("decision_comment_holding_a_gt_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry. <!-- x > y -->\n\n" + HISTORY)),
+     0, ""),
+    ("decision_comment_opener_in_a_code_span_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="We strip `<!--` markers.\n\n" + HISTORY)),
+     0, ""),
+    ("decision_comment_opener_in_its_fence_ok",
+     lambda r: _write(r, D(*ALPHA), _decision("Strip <!-- markers.")),
+     0, ""),
+    ("rulebook_comment_opener_in_a_code_span_ok",
+     lambda r: _write(r, BOOK, BOOK_FM + "# Demo\n\nStrip `<!--`.\n\nA rule.[^one]\n\n[^one]: One — https://example.com/one\n"),
+     0, ""),
+    ("decision_longer_fence_quoting_a_shorter_one_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n````\n```\n# a comment\n```\n## History\n````\n\n" + HISTORY)),
+     0, ""),
+    ("decision_tilde_fence_holding_backticks_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n~~~\n```\n# a comment\n~~~\n\n" + HISTORY)),
+     0, ""),
+    ("decision_opener_with_an_info_string_does_not_close_ok",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n```\n```python\n# a comment\n```\n\n" + HISTORY)),
+     0, ""),
+    ("spec_inline_triple_backticks_open_no_fence",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```a``` is prose.\n\n## Open Questions\n"),
+     1, "banned heading '## Open Questions'"),
+    ("decision_whose_entry_is_a_multiline_comment",
+     lambda r: _write(r, D(*ALPHA), _decision(body="<!--\nTODO write this\n-->\n\n" + HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_whose_entry_is_an_empty_fence",
+     lambda r: _write(r, D(*ALPHA), _decision(body="```\n```\n\n" + HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_whose_entry_is_a_rule",
+     lambda r: _write(r, D(*ALPHA), _decision(body="---\n\n" + HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_whose_entry_is_an_indented_heading",
+     lambda r: _write(r, D(*ALPHA), _decision(body="  ### Why\n\n" + HISTORY)),
+     1, "has no entry above its History"),
+    ("decision_fence_of_spaces_is_no_fence",
+     lambda r: _write(r, D(*ALPHA), _decision("   ")),
+     1, "has no fence"),
+    ("decision_history_heading_without_separators",
+     lambda r: _write(r, D(*ALPHA), _decision(body="The entry.\n\n## History\n\n### 20260102\n\n- x\n")),
+     1, "'### 20260102' is not a `### YYYY-MM-DD` History heading"),
+    ("register_decision_named_index",
+     lambda r: _write(r, D("decisions", "area-one", "index.md"), _decision()),
+     1, "is named index.md, which OKF reserves"),
+    ("register_finder_metadata_is_not_a_file_ok",
+     lambda r: _write(r, D("decisions", "area-one") + "/.DS_Store", "x\n"),
+     0, ""),
+    ("rulebook_stale_after_unpadded",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("2999-01-01T00:00:00Z", "2999-1-1T0:0:0Z") + BOOK_BODY),
+     1, "is not a real YYYY-MM-DDTHH:MM:SSZ instant"),
+    ("rulebook_resource_is_not_a_url",
+     lambda r: _write(r, BOOK, BOOK_FM.replace("https://example.com/one", "see-the-wiki") + BOOK_BODY.replace("https://example.com/one", "see-the-wiki")),
+     1, "resource 'see-the-wiki' is not a URL"),
+    ("rulebook_definition_without_the_url",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY.replace(" — https://example.com/one", "")),
+     1, "definition does not give its source's title and URL"),
+    ("rulebook_definition_without_the_title",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY.replace("One — ", "")),
+     1, "definition does not give its source's title and URL"),
+    ("rulebook_definition_twice",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY + "[^one]: One — https://example.com/one\n"),
+     1, "footnote [^one] is defined twice"),
+    ("rulebook_regex_in_a_double_backtick_span_ok",
+     lambda r: _write(r, BOOK, BOOK_FM + BOOK_BODY + "\nMatch with `` `[^a-z]` ``.\n"),
+     0, ""),
+    ("rulebook_in_the_infra_tree_is_read",
+     lambda r: _write(r, "infra/info" + "/best-practices/x/x.md", "# Not yet a rulebook\n"),
+     1, "x.md:1: frontmatter:"),
+    ("claude_imports_an_index_bare",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE + "\n@docs/decisions/index.yaml\n"),
+     1, "imports @docs/decisions/index.yaml bare"),
+    ("claude_points_at_an_index_in_backticks_ok",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE + "\n`@docs/decisions/index.yaml`\n"),
+     0, ""),
+    ("claude_key_decisions_holds_a_bullet",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("Intro.\n", "Intro.\n\n- **Fence copy** — a digest regrowing.\n")),
+     1, "the Key Decisions section holds a bullet"),
+    ("claude_key_decisions_row_of_another_form",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("| Identity and access |", "| Other | docs/decisions/nonexistent/ |\n| Identity and access |")),
+     1, "is not a Key Decisions row"),
+    ("claude_key_decisions_two_rows_for_one_area",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("| Area one |", "| Nonsense | `docs/decisions/area-one/` |\n| Area one |")),
+     1, "has more than one row in the Key Decisions table"),
+    ("rule_with_a_second_paths_key",
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md",
+                      RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('---\nFiles', 'paths:\n  - "**"\n---\nFiles')),
+     1, "as well as `paths:`"),
+    ("rule_with_another_key",
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md",
+                      RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('---\nFiles', 'alwaysApply: true\n---\nFiles')),
+     1, "as well as `paths:`"),
+    ("frontmatter_reader_that_exits_badly_after_a_verdict_fails_closed",
+     lambda r: _write(r, "scripts/frontmatter.awk", 'BEGIN { printf "%s\\tF\\tok\\n", ARGV[1]; exit 3 }\n'),
+     1, "frontmatter: the frontmatter reader failed"),
+
+    # ---- the reader's refusals ------------------------------------------------------------
+    # The reader is the template's, whose own corpus does not run here, and "a line that is not one
+    # of these forms FAILs" is this layout's headline claim. So a bad take-down of that file reddens
+    # here. Each line is planted in a spec's frontmatter, and each case asserts the reader's reason.
+    *[(f"reader_refuses_{name}",
+       (lambda planted: lambda r: _write(r, D("specs", "SPEC-001-thing.md"),
+                                         _spec(1, 2).replace("depends_on: []\n", "depends_on: []\n" + planted)))(line),
+       1, reason)
+      for name, line, reason in (
+          ("a_duplicate_key", 'title: "Again"\n', "a duplicate key `title`"),
+          ("a_tab", "note: a\tb\n", "a tab"),
+          ("a_control_character", "note: a\x01b\n", "a control character"),
+          ("a_comment", "# note\n", "a comment"),
+          ("a_value_holding_colon_space", "note: a: b\n", "a value holding `: `"),
+          ("a_value_holding_space_hash", "note: a #b\n", "a value holding ` #`"),
+          ("a_value_ending_in_a_colon", "note: a:\n", "a value ending in `:`"),
+          ("a_single_quoted_value", "note: 'a'\n", "a single-quoted value"),
+          ("a_block_scalar", "note: |\n", "a block scalar"),
+          ("a_flow_map", "note: {a: b}\n", "a flow map"),
+          ("an_anchor", "note: &a b\n", "an anchor, alias or tag"),
+          ("an_unterminated_quote", 'note: "a\n', "an unterminated double-quoted value"),
+          ("a_bad_escape", 'note: "a\\nb"\n', "a backslash escape other than"),
+          ("text_after_the_quote", 'note: "a" b\n', "text after the closing quote"),
+          ("an_unclosed_flow_list", "note: [a\n", "a flow list that does not close"),
+          ("a_trailing_comma_in_a_list", "note: [a,]\n", "an empty element in a flow list"),
+          ("a_quoted_list_element", 'note: ["a"]\n', "a flow-list element holding"),
+          ("a_bare_key", "note:\n", "`note:` has no value"),
+          ("a_stray_list_item", "  - a: b\n", "a list item outside `sources:`"),
+          ("a_stray_indented_field", "    a: b\n", "an indented field outside"),
+          ("an_uppercase_key", "Note: a\n", "a line that is not one of the frontmatter forms"),
+          ("a_line_separator", "note: a\u2028b\n", "a Unicode line or paragraph separator"),
+          ("a_key_with_no_space_after_it", "note:a\n", "is not followed by exactly one space"),
+          ("a_list_element_that_cannot_stand_unquoted", "note: [*a]\n", "a flow-list element that cannot stand unquoted"),
+          ("a_sources_key_with_no_items", "sources:\n", "opens a list with no items under it"),
+          ("a_bad_sources_field", "sources:\n  - id: a\n    Bad: b\n", "a `sources` field is `key: value`"),
+          ("a_sources_field_with_no_value", "sources:\n  - id: a\n    title:\n", "in a `sources` item has no value"),
+          ("a_sources_field_with_no_space", "sources:\n  - id: a\n    title:b\n", "is not followed by exactly one space"),
+          ("a_duplicate_sources_field", "sources:\n  - id: a\n    id: b\n", "a duplicate field `id` in sources item 1"),
+          ("a_list_in_a_sources_field", "sources:\n  - id: a\n    title: [b]\n", "a list inside a `sources` item"),
+          ("a_bad_value_in_a_sources_field", "sources:\n  - id: a\n    title: 'b'\n", "a single-quoted value"),
+      )],
+    ("reader_refuses_a_block_that_never_closes",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), _fm(1).replace("depends_on: []\n---\n", "depends_on: []\n")),
+     1, "never closes"),
+    ("reader_refuses_an_empty_file",
+     lambda r: _write(r, D("specs", "SPEC-001-thing.md"), ""),
+     1, "an empty file"),
 
     ("baseline_ok", lambda r: None, 0, ""),
 
@@ -674,14 +1178,12 @@ CASES = [
     ("valid_owed_section_pointer_ok",
      lambda r: _write(r, D("testing", "owed.md"), "# Owed\n\n### 2.6 A section\n\n§2.6 is where the recipe lives.\n"),
      0, ""),
-    ("fences_bullet_within_cap_ok",
-     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("fence.", "fence, " + "short " * 40)),
-     0, ""),
     ("rule_with_single_quoted_glob_ok",
-     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('"lambdas/**"', "'lambdas/**'")),
+     lambda r: _write(r, ".claude/rules/decisions-area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('"lambdas/**"', "'lambdas/**'")),
      0, ""),
     ("rules_with_overlapping_globs_ok",
-     lambda r: _write(r, ".claude/rules/identity-and-access.md", RULE.format(glob="lambdas/**", label="Identity and access", area="identity-and-access")),
+     lambda r: [_write(r, ".claude/rules/decisions-identity-and-access.md", RULE.format(glob="lambdas/**", label="Identity and access", area="identity-and-access")),
+                _write(r, D("decisions", "identity-and-access", "identity-and-access.md"), _concept("Identity and access", "lambdas/**"))],
      0, ""),
     ("valid_always_loaded_pointer_ok",
      lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text() + "\nSee `@" + D("process", "INDEX.md") + "`.\n"),
@@ -694,8 +1196,7 @@ CASES = [
                       "| `ci.yml` | PR | the one workflow |\n| `gone.yml` | PR | deleted long ago |\n"),
      1, "gone.yml"),
     ("spec_with_fr_headings_is_countable_ok",
-     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 6)),
-                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 6))],
      0, ""),
 
     # ---- check_test_citations -------------------------------------------------------------
@@ -760,10 +1261,10 @@ CASES = [
     # The verb lands on the FOLLOWING line, 90 characters past the citation. A window that did not
     # look forward across the line break would report this legitimate record as a finding.
     ("citation_retired_on_the_next_line_ok",
-     lambda r: _cite(r, 0, D("decisions", "area-one.md"),
-                     AREA_ONE + "\n~~`test_absent_next_line` fails if a second one appears, so the "
-                     "exemption cannot\nquietly widen.~~ **Retired with the list**, and nothing "
-                     "replaced it.\n"),
+     lambda r: _cite(r, 0, D(*ALPHA),
+                     _decision(body="~~`test_absent_next_line` fails if a second one appears, so the "
+                               "exemption cannot\nquietly widen.~~ **Retired with the list**, and nothing "
+                               "replaced it.\n\n" + HISTORY)),
      0, ""),
     # THE case that decides the vocabulary. A LIVE claim that happens to describe deletion must
     # still fail; admitting `delete` or `remove` as retirement words would silence nine live
@@ -853,8 +1354,7 @@ CASES = [
      1, "names test_absent_from_a_python_comment"),
     # ---- the tier exclusions, and the one that is deliberately narrower than its tree -------
     ("citation_in_a_spec_is_history_ok",
-     lambda r: [_write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n"),
-                _cite(r, 0, D("specs", "SPEC-001-thing.md"),
+     lambda r: [_cite(r, 0, D("specs", "SPEC-001-thing.md"),
                       _spec(1, 1).replace("Text.", "Pinned by `test_absent_from_a_spec`."))],
      0, ""),
     # ARCS.md is live narrative the completion ritual still edits, so the exclusion is per-spec
@@ -1248,12 +1748,100 @@ def _no_literal_doc_paths() -> list[str]:
     Raises:
       None.
     """
-    import re
     trees = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/modules")
     pattern = re.compile(r"[\"'`](?:" + "|".join(re.escape(x) for x in trees) + r")/[A-Za-z0-9_./-]+\.md")
     source = pathlib.Path(__file__).read_text()
     return [f"literal documentation path in this file: {m.group(0)} — build it with D() instead"
             for m in pattern.finditer(source)]
+
+
+# What the generator must write for the tree ``_index_golden_problems`` builds. Literal, because
+# ``check_indexes`` compares the generator with itself and so cannot see it writing the wrong thing.
+# `@D@` stands for the docs tree, for the reason ``D()`` exists.
+GOLDEN_SPECS = """# Generated by scripts/gen-index.sh from the frontmatter of @D@/specs/SPEC-*.md. Do not edit: run `sh scripts/gen-index.sh`.
+specs:
+  - id: "SPEC-2"
+    title: "Say \\"hi\\" \\\\ bye"
+    description: "A thing, for a user."
+    spec_status: "Draft"
+    depends_on: []
+    arc: "beta"
+    path: "@D@/specs/SPEC-2-two.md"
+  - id: "SPEC-10"
+    title: "SPEC-010: Thing"
+    description: "A thing, for a user."
+    spec_status: "Completed"
+    depends_on: ["SPEC-2"]
+    arc: "beta"
+    path: "@D@/specs/SPEC-10-ten.md"
+  - id: "SPEC-11"
+    title: "SPEC-011: Thing"
+    description: "A thing, for a user."
+    spec_status: "Cancelled"
+    depends_on: []
+    arc: "alpha"
+    path: "@D@/specs/SPEC-11-eleven.md"
+arcs:
+  - name: "alpha"
+    order: ["SPEC-11"]
+  - name: "beta"
+    order: ["SPEC-10", "SPEC-2"]
+"""
+GOLDEN_DECISIONS = """# Generated by scripts/gen-index.sh from the frontmatter under @D@/decisions/. Do not edit: run `sh scripts/gen-index.sh`.
+areas:
+  - name: "Area one"
+    slug: "area-one"
+    path: "@D@/decisions/area-one/area-one.md"
+    governs: ["lambdas/**"]
+    decisions:
+      - title: "Alpha"
+        fence: "A \\"quoted\\" fence."
+        status: "deprecated"
+        path: "@D@/decisions/area-one/alpha.md"
+      - title: "Beta"
+        fence: "The fence."
+        status: "stable"
+        path: "@D@/decisions/area-one/beta.md"
+  - name: "Identity and access"
+    slug: "identity-and-access"
+    path: "@D@/decisions/identity-and-access/identity-and-access.md"
+    governs: [".github/**"]
+    decisions:
+      - title: "X"
+        fence: "The fence."
+        status: "stable"
+        path: "@D@/decisions/identity-and-access/x.md"
+"""
+
+
+def _index_golden_problems() -> list[str]:
+    """Hold what the generator writes to literal text: its sorts, its escaping and its effective status.
+
+    Args:
+      None.
+
+    Returns:
+      One message per index whose bytes differ from the literal, empty when both match.
+
+    Raises:
+      None.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "repo"
+        root.mkdir()
+        build(root)
+        _write(root, D("specs", "SPEC-10-ten.md"), _spec(10, 1, "Completed", "arc: beta\narc_order: 1\n").replace("id: SPEC-010", "id: SPEC-10").replace("depends_on: []", "depends_on: [SPEC-2]"))
+        _write(root, D("specs", "SPEC-2-two.md"), _spec(2, 1, extra="arc: beta\narc_order: 2\n").replace("id: SPEC-002", "id: SPEC-2").replace('title: "SPEC-002: Thing"', 'title: "Say \\"hi\\" \\\\ bye"'))
+        _write(root, D("specs", "SPEC-11-eleven.md"), _spec(11, 1, "Cancelled", "arc: alpha\narc_order: 1\n").replace("id: SPEC-011", "id: SPEC-11"))
+        _write(root, D(*ALPHA), _decision('A \\"quoted\\" fence.', extra="status: deprecated\n"))
+        _write(root, D("decisions", "area-one", "beta.md"), _decision(title="Beta"))
+        _regen(root)
+        problems = []
+        for tree, want in (("specs", GOLDEN_SPECS), ("decisions", GOLDEN_DECISIONS)):
+            got = (root / D(tree) / "index.yaml").read_text()
+            if got != want.replace("@D@", "do" + "cs"):
+                problems.append(f"the generator's {tree} index is not the golden text:\n{got}")
+        return problems
 
 
 def main() -> int:
@@ -1275,12 +1863,17 @@ def main() -> int:
     for message in _no_literal_doc_paths():
         failed.append(("no_literal_doc_paths", message, ""))
         print(f"FAIL  no_literal_doc_paths: {message}")
+    for message in _index_golden_problems():
+        failed.append(("index_golden", message, ""))
+        print(f"FAIL  index_golden: {message}")
     for name, mutate, want_exit, want_text in CASES:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp) / "repo"
             root.mkdir()
             build(root)
             mutate(root)
+            if name not in KEEP_INDEX:
+                _regen(root)
             rc, out = run(root)
         why = None
         if rc != want_exit:

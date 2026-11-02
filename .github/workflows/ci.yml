@@ -306,7 +306,8 @@ jobs:
       #
       # The PR-queue corpus is hermetic in the Python sense and needs `git`, `sh`, `bash` and `jq`
       # besides, which are on the runner rather than installed here. That is a weaker claim than
-      # the other four make, so it is stated rather than folded in.
+      # the other three make, so it is stated rather than folded in; the documentation validator
+      # needs `awk` and `sh` the same way, for the frontmatter reader and the index generator.
       #
       # RESTORING THE SIX DISABLED STEPS MEANS RESTORING THESE TWO AS WELL. `Lint (ruff)`,
       # `Typecheck (mypy)` and `Test (pytest)` all need the install; the Terraform tests inside

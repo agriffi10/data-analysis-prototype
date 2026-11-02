@@ -1,7 +1,7 @@
 # Spec Arcs — narrative context
 
-Why each arc exists and how its specs fit together. **Pulled on demand**, not at session start — `INDEX.md`
-carries status, this file carries reasoning. **These headings name a spec range and nothing else** —
+Why each arc exists and how its specs fit together. **Pulled on demand**, not at session start — each spec's
+frontmatter carries its status and arc order, this file carries reasoning. **These headings name a spec range and nothing else** —
 status written into them rotted silently, four arcs at a time. Most arcs below are shipped; their
 authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc architecture docs.
 
@@ -82,7 +82,7 @@ design-led (`docs/design/query-workspace.html` + `design-system.md` §6). New de
 > `@aws-sdk/client-athena` and `@aws-sdk/client-glue` are gone. Nothing above the service boundary
 > moved, and **the isolation model is unchanged** — Lake Formation grants attach to a principal, and
 > the principal is the same portal role, assumed by the API rather than vended to the browser. Full
-> entry: `decisions/analytics.md` → *`stateChangeReason` rides a 200*, and `decisions/identity-and-access.md`
+> entry: `decisions/analytics/` → *`stateChangeReason` rides a 200*, and `decisions/identity-and-access/`
 > → *The API makes exactly ONE AWS call per request*.
 
 ---
@@ -128,7 +128,7 @@ files** — a destination+filename prompt that server-side-copies Athena's compl
 the user's space (all rows, not just the loaded page). 047 is a dependency of 048; the rest are
 independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics access).
 
-> **Superseded in part by SPEC-223 (2026-09-07):** Save-results is no longer CSV-only. It carries a **Format** — CSV stays this server-side copy, while Parquet, JSON and Excel are built by the results-conversion plane and arrive as a notification. Full entry: `docs/decisions/browser.md` → *A flag can be neither an area nor a kill switch*, and the results-conversion arc below.
+> **Superseded in part by SPEC-223 (2026-09-07):** Save-results is no longer CSV-only. It carries a **Format** — CSV stays this server-side copy, while Parquet, JSON and Excel are built by the results-conversion plane and arrive as a notification. Full entry: `docs/decisions/browser/` → *A flag can be neither an area nor a kill switch*, and the results-conversion arc below.
 
 > **047's active-database model was removed by SPEC-077** (round 5, below): no workspace/current database anywhere —
 > every base table is fully-qualified `database.table` and the schema rail is browse-only. Read the switcher and DB-chip
@@ -230,7 +230,7 @@ was written.)*
 > **And "schema-wide" was narrowed again by SPEC-244:** the column half of that list now follows the statement at the
 > cursor — only the columns of the tables its `FROM`/`JOIN` names, with the whole catalog offered only when none of them
 > resolves — and a Trino statement's insert is quoted where the name needs it. Tables stay schema-wide. Full entry in
-> `docs/decisions/analytics.md`.
+> `docs/decisions/analytics/`.
 
 ---
 
@@ -292,7 +292,7 @@ stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but r
 > SPEC-199 put the catalog behind the API — every walked page became a billed call — and its
 > ceiling was already gone (#214). The status bar now reads Athena's own count of the rows a
 > SELECT returned, in one call, and walks every page only where Athena does not count. The
-> total is still exact and never capped. Full entry: `docs/decisions/analytics.md` → *A result's
+> total is still exact and never capped. Full entry: `docs/decisions/analytics/` → *A result's
 > total is Athena's own count, and only a SELECT's count is the grid's*.
 
 ---
@@ -550,7 +550,7 @@ recovered from the records' own `timestamp`/`log_id`, not from delivery.
 > **All three of those were reversed by SPEC-129, and this paragraph describes 127 as it was built rather than the pipe as it
 > runs.** The queue is now **FIFO** (`log-foundry` 0.5.0 removed the `MessageGroupId` constraint). SPEC-129 grouped it by
 > service, and **that grouping was itself reversed on 2026-09-11** — one group per event, because a group per service was the
-> sweep's ceiling (`decisions/control-planes.md`, *The logs queue is grouped per event*). The sweep is on a **10-minute** schedule, and the layout is **one appended object per service-day** at
+> sweep's ceiling (`decisions/control-planes/`, *The logs queue is grouped per event*). The sweep is on a **10-minute** schedule, and the layout is **one appended object per service-day** at
 > `logs/service={s}/year=/month=/day=/{s}_logs_{y}_{m}_{d}.jsonl` (`data.jsonl` in partitions written before that rename) — so every write is an ETag-CAS read-modify-write. Read this paragraph as
 > history; `decisions/` and `spec-delivery/SPEC-129` carry the current shape. Delivery is a **pull, not a push**, for the reason
 #270/#271 already established: an event-source mapping or Pipe idle-long-polls a queue that is empty almost always, and that
@@ -683,7 +683,7 @@ extends the **existing** table-builder plane: same FIFO queue, same Pipe, same S
 with a `mode: "create" | "refresh"` field on the envelope and a `Choice` around a shared spine. `MessageGroupId` stays the
 target database, so a refresh and a build on the same database serialize against each other for free
 **— superseded 2026-09-15: they are started in order and then overlap, as the note below this arc's
-build records for 144; `docs/decisions/control-planes.md`, *A group id orders the STARTS, not the
+build records for 144; `docs/decisions/control-planes/`, *A group id orders the STARTS, not the
 runs* —**.
 
 **Eligibility turns on shape, not on a marker.** A refresh must faithfully rebuild a table it did not create in this run, so
@@ -1110,7 +1110,7 @@ Three decisions are settled up front. **The destination is an inbox namespaced b
 `{target}/shared_files/{sender}/{item}` — mirroring `shared_tables/{table}/`, so two senders never
 collide and provenance is visible in the file browser without a metadata lookup. **A send is a push
 and never an overwrite** (**— by design; two overlapping sends still can, until the repair
-`docs/decisions/control-planes.md` records, 2026-09-15 —**): no consent step (table share's recorded precedent), and a non-empty
+`docs/decisions/control-planes/` records, 2026-09-15 —**): no consent step (table share's recorded precedent), and a non-empty
 destination is a per-recipient `conflict` that names the colliding item. And **the recipient field
 is the field we already built** — SPEC-147's combobox with SPEC-158's prop-supplied source,
 usernames from the directory and spaces from the user's own connections cache, which is precisely
@@ -1230,7 +1230,7 @@ inherit the Files flag rather than gaining one of their own).
 > **Superseded in part by SPEC-246 (2026-09-26):** archive and restore now have a flag of their own,
 > `archive` — a kill switch, the second after `asyncFileOperations` — so an operator can withdraw both
 > entry points without turning off `files`. The entry points stay registered under `files` too, whose
-> gate stays. Full entry: `docs/decisions/browser.md` → *Archive and restore get their own kill switch*.
+> gate stays. Full entry: `docs/decisions/browser/` → *Archive and restore get their own kill switch*.
 
 ## Saved-queries-in-spaces arc (SPEC-173 → 174 → 175)
 
@@ -1263,7 +1263,7 @@ it.
 > place of `isUndeletableRootFolder`, since deleted — and `undeletableSelectionRefusal` for a
 > selection made only of protected folders. Rename is still a move, so one refusal still covers both.
 > Full entry:
-> `docs/decisions/storage.md` → *The folder-recursive functions are deleted, not ported, and the
+> `docs/decisions/storage/` → *The folder-recursive functions are deleted, not ported, and the
 > flag stops being a fallback*.
 
 **What keeps the load list coherent is a filter, not a write lock.** Because anyone may drop a CSV
@@ -1492,7 +1492,7 @@ around a value the user never wrote as SQL. A cell containing `O'Brien` filtered
 hazard in one click, and it arrives from real data long before anyone thinks to type it.
 
 > **Superseded in part (SPEC-251, 2026-09-28).** The expression bar is gone; a stored expression still
-> passes through verbatim, read-only. `analytics.md`, *A filter is conditions and groups built by
+> passes through verbatim, read-only. `docs/decisions/analytics/`, *A filter is conditions and groups built by
 > pointing, and the expression box is gone*.
 
 **Everything is server-side, and the forward-only cursor stops mattering because of it.** Athena's
@@ -1508,7 +1508,7 @@ convincingly.
 > **Superseded in part by SPEC-231 (2026-09-13):** paging is scan-free, not call-free. Since
 > SPEC-199 each page is a billed API invocation plus its CORS preflight, so Prev/Next still scans
 > nothing, but a page is not costless. `useResultRowCount` no longer relies on walking pages; it reads
-> Athena's own count. Full entry: `docs/decisions/analytics.md` → *A result's total is Athena's own
+> Athena's own count. Full entry: `docs/decisions/analytics/` → *A result's total is Athena's own
 > count, and only a SELECT's count is the grid's*.
 
 **Cost is the through-line, and it can only ever be reported, never predicted.** Athena will not say
@@ -1561,7 +1561,7 @@ edit or delete from the file browser.
 
 > **Superseded in part by SPEC-247.** The union argument above stands, but the view state now rides
 > on one comment line inside the same `.sql` file, so the filters come back as chips with no
-> sidecar; the entry is `docs/decisions/analytics.md` → *A saved exploration carries its view on one
+> sidecar; the entry is `docs/decisions/analytics/` → *A saved exploration carries its view on one
 > comment line, and a shared space's is held*.
 
 **The flag is independent, and the expression bar is not gated on `query`.** `dataExplorer` stands
@@ -1576,7 +1576,7 @@ page.
 
 > **Superseded (SPEC-251, 2026-09-28).** There is no SQL input on this page any more, so that accepted
 > cost is gone: the filter builder writes no free SQL and is not gated on `query` either, and a stored
-> expression can be removed with the flag off but opened in Query only with it on. `analytics.md`,
+> expression can be removed with the flag off but opened in Query only with it on. `docs/decisions/analytics/`,
 > *A filter is conditions and groups built by pointing, and the expression box is gone*.
 
 **Four of DBeaver's surfaces are excluded by nature rather than by scope.** Chart, Spatial/GIS and
@@ -1596,7 +1596,7 @@ virtual keys — is out for the same kind of reason: an Athena result is not an 
 > > the second of the two branches this paragraph names: the results-conversion plane re-serialises
 > > the execution's own result object, so there is still no second query and no second bill, and a
 > > CSV that keeps only some of the columns is converted rather than copied. Exporting a *row*
-> > selection remains out of scope for the reason given. Full entry: `docs/decisions/control-planes.md`,
+> > selection remains out of scope for the reason given. Full entry: `docs/decisions/control-planes/`,
 > > *A conversion may keep a subset of the result's columns*.
 >
 > **Reusing `useSaveResults` turned out to require moving it**, which the spec had listed as out of
@@ -1647,7 +1647,7 @@ and it is the plane whose absence is felt every day rather than one enabling a n
 > **Superseded in part by SPEC-198 (2026-08-29):** `copyFolder`, `moveFolder` and `deleteFolder` — and
 > `deleteObjects` with them — are gone from the browser, deleted rather than ported. A folder copy,
 > move or delete runs only on this plane; with `asyncFileOperations` off the control refuses it
-> rather than falling back to the browser. Full entry: `docs/decisions/storage.md` → *The
+> rather than falling back to the browser. Full entry: `docs/decisions/storage/` → *The
 > folder-recursive functions are deleted, not ported, and the flag stops being a fallback*.
 
 **The arc has a second motive, and it is the reason it comes first.** The next arc moves every AWS
@@ -1670,7 +1670,7 @@ knowingly rather than discover them.
 > **API**, not for the plane: behind the API each probe would have been a browser → API → S3 round
 > trip, which is strictly worse than the loop it replaced, so it is one route. A same-folder copy
 > stays synchronous. The upload queue's residual stands — the bytes still go straight to S3, now
-> under a presigned URL. Full entry: `decisions/storage.md` → *The free-name probe moved to the API*.
+> under a presigned URL. Full entry: `decisions/storage/` → *The free-name probe moved to the API*.
 
 **And the lock protects less than its name suggests.** SPEC-187's per-space lock serialises *this
 plane's* executions. It does not cover the single-file operations FR-002 deliberately leaves in the
@@ -1790,7 +1790,7 @@ checks; **190** the browser's async model and its in-flight state.
    > **Superseded in part by SPEC-246 (2026-09-26):** one control can hold a row under two flags,
    > and the registry does it — the second row takes a description rather than the accessible name,
    > as `Explore data` had already done and the archive rows now do. Choosing `files` for the
-   > conflict view stands on its own reasoning. Full entry: `docs/decisions/browser.md` → *The kill
+   > conflict view stands on its own reasoning. Full entry: `docs/decisions/browser/` → *The kill
    > switch is a flag key, and it is the sixth*.
 
 **Build 191 BEFORE 190 — the numbering is not the build order, and the arc review is why.** SPEC-190
@@ -1870,7 +1870,7 @@ per (side × operation), enumerated against the real constants, and read that fi
 > **no origin worked for five specs** because nobody added the container to the Cognito app client
 > until the last one; that a **queue resource policy would have silenced every notification**; that
 > SPEC-140's CSP **verification technique** was unsatisfiable and generalised from the wrong
-> directive (corrected in `decisions/infrastructure.md`); and, one merge after the destroy, that the
+> directive (corrected in `decisions/infrastructure/`); and, one merge after the destroy, that the
 > **Checkov accept list was holding the retired grant's own findings open**, so removing the grant
 > made both acceptances stale — a hard error by design.
 >
@@ -2385,7 +2385,7 @@ that can observe the isolation model before it was ever observed. What ran and w
 the browser, which is the thing this arc removes, and keeping it would mean the SPA still ships
 `@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
 SPA at a locally-run or deployed API. **Done 2026-08-29**: the entry is
-`decisions/identity-and-access.md` → *The dev-unauth path is retired*, and the markers are in
+`decisions/identity-and-access/` → *The dev-unauth path is retired*, and the markers are in
 `CLAUDE.md`, `architecture.md` and `.env.example`.
 
 ### What SPEC-198 found that the arc did not forecast
@@ -2594,7 +2594,7 @@ per-user index, so enumeration is a full listing plus a read per space on every 
 fan-out that already writes the roster, at the same consistency point **— superseded 2026-09-15:
 a grant is written before the registry commit and only a revocation after it, because a
 revocation landing between an add's commit and its index write let the add re-create the entry
-([the group id entry](../decisions/control-planes.md#a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on-each-plane-control-plane-wide)) —**. SPEC-123's runs index and
+([the group id entry](../decisions/control-planes/a-group-id-orders-the-starts-not-the-runs-and-what-overlap-costs-on.md)) —**. SPEC-123's runs index and
 SPEC-146's username directory are the precedents — CAS, user-unreachable.
 
 **Its first draft avoided the index and was wrong, and the reason is worth carrying.** That draft
@@ -2626,7 +2626,7 @@ closes it.
 > **SPEC-203 IS COMPLETE (2026-08-31), and five of its own claims were wrong.** The index, its six
 > writers and the `MEMBERSHIP_SOURCE` seam all shipped; the default is `claims` and the variable is
 > in no Terraform, so nothing a user can see changed. What the build corrected, in the spec file and
-> in [`decisions/identity-and-access.md`](../decisions/identity-and-access.md): FR-008's "no
+> in [`decisions/identity-and-access/`](../decisions/identity-and-access/): FR-008's "no
 > `ListBucket`, and that is the load-bearing half" **cannot stand beside FR-003** — S3 answers
 > `NoSuchKey` only to a caller that can list, so a read-only grant makes an *absent* index arrive as
 > a denial for every user in no shared space, and the settled remedy is a `s3:prefix`-conditioned
@@ -2777,7 +2777,7 @@ to settle, and fails loudly on a shortfall.
 > **Shipped, and the risk that actually bit was one layer down.** `package_type` is ForceNew, so the
 > cutover destroyed and recreated all 86 — and the thing that would have taken production out was
 > not the replacement but the eleven `aws_lambda_permission` resources that would **not** have
-> re-planned alongside it. See `decisions/infrastructure.md` → *A ForceNew packaging change is a
+> re-planned alongside it. See `decisions/infrastructure/` → *A ForceNew packaging change is a
 > rename in state plus 86 replacements*. Two other lessons are worth carrying into 214: a `moved`
 > block whose `from` is not in state is tolerated **silently**, and the runtime interface emulator
 > diverges from Lambda on the init-failure path, so it cannot settle a question about what a failed
@@ -2800,7 +2800,7 @@ are asserted equal.
 **How it finished.** The 923 published layer versions were destroyed in CI and proved gone
 account-wide, and the deploy role's layer grants came off in the apply after — that order forced,
 since a grant removed first strands the versions with no identity able to reach them. Three fences
-came out of it, each recorded in `docs/decisions/infrastructure.md`: Terraform named only eight of
+came out of it, each recorded in `docs/decisions/infrastructure/`: Terraform named only eight of
 the ten layers, so the enumeration could not be derived from it; **absence is zero versions, not an
 exception**, measured against the live API rather than inferred from its documentation; and a sweep
 of the wrong names deletes nothing while looking identical to a completed one, so the destroy
@@ -2917,7 +2917,7 @@ loss of protection.
   > third builder, `app_managed_segments`, and pair tests **inverted rather than collapsed**.
   > Five were found by chasing the plan review's finding; the SIXTH was found by the security
   > review after the count had been written down, and it was the one a user could reach. Entry:
-  > `decisions/storage.md` (*The folders moved, and six Deny mirrors did not move with them*).
+  > `decisions/storage/` (*The folders moved, and six Deny mirrors did not move with them*).
 
 **Four traps this arc is most likely to ship green.**
 
@@ -2951,7 +2951,7 @@ with these prefixes in the key.
 >
 > **Amended 2026-09-16:** `shared_tables` never left the root, and a root-aware validator now refuses
 > it there, in the name prompts only; `athenaresults` and `archive` stay unreserved at the root. Full
-> entry: `docs/decisions/storage.md`, *A folder name that lands on an app-managed folder's home is
+> entry: `docs/decisions/storage/`, *A folder name that lands on an app-managed folder's home is
 > refused where it is typed*.
 
 ## Results-conversion arc (SPEC-221 → 222 → 223)
@@ -3003,13 +3003,13 @@ it lives in describe-results, and it applies to every format.
 > **Extended by SPEC-230 (2026-09-10):** Excel has a third fence, a **cell** limit of 4,100,000,
 > counted with the row limit before the workbook is built. The converter's memory is spent per
 > cell, so the size cap alone admitted a 1,048,575 × 15 one-character result that ran it out of
-> time at its full memory. Full entry: `docs/decisions/control-planes.md` → *Excel is bounded by
+> time at its full memory. Full entry: `docs/decisions/control-planes/` → *Excel is bounded by
 > cells, because the converter's memory is spent per cell*.
 
 > **Lowered by SPEC-245 (2026-09-21):** the cell limit is **3,900,000**. The move to polars 1.44.2
 > re-measured the Excel model in the new image, and 1.44's larger fixed memory cost raised the
 > baseline, so the cap the budget derives fell; no cap rose. Full entry:
-> `docs/decisions/control-planes.md` → *The polars 1.44 pin, and what the move owed the code
+> `docs/decisions/control-planes/` → *The polars 1.44 pin, and what the move owed the code
 > written around 1.12*.
 
 **Considered and rejected (2026-09-05, user decision): a lazy frame over the SOURCE files, with the
@@ -3043,7 +3043,7 @@ beside the code that slices. The notification's link kept the **message as its a
 gaining an *Open folder* control, because a second anchor to one href is the duplicate the row was
 built to avoid; the invalidation became a mechanism over any `/files` link, so the send and archive
 planes inherit it. And the flag turned out to be a **third kind** — neither an area nor a kill switch
-but presentation over one control — which the taxonomy in `decisions/browser.md` did not have a slot
+but presentation over one control — which the taxonomy in `decisions/browser/` did not have a slot
 for.
 
 **What the arc owes changed KIND at 223.** Its checks used to need a hand-crafted authenticated
@@ -3168,7 +3168,7 @@ not competing with the one-trace guards for the same capturing-sink fixtures.
 > first half had landed; 225 FR-005 then shipped as `test_one_run_one_trace.py`, which defines its
 > own sink and fixture and touches `conftest.py`'s `_CapturingSink` not at all. 226's drain and
 > child-span reader stand unaffected. What remains true is the dependency: 227 needs 225's
-> mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
+> mechanism, so the rest of the order stands. Entry: `decisions/control-planes/`
 > (*Where a child span may go*).
 
 **Three defects in `main` were found while authoring.** Two were fixed inside the arc: the archive
@@ -3207,7 +3207,7 @@ list operator and its value cap, so 238 goes first.
 > and the value cap it shared with 241 are gone. The 1,000-value cap itself stays in 238.
 >
 > **Superseded by SPEC-249 (2026-09-28):** Filter by value was approved from outside feedback and
-> built as SPEC-249, outside this arc. A list may hold (empty) and NULL again — see analytics.md's
+> built as SPEC-249, outside this arc. A list may hold (empty) and NULL again — see `docs/decisions/analytics/`'s
 > *A column's values are a list you tick* entry.
 
 **Build order, riskiest first:**

@@ -3,7 +3,7 @@
 Loaded every session — keep it lean. **Start by reading `@docs/process/INDEX.md`, then
 `@docs/process/session-rhythm.md`**: the router to how we work, and the one part of the method every
 session runs on. The other parts — the spec lifecycle, authoring a spec, the completion ritual, the
-CI and deploy traps — are pulled when the router's table says, and `where-truth-lives.md` there is
+knowledge layout, the CI and deploy traps — are pulled when the router's table says, and `where-truth-lives.md` there is
 the **full doc router**: which file is authoritative for what, and when to pull it, so this file
 does not repeat it. Everything outside the always-loaded tier is pulled **on demand**:
 cross-cutting docs in `docs/`, and the domain rulebooks and inventories beside the code they
@@ -11,9 +11,10 @@ govern, in each tree's `info/` folder. Three you will reach for beside this file
 - `@docs/architecture.md` — **how the system works**: the pieces, how a request travels, and the
   **Architecture Decision Record**. Short enough to read whole, and the cheapest way into a part of
   the system you haven't touched. It carries no rules and no trap lists — those live beside the code
-- `@docs/decisions/INDEX.md` — **router** to the Key Decisions register, one file per area; each
-  file opens with that area's **Fences**, the traps that apply green and fail later, then the
-  entries. Read the Fences before working in an area (the table below routes there)
+- `@docs/decisions/index.yaml` — the Key Decisions register, **generated**: every area's fences, the
+  traps that apply green and fail later (one file per decision under `docs/decisions/<area>/`). Read
+  your area's block before working in it, not the whole file
+- `@docs/specs/index.yaml` — the spec index, generated from each spec's frontmatter
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition
   (Entra ID sign-in in **two variants** — §3.3 — IdC propagation, one credential plane with S3
   Access Grants, provisioning and de-provisioning, LF re-keying, ODBC/JDBC drivers); read before touching
@@ -63,7 +64,7 @@ Don't add dependencies without noting them here first.
 - AWS: no SDK in the browser (Tech Stack row). Objects, the catalog and the queues go through `lib/apiClient`'s `apiRequest`, called from service files, never from components; bytes go to S3 on a URL the API presigned.
 - Services never throw — return `ServiceResult<T>` (`{success:true,data} | {success:false,error:{message,code?}}`).
 - Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
-- **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `@docs/decisions/INDEX.md`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
+- **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `docs/decisions/`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
 - **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `apps/portal/info/best-practices/react/react.md` §19, `lambdas/info/best-practices/python/python.md` §14.
 - **`lambdas/` production code carries NO inline comments** (only `# noqa` / `# type: ignore` per §14; tests exempt). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes beside the code in `@lambdas/info/` — `shared-layer.md` for `cpcommon`, the plane's own page otherwise — not in the file. Format: `lambdas/info/best-practices/python/python.md` §14.
 - When writing/refactoring code in a domain with a rulebook (React, accessibility, …), consult `@docs/best-practices/INDEX.md` first and load only the relevant section(s) — don't reinvent or guess the rules.
@@ -77,34 +78,35 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 python3 scripts/watch_ci.py --pr <n>         # watch CI for ONE sha; exit 0 only if settled AND green
 python3 scripts/watch_ci.py --branch main    # after a merge; --once for a single poll
 python3 scripts/validate_docs_test.py        # prove the doc gate's checks still fire (run when you change it)
+sh scripts/gen-index.sh                      # after any frontmatter change; never edit an index by hand
 ```
 
 ## Specs
 
-Status lives in `@docs/specs/INDEX.md`, narrative in `ARCS.md`, what shipped in
+Status lives in each spec's frontmatter (`docs/specs/index.yaml` lists it), narrative in `ARCS.md`, what shipped in
 `@docs/spec-delivery/`, live checks in `@docs/testing/`. **This section carries only what is live and
 recorded nowhere else** — when a spec closes, prune here rather than appending.
 
 ## Key Decisions (settled — don't re-litigate)
 
-**Grouped by area, not by spec.** Each area's **Fences** — the settled shape, then the traps, the
-things that **apply green and fail later**, which is the failure mode this project keeps paying
-for — open that area's register file, with the full reasoning and every "do NOT build" in its long
-form beneath them, findable by what it says rather than by number. **Read the Fences before working
-in an area**; a path-scoped rule under `.claude/rules/` points there too when the area's code is
-opened. This table is the closed set of areas and their order — `scripts/validate_docs.py` holds
-the register, its `INDEX.md` and the rules to it.
+**Grouped by area, not by spec.** One file per decision, in one directory per area: its `description`
+is the **fence** — the claim and its constraint, the traps that **apply green and fail later**, which
+is the failure mode this project keeps paying for — and its body the reasoning and every "do NOT
+build". `docs/decisions/index.yaml` (generated) lists every area's fences: **read your area's before
+working in it**; a path-scoped rule under `.claude/rules/` points there too. A new decision is a new
+file, never a line here; a new *area* is a new directory and a row here, in slug order.
+`scripts/validate_docs.py` holds the register and the rules to this table.
 
-| Area | Fences and reasoning |
+| Area | Directory |
 |---|---|
-| Identity, access and the name that ties them together | [`identity-and-access.md`](docs/decisions/identity-and-access.md#fences) |
-| Storage, and the fact S3 is not a filesystem | [`storage.md`](docs/decisions/storage.md#fences) |
-| Control planes — one pattern, eight planes, and the traps are shared | [`control-planes.md`](docs/decisions/control-planes.md#fences) |
-| Analytics, the catalog, and two SQL dialects | [`analytics.md`](docs/decisions/analytics.md#fences) |
-| Archive and restore — the only place a mistake is unrecoverable | [`archive-and-restore.md`](docs/decisions/archive-and-restore.md#fences) |
-| The browser | [`browser.md`](docs/decisions/browser.md#fences) |
-| Infrastructure, IAM and delivery | [`infrastructure.md`](docs/decisions/infrastructure.md#fences) |
-| Gates, scanners and tests | [`gates-and-tests.md`](docs/decisions/gates-and-tests.md#fences) |
+| Analytics, the catalog, and two SQL dialects | `docs/decisions/analytics/` |
+| Archive and restore — the only place a mistake is unrecoverable | `docs/decisions/archive-and-restore/` |
+| The browser | `docs/decisions/browser/` |
+| Control planes — one pattern, eight planes, and the traps are shared | `docs/decisions/control-planes/` |
+| Gates, scanners and tests | `docs/decisions/gates-and-tests/` |
+| Identity, access and the name that ties them together | `docs/decisions/identity-and-access/` |
+| Infrastructure, IAM and delivery | `docs/decisions/infrastructure/` |
+| Storage, and the fact S3 is not a filesystem | `docs/decisions/storage/` |
 
 ## Out of Scope (don't build)
 
@@ -125,7 +127,7 @@ it, and this one already has (#595). Nothing here is the *only* statement of a r
 files are.
 
 **Start:** (1) this file, then `@docs/process/INDEX.md` and `@docs/process/session-rhythm.md`; (2)
-the spec (`@docs/specs/SPEC-XXX`); (3) pull **only** what the spec touches — the **Fences** of each
+the spec (`@docs/specs/SPEC-XXX`); (3) pull **only** what the spec touches — the **fences** of each
 Key Decisions area it lands in, the matching `apps/portal/info/component-inventory/` area file(s), a
 dependency's delivery doc; read `architecture.md` whole only for a part of the system you don't
 already hold, and never read the inventory or delivery docs in full. (4) Confirm `main`
@@ -174,18 +176,17 @@ timing, non-scopable actions, refresh deadlocks, unknown-ARN-in-list) — read
 `@infra/info/deploy-role-iam.md` first, and `@lambdas/info/deployment.md` before adding or rewiring
 a Lambda.
 
-**On spec completion:** run the ritual in `@docs/process/completion-ritual.md` in one pass — status
-header, `@docs/specs/INDEX.md` row (status only), a **short** delivery doc, a one-line inventory row
-**if** something reusable landed, the full entry in `@docs/decisions/<area>.md` and **then** a
-clause in that file's Fences **if** the spec settled a new *architectural* decision (a per-feature
-choice is a register entry and nothing more), an `architecture.md` ADR row **only** if the system's
-shape changed, a prune of `## Specs`, live checks folded into `@docs/testing/e2e.md`,
-and a Help & guides sweep. **A fence is never the only home of a fact**; **add a clause or replace
-one your decision supersedes**, never a line per spec — and mark the superseded claim in place at
-every other site still stating it (`@docs/specs/ARCS.md`, `architecture.md`). A check that cannot
+**On spec completion:** run the ritual in `@docs/process/completion-ritual.md` in one pass —
+`spec_status`, a **short** delivery doc, a one-line inventory row **if** something reusable landed, a
+new file under `docs/decisions/<area>/` **if** the spec settled a new decision, its fence the claim
+and the entry its reasoning, `sh scripts/gen-index.sh`, an `architecture.md` ADR row **only** if the
+system's shape changed, a prune of `## Specs`, live checks folded into `@docs/testing/e2e.md`, and a
+Help & guides sweep. **A fence is never the only home of a fact**; a reversal **rewrites the decision
+in place** and adds a dated History entry — and mark the superseded claim in place at every other
+site still stating it (`@docs/specs/ARCS.md`, `architecture.md`). A check that cannot
 run from a signed-in session becomes a row in `@docs/testing/owed.md`.
 
 **Doc-size guardrail:** detail that outgrows a few lines belongs in a `docs/` file behind a pointer;
-**the Fences are grouped by AREA and carry traps, not history.** `scripts/validate_docs.py`
+**the register is grouped by AREA, and a fence carries a trap, not history.** `scripts/validate_docs.py`
 enforces the budgets on every PR — raise the doc's tier, never the cap. Full rules: the completion
 ritual's anti-regrowth list.

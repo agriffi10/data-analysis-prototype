@@ -39,6 +39,7 @@ the whole files.
 
 - Put the doc in the tree it governs: `<domain-root>/info/best-practices/<domain>/<domain>.md`,
   written as a token-efficient agent reference — a short "how to use", an internal index, and
-  imperative ✅/🔴 rules (match the existing four).
+  imperative ✅/🔴 rules (match the existing four), with the frontmatter, sources and footnotes
+  `docs/process/knowledge-layout.md` → *Rulebooks* requires.
 - Add **one row** to that tree's own index, and **one row** here. Nothing more in either — the detail
   lives in the doc, not the router.

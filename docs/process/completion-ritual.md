@@ -2,8 +2,9 @@
 
 
 When a spec is done, in the same pass:
-1. Set the spec file header `Status: Completed`.
-2. Update its one-line row in `docs/specs/INDEX.md` (**status only** — no prose).
+1. Set `spec_status: Completed` in the spec's frontmatter.
+2. Run `sh scripts/gen-index.sh` and commit what it writes (the status has one home, the frontmatter;
+   `docs/specs/index.yaml` is generated). Run it again after step 5 if that step added a decision.
 3. Write a **short** delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from
    `docs/templates/spec-completion-template.md` — *what shipped + what changed*, typically under a
    page (~40–100 lines), with **no code/JSON pasted** (the code + component-inventory are the
@@ -11,19 +12,16 @@ When a spec is done, in the same pass:
 4. If reusable services/hooks/components were added, add a **one-line** row to the
    `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
    belongs in the query area file, nowhere else (the router only changes if a whole new area appeared).
-5. A *new architectural decision* gets its full entry in the matching `docs/decisions/<area>.md`
-   **first** — one `##` heading, listed in that file's Contents — then **one clause** in that
-   file's `## Fences` entry, the area's read-first digest that lived in CLAUDE.md until it was
-   moved beside its reasoning. A fence is **never the only home of a fact**, and never a paragraph.
-   **Add a clause, or replace one your decision supersedes**; do not add a line per spec, which is
-   what took the digest to 105 one-per-spec lines and drove CLAUDE.md into its byte ceiling before
-   it was grouped by area. CLAUDE.md's own Key Decisions section is a table of the areas, and a
-   close touches it only when the set of areas changes. A decision that **supersedes an earlier
-   one** has three dispositions, one per artifact. The superseded **Fences clause is replaced**,
-   not left standing beside its reversal. The old **register entry is updated in place**. Every
-   **other** doc site still stating the old claim gets an in-place superseded marker — a short
-   blockquote naming what changed, which spec, and where the full entry lives — meaning arc
-   narratives in `ARCS.md` and `architecture.md` sections. The new entry alone is not enough; an
+5. A *new decision* gets its own file in the matching `docs/decisions/<area>/` — its entry in the
+   body, its **fence** in the `description`, and a `## History` saying when it settled
+   (`knowledge-layout.md` → *The decision register*). A fence is **never the only home of a fact**, and
+   never the reasoning. CLAUDE.md's own Key Decisions section is a table of the areas, and a close
+   touches it only when the set of areas changes. A decision that **supersedes an earlier one** has
+   two dispositions. The old **decision's file is rewritten in place** — title, fence, entry — with a
+   dated History entry at the top saying what changed and why, not left standing beside its reversal.
+   Every **other** doc site still stating the old claim gets an in-place superseded marker — a short
+   blockquote naming what changed, which spec, and where the decision lives — meaning arc
+   narratives in `ARCS.md` and `architecture.md` sections. The rewrite alone is not enough; an
    agent reading only the old site must see the reversal. Reasoning lives in the spec/delivery
    doc.
 6. **If the decision changed the SHAPE of the system** — a new piece, a piece removed, a boundary
@@ -69,19 +67,19 @@ When a spec is done, in the same pass:
 > to a byte budget; **the two always-loaded process files — `INDEX.md` and `session-rhythm.md` in
 > this directory — to a byte budget of their own,** since CLAUDE.md's first instruction is to read
 > them and they therefore cost every session what CLAUDE.md costs; the `docs/decisions/` register
-> to one file per row of CLAUDE.md's Key Decisions table, routed by its `INDEX.md` in that table's
-> order, each opening with a `## Fences` entry whose every bullet is held to a length, with one
-> heading level per entry and a Contents that reaches every one of them; one pointer rule per area
-> under `.claude/rules/`, path-scoped, pointing at that area's Fences and no longer than three
-> lines; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec header to
-> agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc; every
-> delivery doc to a line cap; and every relative markdown link to resolving. **The budgets are
+> to one directory per row of CLAUDE.md's Key Decisions table in slug order, each decision a file with
+> a capped fence, an entry and a dated History; both generated indexes to being byte-fresh; one pointer
+> rule per governing area under `.claude/rules/`, path-scoped, holding its area's `governs` and nothing
+> but the rendered pointer; every rulebook to its sources, its footnotes and its `stale_after`; every
+> `ARCS.md` arc to a status-free heading that is in the arc list; every spec's frontmatter to its keys
+> and every Completed spec to having a delivery doc; every delivery doc to a line cap; and every
+> relative markdown link to resolving (`knowledge-layout.md` is the prose of the frontmatter half). **The budgets are
 > ratchets just above the measured level** (SPEC-150's convention for the coverage floors) —
 > raising one so a growing doc passes is the failure mode the gate exists to catch. Move the detail
 > down a tier instead, or **defer the addition**, which is always available for an addition. How
 > much room each ratchet leaves, and for what, is in `validate_docs.py`'s constants docstring,
 > where a person changing one reads it. The shape rules are what bind the fences: group by area,
-> no per-spec line, and a per-bullet length cap. Every rule it holds existed in prose first and was
+> one fence per decision, and a length cap on each. Every rule it holds existed in prose first and was
 > violated anyway; that is why it is a gate.
 
 
@@ -98,7 +96,7 @@ When a spec is done, in the same pass:
 - **A register is grouped by AREA; ordering it by spec number turns it into a changelog.** The
   question a reader arrives with is "what has been settled about X", never "what did SPEC-143
   decide". `decisions/` sat in spec order for 195 entries and read as something disposable — which
-  it is not, since it is the only home of the rejected alternatives and the fences. The digest and
+  it is not, since it is the only home of the rejected alternatives and the fences. The index and
   the register **group by the same areas**, so a reader who finds an area in one finds it in the other.
 - **When a doc moves, the pointers that rot unseen are in SOURCE files** — `.py` docstrings, `.tf`
   comments, `.yml` steps. `validate_docs.py` walks those for exactly this reason; a markdown-only

@@ -15,6 +15,7 @@
       "Bash(python3 scripts/generate_api_contract.py)",
       "Bash(python3 scripts/validate_docs.py)",
       "Bash(python3 scripts/validate_docs_test.py)",
+      "Bash(sh scripts/gen-index.sh)",
       "Bash(python3 scripts/validate_feature_flags.py)",
       "Bash(python3 scripts/validate_app_managed_paths.py)",
       "Bash(python3 scripts/validate_app_managed_paths_test.py)",

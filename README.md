@@ -264,10 +264,10 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 | Document | What's in it |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a table routing to each **Key Decisions** area's Fences, session workflow |
+| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a table naming each **Key Decisions** area, session workflow |
 | [`docs/process/INDEX.md`](docs/process/INDEX.md) | How we work, routed one file per part: where truth lives, the spec lifecycle, the session rhythm, the completion ritual |
 | [`docs/reviewer-contract.md`](docs/reviewer-contract.md) | The method behind the review gate — pulled when you are about to spend a reviewer |
-| [`docs/decisions/`](docs/decisions/INDEX.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
+| [`docs/decisions/`](docs/decisions/index.yaml) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
 | [`docs/architecture.md`](docs/architecture.md) | **How the system works** — the pieces, how a request travels, the constraints that shape it, and the Architecture Decision Record indexing the register |
 | [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |
 | [`lambdas/info/shared-layer.md`](lambdas/info/shared-layer.md) | The long-form *why* behind `cpcommon` — sizing evidence, rejected designs, the traps |
@@ -276,7 +276,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | [`docs/best-practices/INDEX.md`](docs/best-practices/INDEX.md) | Router to the domain rulebooks — React, Python, lambdas, accessibility |
 | [`lambdas/info/INDEX.md`](lambdas/info/INDEX.md) | Every Lambda grouped by control plane, with a page per plane |
 | [`infra/info/INDEX.md`](infra/info/INDEX.md) | Every Terraform module; each has a `README.md` carrying its reasoning |
-| [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`INDEX.md`](docs/specs/INDEX.md) is status, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
+| [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`index.yaml`](docs/specs/index.yaml) is generated from each spec's frontmatter, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
 | [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later-change amendments |
 | [`docs/testing/e2e.md`](docs/testing/e2e.md) | **The** end-to-end validation guide; [`owed.md`](docs/testing/owed.md) is what it cannot settle, [`sessions.md`](docs/testing/sessions.md) is what has been run |
 | [`docs/security-baseline.md`](docs/security-baseline.md) | Every scanner finding with a disposition, and the gate thresholds |
