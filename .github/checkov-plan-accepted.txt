@@ -1,26 +1,21 @@
 # IAM findings accepted on the RENDERED PLAN scan (deploy-infra.yml), by check ID AND
 # resource. Anything not listed here fails the job when GATE_CHECKOV_PLAN=block.
 #
-# THE LIST IS EMPTY, and that is the current state rather than a placeholder. It held two
-# findings on `module.base.aws_iam_role_policy.github_actions_deploy` — CKV_AWS_290 and
-# CKV_AWS_355 — until SPEC-202 retired CloudFront and the deploy role's `cloudfront:*`
-# statement came off with it. Both were that statement alone, measured against the pinned
-# checkov's own scanner rather than argued: with it gone the policy reports zero of either.
+# TWO FINDINGS, ONE CAUSE: `cloudfront:CreateDistribution` and `cloudfront:CreateResponseHeadersPolicy`
+# on `"*"` in the static portal's deploy grant. Neither can be scoped: `simulate-custom-policy` reads
+# each as implicitDeny under the service-wide ARN and allowed under `"*"`, and the AWS Service
+# Reference lists no resource type for either. cloudsplaining's bundled data still calls them
+# restrictable, so CKV_AWS_355 fires on both and CKV_AWS_290 on both as writes. Measured with the
+# pinned checkov, one action at a time; `CreateOriginAccessControl` and `ListDistributions` raise nothing.
 #
-# The header this replaces named `cognito-idp:CreateUserPool`, `logs:DescribeLogGroups` and
-# the Lake Formation account-level actions as co-causes. They are not, and the distinction
-# matters for the next grant: those actions ARE unscopable, but cloudsplaining — which both
-# checks wrap — does not count an action it already classifies as taking no resource type,
-# so an unscopable action alone raises nothing. What raises these two is an action that COULD
-# have been scoped and was not. CKV_AWS_355 counts every such action ("restrictable", in its
-# own words) — a read or a tagging call fires it exactly as a write does — and CKV_AWS_290
-# counts the write subset of the same list. `cognito-identity:CreateIdentityPool` went with
-# the Identity Pool in the same spec.
+# Cloudsplaining does not count an action it already classifies as taking no resource type, so an
+# unscopable action alone normally raises nothing. What raises these two is an action it believes
+# COULD have been scoped. CKV_AWS_355 counts every such action ("restrictable", in its own words) —
+# a read or a tagging call fires it exactly as a write does — and CKV_AWS_290 counts the write
+# subset of the same list.
 #
-# So an empty list means every IAM finding on the plan now fails the job, and the mechanism
-# stays because the next grant that needs it will need it in the same shape: accepted by
-# check ID AND RESOURCE, never by check ID alone, so the same rule firing on any other policy
-# still fails. The USER-FACING ISOLATION policies (`portal-role-permissions` and the
+# Every other IAM finding on the plan fails the job: accepted by check ID AND RESOURCE, never by
+# check ID alone, so the same rule firing on any other policy still fails. The USER-FACING ISOLATION policies (`portal-role-permissions` and the
 # per-plane control-plane execution roles) have zero `Resource: "*"` and must stay that way.
 # That claim is narrowed deliberately: it does not cover every role in the account. The SPA's
 # ECS task-execution role holds `ecr:GetAuthorizationToken` on `"*"`, which is unscopable (the
@@ -29,8 +24,7 @@
 #
 # A line here that no longer matches a finding is a HARD ERROR — it either describes something
 # already fixed, or points at a resource that has been renamed, in which case it is accepting
-# nothing while reading as an acceptance. Delete or correct the line. That is what emptied
-# this file: the grant went, the acceptances stopped matching, and the gate said so.
+# nothing while reading as an acceptance. Delete or correct the line.
 #
 # This blocks PRs only. The `plan` job runs on pull_request; `apply` runs on push/dispatch and
 # does not depend on it, so nothing here can redden a production deploy.
@@ -43,3 +37,6 @@
 # DATA-SOURCE twins and cannot fire on an `aws_iam_role_policy` — measured against the pinned
 # checkov, after this file spent a release naming them. So such a change is a two-step edit:
 # the grant, and the acceptance for it. Deliberate.
+
+CKV_AWS_290  module.base.aws_iam_policy.deploy_portal_static
+CKV_AWS_355  module.base.aws_iam_policy.deploy_portal_static

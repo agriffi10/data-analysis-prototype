@@ -172,6 +172,10 @@ PLANNED_RESOURCES = {
 
 NON_SCOPABLE = frozenset(
     {
+        "cloudfront:CreateDistribution",
+        "cloudfront:CreateOriginAccessControl",
+        "cloudfront:CreateResponseHeadersPolicy",
+        "cloudfront:ListDistributions",
         "ec2:DescribeVpcs",
         "ec2:DescribeSubnets",
         "ec2:DescribeRouteTables",

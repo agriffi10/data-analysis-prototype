@@ -12,12 +12,10 @@
 # Gating those twice would make this job fail for reasons that have nothing to do with what
 # it exists to check. The full count is still published to the summary.
 #
-# WHY AN ACCEPT LIST AND NOT A BLANKET BLOCK. It held two findings on the deploy role, both
-# raised by `cloudfront:*` actions that could have been scoped and were not — CKV_AWS_355 on
-# every one of them and CKV_AWS_290 on the writes among them. SPEC-202
-# retired the distribution and the grant, so the list is empty and the gate now blocks on every
-# IAM finding. The mechanism stays for the next one: an entry is accepted by check ID AND
-# resource — not by check ID — so the same rule firing on any other policy still fails.
+# WHY AN ACCEPT LIST AND NOT A BLANKET BLOCK. It holds two findings on the static portal's deploy
+# grant, raised by CloudFront create actions the scanner's data calls restrictable and IAM does
+# not. An entry is accepted by check ID AND resource — not by check ID — so the same rule firing on
+# any other policy still fails.
 #
 # A STALE ACCEPT IS A HARD ERROR, same as the .tf enforced list. An acceptance that matches
 # no finding either describes something already fixed or points at a resource that has been
