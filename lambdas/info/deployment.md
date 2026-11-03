@@ -53,10 +53,10 @@ whole arc is written around.
 
 The cost is real and was paid deliberately: the whole fleet on every `lambdas/**` push, against a
 median of four functions before. It is paid in ONE job that points eight functions at a time
-(`.github/scripts/deploy-fleet.sh`), because a function's deploy is almost all waiting on Lambda and
+(`.github/scripts/deploy-fleet.sh`), because a function deployed alone is almost all waiting on Lambda and
 GitHub bills every job's wall clock — six shard jobs walking the fleet in sequence billed ~45 minutes
 a run, and once held all six to a 30-minute timeout while idle functions each failed a waiter. Every
-function gets its attempt however many fail, and the job's 15-minute timeout is the cost bound —
+function gets its attempt however many fail, and the job's 20-minute timeout is the cost bound —
 there is no early stop, because no rule for which failures count told a fleet-wide failure from a
 local one reliably. That is the price of the guarantee, and the reconciliation is what makes it
 worth paying — the `pointed` job reconciles by NAME, because a count tells you a number

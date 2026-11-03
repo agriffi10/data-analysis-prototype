@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Points every function the plan names at this run's image, DEPLOY_CONCURRENCY at a time, in ONE job.
 #
-# WHY ONE JOB RUNNING SEVERAL AT ONCE. A function's deploy is ~25s, nearly all of it spent in
+# WHY ONE JOB RUNNING SEVERAL AT ONCE. A function deployed alone takes ~25s, nearly all of it in
 # Lambda's waiters, and GitHub bills every job's wall clock rounded up to a minute. Six shard jobs
-# each walking ~15 functions in sequence billed ~45 minutes a run to wait out ~90 updates; eight
-# at a time in one job waits them out in about five and pays the rounding once. Eight concurrent
+# each walking ~15 functions in sequence billed ~45 minutes a run, workflow included; eight at a
+# time in one job pays the rounding once, and its first run billed 16. It is SLOWER per function.
+# Measured: ~57s median each at eight wide, against ~25s alone. Not measured: why. Lambda saw fewer
+# calls per second than under the shards, so the contention is on the runner — probably CPU, two
+# cores starting ~12 `aws` processes per function. Eight concurrent
 # updates is close to the six the shards already ran side by side, so the load on Lambda's API is
 # about what it was: the waiters poll GetFunction, which has its own 100/s quota, and the handful of
 # other calls a function makes share the account's 15/s control-plane pool.
