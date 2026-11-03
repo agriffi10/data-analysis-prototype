@@ -43,8 +43,8 @@ back. The rollback that exists is the **code**: point the fleet at a previous sh
 **One image means narrowing a deploy is a category error.** "Which functions changed" has no answer
 when there is one artefact, so CI points **every** function on every run and reconciles by name. A
 function left un-pointed runs an older image and reports a stale build stamp *while working
-perfectly* — which is the failure this whole arc exists to prevent, and the reason the cost (six
-shard jobs where four functions used to deploy) is worth paying.
+perfectly* — which is the failure this whole arc exists to prevent, and the reason the cost (the whole
+fleet where four functions used to deploy) is worth paying.
 
 **Proving a deployed function STARTED took three designs, and the first two were measured wrong
 rather than argued wrong.** `START RequestId` is written *before* init and regardless of its outcome,

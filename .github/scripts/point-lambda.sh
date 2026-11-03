@@ -38,7 +38,8 @@ done
 
 # NOT FOR AN INACTIVE ONE. Lambda parks a function idle for a few weeks as Inactive, and nothing but
 # an invoke or this update wakes it, so the waiter would spend its five minutes and fail on every
-# function in the fleet: a shard of them outlasts the job's timeout and nothing gets pointed.
+# function in the fleet, and the deploy would spend its whole timeout on them, pointing only the
+# functions that were not idle.
 STATE=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
   --query 'State' --output text)
 if [ "$STATE" != "Inactive" ]; then

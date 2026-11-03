@@ -31,6 +31,7 @@ on:
       # and it touches neither `lambdas/**` nor this file.
       - 'infra/modules/**'
       - 'lambdas/fleet.py'
+      - '.github/scripts/deploy-fleet.sh'
       - '.github/scripts/point-lambda.sh'
       - '.github/scripts/check-image-tag.sh'
       - '.github/scripts/probe-cold-start.sh'
@@ -60,8 +61,9 @@ env:
 # the older commit's code silently wins. Queue instead.
 #
 # `cancel-in-progress: false` is deliberate and is not the cost setting: cancelling a
-# deploy mid-shard leaves some functions on the new code and some on the old, which is
-# the one outcome worse than waiting. The cost fix here is the sharding below.
+# deploy mid-fleet leaves some functions on the new code and some on the old, which is
+# the one outcome worse than waiting. The cost fix here is the single deploy job below, which
+# points eight functions at a time.
 #
 # Known consequence, so nobody diagnoses it as a fault: GitHub holds at most ONE pending
 # run per group, so three merges in quick succession evict the middle one as `cancelled`.
@@ -93,7 +95,7 @@ jobs:
   # whatever image its module created it with, working perfectly, with main green: this arc's
   # signature failure, produced by its own cleanup.
   #
-  # The commit's own declaration is what the deleted table provided, so that is what the sharding
+  # The commit's own declaration is what the deleted table provided, so that is what the deploy
   # reads. The applied output is still read — by the `pointed` job, where "did we deploy what is
   # actually out there" is the question being asked.
   plan:
@@ -104,8 +106,6 @@ jobs:
       contents: read
     outputs:
       functions: ${{ steps.plan.outputs.functions }}
-      shards: ${{ steps.plan.outputs.shards }}
-      shard_count: ${{ steps.plan.outputs.shard_count }}
 
     steps:
       - name: Checkout
@@ -118,9 +118,9 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           retry-max-attempts: 3
 
-      # ONCE, HERE, not 86 times in the shards. `point-lambda.sh` waits up to five minutes per
-      # function for a tag to appear, so a mistyped rollback tag would otherwise cost over an hour
-      # of billed runtime before anyone learned it was wrong.
+      # ONCE, HERE, not once per function in the deploy. `point-lambda.sh` waits up to five minutes per
+      # function for a tag to appear, so a mistyped rollback tag would otherwise run the deploy to its
+      # timeout, a wave of eight at a time, before anyone learned the tag was wrong.
       - name: Check the image this run will point at
         id: image
         env:
@@ -131,7 +131,7 @@ jobs:
           set -euo pipefail
 
           # THE SHAPE BEFORE THE REGISTRY. Outside the tag grammar the CLI respells the value it
-          # looks up, so a padded or quoted tag is found here and handed to every shard as typed;
+          # looks up, so a padded or quoted tag is found here and handed to the deploy as typed;
           # and the refusal below prints a tag it did not find, where a newline would start a
           # workflow command of the caller's choosing. The script says why at length.
           bash .github/scripts/check-image-tag.sh "$IMAGE_TAG"
@@ -158,78 +158,54 @@ jobs:
           set -euo pipefail
           # `fleet.py` REFUSES rather than returning a short list, so a derivation it cannot make
           # fails here. Piping it would report jq's status instead of its own.
-          PLAN=$(python3 lambdas/fleet.py --plan)
-          echo "$PLAN" | jq .
-          COUNT=$(jq '.functions | length' <<<"$PLAN")
-          echo "Pointing the whole fleet: ${COUNT} functions over $(jq -r .shard_count <<<"$PLAN") shards." >> "$GITHUB_STEP_SUMMARY"
+          FUNCTIONS=$(python3 lambdas/fleet.py)
+          echo "$FUNCTIONS" | jq .
+          COUNT=$(jq 'length' <<<"$FUNCTIONS")
+          echo "Pointing the whole fleet: ${COUNT} functions." >> "$GITHUB_STEP_SUMMARY"
 
           # Belt and braces over the refusal above: a derivation that somehow returned nothing
-          # would shard to zero jobs and report success having deployed nothing, and "did not run"
-          # is never "clean".
+          # would deploy nothing and report success, and "did not run" is never "clean".
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the fleet could not be derived from infra/modules."
             exit 1
           fi
 
-          {
-            printf 'functions=%s\n' "$(jq -c .functions <<<"$PLAN")"
-            printf 'shards=%s\n'    "$(jq -c .shards    <<<"$PLAN")"
-            printf 'shard_count=%s\n' "$(jq -r .shard_count <<<"$PLAN")"
-          } >> "$GITHUB_OUTPUT"
+          printf 'functions=%s\n' "$(jq -c . <<<"$FUNCTIONS")" >> "$GITHUB_OUTPUT"
 
-  # largest line on the Actions bill. GitHub rounds every job up to a full billed
-  # minute, and all 73 of these finish in ~29 seconds — so the shape cost 73 minutes
-  # for ~22 minutes of work, and it grew by a permanent minute with every function
-  # the project added. Measured over 28 days it was 46% of the repo's Actions spend,
-  # and 53% of that was rounding alone.
-  #
-  # The functions are now sharded: each job deploys its share sequentially, so the
-  # per-job minute is amortised over a dozen functions instead of paid per function.
-  # Shard COUNT is the tuning knob and the cost curve is flat between ~4 and ~8 (each
-  # job comfortably exceeds a minute either way); six keeps every shard around four
-  # minutes, which leaves room for the function count to grow without a shard
-  # crossing a minute boundary and re-inflating the bill.
-  #
-  # The fleet is data a shard READS, which is why it is not a `strategy.matrix`: a matrix
-  # creates one job per entry and cannot express "these twelve in one job".
+  # ── Point the fleet ──────────────────────────────────────────────────────────
+  # ONE job, eight functions at a time, and the reasoning is the Actions bill. A function's deploy is
+  # ~25s, nearly all of it waiting in Lambda's waiters, and GitHub bills every job's wall clock
+  # rounded up to a minute. One job per function paid that rounding per function; six shard jobs
+  # each walking ~15 functions in sequence then billed ~45 minutes a run to wait the fleet out one at
+  # a time, and were over half this repo's Actions spend. Waiting the updates out side by side in
+  # one job takes about five. `deploy-fleet.sh` carries the rest: why eight, and why there is no
+  # early stop.
   deploy:
     needs: [plan]
     runs-on: ubuntu-latest
-    # Sized against a SHARD, and RE-DERIVED now that every run points the whole fleet rather
-    # than a diff's worth. 86 functions across 6 shards is ~15 each, not thirteen; a container
-    # update is an API call plus two waiters, ~25s, so ~6.5 min, and the image race adds up to 5
-    # min ONCE (the first function waits, the rest find the tag already there). ~12 min is the
-    # realistic worst case and this is 2.5x it.
+    # DERIVED, not chosen, and it is the cost bound: there is no early stop (`deploy-fleet.sh` says
+    # why). A healthy run is ~90 functions at eight a time and ~25s each, ~5 min, plus the first
+    # wave's wait for this commit's image — the build has taken up to ~4 min — so ~10 min at worst.
+    # 15 leaves room for a slow day at Lambda. Raising DEPLOY_CONCURRENCY or the fleet's size means
+    # re-deriving this.
     #
-    # Deliberately NOT the pathological sum. Each function can in principle spend 5 min
-    # in the get-function loop plus three `aws lambda wait` calls at up to 5 min each,
-    # which across thirteen functions is hours — but that only happens when Lambda's API
-    # is degraded, where failing the shard is the correct outcome and burning three
-    # billed hours to discover it is not.
-    timeout-minutes: 30
+    # The case it bounds: a wait that runs out on every function. Measured once — idle (Inactive)
+    # functions each failed the active waiter after ~6 min, and six sequential shards each burned
+    # their 30-minute timeout, 188 billed minutes. `point-lambda.sh` now skips that wait for an idle
+    # function; the next wait that runs out on every function alike costs this, once.
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
 
-    strategy:
-      # A function that fails must not cancel the shards deploying unrelated ones.
-      # Under one-job-per-function the default cancelled 72 PENDING jobs; with six
-      # shards in flight it would cancel work already half-done, which leaves a
-      # partial deploy in more places rather than fewer.
-      fail-fast: false
-      matrix:
-        # Computed, not fixed. Sharding four functions across six jobs would spend six
-        # billed minutes to save none — the count scales with the work the plan found.
-        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
-
     env:
-      SHARD: ${{ matrix.shard }}
-      SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
       # The whole fleet.
       PLANNED: ${{ needs.plan.outputs.functions }}
       # Empty on a push; a previous sha on a rollback dispatch. point-lambda.sh defaults it to
       # this commit, so every other caller is unaffected.
       IMAGE_TAG: ${{ inputs.image_tag }}
+      # Re-derive `timeout-minutes` above before raising it.
+      DEPLOY_CONCURRENCY: 8
 
     steps:
       - name: Checkout
@@ -246,61 +222,19 @@ jobs:
           # case is bounded by `timeout-minutes` above.
           retry-max-attempts: 3
 
-      - name: Deploy this shard
-        run: |
-          set -euo pipefail
+      # Every function gets its attempt even after one fails, and the step fails at the end naming
+      # each that did not land. Each one that lands is recorded AS IT LANDS, so a job killed by its
+      # timeout still contributes what it actually did.
+      - name: Deploy the fleet
+        run: bash .github/scripts/deploy-fleet.sh deployed.txt
 
-          # No artifacts bucket to wait for any more: nothing is uploaded. The only artefact is
-          # the image, and point-lambda.sh waits for that tag itself.
-
-          # A read loop rather than `mapfile` (bash 4+), so the whole path can be dry-run on a
-          # Mac before it is pushed.
-          FUNCS=()
-          while IFS= read -r fn; do
-            [ -n "$fn" ] && FUNCS+=("$fn")
-          done < <(jq -r --argjson s "$SHARD" --argjson n "$SHARD_COUNT" \
-            'to_entries[] | select(.key % $n == $s) | .value' <<<"$PLANNED")
-
-          if [ "${#FUNCS[@]}" -eq 0 ]; then
-            echo "::error::Shard ${SHARD}/${SHARD_COUNT} selected no functions — the table or the sharding expression is wrong, and a silently empty shard deploys nothing while reporting success."
-            exit 1
-          fi
-
-          echo "Shard ${SHARD} of ${SHARD_COUNT}: ${#FUNCS[@]} functions"
-          printf '  %s\n' "${FUNCS[@]}"
-
-          # Every function gets its attempt even after one fails, and the shard fails
-          # at the end naming all of them. Under one-job-per-function an unrelated
-          # failure never stopped a deploy, and sharding must not quietly change that.
-          FAILED=()
-          : > "deployed-${SHARD}.txt"
-          for NAME in "${FUNCS[@]}"; do
-            echo "::group::${NAME}"
-            if bash .github/scripts/point-lambda.sh "$NAME"; then
-              echo "✓ ${NAME}"
-              # Written only on success, and read back by the `pointed` job below. A shard that
-              # dies mid-loop contributes what it actually did rather than what it intended.
-              echo "$NAME" >> "deployed-${SHARD}.txt"
-            else
-              echo "::error::${NAME} failed to deploy."
-              FAILED+=("$NAME")
-            fi
-            echo "::endgroup::"
-          done
-
-          if [ "${#FAILED[@]}" -gt 0 ]; then
-            echo "::error::Shard ${SHARD} failed for: ${FAILED[*]}"
-            exit 1
-          fi
-          echo "Shard ${SHARD}: all ${#FUNCS[@]} functions deployed."
-
-      # Uploaded even when the shard failed, so the reconciliation below sees the partial truth.
-      - name: Record what this shard pointed
+      # Uploaded even when the deploy failed, so the reconciliation below sees the partial truth.
+      - name: Record what was pointed
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pointed-${{ matrix.shard }}
-          path: deployed-${{ matrix.shard }}.txt
+          name: pointed-fleet
+          path: deployed.txt
           retention-days: 3
           if-no-files-found: ignore
 
@@ -316,8 +250,8 @@ jobs:
   # It reconciles NAMES, not a count. A count tells you a number is wrong; the names tell you which
   # functions are running last week's code, which is the question anyone reading this actually has.
   #
-  # `if: always()` and a `needs` on a job with `fail-fast: false`: a shard that failed must still
-  # be reconciled, or the one run where this matters most is the one where it does not run.
+  # `if: always()`: a deploy that failed must still be reconciled, or the one run where this
+  # matters most is the one where it does not run.
   pointed:
     needs: [plan, deploy]
     if: always()
@@ -353,7 +287,7 @@ jobs:
             -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
 
-      - name: Download every shard's record
+      - name: Download the deploy's record
         uses: actions/download-artifact@v4
         with:
           pattern: pointed-*
