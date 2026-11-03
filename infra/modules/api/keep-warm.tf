@@ -3,8 +3,9 @@
 # the first request after a quiet spell would fail. The SPA retries only an idempotent query,
 # once. One invoke a day is the cadence measured to keep a function Active. README.md.
 #
-# The payload is the health route, which answers 200 with no identity and no AWS call. A bare
-# event would be refused as unauthenticated every day and read as a refusal. test_handler.py runs
+# The payload is the health route, which answers 200 with no identity and no data-plane call; the
+# one write is the request's span to the logs queue. A bare event would be refused as
+# unauthenticated every day and read as a refusal. test_handler.py runs
 # this file.
 resource "aws_cloudwatch_event_rule" "keep_warm" {
   name                = "${var.project_name}-${var.environment}-api-keep-warm"
@@ -15,7 +16,7 @@ resource "aws_cloudwatch_event_rule" "keep_warm" {
 resource "aws_cloudwatch_event_target" "keep_warm" {
   rule  = aws_cloudwatch_event_rule.keep_warm.name
   arn   = module.api.function_arn
-  input = file("${path.module}/keep-warm.json")
+  input = trimspace(file("${path.module}/keep-warm.json"))
 }
 
 # A target without its permission applies green and fails every invoke silently, counted only

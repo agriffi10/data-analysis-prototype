@@ -26,7 +26,7 @@ import pytest
 from tf_blocks import argument, blocks, span, strip_comments
 
 MODULES = pathlib.Path(__file__).resolve().parent.parent / "infra" / "modules"
-WAKE_PAYLOAD = 'file("${path.module}/keep-warm.json")'
+WAKE_PAYLOAD = 'trimspace(file("${path.module}/keep-warm.json"))'
 MAX_PERIOD_HOURS = 24
 RATE_UNIT_HOURS = {
     "minute": 1 / 60,
@@ -164,6 +164,7 @@ def test_every_function_a_user_reaches_first_is_woken_and_may_be_invoked(
         .removesuffix(".arn")
         for body in blocks(source, "aws_lambda_permission").values()
         if argument(body, "function_name") == arn
+        and not re.search(r"^\s*qualifier\s*=", body, re.MULTILINE)
         and argument(body, "principal") == '"events.amazonaws.com"'
         and argument(body, "action") == '"lambda:InvokeFunction"'
     }

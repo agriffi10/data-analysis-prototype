@@ -28,7 +28,8 @@ none. None of the three has a message we could write:
 **The cost is nothing measurable.** Three invocations a day is about ninety a month, inside Lambda's
 always-free requests and compute, and about sixty scheduled events a month from two rules is a
 rounding error at any EventBridge rate. Cost is why the portal left the VPC, so the bar was a wake
-that does not move the bill.
+that does not move the bill. Nor does it crowd users: the account's concurrency limit is ten, and
+the wake holds at most three slots, for one cold start, once a day.
 
 **Not a scheduled workflow.** A GitHub Actions cron invoking the three needs no new
 infrastructure, but GitHub disables a scheduled workflow after sixty days without repository
@@ -44,12 +45,14 @@ policy.
 **The payloads are no-ops by the handlers' existing rules, not by new code.** Pre-signup gets a
 valid username and no email, so it returns the event. Post-confirmation gets a `triggerSource` that
 is not a sign-up confirmation, so it returns before any Glue or Lake Formation call. The API gets a
-`GET /healthz` event, which answers 200 with no identity and no AWS call — a bare `{}` would answer
-401 every day and read as a refusal. Each payload is a file beside the rule, and each handler's own
-tests run it.
+`GET /healthz` event, which answers 200 with no identity and no data-plane call — a bare `{}` would
+answer 401 every day and read as a refusal. Each wake still writes its span to the logs queue, so
+the log store gains three records a day. Each payload is a file beside the rule, and each handler's
+own tests run it.
 
 **Do NOT** widen this to the rest of the fleet by invoking handlers with synthetic events: a plane
-handler given a made-up event is not a no-op in general. The async planes still go Inactive, and
+handler given a made-up event is not a no-op in general, and ninety functions cold-starting at once
+would take every one of the account's ten concurrent slots from the users the wake exists for. The async planes still go Inactive, and
 whether their retries absorb a rejected first invoke is unmeasured. If that is ever extended,
 `.github/lambda-probes.json` already names one function per plane judged safe to invoke with `{}`.
 

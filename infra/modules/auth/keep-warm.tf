@@ -17,13 +17,13 @@ resource "aws_cloudwatch_event_rule" "keep_warm" {
 resource "aws_cloudwatch_event_target" "keep_warm_pre_signup" {
   rule  = aws_cloudwatch_event_rule.keep_warm.name
   arn   = module.pre_signup.function_arn
-  input = file("${path.module}/keep-warm.json")
+  input = trimspace(file("${path.module}/keep-warm.json"))
 }
 
 resource "aws_cloudwatch_event_target" "keep_warm_post_confirmation" {
   rule  = aws_cloudwatch_event_rule.keep_warm.name
   arn   = module.post_confirmation.function_arn
-  input = file("${path.module}/keep-warm.json")
+  input = trimspace(file("${path.module}/keep-warm.json"))
 }
 
 # A target without its permission applies green and fails every invoke silently, counted only
