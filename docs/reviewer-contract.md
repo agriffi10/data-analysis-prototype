@@ -162,6 +162,14 @@ several of them years old.
   the script's own `ROOT` resolves there and the gate needs no environment override to be testable —
   a budget a caller can redirect is a budget CI can be told to ignore. Each case asserts a specific
   failure message; disabling any one check reddens it, and it restores clean.
+- **The failure text a case asserts must be the gate's own.** A gate that quotes a tool it calls — a
+  generator's refusal, a shared reader's error — prints that tool's words as well as its own, and a
+  case matching only the quoted words still passes after the gate's own check is deleted. Every case
+  that expects a failure must match at least one phrase that only the check under test prints;
+  matching the quoted words as well is how a case tests the quote. Measured here:
+  `scripts/validate_docs.py` prints the index generator's refusal beside its own errors, and
+  `register_area_without_a_concept` expects only the gate's wording ("an area's concept is what names
+  it"), which the generator never prints — so silencing the gate's own check reddens that case.
 - **One fixture per guard is not enough when the guard has more than one exit.** A check with two
   terminating conditions is satisfied by a fixture exercising either, so the mutant that breaks the
   other survives with the suite green. Count the ways a check can stop, and write that many cases.
