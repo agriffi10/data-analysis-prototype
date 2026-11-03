@@ -173,27 +173,30 @@ jobs:
           printf 'functions=%s\n' "$(jq -c . <<<"$FUNCTIONS")" >> "$GITHUB_OUTPUT"
 
   # ── Point the fleet ──────────────────────────────────────────────────────────
-  # ONE job, eight functions at a time, and the reasoning is the Actions bill. A function's deploy is
-  # ~25s, nearly all of it waiting in Lambda's waiters, and GitHub bills every job's wall clock
+  # ONE job, eight functions at a time, and the reasoning is the Actions bill. A function deployed
+  # alone takes ~25s, nearly all of it waiting in Lambda's waiters, and GitHub bills every job's wall clock
   # rounded up to a minute. One job per function paid that rounding per function; six shard jobs
   # each walking ~15 functions in sequence then billed ~45 minutes a run to wait the fleet out one at
   # a time, and were over half this repo's Actions spend. Waiting the updates out side by side in
-  # one job takes about five. `deploy-fleet.sh` carries the rest: why eight, and why there is no
-  # early stop.
+  # one job measured 11.5 minutes and 16 billed for the whole run. `deploy-fleet.sh` carries the
+  # rest: why eight, and why there is no early stop.
   deploy:
     needs: [plan]
     runs-on: ubuntu-latest
-    # DERIVED, not chosen, and it is the cost bound: there is no early stop (`deploy-fleet.sh` says
-    # why). A healthy run is ~90 functions at eight a time and ~25s each, ~5 min, plus the first
-    # wave's wait for this commit's image — the build has taken up to ~4 min — so ~10 min at worst.
-    # 15 leaves room for a slow day at Lambda. Raising DEPLOY_CONCURRENCY or the fleet's size means
-    # re-deriving this.
+    # DERIVED from a measurement, and it is the cost bound: there is no early stop (`deploy-fleet.sh`
+    # says why). The first run of this shape took 11.5 min for the job to point 91 functions, with
+    # the image already in the registry (~57s each at eight a time, not the ~25s a function takes
+    # alone). The first wave can also wait for this commit's image — the build has taken up to ~4.5
+    # min, of which ~1 min overlaps the plan and job setup — and shard-era runs varied by ~12%, so a
+    # healthy run reaches ~16.5 min at worst, and 20 leaves room for a slow day. It was 15, derived from ~25s per
+    # function, which left 3.5 min of headroom on the first real run. Growing the fleet or changing
+    # DEPLOY_CONCURRENCY means re-measuring this.
     #
     # The case it bounds: a wait that runs out on every function. Measured once — idle (Inactive)
     # functions each failed the active waiter after ~6 min, and six sequential shards each burned
     # their 30-minute timeout, 188 billed minutes. `point-lambda.sh` now skips that wait for an idle
     # function; the next wait that runs out on every function alike costs this, once.
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
@@ -204,7 +207,7 @@ jobs:
       # Empty on a push; a previous sha on a rollback dispatch. point-lambda.sh defaults it to
       # this commit, so every other caller is unaffected.
       IMAGE_TAG: ${{ inputs.image_tag }}
-      # Re-derive `timeout-minutes` above before raising it.
+      # Re-measure `timeout-minutes` above before changing it.
       DEPLOY_CONCURRENCY: 8
 
     steps:
