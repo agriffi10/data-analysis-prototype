@@ -128,6 +128,22 @@
       "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-api"
     },
     {
+      "Sid": "FrontDoorKeepWarmScheduleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-keep-warm"
+    },
+    {
       "Sid": "FrontDoorRolesManage",
       "Effect": "Allow",
       "Action": [
