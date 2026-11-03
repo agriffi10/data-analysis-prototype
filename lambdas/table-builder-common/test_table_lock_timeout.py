@@ -33,6 +33,32 @@ _MODULE = os.path.join(
 _ASL = os.path.join(_MODULE, "state-machine.asl.json.tftpl")
 
 
+def _waking_seconds(asl_text):
+    """The backoff a Task spends waiting out a function waking from Inactive, read from the ASL.
+
+    Charged once per function a run reaches and with no timeout: a rejected invoke never ran, and
+    a function woken for its first attempt is awake for the rest. Every Task carries the same
+    retrier, which this asserts, so one number stands for all of them.
+    """
+    raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", asl_text)
+    policies = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "Lambda.ResourceNotReadyException" in node.get("ErrorEquals", []):
+                policies.add(json.dumps(node, sort_keys=True))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw)))
+    assert len(policies) == 1, f"the waking retrier is not one shape across the machine: {policies}"
+    policy = json.loads(policies.pop())
+    return sum(policy["IntervalSeconds"] * policy["BackoffRate"] ** i for i in range(policy["MaxAttempts"]))
+
+
 def _declared_timeout():
     """The execution bound the DEPLOYED machine actually carries.
 
@@ -73,13 +99,15 @@ def test_the_timeout_clears_the_create_paths_worst_case():
     """FR-004 AC1. Adding a timeout must not fail an ordinary create.
 
     Every Task retries 3 times over 2/4/8-second intervals, so a state costs
-    ``4 * timeout + 14`` seconds. The create path's states are validate-authorize,
-    check-table-absent, inspect-source, infer-schema, execute-ddl, the release pass-through and
-    notify-failure. Computed here rather than asserted as a constant, so raising a verb's Lambda
+    ``4 * timeout + 14`` seconds, plus one wait for its function to wake from Inactive. The create
+    path's states are validate-authorize, check-table-absent, inspect-source, infer-schema,
+    execute-ddl, the release pass-through and notify-failure. Computed here rather than asserted as a constant, so raising a verb's Lambda
     timeout without revisiting the machine's fails this instead of being discovered in production.
     """
     create_path_lambda_timeouts = [15, 15, 60, 120, 300, 15, 15]
-    worst_case = sum(4 * t + 14 for t in create_path_lambda_timeouts)
+    with open(_ASL) as handle:
+        waking = _waking_seconds(handle.read())
+    worst_case = sum(4 * t + 14 + waking for t in create_path_lambda_timeouts)
 
     assert _declared_timeout() > worst_case, (
         f"the create path's worst case is {worst_case}s but the machine times out at "

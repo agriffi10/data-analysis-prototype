@@ -2012,3 +2012,204 @@ def test_every_traceparent_read_names_a_path_its_state_actually_supplies():
         "looking at the wrong thing. The eight pre-identity seeds are NOT reads: they supply a "
         "literal null, which is why the total is not 45"
     )
+
+
+#: The three errors Lambda's Invoke API raises for a function that is not ready to run. An
+#: image function idle for weeks goes Inactive and Lambda rejects the invoke that wakes it; AWS
+#: names no exception for that case, so all three candidates are retried. Each is a refusal at
+#: the front door, before any code runs, which is why retrying them is safe even on a Task that
+#: refuses every other Lambda error.
+_NOT_READY_ERRORS = (
+    "Lambda.ResourceNotReadyException",
+    "Lambda.ResourceConflictException",
+    "Lambda.CodeArtifactUserPendingException",
+)
+
+#: The least total wait a Task may give a waking function. No wake by invoke has been measured
+#: here; the slowest reported anywhere is about 30 s, so this sits above it and below the deployed
+#: 75 s, which the ceiling tests that count retries charge once per function.
+_NOT_READY_MIN_WAIT_SECONDS = 50
+
+
+def _retry_wait_seconds(retrier):
+    """Total seconds a retrier waits before giving up, by ASL's defaults and ``MaxDelaySeconds``."""
+    interval = retrier.get("IntervalSeconds", 1)
+    rate = retrier.get("BackoffRate", 2.0)
+    cap = retrier.get("MaxDelaySeconds")
+    waits = (interval * rate**attempt for attempt in range(retrier.get("MaxAttempts", 3)))
+    return sum(wait if cap is None else min(wait, cap) for wait in waits)
+
+
+def _is_lambda_task(state):
+    """Whether a state invokes a Lambda, through any Lambda integration or by direct ARN.
+
+    A direct ``${..._arn}`` Resource reads as ``stub`` once the template is loaded, so the
+    placeholder counts too: matching the integration string alone would let it escape.
+    """
+    resource = state.get("Resource", "")
+    return "lambda" in resource or resource == "stub"
+
+
+def _not_ready_offenders(asl):
+    """Every Lambda Task that would fail its run on the invoke that wakes an Inactive function.
+
+    Step Functions takes the FIRST retrier whose ``ErrorEquals`` names the error, counting the
+    two wildcards, so an earlier short retrier shadows a later long one. Each name is judged by
+    the retrier that actually answers it.
+    """
+    offenders = []
+    for name, state in _states(asl):
+        if not _is_lambda_task(state):
+            continue
+        retriers = state.get("Retry", [])
+        for error in _NOT_READY_ERRORS:
+            answering = next(
+                (
+                    retrier
+                    for retrier in retriers
+                    if {error, "States.ALL", "States.TaskFailed"} & set(retrier["ErrorEquals"])
+                ),
+                None,
+            )
+            if answering is None:
+                offenders.append(f"{name}: no retrier answers {error}")
+            elif _retry_wait_seconds(answering) < _NOT_READY_MIN_WAIT_SECONDS:
+                offenders.append(
+                    f"{name}: {error} is answered by a retrier that waits "
+                    f"{_retry_wait_seconds(answering)}s in all, under {_NOT_READY_MIN_WAIT_SECONDS}s"
+                )
+    return offenders
+
+
+@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
+def test_every_lambda_task_waits_out_a_function_waking_from_inactive(path):
+    """The first run after a quiet spell must not fail on the invoke that wakes its function.
+
+    One image serves the whole fleet, and an image function idle for weeks goes Inactive: Lambda
+    rejects the next invoke and re-optimises the image, and only then runs it. Every function on
+    a plane's path is asleep together, so without this a run fails at each one in turn.
+    """
+    offenders = _not_ready_offenders(_load(path))
+
+    assert not offenders, f"{os.path.basename(os.path.dirname(path))}: {offenders}"
+
+
+def test_the_not_ready_guard_sees_every_task_in_the_fleet():
+    """The guard selects Lambda Tasks, so a Task it skips is a Task unguarded."""
+    tasks = [
+        state
+        for path in _TEMPLATES
+        for _, state in _states(_load(path))
+        if state.get("Type") == "Task"
+    ]
+
+    assert len(tasks) == 93 and all(_is_lambda_task(task) for task in tasks), (
+        f"the fleet has {len(tasks)} Tasks, not 93, or one the guard does not select; decide "
+        "whether a new integration can be Inactive, then move the count"
+    )
+
+
+def _task(retry, resource="arn:aws:states:::lambda:invoke"):
+    """A one-Task machine carrying ``retry``, for the guard's fixtures."""
+    return {"States": {"Verb": {"Type": "Task", "Resource": resource, "Retry": retry, "End": True}}}
+
+
+_SERVICE = {
+    "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+    "IntervalSeconds": 2,
+    "MaxAttempts": 3,
+    "BackoffRate": 2,
+}
+_NOT_READY = {
+    "ErrorEquals": list(_NOT_READY_ERRORS),
+    "IntervalSeconds": 5,
+    "MaxAttempts": 4,
+    "BackoffRate": 2,
+}
+
+
+@pytest.mark.parametrize(
+    ("asl", "reason"),
+    [
+        (_task([_SERVICE]), "Verb: no retrier answers Lambda.ResourceNotReadyException"),
+        (
+            _task([_SERVICE, {**_NOT_READY, "ErrorEquals": list(_NOT_READY_ERRORS[:2])}]),
+            "Verb: no retrier answers Lambda.CodeArtifactUserPendingException",
+        ),
+        (
+            _task([{**_NOT_READY, "MaxAttempts": 2}]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 15s",
+        ),
+        (
+            _task([{**_NOT_READY, "MaxDelaySeconds": 10}]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 35s",
+        ),
+        (
+            _task([{"ErrorEquals": list(_NOT_READY_ERRORS)}]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 7.0s",
+        ),
+        (
+            _task([{"ErrorEquals": list(_NOT_READY_ERRORS), "IntervalSeconds": 49, "MaxAttempts": 1}]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 49.0s",
+        ),
+        (
+            _task([{**_SERVICE, "ErrorEquals": ["States.ALL"]}, _NOT_READY]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 14s",
+        ),
+        (
+            _task([{**_SERVICE, "ErrorEquals": ["States.TaskFailed"]}, _NOT_READY]),
+            "Verb: Lambda.ResourceNotReadyException is answered by a retrier that waits 14s",
+        ),
+        (
+            {
+                "States": {
+                    "Each": {
+                        "Type": "Map",
+                        "ItemProcessor": _task([_SERVICE]),
+                        "End": True,
+                    }
+                }
+            },
+            "Each/Verb: no retrier answers Lambda.ResourceNotReadyException",
+        ),
+        (
+            _task([_SERVICE], resource="arn:aws:states:::lambda:invoke.waitForTaskToken"),
+            "Verb: no retrier answers Lambda.ResourceNotReadyException",
+        ),
+        (
+            _task([_SERVICE], resource="stub"),
+            "Verb: no retrier answers Lambda.ResourceNotReadyException",
+        ),
+    ],
+    ids=[
+        "absent",
+        "one-name-missing",
+        "too-few-attempts",
+        "capped-too-low",
+        "asl-defaults",
+        "just-under-the-floor",
+        "shadowed-by-a-wildcard",
+        "shadowed-by-task-failed",
+        "nested-in-a-map",
+        "callback-integration",
+        "direct-function-arn",
+    ],
+)
+def test_the_not_ready_guard_names_what_it_refuses(asl, reason):
+    offenders = _not_ready_offenders(asl)
+
+    assert any(offender.startswith(reason) for offender in offenders), offenders
+
+
+@pytest.mark.parametrize(
+    "asl",
+    [
+        _task([_SERVICE, _NOT_READY]),
+        _task([{"ErrorEquals": list(_NOT_READY_ERRORS), "IntervalSeconds": 50, "MaxAttempts": 1}]),
+        _task([_NOT_READY, {"ErrorEquals": ["TransientError"], "MaxAttempts": 1}]),
+        _task([_SERVICE], resource="arn:aws:states:::sqs:sendMessage"),
+    ],
+    ids=["compliant", "exactly-the-floor", "order-free-when-nothing-shadows", "not-a-lambda-task"],
+)
+def test_the_not_ready_guard_is_silent_on_a_compliant_machine(asl):
+    assert _not_ready_offenders(asl) == []

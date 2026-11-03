@@ -48,10 +48,12 @@ username; `MessageDeduplicationId` is the `requestId`.
   space buckets, under an explicit Deny on every app-managed folder in both; the validator's
   protected-folder rule mirrors that Deny at any depth, which is stricter than the browser's
   picker in a personal space on purpose.
-- **`Convert` retries on `TransientError` alone, once.** The four `Lambda.*` service errors cover
+- **`Convert` retries on `TransientError` alone, once, of what can follow a run.** The four
+  `Lambda.*` service errors cover
   a response lost after the function completed, and a re-invocation there meets its own
   conditional `PutObject` and reports `destination_occupied` to a user whose save succeeded. The
-  verb raises `TransientError` only before the upload begins.
+  verb raises `TransientError` only before the upload begins. Its second retrier, the fleet's
+  wait for a function waking from Inactive, names only refusals before the function runs.
 - **The size cap is per format**, because Excel cannot stream: polars hands xlsxwriter a Python
   copy of every cell and xlsxwriter stores each again, so Excel's memory is spent per **CELL** —
   a one-byte NULL costs about 250 bytes. The streamed formats are bounded by the scratch disk;

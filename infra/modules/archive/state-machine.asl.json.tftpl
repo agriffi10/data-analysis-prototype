@@ -1,5 +1,5 @@
 {
-  "Comment": "Archive control plane. ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (the create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize reads the trusted actor out of the API's identity block, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. THE RESTORE ARM IS THE ARCHIVE READ BACKWARDS, AND IT IS SPLIT ACROSS THE BILL: inspect-archive rebuilds every destination from the archived keys themselves and check-destination-clear refuses the whole restore if ANY of them is occupied — everything up to there is verifiable in SECONDS, and everything after it takes HOURS and cannot be taken back, which is why the guard is on this side of the line. The restore arm completes it: build-restore-manifest writes the ONE dataset both restore Maps read, RetrieveObjects is the point of no return (RestoreObject is billed on request and cannot be cancelled, so its Map tolerates NO failure — nothing is copied and the archive is untouched, and the user re-submits at no second bill), the Wait/PollRestore/RestoreRetrieved loop is the only loop in this repo and exists because a GLACIER object is not readable until S3 has spent 3-5 hours making a temporary copy of it, CopyBackObjects is the copy that actually changes the storage class, and RestoreCompleteOrPartial is the archive gate's MIRROR IMAGE rather than its twin — a partial restore cannot be rolled back to nothing, because the user's space now holds some of their own data, so that arm deletes NOTHING and keeps the archive, which after a partial restore is the only complete copy in existence. The FailureSeeds/RecordFailure/NotifyFailure are the whole-request failure path, and every one of them now carries `mode`: the two modes' failures are worded differently (arcommon.messages holds one body table under two prefixes), and a user who clicked Restore must not be told an archive failed. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is a failure path satisfied on paper and silent in practice.",
+  "Comment": "Archive control plane. ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (the create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize reads the trusted actor out of the API's identity block, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. THE RESTORE ARM IS THE ARCHIVE READ BACKWARDS, AND IT IS SPLIT ACROSS THE BILL: inspect-archive rebuilds every destination from the archived keys themselves and check-destination-clear refuses the whole restore if ANY of them is occupied — everything up to there is verifiable in SECONDS, and everything after it takes HOURS and cannot be taken back, which is why the guard is on this side of the line. The restore arm completes it: build-restore-manifest writes the ONE dataset both restore Maps read, RetrieveObjects is the point of no return (RestoreObject is billed on request and cannot be cancelled, so its Map tolerates NO failure — nothing is copied and the archive is untouched, and the user re-submits at no second bill), the Wait/PollRestore/RestoreRetrieved loop is the only loop in this repo and exists because a GLACIER object is not readable until S3 has spent 3-5 hours making a temporary copy of it, CopyBackObjects is the copy that actually changes the storage class, and RestoreCompleteOrPartial is the archive gate's MIRROR IMAGE rather than its twin — a partial restore cannot be rolled back to nothing, because the user's space now holds some of their own data, so that arm deletes NOTHING and keeps the archive, which after a partial restore is the only complete copy in existence. The FailureSeeds/RecordFailure/NotifyFailure are the whole-request failure path, and every one of them now carries `mode`: the two modes' failures are worded differently (arcommon.messages holds one body table under two prefixes), and a user who clicked Restore must not be told an archive failed. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried, plus the refusals of a function waking from Inactive. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is a failure path satisfied on paper and silent in practice.",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
@@ -23,6 +23,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -99,6 +109,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -130,6 +150,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -206,6 +236,16 @@
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
                 "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
               }
             ],
             "End": true
@@ -249,6 +289,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -295,6 +345,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -343,6 +403,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -375,6 +445,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -406,6 +486,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -449,6 +539,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -523,6 +623,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -563,6 +673,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -605,6 +725,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -661,6 +791,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -723,6 +863,16 @@
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
                 "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
               }
             ],
             "End": true
@@ -778,6 +928,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -817,6 +977,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -885,6 +1055,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -946,6 +1126,16 @@
                 "IntervalSeconds": 2,
                 "MaxAttempts": 3,
                 "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
               }
             ],
             "End": true
@@ -989,6 +1179,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -1035,6 +1235,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -1089,6 +1299,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -1132,6 +1352,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -1191,6 +1421,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -1308,6 +1548,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],

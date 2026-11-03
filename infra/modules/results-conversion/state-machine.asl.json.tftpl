@@ -24,6 +24,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -71,6 +81,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -102,7 +122,7 @@
     },
     "Convert": {
       "Type": "Task",
-      "Comment": "The only state on this plane that writes. It downloads the result object to the function's own disk, types every column from the metadata rather than from the values, writes one file, and uploads it under If-None-Match when the request asked to be refused rather than to overwrite. ITS RETRY IS DELIBERATELY UNLIKE EVERY OTHER TASK'S: TransientError alone, and once. The four Lambda service errors are NOT retried here because their window includes a response lost after the function completed — and a re-invocation that meets its own conditional PutObject reports destination_occupied to a user whose save in fact succeeded. The verb raises TransientError only before the upload begins, which is what makes the one retry safe.",
+      "Comment": "The only state on this plane that writes. It downloads the result object to the function's own disk, types every column from the metadata rather than from the values, writes one file, and uploads it under If-None-Match when the request asked to be refused rather than to overwrite. ITS RETRY IS DELIBERATELY UNLIKE EVERY OTHER TASK'S: TransientError alone, and once. The four Lambda service errors are NOT retried here because their window includes a response lost after the function completed — and a re-invocation that meets its own conditional PutObject reports destination_occupied to a user whose save in fact succeeded. The verb raises TransientError only before the upload begins, which is what makes the one retry safe. The second retrier is every Task's: it waits out a function waking from Inactive, and its three errors are refusals before the function runs, so it cannot meet its own write either.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${convert_function_arn}",
@@ -114,6 +134,16 @@
           "ErrorEquals": ["TransientError"],
           "IntervalSeconds": 2,
           "MaxAttempts": 1,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],
@@ -194,6 +224,16 @@
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
           "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -265,6 +305,16 @@
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
           "BackoffRate": 2
         }
       ],

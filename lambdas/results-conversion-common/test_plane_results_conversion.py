@@ -900,7 +900,12 @@ def test_the_converter_can_finish_its_largest_input_inside_its_own_timeout():
 
 def test_the_ceiling_clears_the_longest_path_the_machine_can_walk():
     """The machine's ceiling is a ceiling, not a guess: every Task's timeout times its attempts,
-    plus the backoff between attempts, along the longest path through the machine."""
+    plus the backoff between attempts, along the longest path through the machine.
+
+    A Task's second retrier waits out a function waking from Inactive. It is charged its backoff
+    and no timeout, because a rejected invoke never ran, and once, because a function woken for
+    the first attempt is awake for the rest.
+    """
     locals_text = _LOCALS.read_text(encoding="utf-8")
     ceiling = int(re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", locals_text).group(1))
     assert ceiling == config.MACHINE_TIMEOUT_SECONDS, (
@@ -950,9 +955,13 @@ def test_the_ceiling_clears_the_longest_path_the_machine_can_walk():
         ("Notify", "notify"),
         ("NotifyFailure", "notify-failure"),
     ):
-        retry = states[name]["Retry"][0]
+        retry, waking = states[name]["Retry"]
         attempts = retry["MaxAttempts"] + 1
-        backoff = sum(retry["IntervalSeconds"] * retry["BackoffRate"] ** i for i in range(retry["MaxAttempts"]))
+        backoff = sum(
+            policy["IntervalSeconds"] * policy["BackoffRate"] ** i
+            for policy in (retry, waking)
+            for i in range(policy["MaxAttempts"])
+        )
         longest += timeouts[key] * attempts + backoff
     assert ceiling > longest, f"the ceiling {ceiling}s cannot hold the longest path, {longest}s"
 
@@ -965,7 +974,8 @@ def test_the_converter_retries_only_what_cannot_have_written_anything():
     failure, and reports `destination_occupied` to a user whose save in fact succeeded — so the
     retry would manufacture the one refusal this plane's whole conditional-write design exists
     to make truthful. Only TransientError is retried, which the verb raises solely before the
-    upload begins.
+    upload begins, and the three refusals of a function not ready to run, which come before it
+    runs at all.
     """
     raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", _ASL.read_text(encoding="utf-8"))
     states = json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw))["States"]
@@ -974,6 +984,13 @@ def test_the_converter_retries_only_what_cannot_have_written_anything():
         "a Lambda.* retry here can re-run an invocation that already wrote the object"
     )
     assert retry["MaxAttempts"] == 1
+    retried = {error for policy in states["Convert"]["Retry"] for error in policy["ErrorEquals"]}
+    assert retried == {
+        "TransientError",
+        "Lambda.ResourceNotReadyException",
+        "Lambda.ResourceConflictException",
+        "Lambda.CodeArtifactUserPendingException",
+    }, "Convert may retry only what fires before an upload, and a service error can follow one"
     for other in ("ValidateAuthorize", "DescribeResults", "NotifyFailure"):
         assert "Lambda.ServiceException" in states[other]["Retry"][0]["ErrorEquals"], (
             f"{other} still retries the service errors, so the narrowing above is Convert's "

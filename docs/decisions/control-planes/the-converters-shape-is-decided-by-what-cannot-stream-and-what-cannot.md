@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The converter's shape is decided by what cannot stream and what cannot be retried (SPEC-222)"
-description: "**A conversion reads from the ACTOR'S space and writes to the DESTINATION'S**, and the two coincide only for a personal destination — which is why a suite whose fixtures are all personal cannot tell them apart, and why one shipped reading the result object out of the shared bucket. Its **types come from the metadata**, where a decimal's parameters are **never in `Type`** — captured — and are read from `Precision`/`Scale`, which no capture route available here can show are populated; the verb refuses the column rather than guessing a scale, so being wrong about that costs a loud refusal and not a silently rounded number. The vocabulary is closed and **refuses rather than falling back**. Excel is the one format that cannot stream, and its memory is spent per **CELL** — a one-byte NULL costs ~250 bytes — so it is capped by a cell count taken from the CSV **before** anything is built, while the others are set by the disk. A byte cap alone cannot be both safe and useful, and one admitted a result that ran the converter out of memory. `Convert` retries **`TransientError` only**: a `Lambda.*` retry can re-run an invocation that already completed its conditional `PutObject`, and it then meets its own object and reports `destination_occupied` for a save that succeeded."
+description: "**A conversion reads from the ACTOR'S space and writes to the DESTINATION'S**, and the two coincide only for a personal destination — which is why a suite whose fixtures are all personal cannot tell them apart, and why one shipped reading the result object out of the shared bucket. Its **types come from the metadata**, where a decimal's parameters are **never in `Type`** — captured — and are read from `Precision`/`Scale`, which no capture route available here can show are populated; the verb refuses the column rather than guessing a scale, so being wrong about that costs a loud refusal and not a silently rounded number. The vocabulary is closed and **refuses rather than falling back**. Excel is the one format that cannot stream, and its memory is spent per **CELL** — a one-byte NULL costs ~250 bytes — so it is capped by a cell count taken from the CSV **before** anything is built, while the others are set by the disk. A byte cap alone cannot be both safe and useful, and one admitted a result that ran the converter out of memory. `Convert` retries **`TransientError` only** of what can follow a run: a `Lambda.*` service-error retry can re-run an invocation that already completed its conditional `PutObject`, and it then meets its own object and reports `destination_occupied` for a save that succeeded. Its other retrier names only refusals before the function runs."
 ---
 
 **The size cap is per format because Excel cannot stream.** Parquet and JSON are `scan_csv` into
@@ -23,7 +23,10 @@ re-invokes a converter that already completed its `If-None-Match` `PutObject`, m
 object, and reports `destination_occupied` — manufacturing the one refusal the conditional-write
 design exists to make truthful. The verb raises `TransientError` only before the upload begins,
 and a test reads that from the AST rather than the source text, because the docstring explaining
-the rule names the word the sweep looks for.
+the rule names the word the sweep looks for. Like every Task, `Convert` also carries a second
+retrier for the three errors Lambda raises on a function waking from Inactive. Those are refusals
+before the function runs, so a retry of them cannot meet its own object either; the reasoning is
+the decision on waiting out a function waking from Inactive, in this directory.
 
 **A refusal that cannot fire is worse than no refusal.** FR-004 asked for a refusal above Excel's
 16,384 columns. It could never run: the described columns travel on a Step Functions state capped

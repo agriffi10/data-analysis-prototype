@@ -86,7 +86,8 @@ locals {
   # ONCE on TransientError alone rather than four times on the four Lambda service errors, for
   # a reason that is about correctness rather than arithmetic: a retry of an invocation that
   # already completed its conditional PutObject meets its own object and reports the user's
-  # success as a name conflict.
+  # success as a name conflict. Like every Task it also waits out a function waking from
+  # Inactive, which the test charges as backoff alone, since a rejected invoke never ran.
   #
   # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
   state_machine_timeout_seconds = 3600

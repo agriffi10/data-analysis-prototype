@@ -61,8 +61,9 @@ at any age. So the bound is not tidy-up — **it is what makes the lock's steal 
 Derived from the worst case: every Task retries 3 times over 2/4/8-second intervals, so a state costs
 `4 × timeout + 14` seconds. The refresh path sums to ~2400 s (validate 74, acquire 74,
 load-definition 74, inspect-source 254, infer-schema 494, diff-schema 74, apply-refresh 1214, release
-74, notify 74) and the create path to ~2260 s, so 3600 clears both and adding it cannot fail an
-ordinary create's Athena polling.
+74, notify 74) and the create path to ~2260 s. Each state also waits up to 75 s for its function
+to wake from Inactive, ~3080 s and ~2780 s with the wakes, so 3600 clears both and adding it cannot
+fail an ordinary create's Athena polling.
 
 **`tbcommon/table_lock.py` mirrors the number as `MACHINE_TIMEOUT_SECONDS`** and derives its steal
 threshold from it. `test_table_lock_timeout.py` holds the two equal **and recomputes the create-path

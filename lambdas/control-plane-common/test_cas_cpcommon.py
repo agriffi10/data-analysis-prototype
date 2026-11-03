@@ -259,8 +259,8 @@ def test_the_precondition_predicate_has_not_reappeared():
         # `If-None-Match: *` asks S3 to decide, at the instant of the write, whether the
         # destination name was taken since the browser last looked, and a 412 is that question's
         # ANSWER. It reaches the user as `destination_occupied` and nothing retries — the
-        # machine's Retry for that Task is TransientError alone, precisely so a re-invocation
-        # cannot meet its own write. Exempted by FULL PATH, and kept honest below.
+        # machine's Retry for that Task names nothing that can follow a write, precisely so a
+        # re-invocation cannot meet its own. Exempted by FULL PATH, and kept honest below.
         and path != lambdas / "results-conversion-convert" / "rc_convert.py"
         # The data-quality request-id claim names both codes to tell them APART, as delete.py
         # does. Its `If-None-Match: *` create is refused 412 when another execution already

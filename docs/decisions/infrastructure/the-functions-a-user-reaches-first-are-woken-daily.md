@@ -52,12 +52,15 @@ own tests run it.
 
 **Do NOT** widen this to the rest of the fleet by invoking handlers with synthetic events: a plane
 handler given a made-up event is not a no-op in general, and ninety functions cold-starting at once
-would take every one of the account's ten concurrent slots from the users the wake exists for. The async planes still go Inactive, and
-whether their retries absorb a rejected first invoke is unmeasured. If that is ever extended,
-`.github/lambda-probes.json` already names one function per plane judged safe to invoke with `{}`.
+would take every one of the account's ten concurrent slots from the users the wake exists for.
+The async planes still go Inactive, and are not woken: every Lambda Task in their machines waits
+out the wake instead, by a retrier on the errors Lambda raises for a function not ready to run.
+That is the control-planes decision on waiting out a function waking from Inactive.
 
 ## History
 
 ### 2026-11-03
 
 - **Settled:** entered the register.
+- **Revised:** the planes' first run after a quiet spell, left unmeasured here, is covered by a
+  retrier on every Lambda Task rather than a wider wake.

@@ -63,6 +63,32 @@ _HEAD_LATENCY_SECONDS = 0.1
 _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS = 10
 
 
+def _waking_seconds(asl_text: str) -> float:
+    """The backoff a Task spends waiting out a function waking from Inactive, read from the ASL.
+
+    Charged once per function a run reaches and with no timeout: a rejected invoke never ran, and
+    a function woken for its first attempt is awake for the rest. Every Task carries the same
+    retrier, which this asserts, so one number stands for all of them.
+    """
+    raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", asl_text)
+    policies = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "Lambda.ResourceNotReadyException" in node.get("ErrorEquals", []):
+                policies.add(json.dumps(node, sort_keys=True))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw)))
+    assert len(policies) == 1, f"the waking retrier is not one shape across the machine: {policies}"
+    policy = json.loads(policies.pop())
+    return sum(policy["IntervalSeconds"] * policy["BackoffRate"] ** i for i in range(policy["MaxAttempts"]))
+
+
 def _verb_row(name: str) -> tuple[int, int]:
     """Returns one verb's ``(timeout, memory)`` as Terraform actually configures it.
 
@@ -341,11 +367,14 @@ def test_the_give_up_bound_is_strictly_under_the_machine_ceiling():
     does not need to outlast a steal, because the waiter performs the steal.
 
     The per-attempt cost is the ``Wait`` plus the acquire Task's own worst case under this fleet's
-    retry block: three retries over 2/4/8 seconds, so ``4 x timeout + 14``.
+    retry block: three retries over 2/4/8 seconds, so ``4 x timeout + 14``. The first attempt may
+    also wait out the function waking from Inactive, which only the first can meet.
     """
     acquire_timeout = _verb_row("acquire-lock")[0]
     worst_attempt = config.LOCK_WAIT_SECONDS + (4 * acquire_timeout + 14)
-    give_up = config.LOCK_MAX_ATTEMPTS * worst_attempt
+    give_up = config.LOCK_MAX_ATTEMPTS * worst_attempt + _waking_seconds(
+        (_MODULE / "state-machine.asl.json.tftpl").read_text()
+    )
 
     assert give_up < config.MACHINE_TIMEOUT_SECONDS, (
         f"a waiter can burn {give_up}s against a {config.MACHINE_TIMEOUT_SECONDS}s ceiling"
@@ -649,6 +678,10 @@ def test_the_JOINT_budget_fits_the_machines_own_ceiling():
     This is the computation that moved FILE_OPS_MAX_TOTAL_BYTES from 3 TiB to 2 TiB. Raising the
     ceiling instead would have raised STALE_LOCK_SECONDS with it, and a longer stale window on a
     shared space blocks everyone who works in it.
+
+    **Every function the plane deploys may be asleep**, so each is charged one wake from Inactive:
+    the first run after a quiet spell meets all of them, the Map's workers wake together, and
+    the acquire loop's later attempts find its function awake.
     """
     from cpcommon.transfer.config import (
         CONSERVATIVE_STREAM_BYTES_PER_SECOND,
@@ -659,7 +692,10 @@ def test_the_JOINT_budget_fits_the_machines_own_ceiling():
     copy_seconds = config.FILE_OPS_MAX_TOTAL_BYTES / (
         MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
     )
-    run = copy_seconds + _serial_verb_seconds() + _give_up_seconds()
+    waking = len(_ALL_CHARGED_VERBS) * _waking_seconds(
+        (_MODULE / "state-machine.asl.json.tftpl").read_text()
+    )
+    run = copy_seconds + _serial_verb_seconds() + _give_up_seconds() + waking
 
     assert run < config.MACHINE_TIMEOUT_SECONDS, (
         f"a worst-case run is ~{run:,.0f}s against a {config.MACHINE_TIMEOUT_SECONDS}s ceiling — "
