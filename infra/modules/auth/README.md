@@ -109,6 +109,16 @@ any branch read one" — `test_layer_import_safety.py` scans each function's who
 code already imported `cpcommon`, so an apply landing after a deploy stripped the layer back off and
 **re-broke signup**.
 
+## Both triggers are woken once a day
+
+`keep-warm.tf` invokes both triggers once a day. An image function idle for weeks goes Inactive and
+Lambda rejects the invoke that wakes it, and Cognito does not retry that failure: pre-signup would
+fail on Cognito's own page, and post-confirmation would confirm the user with no database and no
+record that provisioning was skipped, because the handler never ran. The payload,
+`keep-warm.json`, is a no-op by each handler's existing rules, and both handlers' tests run it.
+`lambdas/test_keep_warm.py` holds every trigger in `lambda_config` to a target and a permission.
+Reasoning: `docs/decisions/infrastructure/the-functions-a-user-reaches-first-are-woken-daily.md`.
+
 ## The propagation guards
 
 Three `time_sleep` resources absorb IAM's eventual consistency on the applies that grant a permission

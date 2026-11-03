@@ -100,6 +100,29 @@ def test_health_is_served_through_the_request_context() -> None:
     assert json.loads(response["body"])["status"] == "ok"
 
 
+def test_the_daily_wake_is_answered_by_the_health_route() -> None:
+    """The API module's keep-warm rule sends this file every day; it must be a plain success.
+
+    A payload missing the request context would be refused 401 on every wake and read as one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the wake is not answered as a healthy request.
+    """
+    payload = (
+        pathlib.Path(__file__).resolve().parents[2] / "infra/modules/api/keep-warm.json"
+    )
+    response = m.handler(json.loads(payload.read_text(encoding="utf-8")), None)
+
+    assert response["statusCode"] == 200
+    assert json.loads(response["body"])["status"] == "ok"
+
+
 def test_an_unroutable_request_is_refused_not_a_traceback() -> None:
     """A malformed event cannot arrive through the API, so an answer beats a raise.
 

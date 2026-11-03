@@ -173,7 +173,8 @@ def handler(event, context):
     is never recorded, because it carries the user's email address.
 
     Args:
-      event: The Cognito trigger event.
+      event: The Cognito trigger event, or the daily keep-warm payload, whose trigger source is
+        not a sign-up confirmation and so returns before provisioning.
       context: The Lambda context, unused.
 
     Returns:

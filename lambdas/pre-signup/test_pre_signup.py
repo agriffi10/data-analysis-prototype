@@ -1,6 +1,8 @@
 """Unit tests for the pre-signup trigger.
 """
 
+import json
+import pathlib
 from contextlib import contextmanager
 
 from pre_signup import handler
@@ -46,3 +48,14 @@ def test_uppercase_username_rejected():
 def test_disposable_domain_rejected():
     with _raises("temporary email"):
         handler(_event(email="bot@mailinator.com"), None)
+
+
+def test_the_daily_wake_passes_through_unchanged():
+    """The auth module's keep-warm rule sends this file every day; it must refuse nothing.
+
+    A refusal here would raise on every wake and count as a daily error.
+    """
+    payload = pathlib.Path(__file__).resolve().parents[2] / "infra/modules/auth/keep-warm.json"
+    event = json.loads(payload.read_text(encoding="utf-8"))
+
+    assert handler(event, None) is event
