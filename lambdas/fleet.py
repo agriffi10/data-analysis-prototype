@@ -12,7 +12,7 @@ separately and still says 86.
 **It reads the SOURCES, not `tofu output`, and both readers exist for different reasons.**
 `deploy-lambdas.yml` needs the fleet as the commit declares it, because a `tofu output` is
 last-applied state and the two deploy workflows fire on the same push with no ordering between
-them — a commit that adds a function would shard over state that predates it, never point the new
+them — a commit that adds a function would deploy over state that predates it, never point the new
 function, and reconcile cleanly over the gap. `.github/workflows/lambda-image.yml` needs it with no
 AWS credentials at all, which it deliberately has none of.
 
@@ -22,10 +22,6 @@ comparison that derives both sides from here.
 
 Attributes:
   MODULE_SOURCE: The module path every fleet function is a call to.
-  PER_SHARD: Functions per shard the deploy aims for.
-  MAX_SHARDS: The ceiling on shard count. Both exist only to keep each job comfortably over a
-    billed minute — GitHub rounds every job up to one, and eighty-six one-function jobs spent
-    that rounding eighty-six times.
   NAME_PREFIX: The interpolation every deployed name starts with. CI builds a function's real
     name as ``${PROJECT_NAME}-${ENVIRONMENT}-${NAME}``, so the short name this module returns is
     whatever follows it. A template that does not carry it is refused rather than returned
@@ -34,15 +30,12 @@ Attributes:
 
 import argparse
 import json
-import math
 import pathlib
 import re
 
 from tf_blocks import argument, map_entries, module_calls, span
 
 MODULE_SOURCE = "docker-lambda"
-PER_SHARD = 12
-MAX_SHARDS = 6
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
 
 
@@ -385,51 +378,6 @@ def function_names(repo: pathlib.Path) -> list[str]:
     return sorted(found)
 
 
-def plan(repo: pathlib.Path) -> dict:
-    """The whole fleet, and the shards the deploy will spread it over.
-
-    **Every run points every function, so there is nothing to narrow.** One image serves the
-    fleet, which means "which functions changed" has no answer — and a function left un-pointed
-    runs an older image and reports a stale build stamp while working perfectly, which is the
-    failure this arc is written around. The predecessor to this function decided which functions a
-    push needed and is deleted; what is left is the sharding, which exists only for Actions cost.
-
-    Args:
-      repo: The repository root.
-
-    Returns:
-      ``functions``, ``shards`` and ``shard_count``.
-
-    Raises:
-      FleetError: Propagated from the derivation, so an unreadable fleet fails the deploy rather
-        than sharding an empty list over zero jobs and reporting success.
-    """
-    names = function_names(repo)
-    count = min(MAX_SHARDS, max(1, math.ceil(len(names) / PER_SHARD)))
-    return {"functions": names, "shards": list(range(count)), "shard_count": count}
-
-
-def shard_of(names: list[str], shard: int, shard_count: int) -> list[str]:
-    """The functions one shard deploys.
-
-    The selection the workflow applies, written here so a test can drive the same expression the
-    deploy runs rather than a restatement of it. A sharding bug that drops a function is invisible
-    at the shard boundary — each job reports success over the share it was given.
-
-    Args:
-      names: The whole fleet, in the order the plan emitted.
-      shard: This shard's index.
-      shard_count: How many shards.
-
-    Returns:
-      This shard's functions.
-
-    Raises:
-      None.
-    """
-    return [name for index, name in enumerate(names) if index % shard_count == shard]
-
-
 def main() -> int:
     """Prints the fleet as JSON, for the shell callers that cannot import it.
 
@@ -450,15 +398,7 @@ def main() -> int:
         action="store_true",
         help='Print [{"name": …}] rows, the shape the plan guard reads.',
     )
-    parser.add_argument(
-        "--plan",
-        action="store_true",
-        help="Print the deploy plan: the fleet plus its shards.",
-    )
     arguments = parser.parse_args()
-    if arguments.plan:
-        print(json.dumps(plan(arguments.repo)))
-        return 0
     names = function_names(arguments.repo)
     print(json.dumps([{"name": n} for n in names] if arguments.rows else names))
     return 0

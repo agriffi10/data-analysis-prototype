@@ -29,8 +29,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCANNED_SUFFIXES = {".yml", ".yaml", ".sh", ".py", ".json", ".tf", ".tftpl"}
 
 # `lambdas/` is in scope because the fleet's two real build-and-deploy scripts live there —
-# `fleet.py`, which every deploy workflow shards over, and `docker/assemble.py`, which is the
-# deleted layer table's direct successor and so the likeliest place for a reference to regrow.
+# `fleet.py`, which every deploy workflow derives the fleet from, and `docker/assemble.py`, which is
+# the deleted layer table's direct successor and so the likeliest place for a reference to regrow.
 # This file is excluded from its own scan: its fixtures are layer references on purpose.
 SCANNED_TREES = (".github", "scripts", "infra", "lambdas")
 

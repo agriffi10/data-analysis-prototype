@@ -51,12 +51,18 @@ image for all 86, "which functions changed" has no answer: a function left un-po
 image and reports a stale `BUILD_VERSION` **while working perfectly**, which is the failure this
 whole arc is written around.
 
-The cost is real and was paid deliberately: six shard jobs of ~15 functions on every `lambdas/**`
-push, against a median of four before. That is the price of the guarantee, and the reconciliation is
-what makes it worth paying — the `pointed` job reconciles by NAME, because a count tells you a number
+The cost is real and was paid deliberately: the whole fleet on every `lambdas/**` push, against a
+median of four functions before. It is paid in ONE job that points eight functions at a time
+(`.github/scripts/deploy-fleet.sh`), because a function's deploy is almost all waiting on Lambda and
+GitHub bills every job's wall clock — six shard jobs walking the fleet in sequence billed ~45 minutes
+a run, and once held all six to a 30-minute timeout while idle functions each failed a waiter. Every
+function gets its attempt however many fail, and the job's 15-minute timeout is the cost bound —
+there is no early stop, because no rule for which failures count told a fleet-wide failure from a
+local one reliably. That is the price of the guarantee, and the reconciliation is what makes it
+worth paying — the `pointed` job reconciles by NAME, because a count tells you a number
 is wrong and the names tell you which functions are running last week's image. It does so on **two**
 axes, and they read different things: what this commit's Terraform sources declare against what the
-shards recorded pointing (a function planned and never pointed), and those same sources against
+deploy recorded pointing (a function planned and never pointed), and those same sources against
 Terraform's applied state (a function deployed that this commit does not declare, running an image
 nobody pointed). The *Which functions exist* section below says why the two readers are different.
 
@@ -131,7 +137,7 @@ the same list is deleted (the post-cutover name set beside the frozen capture is
 acknowledgement of growth, not a membership source) — a second declaration of one fact can only ever drift, and the drift is
 invisible until something deploys against the wrong copy.
 
-Two readers, for two different questions. `deploy-lambdas.yml` shards over **this commit's**
+Two readers, for two different questions. `deploy-lambdas.yml` deploys **this commit's**
 sources, because a `tofu output` is last-applied state and the two deploy workflows fire on the same
 push with no ordering — so on the push that adds a function the output does not have it yet, and the
 new function would never be pointed. The `pointed` job reads the **applied** output
@@ -176,7 +182,9 @@ before code can be pointed at it.
   UNCHANGED by the move to containers.** A change that rewrites a function's Terraform **env block**
   while CI is calling `UpdateFunctionCode` on it fails with `ResourceConflictException: An update is
   in progress for resource: <arn>`. Nothing is wrong with the code — re-running the failed job after
-  the apply settles succeeds. A real fix, if one is ever needed, is a `needs:` edge or a retry.
+  the apply settles succeeds. A real fix, if one is ever needed, is a `needs:` edge or a retry. The
+  rest of the fleet still lands: `deploy-fleet.sh` gives every function its attempt however many
+  fail.
 - **A `rate()` EventBridge rule fires on creation**, so a new scheduled function's first invocation
   can hit an image that is still being optimised. The async retry fixes it — **a red first invocation
   is expected, not a defect.**

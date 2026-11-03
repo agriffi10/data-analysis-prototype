@@ -2516,10 +2516,10 @@ EXECUTED_WORKFLOWS = (
 )
 
 #: The standalone shell scripts the ``lambdas/`` suite EXECUTES, subject to the same rule for the
-#: same reason — ``test_probe_cold_start.py``, ``test_point_lambda.py`` and
-#: ``test_resolve_config.py`` run the first three as scripts, and the first is where this defect
-#: was found a second time; ``test_image_tag_check.py``, ``test_point_lambda.py`` and this
-#: module's ``names`` harness run the tag check. Named rather than globbed over ``.github/scripts/``
+#: same reason — ``test_probe_cold_start.py``, ``test_point_lambda.py``,
+#: ``test_resolve_config.py`` and ``test_deploy_fleet.py`` run the first four as scripts, and the
+#: first is where this defect was found a second time; ``test_image_tag_check.py``,
+#: ``test_point_lambda.py`` and this module's ``names`` harness run the tag check. Named rather than globbed over ``.github/scripts/``
 #: because the criterion is execution BY THIS SUITE, which a directory cannot express:
 #: ``spa-image-matrix.sh`` holds a dozen fixed ``/tmp/matrix-*`` names that are the same defect on
 #: the host, but no test runs it, so it cannot flake this gate and fixing it is its own change.
@@ -2530,6 +2530,7 @@ EXECUTED_SCRIPTS = (
     ROOT / ".github" / "scripts" / "probe-cold-start.sh",
     ROOT / ".github" / "scripts" / "point-lambda.sh",
     ROOT / ".github" / "scripts" / "resolve-config.sh",
+    ROOT / ".github" / "scripts" / "deploy-fleet.sh",
     IMAGE_TAG_CHECK,
 )
 

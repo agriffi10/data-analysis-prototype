@@ -2838,7 +2838,8 @@ order works and each spec stated its own obligation for both. **What actually ha
 branch as written, and it is worth recording because the obligation was phrased around a read that
 turned out to be the wrong one.** 215 landed first, but `deploy-lambdas.yml` does not go through
 its `resolve-config.sh`: that resolver serves the configuration DOCUMENT, and the fleet is a
-different read. The workflow shards over the commit's own `lambdas/fleet.py --plan` — deliberately
+different read. The workflow deploys the fleet the commit's own `lambdas/fleet.py` derives (it sharded over
+`fleet.py --plan` before the shards became one job running eight at a time) — deliberately
 not a `tofu output`, which is last-applied state and would miss a function the same push adds — and
 reads `tofu output -json lambda_function_names` only in the reconciliation, behind its own pinned
 `tofu_version: '~1.8'`. So it joins 215 FR-001's version agreement on the predicate that spec
