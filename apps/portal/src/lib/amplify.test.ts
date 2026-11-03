@@ -1,9 +1,10 @@
-import {describe, it, expect, vi, afterEach} from 'vitest';
+import {describe, it, expect, vi, afterEach, beforeEach} from 'vitest';
 import {Amplify} from 'aws-amplify';
 import {cognitoUserPoolsTokenProvider} from 'aws-amplify/auth/cognito';
 import {defaultStorage, sessionStorage} from 'aws-amplify/utils';
 import {configureAmplify, isAmplifyConfigured} from './amplify';
 import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
+import {memoryStorage} from '../test/storage';
 
 vi.mock('aws-amplify', () => ({Amplify: {configure: vi.fn()}}));
 vi.mock('aws-amplify/auth/cognito', () => ({
@@ -133,5 +134,62 @@ describe('token storage', () => {
     configureAmplify();
 
     expect(setStorage).not.toHaveBeenCalled();
+  });
+});
+
+describe('browser-wide tokens left from before tokens were per tab', () => {
+  const prefix = 'CognitoIdentityServiceProvider.client-id';
+  const legacyTokenKeys = [
+    `${prefix}.LastAuthUser`,
+    `${prefix}.agriffith_three.idToken`,
+    `${prefix}.agriffith_three.accessToken`,
+    `${prefix}.agriffith_three.refreshToken`,
+    `${prefix}.agriffith_three.clockDrift`,
+    `${prefix}.agriffith_three.oauthMetadata`,
+    `${prefix}.agriffith_three.signInDetails`,
+    `${prefix}.first.last.idToken`
+  ];
+  // What a redirect sign-in in flight still keeps in localStorage, plus a portal key and
+  // a device key, which the token store writes but Amplify's own sign-out also keeps.
+  const keptKeys = [
+    `${prefix}.oauthPKCE`,
+    `${prefix}.inflightOAuth`,
+    `${prefix}.oauthSignIn`,
+    'portal.railCollapsed',
+    `${prefix}.agriffith_three.deviceKey`
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Every key the stubbed store still holds, sorted. */
+  function remainingKeys(): string[] {
+    return Array.from({length: localStorage.length}, (_, index) => localStorage.key(index) as string).sort();
+  }
+
+  it('removes the old token set and leaves the sign-in state and every other key', () => {
+    for (const key of [...legacyTokenKeys, ...keptKeys]) localStorage.setItem(key, 'value');
+    seedRuntimeConfig(cognito());
+
+    configureAmplify();
+
+    expect(remainingKeys()).toEqual([...keptKeys].sort());
+  });
+
+  it('still configures sign-in when localStorage cannot be read', () => {
+    vi.stubGlobal('localStorage', {
+      get length(): number {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      }
+    });
+    seedRuntimeConfig(cognito());
+
+    expect(() => configureAmplify()).not.toThrow();
+    expect(setStorage).toHaveBeenCalledWith(sessionStorage);
   });
 });
