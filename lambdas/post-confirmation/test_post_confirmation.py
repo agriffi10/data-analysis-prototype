@@ -16,7 +16,9 @@ probe on the pre-change tree confirmed a test under `lambdas/api/` saw a `boto3`
 in this file and gives the API suites the real client they assert real SDK behaviour with.
 """
 
+import json
 import os
+import pathlib
 import sys
 import types
 
@@ -124,3 +126,18 @@ def test_handler_never_blocks_signup_on_aws_error():
     event = _event(username="alice")
     # Handler swallows the error and returns the event so sign-up completes.
     assert post_confirmation.handler(event, None) is event
+
+
+def test_the_daily_wake_provisions_nothing():
+    """The auth module's keep-warm rule sends this file every day; it must touch no catalog.
+
+    A wake carrying a sign-up confirmation would create a Glue database named after it.
+    """
+    _reset()
+    payload = pathlib.Path(__file__).resolve().parents[2] / "infra/modules/auth/keep-warm.json"
+    event = json.loads(payload.read_text(encoding="utf-8"))
+
+    assert post_confirmation.handler(event, None) is event
+    assert _fake_glue.create_calls == []
+    assert _fake_lf.grant_calls == []
+    assert _fake_lf.tag_calls == []

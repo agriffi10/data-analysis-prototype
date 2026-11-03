@@ -112,6 +112,15 @@ the same role keeps that entry valid.
 test rather than made structural** — that template hard-codes the literal instead of taking the
 variable.
 
+## The function is woken once a day
+
+`keep-warm.tf` invokes the function once a day on its health route. An image function idle for
+weeks goes Inactive and Lambda rejects the invoke that wakes it, so the first request after a quiet
+spell would fail, and the SPA retries only an idempotent query, once. The payload, `keep-warm.json`,
+is a `GET /healthz` event: a bare event would be refused as unauthenticated every day.
+`lambdas/test_keep_warm.py` holds the integration's function to a target and a permission.
+Reasoning: `docs/decisions/infrastructure/the-functions-a-user-reaches-first-are-woken-daily.md`.
+
 ## Small shapes that are load-bearing
 
 - **The role policy is inline, not managed-plus-attachment.** The deploy role holds

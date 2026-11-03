@@ -65,7 +65,8 @@ def handler(event, context):
     message, never the type, so a custom class would add a name nothing reads.
 
     Args:
-      event: The Cognito trigger event.
+      event: The Cognito trigger event, or the daily keep-warm payload, which carries a valid
+        username and no email and so passes.
       context: The Lambda context, unused.
 
     Returns:

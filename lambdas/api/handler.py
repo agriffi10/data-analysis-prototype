@@ -106,9 +106,10 @@ def envelope_faults(fn: Entry) -> Entry:
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     """Answers one HTTP request, inside the span.
 
-    A malformed event — one carrying no ``requestContext.http`` — is routed rather than refused,
-    because the router's own 404 is a better answer than a traceback for something that cannot
-    reach this function through the API anyway.
+    A malformed event — one carrying no ``requestContext.http`` — is routed rather than raised on,
+    because the router's own answer, a 401 since it carries no credential, is better than a
+    traceback for something that cannot reach this function through the API anyway. The one
+    caller that is not the API is the daily keep-warm rule, which sends a health-route event.
 
     The headers are handed to the router whole and the raw event is not. The query string and the
     body DO leave this function now — the object routes take ``{space, key}`` and cannot work
