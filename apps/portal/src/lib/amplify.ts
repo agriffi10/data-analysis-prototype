@@ -68,4 +68,45 @@ export function configureAmplify(): void {
   // After `configure`, never before: the provider resolves the pool it was configured
   // with, and a storage set on an unconfigured provider is discarded.
   cognitoUserPoolsTokenProvider.setKeyValueStorage(tabScopedStorage);
+  removeBrowserWideTokens();
+}
+
+/** Amplify's prefix for every key it writes, tokens and redirect state alike. */
+const AMPLIFY_KEY_PREFIX = 'CognitoIdentityServiceProvider.';
+
+/** The session keys Amplify's token store writes per user, the last segment of each key. */
+const TOKEN_KEY_NAMES = new Set([
+  'idToken',
+  'accessToken',
+  'refreshToken',
+  'clockDrift',
+  'oauthMetadata',
+  'signInDetails'
+]);
+
+/**
+ * Remove the token set a browser kept from before tokens were held per tab.
+ *
+ * Nothing reads `localStorage` for tokens any more, so the old set is inert, but it is a
+ * complete, readable session left on the origin until the browser is wiped. Only the
+ * session's keys go: `<prefix><client>.LastAuthUser` and `<prefix><client>.<user>.<token>`.
+ * The token store's device keys stay, as Amplify's own sign-out leaves them. The redirect
+ * sign-in state (`oauthPKCE`, `oauthState`, `inflightOAuth`, `oauthSignIn`) still lives in
+ * `localStorage` and a sign-in in flight needs it, so it is left alone.
+ *
+ * @returns None.
+ */
+function removeBrowserWideTokens(): void {
+  try {
+    const keys = Array.from({length: localStorage.length}, (_, index) => localStorage.key(index));
+    for (const key of keys) {
+      if (!key?.startsWith(AMPLIFY_KEY_PREFIX)) continue;
+      const segments = key.slice(AMPLIFY_KEY_PREFIX.length).split('.');
+      const isLastAuthUser = segments.length === 2 && segments[1] === 'LastAuthUser';
+      const isToken = segments.length >= 3 && TOKEN_KEY_NAMES.has(segments[segments.length - 1]);
+      if (isLastAuthUser || isToken) localStorage.removeItem(key);
+    }
+  } catch {
+    // localStorage unavailable — there is nothing left in it to remove.
+  }
 }
