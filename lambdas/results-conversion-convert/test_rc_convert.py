@@ -777,8 +777,8 @@ def test_the_sheet_is_named_and_excels_row_ceiling_is_excels(s3):
 
 
 def test_the_upload_path_raises_no_transient_error(s3):
-    """The machine retries this verb on TransientError alone, so a transient raised after the
-    object exists would re-run a completed write and report the user's success as a conflict."""
+    """Of the errors this verb raises, the machine retries TransientError alone, so a transient
+    raised after the object exists would re-run a completed write and report a success as a conflict."""
     import ast
 
     tree = ast.parse((_HERE / "rc_convert.py").read_text())

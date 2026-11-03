@@ -30,8 +30,9 @@ Attributes:
     Derived from the refresh path's worst case: every Task retries 3 times
     over 2/4/8-second intervals, so a state costs ``4 * timeout + 14`` seconds, and the path sums
     to ≈2400 s (validate 74, acquire 74, load-definition 74, inspect-source 254, infer-schema 494,
-    diff-schema 74, apply-refresh 1214, release 74, notify 74). The create path is ≈2260 s, so
-    3600 clears both and adding it cannot fail an ordinary create. **Phase 2 lands the test that
+    diff-schema 74, apply-refresh 1214, release 74, notify 74). Each state also waits up to 75 s
+    for its function to wake from Inactive, ≈3080 s in all. The create path is ≈2780 s with its
+    wakes, so 3600 clears both and adding it cannot fail an ordinary create. **Phase 2 lands the test that
     holds this equal to what Terraform sets**; until then this is a mirror, not a verified copy.
   STALE_LOCK_SECONDS: Age past which a held lock is stolen — the machine timeout plus a margin
     for the delay between an execution's last state and its timeout being observed. Strictly
