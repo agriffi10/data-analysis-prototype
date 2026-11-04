@@ -1,9 +1,9 @@
 # Launch briefing — one agent in a multi-agent run
 
 Fill one of these per session before launching several agents against this repo at once, and paste it
-as that session's first message. The queue it names is set up by `scripts/pr-queue/install.sh`; the
-rules it enforces are in `scripts/pr-queue/PROTOCOL.md`, and the reasons in
-`docs/process/several-agents.md`.
+as that session's first message, in a session started on the model of the one launching it. The
+queue it names is set up by `scripts/pr-queue/install.sh`; the rules it enforces are in
+`scripts/pr-queue/PROTOCOL.md`, and the reasons in `docs/process/several-agents.md`.
 
 A session that is not told these things will do the reasonable thing for a session working alone —
 branch in the shared checkout, push when its own gates are green — and that is exactly what breaks a

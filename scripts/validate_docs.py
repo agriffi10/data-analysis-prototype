@@ -106,6 +106,8 @@ Attributes:
     Progress, Superseded, a misspelling — is judged in full.
   SUBAGENT_MODEL_VARS: The two environment variables that move a subagent off the model that
     started the task, refused in the ``env`` of ``.claude/settings.json``.
+  LOOSE_MODEL_KEY_RE: A ``model`` key in any spelling a YAML reader would take — quoted, indented,
+    spaced before its colon or inside a flow mapping — counted to catch what ``AGENT_MODEL_RE`` misses.
   AGENT_MODEL_RE: One frontmatter ``model:`` line of an agent or skill file, its value captured without a
     trailing comment. The space after the colon is required, as YAML requires it: ``model:inherit``
     is a plain string, so Claude Code reads no model from it.
@@ -558,6 +560,7 @@ def check_fixture_scripts() -> list[str]:
 
 SUBAGENT_MODEL_VARS = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
 AGENT_MODEL_RE = re.compile(r"^model:(?:[ \t]+(.*?))?(?:[ \t]+#.*)?[ \t]*$")
+LOOSE_MODEL_KEY_RE = re.compile(r"""(?:^|[{,])[ \t]*["']?model["']?[ \t]*:""", re.MULTILINE)
 
 
 def _frontmatter_models(text: str) -> list[str] | None:
@@ -578,6 +581,29 @@ def _frontmatter_models(text: str) -> list[str] | None:
         return None
     found = [m.group(1) or "" for line in lines[1:lines.index("---", 1)] if (m := AGENT_MODEL_RE.match(line))]
     return [v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v for v in found]
+
+
+def _loose_model_keys(text: str) -> int:
+    """How many ``model`` keys a frontmatter block holds, read as loosely as a YAML reader would.
+
+    The block is found the forgiving way too — a byte order mark dropped, fences matched with
+    surrounding space — so a skill a YAML reader would run on a named model cannot pass as one that
+    declares none.
+
+    Args:
+      text: The file's contents.
+
+    Returns:
+      The number of ``model`` keys in the block; ``0`` when the file has no such block.
+
+    Raises:
+      None.
+    """
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if lines[0].strip() != "---":
+        return 0
+    close = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    return len(LOOSE_MODEL_KEY_RE.findall("\n".join(lines[1:close]))) if close else 0
 
 
 def _agent_and_skill_files() -> tuple[list[pathlib.Path], list[pathlib.Path]]:
@@ -668,12 +694,19 @@ def check_subagent_models() -> list[str]:
                 "`model: inherit`: a named model pins it to another one, and an omitted one falls back to "
                 "CLAUDE_CODE_SUBAGENT_MODEL when that is set — docs/process/several-agents.md")
     for path in skills:
-        models = _frontmatter_models(path.read_text(encoding="utf-8", errors="replace")) or []
+        text = path.read_text(encoding="utf-8", errors="replace")
+        models = _frontmatter_models(text) or []
+        rel = path.relative_to(ROOT).as_posix()
         if any(m != "inherit" for m in models):
             errors.append(
-                f"{path.relative_to(ROOT).as_posix()} declares model \"{next(m for m in models if m != 'inherit')}\". A skill declares "
+                f"{rel} declares model \"{next(m for m in models if m != 'inherit')}\". A skill declares "
                 "`model: inherit` or no model: a named one runs the skill on a model other than the one "
                 "that started the task — docs/process/several-agents.md")
+        elif _loose_model_keys(text) != len(models):
+            errors.append(
+                f"{rel} has a `model` key this gate cannot read — quoted, indented, inside a flow mapping, "
+                "or under a fence that is not a bare `---` at byte 0 — and a YAML reader may run the skill on "
+                "it. Write `model: inherit` on its own line, or remove it — docs/process/several-agents.md")
     return errors
 
 
