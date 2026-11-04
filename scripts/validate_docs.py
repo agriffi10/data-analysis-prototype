@@ -104,6 +104,11 @@ Attributes:
     no sections to require (``docs/process/spec-lifecycle.md``). The exemption keys on ``spec_status`` alone and
     fails CLOSED: a spec with no readable status, or any status outside this set — Draft, In
     Progress, Superseded, a misspelling — is judged in full.
+  SUBAGENT_MODEL_VARS: The two environment variables that move a subagent off the model that
+    started the task, refused in the ``env`` of ``.claude/settings.json``.
+  AGENT_MODEL_RE: One frontmatter ``model:`` line of an agent file, its value captured without a
+    trailing comment. The space after the colon is required, as YAML requires it: ``model:inherit``
+    is a plain string, so Claude Code reads no model from it.
   WARNING: The prefix a check puts on a finding that is reported but does not fail the run. The
     exit code is decided by the findings without it.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in each
@@ -165,6 +170,7 @@ Attributes:
 import datetime
 import fnmatch
 import functools
+import json
 import os
 import pathlib
 import re
@@ -547,6 +553,88 @@ def check_fixture_scripts() -> list[str]:
             f"ratchet of {FIXTURES_MAX_SCRIPTS}. If a second PLANE genuinely needs one, raise the "
             "ratchet in this file deliberately; do not let the directory grow a spec at a time."
         )
+    return errors
+
+
+SUBAGENT_MODEL_VARS = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+AGENT_MODEL_RE = re.compile(r"^model:(?:[ \t]+(.*?))?(?:[ \t]+#.*)?[ \t]*$")
+
+
+def _agent_model(text: str) -> str | None:
+    """The one ``model`` an agent file's frontmatter declares, quotes stripped; ``None`` if not exactly one.
+
+    Args:
+      text: The agent file's contents.
+
+    Returns:
+      The declared value, or ``None`` when the file has no frontmatter at byte 0, or its
+      frontmatter declares no ``model`` or more than one.
+
+    Raises:
+      None.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines[0] != "---" or "---" not in lines[1:]:
+        return None
+    found = [m.group(1) or "" for line in lines[1:lines.index("---", 1)] if (m := AGENT_MODEL_RE.match(line))]
+    if len(found) != 1:
+        return None
+    value = found[0]
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    return value
+
+
+def check_subagent_models() -> list[str]:
+    """Hold the two files that can move a subagent off the model that started the task.
+
+    ``.claude/settings.json`` is checked in and applies to everyone working in the project, so an
+    ``env`` naming either variable moves every session's subagents at once; a file under
+    ``.claude/agents/`` that names a model, or none, pins that role or lets the variable pick for
+    it. Claude Code loads agent files from subdirectories and dotfiles too, so every ``.md`` under
+    the directory is read. A settings file that does not parse is an error rather than a pass,
+    because a check that cannot read its input has checked nothing.
+
+    Args:
+      None.
+
+    Returns:
+      One message per variable the settings name and per agent file not declaring
+      ``model: inherit``, plus one for a settings file that is not a JSON object with an object
+      ``env``; empty otherwise.
+
+    Raises:
+      None.
+    """
+    errors = []
+    settings = ROOT / ".claude" / "settings.json"
+    if settings.is_file():
+        try:
+            data = json.loads(settings.read_text())
+        except ValueError as exc:
+            data = None
+            errors.append(f".claude/settings.json does not parse as JSON ({exc}), so nothing here can say "
+                          "whether it moves subagents off the model that started the task")
+        env = data.get("env", {}) if isinstance(data, dict) else None
+        if data is not None and not isinstance(env, dict):
+            errors.append(".claude/settings.json is not a JSON object with an object `env`, so nothing here "
+                          "can say whether it moves subagents off the model that started the task")
+        errors.extend(
+            f".claude/settings.json sets {name} in `env`. Remove it: it runs subagents on the model it "
+            "names instead of the one that started the task, and with _FORCE it overrides "
+            "`model: inherit` too — docs/process/several-agents.md"
+            for name in SUBAGENT_MODEL_VARS
+            if isinstance(env, dict) and name in env
+        )
+    agents = ROOT / ".claude" / "agents"
+    for path in sorted(agents.rglob("*.md")) if agents.is_dir() else []:
+        model = _agent_model(path.read_text(encoding="utf-8", errors="replace"))
+        if model != "inherit":
+            declared = "no single `model` in frontmatter at byte 0" if model is None else f"model \"{model}\""
+            errors.append(
+                f"{path.relative_to(ROOT).as_posix()} declares {declared}. Every role declares "
+                "`model: inherit`: a named model pins it to another one, and an omitted one falls back to "
+                "CLAUDE_CODE_SUBAGENT_MODEL when that is set — docs/process/several-agents.md")
     return errors
 
 
@@ -2667,6 +2755,7 @@ def main() -> int:
     for check in (
         check_testing_layout,
         check_fixture_scripts,
+        check_subagent_models,
         check_claude_budget,
         check_process_budget,
         check_decisions_register,

@@ -66,3 +66,29 @@ Full protocol, configuration and the stale-entry rules: `scripts/pr-queue/PROTOC
 **A supervisor session** watches the queue, main and where sessions' work meets, relays what git
 will not catch, and archives finished sessions — `/supervise` (`.claude/skills/supervise/SKILL.md`),
 driven by `scripts/supervisor/`.
+
+## Every agent runs on the model that started the task
+
+Every subagent, and every session started to do part of a task, runs on the model of the session
+that started the task. This repo has no `.claude/agents/` roles, so a subagent here is a built-in
+one, and each way off the parent's model is fenced:
+
+- **Delegate to `general-purpose`, `Plan` or a fork, never to `Explore`, `claude-code-guide` or
+  `statusline-setup`.** The last two run on fixed models, Haiku and Sonnet, and on some accounts
+  `Explore` under a Fable session runs on Opus. A sweep or a delivery-doc read goes to
+  `general-purpose`.
+- **Pass no `model` on an Agent tool call**, and install no mod whose `agent.spawn` hook sets one.
+  Either overrides an agent file's `model`, `inherit` included.
+- **Never set `CLAUDE_CODE_SUBAGENT_MODEL` or `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`**, in settings or
+  in the environment. The first puts `general-purpose` on the model it names; with the second, every
+  subagent runs there and the `model` of an agent file and of a call are both ignored.
+- **A role added under `.claude/agents/` declares `model: inherit`.** An omitted `model` falls back
+  to `CLAUDE_CODE_SUBAGENT_MODEL` when someone's shell sets it; `inherit` selects the main
+  conversation's model ahead of it.
+- **A reviewer or peer started as a new session, not a subagent, is started on the model of the
+  session that asked for it**, never a cheaper one. Nothing inherits across sessions: the model is
+  chosen when the session starts.
+- `validate_docs.py` fails a `.claude/settings.json` whose `env` names either variable, and a file
+  under `.claude/agents/`, at any depth, whose frontmatter `model` is anything but `inherit`. The
+  environment, the Agent call and a new session's model are not files it can read, so those
+  three are held by this page alone.

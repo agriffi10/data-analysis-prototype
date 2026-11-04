@@ -53,7 +53,8 @@ ROUTER = (
     "| [`authoring-a-spec.md`](authoring-a-spec.md) | authoring | when writing |\n"
     "| [`completion-ritual.md`](completion-ritual.md) | closing | when closing |\n"
     "| [`spec-lifecycle.md`](spec-lifecycle.md) | statuses | when status changes |\n"
-    "| [`knowledge-layout.md`](knowledge-layout.md) | frontmatter | when it fails |\n")
+    "| [`knowledge-layout.md`](knowledge-layout.md) | frontmatter | when it fails |\n"
+    "| [`several-agents.md`](several-agents.md) | agents | when delegating |\n")
 HISTORY = "## History\n\n### 2026-01-02\n\n- **Settled:** a spec.\n"
 
 
@@ -119,7 +120,7 @@ def build(root: pathlib.Path) -> None:
     (root / "CLAUDE.md").write_text(CLAUDE)
     (root / "docs" / "process" / "INDEX.md").write_text(ROUTER)
     (root / "docs" / "process" / "session-rhythm.md").write_text("# Rhythm\n")
-    for name in ("authoring-a-spec.md", "completion-ritual.md", "spec-lifecycle.md", "knowledge-layout.md"):  # named in validate_docs.py and gen-index.sh
+    for name in ("authoring-a-spec.md", "completion-ritual.md", "spec-lifecycle.md", "knowledge-layout.md", "several-agents.md"):  # named in validate_docs.py and gen-index.sh
         (root / "docs" / "process" / name).write_text("# On demand\n")
     (root / ".claude" / "rules" / "decisions-area-one.md").write_text(RULE.format(glob="lambdas/**", label="Area one", area="area-one"))
     (root / ".claude" / "rules" / "decisions-identity-and-access.md").write_text(
@@ -331,6 +332,53 @@ CASES = [
                 _write(r, D("testing", "fixtures", "plane-b.sh"), "#!/bin/sh\n"),
                 _write(r, D("testing", "fixtures", "plane-c.sh"), "#!/bin/sh\n")],
      1, "fixtures"),
+
+    # ---- check_subagent_models ------------------------------------------------------------
+    # Each variable is its own case, so a check that only knows the unforced name cannot pass by
+    # matching it inside the forced one. The `_ok` cases put the names where they move nothing — a
+    # permission string, a sibling key — and write `inherit` in every spelling the parser accepts.
+    ("settings_subagent_model",
+     lambda r: _write(r, ".claude/settings.json", '{"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}}\n'),
+     1, ".claude/settings.json sets CLAUDE_CODE_SUBAGENT_MODEL in `env`"),
+    ("settings_subagent_model_force",
+     lambda r: _write(r, ".claude/settings.json", '{"env": {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}}\n'),
+     1, ".claude/settings.json sets CLAUDE_CODE_SUBAGENT_MODEL_FORCE in `env`"),
+    ("settings_unparseable",
+     lambda r: _write(r, ".claude/settings.json", '{"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku",}}\n'),
+     1, ".claude/settings.json does not parse as JSON"),
+    ("settings_env_not_an_object",
+     lambda r: _write(r, ".claude/settings.json", '{"env": ["CLAUDE_CODE_SUBAGENT_MODEL=haiku"]}\n'),
+     1, "is not a JSON object with an object `env`"),
+    ("settings_names_the_variable_outside_env_ok",
+     lambda r: _write(r, ".claude/settings.json",
+                      '{"permissions": {"allow": ["Bash(env CLAUDE_CODE_SUBAGENT_MODEL=haiku true)"]},\n'
+                      ' "env": {"CLAUDE_CODE_SUBAGENT_MODEL_X": "1", "MODEL": "haiku"}}\n'),
+     0, ""),
+    ("agent_model_pinned",
+     lambda r: _write(r, ".claude/agents/reviewer.md", "---\nname: reviewer\nmodel: opus\n---\nReview.\n"),
+     1, '.claude/agents/reviewer.md declares model "opus"'),
+    ("agent_model_missing",
+     lambda r: _write(r, ".claude/agents/reviewer.md", "---\nname: reviewer\n---\nmodel: inherit\n"),
+     1, ".claude/agents/reviewer.md declares no single `model`"),
+    ("agent_model_declared_twice",
+     lambda r: _write(r, ".claude/agents/reviewer.md", "---\nmodel: inherit\nmodel: opus\n---\nReview.\n"),
+     1, ".claude/agents/reviewer.md declares no single `model`"),
+    # YAML needs the space: with none, the line is one plain string and the file declares no model.
+    ("agent_model_without_a_space",
+     lambda r: _write(r, ".claude/agents/reviewer.md", "---\nname: reviewer\nmodel:inherit\n---\nReview.\n"),
+     1, ".claude/agents/reviewer.md declares no single `model`"),
+    ("agent_no_frontmatter_at_byte_zero",
+     lambda r: _write(r, ".claude/agents/reviewer.md", "\n---\nmodel: inherit\n---\nReview.\n"),
+     1, ".claude/agents/reviewer.md declares no single `model`"),
+    ("agent_pinned_in_a_hidden_subdirectory",
+     lambda r: _write(r, ".claude/agents/.team/.scout.md", "---\nname: scout\nmodel: haiku\n---\nSweep.\n"),
+     1, '.claude/agents/.team/.scout.md declares model "haiku"'),
+    ("agent_model_inherit_spellings_ok",
+     lambda r: [_write(r, ".claude/agents/a.md", "---\nname: a\nmodel: inherit\n---\nA.\n"),
+                _write(r, ".claude/agents/b.md", '---\nname: b\nmodel: "inherit"   # the parent\'s\n---\nB.\n'),
+                _write(r, ".claude/agents/c.md", "---\r\nname: c\r\nmodel: 'inherit'\r\n---\r\nC.\r\n"),
+                _write(r, ".claude/agents/team/d.md", "---\nmodel:  inherit\n---\nD.\n")],
+     0, ""),
 
     # ---- check_claude_budget --------------------------------------------------------------
     ("claude_over_budget",

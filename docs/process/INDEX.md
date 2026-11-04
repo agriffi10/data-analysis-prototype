@@ -32,7 +32,7 @@ The always-loaded set is stated here, and `validate_docs.py` reads it from this 
 | [`knowledge-layout.md`](knowledge-layout.md) | frontmatter, the generated indexes, the register's rules | when adding a decision or rulebook |
 | [`ci-and-deploy-traps.md`](ci-and-deploy-traps.md) | what only bites in CI or on deploy | before touching CI, a workflow or a deploy |
 | [`ground-rules.md`](ground-rules.md) | the project facts that shape the process | when orienting in a part of the system you have not touched, beside `architecture.md` |
-| [`several-agents.md`](several-agents.md) | the PR queue: the four commands, where the LIVE queue is and why a bare install builds a second one, what the hook refuses | before getting in line, and before any re-install |
+| [`several-agents.md`](several-agents.md) | the PR queue: the four commands, where the LIVE queue is and why a bare install builds a second one, what the hook refuses; the model every agent runs on | before getting in line, before any re-install, and before delegating |
 
 ## Path-scoped rules are a backstop, not the instruction
 
@@ -48,5 +48,5 @@ is the nudge for a session that reached the code another way.
   block or the one entry you need. Each is built so that is possible. `architecture.md` is the exception: it is
   sized to be read whole, and it is the cheapest way into a part of the system you have not touched.
 - The inventories and the Lambda index are **routers**: read the row, then the one file it names.
-- Delegate a *dependency's* delivery-doc reading to an Explore/subagent brief rather than loading it
+- Delegate a *dependency's* delivery-doc reading to a subagent brief rather than loading it
   into the main loop.
