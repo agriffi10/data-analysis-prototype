@@ -12,9 +12,10 @@ method behind it.
 
 Nothing reaches the next stage on its author's own judgement. A **spec**, an **implementation plan**
 and a **diff** each go to a reviewer in a **fresh context** — a subagent or a new session, never the
-context that produced the artifact, and on that context's model (`docs/process/several-agents.md`). An author reviewing their own work assumes its output was
-intended and rubber-stamps it; that is as true of a plan as of code, and a wrong plan is the more
-expensive one to leave *undetected*, because the code that follows will faithfully implement it.
+context that produced the artifact, and on that context's model (`docs/process/several-agents.md`).
+An author reviewing their own work assumes its output was intended and rubber-stamps it; that is
+as true of a plan as of code, and a wrong plan is the more expensive one to leave *undetected*,
+because the code that follows will faithfully implement it.
 
 **How many reviewers, and where.** **One** on the spec when it is written, **one** on the
 implementation plan when the build actually starts, and **two** on the diff before it is pushed —
