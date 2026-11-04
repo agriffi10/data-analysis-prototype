@@ -66,3 +66,32 @@ Full protocol, configuration and the stale-entry rules: `scripts/pr-queue/PROTOC
 **A supervisor session** watches the queue, main and where sessions' work meets, relays what git
 will not catch, and archives finished sessions — `/supervise` (`.claude/skills/supervise/SKILL.md`),
 driven by `scripts/supervisor/`.
+
+## Every agent runs on the model that started the task
+
+Every subagent, and every session started to do part of a task, runs on the model of the session
+that started the task. Until this repo has `.claude/agents/` roles, a subagent here is a built-in
+one, and each way off the parent's model is fenced:
+
+- **Delegate only to an agent type that takes the parent's model — `general-purpose`, `claude`,
+  `Plan` or a fork.** `claude-code-guide` and `statusline-setup` run on fixed models, Haiku and
+  Sonnet, and `Explore` under a Fable session runs on Opus on subscription and Console accounts; a
+  type named nowhere here is used only once its model is confirmed to be the parent's. A sweep or a
+  delivery-doc read goes to `general-purpose`. A personal agent in `~/.claude/agents/` that shares a built-in's name replaces
+  it and keeps its own `model`, so yours may take one only if it declares `model: inherit`.
+- **Pass no `model` on an Agent tool call**, and install no mod whose `agent.spawn` hook sets one.
+  Either overrides an agent file's `model`, `inherit` included.
+- **Never set `CLAUDE_CODE_SUBAGENT_MODEL` or `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`**, in settings or
+  in the environment. The first puts `general-purpose` on the model it names; with both set, every
+  subagent runs there and the `model` of an agent file and of a call are both ignored.
+- **A role added under any `.claude/agents/` declares `model: inherit`, and a skill declares
+  `inherit` or no model.** An omitted `model` on a role falls back to `CLAUDE_CODE_SUBAGENT_MODEL`
+  when someone's shell sets it; a skill's named model runs the skill on it.
+- **A reviewer or peer started as a new session, not a subagent, is started on the model of the
+  session that asked for it**, never a cheaper one. Nothing inherits across sessions: the model is
+  chosen when the session starts.
+- `validate_docs.py` fails a `.claude/settings.json` whose `env` names either variable, a file under
+  any `.claude/agents/` in the tree, at any depth, whose frontmatter `model` is anything but
+  `inherit`, and a `SKILL.md` naming another model or one it cannot read. It does not follow a
+  symlink, and it reads no settings file but that one: the environment, `settings.local.json` and
+  `~/.claude/`, the Agent call, a mod, and a new session's model are held by this page alone.

@@ -104,6 +104,13 @@ Attributes:
     no sections to require (``docs/process/spec-lifecycle.md``). The exemption keys on ``spec_status`` alone and
     fails CLOSED: a spec with no readable status, or any status outside this set — Draft, In
     Progress, Superseded, a misspelling — is judged in full.
+  SUBAGENT_MODEL_VARS: The two environment variables that move a subagent off the model that
+    started the task, refused in the ``env`` of ``.claude/settings.json``.
+  LOOSE_MODEL_KEY_RE: A ``model`` key in any spelling a YAML reader would take — quoted, indented,
+    spaced before its colon or inside a flow mapping — counted to catch what ``AGENT_MODEL_RE`` misses.
+  AGENT_MODEL_RE: One frontmatter ``model:`` line of an agent or skill file, its value captured without a
+    trailing comment. The space after the colon is required, as YAML requires it: ``model:inherit``
+    is a plain string, so Claude Code reads no model from it.
   WARNING: The prefix a check puts on a finding that is reported but does not fail the run. The
     exit code is decided by the findings without it.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in each
@@ -165,6 +172,7 @@ Attributes:
 import datetime
 import fnmatch
 import functools
+import json
 import os
 import pathlib
 import re
@@ -547,6 +555,158 @@ def check_fixture_scripts() -> list[str]:
             f"ratchet of {FIXTURES_MAX_SCRIPTS}. If a second PLANE genuinely needs one, raise the "
             "ratchet in this file deliberately; do not let the directory grow a spec at a time."
         )
+    return errors
+
+
+SUBAGENT_MODEL_VARS = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+AGENT_MODEL_RE = re.compile(r"^model:(?:[ \t]+(.*?))?(?:[ \t]+#.*)?[ \t]*$")
+LOOSE_MODEL_KEY_RE = re.compile(r"""(?:^|[{,])[ \t]*["']?model["']?[ \t]*:""", re.MULTILINE)
+
+
+def _frontmatter_models(text: str) -> list[str] | None:
+    """Every top-level ``model`` an agent or skill file's frontmatter declares, quotes stripped.
+
+    Args:
+      text: The file's contents.
+
+    Returns:
+      The declared values in order, empty when the frontmatter declares none, or ``None`` when
+      the file has no frontmatter opening at byte 0 and closing after it.
+
+    Raises:
+      None.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines[0] != "---" or "---" not in lines[1:]:
+        return None
+    found = [m.group(1) or "" for line in lines[1:lines.index("---", 1)] if (m := AGENT_MODEL_RE.match(line))]
+    return [v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v for v in found]
+
+
+def _loose_model_keys(text: str) -> int:
+    """How many ``model`` keys a frontmatter block holds, read as loosely as a YAML reader would.
+
+    The block is found the forgiving way too — a byte order mark dropped, fences matched with
+    surrounding space — so a skill a YAML reader would run on a named model cannot pass as one that
+    declares none.
+
+    Args:
+      text: The file's contents.
+
+    Returns:
+      The number of ``model`` keys in the block; ``0`` when the file has no such block.
+
+    Raises:
+      None.
+    """
+    lines = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+    if lines[0].strip() != "---":
+        return 0
+    close = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    return len(LOOSE_MODEL_KEY_RE.findall("\n".join(lines[1:close]))) if close else 0
+
+
+def _agent_and_skill_files() -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    """Every agent file and every ``SKILL.md`` under any ``.claude/`` directory of the tree.
+
+    Claude Code reads ``.claude/agents/`` and ``.claude/skills/`` from every directory between a
+    session's working directory and the repository root, and an agent file from any depth below
+    its directory, so a walk from the root alone would leave a committed
+    ``apps/portal/.claude/agents/`` live and unchecked. A file is filed by the first ``.claude/`` on
+    its path, so a peer's checkout under ``.claude/worktrees/`` is never read as this tree's; the
+    walk enters only ``agents`` and ``skills`` inside a ``.claude/`` so it does not traverse them.
+
+    Args:
+      None.
+
+    Returns:
+      The agent files, then the skill files, each sorted.
+
+    Raises:
+      None.
+    """
+    agents, skills = [], []
+    for here, dirs, files in os.walk(ROOT):
+        path = pathlib.Path(here)
+        if path.name == ".claude":
+            dirs[:] = [d for d in dirs if d in ("agents", "skills")]
+            continue
+        dirs[:] = [d for d in dirs if d == ".claude" or d not in VENDORED]
+        parts = path.relative_to(ROOT).parts
+        if ".claude" not in parts:
+            continue
+        under = parts[parts.index(".claude") + 1]
+        if under == "agents":
+            agents.extend(path / f for f in files if f.endswith(".md"))
+        elif under == "skills":
+            skills.extend(path / f for f in files if f == "SKILL.md")
+    return sorted(agents), sorted(skills)
+
+
+def check_subagent_models() -> list[str]:
+    """Hold the files that can move a subagent off the model that started the task.
+
+    ``.claude/settings.json`` is checked in and applies to everyone working in the project, so an
+    ``env`` naming either variable moves every session's subagents at once. An agent file that
+    names a model, or none, pins that role or lets the variable pick for it, so it must say
+    ``inherit``; a skill that names one runs on it, so a skill may say ``inherit`` or nothing. A
+    settings file that does not parse is an error rather than a pass, because a check that cannot
+    read its input has checked nothing.
+
+    Args:
+      None.
+
+    Returns:
+      One message per variable the settings name, per agent file not declaring exactly
+      ``model: inherit`` and per skill declaring any other model, plus one for a settings file
+      that is not a JSON object with an object ``env``; empty otherwise.
+
+    Raises:
+      None.
+    """
+    errors = []
+    settings = ROOT / ".claude" / "settings.json"
+    if settings.is_file():
+        try:
+            data = json.loads(settings.read_text())
+        except ValueError as exc:
+            data = None
+            errors.append(f".claude/settings.json does not parse as JSON ({exc}), so nothing here can say "
+                          "whether it moves subagents off the model that started the task")
+        env = data.get("env", {}) if isinstance(data, dict) else None
+        if data is not None and not isinstance(env, dict):
+            errors.append(".claude/settings.json is not a JSON object with an object `env`, so nothing here "
+                          "can say whether it moves subagents off the model that started the task")
+        errors.extend(
+            f".claude/settings.json sets {name} in `env`. Remove it: it runs subagents on the model it "
+            "names instead of the one that started the task, and with _FORCE it overrides "
+            "`model: inherit` too — docs/process/several-agents.md"
+            for name in SUBAGENT_MODEL_VARS
+            if isinstance(env, dict) and name in env
+        )
+    agents, skills = _agent_and_skill_files()
+    for path in agents:
+        models = _frontmatter_models(path.read_text(encoding="utf-8", errors="replace"))
+        if models != ["inherit"]:
+            declared = f"model \"{models[0]}\"" if models and len(models) == 1 else "no single `model` in frontmatter at byte 0"
+            errors.append(
+                f"{path.relative_to(ROOT).as_posix()} declares {declared}. Every role declares "
+                "`model: inherit`: a named model pins it to another one, and an omitted one falls back to "
+                "CLAUDE_CODE_SUBAGENT_MODEL when that is set — docs/process/several-agents.md")
+    for path in skills:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        models = _frontmatter_models(text) or []
+        rel = path.relative_to(ROOT).as_posix()
+        if any(m != "inherit" for m in models):
+            errors.append(
+                f"{rel} declares model \"{next(m for m in models if m != 'inherit')}\". A skill declares "
+                "`model: inherit` or no model: a named one runs the skill on a model other than the one "
+                "that started the task — docs/process/several-agents.md")
+        elif _loose_model_keys(text) != len(models):
+            errors.append(
+                f"{rel} has a `model` key this gate cannot read — quoted, indented, inside a flow mapping, "
+                "or under a fence that is not a bare `---` at byte 0 — and a YAML reader may run the skill on "
+                "it. Write `model: inherit` on its own line, or remove it — docs/process/several-agents.md")
     return errors
 
 
@@ -2667,6 +2827,7 @@ def main() -> int:
     for check in (
         check_testing_layout,
         check_fixture_scripts,
+        check_subagent_models,
         check_claude_budget,
         check_process_budget,
         check_decisions_register,
