@@ -69,8 +69,12 @@ query lost its poller: its batch stopped advancing and its history never settled
 `QueryRunsProvider` now holds the run engine and its pollers, and the page binds them to its active
 tab. **The mobile surface's state had to move with them**: it names its own run by a token, and a
 counter restarted on each visit matched the previous visit's run, dressing a new query in the old
-one's rows. On mount the page drops any run whose tab did not come back, which happens only when
-session storage failed; left in place, that run went on polling with nothing able to stop it. Its proof, `App.queryNavigation.test.tsx`, renders `<App />` like the uploads' and **the
+one's rows; its reset on crossing up out of mobile moved too, since a page that is away misses the
+crossing and a page-held reset of shell state is an update during another component's render. On
+mount the page drops any run whose tab did not come back, which happens when session storage
+failed; left in place, that run went on polling with nothing able to stop it. A saved query whose
+body arrives after the user left opens nothing and runs nothing: its tab would have landed in a
+store nothing persists, and the run would have been dropped on return. Its proof, `App.queryNavigation.test.tsx`, renders `<App />` like the uploads' and **the
 provider must not go into the shared test harness**: placed there it sits above `<App />` too, and
 the proof passes with the shell's own provider deleted. The workspace suites wrap themselves
 instead, as the upload suites do. Keying the shell's provider on the route turns both of its tests

@@ -199,7 +199,7 @@ export function QueryWorkspace() {
 
   // The below-`tablet` browse-first surface — its view state, the
   // token that identifies a run it submitted, and the reset on crossing up.
-  const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
+  const mobile = useMobileQuerySurface({activeTabId, runs, submitBatch});
   // A local const so the `kind` discriminant narrows inside the render callbacks.
   const mobileView = mobile.view;
 

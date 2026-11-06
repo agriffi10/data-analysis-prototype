@@ -28,7 +28,7 @@ export type UseTabRunsResult = Omit<QueryRunsContextValue, 'submitBatch' | 'hand
  * read off the tab at submit time, since the whole link lives there.
  *
  * On mount it drops any run whose tab is no longer open, as closing the tab would. The tabs come
- * back from session storage with the same ids, so this only bites when that storage failed and the
+ * back from session storage with the same ids, so this bites when that storage failed and the
  * workspace came back with new ones: a run left behind would go on polling and starting
  * statements with no tab to show or stop it.
  *

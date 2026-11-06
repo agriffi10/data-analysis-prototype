@@ -148,6 +148,16 @@ export function useSavedQueryFlow({
   // there — a double-click — would open a second tab, and through Open and run start a second
   // billed query. One read per file at a time.
   const openingKeys = useRef(new Set<string>());
+  // The read can land after the user has left the page. Its tab would open into a store nothing
+  // persists any more, while Open and run would start a billed query in that tab on the shell's
+  // engine — a run no tab comes back to show.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const openSaved = (query: SavedQuery, afterOpen?: (tabId: string, sql: string) => void) => {
     if (openingKeys.current.has(query.key)) return;
     // The cap is checked BEFORE the fetch. Reading a body only to discard it and raise
@@ -160,6 +170,7 @@ export function useSavedQueryFlow({
     void (async () => {
       try {
         const body = await readSavedQuery({bucket: query.bucket, key: query.key});
+        if (!mounted.current) return;
         if (!body.success) {
           // The drawer stays open and no tab is opened: the user asked for this file, and
           // an empty tab labelled with its name would be a worse answer than the message.
