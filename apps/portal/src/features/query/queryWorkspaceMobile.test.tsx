@@ -1,5 +1,6 @@
 import {NavRailProvider} from '../../components/NavRailProvider';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 import {authenticated} from '../../test/authFixtures';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
@@ -99,7 +100,9 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     window.innerWidth = 390;
     return renderWithProviders(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
         <NavRailProbe />
         <LocationProbe />
       </NavRailProvider>,
@@ -412,7 +415,9 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     window.innerWidth = 1400;
     rerender(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
         <NavRailProbe />
       </NavRailProvider>
     );

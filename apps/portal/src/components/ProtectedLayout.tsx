@@ -12,6 +12,7 @@ import {
   UploadsAtRiskNotice
 } from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
+import {QueryRunsProvider} from '../features/query';
 import {setReturnPath} from '../lib/returnPath';
 import {ErrorBoundary} from './ErrorBoundary';
 import {LoadingState} from './LoadingState';
@@ -39,18 +40,20 @@ import {LoadingState} from './LoadingState';
 // boundary still catches what this one cannot — a throw from the shell itself, or from this
 // layout's own hooks. The shell's panel also says what a reload would cancel: its one button
 // reloads, and the uploads the boundary kept alive would go with the page.
-function AppShell({children, resetKey}: {children: ReactNode; resetKey: string}) {
+function AppShell({children, resetKey, username}: {children: ReactNode; resetKey: string; username: string}) {
   return (
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
-        <div className="flex flex-1">
-          <ErrorBoundary
-            resetKey={resetKey}
-            notice={<UploadsAtRiskNotice />}>
-            {children}
-          </ErrorBoundary>
-        </div>
-        <InFlightOperations />
+        <QueryRunsProvider username={username}>
+          <div className="flex flex-1">
+            <ErrorBoundary
+              resetKey={resetKey}
+              notice={<UploadsAtRiskNotice />}>
+              {children}
+            </ErrorBoundary>
+          </div>
+          <InFlightOperations />
+        </QueryRunsProvider>
       </FileOpsInFlightProvider>
     </UploadQueueProvider>
   );
@@ -127,7 +130,9 @@ export function ProtectedLayout() {
   }
 
   return (
-    <AppShell resetKey={location.pathname + location.search}>
+    <AppShell
+      resetKey={location.pathname + location.search}
+      username={username ?? ''}>
       <Outlet />
     </AppShell>
   );

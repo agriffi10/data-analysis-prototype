@@ -59,6 +59,7 @@ import {
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {objectExists} from '../file-browser/fileBrowser.service';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
@@ -2652,7 +2653,9 @@ describe('QueryWorkspace.a11y', () => {
         <QueryClientProvider client={client}>
           <MemoryRouter>
             <ToastProvider>
-              <QueryWorkspace />
+              <QueryRunsProvider username="alice">
+                <QueryWorkspace />
+              </QueryRunsProvider>
             </ToastProvider>
           </MemoryRouter>
         </QueryClientProvider>

@@ -28,6 +28,7 @@ import {copyObject, listFiles} from '../features/file-browser/fileBrowser.servic
 import {enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
 import {QueryWorkspace} from '../features/query/QueryWorkspace';
+import {QueryRunsProvider} from '../features/query/QueryRunsProvider';
 import {QUERY_TABS_STORAGE_PREFIX} from '../features/query/query.constants';
 import type {QueryClient} from '@tanstack/react-query';
 import type {QueryTabsState} from '../features/query/query.types';
@@ -190,7 +191,9 @@ export function renderWorkspace(
 ) {
   return renderWithProviders(
     <>
-      <QueryWorkspace />
+      <QueryRunsProvider username="alice">
+        <QueryWorkspace />
+      </QueryRunsProvider>
       <LocationProbe />
     </>,
     {auth: authenticated('alice'), route, ...options}

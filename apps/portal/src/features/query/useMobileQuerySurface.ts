@@ -1,7 +1,8 @@
 import {useRef, useState} from 'react';
 import {splitSqlStatements} from './query.sql';
 import type {MobileHomeTab, MobileQueryView, MobileSavedRef} from './query.types';
-import type {TabRun, UseTabRunsResult} from './useTabRuns';
+import type {TabRun} from './useQueryRunsEngine';
+import type {UseTabRunsResult} from './useTabRuns';
 
 /** What the mobile results view submitted, and where. */
 type MobileRun = {
