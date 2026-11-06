@@ -7,6 +7,7 @@ import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces
 import ConnectionsPage from './ConnectionsPage';
 import NotificationsPage from './NotificationsPage';
 import QueryPage from './QueryPage';
+import {QueryRunsProvider} from '../features/query/QueryRunsProvider';
 
 // ─── from ConnectionsPage.test.tsx ───
 vi.mock('../features/shared-spaces/sharedSpaces.service', async (importOriginal) => ({
@@ -99,7 +100,12 @@ describe('QueryPage', () => {
 
   describe('QueryPage route', () => {
     it('renders the query workspace for an authenticated user', async () => {
-      renderWithProviders(<QueryPage />, {route: '/query', auth: authenticated('alice')});
+      renderWithProviders(
+        <QueryRunsProvider username="alice">
+          <QueryPage />
+        </QueryRunsProvider>,
+        {route: '/query', auth: authenticated('alice')}
+      );
 
       // The workspace toolbar is present (real QueryWorkspace, real tab strip).
       expect(await screen.findByRole('button', {name: 'Run statement'})).toBeInTheDocument();
@@ -108,7 +114,12 @@ describe('QueryPage', () => {
     });
 
     it('sets the page title', () => {
-      renderWithProviders(<QueryPage />, {route: '/query', auth: authenticated('alice')});
+      renderWithProviders(
+        <QueryRunsProvider username="alice">
+          <QueryPage />
+        </QueryRunsProvider>,
+        {route: '/query', auth: authenticated('alice')}
+      );
       expect(document.title).toMatch(/Query/);
     });
   });

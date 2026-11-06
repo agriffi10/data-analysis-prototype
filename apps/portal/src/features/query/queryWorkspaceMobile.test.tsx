@@ -1,5 +1,6 @@
 import {NavRailProvider} from '../../components/NavRailProvider';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 import {authenticated} from '../../test/authFixtures';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
@@ -17,6 +18,7 @@ import {
   mockRunQuery,
   ok,
   queueRuns,
+  remountableWorkspace,
   renderWorkspace,
   resetViewport,
   mockAppend,
@@ -99,7 +101,9 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     window.innerWidth = 390;
     return renderWithProviders(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
         <NavRailProbe />
         <LocationProbe />
       </NavRailProvider>,
@@ -290,6 +294,49 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
   });
 
+  // The workspace remounts on every return to the Query route while its runs live on at the shell.
+  // Toggled here under one provider, as the route does under the real one.
+  it('keeps its own run across leaving the page, and a new run never wears the old one’s results', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
+    window.innerWidth = 390;
+    const {user} = renderWithProviders(remountableWorkspace(), {auth: authenticated('alice')});
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Hide the workspace'}));
+    await user.click(screen.getByRole('button', {name: 'Show the workspace'}));
+
+    expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Back to queries'}));
+    mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Costs'}));
+
+    expect(await screen.findByRole('heading', {name: 'Costs'})).toBeInTheDocument();
+    expect(await screen.findByText('Query failed.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+  });
+
+  it('returns to the home after crossing up out of mobile while the page was not mounted', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    window.innerWidth = 390;
+    const {user, rerender} = renderWithProviders(remountableWorkspace(), {auth: authenticated('alice')});
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Hide the workspace'}));
+
+    window.innerWidth = 1400;
+    rerender(remountableWorkspace());
+    await user.click(screen.getByRole('button', {name: 'Show the workspace'}));
+    await screen.findByLabelText('SQL editor');
+    window.innerWidth = 390;
+    rerender(remountableWorkspace());
+
+    expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'Revenue'})).not.toBeInTheDocument();
+  });
+
   it('says why a second run failed after the first failure’s banner was dismissed', async () => {
     mockListSaved.mockResolvedValue(savedListing('Revenue'));
     queueRuns('q-1', 'q-2');
@@ -412,7 +459,9 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     window.innerWidth = 1400;
     rerender(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
         <NavRailProbe />
       </NavRailProvider>
     );

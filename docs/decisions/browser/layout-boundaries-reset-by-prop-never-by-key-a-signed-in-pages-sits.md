@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Layout boundaries reset by prop, never by `key`; a signed-in page's sits inside the shell (2026-09-10)"
-description: "**The signed-in shell outlives every signed-in page, and no ancestor may remount it.** It holds the upload queue and the in-flight file operations, so a per-route React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell, since caught above it the fallback replaces the shell. The proof renders the **real route table**."
+description: "**The signed-in shell outlives every signed-in page, and no ancestor may remount it.** It holds the upload queue, the in-flight file operations and the Query workspace's runs, so a per-route React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell, since caught above it the fallback replaces the shell. The proof renders the **real route table**."
 ---
 
 `RootLayout` is a layout route, so the `ErrorBoundary` around its `Outlet` outlives child-route
@@ -63,7 +63,28 @@ and sign-out — which must still abort the upload, or a fix that hoisted the pr
 gate would pass the rest. A source check in `App.test.tsx` keeps the lazy routes' keys present and
 distinct, since a block copied with its key is the likely way two of them come to share one.
 
+**The Query workspace's runs moved into the shell on 2026-11-06.** They lived in the Query page,
+which unmounts on every nav-tab click, so a run's results were gone on the way back and a running
+query lost its poller: its batch stopped advancing and its history never settled. The shell's
+`QueryRunsProvider` now holds the run engine and its pollers, and the page binds them to its active
+tab. **The mobile surface's state had to move with them**: it names its own run by a token, and a
+counter restarted on each visit matched the previous visit's run, dressing a new query in the old
+one's rows; its reset on crossing up out of mobile moved too, since a page that is away misses the
+crossing and a page-held reset of shell state is an update during another component's render. On
+mount the page drops any run whose tab did not come back, which happens when session storage
+failed; left in place, that run went on polling with nothing able to stop it. A saved query whose
+body arrives after the user left opens nothing and runs nothing: its tab would have landed in a
+store nothing persists, and the run would have been dropped on return. Its proof, `App.queryNavigation.test.tsx`, renders `<App />` like the uploads' and **the
+provider must not go into the shared test harness**: placed there it sits above `<App />` too, and
+the proof passes with the shell's own provider deleted. The workspace suites wrap themselves
+instead, as the upload suites do. Keying the shell's provider on the route turns both of its tests
+red.
+
 ## History
+
+### 2026-11-06
+
+- **Extended:** the Query workspace's runs joined the shell.
 
 ### 2026-09-10
 

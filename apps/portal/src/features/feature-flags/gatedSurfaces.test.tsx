@@ -128,6 +128,7 @@ import {QueryToolbar} from '../query/QueryToolbar';
 import {TableShareDialog} from '../table-share/TableShareDialog';
 import {ManageMembersDrawer} from '../shared-spaces/ManageMembersDrawer';
 import {QueryWorkspace} from '../query/QueryWorkspace';
+import {QueryRunsProvider} from '../query/QueryRunsProvider';
 import FilesPage from '../../routes/FilesPage';
 import {NotificationRow} from '../notifications/NotificationRow';
 import {SendFilesDialog} from '../file-send';
@@ -1146,7 +1147,12 @@ function notificationRecipe(link: string): Recipe {
 
 /** Likewise the real workspace. Mobile, so Monaco never mounts (SPEC-100). */
 function renderQueryWorkspace() {
-  renderWithProviders(<QueryWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+  renderWithProviders(
+    <QueryRunsProvider username="alice">
+      <QueryWorkspace />
+    </QueryRunsProvider>,
+    {auth: authenticated('alice'), seedFeatureFlags: false}
+  );
 }
 
 /** The file browser has finished its first listing — the tree is settled either way. */

@@ -7,13 +7,13 @@ import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
 import {logBackgroundFailure, toUserMessage, toUserText, type UserFacingMessage} from '../../lib/errorMessages';
 import type {ToastApi} from '../../components/toastContext';
-import type {UseQueryHistoryResult} from './useQueryHistory';
-import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
+import type {UseQueryHistoryWritersResult} from './useQueryHistory';
+import type {ParsedStatement, ResultTab, RunScope} from './query.types';
 import type {QueryStatus} from '../catalog/catalog.types';
 import type {QueryStillRunning} from '../catalog/useQueryExecution';
 
-// Per-tab in-memory run state (not persisted — results re-fetch on a
-// fresh Run). A run is a sequential batch: the statements in
+// Per-tab in-memory run state, held at the signed-in shell for the session and never
+// persisted. A run is a sequential batch: the statements in
 // scope, the in-flight statement's execution, and the result tabs accumulated
 // as result-producing statements succeed. `submittedSql` is the CURRENT
 // statement's text, kept so the background finalizer can decide whether a
@@ -66,7 +66,7 @@ export type RunOwner = {
   savedQuery?: {key: string; name: string};
 };
 
-export type UseTabRunsResult = {
+export type QueryRunsEngine = {
   /** Per-tab run state, keyed by tab id. Render-time snapshot of `runsRef`. */
   runs: Record<string, TabRun>;
   statuses: Record<string, QueryStatus | undefined>;
@@ -75,19 +75,18 @@ export type UseTabRunsResult = {
   /** The headless pollers — one per tab holding an execution. Render this; it draws nothing. */
   pollers: React.ReactNode;
   /**
-   * Starts a batch in `tabId` (defaults to the active tab). Returns whether the submit began. `link`
-   * is the saved query the run records in history, for a tab opened in the same event: the tab
-   * list this hook was rendered with does not hold that tab yet, so its link cannot be read there.
+   * Starts a batch in `tabId`. Returns whether the submit began. `link` is the saved query the run
+   * records in history; an owned run records its owner's instead.
    */
   submitBatch: (
     statements: ParsedStatement[],
     scope: RunScope,
-    tabId?: string,
+    tabId: string,
     owner?: RunOwner,
     link?: {key: string; name: string}
   ) => boolean;
-  /** Cancels the active tab's in-flight statement and halts the remainder; a refused cancel is toasted. */
-  handleStop: () => void;
+  /** Cancels `tabId`'s in-flight statement and halts the remainder; a refused cancel is toasted. */
+  handleStop: (tabId: string) => void;
   /** Forgets a closed tab's run state (the execution itself keeps running server-side). */
   dropRunState: (id: string) => void;
   /**
@@ -106,18 +105,16 @@ export type UseTabRunsResult = {
 
 type Params = {
   username: string;
-  activeTabId: string;
-  /** The open tabs — read at submit time for the active tab's saved-query link. */
-  tabs: QueryTab[];
-  appendEntry: UseQueryHistoryResult['appendEntry'];
-  updateEntry: UseQueryHistoryResult['updateEntry'];
+  appendEntry: UseQueryHistoryWritersResult['appendEntry'];
+  updateEntry: UseQueryHistoryWritersResult['updateEntry'];
   /** Where a refused Stop is reported; the banner belongs to the run's verdict, not to the button. */
   toast: ToastApi;
 };
 
 /**
- * The query workspace's batch state machine, extracted
- * whole from `QueryWorkspace` so the container renders rather than schedules.
+ * The query workspace's batch state machine, run by `QueryRunsProvider` at the signed-in shell so
+ * a run outlives the Query page: leaving the route and coming back finds its results, and a batch
+ * keeps advancing and its history keeps finalizing while the user is on another page.
  *
  * Owns per-tab run state, the headless pollers that drive it, submission,
  * sequential advancement through a batch, Stop, and the per-tab error/dismissal
@@ -125,8 +122,17 @@ type Params = {
  * every write goes through `updateRuns`, from event handlers and effects only,
  * never render — so a Stop is visible to an in-flight advancement immediately;
  * state mirrors it for render.
+ *
+ * It knows nothing about which tab is active or what the tabs hold; the page binds those through
+ * `useTabRuns`.
+ *
+ * @param params - The signed-in user, the history writers and the toast a refused Stop goes to.
+ * @returns The run state, the pollers to render, and the operations on it.
+ *
+ * @example
+ * const engine = useQueryRunsEngine({username, appendEntry, updateEntry, toast});
  */
-export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntry, toast}: Params): UseTabRunsResult {
+export function useQueryRunsEngine({username, appendEntry, updateEntry, toast}: Params): QueryRunsEngine {
   const queryClient = useQueryClient();
 
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
@@ -336,18 +342,15 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     [updateRuns]
   );
 
-  // Submit a batch of statements into a tab (defaults to the active tab),
-  // starting the FIRST statement; the finalizer advances through the rest
-  // sequentially. An explicit tabId lets a just-opened tab
-  // (View data) auto-run into itself before the activeTabId state
-  // change has committed. A new run replaces the tab's prior run wholesale, so
+  // Submit a batch of statements into a tab, starting the FIRST statement; the
+  // finalizer advances through the rest sequentially. A new run replaces the tab's prior run wholesale, so
   // the previous batch's result tabs are cleared. Returns whether the
   // submit began, so a caller that tracks its own run (the mobile results view)
   // doesn't start waiting on a run the guards below refused.
   const submitBatch = (
     statements: ParsedStatement[],
     scope: RunScope,
-    tabId: string = activeTabId,
+    tabId: string,
     owner?: RunOwner,
     link?: {key: string; name: string}
   ): boolean => {
@@ -364,10 +367,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     const submitToken = {};
     submitTokensRef.current.set(tabId, submitToken);
 
-    // a run from a tab linked to a saved query records that query in
-    // history. Read off the TAB at submit time — the whole link lives there, so
-    // there is no list to look the query up in.
-    const linkedSaved = owner ? owner.savedQuery : (link ?? tabs.find((t) => t.id === tabId)?.savedQuery);
+    const linkedSaved = owner ? owner.savedQuery : link;
 
     setRunErrors((e) => ({...e, [tabId]: null}));
     // A start that fails installs no run, so the tab keeps the previous one — whose banner the
@@ -465,13 +465,13 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // even when the current one outruns the cancel and SUCCEEDs. The poller observes
   // CANCELLED; a refused cancel leaves the statement to settle on its own verdict,
   // so it is said out loud rather than left looking like it worked.
-  const handleStop = () => {
-    const run = runsRef.current[activeTabId];
+  const handleStop = (tabId: string) => {
+    const run = runsRef.current[tabId];
     if (!run || run.done) return;
     updateRuns((r) => {
-      const cur = r[activeTabId];
+      const cur = r[tabId];
       if (!cur || cur.done) return r;
-      return {...r, [activeTabId]: {...cur, halted: true}};
+      return {...r, [tabId]: {...cur, halted: true}};
     });
     cancelExecution(run.executionId);
   };

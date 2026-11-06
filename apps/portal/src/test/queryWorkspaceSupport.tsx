@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {vi} from 'vitest';
 import {screen} from '@testing-library/react';
 import {useLocation} from 'react-router';
@@ -5,6 +6,7 @@ import {renderWithProviders} from './renderWithProviders';
 import type {TestRoute} from './renderWithProviders';
 import {authenticated} from './authFixtures';
 import {useNavRailContent} from '../components/navRailContext';
+import {NavRailProvider} from '../components/NavRailProvider';
 import {
   getQueryResults,
   getQueryRowCount,
@@ -28,6 +30,7 @@ import {copyObject, listFiles} from '../features/file-browser/fileBrowser.servic
 import {enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
 import {QueryWorkspace} from '../features/query/QueryWorkspace';
+import {QueryRunsProvider} from '../features/query/QueryRunsProvider';
 import {QUERY_TABS_STORAGE_PREFIX} from '../features/query/query.constants';
 import type {QueryClient} from '@tanstack/react-query';
 import type {QueryTabsState} from '../features/query/query.types';
@@ -190,12 +193,41 @@ export function renderWorkspace(
 ) {
   return renderWithProviders(
     <>
-      <QueryWorkspace />
+      <QueryRunsProvider username="alice">
+        <QueryWorkspace />
+      </QueryRunsProvider>
       <LocationProbe />
     </>,
     {auth: authenticated('alice'), route, ...options}
   );
 }
+
+/** The workspace behind a toggle, standing in for the route unmounting and remounting it. */
+function Remountable() {
+  const [shown, setShown] = useState(true);
+  return (
+    <>
+      {shown && <QueryWorkspace />}
+      <button
+        type="button"
+        onClick={() => setShown((s) => !s)}>
+        {shown ? 'Hide the workspace' : 'Show the workspace'}
+      </button>
+    </>
+  );
+}
+
+/**
+ * The workspace as alice sees it, under one `QueryRunsProvider` that outlives it, as the shell's
+ * does the page. Pass the same element to `rerender` to keep the tree.
+ */
+export const remountableWorkspace = () => (
+  <NavRailProvider>
+    <QueryRunsProvider username="alice">
+      <Remountable />
+    </QueryRunsProvider>
+  </NavRailProvider>
+);
 
 export const editor = () => screen.getByLabelText('SQL editor') as HTMLTextAreaElement;
 

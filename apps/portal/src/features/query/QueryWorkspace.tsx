@@ -162,13 +162,7 @@ export function QueryWorkspace() {
   }, [split.editorHeight]);
   // The list fields feed the mobile browse-first home; the
   // desktop drawer subscribes to the same cache key, so this adds no fetch.
-  const {
-    history,
-    isLoading: historyLoading,
-    error: historyError,
-    appendEntry,
-    updateEntry
-  } = useQueryHistory(username || null);
+  const {history, isLoading: historyLoading, error: historyError, appendEntry} = useQueryHistory(username || null);
   // Everything the workspace does with saved `.sql` files — the current space, the
   // listing, the folder marker, the dirty markers, the save dialog, open and delete.
   const savedFlow = useSavedQueryFlow({
@@ -183,22 +177,21 @@ export function QueryWorkspace() {
   const {savedSpaces, savedSpace, saved, dirtyTabIds, saveQuery} = savedFlow;
   const activeLinkedSaved = activeTab.savedQuery;
 
-  // The whole batch state machine — per-tab runs,
-  // the headless pollers, submission, sequential advancement, Stop and the
-  // per-tab error bookkeeping — lives in `useTabRuns`.
+  // The whole batch state machine — per-tab runs, the headless pollers, submission, sequential
+  // advancement, Stop and the per-tab error bookkeeping — runs at the signed-in shell, so a run
+  // outlives this page; `useTabRuns` binds it to the active tab.
   const {
     runs,
     statuses,
     runErrors,
     dismissed,
-    pollers,
     submitBatch,
     handleStop,
     dropRunState,
     dismissError,
     selectResultTab,
     closeResultTab
-  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry, toast});
+  } = useTabRuns({activeTabId, tabs: tabs.tabs});
 
   // Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.
@@ -206,7 +199,7 @@ export function QueryWorkspace() {
 
   // The below-`tablet` browse-first surface — its view state, the
   // token that identifies a run it submitted, and the reset on crossing up.
-  const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
+  const mobile = useMobileQuerySurface({activeTabId, runs, submitBatch});
   // A local const so the `kind` discriminant narrows inside the render callbacks.
   const mobileView = mobile.view;
 
@@ -629,8 +622,6 @@ export function QueryWorkspace() {
           actions={tableActions}
         />
       )}
-
-      {pollers}
 
       <main
         id="main"

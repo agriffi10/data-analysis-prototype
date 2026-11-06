@@ -30,6 +30,7 @@ import {
   ok,
   openTableMenu,
   queueRuns,
+  remountableWorkspace,
   renderWorkspace,
   resetViewport,
   runScriptSingle,
@@ -43,7 +44,7 @@ import {
   succeeded
 } from '../../test/queryWorkspaceSupport';
 import {MemoryRouter} from 'react-router';
-import {createTestQueryClient} from '../../test/renderWithProviders';
+import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {QueryClient, QueryClientProvider, onlineManager} from '@tanstack/react-query';
 import {authValue} from '../../test/authFixtures';
 import {politeAnnouncements} from '../../test/liveRegions';
@@ -59,6 +60,7 @@ import {
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {objectExists} from '../file-browser/fileBrowser.service';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
@@ -643,6 +645,27 @@ describe('QueryWorkspace', () => {
       expect(screen.getAllByRole('tab', {name: /Revenue/})).toHaveLength(1);
       expect(mockReadSaved).toHaveBeenCalledTimes(1);
       expect(mockRunQuery).toHaveBeenCalledTimes(1);
+    });
+
+    // Opened after the page has gone, the tab would land in a store nothing persists, and the run
+    // would start on the shell with no tab ever coming back to show it.
+    it('opens and runs nothing when the saved query’s body arrives after the user left the page', async () => {
+      let resolveRead: (v: Awaited<ReturnType<typeof mockReadSaved>>) => void = () => {};
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)));
+      const {user} = renderWithProviders(remountableWorkspace(), {auth: authValue()});
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: 'Open and run saved query Revenue'}));
+
+      await user.click(screen.getByRole('button', {name: 'Hide the workspace'}));
+      await act(async () => resolveRead(ok('SELECT 1;')));
+      await user.click(screen.getByRole('button', {name: 'Show the workspace'}));
+      await screen.findByLabelText('SQL editor');
+
+      expect(mockReadSaved).toHaveBeenCalledTimes(1);
+      expect(mockRunQuery).not.toHaveBeenCalled();
+      expect(screen.queryByRole('tab', {name: /Revenue/})).not.toBeInTheDocument();
     });
 
     it('opens NO tab and says which file is gone when its body cannot be read', async () => {
@@ -2652,7 +2675,9 @@ describe('QueryWorkspace.a11y', () => {
         <QueryClientProvider client={client}>
           <MemoryRouter>
             <ToastProvider>
-              <QueryWorkspace />
+              <QueryRunsProvider username="alice">
+                <QueryWorkspace />
+              </QueryRunsProvider>
             </ToastProvider>
           </MemoryRouter>
         </QueryClientProvider>

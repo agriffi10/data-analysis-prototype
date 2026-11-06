@@ -6,7 +6,7 @@ import {ResultsPageSizeControl} from './ResultsPageSizeControl';
 import {QueryStatusBar} from './QueryStatusBar';
 import {QueryResultsTable} from './QueryResultsTable';
 import type {QueryStatus} from '../catalog/catalog.types';
-import type {TabRun} from './useTabRuns';
+import type {TabRun} from './useQueryRunsEngine';
 import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 import type {UseResultsPageSizeResult} from './useResultsPageSize';
 import type {UseColumnWidthsResult} from '../catalog/useColumnWidths';

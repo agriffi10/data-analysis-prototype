@@ -9,6 +9,7 @@ export {useEditorSplit, clampEditorHeight, clampFraction, splitBounds} from './u
 export type {UseEditorSplitResult} from './useEditorSplit';
 export {EditorSplitDivider} from './EditorSplitDivider';
 export {useQueryHistory} from './useQueryHistory';
+export {QueryRunsProvider} from './QueryRunsProvider';
 export type {UseQueryHistoryResult} from './useQueryHistory';
 export {useQueryTabs} from './useQueryTabs';
 export type {UseQueryTabsResult, OpenTabOpts} from './useQueryTabs';

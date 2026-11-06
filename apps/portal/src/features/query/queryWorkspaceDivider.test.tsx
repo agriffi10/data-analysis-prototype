@@ -1,5 +1,6 @@
 import {NavRailProvider} from '../../components/NavRailProvider';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 import {authenticated} from '../../test/authFixtures';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {fireEvent, screen} from '@testing-library/react';
@@ -324,7 +325,9 @@ describe('QueryWorkspace — the editor/results divider', () => {
     window.innerWidth = 390;
     const {rerender} = renderWithProviders(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
       </NavRailProvider>,
       {auth: authenticated('alice')}
     );
@@ -333,7 +336,9 @@ describe('QueryWorkspace — the editor/results divider', () => {
     window.innerWidth = 1400;
     rerender(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
       </NavRailProvider>
     );
 
@@ -352,7 +357,9 @@ describe('QueryWorkspace — the editor/results divider', () => {
     window.innerWidth = 390;
     renderWithProviders(
       <NavRailProvider>
-        <QueryWorkspace />
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
       </NavRailProvider>,
       {auth: authenticated('alice')}
     );

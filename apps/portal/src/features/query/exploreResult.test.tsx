@@ -21,6 +21,7 @@ import {buildExploreSqlHandoff} from '../../lib/routeHandoff';
 import {UNNAMED_COLUMNS_REFUSAL} from './exploreResult';
 import {statementHint} from './query.sql';
 import {QueryWorkspace} from './QueryWorkspace';
+import {QueryRunsProvider} from './QueryRunsProvider';
 
 // *Explore in Data Explorer* on a Query result: offered on Save's terms for a statement the
 // Explorer can wrap, refused with a reason for columns it cannot name, and handing the statement
@@ -112,7 +113,9 @@ function render(options: {explorerOn?: boolean} = {}) {
   });
   return renderWithProviders(
     <>
-      <QueryWorkspace />
+      <QueryRunsProvider username="alice">
+        <QueryWorkspace />
+      </QueryRunsProvider>
       <LocationStateProbe />
     </>,
     {auth: authenticated('alice'), route: '/query', queryClient: client, seedFeatureFlags: false}

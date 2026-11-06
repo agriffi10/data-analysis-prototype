@@ -63,14 +63,23 @@ export type ResultTab = {
 export type MobileSavedRef = {key: string; name: string};
 
 /**
- * Which surface the mobile (`< tablet`) browse-first workspace is showing —
- * local UI state, never persisted.
+ * Which surface the mobile (`< tablet`) browse-first workspace is showing — UI state held at the
+ * signed-in shell beside the runs, never persisted.
  */
 export type MobileQueryView =
   {kind: 'home'} | {kind: 'results'; sql: string; title: string; savedQuery?: MobileSavedRef};
 
 /** Which list the mobile home is showing; kept beside the view so Back returns to it. */
 export type MobileHomeTab = 'saved' | 'history';
+
+/** What the mobile results view submitted, and where. */
+export type MobileRun = {
+  token: number;
+  tabId: string;
+  phase: 'submitting' | 'started' | 'failed';
+  /** Failure text for a submit that never started — owned here, not by the tab. */
+  error?: string;
+};
 
 /** One tab of the multi-tab editor — an independent query window. */
 export type QueryTab = {

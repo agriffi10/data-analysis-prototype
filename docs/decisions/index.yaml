@@ -476,7 +476,7 @@ areas:
         status: "stable"
         path: "docs/decisions/browser/jsdom-has-no-layout-so-a-containment-property-must-be-arithmetic.md"
       - title: "Layout boundaries reset by prop, never by `key`; a signed-in page's sits inside the shell (2026-09-10)"
-        fence: "**The signed-in shell outlives every signed-in page, and no ancestor may remount it.** It holds the upload queue and the in-flight file operations, so a per-route React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell, since caught above it the fallback replaces the shell. The proof renders the **real route table**."
+        fence: "**The signed-in shell outlives every signed-in page, and no ancestor may remount it.** It holds the upload queue, the in-flight file operations and the Query workspace's runs, so a per-route React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell, since caught above it the fallback replaces the shell. The proof renders the **real route table**."
         status: "stable"
         path: "docs/decisions/browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md"
       - title: "`no-restricted-imports` matches the SOURCE STRING, so a sibling rule needs relative patterns"

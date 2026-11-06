@@ -1,16 +1,8 @@
-import {useRef, useState} from 'react';
 import {splitSqlStatements} from './query.sql';
-import type {MobileHomeTab, MobileQueryView, MobileSavedRef} from './query.types';
-import type {TabRun, UseTabRunsResult} from './useTabRuns';
-
-/** What the mobile results view submitted, and where. */
-type MobileRun = {
-  token: number;
-  tabId: string;
-  phase: 'submitting' | 'started' | 'failed';
-  /** Failure text for a submit that never started — owned here, not by the tab. */
-  error?: string;
-};
+import {useMobileSurfaceStore} from './queryRunsContext';
+import type {MobileHomeTab, MobileQueryView, MobileRun, MobileSavedRef} from './query.types';
+import type {TabRun} from './useQueryRunsEngine';
+import type {UseTabRunsResult} from './useTabRuns';
 
 export type UseMobileQuerySurfaceResult = {
   view: MobileQueryView;
@@ -38,7 +30,6 @@ export type UseMobileQuerySurfaceResult = {
 };
 
 type Params = {
-  isMobile: boolean;
   activeTabId: string;
   runs: Record<string, TabRun>;
   submitBatch: UseTabRunsResult['submitBatch'];
@@ -57,25 +48,14 @@ type Params = {
  * `phase` is reported by the submit itself rather than inferred: a residual
  * "no run and no error" reading turns into a permanent phantom once the error
  * is dismissed.
+ *
+ * Its state lives at the signed-in shell with the runs it tracks, so leaving the Query page and
+ * coming back finds the view on its own run, and a token is never issued twice in a session: one
+ * counted afresh on each visit matched the previous visit's run. The shell also resets it on
+ * crossing up out of mobile, a crossing the page can miss by being away when it happens.
  */
-export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}: Params): UseMobileQuerySurfaceResult {
-  const [view, setView] = useState<MobileQueryView>({kind: 'home'});
-  const [homeTab, setHomeTab] = useState<MobileHomeTab>('saved');
-  const tokenRef = useRef(0);
-  const [run, setRun] = useState<MobileRun | null>(null);
-
-  // Crossing up out of mobile hands the tab back to the editor, so this surface's
-  // run bookkeeping must not survive to be matched against a later, unrelated
-  // desktop run. Render-phase state adjustment (the React "derive state on change"
-  // pattern), as elsewhere in this feature — not an Effect.
-  const [prevIsMobile, setPrevIsMobile] = useState(isMobile);
-  if (isMobile !== prevIsMobile) {
-    setPrevIsMobile(isMobile);
-    if (!isMobile) {
-      setRun(null);
-      setView({kind: 'home'});
-    }
-  }
+export function useMobileQuerySurface({activeTabId, runs, submitBatch}: Params): UseMobileQuerySurfaceResult {
+  const {view, setView, homeTab, setHomeTab, run, setRun, tokenRef} = useMobileSurfaceStore();
 
   // Run a saved/history entry from the mobile home through
   // the SAME run path the editor uses, then show the results view.
