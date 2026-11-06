@@ -1,17 +1,9 @@
-import {useRef, useState} from 'react';
+import {useState} from 'react';
 import {splitSqlStatements} from './query.sql';
-import type {MobileHomeTab, MobileQueryView, MobileSavedRef} from './query.types';
+import {useMobileSurfaceStore} from './queryRunsContext';
+import type {MobileHomeTab, MobileQueryView, MobileRun, MobileSavedRef} from './query.types';
 import type {TabRun} from './useQueryRunsEngine';
 import type {UseTabRunsResult} from './useTabRuns';
-
-/** What the mobile results view submitted, and where. */
-type MobileRun = {
-  token: number;
-  tabId: string;
-  phase: 'submitting' | 'started' | 'failed';
-  /** Failure text for a submit that never started — owned here, not by the tab. */
-  error?: string;
-};
 
 export type UseMobileQuerySurfaceResult = {
   view: MobileQueryView;
@@ -58,12 +50,13 @@ type Params = {
  * `phase` is reported by the submit itself rather than inferred: a residual
  * "no run and no error" reading turns into a permanent phantom once the error
  * is dismissed.
+ *
+ * Its state lives at the signed-in shell with the runs it tracks, so leaving the Query page and
+ * coming back finds the view on its own run, and a token is never issued twice in a session: one
+ * counted afresh on each visit matched the previous visit's run.
  */
 export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}: Params): UseMobileQuerySurfaceResult {
-  const [view, setView] = useState<MobileQueryView>({kind: 'home'});
-  const [homeTab, setHomeTab] = useState<MobileHomeTab>('saved');
-  const tokenRef = useRef(0);
-  const [run, setRun] = useState<MobileRun | null>(null);
+  const {view, setView, homeTab, setHomeTab, run, setRun, tokenRef} = useMobileSurfaceStore();
 
   // Crossing up out of mobile hands the tab back to the editor, so this surface's
   // run bookkeeping must not survive to be matched against a later, unrelated

@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {NavRailProvider} from '../../components/NavRailProvider';
 import {QueryWorkspace} from './QueryWorkspace';
 import {QueryRunsProvider} from './QueryRunsProvider';
@@ -90,6 +91,21 @@ vi.mock('../table-builder/tableBuild.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../table-builder/tableBuild.service')>()),
   enqueueTableRefresh: vi.fn()
 }));
+
+/** The workspace behind a toggle, standing in for the route mounting and unmounting it. */
+function Remountable() {
+  const [shown, setShown] = useState(true);
+  return (
+    <>
+      {shown && <QueryWorkspace />}
+      <button
+        type="button"
+        onClick={() => setShown((s) => !s)}>
+        {shown ? 'Hide the workspace' : 'Show the workspace'}
+      </button>
+    </>
+  );
+}
 
 describe('QueryWorkspace responsive (SPEC-100)', () => {
   beforeEach(installWorkspaceMocks);
@@ -291,6 +307,37 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
     expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
+  });
+
+  // The workspace remounts on every return to the Query route while its runs live on at the shell.
+  // Toggled here under one provider, as the route does under the real one.
+  it('keeps its own run across leaving the page, and a new run never wears the old one’s results', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
+    window.innerWidth = 390;
+    const {user} = renderWithProviders(
+      <NavRailProvider>
+        <QueryRunsProvider username="alice">
+          <Remountable />
+        </QueryRunsProvider>
+      </NavRailProvider>,
+      {auth: authenticated('alice')}
+    );
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Hide the workspace'}));
+    await user.click(screen.getByRole('button', {name: 'Show the workspace'}));
+
+    expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
+    expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Back to queries'}));
+    mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Costs'}));
+
+    expect(await screen.findByRole('heading', {name: 'Costs'})).toBeInTheDocument();
+    expect(await screen.findByText('Query failed.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
   });
 
   it('says why a second run failed after the first failure’s banner was dismissed', async () => {

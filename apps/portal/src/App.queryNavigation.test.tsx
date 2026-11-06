@@ -11,6 +11,7 @@ import {
   queueRuns,
   resetViewport,
   seedSingle,
+  seedTabs,
   statusMap
 } from './test/queryWorkspaceSupport';
 import {POLL_INTERVAL_MS} from './features/catalog/catalog.constants';
@@ -141,5 +142,31 @@ describe('a Query run outlives the Query page', () => {
 
     await backToQuery(user);
     expect(await screen.findByText('us-east')).toBeInTheDocument();
+  });
+
+  // Session storage that failed brings the workspace back with new tab ids, and nothing could
+  // reach the old tab's run again to show or stop it.
+  it('drops a run whose tab did not come back, so nothing goes on watching it', async () => {
+    queueRuns('q-1');
+    statusMap['q-1'] = {state: 'RUNNING'};
+    seedSingle('SELECT region FROM alice.sales');
+    const {user} = renderApp();
+    await screen.findByLabelText('SQL editor');
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await screen.findByRole('button', {name: 'Stop the running query'});
+
+    await leaveQuery(user);
+    seedTabs({
+      version: 1,
+      tabs: [{id: 'fresh', label: 'Query 1', sql: 'SELECT 1'}],
+      activeTabId: 'fresh',
+      nextQueryNumber: 2
+    });
+    await backToQuery(user);
+    delete statusMap['q-1'];
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS * 2));
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
   });
 });

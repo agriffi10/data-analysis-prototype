@@ -67,7 +67,10 @@ distinct, since a block copied with its key is the likely way two of them come t
 which unmounts on every nav-tab click, so a run's results were gone on the way back and a running
 query lost its poller: its batch stopped advancing and its history never settled. The shell's
 `QueryRunsProvider` now holds the run engine and its pollers, and the page binds them to its active
-tab. Its proof, `App.queryNavigation.test.tsx`, renders `<App />` like the uploads' and **the
+tab. **The mobile surface's state had to move with them**: it names its own run by a token, and a
+counter restarted on each visit matched the previous visit's run, dressing a new query in the old
+one's rows. On mount the page drops any run whose tab did not come back, which happens only when
+session storage failed; left in place, that run went on polling with nothing able to stop it. Its proof, `App.queryNavigation.test.tsx`, renders `<App />` like the uploads' and **the
 provider must not go into the shared test harness**: placed there it sits above `<App />` too, and
 the proof passes with the shell's own provider deleted. The workspace suites wrap themselves
 instead, as the upload suites do. Keying the shell's provider on the route turns both of its tests
