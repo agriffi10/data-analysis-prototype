@@ -7,8 +7,12 @@ home of its status; `docs/specs/index.yaml` is generated from it by `sh scripts/
 - **Draft** — written, **reviewed by a fresh-context reviewer (`session-rhythm.md`, *The reviewer contract*)** and
   refined, but **do not build until told.** The user authors spec files incrementally, sometimes well
   ahead of implementation. A Draft spec being in the repo is not a signal to start it. A spec that has
-  not been through the gate is not Draft-ready, whatever its frontmatter says.
-- **In Progress** — exactly one spec at a time is in flight. Set when you branch to build it.
+  not been through the gate is not Draft-ready, whatever its frontmatter says. Being told to build an
+  arc is being told to build each of its specs, and the session told orchestrates them
+  ([`several-agents.md`](several-agents.md)).
+- **In Progress** — exactly one spec at a time is in flight. Set when you branch to build it. A
+  deliberate multi-agent run, an arc run whose independent specs build in parallel among them, is the
+  exception ([`several-agents.md`](several-agents.md)).
 - **Completed** — merged on green CI, delivery doc written (see `completion-ritual.md`).
 - **Superseded** — replaced by another spec, named in `superseded_by`. The file stays.
 - **Cancelled** — the work is not being done, or not here. The file stays (every link to it stays
@@ -21,7 +25,8 @@ home of its status; `docs/specs/index.yaml` is generated from it by `sh scripts/
 
 **Arcs.** Related specs are grouped into *arcs* (file-operations, analytics, query-editor UX,
 shared-connections, notifications) with an explicit **build order** in each spec's `arc` and
-`arc_order` keys, which the index lists, and the reasoning in `docs/specs/ARCS.md`. Build in that order; arcs can have non-obvious dependencies (e.g. 056 before
+`arc_order` keys, which the index lists, and the reasoning in `docs/specs/ARCS.md`. Build in that order, except that independent specs may build at once
+([`several-agents.md`](several-agents.md)); arcs can have non-obvious dependencies (e.g. 056 before
 051). Grouping is a choice; recording the order of a **size split** (`authoring-a-spec.md`) is not — a spec cut for
 size always leaves an arc entry behind. An arc is also what an over-scoped spec *becomes*: a spec
 that runs past the size ceiling in `authoring-a-spec.md` is cured by a second spec beside it and an arc entry holding
