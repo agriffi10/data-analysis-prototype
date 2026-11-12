@@ -10,6 +10,11 @@
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
+  # BUILT, not read from the log group: on a plan that creates the group its ARN is unknown, and
+  # the plan-time IAM scan cannot read a policy that names it.
+  flow_log_group_name = "/aws/vpc/${local.name_prefix}-flow-logs"
+  flow_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.flow_log_group_name}"
+
   # SORTED, which is what makes the CIDR assignment stable. The sort fixes the ORDER; the
   # filter fixes the MEMBERSHIP. Both are load-bearing.
   azs = slice(sort(var.availability_zone_names), 0, 2)
@@ -123,7 +128,7 @@ resource "aws_security_group" "task" {
 # A connect timeout leaves nothing behind. These are the only record of a rejected packet.
 
 resource "aws_cloudwatch_log_group" "flow_logs" {
-  name              = "/aws/vpc/${local.name_prefix}-flow-logs"
+  name              = local.flow_log_group_name
   retention_in_days = 14
 }
 
@@ -145,7 +150,7 @@ resource "aws_iam_role_policy" "flow_logs" {
   # IAM honours a deleted grant as long, so destroy order cannot stop the role recreating this
   # group after a switch-off. Reasoning in the README.
   policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {
-    log_group_arn = aws_cloudwatch_log_group.flow_logs.arn
+    log_group_arn = local.flow_log_group_arn
   })
 }
 
