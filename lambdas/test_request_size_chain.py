@@ -45,12 +45,14 @@ from apicommon import bounds, contract, enqueue
 from apicommon.contract import TypeNode
 from cpcommon import config as cp_config
 from cpcommon import errors as cp_errors
+from tf_blocks import argument, blocks, module_calls
 
 sys.path.insert(0, os.path.join(_HERE, "api"))
 import test_bounds as _bounds_guard
 
 REPO = pathlib.Path(_HERE).parent
-MODULES = REPO / "infra" / "modules"
+INFRA = REPO / "infra"
+PLANES = INFRA / "planes"
 
 FILLS = ("k", '"', "\\", "\x01", "é")
 
@@ -95,14 +97,14 @@ def _queue_of(route_id: str) -> str:
 
 
 def _stem(name: str) -> str:
-    """One name for a plane, whether it was written as a queue id or a module directory.
+    """One name for a plane, whether it was written as a queue id or a plane name.
 
-    ``shared-space`` is the queue and ``shared-spaces`` the module, and the fleet already answers
+    ``shared-space`` is the queue and ``shared-spaces`` the plane, and the fleet already answers
     this question once in ``test_queue_writers`` — the same normalisation is used here rather than
     a mapping table, which would be a third place to get the pairing wrong.
 
     Args:
-      name: A queue id or a module directory name.
+      name: A queue id or a plane name.
 
     Returns:
       The stem both spellings agree on.
@@ -111,6 +113,34 @@ def _stem(name: str) -> str:
       None.
     """
     return name.replace("-", "_").rstrip("s")
+
+
+def _piped_planes() -> list[str]:
+    """Every plane a Pipe feeds, from the Terraform that declares them.
+
+    A plane is one ``infra/plane-<plane>.tf`` whose root call composes the control-plane module,
+    and that module is what declares the Pipe — so the module is required to declare one, and a
+    plane counts only by making the call.
+
+    Args:
+      None.
+
+    Returns:
+      The plane names, sorted.
+
+    Raises:
+      AssertionError: If the control-plane module no longer declares the requests Pipe.
+    """
+    module = (INFRA / "modules" / "control-plane" / "main.tf").read_text()
+    assert "requests" in blocks(module, "aws_pipes_pipe"), "the control-plane module declares no Pipe"
+    return sorted(
+        path.stem.removeprefix("plane-")
+        for path in INFRA.glob("plane-*.tf")
+        if any(
+            argument(call, "source") == '"./modules/control-plane"'
+            for call in module_calls(path.read_text()).values()
+        )
+    )
 
 
 def _piped_queues() -> frozenset[str]:
@@ -129,9 +159,9 @@ def _piped_queues() -> frozenset[str]:
     Raises:
       None.
     """
-    modules = {_stem(path.parent.name) for path in MODULES.glob("*/pipe.tf")}
+    planes = {_stem(plane) for plane in _piped_planes()}
     return frozenset(
-        route.queue for route in contract.ENQUEUE_ROUTES if _stem(route.queue) in modules
+        route.queue for route in contract.ENQUEUE_ROUTES if _stem(route.queue) in planes
     )
 
 
@@ -321,9 +351,9 @@ def test_the_piped_subset_is_derived_from_the_pipes_terraform_declares():
     """Eight pipes, ten piped routes, one route excluded by rule.
 
     ``notifications.enqueue`` drives a Lambda directly, so links two and four do not apply to it.
-    It is excluded because no ``pipe.tf`` names its queue, not because it is listed here.
+    It is excluded because no plane's Pipe reads its queue, not because it is listed here.
     """
-    assert len({path.parent.name for path in MODULES.glob("*/pipe.tf")}) == 8
+    assert len(_piped_planes()) == 8
     assert {route.id for route in contract.ENQUEUE_ROUTES} - {r.id for r in PIPED_ROUTES} == {
         "notifications.enqueue"
     }
@@ -535,15 +565,15 @@ RECORD_FAILURE_ORIGINS = {
 }
 
 
-def _record_failure_keys(plane: str, root: pathlib.Path = MODULES) -> set[str]:
+def _record_failure_keys(plane: str, root: pathlib.Path = PLANES) -> set[str]:
     """The keys one plane's ``RecordFailure`` builds, parsed from its own template.
 
     Parsed rather than listed, so a plane naming a new field is included in the model without
     anyone remembering to add it here.
 
     Args:
-      plane: The Terraform module's directory name.
-      root: Where the modules live. Overridden only by the planted control, which patches a COPY
+      plane: The plane's directory name under ``infra/planes``.
+      root: Where the planes live. Overridden only by the planted control, which patches a COPY
         of a real template so the plant cannot escape into a machine.
 
     Returns:
@@ -569,27 +599,27 @@ def _planes_with_a_failure_state() -> list[str]:
       None.
 
     Returns:
-      The module directory names, sorted.
+      The plane directory names, sorted.
 
     Raises:
       None.
     """
     return sorted(
         path.parent.name
-        for path in MODULES.glob("*/state-machine.asl.json.tftpl")
+        for path in PLANES.glob("*/state-machine.asl.json.tftpl")
         if '"RecordFailure"' in path.read_text()
     )
 
 
-def _unresolved(planes: list[str], root: pathlib.Path = MODULES) -> list[str]:
+def _unresolved(planes: list[str], root: pathlib.Path = PLANES) -> list[str]:
     """Every ``RecordFailure`` key across those planes that the origin table does not explain.
 
     The one resolution both the guard and its planted control run, so the control proves the
     mechanism the guard's absence assertion rests on rather than a parallel copy of it.
 
     Args:
-      planes: The module directory names to check.
-      root: Where the modules live.
+      planes: The plane directory names to check.
+      root: Where the planes live.
 
     Returns:
       A ``plane/key`` string for each key with no declared origin.
@@ -634,7 +664,7 @@ def test_the_origin_rule_REPORTS_a_key_it_cannot_explain():
 
     with tempfile.TemporaryDirectory() as scratch:
         root = pathlib.Path(scratch)
-        shutil.copytree(MODULES / plane, root / plane)
+        shutil.copytree(PLANES / plane, root / plane)
         template = root / plane / "state-machine.asl.json.tftpl"
         planted, substitutions = re.subn(
             r'("RecordFailure"\s*:\s*\{(?:[^{]|\{(?!"Parameters))*?"Parameters"\s*:\s*\{)',
@@ -814,22 +844,18 @@ def link_four(route: contract.Route, plane: str, fill: str) -> int:
 
 
 def _plane_of(route: contract.Route) -> str:
-    """The Terraform module serving one enqueue route's queue.
+    """The control plane serving one enqueue route's queue.
 
     Args:
       route: The enqueue route.
 
     Returns:
-      The module's directory name.
+      The plane's name, which is also its directory under ``infra/planes``.
 
     Raises:
-      StopIteration: If no module's name stems to that queue's.
+      StopIteration: If no plane's name stems to that queue's.
     """
-    return next(
-        path.parent.name
-        for path in MODULES.glob("*/pipe.tf")
-        if _stem(path.parent.name) == _stem(route.queue)
-    )
+    return next(plane for plane in _piped_planes() if _stem(plane) == _stem(route.queue))
 
 
 @pytest.mark.parametrize("route", PIPED_ROUTES, ids=lambda route: route.id)

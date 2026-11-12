@@ -399,7 +399,7 @@ def _planes_deploying_a_copy_verb() -> dict:
 
     Every read is guarded, and a row this cannot parse is REPORTED rather than skipped. The
     unguarded version raised a bare AttributeError from a module with no relationship to the
-    engine — the glob reaches all thirteen ``infra/modules/*/locals.tf`` — which is a crash in a
+    engine — the glob reaches every ``infra/plane-*.tf`` root file — which is a crash in a
     shared suite for an ordinary edit somewhere else.
 
     Args:
@@ -414,13 +414,13 @@ def _planes_deploying_a_copy_verb() -> dict:
     """
     found: dict[str, int] = {}
     unparsable: list[str] = []
-    for locals_tf in sorted((_REPO / "infra" / "modules").glob("*/locals.tf")):
-        plane = locals_tf.parent.name
+    for plane_tf in sorted((_REPO / "infra").glob("plane-*.tf")):
+        plane = plane_tf.stem.removeprefix("plane-")
         # Comment lines come off first: `re.search` takes the FIRST match in the file, so a
         # commented-out row left above a live one is the row this guard reads — and the live one
         # can then say anything. Measured: a ghost row let a 600s timeout pass.
         live = "\n".join(
-            line for line in locals_tf.read_text().split("\n")
+            line for line in plane_tf.read_text().split("\n")
             if not line.lstrip().startswith(("#", "//"))
         )
         row = re.search(r'"copy-objects"\s*=\s*\{([^}]*)\}', live)

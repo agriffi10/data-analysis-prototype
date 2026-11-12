@@ -25,12 +25,12 @@ sys.path.insert(
 )
 
 from tbcommon import table_lock
+from tf_blocks import argument, module_calls
 
-_MODULE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "infra", "modules", "table-builder",
-)
-_ASL = os.path.join(_MODULE, "state-machine.asl.json.tftpl")
+_INFRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra")
+_ASL = os.path.join(_INFRA, "planes", "table-builder", "state-machine.asl.json.tftpl")
+_ROOT = os.path.join(_INFRA, "plane-table-builder.tf")
+_CONTROL_PLANE_LOCALS = os.path.join(_INFRA, "modules", "control-plane", "locals.tf")
 
 
 def _waking_seconds(asl_text):
@@ -63,17 +63,26 @@ def _declared_timeout():
     """The execution bound the DEPLOYED machine actually carries.
 
     It is a top-level field of the ASL document, not a Terraform resource argument —
-    `aws_sfn_state_machine` has no `timeout_seconds` and `tofu validate` rejects one. Reading
-    the shipped template is also the only way this assertion means anything: a copy would agree
-    with itself forever.
+    `aws_sfn_state_machine` has no `timeout_seconds` and `tofu validate` rejects one. The
+    template carries it as a placeholder the control-plane module fills from the plane call's
+    ``ceiling.seconds``, so all three links are read: the field, the module's wiring and the
+    call's number. A copy would agree with itself forever.
     """
     with open(_ASL) as handle:
-        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", handle.read()))
+        raw = re.sub(r":\s*\$\{([^}]+)\}", r': "\1"', handle.read())
+    asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", raw))
     assert "TimeoutSeconds" in asl, (
         "the state machine declares no TimeoutSeconds — a Standard execution may then run for a "
         "year, and no steal threshold in table_lock.py is defensible against that"
     )
-    return asl["TimeoutSeconds"]
+    assert asl["TimeoutSeconds"] == "state_machine_timeout_seconds", (
+        f"TimeoutSeconds is {asl['TimeoutSeconds']!r}, not the ceiling the module renders"
+    )
+    with open(_CONTROL_PLANE_LOCALS) as handle:
+        assert "state_machine_timeout_seconds = try(var.ceiling.seconds, null)" in handle.read()
+    with open(_ROOT) as handle:
+        ceiling = argument(module_calls(handle.read())["table_builder"], "ceiling")
+    return int(argument(ceiling[1:-1], "seconds"))
 
 
 def test_the_state_machine_declares_a_timeout_at_all():
@@ -84,7 +93,7 @@ def test_the_state_machine_declares_a_timeout_at_all():
 def test_the_python_mirror_equals_what_terraform_sets():
     """The join nothing else makes. Raising one without the other silently changes what stale means."""
     assert _declared_timeout() == table_lock.MACHINE_TIMEOUT_SECONDS, (
-        "tbcommon.table_lock.MACHINE_TIMEOUT_SECONDS and stepfunction.tf's timeout_seconds have "
+        "tbcommon.table_lock.MACHINE_TIMEOUT_SECONDS and the plane call's ceiling.seconds have "
         "drifted — the steal threshold is derived from the mirror, so the lock would now be "
         "stealable on a schedule that no longer matches when executions actually die"
     )
@@ -117,8 +126,7 @@ def test_the_timeout_clears_the_create_paths_worst_case():
 
 def test_the_verb_timeouts_the_derivation_rests_on_are_still_what_terraform_says():
     """Guards the guard: the arithmetic above is only meaningful against the real timeouts."""
-    locals_tf = os.path.join(_MODULE, "locals.tf")
-    with open(locals_tf) as handle:
+    with open(_ROOT) as handle:
         source = handle.read()
     timeouts = {
         suffix: int(value)

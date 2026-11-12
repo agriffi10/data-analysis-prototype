@@ -264,16 +264,19 @@ def _task_output_prefix(states: dict, task_name: str) -> str:
 
 # ── SPEC-166 FR-004: which role holds which grant ───────────────────────────
 
-_MODULE = _HERE.parent.parent / "infra" / "modules" / "file-send"
-_SFN_POLICY = _MODULE / "policies" / "sfn-permissions.json.tftpl"
-_EXECUTION_POLICY = _MODULE / "policies" / "execution.json.tftpl"
+_INFRA = _HERE.parent.parent / "infra"
+_SFN_POLICY = _INFRA / "modules" / "control-plane" / "policies" / "sfn-permissions.json.tftpl"
+_EXECUTION_POLICY = _INFRA / "planes" / "file-send" / "execution.json.tftpl"
 
 
 def _policy(path):
     """The rendered policy.
 
     A bare placeholder in a value position (the ``jsonencode``d ARN list) is stubbed to a
-    string, a quoted one to its contents — the same two-step the ASL above needs.
+    string, a quoted one to its contents — the same two-step the ASL above needs. The shared
+    state-machine policy gates its Distributed Map statements behind ``%{ if }`` directives; the
+    directive lines come off and every gated statement stays, which is what this plane renders,
+    since its call sets ``distributed_map``.
 
     Args:
       path: The policy template.
@@ -284,7 +287,8 @@ def _policy(path):
     Raises:
       None.
     """
-    raw = re.sub(r":\s*\$\{[^}]+\}", ': "STUB"', path.read_text())
+    rendered = re.sub(r"(?m)^%\{[^}]*\}\n", "", path.read_text())
+    raw = re.sub(r":\s*\$\{[^}]+\}", ': "STUB"', rendered)
     return json.loads(re.sub(r"\$\{[^}]+\}", "STUB", raw))
 
 

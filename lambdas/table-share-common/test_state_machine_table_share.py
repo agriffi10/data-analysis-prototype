@@ -18,14 +18,31 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 from cpcommon.transfer import config as transfer_config
+from tf_blocks import argument, blocks, map_entries, module_calls, span
 
-_MODULE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra", "modules", "table-share"
-)
-_TFTPL = os.path.join(_MODULE, "state-machine.asl.json.tftpl")
-_SFN_POLICY = os.path.join(_MODULE, "policies", "sfn-permissions.json.tftpl")
-_EXECUTION_POLICY = os.path.join(_MODULE, "policies", "execution.json.tftpl")
-_LOCALS = os.path.join(_MODULE, "locals.tf")
+_INFRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra")
+_PLANE = os.path.join(_INFRA, "planes", "table-share")
+_CONTROL_PLANE = os.path.join(_INFRA, "modules", "control-plane")
+_TFTPL = os.path.join(_PLANE, "state-machine.asl.json.tftpl")
+_SFN_POLICY = os.path.join(_CONTROL_PLANE, "policies", "sfn-permissions.json.tftpl")
+_ROOT = os.path.join(_INFRA, "plane-table-share.tf")
+
+
+def _read(path):
+    """The text of one Terraform or template file."""
+    with open(path) as handle:
+        return handle.read()
+
+
+def _call():
+    """The body of the root's ``module "table_share"`` call, which carries every per-plane value."""
+    return module_calls(_read(_ROOT))["table_share"]
+
+
+def _map_body(value):
+    """A braced map argument's body with its outer braces removed, so ``argument`` reads into it."""
+    assert value.startswith("{") and value.endswith("}"), f"not a map literal: {value[:40]}"
+    return value[1:-1]
 
 
 def _asl():
@@ -44,11 +61,28 @@ def _states(asl, states=None, prefix=""):
             yield from _states(asl, state["ItemProcessor"]["States"], f"{prefix}{name}/")
 
 
-def _policy(path):
-    """The rendered policy. A bare placeholder in a value position (``jsonencode``d ARN lists)
-    is stubbed to a string, a quoted one to its contents — the same two-step the ASL needs."""
-    with open(path) as handle:
-        raw = handle.read()
+def _sfn_policy():
+    """The shared state-machine policy, rendered the way the module renders it for this plane.
+
+    The template gates every Distributed Map statement on ``distributed_map``, so this reads the
+    call's ``distributed_map`` block (absent, the gated statements drop, as Terraform drops them)
+    and resolves the child-execution actions from its ``can_stop`` the way iam.tf does.
+    """
+    try:
+        distributed_map = _map_body(argument(_call(), "distributed_map"))
+    except ValueError:
+        distributed_map = None
+    iam = _read(os.path.join(_CONTROL_PLANE, "iam.tf"))
+    assert '? jsonencode(["states:DescribeExecution", "states:StopExecution"])' in iam
+    assert ': jsonencode("states:DescribeExecution")' in iam
+    can_stop = distributed_map is not None and argument(distributed_map, "can_stop") == "true"
+    actions = ["states:DescribeExecution", "states:StopExecution"] if can_stop else "states:DescribeExecution"
+
+    raw = _read(_SFN_POLICY)
+    gated = re.compile(r"^%\{ if distributed_map ~\}\n(.*?)^%\{ endif ~\}\n", re.MULTILINE | re.DOTALL)
+    assert gated.search(raw), "the shared sfn policy no longer gates its Map statements the way this reads"
+    raw = gated.sub(lambda match: match.group(1) if distributed_map is not None else "", raw)
+    raw = raw.replace("${child_execution_actions_json}", json.dumps(actions))
     raw = re.sub(r":\s*\$\{[^}]+\}", ': "STUB"', raw)
     return json.loads(re.sub(r"\$\{[^}]+\}", "STUB", raw))
 
@@ -86,20 +120,19 @@ def test_an_item_failure_never_fails_the_map_run():
 
 
 def test_the_maps_sizing_matches_the_constants_the_verb_reads():
-    """FR-002 AC3/AC4 — the numbers live in Python AND in locals.tf, so hold them together.
+    """FR-002 AC3/AC4 — the numbers live in Python AND in the call's definition_vars, so hold them together.
 
     Terraform cannot import cpcommon. Two homes for one number is how a batch grows past the
     256 KB child-input limit it was sized against while its own test still passes.
     """
-    with open(_LOCALS) as handle:
-        locals_tf = handle.read()
+    definition_vars = argument(_call(), "definition_vars")
 
     for name, value in (
         ("transfer_max_items_per_batch", transfer_config.MAX_ITEMS_PER_BATCH),
         ("transfer_map_max_concurrency", transfer_config.MAP_MAX_CONCURRENCY),
     ):
-        assert re.search(rf"^\s*{name}\s*=\s*{value}\s*$", locals_tf, re.MULTILINE), (
-            f"locals.tf's {name} does not match cpcommon.transfer.config's {value}"
+        assert re.search(rf"^\s*{name}\s*=\s*{value}\s*$", definition_vars, re.MULTILINE), (
+            f"definition_vars' {name} does not match cpcommon.transfer.config's {value}"
         )
 
     with open(_TFTPL) as handle:
@@ -112,17 +145,21 @@ def test_the_maps_sizing_matches_the_constants_the_verb_reads():
 
 
 def _timeout_seconds():
-    """The named value locals.tf gives the state machine's TimeoutSeconds."""
-    with open(_LOCALS) as handle:
-        match = re.search(
-            r"^\s*state_machine_timeout_seconds\s*=\s*(\d+)\s*$", handle.read(), re.MULTILINE
-        )
-    assert match, "locals.tf declares no state_machine_timeout_seconds"
-    return int(match.group(1))
+    """The ceiling the plane's call gives the state machine's TimeoutSeconds.
+
+    The module renders ``ceiling.seconds`` into the definition as ``state_machine_timeout_seconds``,
+    and that wiring is asserted too, so the number read from the call is the number deployed.
+    """
+    assert "state_machine_timeout_seconds = try(var.ceiling.seconds, null)" in _read(
+        os.path.join(_CONTROL_PLANE, "locals.tf")
+    ), "the control-plane module no longer renders ceiling.seconds as the machine's TimeoutSeconds"
+    seconds = argument(_map_body(argument(_call(), "ceiling")), "seconds")
+    assert seconds.isdigit(), f"the call's ceiling.seconds is {seconds!r}, not a literal"
+    return int(seconds)
 
 
 def _verb_sizing():
-    """The timeout and memory locals.tf deploys for each table-share verb.
+    """The timeout and memory the plane's root file deploys for each table-share verb.
 
     Read from the Terraform rather than restated here, for the reason the cap constants are:
     a sizing decision asserted against a copy of itself agrees with nothing.
@@ -137,12 +174,16 @@ def _verb_sizing():
       AssertionError: If no verb entries are found, which would make every bound below
         vacuously true over an empty population.
     """
-    with open(_LOCALS) as handle:
-        entries = re.findall(
-            r'"([a-z-]+)"\s*=\s*\{[^}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)\s*\}',
-            handle.read(),
-        )
-    assert len(entries) >= 8, f"read {len(entries)} verb entries from locals.tf, expected the plane's"
+    root = _read(_ROOT)
+    functions = span(root, root.index("table_share_functions = {") + len("table_share_functions = "))
+    entries = re.findall(
+        r'"([a-z-]+)"\s*=\s*\{[^}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)\s*\}',
+        functions,
+    )
+    assert len(entries) >= 8, f"read {len(entries)} verb entries from the root file, expected the plane's"
+    assert {name for name, _, _ in entries} == set(map_entries(functions)), (
+        "a verb entry the sizing pattern cannot read would drop out of every bound below"
+    )
     return {name: (int(timeout), int(memory)) for name, timeout, memory in entries}
 
 
@@ -316,11 +357,14 @@ def test_the_machine_itself_cannot_notify_a_timeout_so_a_rule_must():
     assert asl["States"]["NotifyFailure"]["Catch"][0]["Next"] == "Failed"
     assert asl["States"]["Failed"]["Type"] == "Fail"
 
-    with open(os.path.join(_MODULE, "stepfunction.tf")) as handle:
-        stepfunction = handle.read()
-    assert "aws_cloudwatch_event_rule" in stepfunction, (
+    rules = blocks(_read(os.path.join(_CONTROL_PLANE, "main.tf")), "aws_cloudwatch_event_rule")
+    assert "execution_timed_out" in rules, (
         "nothing listens for TIMED_OUT, so a wedged run ends silently — the timeout bounds the "
         "run but tells the sender nothing"
+    )
+    ceiling = _map_body(argument(_call(), "ceiling"))
+    assert argument(ceiling, "notifier_verb") == '"notify-failure"', (
+        "the call's ceiling names no notifier, so the module's TIMED_OUT rule targets nothing"
     )
 
 
@@ -369,7 +413,7 @@ def test_every_notifier_holds_the_execution_name_its_notices_are_keyed_on():
 def test_the_state_machine_role_holds_the_distributed_maps_permissions():
     """FR-006 AC1/AC2. It is the STATE MACHINE that starts each child execution and that
     reads the ItemReader object and writes the ResultWriter export."""
-    actions = _actions(_policy(_SFN_POLICY))
+    actions = _actions(_sfn_policy())
 
     assert "states:StartExecution" in actions
     assert "states:DescribeExecution" in actions

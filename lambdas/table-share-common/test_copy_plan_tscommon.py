@@ -119,8 +119,8 @@ def test_the_key_sits_under_the_prefix_the_infra_contracts_name():
 def test_the_prefix_matches_what_the_iam_grant_and_lifecycle_rule_use():
     """Read from infra/ so the three cannot drift apart silently."""
     here = os.path.dirname(os.path.abspath(__file__))
-    policy = Path(here, "..", "..", "infra", "modules", "table-share",
-                  "policies", "execution.json.tftpl").read_text(encoding="utf-8")
+    policy = Path(here, "..", "..", "infra", "planes", "table-share",
+                  "execution.json.tftpl").read_text(encoding="utf-8")
     lifecycle = Path(here, "..", "..", "infra", "modules", "analytics", "s3.tf").read_text(
         encoding="utf-8"
     )

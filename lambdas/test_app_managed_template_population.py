@@ -35,12 +35,15 @@ Attributes:
     principal-tag anchors, captured up to the slash.
   ADMIN_BUCKET_POPULATION: Measured by hand when this test was written. Per template, the
     admin-bucket ``archive/`` scratch prefix — the one that must NOT move.
+  ARCHIVE_ROOT: The archive plane's root file, whose ``manifest_prefix`` names the same prefix
+    for the state-machine role.
 """
 
 import pathlib
 import re
 
 from cpcommon.app_managed import ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER
+from tf_blocks import argument, module_calls
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 
@@ -59,44 +62,48 @@ SPACE_BUCKET_POPULATION = {
     "modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset(
         {"${principal_tag_key}}/system_settings/athenaresults"}
     ),
-    "modules/archive/policies/execution.json.tftpl": frozenset(
+    "planes/archive/execution.json.tftpl": frozenset(
         {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
-    "modules/data-quality/policies/execution.json.tftpl": frozenset(
+    "planes/data-quality/execution.json.tftpl": frozenset(
         {"*/system_settings/athenaresults"}
     ),
     "modules/data/policies/portal-role-permissions.json.tftpl": frozenset(
         {"username}/system_settings/archive"}
     ),
-    "modules/file-ops/policies/execution.json.tftpl": frozenset(
+    "planes/file-ops/execution.json.tftpl": frozenset(
         {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
     # `*/shared_tables` is NOT an oversight here or in table-share below. That folder never
     # moved — its tables were sent to the space and are the user's to edit — so its anchor stays
     # at depth one and the `system_settings/shared_tables` anchor SPEC-219 added additively came
     # out instead. Two depth-one entries survive the narrowing, and they are these.
-    "modules/results-conversion/policies/execution.json.tftpl": frozenset(
+    "planes/results-conversion/execution.json.tftpl": frozenset(
         {
             "*/shared_tables",
             "*/system_settings/athenaresults",
             "*/system_settings/archive",
         }
     ),
-    "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": frozenset(
+    "modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl": frozenset(
         {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
-    "modules/table-builder/policies/execution.json.tftpl": frozenset(
+    "planes/table-builder/execution.json.tftpl": frozenset(
         {"*/system_settings/athenaresults"}
     ),
-    "modules/table-share/policies/execution.json.tftpl": frozenset(
+    "planes/table-share/execution.json.tftpl": frozenset(
         {"*/shared_tables", "*/system_settings/athenaresults"}
     ),
 }
 
 ADMIN_BUCKET_POPULATION = {
-    "modules/archive/policies/execution.json.tftpl": frozenset({"${admin_bucket_arn}/archive"}),
-    "modules/archive/policies/sfn-permissions.json.tftpl": frozenset({"${admin_bucket_arn}/archive"}),
+    "planes/archive/execution.json.tftpl": frozenset({"${admin_bucket_arn}/archive"}),
 }
+
+#: The state-machine role's half of fact 3. Its grant is the control-plane module's one policy,
+#: which names ``${admin_bucket_arn}/${manifest_prefix}/*`` rather than a folder, so the folder is
+#: the archive plane's ``manifest_prefix`` and is pinned where it is written.
+ARCHIVE_ROOT = "plane-archive.tf"
 
 
 def _measure() -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]], int]:
@@ -149,6 +156,17 @@ def test_the_admin_bucket_archive_prefix_is_exactly_these_and_must_not_move():
     """Fact 3 of ``archive``. A sibling statement added here would be a grant onto a prefix nobody writes."""
     _, admin, _ = _measure()
     assert admin == ADMIN_BUCKET_POPULATION
+
+
+def test_the_archive_state_machine_role_keeps_the_admin_bucket_archive_prefix():
+    """Fact 3 again, for the grant the state machine holds. The shared policy reads the folder from
+    the plane's ``manifest_prefix`` and puts it in the admin bucket, so both halves are pinned."""
+    shared = (INFRA / "modules/control-plane/policies/sfn-permissions.json.tftpl").read_text(encoding="utf-8")
+    assert '"Resource": "${admin_bucket_arn}/${manifest_prefix}/*"' in shared
+
+    call = module_calls((INFRA / ARCHIVE_ROOT).read_text(encoding="utf-8"))["archive"]
+    distributed_map = argument(call, "distributed_map")
+    assert argument(distributed_map[1:-1], "manifest_prefix") == '"archive"'
 
 
 def test_only_the_MOVING_folders_appear_under_system_settings() -> None:
