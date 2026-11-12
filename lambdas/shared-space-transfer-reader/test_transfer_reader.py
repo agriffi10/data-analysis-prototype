@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import transfer_reader as reader
 from cpcommon import clients
 from fakes import install
-from tf_blocks import lambda_declaration, lambda_input, map_entries, span
+from tf_blocks import lambda_declaration, lambda_input, map_entries, module_calls, span
 
 _BUCKET = "admin-bkt"
 
@@ -368,12 +368,9 @@ def test_two_transfers_of_one_space_naming_DIFFERENT_targets_are_refused():
 def test_the_members_per_message_cap_is_computed_from_the_verbs_own_budget():
     """Named to its inputs rather than written down, and the inputs are read from Terraform.
 
-    TWO traps in reading that timeout, and both ship green. The verb takes the module's `lookup`
-    DEFAULT, because `local.shared_space_function_timeouts` carries one entry and `add-members` is
-    not it — so a test parsing the map finds nothing, and a test parsing the module call finds the
-    `lookup` expression rather than an integer. So this reads the declared default AND asserts
-    there is no override, which reddens the day one is added rather than sizing against a number
-    that moved.
+    The timeout is add-members' own row in the plane's verb map, and the shared module deploys
+    each row's timeout as written; both halves are read, so a module that stopped honouring the
+    row reddens here rather than sizing against a number that is not deployed.
     """
     expected = int(
         (
@@ -412,23 +409,24 @@ def test_the_members_per_message_cap_is_computed_from_the_verbs_own_budget():
         "model is roster-dependent in form only"
     )
 
-    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
-    verbs = lambda_declaration((module / "lambda.tf").read_text(), "functions")
-    expression = lambda_input(verbs, "timeout")
-    assert "lookup(local.shared_space_function_timeouts" in expression, expression
-    default = expression.rsplit(",", 1)[-1].strip().rstrip(")")
-    assert int(default) == reader.ADD_MEMBERS_TIMEOUT_SECONDS, (
-        f"the cap is sized for {reader.ADD_MEMBERS_TIMEOUT_SECONDS}s and Terraform's default is "
-        f"{default}s"
+    infra = pathlib.Path(__file__).resolve().parents[2] / "infra"
+    machine = lambda_declaration(
+        (infra / "modules" / "control-plane" / "lambda.tf").read_text(), "functions"
+    )
+    assert lambda_input(machine, "timeout") == "each.value.timeout", (
+        "the shared module no longer deploys each verb's own timeout row"
     )
 
-    locals_text = (module / "locals.tf").read_text()
-    start = locals_text.index("shared_space_function_timeouts")
-    overrides = map_entries(span(locals_text, locals_text.index("{", start)))
-    assert overrides, "the override map was not found, so this assertion is vacuous"
-    assert "add-members" not in overrides, (
-        f"add-members now has its own timeout ({overrides.get('add-members')}); the cap is sized "
-        "against the lookup default and must be re-derived"
+    plane = (infra / "plane-shared-spaces.tf").read_text()
+    start = re.search(r"(?m)^\s*shared_space_functions\s*=\s*\{", plane)
+    assert start, "the verb map was not found, so this assertion is vacuous"
+    verbs = map_entries(span(plane, start.end() - 1))
+    assert "add-members" in verbs, f"the verb map has no add-members row: {sorted(verbs)}"
+    timeouts = re.findall(r"\btimeout\s*=\s*(\d+)", verbs["add-members"])
+    assert len(timeouts) == 1, f"add-members' row is reshaped: {verbs['add-members']}"
+    assert int(timeouts[0]) == reader.ADD_MEMBERS_TIMEOUT_SECONDS, (
+        f"the cap is sized for {reader.ADD_MEMBERS_TIMEOUT_SECONDS}s and Terraform deploys "
+        f"add-members with {timeouts[0]}s"
     )
 
 
@@ -516,9 +514,15 @@ def test_the_row_cap_keeps_its_existing_inputs_and_its_existing_value():
     )
     assert expected == reader.MAX_ROWS_PER_INVOCATION
 
-    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
-    block = lambda_declaration((module / "lambda.tf").read_text(), "transfer_reader")
-    declared = int(lambda_input(block, "timeout"))
+    infra = pathlib.Path(__file__).resolve().parents[2] / "infra"
+    function = lambda_declaration(
+        (infra / "modules" / "scheduled-function" / "main.tf").read_text(), "function"
+    )
+    assert lambda_input(function, "timeout") == "var.timeout_seconds", (
+        "the scheduled-function module no longer deploys the timeout its caller passes"
+    )
+    call = module_calls((infra / "plane-shared-spaces.tf").read_text())["shared_space_transfer_reader"]
+    declared = int(lambda_input(call, "timeout"))
     assert declared == reader.TIMEOUT_SECONDS, (
         f"the reader budgets for {reader.TIMEOUT_SECONDS}s and Terraform gives it {declared}s"
     )
@@ -691,8 +695,10 @@ def test_the_GRANT_is_scoped_to_the_prefix_the_code_actually_reads():
     prefix = reader.INBOX.split("/")[0]
     assert prefix and "/" not in prefix
 
-    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
-    policy = (module / "policies" / "transfer-reader-permissions.json.tftpl").read_text()
+    policy = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra" / "planes" / "shared-spaces" / "transfer-reader.json.tftpl"
+    ).read_text()
     rendered = json.loads(
         re.sub(r"\$\{[a-z_]+\}", "arn:aws:test", policy)
     )

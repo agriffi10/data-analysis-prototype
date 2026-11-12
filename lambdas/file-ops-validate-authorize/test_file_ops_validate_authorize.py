@@ -350,7 +350,7 @@ def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
     template = (
         pathlib.Path(__file__).resolve().parents[2]
         / "infra"
-        / "modules"
+        / "planes"
         / "file-ops"
         / "state-machine.asl.json.tftpl"
     ).read_text()

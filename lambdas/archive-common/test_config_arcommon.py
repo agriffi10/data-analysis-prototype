@@ -41,16 +41,11 @@ def test_the_item_cap_fits_the_per_item_work_inside_the_validators_timeout():
     therefore a NETWORK round trip, and the file case is the binding one because 200 files is
     200 serial round trips where 20,000 objects in one folder is 20 paged ones.
 
-    The budget is validate-authorize's own 15-second timeout (`locals.tf`, READ BACK here so
+    The budget is validate-authorize's own 15-second timeout (the plane's verb map, READ BACK here so
     lowering it fails the build) minus a cold start. SPEC-169's expansion runs in its own verb
     with its own longer timeout, so this bounds THIS verb.
     """
-    locals_tf = (
-        pathlib.Path(__file__).resolve().parent.parent.parent
-        / "infra" / "modules" / "archive" / "locals.tf"
-    ).read_text()
-    block = locals_tf[locals_tf.index('"validate-authorize"'):]
-    timeout = int(re.search(r"timeout = (\d+)", block).group(1))
+    timeout = _verb_row("validate-authorize")[0]
 
     # Conservative: 25 ms per S3 round trip, and 3 s of the budget spent on a cold start plus
     # the JWKS fetch and the registry read that precede the loop.
@@ -72,20 +67,20 @@ _CHILD_EXECUTION_OVERHEAD_SECONDS = 3
 _PARSED_OBJECT_OVERHEAD = 3
 
 
-def _locals_text() -> str:
-    """The archive module's Terraform locals, as text.
+def _plane_text() -> str:
+    """The archive plane's root Terraform file, as text: its verb map and its module call.
 
     Read as DATA rather than restated, because a ceiling raised in one place and asserted in
     another is how a cap comes to certify something it never checked.
     """
     return (
         pathlib.Path(__file__).resolve().parent.parent.parent
-        / "infra" / "modules" / "archive" / "locals.tf"
+        / "infra" / "plane-archive.tf"
     ).read_text()
 
 
 def _verb_row(name: str) -> tuple:
-    """One verb's configured timeout and memory, from the Terraform locals.
+    """One verb's configured timeout and memory, from the plane's verb map.
 
     Args:
       name: The verb's suffix.
@@ -96,9 +91,9 @@ def _verb_row(name: str) -> tuple:
     Raises:
       AssertionError: When the row is gone, which would make every bound below vacuous.
     """
-    text = _locals_text()
+    text = _plane_text()
     found = re.search(rf'"{name}"\s*=\s*\{{([^}}]*)\}}', text)
-    assert found, f"the archive locals no longer configure a {name!r} verb"
+    assert found, f"the archive verb map no longer configures a {name!r} verb"
     block = found.group(1)
     return (
         int(re.search(r"timeout\s*=\s*(\d+)", block).group(1)),
@@ -107,10 +102,10 @@ def _verb_row(name: str) -> tuple:
 
 
 def _machine_timeout_seconds() -> int:
-    """The machine's own top-level TimeoutSeconds, from the Terraform locals."""
-    found = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_text())
+    """The machine's own top-level TimeoutSeconds, from the module call's ceiling."""
+    found = re.search(r"^\s*ceiling\s*=\s*\{[^}]*?\bseconds\s*=\s*(\d+)", _plane_text(), re.MULTILINE)
 
-    assert found, "the archive machine has no top-level TimeoutSeconds in its locals"
+    assert found, "the archive machine has no top-level TimeoutSeconds in its module call"
     return int(found.group(1))
 
 
@@ -170,7 +165,7 @@ def test_the_worst_case_archive_copy_plan_fits_in_the_verbs_memory():
         memory_bytes = _verb_row(verb)[1] * 1024**2
         assert live_copies < memory_bytes / 2, (
             f"a worst-case plan is ~{live_copies / 1024**2:,.0f} MB live against {verb}'s "
-            f"{_verb_row(verb)[1]} MB — raise the memory in infra/modules/archive/locals.tf or "
+            f"{_verb_row(verb)[1]} MB — raise the memory in infra/plane-archive.tf or "
             "lower ARCHIVE_MAX_OBJECTS"
         )
 
@@ -247,7 +242,7 @@ def test_the_whole_archive_run_fits_the_machines_ceiling():
 
     The copy is not the only thing inside the ceiling, and a model that only counted it would be
     the aggregate-bandwidth mistake wearing a different hat. Three terms, each read from the
-    locals or the engine's constants rather than restated here:
+    plane's Terraform or the engine's constants rather than restated here:
 
     * the transfer itself, at the MAKESPAN rate (concurrency x per-stream), not the aggregate —
       ``copy_batch`` gives one whole object to one worker, so an object occupies that worker for
@@ -288,7 +283,7 @@ def test_the_whole_archive_run_fits_the_machines_ceiling():
         f"the worst legal run is {worst:,.0f}s — copy {copying:,.0f}s + child overhead "
         f"{child_overhead:,.0f}s + serial verbs {serial:,.0f}s — against a "
         f"{_machine_timeout_seconds():,}s ceiling. Lower a cap or raise the timeout in "
-        "infra/modules/archive/locals.tf, and do not raise the rate without evidence"
+        "infra/plane-archive.tf, and do not raise the rate without evidence"
     )
 
 
@@ -327,7 +322,7 @@ def test_the_guard_can_head_every_destination_inside_its_timeout():
 
     assert seconds < timeout / 2, (
         f"a worst-case guard is ~{seconds:,.0f}s against check-destination-clear's {timeout}s — "
-        "raise RESTORE_HEAD_CONCURRENCY or the timeout in infra/modules/archive/locals.tf"
+        "raise RESTORE_HEAD_CONCURRENCY or the timeout in infra/plane-archive.tf"
     )
 
 
@@ -342,7 +337,7 @@ def test_delete_source_can_head_every_original_inside_its_timeout():
 
     assert seconds < timeout / 2, (
         f"a worst-case check of the originals is ~{seconds:,.0f}s against delete-source's "
-        f"{timeout}s — raise the timeout in infra/modules/archive/locals.tf"
+        f"{timeout}s — raise the timeout in infra/plane-archive.tf"
     )
 
 
@@ -394,7 +389,7 @@ def test_the_restore_plan_fits_in_the_lookup_verbs_memory():
         assert live_copies < memory_bytes / 2, (
             f"a worst-case restore plan is ~{live_copies / 1024**2:,.0f} MB live against "
             f"{verb}'s {_verb_row(verb)[1]} MB — raise the memory in "
-            "infra/modules/archive/locals.tf or lower ARCHIVE_MAX_OBJECTS"
+            "infra/plane-archive.tf or lower ARCHIVE_MAX_OBJECTS"
         )
 
 
@@ -512,7 +507,7 @@ def test_the_whole_restore_fits_the_machines_ceiling():
         f"the worst legal restore is {worst:,.0f}s — retrieval budget {waiting:,.0f}s + polling "
         f"{polling:,.0f}s + copy-back {copying:,.0f}s + child overhead {child_overhead:,.0f}s + "
         f"serial verbs {serial:,.0f}s — against a {_machine_timeout_seconds():,}s ceiling. Lower "
-        "RESTORE_MAX_POLLS or a cap, or raise the timeout in infra/modules/archive/locals.tf"
+        "RESTORE_MAX_POLLS or a cap, or raise the timeout in infra/plane-archive.tf"
     )
 
 

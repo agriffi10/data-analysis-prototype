@@ -101,12 +101,10 @@ def _install(objects=None, put_error=None):
 
 
 def _verb_timeout(name):
-    """One data-quality verb's Lambda timeout, read from the Terraform locals rather than restated."""
-    locals_tf = (
-        pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "data-quality" / "locals.tf"
-    ).read_text()
-    found = re.search(rf'"{name}"\s*=\s*\{{([^}}]*)\}}', locals_tf)
-    assert found, f"the data-quality locals no longer configure a {name!r} verb"
+    """One data-quality verb's Lambda timeout, read from the plane's verb map rather than restated."""
+    plane_tf = (pathlib.Path(__file__).resolve().parents[2] / "infra" / "plane-data-quality.tf").read_text()
+    found = re.search(rf'"{name}"\s*=\s*\{{([^}}]*)\}}', plane_tf)
+    assert found, f"the data-quality verb map no longer configures a {name!r} verb"
     return int(re.search(r"timeout\s*=\s*(\d+)", found.group(1)).group(1))
 
 

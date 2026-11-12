@@ -216,7 +216,7 @@ def test_no_failure_seed_carries_the_selection_twice():
     asl = (
         pathlib.Path(__file__).resolve().parents[2]
         / "infra"
-        / "modules"
+        / "planes"
         / "file-send"
         / "state-machine.asl.json.tftpl"
     ).read_text()
@@ -314,8 +314,8 @@ _CHILD_EXECUTION_OVERHEAD_SECONDS = 3
 _PARSED_OBJECT_OVERHEAD = 3
 
 
-def _locals_text() -> str:
-    """The file-send Terraform locals, as text.
+def _plane_text() -> str:
+    """The file-send plane's root Terraform file, as text: its verb map and its module call.
 
     Read as DATA rather than restated, for the reason the browser cap mirror is: two homes for
     one number is how a bound quietly stops matching the thing it bounds.
@@ -332,14 +332,12 @@ def _locals_text() -> str:
     return (
         pathlib.Path(__file__).resolve().parents[2]
         / "infra"
-        / "modules"
-        / "file-send"
-        / "locals.tf"
+        / "plane-file-send.tf"
     ).read_text()
 
 
 def _verb_row(name: str):
-    """One verb's configured timeout and memory, from the Terraform locals.
+    """One verb's configured timeout and memory, from the plane's verb map.
 
     Args:
       name: The verb's suffix, as it is keyed in ``file_send_functions``.
@@ -352,9 +350,9 @@ def _verb_row(name: str):
         every bound computed from it vacuous.
     """
     row = re.search(
-        rf'"{name}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+)[^}}]*memory\s*=\s*(\d+)', _locals_text()
+        rf'"{name}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+)[^}}]*memory\s*=\s*(\d+)', _plane_text()
     )
-    assert row, f"{name} is no longer in the file-send locals, or its row changed shape"
+    assert row, f"{name} is no longer in the file-send verb map, or its row changed shape"
     return int(row.group(1)), int(row.group(2))
 
 
@@ -389,7 +387,7 @@ def _verb_memory(name: str) -> int:
 
 
 def _machine_timeout_seconds() -> int:
-    """The state machine's own top-level TimeoutSeconds, from the Terraform locals.
+    """The state machine's own top-level TimeoutSeconds, from the module call's ceiling.
 
     Every cap that bounds the RUN is measured against this, and it lives in Terraform — so it is
     read rather than restated. A ceiling raised in one place and asserted in another is how a cap
@@ -405,13 +403,13 @@ def _machine_timeout_seconds() -> int:
       AssertionError: When the machine has no ceiling at all, which every run-length bound here
         would otherwise be measured against nothing.
     """
-    found = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_text())
-    assert found, "the file-send machine has no top-level TimeoutSeconds in its locals"
+    found = re.search(r"^\s*ceiling\s*=\s*\{[^}]*?\bseconds\s*=\s*(\d+)", _plane_text(), re.MULTILINE)
+    assert found, "the file-send machine has no top-level TimeoutSeconds in its module call"
     return int(found.group(1))
 
 
 def _guard_map_concurrency() -> int:
-    """The guard Map's fan-out, from the Terraform locals.
+    """The guard Map's fan-out, from the module call's definition values.
 
     Args:
       None.
@@ -423,8 +421,8 @@ def _guard_map_concurrency() -> int:
       AssertionError: When it is no longer a named local, which would mean the machine and this
         model had stopped sharing a number.
     """
-    found = re.search(r"guard_map_max_concurrency\s*=\s*(\d+)", _locals_text())
-    assert found, "the guard Map's concurrency is no longer a named local"
+    found = re.search(r"guard_map_max_concurrency\s*=\s*(\d+)", _plane_text())
+    assert found, "the guard Map's concurrency is no longer a named definition value"
     return int(found.group(1))
 
 
@@ -456,23 +454,16 @@ def _transfer_item_bytes() -> int:
 
 
 def _verb_sizing():
-    """inspect-source's configured timeout and memory, read from the Terraform locals.
+    """inspect-source's configured timeout and memory, read from the plane's verb map.
 
     Read as DATA rather than restated, for the reason the browser cap mirror is: two homes for
     one number is how a bound quietly stops matching the thing it bounds. The cap below is
     meaningless without the memory it is measured against, and the memory lives in Terraform.
     """
-    locals_tf = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "infra"
-        / "modules"
-        / "file-send"
-        / "locals.tf"
-    ).read_text()
     row = re.search(
-        r'"inspect-source"\s*=\s*\{[^}]*timeout\s*=\s*(\d+)[^}]*memory\s*=\s*(\d+)', locals_tf
+        r'"inspect-source"\s*=\s*\{[^}]*timeout\s*=\s*(\d+)[^}]*memory\s*=\s*(\d+)', _plane_text()
     )
-    assert row, "inspect-source is no longer in the file-send locals, or its row changed shape"
+    assert row, "inspect-source is no longer in the file-send verb map, or its row changed shape"
     return int(row.group(1)), int(row.group(2))
 
 
@@ -506,7 +497,7 @@ def test_the_worst_case_file_send_copy_plan_fits_in_the_verbs_memory():
     assert peak < (memory_mb * 1024**2) / 2, (
         f"a worst-case plan of {config.SEND_MAX_OBJECTS} objects is {plan_bytes / 1024**2:.0f} MB "
         f"and peaks near {peak / 1024**2:.0f} MB against {memory_mb} MB — raise the memory in "
-        f"infra/modules/file-send/locals.tf or lower the cap"
+        f"infra/plane-file-send.tf or lower the cap"
     )
 
 
@@ -585,7 +576,7 @@ def test_the_worst_case_manifest_fits_in_the_verbs_memory():
     assert 3 * manifest_bytes < (manifest_mb * 1024**2) / 2, (
         f"a worst-case manifest of {config.SEND_MAX_TRANSFER_ITEMS:,} items is "
         f"{manifest_bytes / 1024**2:.0f} MB and peaks near {3 * manifest_bytes / 1024**2:.0f} MB "
-        f"against {manifest_mb} MB — raise the memory in infra/modules/file-send/locals.tf or "
+        f"against {manifest_mb} MB — raise the memory in infra/plane-file-send.tf or "
         f"lower the cap"
     )
     assert _PARSED_OBJECT_OVERHEAD * manifest_bytes < (collector_mb * 1024**2) / 2, (
@@ -599,7 +590,7 @@ def test_the_whole_file_send_run_fits_the_machines_ceiling():
 
     The copy is not the only thing inside the ceiling, and a model that only counted it would be
     the aggregate-bandwidth mistake wearing a different hat. Four terms, each read from the
-    locals or the engine's constants rather than restated here:
+    plane's Terraform or the engine's constants rather than restated here:
 
     * the transfer itself, at the MAKESPAN rate (500 MB/s), not the aggregate;
     * the per-child overhead of ``SEND_MAX_TRANSFER_ITEMS`` in batches of ``MAX_ITEMS_PER_BATCH``
@@ -636,15 +627,16 @@ def test_the_whole_file_send_run_fits_the_machines_ceiling():
         f"the worst legal run is {worst:,.0f}s — copy {copying:,.0f}s + child overhead "
         f"{child_overhead:,.0f}s + guard {guarding:,.0f}s + serial verbs {serial:,.0f}s — "
         f"against a {_machine_timeout_seconds():,}s ceiling. Lower a cap or raise the timeout "
-        f"in infra/modules/file-send/locals.tf, and do not raise the rate without evidence"
+        f"in infra/plane-file-send.tf, and do not raise the rate without evidence"
     )
 
 
 def test_the_rendered_asl_carries_the_engines_own_batch_numbers():
     """Terraform cannot import Python, so the ASL's ItemBatcher and MaxConcurrency are literals
-    fed from locals.tf. Two homes for one number is how a batch silently grows past the limit it
-    was sized against, so the locals are read back and compared with the constants."""
-    text = _locals_text()
+    fed from the module call's definition values. Two homes for one number is how a batch silently
+    grows past the limit it was sized against, so the values are read back and compared with the
+    constants."""
+    text = _plane_text()
 
     assert re.search(
         rf"transfer_max_items_per_batch\s*=\s*{transfer_config.MAX_ITEMS_PER_BATCH}\b", text
@@ -707,7 +699,7 @@ def test_the_transfer_artifacts_expire_long_after_the_longest_run():
 
     A manifest expiring underneath a live Map Run would fail the transfer at the ItemReader, on
     the longest sends only. Both numbers are read from Terraform — the retention from the
-    analytics module that owns the bucket, the ceiling from this plane's locals.
+    analytics module that owns the bucket, the ceiling from this plane's module call.
     """
     analytics = (
         pathlib.Path(__file__).resolve().parents[2]

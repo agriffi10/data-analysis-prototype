@@ -460,25 +460,21 @@ def test_the_add_members_timeout_is_the_number_terraform_DEPLOYS():
     """The premise under the mirrored member cap, held against the Terraform.
 
     The derivation this file mirrors charges the add-members verb's ceiling. That ceiling is a
-    default in the plane's Terraform, not a constant either module can see, so a change to it
+    row in the plane's Terraform verb map, not a constant either module can see, so a change to it
     would invalidate a number in two places and go unnoticed in both.
 
-    **The default is not enough on its own**: a per-verb override would take add-members off it
-    while the default stayed 60, so the absence of an override is asserted too.
+    The row is matched at the start of a line and must be the only one, so a commented-out old
+    row or a duplicate left by an edit cannot stand in for the number Terraform deploys.
     """
-    lambda_tf = (REPO / "infra" / "modules" / "shared-spaces" / "lambda.tf").read_text()
-    found = re.search(r"lookup\(local\.shared_space_function_timeouts,\s*each\.key,\s*(\d+)\)", lambda_tf)
+    plane_tf = (REPO / "infra" / "plane-shared-spaces.tf").read_text()
+    rows = re.findall(
+        r'^[^\S\n]*"add-members"\s*=\s*\{[^}\n]*\btimeout\s*=\s*(\d+)', plane_tf, re.MULTILINE
+    )
 
-    assert found, "the shared-space verbs no longer take a default timeout from lambda.tf"
-    assert int(found.group(1)) == ADD_MEMBERS_TIMEOUT_SECONDS
-
-    overrides = (REPO / "infra" / "modules" / "shared-spaces" / "locals.tf").read_text()
-    block = re.search(r"shared_space_function_timeouts\s*=\s*\{(.*?)\}", overrides, re.DOTALL)
-
-    assert block, "the timeout override map is gone, so nothing says which verbs leave the default"
-    assert "add-members" not in block.group(1), (
-        "add-members now takes its own timeout, so the default this file charges against is no "
-        "longer its budget and the mirrored member cap is derived from the wrong number"
+    assert len(rows) == 1, f"the shared-space verb map has {len(rows)} add-members rows, expected one"
+    assert int(rows[0]) == ADD_MEMBERS_TIMEOUT_SECONDS, (
+        "add-members deploys a different timeout, so the mirrored member cap is derived from the "
+        "wrong number"
     )
     assert _transfer_reader_constants()["ADD_MEMBERS_TIMEOUT_SECONDS"] == ADD_MEMBERS_TIMEOUT_SECONDS, (
         "the derivation this file mirrors charges a different ceiling than the one deployed"

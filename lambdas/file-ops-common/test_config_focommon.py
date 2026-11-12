@@ -2,7 +2,7 @@
 
 Three subjects: the two request-shape caps and the three expansion ones, each COMPUTED against
 the budget that sizes it; the three values Python and Terraform both hold that nothing else pins,
-each read back out of ``locals.tf``; and the protected-folder lists, pinned member for member.
+each read back out of the plane's Terraform; and the protected-folder lists, pinned member for member.
 (``PLAN_PREFIX`` is a fourth such mirror and is NOT here — ``test_file_ops_admin_list_grant`` holds
 it to the Terraform and to the bucket's lifecycle rule, which is the same check in a better place.)
 
@@ -46,10 +46,16 @@ _STATE_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 _MAX_KEY_BYTES = 1024
 
 
-#: The module whose ``locals.tf`` carries the memory and timeout every expansion cap is computed
-#: against. Read back rather than restated, so lowering one without lowering the cap fails the
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+#: The root file whose verb map carries the memory and timeout every expansion cap is computed
+#: against, and whose module call carries the ceiling, the definition's literals and the policy's
+#: prefixes. Read back rather than restated, so lowering one without lowering the cap fails the
 #: build rather than the invocation.
-_MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "file-ops"
+_PLANE_TF = _ROOT / "infra" / "plane-file-ops.tf"
+
+#: The plane's definition template.
+_ASL = _ROOT / "infra" / "planes" / "file-ops" / "state-machine.asl.json.tftpl"
 
 #: A parsed dict is several times the size of the bytes it came from — the same allowance the two
 #: neighbouring planes compute their own object caps with.
@@ -93,7 +99,7 @@ def _verb_row(name: str) -> tuple[int, int]:
     """Returns one verb's ``(timeout, memory)`` as Terraform actually configures it.
 
     Args:
-      name: The function suffix, as ``locals.tf`` keys it.
+      name: The function suffix, as the verb map keys it.
 
     Returns:
       The timeout in seconds and the memory in MB.
@@ -110,34 +116,50 @@ def _verb_row(name: str) -> tuple[int, int]:
     """
     rows = re.findall(
         rf'^[^\S\n]*"{name}"\s*=\s*{{[^}}\n]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)',
-        (_MODULE / "locals.tf").read_text(),
+        _PLANE_TF.read_text(),
         re.MULTILINE,
     )
-    assert len(rows) == 1, f"locals.tf has {len(rows)} rows for {name}, expected exactly one"
+    assert len(rows) == 1, f"{_PLANE_TF.name} has {len(rows)} rows for {name}, expected exactly one"
     return int(rows[0][0]), int(rows[0][1])
 
 
 def _local(name: str) -> str:
-    """Returns one scalar ``locals.tf`` value as Terraform actually renders it.
+    """Returns one scalar argument of the plane's module call as Terraform actually renders it.
 
     Args:
-      name: The local's name, as ``locals.tf`` declares it.
+      name: The argument's name, as the call's ``definition_vars`` or policy map declares it.
 
     Returns:
       The rendered value with its surrounding quotes stripped, so a string local and a numeric one
       are read the same way.
 
     Raises:
-      AssertionError: When the local is absent or has been reshaped, so a rename fails loudly
-        rather than leaving the comparison below vacuous.
+      AssertionError: When the argument is absent, reshaped or declared more than once, so a
+        rename fails loudly rather than leaving the comparison below vacuous.
     """
-    found = re.search(
+    found = re.findall(
         rf'^\s*{name}\s*=\s*"?([^"\n]+?)"?\s*$',
-        (_MODULE / "locals.tf").read_text(),
+        _PLANE_TF.read_text(),
         re.MULTILINE,
     )
-    assert found, f"locals.tf declares no {name}"
-    return found.group(1)
+    assert len(found) == 1, f"{_PLANE_TF.name} declares {name} {len(found)} times, expected once"
+    return found[0]
+
+
+def _ceiling_seconds() -> int:
+    """Returns the machine's top-level ``TimeoutSeconds`` as the plane's module call sets it.
+
+    Returns:
+      The ``seconds`` member of the call's ``ceiling`` object.
+
+    Raises:
+      AssertionError: When the call carries no ceiling, or more than one.
+    """
+    found = re.findall(
+        r"^\s*ceiling\s*=\s*\{[^}]*?\bseconds\s*=\s*(\d+)", _PLANE_TF.read_text(), re.MULTILINE
+    )
+    assert len(found) == 1, f"{_PLANE_TF.name} sets {len(found)} ceilings, expected one"
+    return int(found[0])
 
 
 def _selection(items: int, key_char: str = "k", *, with_names: bool = True) -> list:
@@ -347,7 +369,7 @@ def test_the_stale_threshold_exceeds_the_machine_ceiling():
     today at 900s, deliberately and with no slack — raising a verb past the margin is precisely
     the change that should redden this.
     """
-    deployed_ceiling = int(_local("state_machine_timeout_seconds"))
+    deployed_ceiling = _ceiling_seconds()
     longest_verb = max(_verb_row(verb)[0] for verb in _ALL_CHARGED_VERBS)
     margin = config.STALE_LOCK_SECONDS - deployed_ceiling
 
@@ -373,7 +395,7 @@ def test_the_give_up_bound_is_strictly_under_the_machine_ceiling():
     acquire_timeout = _verb_row("acquire-lock")[0]
     worst_attempt = config.LOCK_WAIT_SECONDS + (4 * acquire_timeout + 14)
     give_up = config.LOCK_MAX_ATTEMPTS * worst_attempt + _waking_seconds(
-        (_MODULE / "state-machine.asl.json.tftpl").read_text()
+        _ASL.read_text()
     )
 
     assert give_up < config.MACHINE_TIMEOUT_SECONDS, (
@@ -509,7 +531,7 @@ def test_every_verb_that_HOLDS_THE_PLAN_is_in_the_memory_budget():
     of them and would otherwise report a verb named "common".
     """
     holders = set()
-    for verb_dir in sorted((_MODULE.parents[2] / "lambdas").glob("file-ops-*")):
+    for verb_dir in sorted((_ROOT / "lambdas").glob("file-ops-*")):
         for source in verb_dir.glob("*.py"):
             if source.name.startswith("test_"):
                 continue
@@ -549,11 +571,11 @@ def test_the_object_cap_is_the_MINIMUM_of_two_budgets_held_by_two_verbs():
 
     assert memory_budget >= config.FILE_OPS_MAX_OBJECTS, (
         f"a worst-case plan of {config.FILE_OPS_MAX_OBJECTS} objects does not fit the memory "
-        f"locals.tf configures (it holds {memory_budget}) — raise the memory or lower the cap"
+        f"{_PLANE_TF.name} configures (it holds {memory_budget}) — raise the memory or lower the cap"
     )
     assert guard_budget >= config.FILE_OPS_MAX_OBJECTS, (
         f"the guard cannot head {config.FILE_OPS_MAX_OBJECTS} destinations inside its timeout (it "
-        f"manages {guard_budget}) — raise the timeout in locals.tf or lower the cap"
+        f"manages {guard_budget}) — raise the timeout in {_PLANE_TF.name} or lower the cap"
     )
 
 
@@ -640,7 +662,7 @@ _SERIAL_VERBS = (
 
 
 def _serial_verb_seconds() -> int:
-    """Every verb timeout a run spends END TO END, read back from locals.tf rather than restated.
+    """Every verb timeout a run spends END TO END, read back from the verb map rather than restated.
 
     The Map's own batch verb is deliberately absent: its time is inside the copy makespan, which is
     computed from the Map's concurrency, and counting it here would charge it twice. ``release-lock``
@@ -693,7 +715,7 @@ def test_the_JOINT_budget_fits_the_machines_own_ceiling():
         MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
     )
     waking = len(_ALL_CHARGED_VERBS) * _waking_seconds(
-        (_MODULE / "state-machine.asl.json.tftpl").read_text()
+        _ASL.read_text()
     )
     run = copy_seconds + _serial_verb_seconds() + _give_up_seconds() + waking
 
@@ -714,25 +736,25 @@ def test_every_verb_the_TERRAFORM_deploys_is_charged_to_one_budget_or_the_other(
     """The serial sum reads a WRITTEN-OUT list, so a thirteenth verb is invisible to it.
 
     That is the same shape as the plan-holder set and needs the same protection: without this, a
-    verb added to ``locals.tf`` with a 3,000-second timeout would put a worst-case run past the
+    verb added to the verb map with a 3,000-second timeout would put a worst-case run past the
     ceiling while every budget in this module stayed green. The list cannot derive itself — the
     terms are not one per row, since the graph sweeps ``check-destinations`` twice and charges
     ``copy-objects`` through the makespan instead — so what is asserted is that the accounting is
     CLOSED: every deployed row is charged somewhere, and nothing is charged that is not deployed.
     """
     deployed = set(
-        re.findall(r'"([a-z-]+)"\s*=\s*\{\s*handler', (_MODULE / "locals.tf").read_text())
+        re.findall(r'"([a-z-]+)"\s*=\s*\{\s*handler', _PLANE_TF.read_text())
     )
 
     assert deployed == _ALL_CHARGED_VERBS, (
-        f"locals.tf deploys {sorted(deployed - _ALL_CHARGED_VERBS)} that no budget charges, and "
+        f"{_PLANE_TF.name} deploys {sorted(deployed - _ALL_CHARGED_VERBS)} that no budget charges, and "
         f"this module charges {sorted(_ALL_CHARGED_VERBS - deployed)} that it does not deploy — a "
         "verb outside both budgets is time a run can spend the ceiling was never sized for"
     )
 
     # SET equality cannot see the one verb charged twice, and dropping that term is a 600-second
     # gift to the budget that nothing else here would notice. The graph is the authority for it.
-    asl = (_MODULE / "state-machine.asl.json.tftpl").read_text()
+    asl = _ASL.read_text()
     sweeps = asl.count("${check_destinations_function_arn}")
 
     assert sweeps == _SERIAL_VERBS.count("check-destinations") == 2, (
@@ -768,18 +790,15 @@ def test_the_lock_wait_is_a_TERM_of_that_budget_rather_than_an_alternative_to_it
 
 
 def test_the_transfer_maps_rendered_numbers_equal_the_constants_the_batch_verb_is_bounded_by():
-    """Terraform cannot import Python, so the Map's shape lives in locals.tf as literals. Two homes
+    """Terraform cannot import Python, so the Map's shape lives in the definition's literals. Two homes
     for one number is how a batch silently grows past the limit it was sized against."""
     from cpcommon.transfer import config as transfer_config
 
-    locals_tf = (_MODULE / "locals.tf").read_text()
     for name, expected in (
         ("transfer_max_items_per_batch", transfer_config.MAX_ITEMS_PER_BATCH),
         ("transfer_map_max_concurrency", transfer_config.MAP_MAX_CONCURRENCY),
     ):
-        found = re.search(rf"{name}\s*=\s*(\d+)", locals_tf)
-        assert found, f"{name} is not in locals.tf"
-        assert int(found.group(1)) == expected, f"{name} disagrees with cpcommon.transfer.config"
+        assert int(_local(name)) == expected, f"{name} disagrees with cpcommon.transfer.config"
 
     assert _verb_row("copy-objects")[0] == transfer_config.COPY_TIMEOUT_SECONDS, (
         "the batch verb's timeout is what its own batch-size bound is computed against"
@@ -1181,7 +1200,7 @@ def test_the_machines_ceiling_is_the_number_terraform_renders():
     """The one term of the joint budget that was NOT read back, and every ceiling assertion in this
     module rests on it.
 
-    The budget above reads eleven verb timeouts out of ``locals.tf`` and then measures their sum
+    The budget above reads eleven verb timeouts out of the verb map and then measures their sum
     against a PYTHON copy of the ceiling. A ceiling lowered in Terraform alone would leave the whole
     chain — the joint budget, the give-up bound, the per-object cap — certifying a ceiling the
     machine does not have, and every one of them would stay green. The stale threshold is the one
@@ -1190,8 +1209,8 @@ def test_the_machines_ceiling_is_the_number_terraform_renders():
     A grep for the local finds a neighbouring guard and that is the trap: ``test_file_ops_browser_mirrors``
     reads this same number and holds it against the BROWSER's constant, never against this one.
     """
-    assert int(_local("state_machine_timeout_seconds")) == config.MACHINE_TIMEOUT_SECONDS, (
-        f"locals.tf renders a {_local('state_machine_timeout_seconds')}s ceiling against Python's "
+    assert _ceiling_seconds() == config.MACHINE_TIMEOUT_SECONDS, (
+        f"{_PLANE_TF.name} renders a {_ceiling_seconds()}s ceiling against Python's "
         f"{config.MACHINE_TIMEOUT_SECONDS}s — every budget in this module is measured against the "
         "Python number, so all of them are now certifying a ceiling that is not deployed"
     )
@@ -1205,7 +1224,7 @@ def test_the_lock_wait_is_the_number_terraform_renders():
     reads the interval from Python and the ceiling from Python and would notice neither.
     """
     assert int(_local("lock_wait_seconds")) == config.LOCK_WAIT_SECONDS, (
-        f"locals.tf waits {_local('lock_wait_seconds')}s between attempts and Python computes the "
+        f"{_PLANE_TF.name} waits {_local('lock_wait_seconds')}s between attempts and Python computes the "
         f"give-up bound from {config.LOCK_WAIT_SECONDS}s"
     )
 
