@@ -28,8 +28,11 @@ on:
       - '.github/workflows/deploy-lambdas.yml'
       - '.github/lambda-probes.json'
       # The fleet's membership is Terraform's now, so a plane gaining a verb has to deploy —
-      # and it touches neither `lambdas/**` nor this file.
+      # and it touches neither `lambdas/**` nor this file. A plane's verbs are written in its
+      # root file, so that is watched as well as the modules.
       - 'infra/modules/**'
+      - 'infra/plane-*.tf'
+      - 'infra/planes/**'
       - 'lambdas/fleet.py'
       - '.github/scripts/deploy-fleet.sh'
       - '.github/scripts/point-lambda.sh'
@@ -167,7 +170,7 @@ jobs:
           # Belt and braces over the refusal above: a derivation that somehow returned nothing
           # would deploy nothing and report success, and "did not run" is never "clean".
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the fleet could not be derived from infra/modules."
+            echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the fleet could not be derived from infra/."
             exit 1
           fi
 
