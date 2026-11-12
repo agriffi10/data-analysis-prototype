@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-252
 title: "The Control Planes Are One Module, Composed From the Root"
 description: "Replaces the eight copy-built control-plane modules with one control-plane building block that the root calls eight times, so the next reader maintains one machine instead of eight, with a CI plan proving nothing deployed changed."
-spec_status: Draft
+spec_status: Completed
 depends_on: [SPEC-213]
 arc: infra-building-blocks
 arc_order: 1
