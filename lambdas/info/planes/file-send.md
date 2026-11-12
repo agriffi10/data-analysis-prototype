@@ -12,7 +12,7 @@ the feature by the DLQ, report a dead-lettered send as a share.
 
 ## The machine
 
-`infra/modules/file-send/state-machine.asl.json.tftpl`
+`infra/planes/file-send/state-machine.asl.json.tftpl`
 
 `ValidateAuthorize → Validated → InspectSource → GuardRecipients (Map) → BuildTransferManifest →
 HasTransferItems → TransferObjects (Map) → CollectTransferResults → ShapeSummary → NotifyOutcomes`

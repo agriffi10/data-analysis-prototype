@@ -1,6 +1,6 @@
 # `table-builder` — the create-and-refresh-a-table control plane
 
-The standard control-plane shape — see [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md)
+The standard control-plane shape — see [`../../modules/control-plane/README.md`](../../modules/control-plane/README.md)
 for the files, roles and traps every plane shares. What follows is what is distinct here.
 
 **Two branches over one shared spine**, routed by mode: create, and refresh-in-place.
@@ -71,14 +71,15 @@ budget**, so raising a verb's timeout fails there rather than in production.
 
 ## The verb map, and what a new entry does and does not touch
 
-`locals.table_builder_functions` is keyed by the function **suffix**, which is simultaneously the
-`lambdas/table-builder-<suffix>/` directory and the `deploy-lambdas.yml` matrix name.
+`local.table_builder_functions` in `infra/plane-table-builder.tf` is keyed by the function
+**suffix**, which is simultaneously the `lambdas/table-builder-<suffix>/` directory and the
+`deploy-lambdas.yml` matrix name.
 
 Adding an entry:
 
-- **`lambda.tf` needs no edit** — it is entirely `for_each` over this map, so the function, its log
-  group all follow — the log group from the container module the call goes through.
-- **`stepfunction.tf` does need one** — its `templatefile()` call passes an explicit per-function map.
+- **Nothing else in the plane needs an edit** — the control-plane module deploys every entry, with
+  its log group from the container module the call goes through, and the definition reads it as
+  `<verb>_function_arn`.
 - **The deploy role needs none** — `modules/base`'s grant scopes to `{project}-*-table-builder-*`,
   which already covers a new function and its log group.
 

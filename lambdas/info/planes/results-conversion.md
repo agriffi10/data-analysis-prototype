@@ -16,7 +16,7 @@ starts every query with. An unknown id and an execution written elsewhere refuse
 
 ## The machine
 
-`infra/modules/results-conversion/state-machine.asl.json.tftpl`
+`infra/planes/results-conversion/state-machine.asl.json.tftpl`
 
 `ValidateAuthorize → Validated → DescribeResults → Described → Convert → Converted →
 ConversionOutcome → Notify → Succeeded`

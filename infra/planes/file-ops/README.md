@@ -1,6 +1,6 @@
 # `file-ops` — the move/copy/delete control plane
 
-The standard control-plane shape — see [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md)
+The standard control-plane shape — see [`../../modules/control-plane/README.md`](../../modules/control-plane/README.md)
 for the files, roles and traps every plane shares. What follows is what is distinct here.
 
 Twelve verbs: the front door, the lock's two halves, the notification of last resort, the two that
@@ -124,7 +124,7 @@ reach its user as a file send.
 ## Five verbs hold the parsed plan, and their memory rows are inputs to a cap
 
 `FILE_OPS_MAX_OBJECTS` is the **minimum** over every plan-holding verb's memory, and
-**`test_config_focommon` reads these numbers back out of `locals.tf`**. Adding a sixth plan-holder
+**`test_config_focommon` reads these numbers back out of `infra/plane-file-ops.tf`**. Adding a sixth plan-holder
 without adding it to that set **would have the cap certify memory it never checked**.
 
 The five are `inspect-source`, `check-destinations`, `build-transfer-manifest`,

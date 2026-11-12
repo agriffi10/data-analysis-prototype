@@ -1,7 +1,9 @@
 ---
 paths:
   - "lambdas/archive-*/**"
-  - "infra/modules/archive/**"
+  - "infra/modules/archive-vault/**"
+  - "infra/planes/archive/**"
+  - "infra/plane-archive.tf"
   - "apps/portal/src/features/archive/**"
 ---
 Files matching these paths are governed by the **Archive and restore — the only place a mistake is unrecoverable** decisions in `docs/decisions/archive-and-restore/`.

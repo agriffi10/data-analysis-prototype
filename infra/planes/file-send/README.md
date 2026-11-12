@@ -1,6 +1,6 @@
 # `file-send` — the send-files-to-someone control plane
 
-The standard control-plane shape — see [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md)
+The standard control-plane shape — see [`../../modules/control-plane/README.md`](../../modules/control-plane/README.md)
 for the files, roles and traps every plane shares. What follows is what is distinct here.
 
 `validate-authorize → inspect-source → GuardRecipients (Map) → build-transfer-manifest →
@@ -107,7 +107,7 @@ contract this section describes is live for everything except the layer that pro
 name-scoped wildcard grant fails at the API call, not at the plan.
 
 **There is no `execution_role_arn` local here**, deliberately. Root constructs its own twin for the
-user-space bucket-policy allowlist, and a second construction of the same string in this module would
+user-space bucket-policy allowlist, and a second construction of the same string in the plane's own file would
 be one more place for it to drift from the role that actually exists — **with the failure appearing
 as a runtime `AccessDenied`, not a plan error**.
 

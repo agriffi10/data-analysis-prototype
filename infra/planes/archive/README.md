@@ -1,6 +1,6 @@
 # `archive` — the vault, and the only plane that deletes user data
 
-The standard control-plane shape — see [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md)
+The standard control-plane shape — see [`../../modules/control-plane/README.md`](../../modules/control-plane/README.md)
 for the files, roles and traps every plane shares. What follows is what is distinct here, and this
 module is distinct in the way that matters most: **archiving is the only operation in this repo that
 deletes a user's data as a side effect of a copy**, and a restore spends **billed, uncancellable

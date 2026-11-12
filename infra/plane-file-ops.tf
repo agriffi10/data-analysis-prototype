@@ -11,14 +11,14 @@
 #
 # content_based_deduplication is OFF. Its OWN queue and its OWN DLQ, registered with the drain
 # sweep, which names the feature by the DLQ — a dead-lettered file operation must never be
-# reported as a file send. README.md.
+# reported as a file send. planes/file-ops/README.md.
 #
 # Standard, which Express doubly cannot be: a Pipe cannot use REQUEST_RESPONSE against a
 # Standard machine, and this plane's outcome is a notification rather than a response.
 #
 # THE TOP-LEVEL TimeoutSeconds SHIPS FROM THE FIRST VERSION, unlike the planes whose ceiling
 # arrived with their transfer — this machine can wedge before it does any data work at all,
-# because the waiting loop is in it from day one. The arithmetic is in locals.tf. README.md.
+# because the waiting loop is in it from day one. The arithmetic sits beside the ceiling below. planes/file-ops/README.md.
 
 locals {
   # The twelve verb Lambdas, keyed by the function SUFFIX, which is also the
@@ -35,7 +35,7 @@ locals {
   # copy-objects' is charged through the copy MAKESPAN rather than beside it — adding it there
   # too would bill the same seconds twice. ⚠ ADDING A THIRTEENTH VERB fails that test until the
   # row is charged to one budget or the other, because the ceiling's terms are not one per row
-  # and so cannot derive themselves. README.md.
+  # and so cannot derive themselves. planes/file-ops/README.md.
   #
   # Module names are plane-qualified so two planes' identically-named verbs cannot collide on
   # sys.modules under one `pytest lambdas/` process.
@@ -55,7 +55,7 @@ locals {
     "release-lock" = { handler = "file_ops_release_lock.handler", timeout = 15, memory = 256 }
     # THE MEMORY AND THE TIMEOUT ARE BOTH INPUTS TO A CAP: FILE_OPS_MAX_OBJECTS is the MINIMUM
     # of the plan this memory holds and the sweep the guard can do, and a test READS BOTH
-    # NUMBERS BACK. Lowering either without lowering the cap fails the build. README.md.
+    # NUMBERS BACK. Lowering either without lowering the cap fails the build. planes/file-ops/README.md.
     "inspect-source" = { handler = "file_ops_inspect_source.handler", timeout = 600, memory = 1024 }
     # Same memory as the expansion, because it loads the same plan back. The two rows move
     # together.
@@ -132,6 +132,19 @@ module "file_ops" {
     lock_wait_seconds = 30
   }
 
+  # A TOP-LEVEL ASL field, not a resource argument. IT SHIPS FROM THE FIRST VERSION because
+  # the waiting loop is in this machine from day one — a request whose lock is held by
+  # something that never finishes would otherwise Wait/re-acquire for a YEAR.
+  #
+  # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
+  #
+  # test_config_focommon computes the JOINT budget against focommon.config's mirror of THIS
+  # number, and holds the two equal in a second test — so the budget does fit what is deployed
+  # here, but by two assertions rather than one, and deleting either breaks the chain. It also
+  # reads this number directly for the stale-lock threshold. THE CAP MOVED, NOT
+  # THE CEILING: raising the ceiling would raise STALE_LOCK_SECONDS with it (that threshold
+  # must exceed the ceiling or a running execution's lock gets stolen), and a longer stale
+  # window on a SHARED space blocks everyone else. So the byte cap came down. planes/file-ops/README.md.
   ceiling = {
     seconds          = 10800
     notifier_verb    = "notify-failure"

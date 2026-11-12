@@ -10,7 +10,7 @@ the plane refuses it inside that execution. In the first two cases no verb runs 
 starts, so nothing in the arc's own failure machinery fires; the request simply disappears and
 the person who made it is left watching for a result that will never come. The third is where
 this drain's message can be wrong, because that request may already have run, and even
-succeeded — ``infra/info/control-plane-shape.md`` has what was measured and what was not.
+succeeded — ``infra/modules/control-plane/README.md`` has what was measured and what was not.
 
 This one function sits on every request DLQ in ``SOURCES`` and turns each dead-lettered message
 into one sentence in the actor's inbox: your request couldn't be started, nothing was created or

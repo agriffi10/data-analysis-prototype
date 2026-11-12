@@ -10,7 +10,7 @@
 # once. The commit gate is what keeps overlapping archives of DIFFERENT ids safe. Two restores of
 # one archive still both run, and still both report — what is no longer at risk is the user's
 # data: every restore manifest line is a conditional write, so a copy-back never lands on a file
-# that was not there when it started. README.md says what each overlap does.
+# that was not there when it started. planes/archive/README.md says what each overlap does.
 #
 # content_based_deduplication is OFF; the explicit MessageDeduplicationId IS the archive's
 # permanent identity, so a resend cannot open a second archive under a second uuid. Past the
@@ -19,7 +19,7 @@
 # the second run refuses before it can reach the first run's archive. That claim, not this queue,
 # is what closed this plane's one unrecoverable case.
 #
-# Its OWN queue and its OWN DLQ, registered with the drain sweep. README.md.
+# Its OWN queue and its OWN DLQ, registered with the drain sweep. planes/archive/README.md.
 #
 # Standard, TWO ARMS off one mode Choice, sharing a machine because a restore is meaningless
 # without the archive that produced it.
@@ -31,7 +31,7 @@
 # THE TOP-LEVEL TimeoutSeconds ARRIVED WITH THE THING THAT MADE IT NECESSARY, and with it the
 # EventBridge rule, notify-failure's second door and its raise to 60s — a timeout that cannot
 # notify is a failure path satisfied on paper and silent in practice. The deploy-role `events:`
-# grant shipped ONE PR AHEAD; the merge apply went red for exactly that ordering. README.md.
+# grant shipped ONE PR AHEAD; the merge apply went red for exactly that ordering. planes/archive/README.md.
 
 locals {
   # The sixteen verb Lambdas, keyed by the function SUFFIX, which is also the
@@ -43,7 +43,7 @@ locals {
   # serves BOTH modes, because the mode Choice sits downstream of it.
   #
   # Module names are plane-qualified so two planes' identically-named verbs cannot collide on
-  # sys.modules under one `pytest lambdas/` process. README.md.
+  # sys.modules under one `pytest lambdas/` process. planes/archive/README.md.
   archive_functions = {
     # One registry read at most — network-bound and small.
     "validate-authorize" = { handler = "archive_validate_authorize.handler", timeout = 15, memory = 256 }
@@ -51,7 +51,7 @@ locals {
     # test_the_worst_case_archive_copy_plan_fits_in_the_verbs_memory READS THIS NUMBER and sizes
     # the worst-case plan against it, so LOWERING it fails the build. It does not bound a raise of
     # ARCHIVE_MAX_OBJECTS — the plan sits 5x inside this figure — and what refuses one is the
-    # restore arm's timeout guards, from about 24,000 objects up. README.md.
+    # restore arm's timeout guards, from about 24,000 objects up. planes/archive/README.md.
     "inspect-source" = { handler = "archive_inspect_source.handler", timeout = 120, memory = 1024 }
     # The two verbs either side of the Map, handling the same volume in opposite directions.
     # Memory is the CPU dial as much as the headroom, and BOTH ROWS ARE READ BACK by
@@ -79,7 +79,7 @@ locals {
     # pool CANNOT simply be widened to go faster: boto3 takes botocore's default
     # max_pool_connections of 10, so 8 workers is the ceiling that holds and the TIME is what
     # has to be bought. test_the_guard_can_head_every_destination_inside_its_timeout READS THIS
-    # NUMBER, so lowering it — or raising the object cap — fails the build. README.md.
+    # NUMBER, so lowering it — or raising the object cap — fails the build. planes/archive/README.md.
     "inspect-archive"         = { handler = "archive_inspect_archive.handler", timeout = 120, memory = 1024 }
     "check-destination-clear" = { handler = "archive_check_destination_clear.handler", timeout = 600, memory = 1024 }
     # build-transfer-manifest's twin, sized by the same quantity and computed by the same test.
@@ -103,7 +103,7 @@ locals {
     "notify" = { handler = "archive_notify.handler", timeout = 30, memory = 256 }
     # 60s, not 15s, because the EventBridge TIMED_OUT door does strictly more work than the
     # ASL one: a DescribeExecution read-back plus a cold-start JWKS fetch and a JWT verify
-    # before the send. README.md.
+    # before the send. planes/archive/README.md.
     "notify-failure" = { handler = "ar_notify_failure.handler", timeout = 60, memory = 256 }
   }
 }
@@ -129,7 +129,8 @@ module "archive" {
     ARCHIVE_BUCKET      = local.archive_bucket_name
     # Optional in cpcommon.config — unset means emits are logged no-ops.
     NOTIFICATIONS_QUEUE_URL = local.notifications_queue_url
-    # Deliberately NOT mirrored by a config._require — see variables.tf.
+    # Deliberately NOT mirrored by a config._require: a verb that loses it must log to stdout and
+    # keep working, never crash the plane at cold start.
     LOGS_QUEUE_URL = module.observability.logs_queue_url
     # Same source of truth as the feature-flag document's `environments` keys.
     ENV_NAME = var.environment
@@ -155,6 +156,19 @@ module "archive" {
     restore_poll_seconds = 300
   }
 
+  # A TOP-LEVEL ASL field, not a resource argument. Without it a Standard workflow's ceiling
+  # is ONE YEAR. IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule
+  # does.
+  #
+  # ⚠ 43,200 RATHER THAN 10,800, AND THE REASON IS THE STORAGE CLASS RATHER THAN THE DATA. The
+  # archive arm's long pole is a copy (~8,100s); THE RESTORE ARM'S IS A WAIT — a GLACIER object
+  # is not readable and Standard retrieval takes 3-5 hours, so the old ceiling would have
+  # killed a HEALTHY restore before S3 had finished with it. The retrieval budget is
+  # deliberately 7 hours, above the tier's own 5, because giving up early makes the user pay
+  # for a SECOND billed retrieval.
+  #
+  # IT IS ONE FIELD ON ONE MACHINE, so the archive arm's backstop rises with it — TimeoutSeconds
+  # is top-level ASL and CANNOT differ per branch. Two tests compute every term. planes/archive/README.md.
   ceiling = {
     seconds          = 43200
     notifier_verb    = "notify-failure"

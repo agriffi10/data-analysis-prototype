@@ -2,8 +2,9 @@
 # carries. Its definition, execution policy and reasoning are in planes/results-conversion/.
 #
 # MessageGroupId is the actor's USERNAME, so one user's conversions are STARTED in order while
-# different users start independently. The runs still overlap; pipe.tf says why that is harmless
-# here. MessageDeduplicationId is the request id, so a browser
+# different users start independently. The runs still overlap, and that is harmless
+# here: the only write the plane ever makes is one object, made conditional at the write itself.
+# At-least-once delivery gives no re-run; recovery is the DLQ drain. MessageDeduplicationId is the request id, so a browser
 # retry of one submit is one execution — content_based_deduplication is OFF on both queues.
 #
 # Its OWN queue and its OWN DLQ, registered with the drain sweep, which names the feature by
@@ -14,7 +15,7 @@
 #
 # THE TOP-LEVEL TimeoutSeconds SHIPS FROM THE FIRST VERSION with its TIMED_OUT rule below —
 # catchers do not cover top-level execution failures, so a ceiling without the rule is a
-# silent failure mode rather than a bounded one. The arithmetic is in locals.tf.
+# silent failure mode rather than a bounded one. The arithmetic sits beside the ceiling below.
 
 locals {
   # The verb Lambdas, keyed by the function SUFFIX, which is also the
@@ -89,6 +90,16 @@ module "results_conversion" {
 
   definition_template = "${path.root}/planes/results-conversion/state-machine.asl.json.tftpl"
 
+  # A TOP-LEVEL ASL field. What it must clear is the sum of every Task's timeout times its
+  # attempts along the longest path, plus the backoff between attempts, which a test computes
+  # from the rows above and the template's own Retry blocks. Convert dominates it and retries
+  # ONCE on TransientError alone rather than four times on the four Lambda service errors, for
+  # a reason that is about correctness rather than arithmetic: a retry of an invocation that
+  # already completed its conditional PutObject meets its own object and reports the user's
+  # success as a name conflict. Like every Task it also waits out a function waking from
+  # Inactive, which the test charges as backoff alone, since a rejected invoke never ran.
+  #
+  # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
   ceiling = {
     seconds          = 3600
     notifier_verb    = "notify-failure"

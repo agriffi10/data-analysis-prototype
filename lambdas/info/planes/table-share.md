@@ -6,7 +6,7 @@ and a table is created over them in the recipient's own Glue database.
 
 ## The machine
 
-`infra/modules/table-share/state-machine.asl.json.tftpl`
+`infra/planes/table-share/state-machine.asl.json.tftpl`
 
 `ValidateAuthorize → StampExecution → InspectSource → GuardRecipients (Map) → BuildTransferManifest →
 TransferObjects (Map) → CollectTransferResults → FinishRecipients (Map) → ShapeSummary`

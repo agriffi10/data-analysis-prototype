@@ -104,5 +104,5 @@ implicitly on first invoke, and the implicit one is created at **infinite** rete
 ## Related
 
 - [`../lambda-image/README.md`](../lambda-image/README.md) — the registry this module's functions pull from
-- [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md) — the Terraform shape every plane shares
+- [`../control-plane/README.md`](../control-plane/README.md) — the Terraform shape every plane shares
 - [`../../../lambdas/info/deployment.md`](../../../lambdas/info/deployment.md) — the code/infra split and its deploy-time traps

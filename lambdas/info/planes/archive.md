@@ -88,7 +88,7 @@ read. `fscommon.paths` re-exports the three names.
 
 ## The machine
 
-`infra/modules/archive/state-machine.asl.json.tftpl` — the largest in the repo, because the restore
+`infra/planes/archive/state-machine.asl.json.tftpl` — the largest in the repo, because the restore
 branch is a wait loop with two guards.
 
 **Archive:** `ValidateAuthorize → ChooseMode → InspectSource → BuildTransferManifest →

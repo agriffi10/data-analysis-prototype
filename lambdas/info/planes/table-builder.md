@@ -10,7 +10,7 @@ Table creation is **TBAC**: the Lake Formation admin does *not* grant `CREATE_TA
 
 ## The machine
 
-`infra/modules/table-builder/state-machine.asl.json.tftpl`
+`infra/planes/table-builder/state-machine.asl.json.tftpl`
 
 **Create:** `ValidateAuthorize → RouteByMode → CheckTableAbsent → InspectSource → InferSchema →
 RouteTailByMode → ExecuteDdl → ReleaseRefreshLock`
@@ -205,7 +205,7 @@ Stated rather than implied, because SPEC-144 FR-006 AC1 claimed a serialization 
 that did not exist.
 
 The Pipe still invokes `StartExecution` as `FIRE_AND_FORGET`
-(`infra/modules/table-builder/pipe.tf`), so two refreshes on one database still overlap, and
+(`infra/modules/control-plane/main.tf`), so two refreshes on one database still overlap, and
 **Glue offers no compare-and-set to close it**: `UpdateTable`'s `VersionId` is documented only
 as "the version ID at which to update the table contents", alongside `TransactionId` and
 `ViewUpdateAction`, with no precondition-failure error.

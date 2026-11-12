@@ -5,18 +5,18 @@
 # order and creates in different ones start independently.
 # ⚠ NOT SERIALIZED: the Pipe starts the machine FIRE_AND_FORGET, so the runs overlap. A refresh
 # holds a per-table lock; a create holds none, so check-table-absent plus CREATE … IF NOT EXISTS
-# narrows the duplicate-name race and does not close it. README.md.
+# narrows the duplicate-name race and does not close it. planes/table-builder/README.md.
 #
 # Standard, TWO branches over one shared spine. Each Task retries only transient Lambda
 # SERVICE errors; a shared Catch routes any failure to the terminal Fail state.
-# Standard over Express keeps per-execution history. README.md.
+# Standard over Express keeps per-execution history. planes/table-builder/README.md.
 
 locals {
   # The verb Lambdas, in pipeline order. Keyed by the function SUFFIX, which is also the
   # lambdas/table-builder-<suffix>/ directory and the deploy-lambdas.yml matrix name.
   #
-  # A NEW ENTRY needs no edit to lambda.tf (for_each) and none to the deploy role, but DOES
-  # need a key added in stepfunction.tf, whose templatefile() map is explicit. README.md.
+  # A NEW ENTRY needs no other edit: the module deploys it, and the definition reads it as
+  # <verb>_function_arn. planes/table-builder/README.md.
   table_builder_functions = {
     "validate-authorize"    = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
     "check-table-absent"    = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
@@ -55,7 +55,8 @@ module "table_builder" {
     SHARED_SPACE_BUCKET     = local.shared_space_bucket_name
     ADMIN_BUCKET            = local.athena_admin_bucket_name
     NOTIFICATIONS_QUEUE_URL = local.notifications_queue_url
-    # Deliberately NOT mirrored by a config._require — see variables.tf.
+    # Deliberately NOT mirrored by a config._require: a verb that loses it must log to stdout and
+    # keep working, never crash the plane at cold start.
     LOGS_QUEUE_URL = module.observability.logs_queue_url
     # Same source of truth as the feature-flag document's `environments` keys.
     ENV_NAME         = var.environment
@@ -68,6 +69,8 @@ module "table_builder" {
 
   definition_template = "${path.root}/planes/table-builder/state-machine.asl.json.tftpl"
 
+  # A TOP-LEVEL ASL field. It is a PREREQUISITE of the refresh lock rather than tidy-up, and
+  # test_table_lock_timeout.py recomputes it. planes/table-builder/README.md.
   ceiling = {
     seconds          = 3600
     notifier_verb    = "notify-failure"

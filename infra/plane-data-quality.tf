@@ -6,13 +6,13 @@
 # get away with raw ids only because they group by a bounded catalog identifier.
 #
 # content_based_deduplication is OFF, and turning it on would be ACTIVELY WRONG: a re-check of
-# the same location with the same body is a legitimate re-run the user asked for. README.md.
+# the same location with the same body is a legitimate re-run the user asked for. planes/data-quality/README.md.
 #
 # A linear pipeline AROUND AN ATHENA QUERY.
 #
 # STANDARD (not Express) IS MANDATORY, not a preference: a Standard execution runs for up to a
 # year, which is what lets the query poll live in the state machine rather than inside a 900 s
-# Lambda. README.md.
+# Lambda. planes/data-quality/README.md.
 
 locals {
   # The nine verb Lambdas, keyed by the function SUFFIX, which is also the
@@ -31,7 +31,7 @@ locals {
   # and the tests assert against the wrong module — and the image gives the whole fleet ONE
   # task root, where a repeated module name does not collide but silently wins. The `handler`
   # string here is the image's command, so this map and the source file MUST move together.
-  # README.md.
+  # planes/data-quality/README.md.
   data_quality_functions = {
     "validate-authorize"  = { handler = "dq_validate_authorize.handler", timeout = 15, memory = 256 }
     "inspect-source"      = { handler = "dq_inspect_source.handler", timeout = 120, memory = 1024 }

@@ -7,11 +7,11 @@
 #
 # DUPLICATE-NAME SAFETY DOES NOT DEPEND ON THE QUEUE — content dedup only collapses
 # byte-identical bodies inside a 5-minute window, and the group orders only the starts. THE
-# REGISTRY'S CONDITIONAL PUT (If-None-Match) IS THE WHOLE GUARD. README.md.
+# REGISTRY'S CONDITIONAL PUT (If-None-Match) IS THE WHOLE GUARD. planes/shared-spaces/README.md.
 #
 # Standard, routing by action: Validate → Choice(action) → exactly one verb. A Choice-routed
 # fan-out rather than a pipeline. It runs under the shared ORCHESTRATOR role, which is also the
-# exec role for every Lambda it invokes. README.md.
+# exec role for every Lambda it invokes. planes/shared-spaces/README.md.
 
 locals {
   # A verb touches one space, and 60s is generous for that. The one-shot backfill walks EVERY

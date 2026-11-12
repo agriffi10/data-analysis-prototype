@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)"
-description: "**The lock protocol lives once, in `cpcommon`**, extracted ahead of its second consumer rather than copied. **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject` denied, \"free\" is a state rather than an absence. The holder is the **execution ARN**, because a request id is whatever the caller sent, so two executions can carry the same one. A redelivered message should not be one of them: reusing an execution name was measured (`../infra/info/control-plane-shape.md`) to return the original run while it is going and `ExecutionAlreadyExists` once it has closed. That a redelivery reuses its name is inferred from the Pipe's v5 UUIDs, not proven, so no lock relies on it."
+description: "**The lock protocol lives once, in `cpcommon`**, extracted ahead of its second consumer rather than copied. **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject` denied, \"free\" is a state rather than an absence. The holder is the **execution ARN**, because a request id is whatever the caller sent, so two executions can carry the same one. A redelivered message should not be one of them: reusing an execution name was measured (`../infra/modules/control-plane/README.md`) to return the original run while it is going and `ExecutionAlreadyExists` once it has closed. That a redelivery reuses its name is inferred from the Pipe's v5 UUIDs, not proven, so no lock relies on it."
 ---
 
 SPEC-187 needs a per-space lock, which made the file-operations plane the second consumer of a

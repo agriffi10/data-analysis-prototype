@@ -37,7 +37,7 @@ than writing a second.
 > either side of it — the fleet guard's assertion that the required set is still exactly the four,
 > and `user-directory-build`'s mirror of that set against its own block. Verified by adding the
 > variable and watching exactly those two fail. The read itself is genuinely seen rather than
-> merely absent: delete `ARCHIVE_BUCKET` from `infra/modules/archive/lambda.tf` in the same breath
+> merely absent: delete `ARCHIVE_BUCKET` from `infra/plane-archive.tf` in the same breath
 > and seventeen of archive's eighteen verbs redden with it — all but `copy-objects`, the one whose
 > closure never reaches `archive_bucket()`.
 

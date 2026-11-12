@@ -1,13 +1,13 @@
 # `results-conversion` — the save-a-query's-results-as control plane
 
 Takes a **finished Athena execution** and writes its result set into a space the actor may write
-to, as Parquet, JSON, Excel or CSV. This module is the whole plane: the queue, the pipe, the machine,
-the execution role and five verbs. Users reach it through the **Format** choice in the Query tab's
+to, as Parquet, JSON, Excel or CSV. Its root call, `infra/plane-results-conversion.tf`, is the whole plane: the queue, the pipe, the
+machine, the execution role and five verbs, through the control-plane module. Users reach it through the **Format** choice in the Query tab's
 save-results dialog and the Data Explorer's export dialog (SPEC-223), gated on the
 `resultsConversion` flag; the route itself is unflagged.
 
-The shape this module shares with the other seven is in
-[`../../info/control-plane-shape.md`](../../info/control-plane-shape.md); the orchestration and the
+The shape this plane shares with the other seven is in
+[`../../modules/control-plane/README.md`](../../modules/control-plane/README.md); the orchestration and the
 domain layer are in [`lambdas/info/planes/results-conversion.md`](../../../lambdas/info/planes/results-conversion.md).
 
 ## The input is the RESULT object, never the source table
@@ -47,7 +47,7 @@ destination IAM then refuses at the write, turning a named refusal into an `Acce
 
 One user's conversions are started in order while different users start independently; the runs
 themselves overlap, since the Pipe is `FIRE_AND_FORGET`, and the conditional write is what makes that
-harmless (`pipe.tf`). Raw rather
+harmless (`infra/plane-results-conversion.tf` says why). Raw rather
 than hashed, which is safe here and not on the space-keyed planes: a username is bounded at 63
 characters by the catalog identifier rule, well inside SQS's 128, where an S3 key reaches 1024.
 `MessageDeduplicationId` is the request id, so a browser retry of one submit is one execution.

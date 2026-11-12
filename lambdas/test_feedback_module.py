@@ -239,7 +239,9 @@ def _declared_dlq_segments() -> set[str]:
     """The domain segment of every request DLQ the infrastructure declares.
 
     Derived from the name each module CONSTRUCTS, which is the only thing about a queue that is
-    stable across project and environment — the same fact ``dlq_drain._source_for`` matches on.
+    stable across project and environment — the same fact ``dlq_drain._source_for`` matches on. A
+    control plane's DLQ is built by the control-plane module from its root call's ``name``, so
+    those segments are read from the calls, against the module's own naming rule.
 
     Args:
       None.
@@ -251,6 +253,17 @@ def _declared_dlq_segments() -> set[str]:
       None.
     """
     segments = set()
+    module = (INFRA / "modules" / "control-plane" / "locals.tf").read_text(encoding="utf-8")
+    assert 'dlq_name            = "${local.prefix}-requests-dlq.fifo"' in module, (
+        "the control-plane module no longer names its DLQ <prefix>-requests-dlq.fifo, so the "
+        "planes' segments below are read from a rule that is no longer the module's"
+    )
+    for plane in INFRA.glob("plane-*.tf"):
+        text = plane.read_text(encoding="utf-8")
+        if 'source = "./modules/control-plane"' in text:
+            found = re.search(r'^\s*name\s*=\s*"([a-z-]+)"', text, re.MULTILINE)
+            assert found, f"{plane.name} calls the control-plane module with no literal name"
+            segments.add(found.group(1))
     for locals_tf in INFRA.glob("modules/*/locals.tf"):
         found = re.search(
             r'dlq_name\s+=\s+"\$\{var\.project_name\}-\$\{var\.environment\}-(.+?)-requests-dlq\.fifo"',
@@ -279,6 +292,10 @@ def test_every_request_dlq_is_either_drained_or_deliberately_not() -> None:
         path.parent.name
         for path in INFRA.glob("modules/*/sqs.tf")
         if "requests_dlq" in path.read_text(encoding="utf-8")
+    } | {
+        path.stem.removeprefix("plane-")
+        for path in INFRA.glob("plane-*.tf")
+        if 'source = "./modules/control-plane"' in path.read_text(encoding="utf-8")
     }
     missing = {o.rstrip("s") for o in owners} - {d.replace("-", "-").rstrip("s") for d in declared}
     assert not missing, (

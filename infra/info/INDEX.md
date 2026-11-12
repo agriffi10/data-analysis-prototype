@@ -4,18 +4,25 @@ Every module under `infra/modules/`, and what it owns. This is a **lookup**: fin
 the one module. Each module's own `README.md` carries the reasoning its `.tf` files used to hold
 inline — what applies green when it is wrong, and what must not be "tidied".
 
-The eight control planes share one machine; that shape is written once in
-[`control-plane-shape.md`](control-plane-shape.md), so each of their READMEs carries only what is
-distinct.
+**A module is one architectural concept, and the root composes them.** A concept built once is a
+module the root calls once (`auth`, `api`, `data`, …). A concept built more than once is a
+**building block** the root calls once per instance, passing every dependency in: the eight control
+planes are eight calls to [`control-plane`](../modules/control-plane/README.md), each in its own
+root file with its plane-specific configuration beside it. The rule and its reasoning are the IaC
+decision in `docs/decisions/infrastructure/`.
 
 ## Layout
 
 | Path | Holds |
 |---|---|
-| `infra/main.tf` | the root: every `module` block, and the locals that construct cross-module ARNs |
+| `infra/main.tf` | the root: every module block a single concept needs, and the locals that construct cross-module ARNs |
+| `infra/plane-<slug>.tf` | one control plane: its verbs, environment, queue settings, ceiling and caps, its call to `control-plane`, and any module only it uses |
+| `infra/planes/<slug>/` | that plane's ASL definition, execution policy and README — what is distinct about it |
+| `infra/control-planes.tf` | the constructed ARNs every plane's execution policy may name |
+| `infra/moved.tf` | every address a refactor changed, kept until every state has applied it |
 | `infra/variables.tf` / `outputs.tf` | the stack's inputs and its published values |
 | `infra/certificates.tf` | the ACM certificates and their validation records |
-| `infra/modules/<name>/` | a bounded context — resources, `locals.tf`, `policies/*.tftpl`, and its README |
+| `infra/modules/<name>/` | one concept — resources, `locals.tf`, `policies/*.tftpl`, and its README |
 | `infra/bootstrap/` | the one-time remote-state (S3 + DynamoDB) bootstrap |
 
 **IAM policies are `.tftpl` templates rendered with `templatefile()`** — never inline `jsonencode`.
@@ -51,19 +58,27 @@ serve the portal instead. How to switch it: [`web-tier.md`](web-tier.md).
 
 ## Control planes
 
-Each is a FIFO queue → EventBridge Pipe → Step Function → verb Lambdas, with **its own DLQ**. Shape
-and shared traps: [`control-plane-shape.md`](control-plane-shape.md).
+Each is a FIFO queue → EventBridge Pipe → Step Function → verb Lambdas, with **its own DLQ**, built by
+one call to [`control-plane`](../modules/control-plane/README.md), whose README carries the shape and
+every trap the planes share.
 
-| Module | Plane | README |
+| Plane | Root file | Distinct reasoning |
 |---|---|---|
-| `shared-spaces` | shared spaces, **and the shared-space bucket (Bucket 2)** | [README](../modules/shared-spaces/README.md) |
-| `table-builder` | create a table over a folder, and refresh it in place | [README](../modules/table-builder/README.md) |
-| `table-share` | share a table with other users | [README](../modules/table-share/README.md) |
-| `data-quality` | profile a table around one Athena query | [README](../modules/data-quality/README.md) |
-| `file-send` | send files to another user or space | [README](../modules/file-send/README.md) |
-| `archive` | archive to a GLACIER vault and restore, **and the archive bucket (Bucket 5)** | [README](../modules/archive/README.md) |
-| `file-ops` | move, copy and delete, behind a per-space lock | [README](../modules/file-ops/README.md) |
-| `results-conversion` | a finished execution's result set into a space, as Parquet, JSON, Excel or CSV | [README](../modules/results-conversion/README.md) |
+| shared spaces | `plane-shared-spaces.tf` | [README](../planes/shared-spaces/README.md) |
+| create a table over a folder, and refresh it in place | `plane-table-builder.tf` | [README](../planes/table-builder/README.md) |
+| share a table with other users | `plane-table-share.tf` | [README](../planes/table-share/README.md) |
+| profile a table around one Athena query | `plane-data-quality.tf` | [README](../planes/data-quality/README.md) |
+| send files to another user or space | `plane-file-send.tf` | [README](../planes/file-send/README.md) |
+| archive to a GLACIER vault and restore | `plane-archive.tf` | [README](../planes/archive/README.md) |
+| move, copy and delete, behind a per-space lock | `plane-file-ops.tf` | [README](../planes/file-ops/README.md) |
+| a finished execution's result set into a space, as Parquet, JSON, Excel or CSV | `plane-results-conversion.tf` | [README](../planes/results-conversion/README.md) |
+
+| Building block or plane-owned module | Owns | README |
+|---|---|---|
+| `control-plane` | the machine every plane runs | [README](../modules/control-plane/README.md) |
+| `scheduled-function` | one function on an EventBridge schedule — shared spaces' transfer reader | [README](../modules/scheduled-function/README.md) |
+| `shared-space-storage` | **the shared-space bucket (Bucket 2)**, its Lake Formation registration and the portal role's grant on it | [README](../modules/shared-space-storage/README.md) |
+| `archive-vault` | **the archive bucket (Bucket 5)** and its policy | [README](../modules/archive-vault/README.md) |
 
 ## Standalone
 
@@ -82,9 +97,9 @@ Four, and the constraint is one bucket of **personal prefixes**, not one bucket 
 | Bucket | Module | Notes |
 |---|---|---|
 | user-space | `data` | Bucket 1. Every top-level prefix is a username, with `_directory/` the one exception |
-| shared-space | `shared-spaces` | Bucket 2. **No bucket policy** — which is why an allowlist omission half-works |
+| shared-space | `shared-space-storage` | Bucket 2. **No bucket policy** — which is why an allowlist omission half-works |
 | admin | `analytics` | Athena fallback output, the registry, the control planes' scratch, `logs/` (retained forever) |
-| archive | `archive` | Bucket 5. GLACIER, and the browser has no relationship with it at all |
+| archive | `archive-vault` | Bucket 5. GLACIER, and the browser has no relationship with it at all |
 
 Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket (`verification`).
 

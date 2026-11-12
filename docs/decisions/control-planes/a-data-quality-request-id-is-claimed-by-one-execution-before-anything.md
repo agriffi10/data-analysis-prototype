@@ -49,7 +49,7 @@ shapes, and reaching the ARN there means reshaping it.
 reuse comes from a request built by hand, which has nothing it should be told, and the run it
 collided with is the one that reports. The question put to Andrew also gave a redelivery of one
 click as the realistic trigger, one that would tell a person a running check had failed. That rested
-on redelivery starting a second execution, and [reusing an execution name was measured](../../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+on redelivery starting a second execution, and [reusing an execution name was measured](../../../infra/modules/control-plane/README.md#a-redelivered-message-is-not-a-re-run)
 to return the first run instead — only that a redelivery reuses its name is inferred — so the
 decision stands on the reason above. The code and the predicate that keeps it quiet now live in the
 shared layer, [where file operations and archive read them too](a-reused-request-id-is-told-to-nobody-because-the-run-holding-the-id-is.md). That a notice under a borrowed id

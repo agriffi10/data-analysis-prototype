@@ -1,7 +1,7 @@
 ---
 type: Decision Area
 title: "Analytics, the catalog, and two SQL dialects"
-governs: [lambdas/table-builder-*/**, lambdas/table-share-*/**, lambdas/data-quality-*/**, infra/modules/analytics/**, infra/modules/table-builder/**, infra/modules/table-share/**, apps/portal/src/features/query/**, apps/portal/src/features/catalog/**, apps/portal/src/features/data-explorer/**, apps/portal/src/features/table-builder/**, apps/portal/src/features/table-share/**]
+governs: [lambdas/table-builder-*/**, lambdas/table-share-*/**, lambdas/data-quality-*/**, infra/modules/analytics/**, infra/planes/table-builder/**, infra/plane-table-builder.tf, infra/planes/table-share/**, infra/plane-table-share.tf, apps/portal/src/features/query/**, apps/portal/src/features/catalog/**, apps/portal/src/features/data-explorer/**, apps/portal/src/features/table-builder/**, apps/portal/src/features/table-share/**]
 ---
 
 The register's decisions on the Athena/Glue/Lake Formation workspace, TBAC table creation, the two escaper axes, refresh and the data explorer.

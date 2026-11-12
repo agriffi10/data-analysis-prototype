@@ -237,7 +237,9 @@ proved not to have dropped a function or a test.
 - [ ] Test IDs collected from the runners (pytest's JSON report and Vitest's JSON reporter) on
       `main` and on the branch differ only by file path where a test file moved; no ID is lost.
 - [ ] `git grep` for `infra/modules/` followed by any deleted directory name returns nothing
-      outside a dated History entry or a Completed spec's body.
+      outside the historical record — a dated History entry, a quoted block in a decision, a
+      spec's body, `ARCS.md`, a delivery doc, or `docs/testing/sessions.md` — each of which keeps
+      the path it was written with.
 
 ### FR-005: The register and the docs describe the structure that exists
 
@@ -253,9 +255,11 @@ module's own README, and every page that routes to a plane module routes to its 
       concept; a concept built more than once is a building block the root calls once per
       instance; the root passes every dependency in; plane configuration lives with its call — with
       a History entry for 2026-11-12, and `sh scripts/gen-index.sh` regenerates its fence.
-- [ ] `infra/info/control-plane-shape.md` is gone, its content lives in
-      `infra/modules/control-plane/README.md`, and each plane's README lives in
-      `infra/planes/<slug>/README.md` carrying only what is distinct about it.
+- [ ] `infra/info/control-plane-shape.md`'s content lives in
+      `infra/modules/control-plane/README.md`, and the old path is a one-paragraph pointer kept
+      only because two deployed definitions cite it inside their ASL `Comment` (editing that text
+      would be a definition update on a live machine for a doc link). Each plane's README lives
+      in `infra/planes/<slug>/README.md` carrying only what is distinct about it.
 - [ ] `infra/info/INDEX.md` lists the building blocks and the planes' new homes, and
       `python3 scripts/validate_docs.py` passes.
 

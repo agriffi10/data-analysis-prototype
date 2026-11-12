@@ -241,5 +241,5 @@ procedure to reach for.
 - [`INDEX.md`](INDEX.md) — every function, grouped by control plane
 - [`shared-layer.md`](shared-layer.md) — what `cpcommon` holds and why
 - [`../../infra/modules/docker-lambda/README.md`](../../infra/modules/docker-lambda/README.md) — the module every function is a call to
-- [`../../infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) — the Terraform side of the same machine
+- [`../../infra/modules/control-plane/README.md`](../../infra/modules/control-plane/README.md) — the Terraform side of the same machine
 - [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md) — the rules a handler follows

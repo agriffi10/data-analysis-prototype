@@ -561,7 +561,7 @@ the account's entire Lambda concurrency and a very large S3 request rate behind 
 and the throttles that follows would be attributed to whatever else was running. 20 gives up to 160
 in-flight copies, which is throughput without a self-inflicted `SlowDown`.
 
-**Both numbers exist twice** — here for the verb, and in `infra/modules/table-share/locals.tf` for
+**Both numbers exist twice** — here for the verb, and in `infra/plane-table-share.tf` for
 the rendered ASL, because Terraform cannot import Python. `test_the_maps_sizing_matches_the_constants_the_verb_reads`
 (`lambdas/table-share-common/test_state_machine_table_share.py`) asserts the pair still agree. Two
 homes for one number is how a batch grows past the limit it was sized against while its own test

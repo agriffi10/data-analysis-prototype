@@ -7,7 +7,7 @@ description: "**An ARN in a deploy grant names ONE account.** The account field 
 192 of the 216 ARNs in the deploy role's seventeen policy templates wildcarded the account:
 `arn:aws:glue:${aws_region}:*:catalog`, and 191 others. Of the remaining 24, 21 carry an empty
 account field, which is legal, and 3 already named the id. Sibling modules had pinned the identical
-shapes with `${account_id}` all along (`infra/modules/table-share/locals.tf`,
+shapes with `${account_id}` all along (`infra/plane-table-share.tf`,
 `analytics/policies/portal-role-analytics.json.tftpl`), so this was house style in one tree and
 not the other, and neither reads as deliberate.
 

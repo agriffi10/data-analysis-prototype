@@ -32,7 +32,7 @@ delete would have died before the notifier. Read that rule before adding a `Pass
 
 ## The machine
 
-`infra/modules/file-ops/state-machine.asl.json.tftpl`
+`infra/planes/file-ops/state-machine.asl.json.tftpl`
 
 `ValidateAuthorize → StampExecution → AcquireLock ⇄ WaitForLock → ChooseOperation → InspectSource →
 NeedsDestinationGuard → CheckDestinations → CheckDestinationsAgain → BuildTransferManifest →
@@ -149,7 +149,7 @@ write only its lock and plan prefixes, and it is on the user-space bucket policy
 
 `test_config_focommon` holds almost every file-ops number, and its guards divide by **what they
 open**. Of 31, **seventeen** reach outside the package: **thirteen** read verb rows or scalars out of
-`infra/modules/file-ops/locals.tf` (one of those also reads the state machine's ASL template, to hold
+`infra/plane-file-ops.tf` (one of those also reads the state machine's ASL template, to hold
 the twice-swept destination guard charged twice); one globs the verb directories for
 `plan.load(`/`plan.write(` and holds the derived plan-holder set **equal** to the one the memory
 budget measures; one reads the browser's `fileOps.service.ts`; one reads botocore's real

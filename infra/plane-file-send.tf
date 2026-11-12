@@ -9,7 +9,7 @@
 # not be absorbed by a 5-minute window.
 #
 # ITS OWN QUEUE AND ITS OWN DLQ — the drain sweep it is registered with names the feature by
-# the DLQ, so a dead-lettered send must never be reported as a share. README.md.
+# the DLQ, so a dead-lettered send must never be reported as a share. planes/file-send/README.md.
 #
 # Standard, which Express doubly cannot be here: a Pipe cannot use REQUEST_RESPONSE against a
 # Standard machine, and this plane's outcome is a notification rather than a response.
@@ -17,7 +17,7 @@
 # THE TOP-LEVEL TimeoutSeconds ARRIVED WITH THE THING THAT MADE IT NECESSARY — the transfer
 # added the Map, the manifest and the copy, so it added the timeout AND the EventBridge rule
 # AND the deploy-role events: grant, because a timeout that cannot notify is a failure path
-# satisfied on paper and silent in practice. The arithmetic is in locals.tf. README.md.
+# satisfied on paper and silent in practice. The arithmetic sits beside the ceiling below. planes/file-send/README.md.
 
 locals {
   # The verb Lambdas, keyed by the function SUFFIX, which is also the
@@ -33,11 +33,11 @@ locals {
     # test_the_worst_case_file_send_copy_plan_fits_in_the_verbs_memory READS THIS NUMBER and sizes
     # the plan against it. It refuses neither a modest raise of SEND_MAX_OBJECTS nor a halving of
     # this row — the plan sits about 4x inside — so re-derive the pair rather than expecting the
-    # build to object. README.md.
+    # build to object. planes/file-send/README.md.
     "inspect-source" = { handler = "file_send_inspect_source.handler", timeout = 120, memory = 1024 }
     # ONE delimited listing per recipient, so the cost is bounded by what this SENDER has
     # previously sent to this RECIPIENT, not by the size of the send. A probe per selected item
-    # could not answer the question correctly at all — fscommon/inbox.py. README.md.
+    # could not answer the question correctly at all — fscommon/inbox.py. planes/file-send/README.md.
     "check-target-absent" = { handler = "file_send_check_target_absent.handler", timeout = 60, memory = 256 }
     # The two verbs either side of the Map, handling the same volume in opposite directions.
     # Memory is the CPU dial as much as the headroom.
@@ -45,7 +45,7 @@ locals {
     # SEND_MAX_TRANSFER_ITEMS is what bounds the manifest, not the product of the source caps,
     # and test_the_worst_case_manifest_fits_in_the_verbs_memory reads THIS row back against it.
     # The bound has room — it does not fire until this drops below about 768 MB — so it is a
-    # floor under a mistake, not a fence around a change. README.md.
+    # floor under a mistake, not a fence around a change. planes/file-send/README.md.
     "build-transfer-manifest"  = { handler = "file_send_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "file_send_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # 900s is COPY_TIMEOUT_SECONDS, the budget cpcommon/transfer/config.py divides by to size
@@ -59,7 +59,7 @@ locals {
     # failure.
     "notify" = { handler = "file_send_notify.handler", timeout = 60, memory = 256 }
     # 60s rather than 15s, because the EventBridge TIMED_OUT door does strictly more work than
-    # the ASL one: a cold-start JWKS fetch and a JWT verify before the send. README.md.
+    # the ASL one: a cold-start JWKS fetch and a JWT verify before the send. planes/file-send/README.md.
     "notify-failure" = { handler = "fs_notify_failure.handler", timeout = 60, memory = 256 }
   }
 }
@@ -85,7 +85,8 @@ module "file_send" {
     COGNITO_USER_POOL_ID = module.auth.user_pool_id
     # Optional in fscommon.config — unset ⇒ emits are logged no-ops.
     NOTIFICATIONS_QUEUE_URL = local.notifications_queue_url
-    # Deliberately NOT mirrored by a config._require — see variables.tf.
+    # Deliberately NOT mirrored by a config._require: a verb that loses it must log to stdout and
+    # keep working, never crash the plane at cold start.
     LOGS_QUEUE_URL = module.observability.logs_queue_url
     # Same source of truth as the feature-flag document's `environments` keys.
     ENV_NAME = var.environment
@@ -107,6 +108,18 @@ module "file_send" {
     guard_map_max_concurrency = 5
   }
 
+  # A TOP-LEVEL ASL field, not a resource argument. Without it a Standard workflow's ceiling is
+  # ONE YEAR, and this is the first version of this machine that CAN wedge.
+  #
+  # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
+  #
+  # The arithmetic is SEND_MAX_TRANSFER_BYTES (the RECIPIENT PRODUCT), not SEND_MAX_TOTAL_BYTES,
+  # and the denominator is a MAKESPAN — 500 MB/s, not the ~4 GB/s multiplying the constants
+  # suggests. test_the_whole_file_send_run_fits_the_machines_ceiling SUMS EVERY TERM of the run
+  # and reads THIS ceiling and the serial verb timeouts back — the copy and per-child terms come
+  # from the Python caps. It has room: raising SEND_MAX_TRANSFER_ITEMS or SEND_MAX_RECIPIENTS does
+  # not reach it, and the verb timeouts have to roughly two-and-a-half x. Re-derive it when moving
+  # a cap rather than expecting the build to refuse. planes/file-send/README.md.
   ceiling = {
     seconds          = 10800
     notifier_verb    = "notify-failure"

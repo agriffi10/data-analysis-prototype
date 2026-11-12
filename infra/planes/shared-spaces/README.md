@@ -1,7 +1,7 @@
 # `shared-spaces` — Bucket 2 and its provisioning control plane
 
 The shared-space bucket, and the control plane that creates and manages spaces. See
-[`../../info/control-plane-shape.md`](../../info/control-plane-shape.md) for the files, roles and
+[`../../modules/control-plane/README.md`](../../modules/control-plane/README.md) for the files, roles and
 traps every plane shares. What follows is what is distinct here.
 
 `Validate → Choice(action) → { create | add-members | remove-members | leave | delete | forget |
@@ -13,13 +13,25 @@ A `Choice`-routed **fan-out** rather than a pipeline: one verb runs per request.
 Objects live under `{name}/…` and are seen by **all members of that space** — a single shared copy,
 not per-user copies.
 
-## Two roles, not three
+## Three roles now, and the old orchestrator role keeps its name
 
-This plane predates the three-role split. The **orchestrator** role is the single privileged role the
-Step Function **and every verb Lambda** run under (trust = `states` + `lambda`), so its policy carries
-the union of every verb's permissions: Glue, Lake Formation, S3 on the shared bucket and the admin
-registry prefix, the user-space cache, Cognito admin, `lambda:InvokeFunction`, states and logs. The
-**pipe** role reads the queue and starts the machine.
+This plane predates the three-role split. Until the planes became calls to one module, the
+**orchestrator** role was the single privileged role the Step Function **and every verb Lambda** ran
+under (trust = `states` + `lambda`). Now the state machine has the Step Functions role every plane
+has, and `orchestrator` is this plane's **execution** role — kept under its own name, with its
+inline policy still called `orchestrator`, because the Lake Formation admin list and the user-space
+bucket's allowlist name that role. Its policy is the union of the verbs' permissions: Glue, Lake
+Formation, S3 on the shared bucket and the admin registry prefix, the user-space cache, Cognito
+admin, notifications, logs. `lambda:InvokeFunction` and the log-delivery actions left it with the
+state machine. The **pipe** role reads the queue and starts the machine.
+
+**The split has one ordering risk, recorded rather than staged.** Against a state that has the old
+shape, one apply shrinks the orchestrator role's trust and policy and swaps the state machine onto
+the new role, and nothing orders the two. If the swap fails (on the new role's propagation, say)
+after the shrink has landed, the machine still runs as a role that can no longer invoke the verbs,
+and the plane cannot run until a re-apply finishes the swap. No such apply was planned when this
+was written: deploys were switched off, and the next account is created fresh, where nothing
+shrinks. A state that does take the change should be re-applied straight away if it fails.
 
 ## Ordered intake, and what actually makes duplicate names impossible
 
@@ -67,7 +79,7 @@ scoped to the shared bucket only**.
 
 The LF **data-lake-settings singleton** (admins, `IAMAllowedPrincipals` removal) lives in
 `modules/analytics` and is applied account-wide; the orchestrator role joins its admins list there,
-root-wired. **This module only adds the per-bucket registration**, which is independent of those
+root-wired. **`modules/shared-space-storage` only adds the per-bucket registration**, which is independent of those
 settings. Per-shared-database LF grants and the `DATA_LOCATION_ACCESS` grant on this location are
 issued by the orchestrator at create time.
 
@@ -82,7 +94,9 @@ these grants.
 ## The 60-second propagation guard, and what must depend on it
 
 Same rationale as `data/s3.tf` and `auth/lambda.tf`. **60 s, not 30 s**, because the Lambda and IAM
-role creates this module makes still race at 30 s.
+role creates this plane makes still race at 30 s. The wait lives in `modules/shared-space-storage`,
+and the plane's and the transfer reader's root calls depend on that module, so it still precedes
+everything that needs a fresh grant.
 
 **Every resource that needs a freshly-granted permission depends on it** — the bucket, the queues, the
 IAM roles, the log groups, the functions, the state machine, the pipe — **not just the bucket**, or
@@ -99,10 +113,9 @@ must **log to stdout and keep working**, never crash the plane at cold start.
 
 ## A known gap this plane is the precedent for
 
-**These verbs set `timeout` and never `memory_size`**, leaving the AWS default of 128 MB. `lambda.tf`
-carries the note; `modules/data-quality` sets both explicitly on every verb and records this as the
-precedent it fixes. **An unset memory tier is invisible in the plan and only shows up as an OOM in
-production.**
+**These verbs once set `timeout` and never `memory_size`**, leaving the AWS default of 128 MB. They
+now declare 128 MB explicitly in `infra/plane-shared-spaces.tf`, as data quality did first. **An
+unset memory tier is invisible in the plan and only shows up as an OOM in production.**
 
 ## The bucket
 

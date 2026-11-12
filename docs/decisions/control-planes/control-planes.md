@@ -1,7 +1,7 @@
 ---
 type: Decision Area
 title: "Control planes — one pattern, eight planes, and the traps are shared"
-governs: [lambdas/**, infra/modules/shared-spaces/**, infra/modules/table-builder/**, infra/modules/table-share/**, infra/modules/data-quality/**, infra/modules/file-send/**, infra/modules/file-ops/**, infra/modules/results-conversion/**, infra/modules/archive/**, infra/modules/notifications/**, infra/modules/control-plane-dlq-drain/**, infra/modules/observability/**, apps/portal/src/features/shared-spaces/**, apps/portal/src/features/notifications/**, apps/portal/src/features/data-quality/**]
+governs: [lambdas/**, infra/modules/control-plane/**, infra/modules/scheduled-function/**, infra/modules/shared-space-storage/**, infra/control-planes.tf, infra/planes/shared-spaces/**, infra/plane-shared-spaces.tf, infra/planes/table-builder/**, infra/plane-table-builder.tf, infra/planes/table-share/**, infra/plane-table-share.tf, infra/planes/data-quality/**, infra/plane-data-quality.tf, infra/planes/file-send/**, infra/plane-file-send.tf, infra/planes/file-ops/**, infra/plane-file-ops.tf, infra/planes/results-conversion/**, infra/plane-results-conversion.tf, infra/planes/archive/**, infra/plane-archive.tf, infra/modules/notifications/**, infra/modules/control-plane-dlq-drain/**, infra/modules/observability/**, apps/portal/src/features/shared-spaces/**, apps/portal/src/features/notifications/**, apps/portal/src/features/data-quality/**]
 ---
 
 The register's decisions on the shape every privileged pipeline follows, the ASL and notification fences, the layer split, structured logging.

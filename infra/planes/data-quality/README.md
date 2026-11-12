@@ -1,6 +1,6 @@
 # `data-quality` — the profile-a-table control plane
 
-The standard control-plane shape — see [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md)
+The standard control-plane shape — see [`../../modules/control-plane/README.md`](../../modules/control-plane/README.md)
 for the files, roles and traps every plane shares. What follows is what is distinct here.
 
 A linear pipeline **around an Athena query**:
