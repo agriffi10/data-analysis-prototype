@@ -3297,8 +3297,10 @@ parallel once 252 has landed.
 **How each is proved.** Deploys are manual-only from 2026-11-12, so nothing applies these changes
 in the current account, and the next account is deployed fresh. The proof is each PR's CI plan
 (local plans are unreliable here): every resource the spec touches is unchanged or **moved**, with
-the exceptions the spec enumerates. The web tier's off switch may make that plan carry the tier's
-own changes; those addresses are excluded by name and belong to the switch.
+the exceptions the spec enumerates. Every plan from 2026-11-12 also carries a baseline that is
+not this arc's: the web tier was switched on (`TF_VAR_WEB_TIER_ENABLED=true`) after the last apply,
+so it shows the VPC tier created and the static portal destroyed, and it carries one in-place
+change to the OIDC provider's `thumbprint_list`. Those addresses are excluded by name.
 
 **What the arc does not do.** No bucket module — the seven buckets share four short resources and
 differ in the rest, and a module named for the one resource it wraps is what the guidance calls a
