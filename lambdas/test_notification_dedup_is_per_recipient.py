@@ -7,7 +7,8 @@ request that borrows somebody else's id able to drop their notice, so both are a
 
 Attributes:
   ROOT: The repository root.
-  QUEUES: The notifications module's queue definitions.
+  QUEUES: The queue-consumer building block's queue definitions.
+  CALL: The root file holding the notifications call to it.
 """
 
 import json
@@ -16,7 +17,8 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-QUEUES = ROOT / "infra" / "modules" / "notifications" / "sqs.tf"
+QUEUES = ROOT / "infra" / "modules" / "queue-consumer" / "main.tf"
+CALL = ROOT / "infra" / "function-notifications.tf"
 
 sys.path.insert(0, str(ROOT / "lambdas" / "control-plane-common"))
 
@@ -31,7 +33,7 @@ class _FakeSqs:
 
 
 def _requests_queue_block() -> str:
-    """Returns the requests queue's resource block from the module.
+    """Returns the requests queue's resource block from the building block.
 
     Args:
       None.
@@ -66,10 +68,17 @@ def test_the_requests_queue_deduplicates_within_a_message_group() -> None:
     Raises:
       AssertionError: If the requests queue is not a FIFO queue scoped to the message group.
     """
+    sys.path.insert(0, str(ROOT / "lambdas"))
+    from tf_blocks import argument, module_calls
+
     block = _requests_queue_block()
+    call = module_calls(CALL.read_text())["notifications"]
 
     assert re.search(r"fifo_queue\s*=\s*true", block), "the requests queue is not FIFO"
-    assert re.search(r'deduplication_scope\s*=\s*"messageGroup"', block), (
+    assert re.search(r"deduplication_scope\s*=\s*var\.deduplication_scope", block), (
+        "the requests queue does not take its caller's deduplication scope"
+    )
+    assert argument(call, "deduplication_scope") == '"messageGroup"', (
         "the requests queue deduplicates across the whole queue, so a request carrying somebody "
         "else's id can drop their notice"
     )

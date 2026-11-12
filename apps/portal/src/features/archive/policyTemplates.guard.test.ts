@@ -1,9 +1,9 @@
 import {describe, expect, it} from 'vitest';
 
 /**
- * Every IAM policy template in `infra/`, as raw text: each module's `policies/`, and each control
+ * Every IAM policy template in `infra/`, as raw text: each module's `policies/`, each control
  * plane's own templates under `planes/` — less its state-machine definition, which is not an IAM
- * document and is never sent to `CreatePolicy`.
+ * document and is never sent to `CreatePolicy` — and each standalone function's under `functions/`.
  *
  * Read through Vite's own `?raw` glob rather than `node:fs`: the app tsconfig carries no node
  * types, so `tsc -b` — the only typecheck CI runs — rejects an fs import here.
@@ -12,6 +12,7 @@ const TEMPLATES = import.meta.glob(
   [
     '/../../infra/modules/*/policies/*.json.tftpl',
     '/../../infra/planes/*/*.tftpl',
+    '/../../infra/functions/*/*.tftpl',
     '!/../../infra/planes/*/*.asl.json.tftpl'
   ],
   {

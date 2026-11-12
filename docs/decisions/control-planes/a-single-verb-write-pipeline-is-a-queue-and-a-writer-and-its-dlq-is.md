@@ -57,7 +57,7 @@ decision (`infra/modules/observability/alarm.tf`), so one here would be a consol
 else. Since the writer appends past a day-file line it cannot parse, a bad line no longer
 dead-letters anything; a message whose every receive fails still does, and a failure that
 repeats — an out-of-memory kill on a large day, sized against rather than watched
-(`infra/modules/feedback/lambda.tf`) — takes the rest of that day with it.
+(`infra/function-feedback.tf`) — takes the rest of that day with it.
 
 **The writer holds no `s3:ListBucket`, which inverts the fleet's usual rule and is safe for one
 specific reason.** A role that cannot list a bucket cannot be told an object is absent — S3

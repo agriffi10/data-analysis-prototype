@@ -228,13 +228,14 @@ locals {
   # than stylistic: this ARN goes into the user-space bucket policy's principal allowlist, and
   # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
   # the value was never written (infra/info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
-  # silently drops the change"). The module therefore exposes no role_arn output at all, so
-  # there is nothing to reach for by mistake. Nothing orders the two at apply: the allowlist
-  # entry is a string match in a policy condition, and the builder writes only at runtime.
+  # silently drops the change"). `scheduled-function` does export a role_arn, so the rule is
+  # this string, never module.user_directory.role_arn. Nothing orders the two at apply: the
+  # allowlist entry is a string match in a policy condition, and the builder writes only at
+  # runtime.
   #
   # Without the allowlist entry the builder's PutObject fails with an opaque AccessDenied that
   # looks like an IAM problem and is not — the bucket policy's Deny overrides its identity
-  # policy's Allow. That has bitten this repo three times; modules/observability/iam.tf
+  # policy's Allow. That has bitten this repo three times; modules/observability/README.md
   # carries the long-form account.
   user_directory_build_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-user-directory-build"
 
@@ -293,11 +294,11 @@ locals {
   #
   # THE NOTIFICATIONS DLQ IS DELIBERATELY ABSENT. The drain's only delivery channel is the
   # notifications queue, so draining the notifications DLQ would ask the queue that just
-  # failed to deliver to deliver the news about itself. See the comment in
-  # modules/notifications/sqs.tf; the honest answer there is operator-facing and out of
-  # the drain's scope. Keep this list and dlq_drain.py's SOURCES table in step — a test in
-  # lambdas/control-plane-dlq-drain/ reads the module locals.tf files and fails if a new
-  # control plane appears without being wired or explicitly excluded.
+  # failed to deliver to deliver the news about itself. See the comment on its queue in
+  # function-notifications.tf; the honest answer there is operator-facing and out of the
+  # drain's scope. Keep this list and dlq_drain.py's SOURCES table in step —
+  # lambdas/test_feedback_module.py reads this list and fails if a plane is attached without
+  # being in the table, or the other way round.
   drained_dlq_names = [
     "${var.project_name}-${var.environment}-data-quality-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-table-builder-requests-dlq.fifo",
@@ -712,209 +713,18 @@ module "analytics" {
 }
 
 
-# Notifications write pipeline: a FIFO SQS queue that triggers a single
-# notifications-writer Lambda directly (SQS event-source mapping — no Pipe, no Step
-# Function). The writer is the only writer of each user's notifications.json in the
-# existing user-space bucket. Standalone-deployable: cross-module ARNs are constructed
-# strings in the module's locals. The deploy-role grants this module needs are already
-# applied, so no in-module time_sleep propagation guard is required.
-module "notifications" {
-  source = "./modules/notifications"
-
-  # The fleet's one container image, and the tag these functions are CREATED from. The tag
-  # is ignored after creation — CI re-points every function on each deploy — so it is an
-  # INPUT github.sha already knows rather than anything Terraform derives.
-  lambda_image_repository_url = module.lambda_image.repository_url
-  lambda_image_tag            = var.lambda_image_tag
-
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  account_id   = data.aws_caller_identity.current.account_id
-
-  # The writer reads/writes {username}/user_settings/notifications.json in Bucket 1.
-  user_space_bucket_name = local.user_space_bucket_name
-
-  # The identity the writer must REFUSE a `create` from, matched against the SenderId SQS
-  # stamps on every message. The portal role holds no grant on this queue, so the check is a
-  # second fence behind that missing grant; a `create` sent through the API meets the route's
-  # refusal instead.
-  # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
-  portal_role_unique_id = module.data.portal_role_unique_id
-
-  # The writer imports `cpcommon.observability` and emits
-  # under service="notifications". A real reference is safe here (unlike module.auth's —
-  # module.observability does not consume anything from this module), so it also orders
-  # the queue's creation before the grant that scopes to it.
-  logs_queue_arn = module.observability.logs_queue_arn
-  logs_queue_url = module.observability.logs_queue_url
-
-  # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
-  # this module (already applied); data creates the portal role whose unique ID the
-  # writer refuses a `create` from. Force both to settle first.
-  depends_on = [module.base, module.data]
-}
-
-# Feedback: a FIFO queue and one writer Lambda, the same standalone shape as notifications
-# above. No Pipe and no state machine — there is one verb, and it appends one event to one object.
-#
-# The queue's ONLY writer is module.api's execution role, and the API takes the username from the
-# verified caller, which is what makes a feedback record attributable. The portal role, which the
-# API assumes on a caller's behalf, has no statement naming the queue.
-module "feedback" {
-  source = "./modules/feedback"
-
-  # The fleet's one container image, and the tag these functions are CREATED from. The tag
-  # is ignored after creation — CI re-points every function on each deploy — so it is an
-  # INPUT github.sha already knows rather than anything Terraform derives.
-  lambda_image_repository_url = module.lambda_image.repository_url
-  lambda_image_tag            = var.lambda_image_tag
-
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  account_id   = data.aws_caller_identity.current.account_id
-
-  # The writer appends one object per day under this bucket's `feedback/` prefix. No lifecycle
-  # rule expires it, and a test asserts no expiring rule's prefix could ever match it.
-  admin_bucket_name = local.athena_admin_bucket_name
-
-  # The writer imports `cpcommon.observability` and emits under service="feedback".
-  # A real reference is safe here (module.observability consumes nothing from this module), so it
-  # also orders the logs queue's creation before the grant that scopes to it.
-  logs_queue_arn = module.observability.logs_queue_arn
-  logs_queue_url = module.observability.logs_queue_url
-
-  # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for this
-  # module — applied in its own PR, ahead of these resources.
-  depends_on = [module.base]
-}
-
-
-# ── Control-plane DLQ drain ───────────────────────────────────────
-# The one function that turns a dead-lettered request into a sentence in the actor's inbox.
-# Before this, a request the pipeline refused simply vanished: no verb ran, so no failure
-# notification fired, and the person who made it waited for a result that never came.
-#
-# The DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
-# known at plan time, so the drain's IAM policy plans cleanly and no module→module edge is
-# created (the infra/info/deploy-role-iam.md "unknown ARN in list" discipline; the same reason every
-# producer scopes to a constructed notifications queue ARN).
-module "control_plane_dlq_drain" {
-  source = "./modules/control-plane-dlq-drain"
-
-  # The fleet's one container image, and the tag these functions are CREATED from. The tag
-  # is ignored after creation — CI re-points every function on each deploy — so it is an
-  # INPUT github.sha already knows rather than anything Terraform derives.
-  lambda_image_repository_url = module.lambda_image.repository_url
-  lambda_image_tag            = var.lambda_image_tag
-
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  account_id   = data.aws_caller_identity.current.account_id
-
-  dlq_arns = [for name in local.drained_dlq_names : "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${name}"]
-
-  notifications_queue_arn = local.notifications_queue_arn
-  notifications_queue_url = local.notifications_queue_url
-
-  # The drain joins the structured-logging pipe. Taken from the observability
-  # module's outputs rather than reconstructed, so the queue's FIFO `.fifo` suffix cannot
-  # drift between producer and consumer.
-  logs_queue_arn = module.observability.logs_queue_arn
-  logs_queue_url = module.observability.logs_queue_url
-
-
-  # Required by cpcommon's config, not used by the drain.
-  # (that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash, but a failure on whichever branch reads it
-  # first. The union is still what must be set; do not prune one as "unused".)
-  user_space_bucket_name   = local.user_space_bucket_name
-  shared_space_bucket_name = local.shared_space_bucket_name
-  admin_bucket_name        = local.athena_admin_bucket_name
-  athena_workgroup         = local.athena_workgroup_name
-
-  # base grants the deploy role its drain perms (already applied).
-  depends_on = [module.base]
-}
-
-# The structured-logging pipe: one standard SQS logs queue and one scheduled sweep
-# that lands log-foundry events as Hive-partitioned NDJSON under s3://{admin}/logs/.
+# The structured-logging pipe: one FIFO logs queue every service writes to, and its backlog
+# alarm. The sweep that lands its events as Hive-partitioned NDJSON under s3://{admin}/logs/ is a
+# scheduled function of its own, in function-log-sweep.tf.
 module "observability" {
   source = "./modules/observability"
 
-  # The fleet's one container image, and the tag these functions are CREATED from. The tag
-  # is ignored after creation — CI re-points every function on each deploy — so it is an
-  # INPUT github.sha already knows rather than anything Terraform derives.
-  lambda_image_repository_url = module.lambda_image.repository_url
-  lambda_image_tag            = var.lambda_image_tag
-
   project_name = var.project_name
   environment  = var.environment
-  aws_region   = var.aws_region
-
-  admin_bucket_name = local.athena_admin_bucket_name
-  admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
-
-
-  # Required by cpcommon's config, not used by the sweep.
-  # (that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash, but a failure on whichever branch reads it
-  # first. The union is still what must be set; do not prune one as "unused".)
-  user_space_bucket_name   = local.user_space_bucket_name
-  shared_space_bucket_name = local.shared_space_bucket_name
-  athena_workgroup         = local.athena_workgroup_name
 
   # base writes the deploy role's observability grants, so an apply changing one writes it before
   # anything here uses it. The edge also defers every data source in the module to apply, which is
   # why the module declares none: modules/observability/README.md.
-  depends_on = [module.base]
-}
-
-# Username directory: one scheduled Lambda that lists the user-space bucket's
-# workspace prefixes once a day and publishes them as _directory/usernames.json, which the
-# browser reads to suggest usernames. Not a control plane — no queue, no state
-# machine, no verbs; the closest sibling is module.observability's sweep.
-#
-# The bucket ARN and the logs queue arrive as CONSTRUCTED STRINGS from the locals above rather
-# than as module.data / module.observability outputs, so this module plans standalone and its
-# IAM templates render at plan time. The builder writes into module.data's bucket only at
-# runtime, so nothing at apply orders the two.
-module "user_directory" {
-  source = "./modules/user-directory"
-
-  # The fleet's one container image, and the tag these functions are CREATED from. The tag
-  # is ignored after creation — CI re-points every function on each deploy — so it is an
-  # INPUT github.sha already knows rather than anything Terraform derives.
-  lambda_image_repository_url = module.lambda_image.repository_url
-  lambda_image_tag            = var.lambda_image_tag
-
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  account_id   = data.aws_caller_identity.current.account_id
-
-  user_space_bucket_name = local.user_space_bucket_name
-  user_space_bucket_arn  = "arn:aws:s3:::${local.user_space_bucket_name}"
-
-  logs_queue_arn = local.logs_queue_arn
-  logs_queue_url = local.logs_queue_url
-
-  # Required by cpcommon's config, not used by the builder.
-  # (that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash, but a failure on whichever branch reads it
-  # first. The union is still what must be set; do not prune one as "unused".)
-  # The two Cognito variables left this list when the planes stopped verifying tokens: the
-  # pool id is now lazily required by the three planes that look a recipient up, and this
-  # builder is not one of them.
-  shared_space_bucket_name = local.shared_space_bucket_name
-  admin_bucket_name        = local.athena_admin_bucket_name
-  athena_workgroup         = local.athena_workgroup_name
-
-  # base grants the deploy role its user-directory perms (already applied). The write into
-  # the user-space bucket happens only at RUNTIME, and this module names that bucket as a
-  # string, so nothing here waits on module.data.
   depends_on = [module.base]
 }
 
@@ -993,7 +803,7 @@ module "api" {
   # Feedback is the ninth and was never one of the eight: it is the first queue the browser has
   # had no relationship with at all, rather than one whose grant was taken away.
   shared_space_queue_url       = module.shared_spaces.queue_url
-  notifications_queue_url      = module.notifications.notifications_queue_url
+  notifications_queue_url      = module.notifications.queue_url
   table_build_queue_url        = module.table_builder.queue_url
   table_share_queue_url        = module.table_share.queue_url
   data_quality_queue_url       = module.data_quality.queue_url
@@ -1001,11 +811,11 @@ module "api" {
   archive_queue_url            = module.archive.queue_url
   file_ops_queue_url           = module.file_ops.queue_url
   results_conversion_queue_url = module.results_conversion.queue_url
-  feedback_queue_url           = module.feedback.feedback_queue_url
+  feedback_queue_url           = module.feedback.queue_url
 
   request_queue_arns = [
     module.shared_spaces.queue_arn,
-    module.notifications.notifications_queue_arn,
+    module.notifications.queue_arn,
     module.table_builder.queue_arn,
     module.table_share.queue_arn,
     module.data_quality.queue_arn,
@@ -1013,7 +823,7 @@ module "api" {
     module.archive.queue_arn,
     module.file_ops.queue_arn,
     module.results_conversion.queue_arn,
-    module.feedback.feedback_queue_arn,
+    module.feedback.queue_arn,
   ]
 
   project_name = var.project_name

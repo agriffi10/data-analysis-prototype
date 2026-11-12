@@ -79,7 +79,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
 INFRA = ROOT / "infra"
 MODULES = INFRA / "modules"
-BUILDING_BLOCKS = ('"./modules/control-plane"', '"./modules/scheduled-function"')
+BUILDING_BLOCKS = (
+    '"./modules/control-plane"',
+    '"./modules/scheduled-function"',
+    '"./modules/queue-consumer"',
+)
 SHARED_ROOTS = tuple(assemble.shared_roots(ROOT))
 
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
@@ -271,6 +275,14 @@ def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset
                 environment = argument(body, "environment_variables")
             except ValueError:
                 raise AssertionError(f"{path}: {name} supplies no environment") from None
+            # An environment passed as a root local is read from that local's map, or the call
+            # would read as setting nothing and pass every check that demands nothing of it.
+            named = re.fullmatch(r"local\.([a-z_]+)", environment.strip())
+            if named:
+                match = re.search(rf"^\s*{named.group(1)}\s*=\s*\{{", root, re.MULTILINE)
+                if not match:
+                    raise ValueError(f"{path}: {name} passes local.{named.group(1)}, not a root map")
+                environment = span(root, match.start())
             if source == BUILDING_BLOCKS[0]:
                 slug = argument(body, "name").strip('"')
                 verbs = re.fullmatch(r"local\.([a-z_]+)", argument(body, "functions"))

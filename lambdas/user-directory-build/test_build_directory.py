@@ -27,11 +27,11 @@ sys.path.insert(
 
 import build_directory
 from cpcommon import clients, config
-from tf_blocks import lambda_declaration, lambda_environment, strip_noise
+from tf_blocks import argument, lambda_declaration, strip_noise
 
 HERE = pathlib.Path(__file__).resolve().parent
 LAMBDAS = HERE.parent
-LAMBDA_TF = LAMBDAS.parent / "infra" / "modules" / "user-directory" / "lambda.tf"
+LAMBDA_TF = LAMBDAS.parent / "infra" / "function-user-directory.tf"
 
 
 class FakeS3:
@@ -139,20 +139,19 @@ UNDECLARED_BY_CONFIG = {"LOGS_QUEUE_URL", "ENV_NAME"}
 
 
 def _terraform_environment_variables():
-    """The names lambda.tf assigns to the function's environment, under either packaging.
+    """The names the root call to `scheduled-function` assigns to the function's environment.
 
-    Read through the shared `tf_blocks` scanner end to end — the declaration and its environment
-    by name, the names with comments and strings blanked first. The non-greedy regex this
-    replaced worked only because the block happens to close at a particular indent, and it read
-    a variable name out of a comment as readily as out of an assignment; both are the drift that
-    module's docstring exists to warn about. The accessors are packaging-agnostic for the same
-    reason: a pattern that matches one shape stops finding the block without ever saying so.
+    Read through the shared `tf_blocks` scanner end to end — the call and its
+    `environment_variables` by name, the names with comments and strings blanked first. The
+    non-greedy regex this replaced worked only because the block happens to close at a particular
+    indent, and it read a variable name out of a comment as readily as out of an assignment; both
+    are the drift that module's docstring exists to warn about.
     """
     source = LAMBDA_TF.read_text(encoding="utf-8")
-    function = lambda_declaration(source, "build")
+    function = lambda_declaration(source, "user_directory")
 
     names = re.compile(r"([A-Z_][A-Z0-9_]*)\s*=(?!=)")
-    captured = set(names.findall(strip_noise(lambda_environment(function))))
+    captured = set(names.findall(strip_noise(argument(function, "environment_variables"))))
     everywhere = set(names.findall(strip_noise(function)))
     assert captured == everywhere, (
         f"the environment slice captured {sorted(captured)}, but the resource assigns "
@@ -188,8 +187,8 @@ def test_the_environment_block_matches_config_pys_own_declaration():
     )
 
     assert deployed == declared, (
-        f"lambda.tf and cpcommon/config.py disagree. Required by config.py and absent from "
-        f"lambda.tf: {sorted(declared - deployed)}. Set by lambda.tf and not required by "
+        f"function-user-directory.tf and cpcommon/config.py disagree. Required by config.py and absent from "
+        f"function-user-directory.tf: {sorted(declared - deployed)}. Set by function-user-directory.tf and not required by "
         f"config.py: {sorted(deployed - declared)}. The first crashes the builder at first "
         "access in production; the second means one side dropped a name the other still keeps"
     )
@@ -204,7 +203,7 @@ def test_both_sides_of_that_comparison_are_actually_being_read():
     parsed = _terraform_environment_variables()
     known = set(config._REQUIRED_VARS.values()) | set(config._OPTIONAL_VARS.values())
 
-    assert "USER_SPACE_BUCKET" in parsed, "the lambda.tf parse found no variables at all"
+    assert "USER_SPACE_BUCKET" in parsed, "the function-user-directory.tf parse found no variables at all"
     assert set(config._REQUIRED_VARS.values()) >= {"ADMIN_BUCKET", "ATHENA_WORKGROUP"}, (
         "config.py declares no required variables — the comparison above has nothing to match"
     )
@@ -219,13 +218,13 @@ def test_the_names_config_py_cannot_speak_for_are_still_set():
     """The two exempted names need their own guard, because the comparison cannot see them.
 
     Subtracting a name from one side of a set equality removes it from the test entirely.
-    Deleting `LOGS_QUEUE_URL` from lambda.tf left every other assertion here green while
+    Deleting `LOGS_QUEUE_URL` from function-user-directory.tf left every other assertion here green while
     structured logging silently fell back to stdout — no queue, no logs, no failure.
     """
     missing = UNDECLARED_BY_CONFIG - _terraform_environment_variables()
 
     assert not missing, (
-        f"lambda.tf no longer sets {sorted(missing)}. `observability` reads both with "
+        f"function-user-directory.tf no longer sets {sorted(missing)}. `observability` reads both with "
         "`os.environ.get`, so losing one degrades in silence rather than raising — nothing "
         "else in this file or in production will tell you"
     )

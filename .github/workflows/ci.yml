@@ -117,6 +117,7 @@ jobs:
             ^infra/main\.tf$
             ^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$
             ^infra/planes/[^/]+/[^/]+\.json\.tftpl$
+            ^infra/functions/[^/]+/[^/]+\.json\.tftpl$
             ^lambdas/api/routes/feature_flags\.py$
             ^lambdas/archive-common/arcommon/config\.py$
             ^lambdas/archive-common/archive_name_corpus\.json$

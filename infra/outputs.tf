@@ -83,17 +83,26 @@ output "shared_space_state_machine_arn" {
 # ── Notifications write pipeline ──────────────────────────────────
 output "notifications_queue_url" {
   description = "URL of the FIFO notifications request queue (ends in .fifo). The API enqueues markRead/markAllRead here through its one grant."
-  value       = module.notifications.notifications_queue_url
+  value       = module.notifications.queue_url
 }
 
 output "notifications_queue_arn" {
   description = "ARN of the FIFO notifications request queue — the `sqs:SendMessage` scope for the API and for every trusted producer."
-  value       = module.notifications.notifications_queue_arn
+  value       = module.notifications.queue_arn
 }
 
 output "notifications_writer_role_arn" {
   description = "ARN of the privileged notifications-writer role — the single writer of every user's notifications.json."
-  value       = module.notifications.notifications_writer_role_arn
+  value       = module.notifications.role_arn
+
+  # The writer refuses a `create` whose SenderId names this value, so a wire to the portal role's
+  # ARN or name — both validate clean and neither ever matches — deploys a control that silently
+  # does nothing. queue-consumer takes a plain environment map and cannot check one key, so the
+  # refusal sits here, at the root that wires it, and fails the plan.
+  precondition {
+    condition     = can(regex("^AROA[A-Z0-9]+$", local.notifications_writer_environment.NOTIFICATIONS_UNTRUSTED_SENDER_ID))
+    error_message = "The notifications writer's NOTIFICATIONS_UNTRUSTED_SENDER_ID must be an IAM role unique ID (AROA…) — not the role's name and not its ARN, neither of which SenderId carries."
+  }
 }
 
 # ── Verification access ────────────────────────────────────
@@ -229,7 +238,7 @@ locals {
     module.file_send.function_names,
     module.results_conversion.function_names,
     module.notifications.function_names,
-    module.observability.function_names,
+    module.observability_sweep.function_names,
     module.shared_spaces.function_names,
     module.shared_space_transfer_reader.function_names,
     module.table_builder.function_names,

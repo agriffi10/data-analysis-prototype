@@ -87,9 +87,9 @@ POLICY_FOR_PREFIX = {
     "table-builder": "planes/table-builder/execution.json.tftpl",
     "table-share": "planes/table-share/execution.json.tftpl",
     "shared-space": "planes/shared-spaces/execution.json.tftpl",
-    "control-plane-dlq-drain": "modules/control-plane-dlq-drain/policies/drain-permissions.json.tftpl",
-    "notifications-writer": "modules/notifications/policies/writer-permissions.json.tftpl",
-    "user-directory-build": "modules/user-directory/policies/build-permissions.json.tftpl",
+    "control-plane-dlq-drain": "functions/control-plane-dlq-drain/drain.json.tftpl",
+    "notifications-writer": "functions/notifications/writer.json.tftpl",
+    "user-directory-build": "functions/user-directory/build.json.tftpl",
     "api": "modules/api/policies/api-execution-policy.json.tftpl",
 }
 
@@ -466,6 +466,20 @@ def policy_for(directory):
         if directory == prefix or directory.startswith(f"{prefix}-"):
             return ROOT / "infra" / POLICY_FOR_PREFIX[prefix]
     return None
+
+
+def test_every_mapped_policy_is_a_file() -> None:
+    """A mapped path that names nothing is consulted only when its directory reads the registry.
+
+    So a policy that moves leaves its row pointing at nothing, and the suite stays green until the
+    day that directory first imports the registry and the check meant for it raises on a missing
+    file instead of reporting the missing grant.
+    """
+    missing = sorted(
+        path for path in POLICY_FOR_PREFIX.values() if not (ROOT / "infra" / path).is_file()
+    )
+
+    assert missing == [], f"POLICY_FOR_PREFIX names policies that do not exist: {missing}"
 
 
 def _statements(policy_path):
