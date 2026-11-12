@@ -12,8 +12,7 @@ quietly hand every expired id to the next execution that sent it.
 Attributes:
   ROOT: The repository root.
   EXECUTION_POLICY: The data-quality execution role's policy template.
-  MODULE_IAM: Where the template is rendered, and so where its variables are passed.
-  MODULE_LOCALS: Where Terraform's value for the claim prefix is set.
+  PLANE: The plane's root call, which renders the template and passes the claim prefix to it.
   LIFECYCLE: The admin bucket's lifecycle configuration.
   ROOT_MAIN: Where the one variable prefix in that configuration is given its value.
   CLAIM_RESOURCE: The object resource the grant must name, with ``${`` rewritten for JSON parsing.
@@ -25,11 +24,11 @@ import re
 import sys
 
 import pytest
+from tf_blocks import argument, module_calls, span
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXECUTION_POLICY = ROOT / "infra" / "planes" / "data-quality" / "execution.json.tftpl"
-MODULE_IAM = ROOT / "infra" / "modules" / "data-quality" / "iam.tf"
-MODULE_LOCALS = ROOT / "infra" / "modules" / "data-quality" / "locals.tf"
+PLANE = ROOT / "infra" / "plane-data-quality.tf"
 LIFECYCLE = ROOT / "infra" / "modules" / "analytics" / "s3.tf"
 ROOT_MAIN = ROOT / "infra" / "main.tf"
 CLAIM_RESOURCE = "@{admin_bucket_arn}/@{claim_prefix}/*"
@@ -102,6 +101,26 @@ def _rule_can_expire_a_claim(rule: str, claim_prefix: str, alb_prefix: str) -> b
     prefix = found.group(1).replace("${var.alb_access_log_prefix}", alb_prefix) if found else ""
     assert "${" not in prefix, f"unresolved lifecycle prefix {prefix!r}"
     return _reaches(prefix, claim_prefix)
+
+
+def _execution_policy_vars() -> tuple[str, str]:
+    """The template the plane's execution policy renders, and the literal map merged into its vars.
+
+    Args:
+      None.
+
+    Returns:
+      ``(template path as written, the braced map passed beside the shared ARNs)``.
+
+    Raises:
+      AssertionError: If the call does not render its policy with ``templatefile`` over a
+        ``merge``, which would otherwise leave nothing to read the prefix from.
+      ValueError: If the call or its ``execution_policy`` argument is missing.
+    """
+    expression = argument(module_calls(PLANE.read_text())["data_quality"], "execution_policy")
+    template = re.match(r'templatefile\(\s*"\$\{path\.root\}/([^"]+)"\s*,\s*merge\(', expression)
+    assert template, f"the data-quality execution policy is not a templatefile over a merge: {expression}"
+    return template.group(1), span(expression, template.end())
 
 
 def _admin_lifecycle_rules() -> list[str]:
@@ -184,12 +203,12 @@ def test_the_role_may_write_and_read_back_a_claim_under_the_prefix_python_writes
         if statement.get("Effect") == "Allow" and CLAIM_RESOURCE in _as_list(statement.get("Resource", []))
         for action in _as_list(statement.get("Action", []))
     }
-    passed = re.search(r"claim_prefix\s*=\s*local\.claim_prefix", MODULE_IAM.read_text())
-    terraform = re.search(r'claim_prefix\s*=\s*"([^"]+)"', MODULE_LOCALS.read_text())
+    rendered, variables = _execution_policy_vars()
+    terraform = re.fullmatch(r'"([^"$%]+)"', argument(variables[1:-1], "claim_prefix"))
 
     assert {"s3:PutObject", "s3:GetObject"} <= granted, f"{CLAIM_RESOURCE} is granted only {granted}"
-    assert passed, f"{MODULE_IAM.name} does not pass claim_prefix to the execution policy"
-    assert terraform, f"no claim_prefix local in {MODULE_LOCALS.name}"
+    assert ROOT / "infra" / rendered == EXECUTION_POLICY, f"{PLANE.name} renders {rendered}, not this template"
+    assert terraform, f"{PLANE.name} does not pass a literal claim_prefix to the execution policy"
     assert terraform.group(1) == config.CLAIM_PREFIX, (
         f"Terraform grants {terraform.group(1)!r} and Python claims under {config.CLAIM_PREFIX!r}"
     )

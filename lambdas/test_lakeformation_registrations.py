@@ -32,7 +32,7 @@ INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 
 REGISTRATIONS = {
     "modules/analytics/lakeformation.tf": ("user_space", "var.user_space_bucket_arn"),
-    "modules/shared-spaces/lakeformation.tf": ("shared_space", "aws_s3_bucket.shared_space.arn"),
+    "modules/shared-space-storage/lakeformation.tf": ("shared_space", "aws_s3_bucket.shared_space.arn"),
 }
 
 ANALYTICS_CALL = "analytics"

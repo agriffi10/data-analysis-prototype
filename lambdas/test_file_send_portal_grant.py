@@ -10,7 +10,8 @@ and why these read templates as data instead of waiting for the CI plan scan:
 ``infra/planes/file-send/README.md``.
 
 Attributes:
-  FILE_SEND_PORTAL_POLICY: Where the browser's enqueue grant used to be. Asserted ABSENT.
+  FILE_SEND_PORTAL_POLICY: The name the browser's enqueue grant used to have. Asserted ABSENT
+    anywhere under ``infra/``, so it cannot come back beside a plane or inside a module.
   EXECUTION_POLICY: The file-send execution role's policy, where the privilege actually lives.
   PORTAL_POLICY: The portal role's main permission policy — checked only for the negative.
 """
@@ -19,9 +20,9 @@ import json
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-MODULE = ROOT / "infra" / "modules" / "file-send"
-FILE_SEND_PORTAL_POLICY = MODULE / "policies" / "portal-role-file-send.json.tftpl"
-EXECUTION_POLICY = MODULE / "policies" / "execution.json.tftpl"
+INFRA = ROOT / "infra"
+FILE_SEND_PORTAL_POLICY = "portal-role-file-send.json.tftpl"
+EXECUTION_POLICY = INFRA / "planes" / "file-send" / "execution.json.tftpl"
 PORTAL_POLICY = (
     ROOT / "infra" / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
 )
@@ -74,7 +75,7 @@ def test_the_browser_holds_no_file_send_privilege_at_all() -> None:
       AssertionError: If the enqueue template came back, or the main portal policy learned about
         this plane.
     """
-    assert not FILE_SEND_PORTAL_POLICY.exists(), (
+    assert not sorted(INFRA.rglob(FILE_SEND_PORTAL_POLICY)), (
         "the browser's file-send enqueue grant is retired; the API is the only writer"
     )
 

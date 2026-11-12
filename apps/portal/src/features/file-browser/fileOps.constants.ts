@@ -8,7 +8,7 @@
  */
 
 /**
- * The state machine's `TimeoutSeconds`, from `infra/modules/file-ops/locals.tf`.
+ * The state machine's `TimeoutSeconds`, from the `ceiling` in `infra/plane-file-ops.tf`.
  *
  * The outer bound on an in-flight entry: past it the execution is gone, so a notification is no
  * longer coming and there is nothing left to correlate. It is a belt-and-braces bound, not the

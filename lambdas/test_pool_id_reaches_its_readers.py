@@ -14,7 +14,7 @@ would produce a ``RuntimeError`` mid-request with the whole suite green.
 
 **What this does and does not close.** It pins two populations — the modules that read the
 variable, and the Terraform modules that set it — so that changing either without the other is a
-failure. Pruning the variable from one plane's `lambda.tf` reddens it, which is the tidy this
+failure. Pruning the variable from one plane's root call reddens it, which is the tidy this
 exists to stop.
 
 It does **not** relate a consumer to a setter. A verb on a plane that sets nothing could import
@@ -32,7 +32,8 @@ tolerable only because the population it guards is two files.
 
 Attributes:
   LAMBDAS: The fleet root.
-  INFRA: The Terraform root.
+  INFRA: The Terraform root. A control plane's environment is written in its root call,
+    ``plane-<name>.tf``; every other function's is in its module's ``lambda.tf``.
   POOL_VAR: The environment variable under test.
   READER_MODULES: The layer modules whose code reads it, as an assertion rather than a list — the
     test derives the real set and compares, so a fourth reader appearing is a failure here rather
@@ -44,7 +45,7 @@ import pathlib
 import re
 
 LAMBDAS = pathlib.Path(__file__).resolve().parent
-INFRA = LAMBDAS.parent / "infra" / "modules"
+INFRA = LAMBDAS.parent / "infra"
 
 POOL_VAR = "COGNITO_USER_POOL_ID"
 
@@ -78,21 +79,27 @@ def _modules_reading_the_pool() -> set[str]:
 
 
 def _planes_setting_the_pool() -> set[str]:
-    """Every Terraform module whose Lambda environment sets the variable.
+    """Every plane or Terraform module whose Lambda environment sets the variable.
+
+    A control plane is named by its root file, ``plane-<name>.tf``, where its call writes the
+    environment; any other root file by its own name, so a setter there is reported rather than
+    missed; a module by its directory.
 
     Args:
       None.
 
     Returns:
-      The module directory names.
+      The plane, root-file or module directory names.
 
     Raises:
       None.
     """
     setter = re.compile(rf"^\s*{POOL_VAR}\s*=", re.MULTILINE)
+    roots = {path.stem.removeprefix("plane-"): path for path in INFRA.glob("*.tf")}
+    modules = {path.parent.name: path for path in (INFRA / "modules").rglob("lambda.tf")}
     return {
-        path.parent.name
-        for path in INFRA.rglob("lambda.tf")
+        name
+        for name, path in [*roots.items(), *modules.items()]
         if setter.search(path.read_text(encoding="utf-8"))
     }
 

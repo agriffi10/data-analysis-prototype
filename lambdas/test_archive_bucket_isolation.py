@@ -30,8 +30,8 @@ INFRA = ROOT / "infra"
 
 PORTAL_PERSONAL = INFRA / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
 PORTAL_SHARED = INFRA / "modules" / "shared-space-storage" / "policies" / "portal-role-shared-space.json.tftpl"
-PORTAL_ARCHIVE = INFRA / "modules" / "archive" / "policies" / "portal-role-archive.json.tftpl"
-ARCHIVE_BUCKET_POLICY = INFRA / "modules" / "archive" / "policies" / "archive-bucket-policy.json.tftpl"
+PORTAL_ARCHIVE = "portal-role-archive.json.tftpl"
+ARCHIVE_BUCKET_POLICY = INFRA / "modules" / "archive-vault" / "policies" / "archive-bucket-policy.json.tftpl"
 ARCHIVE_EXECUTION = INFRA / "planes" / "archive" / "execution.json.tftpl"
 ROOT_MAIN = INFRA / "main.tf"
 APP_MODULE = INFRA / "modules" / "app"
@@ -93,7 +93,7 @@ def test_the_portal_role_names_the_archive_bucket_nowhere():
     reversible only through something that takes hours rather than a click."""
     # PORTAL_ARCHIVE is gone: the browser's one archive privilege was an enqueue, and the API is
     # the only writer now. Its absence is asserted below rather than by reading a missing file.
-    assert not PORTAL_ARCHIVE.exists(), "the browser's archive enqueue grant is retired"
+    assert not sorted(INFRA.rglob(PORTAL_ARCHIVE)), "the browser's archive enqueue grant is retired"
 
     for path in (PORTAL_PERSONAL, PORTAL_SHARED):
         body = _read(path)

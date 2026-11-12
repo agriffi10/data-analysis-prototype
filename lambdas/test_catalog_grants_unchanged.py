@@ -39,6 +39,10 @@ Attributes:
     every other Athena action in that statement, so it reaches no execution the role could not
     already read. Once the change adding it merges, the base holds the action and this entry
     admits nothing; it stays as the record of the decision rather than being deleted.
+  MOVED_FROM: Templates that moved module, mapped to where the base may still hold them. A moved
+    template read at its new path alone would find nothing at the base and report every line as
+    gained; read at the old path it is compared with itself, as a move should be. The base copy at
+    the NEW path wins whenever it exists, so once the move merges the entry is inert.
 """
 
 import pathlib
@@ -62,6 +66,12 @@ MOVING_FOLDERS = frozenset({ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES
 ADMITTED_ACTIONS: dict[str, frozenset[str]] = {
     "infra/modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset(
         {"athena:GetQueryRuntimeStatistics"}
+    ),
+}
+
+MOVED_FROM: dict[str, str] = {
+    "infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl": (
+        "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
     ),
 }
 
@@ -116,26 +126,32 @@ def _templates(root: pathlib.Path | None = None) -> list[str]:
 
 
 def _at_base(path: str) -> str:
-    """One template's contents at the branch's base.
+    """One template's contents at the branch's base, followed across a move.
 
     Args:
       path: The repo-relative path.
 
     Returns:
-      The file's contents at the base, or the empty string if it did not exist there.
+      The file's contents at the base — at ``path``, or failing that at the path ``MOVED_FROM``
+      says it moved from — or the empty string if it existed at neither.
 
     Raises:
       None.
     """
     git = shutil.which("git") or "git"
-    finished = subprocess.run(  # noqa: S603
-        [git, "show", f"{_merge_base()}:{path}"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return finished.stdout if finished.returncode == 0 else ""
+    for candidate in (path, MOVED_FROM.get(path)):
+        if candidate is None:
+            continue
+        finished = subprocess.run(  # noqa: S603
+            [git, "show", f"{_merge_base()}:{candidate}"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if finished.returncode == 0:
+            return finished.stdout
+    return ""
 
 
 def _merge_base() -> str:
