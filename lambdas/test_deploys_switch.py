@@ -11,12 +11,13 @@ Attributes:
   ROOT: The repository root.
   WORKFLOWS: The directory the jobs are derived from.
   GATE: The condition that keeps a job off while the variable is unset.
-  AUTOMATIC_EVENTS: Triggers that start a run without a person choosing to.
+  MANUAL_EVENTS: The one trigger a person chooses to fire; every other event counts as automatic.
   STILL_RUNNING: The jobs that must keep running with the switch off: the app and Lambda checks,
     the security scans, and the infrastructure plan on pull requests.
 """
 
 import pathlib
+import re
 from typing import Any
 
 import yaml
@@ -24,7 +25,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
 GATE = "vars.DEPLOYS_ENABLED == 'true'"
-AUTOMATIC_EVENTS = frozenset({"push", "pull_request", "schedule", "workflow_run"})
+MANUAL_EVENTS = frozenset({"workflow_dispatch"})
 STILL_RUNNING = frozenset(
     {
         "ci.yml:ci",
@@ -41,7 +42,8 @@ def _gated(condition: str) -> bool:
 
     The switch has to be a conjunct of the whole expression: ``A || GATE`` runs whenever ``A``
     holds, and ``A || B && GATE`` binds the switch to ``B`` alone, so only the switch on its own
-    or ``<left> && GATE`` with no bare ``||`` in ``<left>`` counts.
+    or ``<left> && GATE`` with no bare ``||`` in ``<left>`` counts. Quoted literals are blanked
+    first, so a parenthesis inside a string cannot balance the scan.
 
     Args:
       condition: The job's ``if`` expression, without ``${{ }}``.
@@ -58,7 +60,7 @@ def _gated(condition: str) -> bool:
     suffix = f" && {GATE}"
     if not condition.endswith(suffix):
         return False
-    left = condition[: -len(suffix)].strip()
+    left = re.sub(r"'[^']*'", "''", condition[: -len(suffix)]).strip()
     if "||" not in left:
         return True
     if not (left.startswith("(") and left.endswith(")")):
@@ -68,14 +70,16 @@ def _gated(condition: str) -> bool:
         depth += {"(": 1, ")": -1}.get(char, 0)
         if depth == 0 and index < len(left) - 1:
             return False
-    return True
+    return depth == 0
 
 
 def _runnable_without_switch(document: dict[Any, Any]) -> set[str]:
     """The jobs in one workflow that can still run while the switch is off.
 
     A job with no switch runs if it has no ``needs``, or if its condition overrides the default
-    skip propagation with a status function, or if any job it needs can itself run.
+    skip propagation with a status function, or if any job it needs can itself run. GitHub reads
+    function names in any case, so the condition is lowered before the status functions are
+    looked for.
 
     Args:
       document: The parsed workflow.
@@ -99,7 +103,8 @@ def _runnable_without_switch(document: dict[Any, Any]) -> set[str]:
                 needs = job.get("needs") or []
                 needs = [needs] if isinstance(needs, str) else needs
                 overrides = any(
-                    fn in condition for fn in ("always()", "failure()", "cancelled()")
+                    fn in condition.lower()
+                    for fn in ("always()", "failure()", "cancelled()")
                 )
                 runnable[name] = (
                     not needs or overrides or any(can_run(need) for need in needs)
@@ -143,9 +148,9 @@ def test_only_the_checks_and_the_plan_run_while_deploys_are_switched_off() -> No
         the list no longer runs, which would mean the list has gone stale.
     """
     running = set()
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+    for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if _triggers(document) & AUTOMATIC_EVENTS:
+        if _triggers(document) - MANUAL_EVENTS:
             running |= {
                 f"{path.name}:{job}" for job in _runnable_without_switch(document)
             }
@@ -173,10 +178,12 @@ def test_the_switch_must_hold_the_whole_condition() -> None:
     assert _gated(GATE)
     assert _gated(f"always() && {GATE}")
     assert _gated(f"(a == 'push' || a == 'workflow_dispatch') && {GATE}")
+    assert _gated(f"(a) && (b == '||') && {GATE}")
     assert not _gated(f"a == 'push' || a == 'workflow_dispatch' && {GATE}")
     assert not _gated(f"(a) || (b) && {GATE}")
     assert not _gated(f"{GATE} || a == 'push'")
     assert not _gated("vars.DEPLOYS_ENABLED != 'false'")
+    assert not _gated(f"(a == '(') || (b) && {GATE}")
 
 
 def test_a_skipped_job_holds_off_what_needs_it_unless_a_status_function_overrides() -> (
@@ -199,7 +206,8 @@ def test_a_skipped_job_holds_off_what_needs_it_unless_a_status_function_override
             "build": {"if": GATE},
             "deploy": {"needs": ["build"]},
             "report": {"needs": "build", "if": "always()"},
+            "notify": {"needs": "build", "if": "Always()"},
             "lint": {},
         }
     }
-    assert _runnable_without_switch(document) == {"report", "lint"}
+    assert _runnable_without_switch(document) == {"report", "notify", "lint"}
