@@ -89,7 +89,7 @@ if TYPE_CHECKING:
 
 PERSONAL_TEMPLATE = ROOT / "infra" / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
 SHARED_TEMPLATE = (
-    ROOT / "infra" / "modules" / "shared-spaces" / "policies" / "portal-role-shared-space.json.tftpl"
+    ROOT / "infra" / "modules" / "shared-space-storage" / "policies" / "portal-role-shared-space.json.tftpl"
 )
 ANALYTICS_TEMPLATE = (
     ROOT / "infra" / "modules" / "analytics" / "policies" / "portal-role-analytics.json.tftpl"

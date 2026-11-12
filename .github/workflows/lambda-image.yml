@@ -29,11 +29,14 @@ on:
       # visible. `infra/**` is here for that reason and is the surprising one: a plane gaining a
       # verb changes the expected count without touching a single Python file, and a gate that
       # does not run for it is a gate that cannot see the change it exists to check. Scoped to
-      # `modules/` because that is what the derivation reads — the root's own files cannot change
-      # how many functions the modules declare.
+      # what the derivation reads: the modules, and every root file, because a building block's
+      # functions are named by the root call into it — a plane's verb map is written in
+      # `infra/plane-<slug>.tf`, so the root DOES change how many functions the fleet declares.
       #
       # The reader itself, `lambdas/fleet.py`, needs no line — `lambdas/**` above already covers it.
       - 'infra/modules/**'
+      - 'infra/*.tf'
+      - 'infra/planes/**'
       - '.github/scripts/lambda-image-matrix.sh'
       - '.github/scripts/lambda-image-sweep.py'
       - '.github/workflows/lambda-image.yml'

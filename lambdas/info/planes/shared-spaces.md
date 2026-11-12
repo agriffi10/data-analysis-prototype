@@ -29,7 +29,7 @@ paid for in a docstring; a rotated role id is paid for in lost work.
 
 ## The machine
 
-`infra/modules/shared-spaces/state-machine.asl.json.tftpl`
+`infra/planes/shared-spaces/state-machine.asl.json.tftpl`
 
 `Validate → Route → { CreateSpace | AddMembers | RemoveMembers | Leave | DeleteSpace | ForgetSpace |
 AcknowledgeMembership | TransferOwnership }`
@@ -71,7 +71,7 @@ machine and every verb.
 - **Locks are objects claimed under ETag CAS, released by OVERWRITING.** With `DeleteObject` denied,
   "free" is a *state* rather than an absence. The holder is the **execution ARN**, because a request
   id is whatever the caller sent, so two executions can carry the same one. Reusing an execution
-  name [was measured](../../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+  name [was measured](../../../infra/modules/control-plane/README.md#a-redelivered-message-is-not-a-re-run)
   to return the original run or fail rather than start a second, but that the Pipe reuses the name
   for a redelivered message is inferred, not proven, so no lock relies on it.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item

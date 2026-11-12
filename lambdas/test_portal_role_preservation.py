@@ -57,12 +57,22 @@ RETIRED_SINCE_BASELINE: frozenset[str] = frozenset(
     }
 )
 
+#: Permission templates that MOVED module since the baseline, old path to new. A move is neither
+#: a deletion nor an addition, and naming it is what lets the byte and content comparisons below
+#: follow the file to its new home instead of reporting one of each. The bytes are still compared
+#: against the baseline's copy at the OLD path.
+MOVED_SINCE_BASELINE: dict[str, str] = {
+    "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": (
+        "infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl"
+    ),
+}
+
 TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
 
 #: The one PERMISSION template this change edits, exempted from the byte comparison and asserted
 #: by content instead — the same treatment the trust template gets, and for the same reason: a
 #: byte comparison can only say "changed", which is not an answer to "changed how".
-EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
+EDITED = "infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl"
 
 #: The user-space permission template, exempted for the same reason and asserted by content in
 #: ``test_the_user_space_template_TRADED_its_depth_one_receipt_deny``. Its edit adds a
@@ -217,6 +227,21 @@ def _permission_templates(commit: str, root: pathlib.Path | None = None) -> set[
     }
 
 
+def _baseline_path(path: str) -> str:
+    """Where a template present today lived at the baseline commit.
+
+    Args:
+      path: The repo-relative path today.
+
+    Returns:
+      The path ``MOVED_SINCE_BASELINE`` says it moved from, or ``path`` itself when it did not move.
+
+    Raises:
+      None.
+    """
+    return {new: old for old, new in MOVED_SINCE_BASELINE.items()}.get(path, path)
+
+
 # ── FR-008: what stays true ───────────────────────────────────────────────────
 
 
@@ -319,8 +344,9 @@ def test_every_policy_statement_is_KEYED_BY_A_SID() -> None:
     """
     templates = sorted(
         path
-        for path in INFRA.glob("modules/*/policies/*.json.tftpl")
-        if not path.name.endswith("-trust.json.tftpl")
+        for pattern in ("modules/*/policies/*.json.tftpl", "planes/*/*.json.tftpl")
+        for path in INFRA.glob(pattern)
+        if not path.name.endswith(("-trust.json.tftpl", ".asl.json.tftpl"))
     )
 
     assert len(templates) >= 40, (
@@ -376,7 +402,10 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
     Raises:
       AssertionError: If a template was deleted, or differs from its pre-change bytes.
     """
-    baseline = _permission_templates(BASELINE_COMMIT)
+    at_baseline = _permission_templates(BASELINE_COMMIT)
+    unmoved = set(MOVED_SINCE_BASELINE) - at_baseline
+    assert not unmoved, f"{sorted(unmoved)} is named as moved but was not at the baseline"
+    baseline = {MOVED_SINCE_BASELINE.get(path, path) for path in at_baseline}
     assert len(baseline) >= 9, (
         f"the baseline holds {len(baseline)} permission templates — the enumeration is broken, "
         "and an empty one would make every comparison below vacuous"
@@ -384,7 +413,8 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
 
     present = {
         str(path.relative_to(REPO))
-        for path in INFRA.glob("modules/*/policies/portal-role-*.json.tftpl")
+        for pattern in ("modules/*/policies/portal-role-*.json.tftpl", "planes/*/portal-role-*.json.tftpl")
+        for path in INFRA.glob(pattern)
         if str(path.relative_to(REPO)) != TRUST
     }
     missing = baseline - present - RETIRED_SINCE_BASELINE
@@ -416,7 +446,7 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
     )
 
     for path in sorted(live - CONTENT_ASSERTED):
-        assert _git("show", f"{BASELINE_COMMIT}:{path}") == (REPO / path).read_text(), (
+        assert _git("show", f"{BASELINE_COMMIT}:{_baseline_path(path)}") == (REPO / path).read_text(), (
             f"{path} differs from its pre-change bytes"
         )
 
@@ -457,7 +487,7 @@ def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_permission_temp
     shared = (
         INFRA
         / "modules"
-        / "shared-spaces"
+        / "shared-space-storage"
         / "policies"
         / "portal-role-shared-space.json.tftpl"
     ).read_text()
@@ -592,7 +622,7 @@ def test_the_shared_space_template_lost_ONLY_the_enqueue_and_the_depth_one_denie
       AssertionError: If the enqueue statement survived, or any other statement did not.
     """
 
-    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{EDITED}"))
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{_baseline_path(EDITED)}"))
     after = _statements_by_sid((REPO / EDITED).read_text())
 
     assert len(before) >= 6, (
@@ -663,7 +693,7 @@ def test_the_user_space_template_TRADED_its_depth_one_receipt_deny() -> None:
       AssertionError: If anything but the listing statement changed, or it is not scoped to the
         two document prefixes.
     """
-    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{LISTING_EDITED}"))
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{_baseline_path(LISTING_EDITED)}"))
     after = _statements_by_sid((REPO / LISTING_EDITED).read_text())
 
     assert len(before) >= 5, "the sweep found nothing, so every comparison below is vacuous"
@@ -766,7 +796,7 @@ def test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings
       AssertionError: If anything but the two siblings and the one admitted action changed, or a
         sibling does not mirror the statement it twins.
     """
-    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{ANALYTICS_EDITED}"))
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{_baseline_path(ANALYTICS_EDITED)}"))
     after = _statements_by_sid((REPO / ANALYTICS_EDITED).read_text())
 
     assert len(before) >= 5, "the sweep found nothing, so every comparison below is vacuous"

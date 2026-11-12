@@ -88,7 +88,7 @@ read. `fscommon.paths` re-exports the three names.
 
 ## The machine
 
-`infra/modules/archive/state-machine.asl.json.tftpl` — the largest in the repo, because the restore
+`infra/planes/archive/state-machine.asl.json.tftpl` — the largest in the repo, because the restore
 branch is a wait loop with two guards.
 
 **Archive:** `ValidateAuthorize → ChooseMode → InspectSource → BuildTransferManifest →
@@ -206,7 +206,7 @@ CollectRestoreResults → DeleteArchived → UpdateReceipt → NotifyRestored`
 second door, and its 15s → 60s raise. Catchers do not cover a top-level execution failure. It is
 sized by a **makespan** (`MAP_MAX_CONCURRENCY` × `CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s),
 never an aggregate; a test adds the copy, the per-child overhead and the seven serial verbs, and
-reads the ceiling out of `locals.tf`.
+reads the ceiling out of the `ceiling` in `infra/plane-archive.tf`.
 
 It was raised from 10,800 to 43,200, and not because the data grew: the restore arm's long pole is a
 *wait*, and a 3-hour ceiling would have killed healthy restores before S3 finished with them. It is

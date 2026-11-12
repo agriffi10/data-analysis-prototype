@@ -18,8 +18,9 @@ is trusted whatever it holds, ``sends = None`` included.
 
 Attributes:
   LAMBDAS: The tree the sweep reads.
-  INFRA: The Terraform modules the timeouts are read from.
-  LOOP_OWNERS: Each production file with a notice loop, mapped to the Terraform module and the
+  INFRA: The Terraform tree the timeouts are read from: each plane's root file and the
+    control-plane module that declares its verbs.
+  LOOP_OWNERS: Each production file with a notice loop, mapped to the control plane and the
     verb whose invocation runs it.
   EXEMPT: ``(file, function) -> reason`` for a loop allowed to send without a shared budget.
 """
@@ -35,13 +36,14 @@ from tf_blocks import (
     lambda_declaration,
     lambda_input,
     map_entries,
+    module_calls,
     span,
     strip_comments,
     strip_noise,
 )
 
 LAMBDAS = pathlib.Path(__file__).resolve().parent
-INFRA = LAMBDAS.parent / "infra" / "modules"
+INFRA = LAMBDAS.parent / "infra"
 
 LOOP_OWNERS = {
     "shared-space-add-members/add_members.py": ("shared-spaces", "add-members"),
@@ -199,10 +201,10 @@ def _production_files():
 
 
 def _local_map(text: str, name: str) -> dict[str, str]:
-    """The entries of one map assigned in a module's ``locals``.
+    """The entries of one map assigned in a plane's ``locals``.
 
     Args:
-      text: The module's ``locals.tf``.
+      text: The plane's root file, ``infra/plane-<plane>.tf``.
       name: The local's name.
 
     Returns:
@@ -213,22 +215,21 @@ def _local_map(text: str, name: str) -> dict[str, str]:
         as a map with nothing in it.
     """
     found = re.search(rf"(?m)^[ \t]*{re.escape(name)}[ \t]*=[ \t]*\{{", strip_noise(text))
-    assert found, f"no `{name} = {{…}}` in locals.tf"
+    assert found, f"no `{name} = {{…}}` in the plane's root file"
     return map_entries(span(text, found.end() - 1))
 
 
-def deployed_timeout(module: str, verb: str) -> int:
-    """Reads one verb's Lambda timeout the way its module's declaration computes it.
+def deployed_timeout(plane: str, verb: str) -> int:
+    """Reads one verb's Lambda timeout the way the control-plane module's declaration computes it.
 
-    A plane that carries a timeout per verb reads it from its map in ``locals.tf``. The
-    shared-space plane carries only overrides there and a default in the declaration's
-    ``lookup``, so a verb absent from the overrides takes the default — which is why the verb is
-    first required to be one the declaration deploys at all: a misspelt name would otherwise read
-    the default and pass.
+    The plane's root file passes a local map as the module call's ``functions``, and the module
+    iterates that map and deploys each entry's own ``timeout``. Both links are read rather than
+    assumed, and the verb is first required to be one the map deploys at all, so a misspelt name
+    reddens instead of reading some other entry.
 
     Args:
-      module: The Terraform module's directory name.
-      verb: The verb's key in the module's function map.
+      plane: The plane's name, as in ``infra/plane-<plane>.tf``.
+      verb: The verb's key in the plane's function map.
 
     Returns:
       The timeout in seconds.
@@ -237,19 +238,20 @@ def deployed_timeout(module: str, verb: str) -> int:
       AssertionError: If the verb is not deployed, or the declaration computes its timeout in a
         way this does not read.
     """
-    declaration = lambda_declaration((INFRA / module / "lambda.tf").read_text(), "functions")
-    locals_text = (INFRA / module / "locals.tf").read_text()
-    functions = re.fullmatch(r"local\.(\w+)", argument(declaration, "for_each"))
-    assert functions, "the declaration no longer iterates a local map"
-    entries = _local_map(locals_text, functions.group(1))
-    assert verb in entries, f"{module} deploys no {verb!r} verb"
+    root = (INFRA / f"plane-{plane}.tf").read_text()
+    calls = [
+        body for body in module_calls(root).values() if argument(body, "source") == '"./modules/control-plane"'
+    ]
+    assert len(calls) == 1, f"plane-{plane}.tf makes {len(calls)} control-plane calls, not one"
+    functions = re.fullmatch(r"local\.(\w+)", argument(calls[0], "functions"))
+    assert functions, "the plane's call no longer passes a local map as its functions"
+    entries = _local_map(root, functions.group(1))
+    assert verb in entries, f"{plane} deploys no {verb!r} verb"
+    declaration = lambda_declaration((INFRA / "modules" / "control-plane" / "lambda.tf").read_text(), "functions")
+    assert argument(declaration, "for_each") == "var.functions", "the module no longer iterates its functions"
     expression = lambda_input(declaration, "timeout")
-    if expression == "each.value.timeout":
-        return int(re.search(r"\btimeout\s*=\s*(\d+)", strip_comments(entries[verb])).group(1))
-    lookup = re.fullmatch(r"lookup\(local\.(\w+),\s*each\.key,\s*(\d+)\)", expression)
-    assert lookup, f"{module}'s timeout is computed as {expression!r}, which this does not read"
-    overrides = _local_map(locals_text, lookup.group(1))
-    return int(overrides[verb].strip()) if verb in overrides else int(lookup.group(2))
+    assert expression == "each.value.timeout", f"the module computes a timeout as {expression!r}, which this does not read"
+    return int(re.search(r"\btimeout\s*=\s*(\d+)", strip_comments(entries[verb])).group(1))
 
 
 @pytest.mark.parametrize(
@@ -351,28 +353,28 @@ def test_every_notice_loop_names_the_verb_whose_timeout_bounds_it():
     assert loops == set(LOOP_OWNERS)
 
 
-@pytest.mark.parametrize(("module", "verb"), sorted(set(LOOP_OWNERS.values())))
-def test_a_loops_notices_leave_half_of_its_verbs_timeout(module, verb):
+@pytest.mark.parametrize(("plane", "verb"), sorted(set(LOOP_OWNERS.values())))
+def test_a_loops_notices_leave_half_of_its_verbs_timeout(plane, verb):
     """The notices run after the verb's real work, and a budget holds them to its deadline plus
     one call started just before it, however many there are; the other half is the work's."""
     worst = notify.SEND_DEADLINE_SECONDS + budget.CALL_CAP_SECONDS
-    timeout = deployed_timeout(module, verb)
+    timeout = deployed_timeout(plane, verb)
 
     assert worst <= timeout / 2, f"a loop's notices can take {worst}s inside {verb}, whose timeout is {timeout}s"
 
 
 @pytest.mark.parametrize(
-    ("module", "verb", "timeout"),
+    ("plane", "verb", "timeout"),
     [("shared-spaces", "add-members", 60), ("shared-spaces", "backfill-ever-active", 900), ("file-send", "notify", 60)],
-    ids=["the-lookup-default", "a-lookup-override", "a-per-verb-entry"],
+    ids=["a-shared-space-verb", "the-long-shared-space-entry", "a-file-send-verb"],
 )
-def test_the_timeout_reader_follows_the_declaration(module, verb, timeout):
-    """Positive controls on the three shapes it reads. These restate numbers on purpose: the reader
-    is what is under test here, and the comparison above never restates one."""
-    assert deployed_timeout(module, verb) == timeout
+def test_the_timeout_reader_follows_the_declaration(plane, verb, timeout):
+    """Positive controls on two planes, one entry far from its neighbours. These restate numbers on
+    purpose: the reader is what is under test here, and the comparison above never restates one."""
+    assert deployed_timeout(plane, verb) == timeout
 
 
 def test_the_timeout_reader_refuses_a_verb_the_module_does_not_deploy():
-    """Without this a misspelt shared-space verb would take the lookup default and pass."""
+    """Without this a misspelt verb could read some other entry's number and pass."""
     with pytest.raises(AssertionError, match="deploys no 'add-member' verb"):
         deployed_timeout("shared-spaces", "add-member")

@@ -27,7 +27,9 @@ import os
 import re
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_MODULES = os.path.join(_ROOT, "infra", "modules")
+_PLANES = os.path.join(_ROOT, "infra", "planes")
+_INFRA = os.path.join(_ROOT, "infra")
+_CONTROL_PLANE = os.path.join(_INFRA, "modules", "control-plane", "main.tf")
 
 EXPECTED_PLANES = 6
 
@@ -39,7 +41,7 @@ def _has_ceiling(asl_path: str) -> bool:
     reading the KEY's presence, never its value, which is the plane's own business.
 
     Args:
-      asl_path: Path to the module's `state-machine.asl.json.tftpl`.
+      asl_path: Path to the plane's `state-machine.asl.json.tftpl`.
 
     Returns:
       True when the machine sets a top-level ceiling.
@@ -56,23 +58,22 @@ def _has_ceiling(asl_path: str) -> bool:
 
 
 def _planes_with_a_ceiling() -> dict:
-    """Derives the population: every module whose machine sets a top-level ceiling.
+    """Derives the population: every plane whose machine sets a top-level ceiling.
 
     Args:
       None.
 
     Returns:
-      ``{module name: module directory}`` for each plane carrying a ceiling.
+      ``{plane name: the plane's root file}`` for each plane carrying a ceiling.
 
     Raises:
       None.
     """
     found = {}
-    for name in sorted(os.listdir(_MODULES)):
-        module = os.path.join(_MODULES, name)
-        asl = os.path.join(module, "state-machine.asl.json.tftpl")
+    for name in sorted(os.listdir(_PLANES)):
+        asl = os.path.join(_PLANES, name, "state-machine.asl.json.tftpl")
         if os.path.isfile(asl) and _has_ceiling(asl):
-            found[name] = module
+            found[name] = os.path.join(_INFRA, f"plane-{name}.tf")
     return found
 
 
@@ -95,13 +96,11 @@ def test_the_derivation_still_selects_a_real_population() -> None:
     Raises:
       AssertionError: If the derivation collapsed in either direction.
     """
-    all_modules = [
-        n for n in os.listdir(_MODULES) if os.path.isdir(os.path.join(_MODULES, n))
-    ]
+    all_planes = [n for n in os.listdir(_PLANES) if os.path.isdir(os.path.join(_PLANES, n))]
 
     assert POPULATION, "the ceiling detection matched nothing"
-    assert len(POPULATION) < len(all_modules), (
-        "the ceiling detection matched every module and no longer discriminates"
+    assert len(POPULATION) < len(all_planes), (
+        "the ceiling detection matched every plane and no longer discriminates"
     )
     assert len(POPULATION) == EXPECTED_PLANES, (
         f"planes with a ceiling are now {sorted(POPULATION)}; if one was added or removed, "
@@ -110,7 +109,13 @@ def test_the_derivation_still_selects_a_real_population() -> None:
 
 
 def test_every_plane_with_a_ceiling_declares_the_rule() -> None:
-    """The infra half, for the whole fleet rather than the two planes that guarded themselves.
+    """The infra half, for the whole fleet: a ceiling in the ASL is a ceiling in the call, and the
+    module turns the call's ceiling into the rule.
+
+    Both directions on the call, because the module creates the rule FROM the call's `ceiling`: a
+    plane whose ASL has a ceiling and whose call has none ships the ceiling with no door, and a
+    call with a ceiling over an ASL without one ships a rule for a timeout that cannot happen.
+    The rule itself is written once, in the module, and is read once.
 
     Args:
       None.
@@ -119,28 +124,38 @@ def test_every_plane_with_a_ceiling_declares_the_rule() -> None:
       None.
 
     Raises:
-      AssertionError: If a plane with a ceiling is missing the rule, its target, its invoke
-        permission, or lets `FAILED` into the pattern.
+      AssertionError: If a plane's call and its ASL disagree about the ceiling, the call names a
+        notifier other than notify-failure, or the module's rule is missing a part or lets
+        `FAILED` into the pattern.
     """
-    for name, module in sorted(POPULATION.items()):
-        with open(os.path.join(module, "stepfunction.tf"), encoding="utf-8") as handle:
+    for name in sorted(os.listdir(_PLANES)):
+        with open(os.path.join(_INFRA, f"plane-{name}.tf"), encoding="utf-8") as handle:
             text = handle.read()
+        declares = re.search(r"^\s*ceiling\s*=\s*\{", text, re.MULTILINE) is not None
+        assert declares == (name in POPULATION), (
+            f"{name}'s ASL {'sets' if name in POPULATION else 'sets no'} a TimeoutSeconds and its "
+            f"call {'passes' if declares else 'passes no'} `ceiling`; the rule exists only from "
+            "the call's ceiling, so the two must agree"
+        )
+        if declares:
+            assert 'notifier_verb    = "notify-failure"' in text, (
+                f"{name}'s ceiling must be told through its notify-failure verb"
+            )
 
-        assert 'resource "aws_cloudwatch_event_rule" "execution_timed_out"' in text, (
-            f"{name} sets a TimeoutSeconds and no Catch can cover it, so it needs the rule"
+    with open(_CONTROL_PLANE, encoding="utf-8") as handle:
+        module = handle.read()
+    for resource in ("aws_cloudwatch_event_rule", "aws_cloudwatch_event_target", "aws_lambda_permission"):
+        block = module.split(f'resource "{resource}" "execution_timed_out"')
+        assert len(block) == 2, f"the control-plane module has no {resource} for a timed-out run"
+        assert "count = var.ceiling == null ? 0 : 1" in block[1].split("\n}\n")[0], (
+            f"the module's {resource} is not created from the call's ceiling"
         )
-        assert 'resource "aws_cloudwatch_event_target" "execution_timed_out"' in text, (
-            f"{name} declares the rule and nothing to deliver to"
-        )
-        assert 'resource "aws_lambda_permission" "execution_timed_out"' in text, (
-            f"{name}'s rule has no resource-based invoke grant"
-        )
-        assert 'status          = ["TIMED_OUT"]' in text, f"{name} does not match TIMED_OUT"
-        pattern = text.split("event_pattern")[1].split("})")[0]
-        assert "FAILED" not in pattern, (
-            f"{name} would double-notify: every whole-request failure the shared Catch takes "
-            "already reaches NotifyFailure"
-        )
+    assert 'status          = ["TIMED_OUT"]' in module, "the module's rule does not match TIMED_OUT"
+    pattern = module.split("event_pattern")[1].split("})")[0]
+    assert "FAILED" not in pattern, (
+        "the rule would double-notify: every whole-request failure the shared Catch takes "
+        "already reaches NotifyFailure"
+    )
 
 
 def test_every_plane_with_a_ceiling_dispatches_in_its_handler() -> None:

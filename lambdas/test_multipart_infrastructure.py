@@ -10,7 +10,7 @@ never what AWS applied — the live checks own that half.
 
 Attributes:
   USER_SPACE: The data module's bucket configuration.
-  SHARED_SPACE: The shared-spaces module's bucket configuration.
+  SHARED_SPACE: The shared-space storage module's bucket configuration.
 """
 
 import pathlib
@@ -20,7 +20,7 @@ from tf_blocks import blocks
 _INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 
 USER_SPACE = _INFRA / "modules" / "data" / "s3.tf"
-SHARED_SPACE = _INFRA / "modules" / "shared-spaces" / "s3.tf"
+SHARED_SPACE = _INFRA / "modules" / "shared-space-storage" / "main.tf"
 
 
 def _cors_blocks() -> dict[str, str]:
@@ -132,7 +132,7 @@ def test_no_portal_policy_lets_a_user_enumerate_in_progress_uploads() -> None:
     Raises:
       AssertionError: If a portal-role policy acquires the action.
     """
-    policies = sorted((_INFRA / "modules").rglob("*portal-role*.json.tftpl"))
+    policies = sorted(_INFRA.rglob("*portal-role*.json.tftpl"))
 
     assert policies, "the sweep found no portal-role policies, so an empty population would pass"
     offenders = sorted(

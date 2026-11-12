@@ -2,7 +2,7 @@
 
 IAM's inline-policy limit is an AGGREGATE over a role, not a per-document one, and the portal role
 carries three inline policies written in three different modules — ``analytics`` and
-``shared-spaces`` attach theirs by ``var.portal_role_name``, ``data`` by ``aws_iam_role.portal.id``.
+``shared-space-storage`` attach theirs by ``var.portal_role_name``, ``data`` by ``aws_iam_role.portal.id``.
 Nothing in the Terraform makes that sharing visible from any one of them, so each module's author
 sees a small document and the ceiling is somewhere else entirely.
 
@@ -73,7 +73,7 @@ HEADROOM_FLOOR = 1_000
 TEMPLATES = (
     "modules/analytics/policies/portal-role-analytics.json.tftpl",
     "modules/data/policies/portal-role-permissions.json.tftpl",
-    "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl",
+    "modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl",
 )
 
 SUBSTITUTIONS = {

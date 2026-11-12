@@ -46,7 +46,8 @@ Attributes:
   ADMIN_BUCKET_TOKEN: The template variable naming the admin bucket, unexpanded.
   USER_SPACE_BUCKET_TOKEN: The template variable naming the user-space bucket, unexpanded.
   REGISTRY_LIST_SID: The statement each plane names its registry list grant with.
-  POLICY_FOR_PREFIX: Lambda-tree directory prefix to the policy of the role that runs it.
+  POLICY_FOR_PREFIX: Lambda-tree directory prefix to the policy of the role that runs it,
+    relative to ``infra/`` — a control plane's under ``planes/``, every other role's in its module.
   ORCHESTRATOR_POLICY: The policy of the plane that owns the registry.
   TOLERATED_OPTIMISATION: A read whose failure costs a convenience, never a wrong answer.
   DISPOSITIONS: Every absence site the sweep finds, and why each is sound. Keyed
@@ -78,24 +79,24 @@ USER_SPACE_BUCKET_TOKEN = "@{bucket_arn}"
 #: all — left the suite green. An unmapped directory is now a hard failure rather than a silent
 #: exemption, which is what makes the claim in this file's docstring true.
 POLICY_FOR_PREFIX = {
-    "archive": "archive/policies/execution.json.tftpl",
-    "data-quality": "data-quality/policies/execution.json.tftpl",
-    "file-ops": "file-ops/policies/execution.json.tftpl",
-    "results-conversion": "results-conversion/policies/execution.json.tftpl",
-    "file-send": "file-send/policies/execution.json.tftpl",
-    "table-builder": "table-builder/policies/execution.json.tftpl",
-    "table-share": "table-share/policies/execution.json.tftpl",
-    "shared-space": "shared-spaces/policies/orchestrator-permissions.json.tftpl",
-    "control-plane-dlq-drain": "control-plane-dlq-drain/policies/drain-permissions.json.tftpl",
-    "notifications-writer": "notifications/policies/writer-permissions.json.tftpl",
-    "user-directory-build": "user-directory/policies/build-permissions.json.tftpl",
-    "api": "api/policies/api-execution-policy.json.tftpl",
+    "archive": "planes/archive/execution.json.tftpl",
+    "data-quality": "planes/data-quality/execution.json.tftpl",
+    "file-ops": "planes/file-ops/execution.json.tftpl",
+    "results-conversion": "planes/results-conversion/execution.json.tftpl",
+    "file-send": "planes/file-send/execution.json.tftpl",
+    "table-builder": "planes/table-builder/execution.json.tftpl",
+    "table-share": "planes/table-share/execution.json.tftpl",
+    "shared-space": "planes/shared-spaces/execution.json.tftpl",
+    "control-plane-dlq-drain": "modules/control-plane-dlq-drain/policies/drain-permissions.json.tftpl",
+    "notifications-writer": "modules/notifications/policies/writer-permissions.json.tftpl",
+    "user-directory-build": "modules/user-directory/policies/build-permissions.json.tftpl",
+    "api": "modules/api/policies/api-execution-policy.json.tftpl",
 }
 
 #: The orchestrator's own registry grant. The shared-spaces plane WRITES the registry and reads it
 #: back through its own module rather than through ``cpcommon``, so it is invisible to the import
 #: sweep — and deleting this statement left the whole suite green until it was named here.
-ORCHESTRATOR_POLICY = "shared-spaces/policies/orchestrator-permissions.json.tftpl"
+ORCHESTRATOR_POLICY = "planes/shared-spaces/execution.json.tftpl"
 
 #: Reason codes. **Only the registry and portal-role grants below are checked against a policy
 #: template**; every other entry is a reviewed claim about the code, recorded so a change that
@@ -463,7 +464,7 @@ def policy_for(directory):
     """
     for prefix in sorted(POLICY_FOR_PREFIX, key=len, reverse=True):
         if directory == prefix or directory.startswith(f"{prefix}-"):
-            return ROOT / "infra" / "modules" / POLICY_FOR_PREFIX[prefix]
+            return ROOT / "infra" / POLICY_FOR_PREFIX[prefix]
     return None
 
 
@@ -787,7 +788,7 @@ def test_the_plane_that_owns_the_registry_can_read_it_back_absent():
     Raises:
       AssertionError: If the orchestrator cannot list the registry prefix, or can list wider.
     """
-    policy = ROOT / "infra" / "modules" / ORCHESTRATOR_POLICY
+    policy = ROOT / "infra" / ORCHESTRATOR_POLICY
     assert policy.exists(), f"{ORCHESTRATOR_POLICY} has moved — this test has no subject"
 
     grants = list_grants_covering(policy, ADMIN_BUCKET_TOKEN, REGISTRY_PREFIX)
@@ -842,8 +843,8 @@ def test_both_roles_that_touch_the_membership_index_can_see_it_absent():
       AssertionError: If either role cannot list the membership prefix, or can reach wider.
     """
     roles = {
-        "the API's execution role": ROOT / "infra" / "modules" / POLICY_FOR_PREFIX["api"],
-        "the shared-space orchestrator": ROOT / "infra" / "modules" / ORCHESTRATOR_POLICY,
+        "the API's execution role": ROOT / "infra" / POLICY_FOR_PREFIX["api"],
+        "the shared-space orchestrator": ROOT / "infra" / ORCHESTRATOR_POLICY,
     }
     for who, policy in roles.items():
         assert policy.exists(), f"{policy} has moved — this test has no subject for {who}"

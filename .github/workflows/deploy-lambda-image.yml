@@ -13,7 +13,7 @@ name: Deploy Lambda image
 # deploy-spa-image.yml used to give, which no longer applies to that workflow either. Two
 # downstream workflows name `github.sha` as this image's tag and both fire on trigger sets WIDER
 # than this image's own inputs: `deploy-infra.yml` polls the registry for `<sha>` for ten minutes
-# and then hard-errors, and `deploy-lambdas.yml` fires on `infra/modules/**` while
+# and then hard-errors, and `deploy-lambdas.yml` fires on `infra/modules/**` and the plane files while
 # `point-lambda.sh` waits per function. Filtering this build turns a routine infrastructure merge
 # into a red main — 19 of the 40 merges measured for the SPA change touched `infra/`. The saving
 # would be about a minute on the 10 in 40 that touch no Lambda input. Full reasoning, including

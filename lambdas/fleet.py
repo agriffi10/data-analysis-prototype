@@ -327,8 +327,180 @@ def _resolve_map(name: str, bodies: list[str], where: str, for_each: str | None)
     return {stem.replace(placeholder, key) for key in keys}
 
 
+def _var_bound_calls(module: pathlib.Path) -> list[tuple[str, str]]:
+    """The fleet-module calls in one module whose names come from that module's own inputs.
+
+    A building block such as `control-plane` or `scheduled-function` cannot name its functions by
+    itself: its ``function_name`` reads ``var.…``, directly or through a local built from one, and
+    only the call into it says what that is.
+
+    Args:
+      module: The module directory.
+
+    Returns:
+      ``(call name, function_name expression)`` for every such call, in file order.
+
+    Raises:
+      None.
+    """
+    found = []
+    bodies = _locals_bodies(module)
+    for path in sorted(module.glob("*.tf")):
+        for call, inner in module_calls(path.read_text(encoding="utf-8")).items():
+            try:
+                source = argument(inner, "source")
+                expression = argument(inner, "function_name").strip()
+            except ValueError:
+                continue
+            if not _is_fleet_module(source):
+                continue
+            indexed = re.fullmatch(r"local\.([A-Za-z0-9_]+)\[each\.key\]", expression)
+            text = _local_value(bodies, indexed.group(1), module.name) if indexed else expression
+            if "var." in text:
+                found.append((call, expression))
+    return found
+
+
+def _literal(expression: str, where: str, variable: str) -> str:
+    """The value of a call argument that must be a plain quoted literal.
+
+    Args:
+      expression: The argument as the call writes it.
+      where: The call being read, so a failure names it.
+      variable: The input's name, for the message.
+
+    Returns:
+      The literal, quotes removed.
+
+    Raises:
+      FleetError: When the argument is not a literal. A name built from another reference would
+        resolve here to text that still carries the reference, and CI would point a function
+        that cannot exist.
+    """
+    value = expression.strip()
+    if not re.fullmatch(r'"[^"$%]*"', value):
+        raise FleetError(
+            f"{where}: `{variable} = {value}` is not a literal. A building block's functions are "
+            "named from it, so it must be written as a plain string at the call."
+        )
+    return value[1:-1]
+
+
+def _resolve_bound(
+    module: pathlib.Path, call: str, expression: str, args: dict[str, str], root: list[str], where: str
+) -> list[str]:
+    """The short names one building-block function declaration resolves to, through its root call.
+
+    Two shapes, which are the two building blocks: ``function_name = var.<input>``, resolved as
+    the root resolves any name; and ``function_name = local.<names>[each.key]`` over a
+    comprehension ``{ for k, _ in var.<map> : k => "<template>" }``, whose keys are the root
+    local the call passes and whose template's other inputs are the call's literals.
+
+    Args:
+      module: The building block's directory.
+      call: The fleet-module call inside it.
+      expression: That call's ``function_name``.
+      args: The root call's arguments, by input name.
+      root: The root's locals bodies.
+      where: The root call being read, so a failure names it.
+
+    Returns:
+      Every short name the declaration resolves to.
+
+    Raises:
+      FleetError: On any other shape, an input the call does not pass, or an input that is not a
+        literal where the template needs one.
+    """
+    direct = re.fullmatch(r"var\.([A-Za-z0-9_]+)", expression)
+    if direct:
+        if direct.group(1) not in args:
+            raise FleetError(f"{where}: does not pass `{direct.group(1)}`, which names its function")
+        return _resolve(args[direct.group(1)], root, where, None)
+
+    indexed = re.fullmatch(r"local\.([A-Za-z0-9_]+)\[each\.key\]", expression)
+    body = _local_value(_locals_bodies(module), indexed.group(1), module.name) if indexed else ""
+    comprehension = re.search(
+        r"\{\s*for\s+([A-Za-z0-9_]+)\s*,\s*[A-Za-z0-9_]+\s+in\s+var\.([A-Za-z0-9_]+)\s*:"
+        r"\s*[A-Za-z0-9_]+\s*=>\s*(\"[^\"]*\")",
+        body,
+    )
+    if not comprehension:
+        raise FleetError(
+            f"{module.name}/{call}: cannot resolve `function_name = {expression}` through a root "
+            "call; a building block names its functions as `var.<input>` or "
+            "`local.<names>[each.key]` over a `for … in var.<map>` comprehension."
+        )
+    variable, source, template = comprehension.groups()
+    if source not in args:
+        raise FleetError(f"{where}: does not pass `{source}`, which lists its functions")
+    mapped = re.fullmatch(r"local\.([A-Za-z0-9_]+)", args[source].strip())
+    if not mapped:
+        raise FleetError(f"{where}: `{source} = {args[source].strip()}` is not a root local")
+    names = _resolve_map_keys(mapped.group(1), root, where)
+
+    def bind(match: re.Match[str]) -> str:
+        """Replaces one ``${var.<input>}`` in the name template with the call's literal for it.
+
+        Args:
+          match: The interpolation, its input name captured.
+
+        Returns:
+          The project and environment interpolations unchanged, since the prefix check reads
+          them; any other input's literal value.
+
+        Raises:
+          FleetError: When the call does not pass the input, or passes something other than a
+            plain string.
+        """
+        name = match.group(1)
+        if name in ("project_name", "environment"):
+            return match.group(0)
+        if name not in args:
+            raise FleetError(f"{where}: does not pass `{name}`, which its function names read")
+        return _literal(args[name], where, name)
+
+    stem = _short_name(re.sub(r"\$\{var\.([A-Za-z0-9_]+)\}", bind, template), where)
+    placeholder = "${" + variable + "}"
+    if placeholder not in stem:
+        raise FleetError(f"{module.name}/{call}: the name template does not interpolate `{variable}`")
+    return sorted(stem.replace(placeholder, key) for key in names)
+
+
+def _resolve_map_keys(source: str, bodies: list[str], where: str) -> list[str]:
+    """The quoted keys of one map local, refusing an empty map and bare keys.
+
+    Args:
+      source: The map local's name.
+      bodies: The locals bodies it is declared in.
+      where: The declaration being read, so a failure names it.
+
+    Returns:
+      The keys, in the order they appear.
+
+    Raises:
+      FleetError: When the map names nothing, or writes a key bare — both shrink the fleet while
+        every count derived from it agrees.
+    """
+    body_of_source = _local_value(bodies, source, where)
+    keys = map_entries(span(body_of_source, 0))
+    if not keys:
+        raise FleetError(f"{where}: `{source}` names no functions")
+    bare = _bare_keys(span(body_of_source, 0))
+    if bare:
+        raise FleetError(
+            f"{where}: `{source}` writes {', '.join(bare)} as bare identifier key(s), which this "
+            "reader cannot see. Quote them."
+        )
+    return list(keys)
+
+
 def function_names(repo: pathlib.Path) -> list[str]:
     """Every Lambda in the fleet, as the short name CI and the source tree both use.
+
+    Building blocks are resolved through the root's calls into them FIRST, and a building block's
+    directory is passed over in the module walk only because a root call resolved it. One no call
+    resolved is walked like any module, and its ``var.`` names raise there, so a building block
+    nothing calls cannot be skipped into an empty answer.
 
     Args:
       repo: The repository root.
@@ -342,8 +514,57 @@ def function_names(repo: pathlib.Path) -> list[str]:
         and an empty fleet passes every set comparison against another empty one.
     """
     found: dict[str, str] = {}
-    for module in sorted((repo / "infra" / "modules").iterdir()):
-        if not module.is_dir():
+
+    def record(name: str, where: str) -> None:
+        """Adds one resolved short name to the fleet, refusing a residual interpolation or a twin.
+
+        Args:
+          name: The short name.
+          where: The declaration it came from, for the refusal and for a twin's message.
+
+        Returns:
+          None.
+
+        Raises:
+          FleetError: When the name still carries an interpolation, or another declaration
+            already named it.
+        """
+        if "${" in name:
+            raise FleetError(
+                f"{where}: resolves to {name!r}, which still carries an unresolved "
+                "interpolation. Only the project and environment are resolved here, so "
+                "a name built from any other reference comes back with the reference "
+                "still in it and is pointed at a function that cannot exist."
+            )
+        if name in found:
+            raise FleetError(f"{where} and {found[name]} both declare `{name}`")
+        found[name] = where
+
+    infra = repo / "infra"
+    modules = infra / "modules"
+    root = _locals_bodies(infra)
+    resolved: set[str] = set()
+    for path in sorted(infra.glob("*.tf")):
+        for call, inner in module_calls(path.read_text(encoding="utf-8")).items():
+            try:
+                source = argument(inner, "source").strip('"').rstrip("/")
+            except ValueError:
+                continue
+            if not source.startswith("./modules/"):
+                continue
+            target = modules / source.rsplit("/", 1)[-1]
+            bound = _var_bound_calls(target) if target.is_dir() else []
+            if not bound:
+                continue
+            args = {key: argument(inner, key) for key in _argument_names(inner)}
+            where = f"{path.name} module.{call}"
+            for inner_call, expression in bound:
+                for name in _resolve_bound(target, inner_call, expression, args, root, where):
+                    record(name, where)
+            resolved.add(target.name)
+
+    for module in sorted(modules.iterdir()):
+        if not module.is_dir() or module.name in resolved:
             continue
         bodies = _locals_bodies(module)
         for path in sorted(module.glob("*.tf")):
@@ -360,22 +581,38 @@ def function_names(repo: pathlib.Path) -> list[str]:
                 except ValueError:
                     for_each = None
                 for name in _resolve(argument(inner, "function_name"), bodies, where, for_each):
-                    if "${" in name:
-                        raise FleetError(
-                            f"{where}: resolves to {name!r}, which still carries an unresolved "
-                            "interpolation. Only the project and environment are resolved here, so "
-                            "a name built from any other reference comes back with the reference "
-                            "still in it and is pointed at a function that cannot exist."
-                        )
-                    if name in found:
-                        raise FleetError(f"{where} and {found[name]} both declare `{name}`")
-                    found[name] = where
+                    record(name, where)
     if len(found) < 30:
         raise FleetError(
-            f"only {len(found)} functions found in infra/modules — the Terraform sweep has stopped "
+            f"only {len(found)} functions found in infra — the Terraform sweep has stopped "
             "working, and every comparison against this answer would pass vacuously."
         )
     return sorted(found)
+
+
+def _argument_names(inner: str) -> list[str]:
+    """The names of the top-level arguments of one block body.
+
+    Args:
+      inner: A block's body, braces excluded.
+
+    Returns:
+      Every ``name =`` at the body's top level.
+
+    Raises:
+      None.
+    """
+    names, depth = [], 0
+    for line in inner.splitlines():
+        stripped = re.sub(r'"(?:[^"\\]|\\.)*"', '""', line.strip())
+        stripped = re.split(r"#|//", stripped, maxsplit=1)[0]
+        if depth == 0:
+            match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)", stripped)
+            if match:
+                names.append(match.group(1))
+        depth += stripped.count("{") + stripped.count("[") + stripped.count("(")
+        depth -= stripped.count("}") + stripped.count("]") + stripped.count(")")
+    return names
 
 
 def main() -> int:

@@ -17,7 +17,7 @@ import re
 
 _TFTPL = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "infra", "modules", "data-quality", "state-machine.asl.json.tftpl",
+    "..", "..", "infra", "planes", "data-quality", "state-machine.asl.json.tftpl",
 )
 
 

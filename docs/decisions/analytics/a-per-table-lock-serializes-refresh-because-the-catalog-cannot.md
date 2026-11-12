@@ -38,7 +38,7 @@ implementation convenience, so **"free" is a state of the object, not its absenc
 caller sent, and the queue deduplicates it for only five minutes, so two executions can carry the same
 id — and the re-entrancy branch (which exists so an SFN Task retry does not self-refuse) would hand the
 lock to both, silently. A redelivered message should not be the road to that second execution:
-reusing an execution name [was measured](../../../infra/info/control-plane-shape.md#a-redelivered-message-is-not-a-re-run)
+reusing an execution name [was measured](../../../infra/modules/control-plane/README.md#a-redelivered-message-is-not-a-re-run)
 to return the original ARN while that run is going and to fail with `ExecutionAlreadyExists` once it
 has closed, so a redelivery that reuses its name is either swallowed or fails its start, and a start
 that keeps failing ends on the request DLQ. That the Pipe reuses the name for a redelivered message is

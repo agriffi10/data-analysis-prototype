@@ -219,16 +219,26 @@ def test_the_two_map_exports_are_told_apart_by_their_prefix():
 def test_the_admin_prefix_matches_the_iam_grant_and_the_lifecycle_rule():
     """FR-001 AC9. Three files, one decision: a plan written outside the execution role's grant
     fails at runtime, and one written outside the lifecycle rule is never expired. Read as text
-    rather than restated, because restating it is how the three come apart."""
+    rather than restated, because restating it is how the three come apart.
+
+    The machine role's grant is the shared module's one template, rendered with the prefix the
+    archive call hands it, so both halves are read: the template grants the prefix it is given,
+    and the archive call gives it this one."""
     import pathlib
 
     infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
-    execution = (infra / "modules" / "archive" / "policies" / "execution.json.tftpl").read_text()
-    sfn = (infra / "modules" / "archive" / "policies" / "sfn-permissions.json.tftpl").read_text()
+    execution = (infra / "planes" / "archive" / "execution.json.tftpl").read_text()
+    sfn = (
+        infra / "modules" / "control-plane" / "policies" / "sfn-permissions.json.tftpl"
+    ).read_text()
+    call = (infra / "plane-archive.tf").read_text()
     lifecycle = (infra / "modules" / "analytics" / "s3.tf").read_text()
 
     assert f"admin_bucket_arn}}/{plan.PREFIX}/*" in execution
-    assert f"admin_bucket_arn}}/{plan.PREFIX}/*" in sfn
+    assert "admin_bucket_arn}/${manifest_prefix}/*" in sfn
+    assert re.findall(
+        r"^\s*distributed_map\s*=\s*\{[^}]*?\bmanifest_prefix\s*=\s*\"([^\"]+)\"", call, re.MULTILINE
+    ) == [plan.PREFIX]
     assert f'prefix = "{plan.PREFIX}/"' in lifecycle
 
 
@@ -741,7 +751,7 @@ def _queue_retention(sqs: str, resource: str) -> int:
     """The retention one queue declares, or SQS's default when it declares none.
 
     Args:
-      sqs: The module's ``sqs.tf``.
+      sqs: The control-plane module's ``main.tf``, which declares every plane's two queues.
       resource: The ``aws_sqs_queue`` resource name.
 
     Returns:
@@ -786,8 +796,8 @@ def test_the_claim_outlives_every_message_that_could_start_a_second_run_of_one_i
     infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
     lifecycle = (infra / "modules" / "analytics" / "s3.tf").read_text()
     variables = (infra / "modules" / "analytics" / "variables.tf").read_text()
-    sqs = (infra / "modules" / "archive" / "sqs.tf").read_text()
-    locals_tf = (infra / "modules" / "archive" / "locals.tf").read_text()
+    sqs = (infra / "modules" / "control-plane" / "main.tf").read_text()
+    call = (infra / "plane-archive.tf").read_text()
 
     configurations = _hcl_blocks(
         lifecycle, r'resource\s+"aws_s3_bucket_lifecycle_configuration"[^{]*\{'
@@ -810,7 +820,7 @@ def test_the_claim_outlives_every_message_that_could_start_a_second_run_of_one_i
     )
     assert default, f"{expiry_var.group(1)} has no default to read"
 
-    ceiling = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", locals_tf)
+    ceiling = re.search(r"^\s*ceiling\s*=\s*\{[^}]*?\bseconds\s*=\s*(\d+)", call, re.MULTILINE)
     assert ceiling, "the machine has no timeout to read"
 
     dlq = _queue_retention(sqs, "requests_dlq")

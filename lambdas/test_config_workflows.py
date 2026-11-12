@@ -601,10 +601,12 @@ def _path_filters(document: dict[Any, Any]) -> dict[str, list[str]]:
 def _filter_selects(globs: list[str], path: str) -> bool:
     """Whether a ``paths:`` list selects one repository path.
 
-    Only the two shapes these workflows use are understood — a literal path, and a
-    ``dir/**`` prefix. Every entry is checked before any is matched, and anything else
-    RAISES rather than being approximated: a matcher that quietly mishandles a shape reports
-    a file as covered for the wrong reason, which is the failure this exists to catch.
+    Only the three shapes these workflows use are understood — a literal path, a ``dir/**``
+    prefix, and a single ``*`` inside one path segment (``infra/plane-*.tf``), which GitHub
+    matches against any characters but ``/``. Every entry is checked before any is matched,
+    and anything else RAISES rather than being approximated: a matcher that quietly mishandles
+    a shape reports a file as covered for the wrong reason, which is the failure this exists to
+    catch.
 
     Args:
       globs: The filter's entries.
@@ -618,12 +620,19 @@ def _filter_selects(globs: list[str], path: str) -> bool:
     """
     for glob in globs:
         literal = glob.removesuffix("/**")
-        assert not re.search(r"[*?\[\]!+]", literal), (
+        assert not re.search(r"[?\[\]!+]", literal) and "**" not in literal, (
             f"`{glob}` is a filter shape this test does not implement; teach the matcher "
             "rather than letting it approximate"
         )
     return any(
-        path == glob or (glob.endswith("/**") and path.startswith(glob.removesuffix("**")))
+        path == glob
+        or (glob.endswith("/**") and path.startswith(glob.removesuffix("**")))
+        or (
+            not glob.endswith("/**")
+            and "*" in glob
+            and re.fullmatch("[^/]*".join(re.escape(part) for part in glob.split("*")), path)
+            is not None
+        )
         for glob in globs
     )
 
@@ -927,3 +936,13 @@ def test_the_derivation_reads_each_spelling_of_a_path(
       AssertionError: If the derivation misses the file, or reports one nothing runs.
     """
     assert set(_run_references(document, SPELLING_CORPUS_FILES)) == expected
+
+
+def test_a_single_segment_star_matches_inside_one_segment_only() -> None:
+    """The matcher's third shape, held both ways: a ``*`` that crossed ``/`` would report a file
+    as covered by a filter GitHub never applies to it, which is the false green this file exists
+    to catch."""
+    assert _filter_selects(["infra/plane-*.tf"], "infra/plane-archive.tf")
+    assert not _filter_selects(["infra/plane-*.tf"], "infra/plane-a/b.tf")
+    assert not _filter_selects(["infra/plane-*.tf"], "infra/planes/archive/state-machine.tf")
+    assert not _filter_selects(["infra/plane-*.tf"], "infra/plane-archive.tfvars")

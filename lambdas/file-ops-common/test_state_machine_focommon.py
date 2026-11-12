@@ -26,7 +26,7 @@ sys.path.insert(
 )
 
 
-MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "file-ops"
+MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "planes" / "file-ops"
 TEMPLATE = MODULE / "state-machine.asl.json.tftpl"
 
 #: Every state that frees the lock. Three, because one ASL state has one ``Next`` and the success

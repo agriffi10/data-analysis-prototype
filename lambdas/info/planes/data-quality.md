@@ -13,7 +13,7 @@ Sampling and Fargate-in-a-VPC were both rejected, and Fargate remains the record
 
 ## The machine
 
-`infra/modules/data-quality/state-machine.asl.json.tftpl`
+`infra/planes/data-quality/state-machine.asl.json.tftpl`
 
 `ValidateAuthorize → StampExecution → InspectSource → CreateTempTables → StartProfileQuery → WaitForQuery ⇄
 CheckQuery → ByteScan → AssembleReport → DropTempTables`

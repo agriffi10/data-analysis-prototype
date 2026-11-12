@@ -9,9 +9,10 @@ being a plane.
 Attributes:
   REPO: The repository root.
   INFRA: The IaC tree.
-  QUEUE_MODULES: The modules that own a request queue, enumerated from the filesystem. Eight
-    control planes plus feedback, which is not a plane — it has one verb and no state machine —
-    but which owns a request queue on exactly these terms.
+  QUEUE_MODULES: The owners of a request queue, enumerated from the filesystem: each plane whose
+    root file calls the control-plane module, which creates its queue, plus every module with its
+    own request queue — feedback, which is not a plane (one verb and no state machine) but owns a
+    request queue on exactly these terms, and notifications.
   EXPECTED_QUEUE_MODULES: The count measured when feedback landed, as a tripwire on the glob
     rather than as the list itself. A glob that found nothing would make every sweep here
     vacuously clean.
@@ -22,13 +23,19 @@ Attributes:
 import pathlib
 import re
 
+from tf_blocks import argument, module_calls
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
 
 QUEUE_MODULES = sorted(
-    path.parent.name
-    for path in INFRA.glob("modules/*/sqs.tf")
-    if "requests" in path.read_text()
+    [
+        path.stem.removeprefix("plane-")
+        for path in INFRA.glob("*.tf")
+        for body in module_calls(path.read_text()).values()
+        if argument(body, "source").strip('"').rstrip("/") == "./modules/control-plane"
+    ]
+    + [path.parent.name for path in INFRA.glob("modules/*/sqs.tf") if "requests" in path.read_text()]
 )
 
 EXPECTED_QUEUE_MODULES = 10
@@ -121,7 +128,10 @@ def test_every_execution_role_that_notifies_still_holds_its_grant():
     """
     missing = []
     for role in NOTIFYING_ROLES:
-        templates = list(INFRA.glob(f"modules/{role}/policies/*.json.tftpl"))
+        templates = [
+            *INFRA.glob(f"planes/{role}/*.json.tftpl"),
+            *INFRA.glob(f"modules/{role}/policies/*.json.tftpl"),
+        ]
         sends = [
             path
             for path in templates

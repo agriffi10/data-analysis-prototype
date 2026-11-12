@@ -1685,6 +1685,27 @@ specs:
     spec_status: "Completed"
     depends_on: ["SPEC-238", "SPEC-243", "SPEC-247", "SPEC-249"]
     path: "docs/specs/SPEC-251-a-filter-is-built-from-conditions-and-groups.md"
+  - id: "SPEC-252"
+    title: "The Control Planes Are One Module, Composed From the Root"
+    description: "Replaces the eight copy-built control-plane modules with one control-plane building block that the root calls eight times, so the next reader maintains one machine instead of eight, with a CI plan proving nothing deployed changed."
+    spec_status: "Draft"
+    depends_on: ["SPEC-213"]
+    arc: "infra-building-blocks"
+    path: "docs/specs/SPEC-252-the-control-planes-are-one-module-composed-from-the-root.md"
+  - id: "SPEC-253"
+    title: "The Deploy Role's Plane Grants Are One Template"
+    description: "Renders the deploy role's eight per-plane managed policies from one template and one map of planes, so a grant fix is one edit and a new plane is one map entry, with a CI plan showing no IAM document changed."
+    spec_status: "Draft"
+    depends_on: ["SPEC-252"]
+    arc: "infra-building-blocks"
+    path: "docs/specs/SPEC-253-the-deploy-roles-plane-grants-are-one-template.md"
+  - id: "SPEC-254"
+    title: "The Standalone Functions Are Building-Block Calls"
+    description: "Moves the scheduled functions and the two single-writer queues onto the scheduled-function module and a new queue-consumer module, composed from the root, with a CI plan showing nothing deployed changed."
+    spec_status: "Draft"
+    depends_on: ["SPEC-252"]
+    arc: "infra-building-blocks"
+    path: "docs/specs/SPEC-254-the-standalone-functions-are-building-block-calls.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1718,6 +1739,8 @@ arcs:
     order: ["SPEC-015", "SPEC-016", "SPEC-017", "SPEC-018", "SPEC-019", "SPEC-020", "SPEC-039"]
   - name: "file-operations-control-plane"
     order: ["SPEC-187", "SPEC-188", "SPEC-189", "SPEC-190", "SPEC-191"]
+  - name: "infra-building-blocks"
+    order: ["SPEC-252", "SPEC-253", "SPEC-254"]
   - name: "notifications"
     order: ["SPEC-058", "SPEC-059", "SPEC-060", "SPEC-061"]
   - name: "observability"

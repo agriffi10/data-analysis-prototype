@@ -12,14 +12,20 @@ import re
 import pytest
 from tf_blocks import (
     argument,
+    blocks,
     lambda_declaration,
     lambda_input,
+    map_entries,
     module_calls,
+    span,
     strip_noise,
 )
 
-_MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
-_ASL = _MODULE / "state-machine.asl.json.tftpl"
+_INFRA = pathlib.Path(__file__).resolve().parents[2] / "infra"
+_PLANE = _INFRA / "planes" / "shared-spaces"
+_ROOT = _INFRA / "plane-shared-spaces.tf"
+_MODULES = _INFRA / "modules"
+_ASL = _PLANE / "state-machine.asl.json.tftpl"
 
 
 def _machine():
@@ -162,7 +168,7 @@ def test_the_pipe_forwards_the_record_whole():
     rather than a field of the body. It survives only because the Pipe declares no input template
     — the same property that lets the body be read off the record at all. An input transformer
     added later would strip it silently, and every operator transfer would stop."""
-    pipe = (_MODULE / "pipe.tf").read_text()
+    pipe = blocks((_MODULES / "control-plane" / "main.tf").read_text(), "aws_pipes_pipe")["requests"]
     assert "input_template" not in pipe, (
         "an input template on this Pipe strips attributes.SenderId, which is the whole of the "
         "operator boundary"
@@ -177,18 +183,30 @@ def test_the_reader_does_not_run_under_the_orchestrator_role():
     of the running system, and invisible to every test, because a test supplies the SenderId
     itself.
     """
-    locals_tf = (_MODULE / "locals.tf").read_text()
-    lambda_tf = (_MODULE / "lambda.tf").read_text()
-
-    verbs = locals_tf.split("shared_space_functions = {")[1].split("}")[0]
+    root = _ROOT.read_text()
+    verbs = map_entries(span(root, root.index("shared_space_functions = {") + len("shared_space_functions = ")))
     assert "transfer-reader" not in verbs, (
         "the reader is in the verb map, whose for_each hard-codes the orchestrator role"
     )
     assert "transfer-ownership" in verbs, "the verb, unlike the reader, does belong there"
 
-    block = lambda_declaration(lambda_tf, "transfer_reader")
+    verb_role = lambda_input(
+        lambda_declaration((_MODULES / "control-plane" / "lambda.tf").read_text(), "functions"), "role"
+    )
+    assert verb_role == "aws_iam_role.execution.arn", f"the verbs run as {verb_role}"
+
+    calls = module_calls(root)
+    reader = calls["shared_space_transfer_reader"]
+    assert argument(reader, "source") == '"./modules/scheduled-function"'
+    reader_role = argument(reader, "role_name")
+    assert reader_role != argument(calls["shared_spaces"], "execution_role_name"), (
+        "the reader names the orchestrator role, so every verb on the plane could forge its SenderId"
+    )
+    assert reader_role.endswith('-shared-space-transfer-reader-role"'), f"the reader's role is {reader_role}"
+
+    block = lambda_declaration((_MODULES / "scheduled-function" / "main.tf").read_text(), "function")
     role = lambda_input(block, "role")
-    assert role == "aws_iam_role.transfer_reader.arn", f"the reader runs as {role}"
+    assert role == "aws_iam_role.this.arn", f"the reader runs as {role}"
 
 
 def test_the_reader_gets_its_own_log_group():
@@ -199,14 +217,17 @@ def test_the_reader_gets_its_own_log_group():
     what is asserted is the pair. A reader folded back into the verbs' for_each would lose its
     own role, which is the boundary the test above exists for.
     """
-    calls = module_calls((_MODULE / "lambda.tf").read_text())
-    assert {"functions", "transfer_reader"} <= set(calls), (
-        f"the reader is not a call of its own; this module calls {sorted(calls)}"
+    calls = module_calls(_ROOT.read_text())
+    assert {"shared_spaces", "shared_space_transfer_reader"} <= set(calls), (
+        f"the reader is not a call of its own; this plane calls {sorted(calls)}"
     )
-    assert argument(calls["transfer_reader"], "source") == '"../docker-lambda"'
+    assert argument(calls["shared_space_transfer_reader"], "source") == '"./modules/scheduled-function"'
+    assert argument(
+        module_calls((_MODULES / "scheduled-function" / "main.tf").read_text())["function"], "source"
+    ) == '"../docker-lambda"'
 
     module_main = (
-        _MODULE.parent / "docker-lambda" / "main.tf"
+        _MODULES / "docker-lambda" / "main.tf"
     ).read_text(encoding="utf-8")
     assert re.search(r"^\s*retention_in_days\s*=", strip_noise(module_main), re.MULTILINE), (
         "the container module no longer declares its log group's retention, so every function "
@@ -217,13 +238,14 @@ def test_the_reader_gets_its_own_log_group():
 def test_the_schedule_names_a_rule_the_deploy_role_can_manage():
     """The grant is scoped to the family wildcard, so the rule's name has to sit inside it. A name
     outside the pattern is denied at PutRule — on the apply, not at plan."""
-    locals_tf = (_MODULE / "locals.tf").read_text()
-    policy = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "infra/modules/base/policies/github-actions-deploy-shared-spaces.json.tftpl"
-    ).read_text()
+    reader = module_calls(_ROOT.read_text())["shared_space_transfer_reader"]
+    policy = (_MODULES / "base/policies/github-actions-deploy-shared-spaces.json.tftpl").read_text()
 
-    assert "transfer_schedule_name    = \"${local.transfer_reader_name}-schedule\"" in locals_tf
+    assert argument(reader, "rule_name") == (
+        '"${var.project_name}-${var.environment}-shared-space-transfer-reader-schedule"'
+    )
+    rule = blocks((_MODULES / "scheduled-function" / "main.tf").read_text(), "aws_cloudwatch_event_rule")
+    assert argument(rule["this"], "name") == "var.rule_name"
     grant = json.loads(re.sub(r"\$\{[^}]+\}", "STUB", policy))
     events = [s for s in grant["Statement"] if any(a.startswith("events:") for a in s["Action"])]
     assert len(events) == 1, "one statement, so there is one place the scope can be wrong"

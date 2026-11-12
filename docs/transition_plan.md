@@ -2126,7 +2126,7 @@ What does **not** disappear is the membership question, though the revision chan
 > carries over as a *Cognito* limit; the reshape then said it dissolves. Both were wrong.
 >
 > **The cap is not in Cognito. It is in the IAM policy.**
-> `infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl` loops over
+> `infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl` loops over
 > `max_shared_memberships` (default 10) and emits `${aws:PrincipalTag/shared_space_${k}}` into the S3
 > object resources, the `ListBucket` prefix condition and the Glue database and table ARNs. An
 > eleventh session tag matches **no resource** and is an implicit deny — so it does not matter where

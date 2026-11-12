@@ -151,8 +151,11 @@ agrees with Terraform's own evaluator" rather than a comparison of a list with i
 ## Adding a function
 
 1. Create `lambdas/<name>/` with one handler module and its tests.
-2. Add a `docker-lambda` module call in the owning module's `lambda.tf`, supplying its
-   `command = ["<module>.<handler>"]`, its timeout and its memory.
+2. For a control-plane verb, add a row to the plane's verb map in `infra/plane-<slug>.tf`
+   (`{ handler, timeout, memory }`); the control-plane module deploys it and the definition reads
+   it as `<verb>_function_arn`. Anywhere else, add a `docker-lambda` module call in the owning
+   module's `lambda.tf`, supplying its `command = ["<module>.<handler>"]`, its timeout and its
+   memory.
 3. Nothing to register — step 2 IS the registration, and CI derives the fleet from it — but
    **name it in `ADDED_SINCE_THE_CUTOVER`** in `lambdas/test_lambda_plan_guard.py`: the frozen
    pre-cutover capture is a floor under the fleet, and an addition it does not name fails by name.
@@ -169,7 +172,8 @@ agrees with Terraform's own evaluator" rather than a comparison of a list with i
 guard, and only in CI — the capture is frozen, so every captured field is pinned to what the cutover
 left. Declare the move in `DELIBERATE_CHANGES` in `.github/scripts/lambda_plan_guard.py`, with the
 new value: the declaration is a new pin, not a waiver. `test_lambda_plan_guard.py` ties a declared
-`timeout` to the function's row in its module's `locals.tf`; it cannot resolve any other field, or a
+`timeout` to the function's row in its plane's verb map (`infra/plane-<slug>.tf`) or its module's
+`locals.tf`; it cannot resolve any other field, or a
 function with no such row, and fails on one rather than passing it — extend the test when you need
 one.
 
@@ -241,5 +245,5 @@ procedure to reach for.
 - [`INDEX.md`](INDEX.md) — every function, grouped by control plane
 - [`shared-layer.md`](shared-layer.md) — what `cpcommon` holds and why
 - [`../../infra/modules/docker-lambda/README.md`](../../infra/modules/docker-lambda/README.md) — the module every function is a call to
-- [`../../infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) — the Terraform side of the same machine
+- [`../../infra/modules/control-plane/README.md`](../../infra/modules/control-plane/README.md) — the Terraform side of the same machine
 - [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md) — the rules a handler follows

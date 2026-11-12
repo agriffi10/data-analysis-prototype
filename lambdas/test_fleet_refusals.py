@@ -87,7 +87,89 @@ def _filler(count: int) -> str:
     )
 
 
+#: A building block that names its verbs from the call into it, the way `control-plane` does.
+_MAPPED_BLOCK = _plane(
+    locals_=f'names = {{\n  for verb, _ in var.functions :\n  verb => "{PREFIX}${{var.name}}-${{verb}}"\n}}',
+    calls=_module(for_each="var.functions", function_name="local.names[each.key]"),
+)
+
+#: A building block that takes its one function's name whole, the way `scheduled-function` does.
+_DIRECT_BLOCK = _plane(calls=_module(function_name="var.function_name"))
+
+
+def _root(*, locals_: str = "", **arguments: str) -> str:
+    """The root module, calling the fixture's building block once.
+
+    Args:
+      locals_: The body of the root's `locals` block, or empty for none.
+      **arguments: The call's arguments, as written.
+
+    Returns:
+      The root's single `.tf` file.
+
+    Raises:
+      None.
+    """
+    body = "\n".join(f"  {key} = {value}" for key, value in arguments.items())
+    call = f'module "plane" {{\n  source = "./modules/block"\n{body}\n}}\n'
+    return _plane(locals_=locals_, calls=call)
+
+
 CASES = [
+    (
+        "a building block's name input that is not a literal",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n  }', name="local.slug", functions="local.verbs"),
+         "block": _MAPPED_BLOCK},
+        "is not a literal",
+    ),
+    (
+        "a building block whose function name the call does not pass",
+        {"ROOT": _root(), "block": _DIRECT_BLOCK},
+        "which names its function",
+    ),
+    (
+        "a building block naming its functions in an unknown shape",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n  }', name='"p"', functions="local.verbs"),
+         "block": _plane(
+             locals_="names = {\n  for verb, _ in var.functions :\n  verb => upper(verb)\n}",
+             calls=_module(for_each="var.functions", function_name="local.names[each.key]"))},
+        "through a root call",
+    ),
+    (
+        "a building block whose verb map the call does not pass",
+        {"ROOT": _root(name='"p"'), "block": _MAPPED_BLOCK},
+        "which lists its functions",
+    ),
+    (
+        "a building block given a verb map that is not a root local",
+        {"ROOT": _root(name='"p"', functions='{ "a" = 1 }'), "block": _MAPPED_BLOCK},
+        "is not a root local",
+    ),
+    (
+        "a building block whose name template reads an input the call does not pass",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n  }', functions="local.verbs"),
+         "block": _MAPPED_BLOCK},
+        "which its function names read",
+    ),
+    (
+        "a building block's name template that never interpolates its verb",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n  }', name='"p"', functions="local.verbs"),
+         "block": _plane(
+             locals_=f'names = {{\n  for verb, _ in var.functions :\n  verb => "{PREFIX}${{var.name}}-fixed"\n}}',
+             calls=_module(for_each="var.functions", function_name="local.names[each.key]"))},
+        "the name template does not interpolate",
+    ),
+    (
+        "a root verb map with no verbs in it",
+        {"ROOT": _root(locals_="verbs = {\n  }", name='"p"', functions="local.verbs"), "block": _MAPPED_BLOCK},
+        "names no functions",
+    ),
+    (
+        "a root verb map key written unquoted",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n    bare = 2\n  }', name='"p"', functions="local.verbs"),
+         "block": _MAPPED_BLOCK},
+        "which this reader cannot see",
+    ),
     (
         "a local that is not declared",
         {"plane": _plane(calls=_module(function_name="local.missing_name"))},
@@ -169,7 +251,8 @@ def _repo(tmp_path: pathlib.Path, files: dict[str, str], *, pad: bool) -> pathli
 
     Args:
       tmp_path: The temporary directory.
-      files: Module directory name mapped to its `.tf` source.
+      files: Module directory name mapped to its `.tf` source; the key ``ROOT`` is the root
+        module's own file instead.
       pad: Whether to add a filler plane that lifts the fleet over the thirty-function floor.
 
     Returns:
@@ -179,7 +262,11 @@ def _repo(tmp_path: pathlib.Path, files: dict[str, str], *, pad: bool) -> pathli
       None.
     """
     modules = tmp_path / "infra" / "modules"
+    modules.mkdir(parents=True, exist_ok=True)
     for name, source in files.items():
+        if name == "ROOT":
+            (tmp_path / "infra" / "main.tf").write_text(source, encoding="utf-8")
+            continue
         (modules / name).mkdir(parents=True)
         (modules / name / "main.tf").write_text(source, encoding="utf-8")
     if pad:
@@ -207,6 +294,36 @@ def test_the_fixture_builder_produces_a_fleet_that_resolves(tmp_path: pathlib.Pa
     names = fleet.function_names(_repo(tmp_path, {}, pad=True))
     assert len(names) == 40, f"the filler plane resolved to {len(names)} functions, not 40"
     assert names[0] == "filler-verb0"
+
+
+def test_a_building_block_resolves_through_the_root_call(tmp_path: pathlib.Path) -> None:
+    """The positive control for the building-block cases: both shapes resolve when written right.
+
+    Without it, every building-block refusal above could be the fixture's own fault, because each
+    case expects an exception and a fixture that cannot parse raises one.
+
+    Args:
+      tmp_path: Pytest's temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a correctly written call into either building block does not resolve.
+    """
+    mapped = _repo(
+        tmp_path / "mapped",
+        {"ROOT": _root(locals_='verbs = {\n    "a" = 1\n    "b" = 2\n  }', name='"p"', functions="local.verbs"),
+         "block": _MAPPED_BLOCK},
+        pad=True,
+    )
+    assert {"p-a", "p-b"} <= set(fleet.function_names(mapped))
+    direct = _repo(
+        tmp_path / "direct",
+        {"ROOT": _root(function_name=f'"{PREFIX}reader"'), "block": _DIRECT_BLOCK},
+        pad=True,
+    )
+    assert "reader" in fleet.function_names(direct)
 
 
 @pytest.mark.parametrize("label, files, phrase", CASES, ids=[case[0] for case in CASES])

@@ -1,16 +1,25 @@
 import {describe, expect, it} from 'vitest';
 
 /**
- * Every IAM policy template in `infra/`, as raw text.
+ * Every IAM policy template in `infra/`, as raw text: each module's `policies/`, and each control
+ * plane's own templates under `planes/` — less its state-machine definition, which is not an IAM
+ * document and is never sent to `CreatePolicy`.
  *
  * Read through Vite's own `?raw` glob rather than `node:fs`: the app tsconfig carries no node
  * types, so `tsc -b` — the only typecheck CI runs — rejects an fs import here.
  */
-const TEMPLATES = import.meta.glob('/../../infra/modules/*/policies/*.json.tftpl', {
-  query: '?raw',
-  import: 'default',
-  eager: true
-}) as Record<string, string>;
+const TEMPLATES = import.meta.glob(
+  [
+    '/../../infra/modules/*/policies/*.json.tftpl',
+    '/../../infra/planes/*/*.tftpl',
+    '!/../../infra/planes/*/*.asl.json.tftpl'
+  ],
+  {
+    query: '?raw',
+    import: 'default',
+    eager: true
+  }
+) as Record<string, string>;
 
 /**
  * SPEC-186. **An IAM policy document must contain only printable ASCII**, and nothing before
@@ -29,6 +38,8 @@ describe('IAM policy templates are printable ASCII (SPEC-186)', () => {
     // Without this, a glob that matched nothing would make the sweep below pass vacuously.
     expect(entries.length).toBeGreaterThan(10);
     expect(entries.some(([path]) => path.includes('portal-role-permissions'))).toBe(true);
+    expect(entries.some(([path]) => path.includes('/planes/') && path.endsWith('/execution.json.tftpl'))).toBe(true);
+    expect(entries.some(([path]) => path.endsWith('.asl.json.tftpl'))).toBe(false);
   });
 
   it.each(entries)('%s contains only printable ASCII', (_path, source) => {

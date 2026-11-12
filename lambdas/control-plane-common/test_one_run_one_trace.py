@@ -555,7 +555,7 @@ def _drive_a_failure(plane, validate, envelope, seed_state, notify_failure):
     that stops naming the traceparent breaks this drive instead of quietly passing it.
 
     Args:
-      plane: The plane's directory name under infra/modules.
+      plane: The plane's directory name under infra/planes.
       validate: The plane's validate-authorize handler.
       envelope: The Pipe's forwarded SQS batch, which is what `$$.Execution.Input` holds.
       seed_state: The seed to route through, e.g. "RequestFailureSeed".
@@ -685,7 +685,7 @@ def _drive_a_pre_identity_failure(plane, validate, envelope, notify_failure, ref
     the key-set assertion further down is what holds it to that.
 
     Args:
-      plane: The plane's directory name under infra/modules.
+      plane: The plane's directory name under infra/planes.
       validate: The plane's validate-authorize handler, which this calls expecting a raise.
       envelope: The Pipe's forwarded SQS batch, which is what `$$.Execution.Input` holds.
       notify_failure: The plane's notify-failure handler.
@@ -839,7 +839,7 @@ def test_the_notifiers_that_recover_an_actor_read_the_envelope_the_template_buil
     the template says, which is exactly what a provenance change needs to be caught.
 
     Args:
-      plane: The plane's directory name under infra/modules.
+      plane: The plane's directory name under infra/planes.
       recover: The verb's own recovery function, applied to the built state.
       expected: The actor the envelope names.
 

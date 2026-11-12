@@ -19,6 +19,7 @@ Attributes:
   AGGREGATE: The local the root output reads.
 """
 
+import fnmatch
 import pathlib
 import re
 import sys
@@ -68,6 +69,34 @@ def _modules_declaring_functions() -> set[str]:
                     continue
                 if fleet._is_fleet_module(source):
                     found.add(module.name)
+    return found
+
+
+def _root_calls_deploying_functions() -> set[str]:
+    """Every root module call whose module holds at least one `docker-lambda` call.
+
+    The aggregate names root CALLS, and one building block is called once per plane, so the
+    comparison is between call names, never module directories.
+
+    Args:
+      None.
+
+    Returns:
+      The root call names, as written.
+
+    Raises:
+      None.
+    """
+    declaring = _modules_declaring_functions()
+    found = set()
+    for path in sorted(ROOT_TF.parent.glob("*.tf")):
+        for call, inner in module_calls(path.read_text(encoding="utf-8")).items():
+            try:
+                source = argument(inner, "source").strip('"').rstrip("/")
+            except ValueError:
+                continue
+            if source.startswith("./modules/") and source.rsplit("/", 1)[-1] in declaring:
+                found.add(call)
     return found
 
 
@@ -159,11 +188,11 @@ def test_the_root_output_aggregates_every_module_that_deploys_a_function() -> No
     Raises:
       AssertionError: When the concat and the modules disagree in either direction.
     """
-    aggregated = {name.replace("_", "-") for name in _aggregated_modules()}
-    declaring = _modules_declaring_functions()
+    aggregated = _aggregated_modules()
+    declaring = _root_calls_deploying_functions()
 
     assert aggregated == declaring, (
-        f"the root fleet aggregate concatenates {sorted(aggregated)} but the modules deploying "
+        f"the root fleet aggregate concatenates {sorted(aggregated)} but the root calls deploying "
         f"functions are {sorted(declaring)}. Missing from the concat: "
         f"{sorted(declaring - aggregated)} — those functions reach no consumer and every count "
         f"derived from the output agrees with the shortfall. Named but deploying nothing: "
@@ -447,6 +476,14 @@ def over_account_limits(text: str, label: str) -> list[str]:
                     f"{label}: {fallback.group(1)} falls back to {declared}, "
                     f"over this account's {ceiling}"
                 )
+        for typed in re.finditer(
+            rf"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)\s*=\s*optional\(\s*number\s*,\s*(\d+)\s*\)", live
+        ):
+            declared = int(typed.group(2))
+            if declared > ceiling:
+                offences.append(
+                    f"{label}: {typed.group(1)} defaults to {declared}, over this account's {ceiling}"
+                )
         for header in re.finditer(rf'variable\s+"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)"\s*\{{', live):
             body = span(live, header.end() - 1)[1:-1]
             try:
@@ -487,11 +524,12 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
     )
 
 
-#: The two ways a size is wired, by the file each lives in. Named rather than counted, because a
-#: COUNT cannot see this regression and a shape can: reverting the population to
-#: ``modules/*/locals.tf`` drops the ten single-function declarations and leaves 71, which clears
-#: a floor of 70 by one. The floor is the wrong instrument for a whole shape going missing.
-DECLARING_FILES = ("locals.tf", "lambda.tf")
+#: The two ways a size is wired, by the file each lives in: a plane's verb map in its root file
+#: (``plane-<slug>.tf``), and a single function's own ``lambda.tf``. Named rather than counted,
+#: because a COUNT cannot see this regression and a shape can: narrowing the population to one
+#: shape drops a whole family of declarations and can still clear a floor. The floor is the wrong
+#: instrument for a whole shape going missing.
+DECLARING_FILES = ("plane-*.tf", "lambda.tf")
 
 
 def test_the_population_carries_both_ways_a_size_is_wired() -> None:
@@ -503,7 +541,7 @@ def test_the_population_carries_both_ways_a_size_is_wired() -> None:
     any honest floor has to leave.
     """
     names = {path.name for path in declaration_files()}
-    missing = [name for name in DECLARING_FILES if name not in names]
+    missing = [shape for shape in DECLARING_FILES if not fnmatch.filter(names, shape)]
     assert not missing, (
         f"the population no longer reaches {missing} — a whole way of declaring a size is "
         "unread, and every count in this file is still large enough to pass"
@@ -515,7 +553,7 @@ def test_the_population_carries_both_ways_a_size_is_wired() -> None:
             declaration_pattern("memory"), strip_comments(path.read_text(encoding="utf-8"))
         )
     }
-    assert set(DECLARING_FILES) <= sources, (
+    assert all(fnmatch.filter(sources, shape) for shape in DECLARING_FILES), (
         f"memory declarations are being read from {sorted(sources)} only; the sweep reaches a "
         "file shape it finds nothing in, which is how the narrowing looked last time"
     )
@@ -592,6 +630,16 @@ ACCOUNT_LIMIT_CORPUS = (
     ("ephemeral one over is refused", '"a" = { ephemeral = 2049 }', ["ephemeral = 2049, over this account's 2048"]),
     ("ephemeral at Lambda's documented max is refused", '"a" = { ephemeral = 10240 }', ["ephemeral = 10240, over this account's 2048"]),
     ("lambda's own default is allowed", '"a" = { ephemeral = 512 }', []),
+    (
+        "an optional attribute's default at the proven value is allowed",
+        "type = object({ ephemeral_storage_mb = optional(number, 512) })",
+        [],
+    ),
+    (
+        "an optional attribute's default over the ceiling is refused",
+        "type = object({ ephemeral_storage_mb = optional(number, 4096) })",
+        ["ephemeral_storage_mb defaults to 4096, over this account's 2048"],
+    ),
     (
         "both dimensions over are both reported",
         '"a" = { memory = 4096, ephemeral = 4096 }',
@@ -754,7 +802,9 @@ def _size_assignments(text: str) -> list[tuple[str, str]]:
 #: tell what these resolve to, and the check that could reads the plan's own values from CI —
 #: recorded in ``docs/testing/owed.md``.
 UNVERIFIABLE_WIRING = (
-    re.compile(r"^each\.value\.(?:memory|ephemeral)$"),
+    re.compile(r"^each\.value\.(?:memory|ephemeral|ephemeral_storage_mb)$"),
+    re.compile(r"^number$"),
+    re.compile(r"^optional\(number,\s*\d+\)$"),
     re.compile(r"^try\(each\.value\.(?:memory|ephemeral),\s*\d+\)$"),
     re.compile(r"^var\.[A-Za-z0-9_]+$"),
 )

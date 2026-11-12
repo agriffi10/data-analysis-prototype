@@ -17,7 +17,7 @@ import pytest
 from cpcommon import config
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_INFRA = os.path.join(_HERE, "..", "..", "infra", "modules")
+_INFRA = os.path.join(_HERE, "..", "..", "infra", "planes")
 _TEMPLATES = sorted(glob.glob(os.path.join(_INFRA, "*", "state-machine.asl.json.tftpl")))
 
 #: Intrinsics that RAISE rather than degrade when their input is the wrong shape.

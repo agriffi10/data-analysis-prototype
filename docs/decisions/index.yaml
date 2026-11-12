@@ -3,7 +3,7 @@ areas:
   - name: "Analytics, the catalog, and two SQL dialects"
     slug: "analytics"
     path: "docs/decisions/analytics/analytics.md"
-    governs: ["lambdas/table-builder-*/**", "lambdas/table-share-*/**", "lambdas/data-quality-*/**", "infra/modules/analytics/**", "infra/modules/table-builder/**", "infra/modules/table-share/**", "apps/portal/src/features/query/**", "apps/portal/src/features/catalog/**", "apps/portal/src/features/data-explorer/**", "apps/portal/src/features/table-builder/**", "apps/portal/src/features/table-share/**"]
+    governs: ["lambdas/table-builder-*/**", "lambdas/table-share-*/**", "lambdas/data-quality-*/**", "infra/modules/analytics/**", "infra/planes/table-builder/**", "infra/plane-table-builder.tf", "infra/planes/table-share/**", "infra/plane-table-share.tf", "apps/portal/src/features/query/**", "apps/portal/src/features/catalog/**", "apps/portal/src/features/data-explorer/**", "apps/portal/src/features/table-builder/**", "apps/portal/src/features/table-share/**"]
     decisions:
       - title: "A column filter shows as a chip, and the generated SQL is edited in Query on a copy (SPEC-243)"
         fence: "Each top-level filter item shows as a remove-only chip beside **Filter rows…**, and the generated SQL is edited only through **Open in Query**, which hands a new tab an unrun copy; nothing is ever read back into filters."
@@ -164,7 +164,7 @@ areas:
   - name: "Archive and restore — the only place a mistake is unrecoverable"
     slug: "archive-and-restore"
     path: "docs/decisions/archive-and-restore/archive-and-restore.md"
-    governs: ["lambdas/archive-*/**", "infra/modules/archive/**", "apps/portal/src/features/archive/**"]
+    governs: ["lambdas/archive-*/**", "infra/modules/archive-vault/**", "infra/planes/archive/**", "infra/plane-archive.tf", "apps/portal/src/features/archive/**"]
     decisions:
       - title: "A folder placeholder is not a file to the person reading the count"
         fence: "Sentences a person reads count files, and `arcommon.counts` counts a placeholder only when it is what fell short; plans, manifests and gates still count objects, and the file count rides inside `$.transfer`."
@@ -570,7 +570,7 @@ areas:
   - name: "Control planes — one pattern, eight planes, and the traps are shared"
     slug: "control-planes"
     path: "docs/decisions/control-planes/control-planes.md"
-    governs: ["lambdas/**", "infra/modules/shared-spaces/**", "infra/modules/table-builder/**", "infra/modules/table-share/**", "infra/modules/data-quality/**", "infra/modules/file-send/**", "infra/modules/file-ops/**", "infra/modules/results-conversion/**", "infra/modules/archive/**", "infra/modules/notifications/**", "infra/modules/control-plane-dlq-drain/**", "infra/modules/observability/**", "apps/portal/src/features/shared-spaces/**", "apps/portal/src/features/notifications/**", "apps/portal/src/features/data-quality/**"]
+    governs: ["lambdas/**", "infra/modules/control-plane/**", "infra/modules/scheduled-function/**", "infra/modules/shared-space-storage/**", "infra/control-planes.tf", "infra/planes/shared-spaces/**", "infra/plane-shared-spaces.tf", "infra/planes/table-builder/**", "infra/plane-table-builder.tf", "infra/planes/table-share/**", "infra/plane-table-share.tf", "infra/planes/data-quality/**", "infra/plane-data-quality.tf", "infra/planes/file-send/**", "infra/plane-file-send.tf", "infra/planes/file-ops/**", "infra/plane-file-ops.tf", "infra/planes/results-conversion/**", "infra/plane-results-conversion.tf", "infra/planes/archive/**", "infra/plane-archive.tf", "infra/modules/notifications/**", "infra/modules/control-plane-dlq-drain/**", "infra/modules/observability/**", "apps/portal/src/features/shared-spaces/**", "apps/portal/src/features/notifications/**", "apps/portal/src/features/data-quality/**"]
     decisions:
       - title: "A closed vocabulary is type-checked before it is looked up (PR #662, control-plane-wide)"
         fence: "**A closed vocabulary is TYPE-CHECKED before it is looked up** — `cpcommon.events.in_vocabulary`, never a bare `value not in VOCAB`. `in` **hashes its left operand**, so a request field holding a list or a dict raises `TypeError` out of the membership test itself, before the plane can raise its named refusal, and `notifies_on_failure` records that instead of a reason code. It is a **predicate, not a raise**, because the wording is the domain's; it is a `TypeGuard[str]`, so a caller that refuses on False keeps its narrowing. Its vocabulary is typed as a **set or mapping, never `Container`** — `in` on a `str` is a SUBSTRING test, so a string vocabulary would admit every infix of itself. A **positive-form** test (`x if x in V else …`) hashes exactly the same, and one hid in each of the two mode readers that pick a plane's wording (`_wording_mode`, `_mode_from_raw_request`) — including the notifier of last resort, documented as raising nothing."
@@ -769,7 +769,7 @@ areas:
         status: "stable"
         path: "docs/decisions/control-planes/the-field-rule-what-may-be-logged.md"
       - title: "The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)"
-        fence: "**The lock protocol lives once, in `cpcommon`**, extracted ahead of its second consumer rather than copied. **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject` denied, \"free\" is a state rather than an absence. The holder is the **execution ARN**, because a request id is whatever the caller sent, so two executions can carry the same one. A redelivered message should not be one of them: reusing an execution name was measured (`../infra/info/control-plane-shape.md`) to return the original run while it is going and `ExecutionAlreadyExists` once it has closed. That a redelivery reuses its name is inferred from the Pipe's v5 UUIDs, not proven, so no lock relies on it."
+        fence: "**The lock protocol lives once, in `cpcommon`**, extracted ahead of its second consumer rather than copied. **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject` denied, \"free\" is a state rather than an absence. The holder is the **execution ARN**, because a request id is whatever the caller sent, so two executions can carry the same one. A redelivered message should not be one of them: reusing an execution name was measured (`../infra/modules/control-plane/README.md`) to return the original run while it is going and `ExecutionAlreadyExists` once it has closed. That a redelivery reuses its name is inferred from the Pipe's v5 UUIDs, not proven, so no lock relies on it."
         status: "stable"
         path: "docs/decisions/control-planes/the-lock-protocol-is-cpcommons-extracted-ahead-of-its-second-consumer.md"
       - title: "The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)"
@@ -1120,7 +1120,7 @@ areas:
         status: "stable"
         path: "docs/decisions/infrastructure/deploy-role-refresh-deadlock-has-an-in-repo-lever-skip-refresh.md"
       - title: "IaC"
-        fence: "OpenTofu is the IaC tool (over CDK, Pulumi and SST), `infra/modules/` are bounded-context modules, and IAM policies are `.tftpl` templates under each module's `policies/`, rendered with `templatefile()`."
+        fence: "OpenTofu is the IaC tool (over CDK, Pulumi and SST). **A module is one architectural concept, and the root composes them flat**: a concept built once is a module the root calls once, a concept built more than once is a **building block** the root calls once per instance (`control-plane` ×8), and the root passes every dependency in as a constructed string. A plane's own configuration lives with its call (`infra/plane-<slug>.tf`, `infra/planes/<slug>/`). **A building block's inputs are what varies between its callers, found by diffing resolved values** — reading the HCL text misses a value hidden behind a local. **A refactor moves; it never recreates**: every changed address gets a `moved` block in `infra/moved.tf`, and the PR's plan showing only moves is the proof. IAM policies are `.tftpl` templates rendered with `templatefile()`."
         status: "stable"
         path: "docs/decisions/infrastructure/iac.md"
       - title: "One image for the whole Lambda fleet, and the sweep that pays for it (SPEC-212)"
@@ -1178,7 +1178,7 @@ areas:
   - name: "Storage, and the fact S3 is not a filesystem"
     slug: "storage"
     path: "docs/decisions/storage/storage.md"
-    governs: ["lambdas/file-ops-*/**", "lambdas/file-send-*/**", "infra/modules/data/**", "infra/modules/file-ops/**", "infra/modules/file-send/**", "apps/portal/src/features/file-browser/**", "apps/portal/src/features/file-send/**", "apps/portal/src/features/saved-queries/**", "apps/portal/src/features/connections/**"]
+    governs: ["lambdas/file-ops-*/**", "lambdas/file-send-*/**", "infra/modules/data/**", "infra/planes/file-ops/**", "infra/plane-file-ops.tf", "infra/planes/file-send/**", "infra/plane-file-send.tf", "apps/portal/src/features/file-browser/**", "apps/portal/src/features/file-send/**", "apps/portal/src/features/saved-queries/**", "apps/portal/src/features/connections/**"]
     decisions:
       - title: "A conflict is one item's outcome, and the list is created once and carried forward (SPEC-188)"
         fence: "Per-item outcomes live in one list that each verb takes as input and returns whole, merged only by `focommon.outcomes.carry_forward`; an item an earlier verb decided is never expanded, and only a proven absence is `source_missing`."

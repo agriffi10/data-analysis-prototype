@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-validate-authorize"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-collect-transfer-results"))
 
-_ASL = os.path.join(_HERE, "..", "..", "infra", "modules", "archive", "state-machine.asl.json.tftpl")
+_ASL = os.path.join(_HERE, "..", "..", "infra", "planes", "archive", "state-machine.asl.json.tftpl")
 
 
 def _load():

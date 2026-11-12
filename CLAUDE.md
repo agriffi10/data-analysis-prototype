@@ -36,7 +36,7 @@ production users yet.
 ## Monorepo (npm workspaces)
 
 - `apps/portal/` — React SPA (**all app code lives here**; paths below are relative to it)
-- `infra/` — OpenTofu IaC (**all IaC paths relative to here**); bounded-context modules under `infra/modules/`
+- `infra/` — OpenTofu IaC (**all IaC paths relative to here**); one-concept modules under `infra/modules/`, composed flat from the root
 - `packages/` — reserved, currently empty
 - `docs/` — architecture, specs, spec-delivery, templates
 

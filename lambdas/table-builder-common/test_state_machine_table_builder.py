@@ -14,9 +14,11 @@ import json
 import os
 import re
 
+from tf_blocks import argument, blocks, module_calls
+
 _TFTPL = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    "..", "..", "infra", "planes", "table-builder", "state-machine.asl.json.tftpl",
 )
 
 #: The uniform Retry contract every Task state carries. The three middle names are
@@ -33,7 +35,8 @@ _RETRY_ERRORS = [
 
 def _asl():
     with open(_TFTPL) as handle:
-        return json.loads(re.sub(r"\$\{[^}]+\}", "ARN", handle.read()))
+        raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", handle.read())
+    return json.loads(re.sub(r"\$\{[^}]+\}", "ARN", raw))
 
 
 def _states():
@@ -175,9 +178,13 @@ def test_no_path_reaches_a_terminal_state_still_holding_the_lock():
 
 # ── The timed-out door, both halves ───────────────────────────────────────────
 
-_STEPFUNCTION_TF = os.path.join(
+_CONTROL_PLANE_MAIN = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "infra", "modules", "table-builder", "stepfunction.tf",
+    "..", "..", "infra", "modules", "control-plane", "main.tf",
+)
+_ROOT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "infra", "plane-table-builder.tf",
 )
 _DOOR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -193,14 +200,22 @@ def test_the_timeout_rule_exists_and_matches_timed_out_and_never_failed():
     here. FAILED must stay out of the pattern: every whole-request failure the shared Catch takes
     already reaches NotifyFailure, so matching it would double-notify all of them.
     """
-    with open(_STEPFUNCTION_TF, encoding="utf-8") as handle:
+    with open(_CONTROL_PLANE_MAIN, encoding="utf-8") as handle:
         text = handle.read()
+    with open(_ROOT, encoding="utf-8") as handle:
+        call = module_calls(handle.read())["table_builder"]
 
-    assert "aws_cloudwatch_event_rule" in text, "the plane has a ceiling and needs the door"
-    assert 'status          = ["TIMED_OUT"]' in text
-    pattern = text.split("event_pattern")[1].split("})")[0]
+    ceiling = argument(call, "ceiling")
+    assert argument(ceiling[1:-1], "notifier_verb") == '"notify-failure"', (
+        "the plane has a ceiling and needs the door, which the module creates only for a ceiling"
+    )
+    rule = blocks(text, "aws_cloudwatch_event_rule")["execution_timed_out"]
+    assert 'status          = ["TIMED_OUT"]' in rule
+    pattern = argument(rule, "event_pattern")
     assert "FAILED" not in pattern, "FAILED would double-notify every caught failure"
-    assert "aws_lambda_permission" in text, "the rule needs the resource-based invoke grant"
+    assert "execution_timed_out" in blocks(text, "aws_lambda_permission"), (
+        "the rule needs the resource-based invoke grant"
+    )
 
 
 def test_the_rule_is_only_half_the_door():

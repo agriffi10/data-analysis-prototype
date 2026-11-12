@@ -66,7 +66,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
 POLICIES = "infra/modules/*/policies/portal-role-*.json.tftpl"
-SHARED_SPACE_POLICY = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
+SHARED_SPACE_POLICY = "infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl"
 GLUE_SID = "SharedSpaceGlue"
 MEMBERSHIP_TAG = "aws:PrincipalTag/shared_space_"
 CATALOG_SUFFIX = ":catalog"

@@ -30,10 +30,11 @@ from cpcommon import messages as cpmessages
 from cpcommon.app_managed import app_managed_prefix
 from rccommon import config, messages, reasons
 
-_MODULE = _ROOT / "infra" / "modules" / "results-conversion"
-_POLICY = _MODULE / "policies" / "execution.json.tftpl"
-_ASL = _MODULE / "state-machine.asl.json.tftpl"
-_LOCALS = _MODULE / "locals.tf"
+_PLANE_DIR = _ROOT / "infra" / "planes" / "results-conversion"
+_POLICY = _PLANE_DIR / "execution.json.tftpl"
+_ASL = _PLANE_DIR / "state-machine.asl.json.tftpl"
+_PLANE_TF = _ROOT / "infra" / "plane-results-conversion.tf"
+_MACHINE_TF = _ROOT / "infra" / "modules" / "control-plane" / "main.tf"
 _DOOR = _HERE.parent / "results-conversion-notify-failure" / "rc_notify_failure.py"
 
 _ALGORITHM_NAMES = ("cas", "lock", "parse_sqs", "resolve")
@@ -906,8 +907,12 @@ def test_the_ceiling_clears_the_longest_path_the_machine_can_walk():
     and no timeout, because a rejected invoke never ran, and once, because a function woken for
     the first attempt is awake for the rest.
     """
-    locals_text = _LOCALS.read_text(encoding="utf-8")
-    ceiling = int(re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", locals_text).group(1))
+    locals_text = _PLANE_TF.read_text(encoding="utf-8")
+    ceiling = int(
+        re.search(
+            r"^\s*ceiling\s*=\s*\{[^}]*?\bseconds\s*=\s*(\d+)", locals_text, re.MULTILINE
+        ).group(1)
+    )
     assert ceiling == config.MACHINE_TIMEOUT_SECONDS, (
         "the Terraform ceiling and the constant the timeout notification words have diverged; "
         "the user would be told a duration the machine no longer runs for"
@@ -928,21 +933,21 @@ def test_the_ceiling_clears_the_longest_path_the_machine_can_walk():
         "the converter's Terraform timeout and the constant the size budget derives from have "
         "diverged, so the caps are computed against a function that runs for a different time"
     )
-    # The other two halves of the budget. `config` DOCUMENTS them as mirrored from locals.tf and
-    # nothing held them there: dropping `memory = 10240, ephemeral = 10240` to 2048/512 left the
+    # The other two halves of the budget. `config` DOCUMENTS them as mirrored from the verb map
+    # and nothing held them there: dropping `memory = 10240, ephemeral = 10240` to 2048/512 left the
     # whole suite green, while all three size caps go on being derived from the larger numbers.
     # What that permits is an OOM on the Excel path or a full disk on the streamed ones, part of
     # the way through a conversion — the failure the per-format budget exists to prevent.
     convert_row = re.search(r'"convert"\s*=\s*\{(.*?)\}', locals_text, re.DOTALL).group(1)
     deployed = {
         key: int(value)
-        for key, value in re.findall(r"(memory|ephemeral)\s*=\s*(\d+)", convert_row)
+        for key, value in re.findall(r"\b(memory|ephemeral_storage_mb)\s*=\s*(\d+)", convert_row)
     }
     assert deployed == {
         "memory": config.CONVERTER_MEMORY_MB,
-        "ephemeral": config.CONVERTER_EPHEMERAL_MB,
+        "ephemeral_storage_mb": config.CONVERTER_EPHEMERAL_MB,
     }, (
-        f"locals.tf deploys {deployed} while the size caps are derived from "
+        f"{_PLANE_TF.name} deploys {deployed} while the size caps are derived from "
         f"memory={config.CONVERTER_MEMORY_MB} ephemeral={config.CONVERTER_EPHEMERAL_MB}"
     )
     raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", _ASL.read_text(encoding="utf-8"))
@@ -1008,7 +1013,14 @@ def test_the_timed_out_door_reads_the_event_and_never_describes_the_execution():
 
 
 def test_the_timeout_rule_matches_timed_out_and_never_failed():
-    text = (_MODULE / "stepfunction.tf").read_text(encoding="utf-8")
+    """The rule lives in the shared module and exists only for a plane whose call sets a
+    ceiling, so the ceiling is asserted here too: without it this plane has no rule at all."""
+    assert re.search(
+        r"^\s*ceiling\s*=\s*\{[^}]*?\bnotifier_verb\s*=\s*\"notify-failure\"",
+        _PLANE_TF.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    text = _MACHINE_TF.read_text(encoding="utf-8")
     assert 'status          = ["TIMED_OUT"]' in text
     assert "FAILED" not in text.split("event_pattern")[1].split("})")[0]
     assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in _ASL.read_text(encoding="utf-8")
@@ -1019,19 +1031,15 @@ def test_no_queue_resource_policy_is_added_anywhere_in_the_fleet():
     silence notifying roles invisibly."""
     offenders = [
         str(p.relative_to(_ROOT))
-        for p in (_ROOT / "infra" / "modules").rglob("*.tf")
+        for p in (_ROOT / "infra").rglob("*.tf")
         if "aws_sqs_queue_policy" in p.read_text(encoding="utf-8")
     ]
     assert offenders == []
 
 
-def test_the_module_ships_no_moved_block():
-    """A cutover-era guard counts moved blocks against the frozen fixture; a new module has
-    nothing to move."""
-    assert not (_MODULE / "moved.tf").exists()
-
-
-@pytest.mark.parametrize("fixture", ["module_dir", "policy", "asl"])
+@pytest.mark.parametrize("fixture", ["plane_tf", "policy", "asl", "machine_tf"])
 def test_the_files_this_suite_reads_exist(fixture):
-    path = {"module_dir": _MODULE, "policy": _POLICY, "asl": _ASL}[fixture]
+    path = {"plane_tf": _PLANE_TF, "policy": _POLICY, "asl": _ASL, "machine_tf": _MACHINE_TF}[
+        fixture
+    ]
     assert path.exists(), f"{path} is missing, so the assertions over it are vacuous"

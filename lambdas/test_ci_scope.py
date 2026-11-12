@@ -179,8 +179,11 @@ def _hermetic_env(**overrides: str) -> dict[str, str]:
 #: added and removed by ordinary infrastructure work, and a guard pinned to today's number would
 #: redden on a correct change. An exact count written into prose goes stale with nothing to catch
 #: it — this repository carried "88" against a real 87 for long enough to be copied four times —
-#: so the number lives here, where a test reads it, and nowhere else.
-MINIMUM_IAM_TEMPLATE_READS = 80
+#: so the number lives here, where a test reads it, and nowhere else. Re-derived, not re-checked,
+#: when the planes' five shared templates folded into one module copy: the floor that fit the
+#: per-plane copies could never be met again, so it sits under the new tree's count with the same
+#: headroom it had before.
+MINIMUM_IAM_TEMPLATE_READS = 58
 
 
 def _scope_patterns() -> list[str]:
@@ -342,7 +345,12 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
         "both leave this test passing while covering nothing"
     )
 
-    templates = {path for path in reads if path.startswith("infra/modules/")}
+    templates = {
+        path
+        for path in reads
+        if path.startswith(("infra/modules/", "infra/planes/"))
+        and not path.endswith(".asl.json.tftpl")
+    }
     assert len(templates) >= MINIMUM_IAM_TEMPLATE_READS, (
         f"the sweep found only {len(templates)} IAM policy templates against a floor of "
         f"{MINIMUM_IAM_TEMPLATE_READS}; the glob "

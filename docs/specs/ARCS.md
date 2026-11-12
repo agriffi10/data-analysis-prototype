@@ -47,6 +47,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
 - [Observability continuation arc (SPEC-224, 225, 226, 227)](#observability-continuation-arc-spec-224-225-226-227)
 - [Tester-feedback arc (SPEC-238 → 244)](#tester-feedback-arc-spec-238--244)
+- [Infra building-blocks arc (SPEC-252 → 253, 254)](#infra-building-blocks-arc-spec-252--253-254)
 
 ---
 
@@ -3248,3 +3249,60 @@ wherever one is picked, and Athena's own text appears only behind Details.
 **Left out of every spec, on purpose:** reading blank CSV fields as NULL (it changes what existing
 tables return), and parsing SQL back into the Data Explorer (anything the parser missed would be
 dropped without a word).
+
+## Infra building-blocks arc (SPEC-252 → 253, 254)
+
+**The request (Andrew, 2026-11-12).** The stack is moving to a client AWS account and feature work
+is largely stopping, so the infrastructure is being left in the shape the next team will maintain.
+The per-feature modules build the same machine over and over; realign `infra/modules/` with
+HashiCorp's module guidance, favouring a clean structure over a small diff.
+
+**What was measured** (on `8b3ae747`; re-run the commands rather than trusting the numbers). The
+eight control-plane modules hold 5,254 lines of `.tf` (`cat infra/modules/{shared-spaces,table-builder,table-share,data-quality,file-send,archive,file-ops,results-conversion}/*.tf | wc -l`),
+of which 850 are `moved` blocks recording applied history. Their `pipe-permissions` and
+`pipe-trust` templates are byte-identical eight times, `sfn-trust` and `lambda-trust` seven times
+(`md5 -q infra/modules/*/policies/<name>.json.tftpl | sort | uniq -c`); `sqs.tf` differs between
+planes only in `content_based_deduplication` and one receive count, `pipe.tf` not at all outside
+shared spaces, and every name follows one rule from the plane's slug. Across `infra/modules/` the
+commonest resources are `aws_iam_role_policy` (42), `aws_iam_role` (40), `aws_sqs_queue` (21),
+`aws_iam_policy` (17), `aws_lambda_permission` (16), and eight each of state machines and Pipes
+(`grep -rhoE '^resource "[a-z0-9_]+"' infra/modules | sort | uniq -c | sort -rn`). The deploy
+role's eight per-plane templates are 1,170 lines (`wc -l infra/modules/base/policies/github-actions-deploy-{table-share,file-ops,archive,shared-spaces,data-quality,table-builder,file-send,results-conversion}.json.tftpl`).
+What the move costs is the readers: 83 code and test files and 88 Markdown files name a plane
+module's path (`git grep -l` over the eight directory names), and `lambdas/fleet.py` derives the
+whole Lambda fleet by walking `infra/modules/*/`.
+
+**The guidance applied** (developer.hashicorp.com/terraform/language/modules/develop and its
+*composition*, *structure* and *refactoring* pages; the OpenTofu pages agree). A module raises the
+level of abstraction around one architectural concept and is not a thin wrapper around one
+resource type. Composition stays flat: the root calls each module and passes its dependencies in,
+rather than modules nesting modules that create what they need. `moved` blocks refactor without
+destroying, may address any descendant from the module declaring them, and are kept until every
+state has applied them. So the machine becomes `control-plane`, a building block the root calls
+once per plane; `scheduled-function` and `queue-consumer` are the two smaller shapes built more than
+once; and concepts built once (`auth`, `api`, `data`, `analytics`, `network`, `spa`, …) stay the
+modules they are. The old `moved` history is deleted rather than kept, because this repository's
+one state has applied all of it, and the next environment is created fresh, where a `moved` block
+has nothing to move.
+
+**Why three specs, and why this order.** 252 is the riskiest and leads: it moves 83 functions'
+owners, touches every plane's IAM, makes the one deliberate IAM change (shared spaces' state machine
+gets its own role), and teaches `fleet.py` to read a root call — the mechanism the other two reuse.
+253 renders the deploy role's plane grants from one template; it is IAM on the role that applies
+everything, so it gets its own spec and its own plan, and it needs 252's root calls to check its
+map against. 254 moves the five standalone functions onto the two small building blocks and needs
+252's `scheduled-function`. **253 and 254 are independent of each other** and may build in
+parallel once 252 has landed.
+
+**How each is proved.** Deploys are manual-only from 2026-11-12, so nothing applies these changes
+in the current account, and the next account is deployed fresh. The proof is each PR's CI plan
+(local plans are unreliable here): every resource the spec touches is unchanged or **moved**, with
+the exceptions the spec enumerates. Every plan from 2026-11-12 also carries a baseline that is
+not this arc's: the web tier was switched on (`TF_VAR_WEB_TIER_ENABLED=true`) after the last apply,
+so it shows the VPC tier created and the static portal destroyed, and it carries one in-place
+change to the OIDC provider's `thumbprint_list`. Those addresses are excluded by name.
+
+**What the arc does not do.** No bucket module — the seven buckets share four short resources and
+differ in the rest, and a module named for the one resource it wraps is what the guidance calls a
+thin wrapper. No retirement of `lambda-artifacts` (a deletion, its own session). No change to any
+deployed name, function setting or rendered document beyond the enumerated role split.

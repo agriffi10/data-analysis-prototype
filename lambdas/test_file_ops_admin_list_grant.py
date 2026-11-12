@@ -29,7 +29,8 @@ raises rather than planning over a run already copying.
 
 Attributes:
   EXECUTION_POLICY: The file-ops execution role's policy.
-  MODULE_LOCALS: Where Terraform's own value for the plan prefix is set.
+  PLANE: The plane's root call, where Terraform's own value for the plan prefix is set — once as
+    the execution policy's ``plan_prefix`` and once as the distributed map's manifest prefix.
   LIFECYCLE_RULE: The admin bucket's expiry rule, which carries the prefix a third time.
   ADMIN_BUCKET_ARN: The template variable naming the admin bucket, unexpanded.
   PLAN_PREFIX_VAR: The template variable naming the plan prefix, unexpanded.
@@ -41,9 +42,11 @@ import pathlib
 import re
 import sys
 
+from tf_blocks import argument, module_calls, span
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXECUTION_POLICY = ROOT / "infra" / "modules" / "file-ops" / "policies" / "execution.json.tftpl"
-MODULE_LOCALS = ROOT / "infra" / "modules" / "file-ops" / "locals.tf"
+EXECUTION_POLICY = ROOT / "infra" / "planes" / "file-ops" / "execution.json.tftpl"
+PLANE = ROOT / "infra" / "plane-file-ops.tf"
 LIFECYCLE_RULE = ROOT / "infra" / "modules" / "analytics" / "s3.tf"
 ADMIN_BUCKET_ARN = "@{admin_bucket_arn}"
 PLAN_PREFIX_VAR = "@{plan_prefix}"
@@ -239,7 +242,7 @@ def test_the_list_condition_names_the_same_prefix_the_plan_statements_do() -> No
 def test_the_plan_prefix_agrees_across_python_terraform_and_the_lifecycle_rule() -> None:
     """Three literals, one value, and until now nothing compared them.
 
-    ``focommon.config.PLAN_PREFIX`` says it is mirrored in the module's locals and in the admin
+    ``focommon.config.PLAN_PREFIX`` says it is mirrored in the plane's root call and in the admin
     bucket's expiry rule and that a test holds all three equal. No test did. It matters more since
     the list grant landed: the condition is rendered from Terraform's value and the key the probe
     sends is built from Python's, so a divergence stops the condition matching the very list that
@@ -257,15 +260,28 @@ def test_the_plan_prefix_agrees_across_python_terraform_and_the_lifecycle_rule()
     """
     from focommon import config
 
-    terraform = re.search(r'plan_prefix\s*=\s*"([^"]+)"', MODULE_LOCALS.read_text())
+    call = module_calls(PLANE.read_text())["file_ops"]
+    expression = argument(call, "execution_policy")
+    rendered = re.match(r'templatefile\(\s*"\$\{path\.root\}/([^"]+)"\s*,\s*merge\(', expression)
+    assert rendered, f"the file-ops execution policy is not a templatefile over a merge: {expression}"
+    assert ROOT / "infra" / rendered.group(1) == EXECUTION_POLICY, f"{PLANE.name} renders {rendered.group(1)}"
+    terraform = re.fullmatch(r'"([^"$%]+)"', argument(span(expression, rendered.end())[1:-1], "plan_prefix"))
+    manifest = re.fullmatch(
+        r'"([^"$%]+)"', argument(argument(call, "distributed_map").strip()[1:-1], "manifest_prefix")
+    )
     lifecycle = re.search(
         r'id\s*=\s*"expire-file-ops-plans".*?prefix\s*=\s*"([^"]+)"',
         LIFECYCLE_RULE.read_text(),
         re.DOTALL,
     )
 
-    assert terraform, f"no plan_prefix local in {MODULE_LOCALS.name}"
+    assert terraform, f"{PLANE.name} passes no literal plan_prefix to the execution policy"
+    assert manifest, f"{PLANE.name} passes no literal manifest_prefix to the distributed map"
     assert lifecycle, f"no expire-file-ops-plans rule prefix in {LIFECYCLE_RULE.name}"
+    assert manifest.group(1) == terraform.group(1), (
+        f"the map reads plans under {manifest.group(1)!r} and the execution role writes them under "
+        f"{terraform.group(1)!r}"
+    )
     assert terraform.group(1) == config.PLAN_PREFIX, (
         f"Terraform grants on {terraform.group(1)!r} and Python writes under "
         f"{config.PLAN_PREFIX!r}"

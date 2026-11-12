@@ -691,33 +691,47 @@ def test_the_content_based_dedup_flags_are_read_out_of_the_terraform_not_transcr
     """Three queues hash the body when no explicit id is given, and the parse has one hard case.
 
     In shared-spaces, notifications and table-builder BOTH the request queue and its DLQ are
-    content-based, so a parse that took the first match per file would be right by luck. Data
-    quality declares its DLQ first and its request queue second with the opposite value, which is
-    the one case that separates a correct parse from a wrong one — and getting it wrong reddens
-    nothing, because an explicit id is set either way.
+    content-based, so a parse that took the first match would be right by luck. Data quality's
+    DLQ is content-based and its request queue is not, which is the one case that separates a
+    correct parse from a wrong one — and getting it wrong reddens nothing, because an explicit id
+    is set either way.
+
+    The eight control planes set the flag as an argument of their call to the shared module, beside
+    the DLQ's own ``dlq_content_based_deduplication``; the module's request queue is read too, so a
+    call argument that stopped reaching the queue would not read as deployed.
     """
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-    from tf_blocks import blocks
+    from tf_blocks import argument, blocks, module_calls
 
-    modules = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules"
-    module_for = {
-        "shared-space": "shared-spaces",
-        "notifications": "notifications",
-        "table-builder": "table-builder",
-        "table-share": "table-share",
-        "data-quality": "data-quality",
-        "file-send": "file-send",
-        "archive": "archive",
-        "file-ops": "file-ops",
-        "results-conversion": "results-conversion",
+    infra = pathlib.Path(__file__).resolve().parents[2] / "infra"
+    plane_call = {
+        "shared-space": ("plane-shared-spaces.tf", "shared_spaces"),
+        "table-builder": ("plane-table-builder.tf", "table_builder"),
+        "table-share": ("plane-table-share.tf", "table_share"),
+        "data-quality": ("plane-data-quality.tf", "data_quality"),
+        "file-send": ("plane-file-send.tf", "file_send"),
+        "archive": ("plane-archive.tf", "archive"),
+        "file-ops": ("plane-file-ops.tf", "file_ops"),
+        "results-conversion": ("plane-results-conversion.tf", "results_conversion"),
     }
+    shared = blocks((infra / "modules" / "control-plane" / "main.tf").read_text(), "aws_sqs_queue")
+    assert argument(shared["requests"], "content_based_deduplication") == (
+        "var.content_based_deduplication"
+    )
     deployed = {}
     for queue in contract.QUEUES:
-        source = (modules / module_for[queue.id] / "sqs.tf").read_text()
-        body = blocks(source, "aws_sqs_queue")["requests"]
-        deployed[queue.id] = "content_based_deduplication = true" in body.replace("  ", " ")
+        if queue.id == "notifications":
+            source = (infra / "modules" / "notifications" / "sqs.tf").read_text()
+            body = blocks(source, "aws_sqs_queue")["requests"]
+            deployed[queue.id] = "content_based_deduplication = true" in body.replace("  ", " ")
+            continue
+        file_name, call = plane_call[queue.id]
+        body = module_calls((infra / file_name).read_text())[call]
+        flag = argument(body, "content_based_deduplication")
+        assert flag in ("true", "false"), f"{call} sets content_based_deduplication to {flag}"
+        deployed[queue.id] = flag == "true"
 
     assert deployed == {q.id: q.content_based_deduplication for q in contract.QUEUES}
     assert {q.id for q in contract.QUEUES if q.content_based_deduplication} == {
