@@ -10,7 +10,7 @@ arc_order: 1
 ---
 
 **Dependency notes:** SPEC-213 (every verb is a `docker-lambda` call, and the 172 `moved` blocks it
-left in the plane modules are applied history this spec deletes). The arc's reasoning, its
+left behind — 156 of them in the plane modules — are applied history this spec deletes). The arc's reasoning, its
 measurements and why this spec leads are in `ARCS.md` → *Infra building-blocks arc*.
 
 ## Overview
@@ -83,24 +83,34 @@ the ceiling.
 
 #### Acceptance Criteria:
 
-- [ ] The module's inputs are those in *Interface Contract* below, each with a description, and
-      nothing else; every name it creates equals `"${project}-${environment}-${name}-<role>"` with
+- [ ] **Every argument that differs between today's callers is an input, and nothing else is.**
+      The build plan carries an attribute diff: for every resource and module call the eight plane
+      modules declare, each argument's value per plane, so an argument that varies is found by
+      enumeration rather than by memory. Each varying argument is either an input of this module
+      or one of FR-003's enumerated changes; an argument that does not vary is a literal in the
+      module. The inputs that diff found while this spec was written are in *Interface Contract*;
+      the plan reviewer holds the build's diff against that list.
+- [ ] Every input has a description, and every name the module creates equals `"${project}-${environment}-${name}-<role>"` with
       the suffixes the planes use today (`-requests.fifo`, `-requests-dlq.fifo`, `-pipe`,
       `-pipe-role`, `-orchestrator`, `-sfn-role`, `-execution-role`, `-<verb>`), except where
       `execution_role_name` is given.
 - [ ] The definition template is rendered with `function_arns`, a map from verb key to that
       function's ARN covering **every** key of `functions`, merged with `definition_vars`; a
       template naming a verb that does not exist fails at `tofu validate` or plan, not at apply.
-- [ ] The `TIMED_OUT` rule, its target and its permission exist **if and only if**
-      `state_machine_timeout_seconds` is non-null, target the `notify-failure` verb, and the value
-      reaches the template as `state_machine_timeout_seconds`; a non-null ceiling with no
-      `notify-failure` key in `functions` is refused by a `validation` block, asserted by a test.
+- [ ] The `TIMED_OUT` rule, its target and its permission exist **if and only if** `ceiling` is
+      non-null; they target `ceiling.notifier_verb`, the rule carries `ceiling.rule_description`,
+      and `ceiling.seconds` reaches the template as `state_machine_timeout_seconds`. A ceiling whose
+      notifier verb is not a key of `functions` is refused at plan by a `precondition` naming the
+      verb, and a test drives that refusal through `tofu` (a `tofu test` with a mock AWS provider,
+      which OpenTofu 1.8 supports) and asserts the error text.
 - [ ] The Step Functions role's policy grants the distributed-map statements (start and describe
       child executions, read and write the manifest prefix in the admin bucket, and `StopExecution`
       where asked) **only** when `distributed_map` is non-null, and renders byte-for-byte the
       document each plane has today — the five shapes measured under *Interface Contract*.
-- [ ] The module contains no `data` block, no `provider` block, no `time_sleep` and no
-      module-level `depends_on`; `lambdas/test_depends_on_defers_no_data_source.py` covers it.
+- [ ] The module contains no `data` block, no `provider` block and no `time_sleep`. Its `functions`
+      call keeps `depends_on = [aws_iam_role_policy.execution]`, the ordering every plane has today,
+      which defers nothing because `docker-lambda` reads no data source;
+      `lambdas/test_depends_on_defers_no_data_source.py` covers the new module.
 - [ ] `tofu validate` passes for the root and for the module on its own (the CI step *Validate every
       module the root does not reach* stops visiting it once the root calls it).
 
@@ -130,8 +140,10 @@ and `infra/planes/<slug>/`. Their old module directories are deleted.
       `module.control_plane_dlq_drain`. Plan changes under the web tier's addresses (`module.network`,
       `module.spa`, `module.static_portal`, the portal certificate) and their outputs belong to the
       web-tier switch, which no file this spec touches reads, and are outside this criterion.
-- [ ] A plane's root file holds no resource; it holds that plane's `locals` and its one `module`
-      call. Every local it declares carries the plane's prefix (`table_share_…`), because the root
+- [ ] A plane's root file holds no resource; it holds that plane's `locals`, its call to
+      `control-plane`, and the calls to any module only that plane uses (`archive_vault` in
+      `plane-archive.tf`; `shared_space_storage` and `shared_space_transfer_reader` in
+      `plane-shared-spaces.tf`). Every local it declares carries the plane's prefix (`table_share_…`), because the root
       is one namespace.
 
 ### FR-003: Shared spaces composes too, and its non-machine parts get homes
@@ -153,19 +165,30 @@ grants move to `module.shared_space_storage`; the transfer reader, its role and 
 - [ ] `infra/modules/shared-spaces/` is deleted, and the plan's changes for everything it held are
       **exactly**: create `module.shared_spaces.aws_iam_role.sfn` and its policy; update in place
       the state machine's `role_arn`; update in place the `orchestrator` role's trust (Lambda only)
-      and its policy (without `InvokeVerbLambdas` and `StepFunctionLogDelivery`). Two to add, three
-      to change, **zero to destroy**; every other object is unchanged or moved.
+      and its policy (without `InvokeVerbLambdas` and `StepFunctionLogDelivery`, and with `WriteLogs`
+      no longer naming the state machine's log group). Two to add, three to change, **zero to
+      destroy**; every other object is unchanged or moved. The execution policy keeps its inline
+      name `orchestrator` through `execution_policy_name`.
 - [ ] The PR names, for each statement removed from the `orchestrator` policy, the search showing
       no shared-spaces verb makes that call.
 - [ ] The `orchestrator` role keeps its name and ARN, so the Lake Formation admin list, the
       user-space bucket policy's allowlist and every other reference to it plan no change.
-- [ ] `infra/modules/scheduled-function/` takes the function's name, handler, role policy,
-      schedule expression and environment as inputs, creates the role, the function, the rule, the
-      target and a permission bound to `function_arn`, and the transfer reader's objects move into
-      it with no change.
-- [ ] Bucket 2's objects move into `module.shared_space_storage` and Bucket 5's into
-      `module.archive_vault` with no change, each module receiving the role ARNs its policies name
-      as constructed strings from the root.
+- [ ] `infra/modules/scheduled-function/` has the inputs in *Interface Contract* — chosen by the
+      same attribute diff over its four eventual callers (the transfer reader here, and SPEC-254's
+      user-directory build, DLQ drain and logs sweep), so SPEC-254 needs no change to it — creates
+      the role, its inline policies, the function, the rule, the target and a permission bound to
+      `function_arn`, and the transfer reader's objects move into it with no change.
+- [ ] `module.shared_space_storage` receives, with no change: Bucket 2 and its six bucket
+      resources, `aws_iam_role.lf_registration` and its policy, `aws_lakeformation_resource.shared_space`,
+      `aws_lakeformation_permissions.portal_shared_location` and `.control_plane_shared_location`,
+      `aws_iam_role_policy.portal_shared_space`, and `time_sleep.wait_for_deploy_policy`. Bucket 5's
+      objects move into `module.archive_vault` with no change. Each module receives the role ARNs
+      its policies name as constructed strings from the root.
+- [ ] The wait still precedes the plane in a fresh apply: `module.shared_spaces` carries
+      `depends_on = [module.shared_space_storage]`. `module.shared_spaces` and
+      `module.shared_space_transfer_reader` carry no `depends_on` on each other — the plane's verbs
+      read the reader role's unique id and the reader reads the plane's queue URL, which is a
+      resource-level graph with no cycle and a module-level one with a cycle.
 
 ### FR-004: The fleet is still derived from the Terraform, and no test is lost
 
@@ -180,10 +203,20 @@ proved not to have dropped a function or a test.
 
 - [ ] `python3 lambdas/fleet.py` prints the same list on the branch as on `main`, compared as
       sorted JSON, and still raises when the sweep resolves fewer than its floor.
-- [ ] `fleet.py` resolves a function declared through a root call to `control-plane` (the verb keys
-      of the call's `functions` argument through the module's own naming local) without a second
-      copy of the naming rule, and a test plants a plane whose name it cannot resolve and asserts
-      the `FleetError` text.
+- [ ] `fleet.py` resolves a function declared through a root call to `control-plane` or
+      `scheduled-function` (the call's literal `name`, the keys of its `functions` argument, and the
+      module's own naming local) without a second copy of the naming rule, and refuses a `name` that
+      is not a literal; tests plant both refusals and assert the `FleetError` text.
+- [ ] **No glob goes quiet.** Every test or script that globs Terraform (`infra/modules/*/…` and
+      the like — `test_request_size_chain.py`, `test_queue_writers.py`, `test_feedback_module.py`,
+      `test_transfer_cpcommon.py`, `test_fleet_environment.py`, `test_lambda_plan_guard.py`,
+      `policyTemplates.guard.test.ts` and any the build's sweep finds) matches, on the branch, the
+      same templates and declarations it matched on `main` at their new paths — compared as file
+      lists printed from each glob on both refs, not by the test passing.
+- [ ] **Every workflow that fires on a fleet change still fires.** Each `paths:` filter naming
+      `infra/modules/**` because a verb is declared there (`lambda-image.yml`, `deploy-lambdas.yml`
+      and any other the sweep finds) also names `infra/plane-*.tf` and `infra/planes/**`, and the
+      comments saying the root cannot change the fleet are corrected.
 - [ ] Test IDs collected from the runners (pytest's JSON report and Vitest's JSON reporter) on
       `main` and on the branch differ only by file path where a test file moved; no ID is lost.
 - [ ] `git grep` for `infra/modules/` followed by any deleted directory name returns nothing
@@ -236,7 +269,8 @@ variable "environment_variables" { type = map(string) }  # common to every verb
 variable "lambda_image_repository_url" { type = string }
 variable "lambda_image_tag" { type = string }
 
-variable "content_based_deduplication" { type = bool }
+variable "content_based_deduplication" { type = bool }      # the request queue
+variable "dlq_content_based_deduplication" { type = bool }  # data quality differs from its queue
 variable "dlq_max_receive_count" { type = number }
 
 variable "definition_template" { type = string }   # path to the plane's ASL .tftpl
@@ -244,12 +278,20 @@ variable "definition_vars" {
   type    = map(any)
   default = {}
 }
-variable "state_machine_timeout_seconds" {
-  type    = number
+variable "ceiling" {
+  type = object({
+    seconds          = number                     # the ASL's top-level TimeoutSeconds
+    notifier_verb    = string                     # "notify-failure" on all six planes today
+    rule_description = string                     # worded per plane today; a rewording is an update
+  })
   default = null                                  # null: no ceiling, no TIMED_OUT notifier
 }
 
 variable "execution_policy" { type = string }      # rendered by the caller from its template
+variable "execution_policy_name" {
+  type    = string
+  default = "permissions"                         # shared spaces: "orchestrator"
+}
 variable "execution_role_name" {
   type    = string
   default = null                                  # null: "<prefix>-<name>-execution-role"
@@ -266,6 +308,31 @@ variable "admin_bucket_arn" { type = string }
 
 # outputs.tf: queue_url, queue_arn, dlq_arn, state_machine_arn, execution_role_arn, function_names
 ```
+
+`scheduled-function`, sized for all four callers (the attribute diff found the statement ids,
+policy names, rule names and the sweep's role name each differ, and that observability's role
+carries two inline policies, one naming the function's own log group):
+
+```hcl
+# infra/modules/scheduled-function/variables.tf
+variable "function_name" { type = string }        # full name, as declared today
+variable "role_name" { type = string }            # the sweep's has no "-role" suffix
+variable "role_policies" { type = map(string) }   # inline policy name => rendered document
+variable "handler" { type = string }
+variable "timeout_seconds" { type = number }
+variable "memory_mb" { type = number }
+variable "environment_variables" { type = map(string) }
+variable "lambda_image_repository_url" { type = string }
+variable "lambda_image_tag" { type = string }
+variable "rule_name" { type = string }
+variable "rule_description" { type = string }
+variable "schedule_expression" { type = string }
+variable "permission_statement_id" { type = string }
+# outputs.tf: function_name, function_arn, role_arn, role_unique_id
+```
+
+A policy naming the function's own log group takes that ARN as a constructed string, so no policy
+waits on the function it permits.
 
 The Step Functions policy as it stands: seven files, five distinct by
 `md5 -q infra/modules/*/policies/sfn-permissions.json.tftpl | sort | uniq -c` (shared spaces has

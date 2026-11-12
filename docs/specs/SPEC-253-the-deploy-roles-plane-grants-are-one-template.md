@@ -52,10 +52,13 @@ the map's entries rather than buried in eight near-copies.
 
 #### Description:
 
-`modules/base` takes a map of planes, keyed by slug, each entry carrying the statement-id prefix,
-the policy description, whether the plane has a ceiling (its `TIMED_OUT` rule grant), and the name
-of its extras template if it has one. One template renders the shared statements; the extras, if
-any, are appended.
+`modules/base` takes a map of planes, keyed by slug, each entry carrying the policy's **name** and
+**description** exactly as they are today (both are ForceNew, and shared spaces' policy is named
+`deploy-shared-spaces` while its slug is `shared-space`), the statement-id prefix, whether the
+plane has a ceiling (its `TIMED_OUT` rule grant), and the name of its extras template if it has
+one. One template renders the shared statements; the extras, if any, are appended. The arguments
+of the sixteen resources are found the way SPEC-252's are, by an attribute diff across the eight,
+and every one that varies is a map field.
 
 #### Acceptance Criteria:
 
@@ -65,8 +68,13 @@ any, are appended.
       as a set of canonicalised statements by a test that renders both — and the PR's CI plan shows
       no create, update, replace or destroy of any `aws_iam_policy` or attachment in `module.base`,
       only moves.
-- [ ] A plane entry whose extras template does not exist fails at plan with the plane's name in
-      the error, asserted by a test.
+- [ ] Every extras template a map entry names exists, asserted by a test that reads the map and
+      names the plane whose file is missing (a missing file would otherwise surface as
+      `templatefile()`'s error at plan, which is correct but late).
+- [ ] The archive-only propagation guard becomes one guard for every plane: `time_sleep.wait_for_archive_grant`
+      moves to `time_sleep.wait_for_plane_grants`, which depends on all eight attachments, so a
+      plane created in the same apply as its grant waits whichever plane it is. The plan shows the
+      move and nothing else for it.
 
 ### FR-002: The map cannot disagree with the planes
 

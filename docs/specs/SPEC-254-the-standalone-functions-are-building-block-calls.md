@@ -51,7 +51,11 @@ either a building block or a concept built once.
 #### Description:
 
 The user-directory build, the DLQ drain and the logs sweep are each a root call to
-`./modules/scheduled-function`, with the function's own policy template beside its call.
+`./modules/scheduled-function`, with the function's own policy templates beside its call. SPEC-252
+sized that module's inputs for these three callers (their statement ids, rule names, inline policy
+names, the sweep's role name without a `-role` suffix, and observability's two inline policies),
+and this spec uses it unchanged; a caller it cannot express is a defect in SPEC-252's contract,
+fixed there rather than worked around here.
 
 #### Acceptance Criteria:
 
@@ -59,8 +63,9 @@ The user-directory build, the DLQ drain and the logs sweep are each a root call 
       `infra/modules/observability/` holds no function, role, rule or permission.
 - [ ] The PR's CI plan shows every object these three owned as unchanged or moved, with no create,
       update, replace or destroy.
-- [ ] Every `aws_lambda_permission` these calls create binds to `function_arn`, which the plan
-      guard asserts.
+- [ ] Every `aws_lambda_permission` these calls create binds to `function_arn`, which the source
+      rule in `lambdas/test_the_cutover.py` asserts (the plan guard only checks the binding looks
+      like an ARN, and a constructed ARN passes it).
 
 ### FR-002: The two single-writer queues are calls to `queue-consumer`
 
@@ -68,7 +73,10 @@ The user-directory build, the DLQ drain and the logs sweep are each a root call 
 
 `infra/modules/queue-consumer/` builds a FIFO queue and its DLQ, a role with the caller's policy,
 one function, and an event-source mapping at batch size 1. Notifications and feedback are each a
-call to it; feedback's DLQ stays undrained, as today.
+call to it; feedback's DLQ stays undrained, as today. Its inputs come from an attribute diff of the
+two modules, as SPEC-252's do; already known to vary are the queue's and the DLQ's
+`content_based_deduplication` separately (feedback's DLQ deduplicates on content, its queue does
+not) and the queue's `deduplication_scope` (notifications sets `messageGroup`).
 
 #### Acceptance Criteria:
 
