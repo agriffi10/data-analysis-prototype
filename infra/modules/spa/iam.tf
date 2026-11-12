@@ -27,6 +27,6 @@ resource "aws_iam_role_policy" "task_execution" {
 
   policy = templatefile("${path.module}/policies/task-execution-policy.json.tftpl", {
     repository_arn = var.repository_arn
-    log_group_arn  = aws_cloudwatch_log_group.spa.arn
+    log_group_arn  = local.log_group_arn
   })
 }

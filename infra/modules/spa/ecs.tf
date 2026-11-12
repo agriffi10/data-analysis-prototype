@@ -17,7 +17,7 @@ resource "aws_ecs_cluster" "spa" {
 # start with ResourceInitializationError, INDISTINGUISHABLE during verification from the
 # CannotPullContainerError the no-NAT design is tested by. README.md.
 resource "aws_cloudwatch_log_group" "spa" {
-  name              = "/ecs/${local.spa_name}"
+  name              = local.log_group_name
   retention_in_days = 14
 }
 
