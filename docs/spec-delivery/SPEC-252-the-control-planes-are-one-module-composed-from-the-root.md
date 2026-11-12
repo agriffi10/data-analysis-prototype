@@ -55,3 +55,4 @@ CI plan is the proof.
   `module.shared_spaces`'s new `sfn` role and its policy, plus in-place updates to the state
   machine's `role_arn` and to the orchestrator role's trust and policy.
 - Not applied anywhere: deploys are off, and the next account is created fresh.
+- Nothing user-facing changed, so there is no Help & guides update and no live check.
