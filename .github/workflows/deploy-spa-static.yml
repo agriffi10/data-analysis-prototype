@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: vars.TF_VAR_web_tier_enabled == 'false'
+    if: vars.TF_VAR_web_tier_enabled == 'false' && vars.DEPLOYS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -3,6 +3,7 @@
 
 These pass locally and fail later — check them as part of the work, not as an afterthought.
 
+- **Deploys are switched off: a merge changes nothing in AWS.** Every job that applies, builds an image, points a Lambda, deploys the SPA or publishes the flag document waits on the repository variable `DEPLOYS_ENABLED`, which is unset, so those runs on `main` report skipped jobs and a green `main` proves only that CI, the security scans and the PR plan passed. What a pull request still gets is `ci.yml`, `security.yml` and the `tofu plan` comment. `.github/workflows/README.md` has the switch.
 - **Six steps now fail NOWHERE but your machine** — lint, both suites and mypy are commented out in
   `ci.yml`, whose header names all six and carries the restore rule, so a green PR is no evidence
   any ran. `tsc -b` (via `npm run build`) is the only check CI still makes; `npm run test` never

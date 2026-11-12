@@ -45,6 +45,7 @@ concurrency:
 
 jobs:
   matrix:
+    if: vars.DEPLOYS_ENABLED == 'true'
     name: Build the image and assert its behaviour
     runs-on: ubuntu-latest
     # The build is ~3 minutes and the matrix ~2. Twelve bounds a hung run well clear of that

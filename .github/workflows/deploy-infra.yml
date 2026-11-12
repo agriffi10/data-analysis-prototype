@@ -463,7 +463,7 @@ jobs:
         run: rm -f plan.json tfplan
 
   apply:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.DEPLOYS_ENABLED == 'true'
     runs-on: ubuntu-latest
     # 60, not 30. A job timeout cancels `tofu apply` mid-run WITH THE STATE LOCK HELD, which is
     # a lost apply and a lock to clear by hand. It was raised for the CloudFront teardown, which
