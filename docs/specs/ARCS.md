@@ -3294,6 +3294,10 @@ map against. 254 moves the five standalone functions onto the two small building
 252's `scheduled-function`. **253 and 254 are independent of each other** and may build in
 parallel once 252 has landed.
 
+> **252 shipped 2026-11-12** (PR #956). The CI plan against the web tier's switch-on baseline
+> was 55 moves plus exactly the five planned shared-spaces changes. `scheduled-function` exists, and
+> fleet.py resolves root calls into a building block, for 253 and 254 to build on.
+
 **How each is proved.** Deploys are manual-only from 2026-11-12, so nothing applies these changes
 in the current account, and the next account is deployed fresh. The proof is each PR's CI plan
 (local plans are unreliable here): every resource the spec touches is unchanged or **moved**, with
