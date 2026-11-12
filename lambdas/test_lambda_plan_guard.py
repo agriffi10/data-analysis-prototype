@@ -327,7 +327,8 @@ def test_every_committed_deliberate_change_is_real_and_is_what_terraform_sets():
     """A declaration naming nothing, or restating the capture, is a pin on nothing; and one that
     disagrees with the Terraform would fail the plan it exists to pass. Each entry must name a
     captured function and a parity field, differ from the capture, and equal the value the
-    function's row in its module's ``locals.tf`` sets — found by the handler, which the fixture
+    function's row in its plane's verb map (``infra/plane-<slug>.tf``) or its module's
+    ``locals.tf`` sets — found by the handler, which the fixture
     records and the row names.
 
     Args:
@@ -343,7 +344,8 @@ def test_every_committed_deliberate_change_is_real_and_is_what_terraform_sets():
 
     captured = json.loads(FIXTURE.read_text(encoding="utf-8"))["functions"]
     rows = "\n".join(
-        path.read_text(encoding="utf-8") for path in (ROOT / "infra" / "modules").glob("*/locals.tf")
+        path.read_text(encoding="utf-8")
+        for path in [*(ROOT / "infra").glob("plane-*.tf"), *(ROOT / "infra" / "modules").glob("*/locals.tf")]
     )
     assert GUARD.DELIBERATE_CHANGES, "nothing declared — delete this test with the last entry"
     for (name, field), value in GUARD.DELIBERATE_CHANGES.items():

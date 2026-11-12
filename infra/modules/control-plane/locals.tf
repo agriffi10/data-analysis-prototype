@@ -14,11 +14,6 @@ locals {
     verb => "${var.project_name}-${var.environment}-${var.name}-${verb}"
   }
 
-  constructed_function_arns = [
-    for verb, name in local.function_names :
-    "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
-  ]
-
   function_arns = { for verb, function in module.functions : verb => function.function_arn }
 
   # Every verb reaches the definition as <verb>_function_arn, generated from the verb map, so no

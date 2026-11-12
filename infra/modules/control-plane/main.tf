@@ -104,7 +104,7 @@ resource "aws_cloudwatch_event_target" "execution_timed_out" {
   count = var.ceiling == null ? 0 : 1
 
   rule = aws_cloudwatch_event_rule.execution_timed_out[0].name
-  arn  = try(local.function_arns[var.ceiling.notifier_verb], "")
+  arn  = module.functions[var.ceiling.notifier_verb].function_arn
 }
 
 resource "aws_lambda_permission" "execution_timed_out" {
@@ -112,7 +112,7 @@ resource "aws_lambda_permission" "execution_timed_out" {
 
   statement_id  = "AllowEventBridgeExecutionTimedOut"
   action        = "lambda:InvokeFunction"
-  function_name = try(local.function_arns[var.ceiling.notifier_verb], "")
+  function_name = module.functions[var.ceiling.notifier_verb].function_arn
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.execution_timed_out[0].arn
 }

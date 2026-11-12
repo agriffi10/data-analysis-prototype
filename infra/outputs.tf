@@ -231,7 +231,7 @@ locals {
     module.notifications.function_names,
     module.observability.function_names,
     module.shared_spaces.function_names,
-    [module.shared_space_transfer_reader.function_name],
+    module.shared_space_transfer_reader.function_names,
     module.table_builder.function_names,
     module.table_share.function_names,
     module.user_directory.function_names,

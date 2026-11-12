@@ -439,6 +439,19 @@ def _resolve_bound(
     names = _resolve_map_keys(mapped.group(1), root, where)
 
     def bind(match: re.Match[str]) -> str:
+        """Replaces one ``${var.<input>}`` in the name template with the call's literal for it.
+
+        Args:
+          match: The interpolation, its input name captured.
+
+        Returns:
+          The project and environment interpolations unchanged, since the prefix check reads
+          them; any other input's literal value.
+
+        Raises:
+          FleetError: When the call does not pass the input, or passes something other than a
+            plain string.
+        """
         name = match.group(1)
         if name in ("project_name", "environment"):
             return match.group(0)
@@ -503,6 +516,19 @@ def function_names(repo: pathlib.Path) -> list[str]:
     found: dict[str, str] = {}
 
     def record(name: str, where: str) -> None:
+        """Adds one resolved short name to the fleet, refusing a residual interpolation or a twin.
+
+        Args:
+          name: The short name.
+          where: The declaration it came from, for the refusal and for a twin's message.
+
+        Returns:
+          None.
+
+        Raises:
+          FleetError: When the name still carries an interpolation, or another declaration
+            already named it.
+        """
         if "${" in name:
             raise FleetError(
                 f"{where}: resolves to {name!r}, which still carries an unresolved "

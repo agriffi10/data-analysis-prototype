@@ -36,7 +36,12 @@ checking that adding a variable reddens each of them.
 Attributes:
   ROOT: The repository root.
   LAMBDAS: The Lambda source tree, and the import root for the layers.
-  MODULES: The Terraform module tree holding one lambda.tf per plane.
+  MODULES: The Terraform module tree. A module that declares functions by itself has a lambda.tf;
+    a building block names its functions from the root's call into it.
+  INFRA: The root module, where every call into a building block — and the plane's verb map and
+    shared environment it passes — is written.
+  BUILDING_BLOCKS: The module sources whose functions are named by the root's call, not by the
+    module.
   SHARED_ROOTS: Every directory the image copies onto `/opt/python`, read from the ASSEMBLER
     rather than guessed from a naming convention — a shared root not called `*-common` would
     otherwise leave this guard under-reporting demand, which is a false pass on the exact failure
@@ -72,7 +77,9 @@ from tf_blocks import (
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
-MODULES = ROOT / "infra" / "modules"
+INFRA = ROOT / "infra"
+MODULES = INFRA / "modules"
+BUILDING_BLOCKS = ('"./modules/control-plane"', '"./modules/scheduled-function"')
 SHARED_ROOTS = tuple(assemble.shared_roots(ROOT))
 
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
@@ -228,26 +235,59 @@ def _directories(function_name: str, source: str, where: str) -> list[tuple[str,
 
 
 @functools.lru_cache(maxsize=1)
-def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset[str], str], ...]:
-    """Every fleet function in the module tree, with what its environment supplies.
+def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset[str], dict[str, str]], ...]:
+    """Every fleet function declaration, with what its environment supplies.
 
-    A function is a call to the container module, identified by its ``source`` rather than by its
-    call name — a plane could reasonably call a different module one day, and a name-based filter
-    would either miss a function or read a stranger as one.
+    Two places declare functions. A module that names its own functions does so in a call to the
+    container module, identified by its ``source`` rather than by its call name — a plane could
+    reasonably call a different module one day, and a name-based filter would either miss a
+    function or read a stranger as one. A building block names nothing by itself: the root's call
+    into it passes the verb map and the shared environment, so its functions are read from that
+    call, and the building block's own directory is passed over in the module walk only because a
+    root call was read for it.
 
     Args:
       None.
 
     Returns:
-      One row per resource: its module, its resource name, the ``(directory, key)`` pairs it
-      deploys, the variable names its base environment block sets, and the name of its per-verb
-      override local, empty when it has none.
+      One row per declaration: where it is, its name, the ``(directory, key)`` pairs it deploys,
+      the variable names its shared environment sets, and each key's per-verb entry (whose
+      upper-case assignments are that verb's own environment), empty when it has none.
 
     Raises:
-      ValueError: Through ``_directories``, if a resource's name cannot be resolved.
+      ValueError: Through ``_directories``, if a declaration's name cannot be resolved.
+      AssertionError: When a declaration supplies no environment at all.
     """
     rows = []
+    covered: set[str] = set()
+    root = _locals_source(INFRA)
+    for path in sorted(INFRA.glob("*.tf")):
+        for name, body in module_calls(path.read_text(encoding="utf-8")).items():
+            source = argument(body, "source")
+            if source not in BUILDING_BLOCKS:
+                continue
+            covered.add(source.strip('"').rsplit("/", 1)[-1])
+            try:
+                environment = argument(body, "environment_variables")
+            except ValueError:
+                raise AssertionError(f"{path}: {name} supplies no environment") from None
+            if source == BUILDING_BLOCKS[0]:
+                slug = argument(body, "name").strip('"')
+                verbs = re.fullmatch(r"local\.([a-z_]+)", argument(body, "functions"))
+                if not verbs:
+                    raise ValueError(f"{path}: {name} passes functions that are not a root local")
+                entries = _map_entries(root, verbs.group(1))
+                if not entries:
+                    raise ValueError(f"{path}: cannot resolve local.{verbs.group(1)}")
+                directories = tuple(sorted((f"{slug}-{key}", key) for key in entries))
+            else:
+                entries = {}
+                directories = tuple(_directories(argument(body, "function_name"), root, str(path)))
+            rows.append((path.name, name, directories, frozenset(_assigned(environment)), entries))
+
     for path in sorted(MODULES.glob("*/lambda.tf")):
+        if path.parent.name in covered:
+            continue
         source = _locals_source(path.parent)
         for name, body in module_calls(path.read_text(encoding="utf-8")).items():
             if argument(body, "source") != FLEET_MODULE:
@@ -264,7 +304,7 @@ def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset
                     name,
                     tuple(_directories(expression, source, str(path))),
                     frozenset(_assigned(environment)),
-                    override.group(1) if override else "",
+                    _map_entries(source, override.group(1)) if override else {},
                 )
             )
     return tuple(rows)
@@ -272,36 +312,33 @@ def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset
 
 @functools.lru_cache(maxsize=1)
 def _supply() -> dict[str, tuple[str, frozenset[str]]]:
-    """Each function directory mapped to the resource that deploys it and what it is given.
+    """Each function directory mapped to the declaration that deploys it and what it is given.
 
-    A per-verb override entry is unioned in, because an override that ADDS a variable supplies
-    it as genuinely as the base block does. For a REQUIRED name that union is currently
-    unreachable, and deliberately so: the shadow check below refuses any required name in an
-    override map at all, on the grounds that an override is where one silently becomes an empty
-    string. The union is kept anyway so that what this function reports is what Terraform
-    actually merges, rather than what a second test happens to forbid — the two would otherwise
-    have to be read together to know whether either was right.
+    A per-verb entry is unioned in, because one that ADDS a variable supplies it as genuinely as
+    the shared block does. For a REQUIRED name that union is currently unreachable, and
+    deliberately so: the shadow check below refuses any required name in a per-verb entry at all,
+    on the grounds that a per-verb entry is where one silently becomes an empty string. The union
+    is kept anyway so that what this function reports is what Terraform actually merges, rather
+    than what a second test happens to forbid.
 
-    The override is looked up by the key the DIRECTORY WAS BUILT FROM, never by splitting the
-    directory name back apart. A plane whose name contains a hyphen — five of the six that have
-    an override map — makes ``file-ops-copy-objects`` split to ``ops-copy-objects``, which
-    matches no entry, so every override on those planes was silently read as absent.
+    The entry is looked up by the key the DIRECTORY WAS BUILT FROM, never by splitting the
+    directory name back apart: a plane whose name contains a hyphen makes
+    ``file-ops-copy-objects`` split to ``ops-copy-objects``, which matches no entry.
 
     Args:
       None.
 
     Returns:
-      Directory to a ``(module/resource, variable names)`` pair.
+      Directory to a ``(declaration, variable names)`` pair.
 
     Raises:
       None.
     """
     supply = {}
-    for module, resource, directories, names, override in _resources():
-        entries = _map_entries(_locals_source(MODULES / module), override) if override else {}
+    for where, resource, directories, names, entries in _resources():
         for directory, key in directories:
             supply[directory] = (
-                f"{module}/{resource}",
+                f"{where}/{resource}",
                 names | frozenset(_assigned(entries.get(key, ""))),
             )
     return supply
@@ -618,7 +655,7 @@ def test_every_deployed_function_is_claimed_by_exactly_one_terraform_resource():
 
 
 def test_no_per_verb_override_can_shadow_a_required_variable():
-    """A per-verb map is merged OVER the base block, so an entry can replace a required name.
+    """A verb's own environment is merged OVER the shared block, so it can replace a required name.
 
     An empty string is what makes this worth pinning rather than trusting: the reader refuses
     one exactly as it refuses an unset variable, so a verb overridden to ``""`` fails at first
@@ -626,14 +663,11 @@ def test_no_per_verb_override_can_shadow_a_required_variable():
     are empty today; this holds the reason they must stay that way for these names.
     """
     offenders = {}
-    for module, _, _, _, override in _resources():
-        if not override:
-            continue
-        source = _locals_source(MODULES / module)
-        for key, body in _map_entries(source, override).items():
+    for where, _, _, _, entries in _resources():
+        for key, body in entries.items():
             shadowed = _assigned(body) & _required_names()
             if shadowed:
-                offenders[f"{module}:{key}"] = sorted(shadowed)
+                offenders[f"{where}:{key}"] = sorted(shadowed)
 
     assert not offenders, f"per-verb overrides shadow required variables: {offenders}"
 
@@ -706,8 +740,10 @@ def test_the_terraform_side_is_actually_being_parsed():
     """
     rows = _resources()
     assert len(rows) >= 16, f"only {len(rows)} lambda declarations parsed out of the module tree"
-    assert any(override for _, _, _, _, override in rows), (
-        "no declaration parsed as the merge form — the per-verb override check is measuring nothing"
+    planes = [entries for where, _, _, _, entries in rows if where.startswith("plane-") and entries]
+    assert len(planes) == 8, (
+        f"{len(planes)} control-plane calls parsed with their verb maps, not 8 — the per-verb "
+        "check is measuring nothing for every plane it missed"
     )
     assert _supply()["table-builder-execute-ddl"][1] >= {"ATHENA_WORKGROUP", "ADMIN_BUCKET"}
 
@@ -759,8 +795,8 @@ def test_no_module_lets_terraform_set_the_build_stamp() -> None:
       AssertionError: When any module's Terraform sets the stamp.
     """
     offenders = sorted(
-        path.relative_to(MODULES.parent).as_posix()
-        for path in MODULES.glob("*/*.tf")
+        path.relative_to(INFRA).as_posix()
+        for path in [*INFRA.glob("*.tf"), *MODULES.glob("*/*.tf")]
         if "BUILD_VERSION" in path.read_text(encoding="utf-8")
     )
 

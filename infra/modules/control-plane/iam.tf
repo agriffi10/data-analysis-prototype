@@ -18,12 +18,14 @@ resource "aws_iam_role" "sfn" {
   assume_role_policy = templatefile("${path.module}/policies/sfn-trust.json.tftpl", {})
 }
 
+# The invoke list is the functions' own ARN outputs, never constructed strings: a constructed ARN
+# stays known while the function it names is replaced, so the grant would plan no diff.
 resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
-    function_arns_json           = jsonencode(local.constructed_function_arns)
+    function_arns_json           = jsonencode(values(local.function_arns))
     sfn_log_group_arn            = local.sfn_log_group_arn
     state_machine_arn            = local.state_machine_arn
     admin_bucket_arn             = var.admin_bucket_arn
