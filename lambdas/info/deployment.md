@@ -162,7 +162,8 @@ agrees with Terraform's own evaluator" rather than a comparison of a list with i
    **A new MODULE** additionally needs a `function_names` output and a line in `infra/outputs.tf`'s
    `lambda_deployed_names`; `test_fleet_derivation.py` fails by name if either is missing.
    **A new PLANE also needs a probe:** grant the deploy role `lambda:InvokeFunction` on one of its
-   functions and add that name to `.github/lambda-probes.json`. Without the grant the plane is
+   functions — for a control plane, `probe = true` in its entry in `local.control_plane_grants`,
+   which grants its `validate-authorize` — and add that name to `.github/lambda-probes.json`. Without the grant the plane is
    simply unprobed and nothing says so — `test_cold_start_probe.py` compares the probe table against
    the grants, so it cannot see a plane that has neither.
 4. Extend the deploy role for any new actions — [`../../infra/info/deploy-role-iam.md`](../../infra/info/deploy-role-iam.md).

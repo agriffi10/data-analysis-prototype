@@ -1,17 +1,16 @@
 {
   "Version": "2012-10-17",
   "Statement": [
+%{ if probe ~}
     {
-      "Sid": "S3SharedSpaceBucketManage",
+      "Sid": "${sid}ProbeInvoke",
       "Effect": "Allow",
-      "Action": "s3:*",
-      "Resource": [
-        "${shared_space_bucket_arn}",
-        "${shared_space_bucket_arn}/*"
-      ]
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-${plane}-validate-authorize"
     },
+%{ endif ~}
     {
-      "Sid": "SharedSpaceQueuesManage",
+      "Sid": "${sid}QueuesManage",
       "Effect": "Allow",
       "Action": [
         "sqs:CreateQueue",
@@ -25,10 +24,10 @@
         "sqs:AddPermission",
         "sqs:RemovePermission"
       ],
-      "Resource": "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-${plane}-*"
     },
     {
-      "Sid": "SharedSpacePipesManage",
+      "Sid": "${sid}PipesManage",
       "Effect": "Allow",
       "Action": [
         "pipes:CreatePipe",
@@ -41,10 +40,10 @@
         "pipes:UntagResource",
         "pipes:ListTagsForResource"
       ],
-      "Resource": "arn:aws:pipes:${aws_region}:${account_id}:pipe/${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:pipes:${aws_region}:${account_id}:pipe/${project_name}-*-${plane}-*"
     },
     {
-      "Sid": "SharedSpaceStateMachineManage",
+      "Sid": "${sid}StateMachineManage",
       "Effect": "Allow",
       "Action": [
         "states:CreateStateMachine",
@@ -57,16 +56,16 @@
         "states:ListStateMachineVersions",
         "states:ListStateMachineAliases"
       ],
-      "Resource": "arn:aws:states:${aws_region}:${account_id}:stateMachine:${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:states:${aws_region}:${account_id}:stateMachine:${project_name}-*-${plane}-*"
     },
     {
-      "Sid": "SharedSpaceStateMachineValidate",
+      "Sid": "${sid}StateMachineValidate",
       "Effect": "Allow",
       "Action": "states:ValidateStateMachineDefinition",
       "Resource": "*"
     },
     {
-      "Sid": "SharedSpaceLambdasManage",
+      "Sid": "${sid}LambdasManage",
       "Effect": "Allow",
       "Action": [
         "lambda:CreateFunction",
@@ -87,16 +86,10 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-${plane}-*"
     },
     {
-      "Sid": "SharedSpaceBackfillInvoke",
-      "Effect": "Allow",
-      "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-shared-space-backfill-*"
-    },
-    {
-      "Sid": "SharedSpaceRolesManage",
+      "Sid": "${sid}RolesManage",
       "Effect": "Allow",
       "Action": [
         "iam:GetRole",
@@ -114,10 +107,11 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-${plane}-*"
     },
+%{ if ceiling ~}
     {
-      "Sid": "SharedSpaceScheduleManage",
+      "Sid": "${sid}TimeoutRuleManage",
       "Effect": "Allow",
       "Action": [
         "events:PutRule",
@@ -130,10 +124,11 @@
         "events:TagResource",
         "events:UntagResource"
       ],
-      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-shared-space-*"
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-${plane}-orchestrator-timed-out"
     },
+%{ endif ~}
     {
-      "Sid": "SharedSpaceLogs",
+      "Sid": "${sid}Logs",
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogGroup",
@@ -145,10 +140,10 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-shared-space-*",
-        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-shared-space-*:*",
-        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-shared-space-*",
-        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-shared-space-*:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-${plane}-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-${plane}-*:*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-${plane}-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-${plane}-*:*"
       ]
     }
   ]

@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-253
 title: "The Deploy Role's Plane Grants Are One Template"
 description: "Renders the deploy role's eight per-plane managed policies from one template and one map of planes, so a grant fix is one edit and a new plane is one map entry, with a CI plan showing no IAM document changed."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-252]
 arc: infra-building-blocks
 arc_order: 2
@@ -52,11 +52,14 @@ the map's entries rather than buried in eight near-copies.
 
 #### Description:
 
-`modules/base` takes a map of planes, keyed by slug, each entry carrying the policy's **name** and
-**description** exactly as they are today (both are ForceNew, and shared spaces' policy is named
-`deploy-shared-spaces` while its slug is `shared-space`), the statement-id prefix, whether the
-plane has a ceiling (its `TIMED_OUT` rule grant), and the name of its extras template if it has
-one. One template renders the shared statements; the extras, if any, are appended. The arguments
+`modules/base` holds a map of planes as a local (`local.control_plane_grants`; `base` applies
+before the planes and cannot read them, and a root variable would put the descriptions in the
+root), keyed by slug, each entry carrying the policy's **name** and **description** exactly as
+they are today (both are ForceNew, and shared spaces' policy is named `deploy-shared-spaces` while
+its slug is `shared-space`), the statement-id prefix, whether the plane has a `validate-authorize`
+probe grant (`probe`: every plane but shared spaces, whose probe is its backfill function, granted
+in its extras), whether the plane has a ceiling (its `TIMED_OUT` rule grant), and the name of its
+extras template if it has one. One template renders the shared statements; the extras, if any, are appended. The arguments
 of the sixteen resources are found the way SPEC-252's are, by an attribute diff across the eight,
 and every one that varies is a map field.
 
@@ -72,9 +75,12 @@ and every one that varies is a map field.
       names the plane whose file is missing (a missing file would otherwise surface as
       `templatefile()`'s error at plan, which is correct but late).
 - [ ] The archive-only propagation guard becomes one guard for every plane: `time_sleep.wait_for_archive_grant`
-      moves to `time_sleep.wait_for_plane_grants`, which depends on all eight attachments, so a
-      plane created in the same apply as its grant waits whichever plane it is. The plan shows the
-      move and nothing else for it.
+      moves to `time_sleep.wait_for_plane_grants`, which depends on all eight attachments and whose
+      `triggers` are every plane's policy body, so a plane created in the same apply as its grant
+      waits whichever plane it is — a sleep with no trigger runs once, and would not, and
+      `replace_triggered_by` never fires on a create on the OpenTofu 1.8 CI runs. Adding the
+      triggers replaces the sleep once, a 30-second no-op: the plan shows the move and that one
+      replacement, and nothing else for it.
 
 ### FR-002: The map cannot disagree with the planes
 
@@ -89,7 +95,8 @@ control-plane module are held together.
 - [ ] A test asserts the map's keys equal the `name` arguments of every root call whose `source` is
       `./modules/control-plane`, and fails naming the missing or extra slug.
 - [ ] A test asserts a plane has the timeout-rule grant if and only if its root call sets
-      `state_machine_timeout_seconds`.
+      `ceiling` (the module's argument; `state_machine_timeout_seconds` is only the variable the
+      definition template reads).
 
 ### FR-003: The docs say a plane's grant is a map entry
 

@@ -9,6 +9,7 @@ import json
 import pathlib
 import re
 
+import plane_grants
 import pytest
 from tf_blocks import (
     argument,
@@ -239,14 +240,14 @@ def test_the_schedule_names_a_rule_the_deploy_role_can_manage():
     """The grant is scoped to the family wildcard, so the rule's name has to sit inside it. A name
     outside the pattern is denied at PutRule — on the apply, not at plan."""
     reader = module_calls(_ROOT.read_text())["shared_space_transfer_reader"]
-    policy = (_MODULES / "base/policies/github-actions-deploy-shared-spaces.json.tftpl").read_text()
+    values = dict.fromkeys(plane_grants.template_variables(), "STUB")
+    grant = plane_grants.document(plane_grants.grants()["shared-space"], values)
 
     assert argument(reader, "rule_name") == (
         '"${var.project_name}-${var.environment}-shared-space-transfer-reader-schedule"'
     )
     rule = blocks((_MODULES / "scheduled-function" / "main.tf").read_text(), "aws_cloudwatch_event_rule")
     assert argument(rule["this"], "name") == "var.rule_name"
-    grant = json.loads(re.sub(r"\$\{[^}]+\}", "STUB", policy))
     events = [s for s in grant["Statement"] if any(a.startswith("events:") for a in s["Action"])]
     assert len(events) == 1, "one statement, so there is one place the scope can be wrong"
     assert events[0]["Resource"].endswith("-shared-space-*"), (

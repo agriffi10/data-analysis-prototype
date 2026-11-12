@@ -5,15 +5,37 @@ the repo can be created until the grant for it lands here first.
 
 | File | Holds |
 |---|---|
-| `iam.tf` | the provider, the role, one inline policy, **one customer-managed policy per resource family**, and the propagation guards |
+| `iam.tf` | the provider, the role, one inline policy, **one customer-managed policy per resource family** — the control planes' eight rendered from **one map**, `local.control_plane_grants` — and the propagation guards |
 | `outputs.tf` / `variables.tf` | the module interface |
-| `policies/` | one `.tftpl` per policy |
+| `policies/` | one `.tftpl` per policy, except the control planes': one core template every plane renders, and an extras template for each plane with statements no other plane has |
 
 Trust allows a push to `main` (deploy and apply) and `pull_request` events (`tofu plan` on PRs —
 read-only, no deploy permissions used). The thumbprint is fetched from GitHub's OIDC discovery
 endpoint.
 
 Read [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) before adding one.
+
+## A control plane's grant is an entry in the map
+
+**A new plane's deploy grant is one entry in `local.control_plane_grants`, landed in its own PR
+before the plane** — never a copied template. The core template
+(`github-actions-deploy-control-plane.json.tftpl`) carries the seven statements every plane needs,
+scoped by the entry's key; the entry says whether the plane has a `validate-authorize` probe
+(`probe`) and a `TIMED_OUT` rule (`ceiling`), and names an extras template only for statements no
+other plane has (`github-actions-deploy-control-plane-extras-<plane>.json.tftpl`). A grant fix to
+the shared shape is one edit to the core.
+
+- **The key is the plane's `name` in its root call to `./modules/control-plane`.**
+  `lambdas/test_plane_grants_one_template.py` holds the map's keys to those calls in both
+  directions, and `ceiling` to the calls that set one, so neither a plane without a grant nor a
+  grant without a plane survives a test run.
+- **`name` and `description` are ForceNew.** A reworded description replaces the policy, which is
+  the refresh deadlock in `deploy-role-iam.md`. Shared spaces' policy is `deploy-shared-spaces`
+  while its plane is `shared-space`.
+- **Every suite that measures a deploy policy reads a plane's grant through
+  `lambdas/plane_grants.py`**, which renders it the way Terraform does and refuses any template
+  syntax it does not mirror; a test plans this module under mocked providers and compares the two
+  byte for byte.
 
 ## Why one managed policy per family instead of more inline JSON
 
@@ -41,8 +63,8 @@ API's front door and the roles beside it in the other — and `deploy_platform` 
 **The deploy-perms-before-resources rule.** Every plane's module comment saying "no `time_sleep` guard
 is required here" is relying on it.
 
-**That rule holds only for as long as somebody remembers to split** — which is why the archive grants
-carry a **structural** guard instead. The apply that first added them went red, and the mechanism is
+**That rule holds only for as long as somebody remembers to split** — which is why the control
+planes' grants carry a **structural** guard instead, first written for the archive's. The apply that first added them went red, and the mechanism is
 invisible in a plan: `module.archive` carries `depends_on = [module.base]`, so the attachment
 genuinely happens first — **and it is still not enough, because IAM is eventually consistent**.
 `CreateBucket`, `CreateRole`, `CreateQueue` and `CreateLogGroup` all came back `AccessDenied` seconds
@@ -52,11 +74,17 @@ all**.
 **A red FIRST apply of a new plane is expected rather than a defect**, and a re-run is the remedy.
 `wait_for_self_grant` fires once at creation, so an *Nth* policy added later gets zero delay.
 
-### The three guards, and why the third needs `triggers`
+### The four guards, and which of them re-fire
 
 - **`wait_for_self_grant`** sits at the top of the graph: the main deploy policy grants the role
   `iam:CreatePolicy`/`iam:AttachRolePolicy` **on itself**, and the same apply then uses those grants.
-- **The archive guard** (30 s) is a floor on eventual consistency for the plane that creates a bucket.
+- **The plane guard** (`wait_for_plane_grants`, 30 s) is a floor on eventual consistency for every
+  control plane. Its `triggers` are every plane's policy **body**, so a grant added, changed or
+  removed replaces it and the replacement waits — a sleep with no trigger runs once, so a plane
+  added later would otherwise get no pause. `replace_triggered_by` could not carry this alone:
+  before OpenTofu 1.12 it never fires on a **create**, and CI runs 1.8.
+- **The verification guard** (`wait_for_verification_grant`) is create-only: it covers the
+  verification policy's first apply and nothing after.
 - **The platform guard** is a **second** sleep rather than a wider dependency on the first, because
   `wait_for_self_grant` has long since finished by the time these two policies are written and gates
   nothing. Every module using a platform grant carries `depends_on = [module.base]`, which waits for
@@ -182,30 +210,20 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   came off immediately after. A policy whose only statement was a layer grant was deleted whole
   rather than emptied: a document with no statements is not valid IAM.
 - **An `events:` statement means one of two things, and they are not the same thing.** The commoner
-  is a `TIMED_OUT` rule: a machine that validates and stops has none to manage, so the grant arrives
-  with the transfer that adds the ceiling. **`file-ops` and `results-conversion` are the exceptions
-  among those and carry it from their first version** — not copied habit: file-ops's per-space
-  lock's **waiting loop** is in the machine before any data work is, and results-conversion ships
-  its top-level ceiling with its skeleton, so each ships with the rule from day one, **and the grant
-  has to be here or the first apply fails on the rule rather than on anything to do with the
-  plane's purpose**.
-  **`table-builder` is a THIRD shape, and it is the one that bit: the ceiling shipped WITHOUT the
-  rule.** `TimeoutSeconds` arrived with the refresh lock (`f6cad67d`, SPEC-157) because the lock's
-  steal threshold is derived from it — so the ceiling had a reason of its own and nobody noticed the
-  door was missing. It stayed missing until a live check compared the fleet in 2026-09, and the
-  grant here is retrofitted rather than arriving with the transfer. **So an `events:` statement's
-  absence is not evidence that a plane has no ceiling** — read `TimeoutSeconds` in the plane's own
-  ASL, and if it has one, check for the rule AND for the handler's detail-type door, because the
-  rule alone delivers to a handler that notifies nobody.
+  is a control plane's `TIMED_OUT` rule, and **its grant follows the map's `ceiling` field, which a
+  test holds to whether the plane's root call sets `ceiling`** — so the grant arrives with the
+  ceiling or the run is red. That pairing used to be remembered rather than structural, and it was
+  missed once: `table-builder`'s ceiling shipped without its rule until a live check compared the
+  fleet in 2026-09. The control-plane module now creates the rule from the same argument.
   The other is a **schedule**, which has nothing to do with a ceiling: `user-directory`,
   `observability` and `control-plane-dlq-drain` are all schedules, and **`shared-spaces` now holds
-  one too** — for the reader that picks operator-driven membership changes out of the admin bucket
+  one too**, in its extras template — for the reader that picks operator-driven membership changes out of the admin bucket
   — while that plane still carries no `TimeoutSeconds` at all. Reading the grant as evidence of a
   ceiling gets that plane exactly backwards.
 - **No data-quality workgroup grant.** Those verbs run in the **shared** portal Athena workgroup,
   because a dedicated one breaks Lake Formation — so there is no plane-specific workgroup to grant on.
-- **No S3-bucket-manage statement on most plane policies**, because most planes create no bucket. The
-  **archive** policy is the first that does.
+- **No S3-bucket-manage statement in the core template**, because most planes create no bucket. The
+  archive's and shared spaces' bucket statements are in their extras.
 
 ## The push grants live with the platform
 

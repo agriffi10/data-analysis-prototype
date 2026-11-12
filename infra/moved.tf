@@ -466,3 +466,93 @@ moved {
   from = module.feedback.aws_lambda_event_source_mapping.writer
   to   = module.feedback.aws_lambda_event_source_mapping.this
 }
+
+# ── The control planes' deploy grants are one map ──────────────────────────────
+# Eight per-plane policies and their attachments became one `for_each` over the map in
+# modules/base/iam.tf, and the archive's propagation guard became the guard for every plane.
+# Keep them while any state may predate the change.
+
+moved {
+  from = module.base.aws_iam_policy.deploy_archive
+  to   = module.base.aws_iam_policy.control_plane["archive"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_data_quality
+  to   = module.base.aws_iam_policy.control_plane["data-quality"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_file_ops
+  to   = module.base.aws_iam_policy.control_plane["file-ops"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_file_send
+  to   = module.base.aws_iam_policy.control_plane["file-send"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_results_conversion
+  to   = module.base.aws_iam_policy.control_plane["results-conversion"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_shared_spaces
+  to   = module.base.aws_iam_policy.control_plane["shared-space"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_table_builder
+  to   = module.base.aws_iam_policy.control_plane["table-builder"]
+}
+
+moved {
+  from = module.base.aws_iam_policy.deploy_table_share
+  to   = module.base.aws_iam_policy.control_plane["table-share"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_archive
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["archive"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_data_quality
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["data-quality"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_file_ops
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["file-ops"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_file_send
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["file-send"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_results_conversion
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["results-conversion"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_shared_spaces
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["shared-space"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_table_builder
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["table-builder"]
+}
+
+moved {
+  from = module.base.aws_iam_role_policy_attachment.deploy_table_share
+  to   = module.base.aws_iam_role_policy_attachment.control_plane["table-share"]
+}
+
+moved {
+  from = module.base.time_sleep.wait_for_archive_grant
+  to   = module.base.time_sleep.wait_for_plane_grants
+}

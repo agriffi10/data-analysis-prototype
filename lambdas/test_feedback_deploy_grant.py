@@ -27,7 +27,9 @@ import json
 import pathlib
 import re
 
+import plane_grants
 import pytest
+import tf_blocks
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
@@ -260,13 +262,21 @@ def test_the_role_stays_under_the_attached_managed_policy_ceiling() -> None:
     already rotted by one before this grant was added, which is why it no longer states one.
     """
     iam = (INFRA / "modules" / "base" / "iam.tf").read_text(encoding="utf-8")
-    attached = re.findall(
-        r'^resource "aws_iam_role_policy_attachment" "([a-z_]+)"', iam, re.MULTILINE
-    )
+    attachments = tf_blocks.blocks(iam, "aws_iam_role_policy_attachment")
+    count = 0
+    for name, body in attachments.items():
+        try:
+            each = tf_blocks.argument(body[1:-1], "for_each")
+        except ValueError:
+            count += 1
+            continue
+        # One block per plane would undercount by seven, and a ceiling that undercounts is blind.
+        assert each == "local.control_plane_grants", f"{name} attaches over {each}, which this count cannot size"
+        count += len(plane_grants.grants())
 
-    assert "deploy_feedback" in attached, "the feedback policy is declared but never attached"
-    assert len(attached) <= MAX_ATTACHED_MANAGED_POLICIES, (
-        f"the deploy role would carry {len(attached)} managed policies against IAM's ceiling of "
+    assert "deploy_feedback" in attachments, "the feedback policy is declared but never attached"
+    assert count <= MAX_ATTACHED_MANAGED_POLICIES, (
+        f"the deploy role would carry {count} managed policies against IAM's ceiling of "
         f"{MAX_ATTACHED_MANAGED_POLICIES}; AttachRolePolicy fails after a green plan"
     )
 

@@ -9,8 +9,9 @@ Attributes:
   INLINE_POLICY: The role's one inline policy, measured against the 10,240 aggregate.
   MANAGED_LIMIT: IAM's character budget for one customer-managed policy.
   INLINE_AGGREGATE_LIMIT: IAM's character budget for all of a role's inline policies together.
-  MANAGED_POLICIES: Every template that becomes a customer-managed policy, derived from the
-    directory rather than listed, so a new one is measured the day it lands.
+  MANAGED_POLICIES: Every document that becomes a customer-managed policy: each template in the
+    directory, derived rather than listed so a new one is measured the day it lands, and each
+    control plane's grant, which no single file holds and ``PlaneGrant`` stands in for.
   PLATFORM_POLICIES: The two container-platform templates, which the grant-coverage and registry
     assertions are about. The wildcard rules are NOT limited to these — see ``POLICIES``.
   POLICIES: Every deploy-role policy document the wildcard rules judge: the inline one and each
@@ -57,7 +58,9 @@ Attributes:
 import json
 import pathlib
 import re
+from dataclasses import dataclass
 
+import plane_grants
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -67,7 +70,47 @@ INLINE_POLICY = POLICY_DIR / "github-actions-deploy.json.tftpl"
 MANAGED_LIMIT = 6_144
 INLINE_AGGREGATE_LIMIT = 10_240
 
-MANAGED_POLICIES = tuple(sorted(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")))
+
+
+@dataclass(frozen=True)
+class PlaneGrant:
+    """One control plane's deploy grant, standing where a template path stands.
+
+    The eight are composed from one core template and the map in ``iam.tf``, so none of them is a
+    file; ``_render`` composes each through ``plane_grants``, and everything else here reads it by
+    ``name`` exactly as it reads a template.
+
+    Attributes:
+      slug: The plane's key in the map.
+    """
+
+    slug: str
+
+    @property
+    def name(self) -> str:
+        """The policy's own name, which is what a failure message should point a reader at.
+
+        Args:
+          None.
+
+        Returns:
+          The policy name as IAM will hold it, after the project prefix.
+
+        Raises:
+          None.
+        """
+        return f"{plane_grants.grants()[self.slug].name} (control-plane grant)"
+
+
+#: The control planes' core and extras templates are fragments of the ``PlaneGrant`` documents,
+#: never policies on their own, so the glob excludes them by exact path rather than by prefix —
+#: ``github-actions-deploy-control-plane-dlq-drain`` is a policy of its own that a prefix would drop.
+PLANE_FRAGMENTS = plane_grants.template_paths()
+
+MANAGED_POLICIES: tuple[pathlib.Path | PlaneGrant, ...] = (
+    *sorted(set(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")) - PLANE_FRAGMENTS),
+    *(PlaneGrant(slug) for slug in sorted(plane_grants.grants())),
+)
 
 ACCOUNT_ID = "696000197480"
 
@@ -254,7 +297,7 @@ CONDITION_NARROWED_ACTIONS = {
 }
 
 
-def _render(path: pathlib.Path) -> str:
+def _render(path: "pathlib.Path | PlaneGrant") -> str:
     """Substitutes the template's placeholders so the result parses as a policy document.
 
     Each placeholder becomes a value of the shape the real render produces, because a
@@ -269,14 +312,18 @@ def _render(path: pathlib.Path) -> str:
     placeholder is shorter than the value it stands for, and a length measured from it is short
     by that difference on every occurrence.
 
+    A ``PlaneGrant`` is composed through ``plane_grants`` from the same table, as the compact
+    text ``jsonencode`` hands IAM.
+
     Args:
-      path: The ``.tftpl`` template to render.
+      path: The ``.tftpl`` template to render, or a control plane's grant.
 
     Returns:
       The rendered document as text.
 
     Raises:
       AssertionError: When the template interpolates a variable this suite cannot render.
+      ValueError: When a plane's templates need a variable the table lacks.
     """
     substitutions = {
         "aws_region": "us-east-1",
@@ -295,6 +342,9 @@ def _render(path: pathlib.Path) -> str:
         "trail_bucket_name": "dat-prod-archive-audit",
         "route53_zone_id": "Z0123456789ABCDEFGHIJ",
     }
+    if isinstance(path, PlaneGrant):
+        grant = plane_grants.grants()[path.slug]
+        return plane_grants.encoded(plane_grants.document(grant, substitutions))
     text = path.read_text()
     for name, value in substitutions.items():
         text = text.replace("${" + name + "}", value)
@@ -306,7 +356,7 @@ def _render(path: pathlib.Path) -> str:
     return text
 
 
-def _statements(path: pathlib.Path) -> list[dict]:
+def _statements(path: pathlib.Path | PlaneGrant) -> list[dict]:
     """Parses a rendered policy template into its statement list.
 
     Args:
@@ -378,7 +428,7 @@ def test_the_inline_deploy_policy_stays_under_the_iam_aggregate() -> None:
 
 
 @pytest.mark.parametrize("path", MANAGED_POLICIES, ids=lambda p: p.name)
-def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib.Path) -> None:
+def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib.Path | PlaneGrant) -> None:
     """Each customer-managed policy must fit its own 6,144-character budget.
 
     Enforced at ``CreatePolicy``, so a document over the line renders, validates and plans
@@ -403,7 +453,7 @@ def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib
 
 
 @pytest.mark.parametrize("path", MANAGED_POLICIES, ids=lambda p: p.name)
-def test_every_managed_deploy_policy_is_printable_ascii(path: pathlib.Path) -> None:
+def test_every_managed_deploy_policy_is_printable_ascii(path: pathlib.Path | PlaneGrant) -> None:
     """IAM rejects a non-ASCII character at ``CreatePolicy``, and nothing earlier sees it.
 
     An em dash pasted into a ``Sid`` survives ``tofu validate`` and the plan untouched. The rule
@@ -457,6 +507,19 @@ def test_every_attached_managed_policy_is_one_this_suite_measures() -> None:
     wired = set()
     unresolved = []
     for name, body in blocks:
+        if name == "control_plane":
+            # One block, one policy per plane — but only while it iterates the WHOLE map. A
+            # filtered for_each attaches fewer planes than the map lists, and without this the
+            # plane half of the comparison would read the map against itself.
+            each = re.search(r"^\s*for_each\s*=\s*(.+?)\s*$", body, re.MULTILINE)
+            if each is None or each.group(1) != "local.control_plane_grants":
+                unresolved.append(name)
+                continue
+            wired |= {PlaneGrant(slug).name for slug in plane_grants.grants()}
+            continue
+        if re.search(r"^\s*for_each\s*=", body, re.MULTILINE):
+            unresolved.append(name)
+            continue
         match = re.search(r"policies/([A-Za-z0-9._\-]+\.tftpl)", body)
         if match:
             wired.add(match.group(1))
@@ -464,7 +527,8 @@ def test_every_attached_managed_policy_is_one_this_suite_measures() -> None:
             unresolved.append(name)
     assert not unresolved, (
         f"{sorted(unresolved)} are customer-managed policies whose document comes from no "
-        "policies/*.tftpl file, so nothing measures them against the 6,144 budget."
+        "policies/*.tftpl file, or that render several documents this suite does not compose, so "
+        "nothing measures them against the 6,144 budget."
     )
 
     measured = {path.name for path in MANAGED_POLICIES}
@@ -589,7 +653,7 @@ def _dead_scoped_actions(statement: dict) -> list[str]:
     return [action for action in _actions(statement) if action in NON_SCOPABLE]
 
 
-def _label(path: pathlib.Path, statement: dict) -> str:
+def _label(path: pathlib.Path | PlaneGrant, statement: dict) -> str:
     """Names a statement in a failure message, whether or not it carries a ``Sid``.
 
     ``Sid`` is optional in IAM, and interpolating it directly turned an offending statement into a
@@ -610,7 +674,7 @@ def _label(path: pathlib.Path, statement: dict) -> str:
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_a_wildcard_resource_holds_nothing_unnarrowed(path: pathlib.Path) -> None:
+def test_a_wildcard_resource_holds_nothing_unnarrowed(path: pathlib.Path | PlaneGrant) -> None:
     """Every action on a ``Resource: "*"`` must be narrowed by something, or take no ARN at all.
 
     Not "only actions IAM defines no resource type for" — that was the rule before the
@@ -643,7 +707,7 @@ def test_a_wildcard_resource_holds_nothing_unnarrowed(path: pathlib.Path) -> Non
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_a_conditioned_wildcard_tests_a_key_its_actions_populate(path: pathlib.Path) -> None:
+def test_a_conditioned_wildcard_tests_a_key_its_actions_populate(path: pathlib.Path | PlaneGrant) -> None:
     """The other way a wildcard is forced: narrowed by a condition rather than by an ARN.
 
     Two statements are shaped this way, and both are right to be. Three of their four actions do
@@ -676,7 +740,7 @@ def test_a_conditioned_wildcard_tests_a_key_its_actions_populate(path: pathlib.P
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_every_statement_is_a_shape_these_rules_can_judge(path: pathlib.Path) -> None:
+def test_every_statement_is_a_shape_these_rules_can_judge(path: pathlib.Path | PlaneGrant) -> None:
     """``NotAction`` and ``NotResource`` inverse a statement, and no rule here reasons about one.
 
     Each rule reads ``Action`` and ``Resource`` directly, so an inverted statement raises rather
@@ -707,7 +771,7 @@ def test_every_statement_is_a_shape_these_rules_can_judge(path: pathlib.Path) ->
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_a_scoped_statement_holds_no_non_scopable_action(path: pathlib.Path) -> None:
+def test_a_scoped_statement_holds_no_non_scopable_action(path: pathlib.Path | PlaneGrant) -> None:
     """The other half: a non-scopable action under an ARN is a dead grant.
 
     It authorizes nothing and denies implicitly, so the symptom is a missing permission on an
@@ -736,7 +800,9 @@ def test_the_wildcard_rules_walk_every_deploy_policy_template() -> None:
     The rules above ran over two templates of seventeen for as long as they existed, and nothing
     said so — every one of them passed, on the two documents they read. So the file set is
     asserted against the directory: a new deploy policy is measured the day it lands, and the
-    trust template is named as the one deliberate exclusion rather than silently absent.
+    trust template is named as the one deliberate exclusion rather than silently absent. The
+    control planes' core and extras templates are measured THROUGH the plane grants they compose,
+    so they count as read when every plane's grant is in ``POLICIES``.
 
     What this does NOT catch is a deleted managed template, because ``POLICIES`` is derived from
     the same glob and both sides of the count shrink together. That half belongs to
@@ -760,14 +826,22 @@ def test_the_wildcard_rules_walk_every_deploy_policy_template() -> None:
         "the wildcard rules' blind spot was. Asserted before the count below so this specific "
         "diagnosis wins over a bare arithmetic mismatch."
     )
-    assert len(on_disk) == len(POLICIES) + 1, (
-        f"the policy directory holds {len(on_disk)} templates against {len(POLICIES)} measured "
+    planes = {path.slug for path in POLICIES if isinstance(path, PlaneGrant)}
+    assert planes == set(plane_grants.grants()), (
+        f"the wildcard rules read the grants of {sorted(planes)}, but the map holds "
+        f"{sorted(plane_grants.grants())}"
+    )
+    files = {path for path in POLICIES if isinstance(path, pathlib.Path)}
+    assert not files & PLANE_FRAGMENTS, "a plane fragment is measured as a policy of its own"
+    assert len(on_disk) == len(files) + len(PLANE_FRAGMENTS) + 1, (
+        f"the policy directory holds {len(on_disk)} templates against {len(files)} measured, "
+        f"{len(PLANE_FRAGMENTS)} composed into the plane grants, "
         "plus the trust template. Something was added outside the glob, or the inline or trust "
         "document was deleted. A DELETED MANAGED template is invisible here — both sides of this "
         "count come from the same directory, so they shrink together — and is caught instead by "
         "test_every_attached_managed_policy_is_one_this_suite_measures, against iam.tf."
     )
-    unmeasured = sorted(path.name for path in on_disk - set(POLICIES) - {TRUST_POLICY})
+    unmeasured = sorted(path.name for path in on_disk - files - PLANE_FRAGMENTS - {TRUST_POLICY})
     assert not unmeasured, (
         f"{unmeasured} are deploy policy templates the wildcard rules never read. Add them to "
         "POLICIES, or name the reason they are exempt the way the trust template is."
@@ -1536,7 +1610,7 @@ def _collect_arns(node: object, into: list[str]) -> None:
             _collect_arns(value, into)
 
 
-def _arns(path: pathlib.Path) -> list[str]:
+def _arns(path: pathlib.Path | PlaneGrant) -> list[str]:
     """Collects every ARN in a rendered document, wherever it sits.
 
     Walks the parsed document rather than the ``Resource`` field, because two ARNs live in
@@ -1559,7 +1633,7 @@ def _arns(path: pathlib.Path) -> list[str]:
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
+def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path | PlaneGrant) -> None:
     """An ARN in a deploy grant names one account, never any.
 
     An account wildcard is not inert for every service. Where a resource carries its own
@@ -1600,7 +1674,7 @@ def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path) -> None:
+def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path | PlaneGrant) -> None:
     """The wildcard check must have seen something in every document.
 
     ``all()`` over an empty collection is true, so a collector that silently found nothing
@@ -1694,7 +1768,7 @@ def test_the_terraform_passes_the_real_account_id() -> None:
         re.DOTALL,
     )
     rendered = {name for name, _ in maps}
-    expected = {path.name for path in POLICIES}
+    expected = {path.name for path in POLICIES if isinstance(path, pathlib.Path)}
     assert rendered == expected, (
         f"iam.tf renders {sorted(rendered)} but this suite checks {sorted(expected)}; a "
         "template nobody renders is dead, and one nobody checks is unguarded."
@@ -1706,6 +1780,19 @@ def test_the_terraform_passes_the_real_account_id() -> None:
     assert not missing, (
         f"these templatefile maps do not pass account_id: {missing}. Every ARN in them renders "
         "with an empty account field, which is a valid ARN that matches nothing."
+    )
+    # The plane grants take their variables from one local, handed whole to both the core and
+    # the extras templates, so that local is where account_id has to arrive.
+    plane_vars = re.search(r"\n  control_plane_grant_vars = \{\n(.*?)\n  \}", iam, re.DOTALL)
+    assert plane_vars, "iam.tf no longer declares local.control_plane_grant_vars in the expected shape"
+    assert passes_account.search("\n" + plane_vars.group(1) + "\n"), (
+        "local.control_plane_grant_vars does not pass account_id, so every plane's ARNs render "
+        "with an empty account field"
+    )
+    plane_policy = re.sub(r"\s+", " ", iam[iam.index('resource "aws_iam_policy" "control_plane"') :])
+    assert "merge(local.control_plane_grant_vars, {" in plane_policy, "the core template is not handed the local"
+    assert "templatefile(\"${path.module}/policies/${each.value.extras}\", local.control_plane_grant_vars)" in plane_policy, (
+        "the extras template is not handed the local"
     )
     root = (ROOT / "infra" / "main.tf").read_text()
     # Scoped to module "base"'s own block. Eighteen modules take an account_id from the same
@@ -1761,7 +1848,7 @@ def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account() -> None:
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_no_statement_inverts_its_resource_or_action_list(path: pathlib.Path) -> None:
+def test_no_statement_inverts_its_resource_or_action_list(path: pathlib.Path | PlaneGrant) -> None:
     """``NotResource`` and ``NotAction`` grant the complement, and the ARN checks cannot see it.
 
     Every check in this file reads ARNs and reasons about what they match. A statement written
@@ -1859,7 +1946,7 @@ def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
     # COUNTS, not membership. Each of those two ARNs is byte-identical to the `Resource` of
     # the statement it conditions, so a set of collected strings contains it either way and a
     # narrowed collector looks correct. Only the multiplicity changes.
-    def resource_only(path: pathlib.Path) -> int:
+    def resource_only(path: pathlib.Path | PlaneGrant) -> int:
         total = 0
         for statement in _statements(path):
             resource = statement.get("Resource")
