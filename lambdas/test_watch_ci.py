@@ -164,6 +164,13 @@ class TestVerdict:
         ok, _ = watch_ci.verdict([run("CI", conclusion=conclusion)])
         assert ok is False
 
+    @pytest.mark.parametrize("conclusion", ["skipped", "neutral"])
+    def test_a_skipped_or_neutral_run_passes(self, conclusion):
+        """While deploys are switched off, every push run on main is skipped, and main must still read as green."""
+        ok, bad = watch_ci.verdict([run("Deploy Lambdas", conclusion=conclusion)])
+        assert ok is True
+        assert bad == []
+
     def test_a_finished_run_with_NO_conclusion_fails(self):
         """An unknown outcome is not a pass.
 
