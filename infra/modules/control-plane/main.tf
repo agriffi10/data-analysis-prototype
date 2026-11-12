@@ -50,8 +50,7 @@ resource "aws_cloudwatch_log_group" "orchestrator" {
   retention_in_days = 14
 }
 
-# The definition reads every verb's ARN by key from `function_arns`, so no hand-kept map can miss
-# one, and a template naming a verb that does not exist fails at plan.
+# The definition reads every verb's ARN as <verb>_function_arn (locals.tf).
 resource "aws_sfn_state_machine" "this" {
   name     = local.state_machine_name
   role_arn = aws_iam_role.sfn.arn
@@ -59,7 +58,7 @@ resource "aws_sfn_state_machine" "this" {
 
   definition = templatefile(var.definition_template, merge(
     var.definition_vars,
-    { function_arns = local.function_arns },
+    local.definition_function_vars,
     local.ceiling_vars,
   ))
 

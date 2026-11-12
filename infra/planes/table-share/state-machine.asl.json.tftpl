@@ -8,7 +8,7 @@
       "Comment": "First step: reads the trusted actor out of the API's identity block, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here REPLACES the state rather than merging into it, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate-authorize"]}",
+        "FunctionName": "${validate_authorize_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -57,7 +57,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["inspect-source"]}",
+        "FunctionName": "${inspect_source_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -114,7 +114,7 @@
             "Type": "Task",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["check-target-absent"]}",
+              "FunctionName": "${check_target_absent_function_arn}",
               "Payload.$": "$"
             },
             "OutputPath": "$.Payload",
@@ -186,7 +186,7 @@
       "Comment": "Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient × planned object). A refused recipient contributes nothing. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["build-transfer-manifest"]}",
+        "FunctionName": "${build_transfer_manifest_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -270,7 +270,7 @@
             "Comment": "One batch of transfer items per invocation. No Catch: a batch that fails after its retries must FAIL its child execution, because that is what files it under FAILED_n.json where the collector can attribute every item it carried. A deterministic single-item fault does not get here at all — the verb reports it per item and succeeds, and the collector reads those out of SUCCEEDED_n.json.",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["copy-objects"]}",
+              "FunctionName": "${copy_objects_function_arn}",
               "Payload.$": "$"
             },
             "OutputPath": "$.Payload",
@@ -324,7 +324,7 @@
       "Comment": "Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it simply carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["collect-transfer-results"]}",
+        "FunctionName": "${collect_transfer_results_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -396,7 +396,7 @@
             "Comment": "Payload is built explicitly rather than passed through: create-table's contract is {recipient, request}, and the Map item here is {entry, request}. The recipient comes from the outcome entry, where the collector kept the RESOLVED recipient for exactly this.",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["create-table"]}",
+              "FunctionName": "${create_table_function_arn}",
               "Payload": {
                 "traceparent.$": "$.request.traceparent",
                 "recipient.$": "$.entry.recipient",
@@ -525,7 +525,7 @@
       "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY, and that needs no guard: a per-recipient failure ends its Map ITEM and the execution SUCCEEDS, so it never reaches RecordFailure and cannot arrive here. The duplicate this DOES have to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": "$.notified",

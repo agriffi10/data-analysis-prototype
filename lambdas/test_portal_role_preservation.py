@@ -62,7 +62,7 @@ TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
 #: The one PERMISSION template this change edits, exempted from the byte comparison and asserted
 #: by content instead — the same treatment the trust template gets, and for the same reason: a
 #: byte comparison can only say "changed", which is not an answer to "changed how".
-EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
+EDITED = "infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl"
 
 #: The user-space permission template, exempted for the same reason and asserted by content in
 #: ``test_the_user_space_template_TRADED_its_depth_one_receipt_deny``. Its edit adds a

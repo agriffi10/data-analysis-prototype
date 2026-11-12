@@ -7,7 +7,7 @@ to forge one.
 
 Why the browser is granted no S3 action at all — the isolation model working rather than a gap —
 and why these read templates as data instead of waiting for the CI plan scan:
-``infra/modules/file-send/README.md``.
+``infra/planes/file-send/README.md``.
 
 Attributes:
   FILE_SEND_PORTAL_POLICY: Where the browser's enqueue grant used to be. Asserted ABSENT.

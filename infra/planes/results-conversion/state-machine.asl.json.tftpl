@@ -8,7 +8,7 @@
       "Comment": "The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator; OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here happens before the identity exists, so its Catch cannot merge a ResultPath and the error replaces the state — ValidateFailureSeed reads the request back from the context object.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate-authorize"]}",
+        "FunctionName": "${validate_authorize_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -65,7 +65,7 @@
       "Comment": "One GetQueryResults for the column metadata and one HeadObject for the size. No row is read here or anywhere on this plane. Its input IS the validated request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["describe-results"]}",
+        "FunctionName": "${describe_results_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -125,7 +125,7 @@
       "Comment": "The only state on this plane that writes. It downloads the result object to the function's own disk, types every column from the metadata rather than from the values, writes one file, and uploads it under If-None-Match when the request asked to be refused rather than to overwrite. ITS RETRY IS DELIBERATELY UNLIKE EVERY OTHER TASK'S: TransientError alone, and once. The four Lambda service errors are NOT retried here because their window includes a response lost after the function completed — and a re-invocation that meets its own conditional PutObject reports destination_occupied to a user whose save in fact succeeded. The verb raises TransientError only before the upload begins, which is what makes the one retry safe. The second retrier is every Task's: it waits out a function waking from Inactive, and its three errors are refusals before the function runs, so it cannot meet its own write either.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["convert"]}",
+        "FunctionName": "${convert_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -209,7 +209,7 @@
       "Comment": "The plane's one success producer. NOTHING HERE MAY FAIL THE RUN: the object is already in the user's space by the time this state runs, so ResultPath is null and the Catch leads onward to Succeeded — a notifier that failed the execution would tell the user their save did not happen when it did.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify"]}",
+        "FunctionName": "${notify_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": null,
@@ -291,7 +291,7 @@
       "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where the verb's own decorator never ran and the actor would otherwise be told nothing at all. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": null,

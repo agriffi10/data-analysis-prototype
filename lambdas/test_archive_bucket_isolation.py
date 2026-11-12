@@ -29,10 +29,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 INFRA = ROOT / "infra"
 
 PORTAL_PERSONAL = INFRA / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
-PORTAL_SHARED = INFRA / "modules" / "shared-spaces" / "policies" / "portal-role-shared-space.json.tftpl"
+PORTAL_SHARED = INFRA / "modules" / "shared-space-storage" / "policies" / "portal-role-shared-space.json.tftpl"
 PORTAL_ARCHIVE = INFRA / "modules" / "archive" / "policies" / "portal-role-archive.json.tftpl"
 ARCHIVE_BUCKET_POLICY = INFRA / "modules" / "archive" / "policies" / "archive-bucket-policy.json.tftpl"
-ARCHIVE_EXECUTION = INFRA / "modules" / "archive" / "policies" / "execution.json.tftpl"
+ARCHIVE_EXECUTION = INFRA / "planes" / "archive" / "execution.json.tftpl"
 ROOT_MAIN = INFRA / "main.tf"
 APP_MODULE = INFRA / "modules" / "app"
 

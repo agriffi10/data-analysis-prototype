@@ -223,7 +223,7 @@ def test_the_admin_prefix_matches_the_iam_grant_and_the_lifecycle_rule():
     import pathlib
 
     infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
-    execution = (infra / "modules" / "archive" / "policies" / "execution.json.tftpl").read_text()
+    execution = (infra / "planes" / "archive" / "execution.json.tftpl").read_text()
     sfn = (infra / "modules" / "archive" / "policies" / "sfn-permissions.json.tftpl").read_text()
     lifecycle = (infra / "modules" / "analytics" / "s3.tf").read_text()
 

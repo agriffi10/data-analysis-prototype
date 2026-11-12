@@ -65,7 +65,7 @@ variable "dlq_max_receive_count" {
 }
 
 variable "definition_template" {
-  description = "Path to the plane's state-machine definition template. It is rendered with `function_arns` (verb key to ARN, every verb), `state_machine_timeout_seconds` when a ceiling is set, and `definition_vars`."
+  description = "Path to the plane's state-machine definition template. It is rendered with `<verb>_function_arn` for every verb (hyphens as underscores), `state_machine_timeout_seconds` when a ceiling is set, and `definition_vars`."
   type        = string
 }
 

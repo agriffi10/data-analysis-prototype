@@ -21,6 +21,12 @@ locals {
 
   function_arns = { for verb, function in module.functions : verb => function.function_arn }
 
+  # Every verb reaches the definition as <verb>_function_arn, generated from the verb map, so no
+  # hand-kept list can miss one and a template naming a verb that does not exist fails at plan.
+  definition_function_vars = {
+    for verb, arn in local.function_arns : "${replace(verb, "-", "_")}_function_arn" => arn
+  }
+
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"

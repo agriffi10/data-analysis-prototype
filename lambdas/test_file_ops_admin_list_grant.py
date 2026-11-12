@@ -42,7 +42,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXECUTION_POLICY = ROOT / "infra" / "modules" / "file-ops" / "policies" / "execution.json.tftpl"
+EXECUTION_POLICY = ROOT / "infra" / "planes" / "file-ops" / "execution.json.tftpl"
 MODULE_LOCALS = ROOT / "infra" / "modules" / "file-ops" / "locals.tf"
 LIFECYCLE_RULE = ROOT / "infra" / "modules" / "analytics" / "s3.tf"
 ADMIN_BUCKET_ARN = "@{admin_bucket_arn}"

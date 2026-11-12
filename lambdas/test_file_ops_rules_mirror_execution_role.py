@@ -49,7 +49,7 @@ from focommon.config import ANY_DEPTH_DENIED_FOLDERS
 from focommon.protected import destination_refusal, role_denied_folder
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXECUTION_TEMPLATE = ROOT / "infra" / "modules" / "file-ops" / "policies" / "execution.json.tftpl"
+EXECUTION_TEMPLATE = ROOT / "infra" / "planes" / "file-ops" / "execution.json.tftpl"
 
 WRITE_SID = "NeverOverwritePortalManagedObjects"
 DELETE_SID = "NeverDeletePortalManagedObjects"

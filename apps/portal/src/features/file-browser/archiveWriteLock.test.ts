@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 // so `tsc -b` — the only typecheck CI runs — rejects an fs import here.
 import portalRolePolicy from '../../../../../infra/modules/data/policies/portal-role-permissions.json.tftpl?raw';
 import analyticsPolicy from '../../../../../infra/modules/analytics/policies/portal-role-analytics.json.tftpl?raw';
-import sharedSpacePolicy from '../../../../../infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl?raw';
+import sharedSpacePolicy from '../../../../../infra/modules/shared-space-storage/policies/portal-role-shared-space.json.tftpl?raw';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {
   HIDDEN_BROWSER_FOLDERS,

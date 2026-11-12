@@ -7,7 +7,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate-authorize"]}",
+        "FunctionName": "${validate_authorize_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -58,7 +58,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["acquire-lock"]}",
+        "FunctionName": "${acquire_lock_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -160,7 +160,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["inspect-source"]}",
+        "FunctionName": "${inspect_source_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -223,7 +223,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["check-destinations"]}",
+        "FunctionName": "${check_destinations_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -272,7 +272,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["check-destinations"]}",
+        "FunctionName": "${check_destinations_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -314,7 +314,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["build-transfer-manifest"]}",
+        "FunctionName": "${build_transfer_manifest_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -398,7 +398,7 @@
             "Type": "Task",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["copy-objects"]}",
+              "FunctionName": "${copy_objects_function_arn}",
               "Payload.$": "$"
             },
             "OutputPath": "$.Payload",
@@ -452,7 +452,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["collect-transfer-results"]}",
+        "FunctionName": "${collect_transfer_results_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -529,7 +529,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["delete-source"]}",
+        "FunctionName": "${delete_source_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -571,7 +571,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["finalise-outcomes"]}",
+        "FunctionName": "${finalise_outcomes_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -613,7 +613,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["release-lock"]}",
+        "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -654,7 +654,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify"]}",
+        "FunctionName": "${notify_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -695,7 +695,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["release-lock"]}",
+        "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -736,7 +736,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["release-lock"]}",
+        "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -837,7 +837,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [

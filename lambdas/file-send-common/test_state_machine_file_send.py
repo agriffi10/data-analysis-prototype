@@ -44,7 +44,7 @@ import file_send_inspect_source as i
 import file_send_validate_authorize as v
 from cpcommon import clients
 
-_ASL = _HERE.parent.parent / "infra" / "modules" / "file-send" / "state-machine.asl.json.tftpl"
+_ASL = _HERE.parent.parent / "infra" / "planes" / "file-send" / "state-machine.asl.json.tftpl"
 
 
 def _validated_output() -> dict:

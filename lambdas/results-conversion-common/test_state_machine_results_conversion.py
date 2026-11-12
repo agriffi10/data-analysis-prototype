@@ -31,7 +31,7 @@ import rc_describe_results as d
 import rc_validate_authorize as v
 from cpcommon import clients, config
 
-_ASL = _HERE.parent.parent / "infra" / "modules" / "results-conversion" / "state-machine.asl.json.tftpl"
+_ASL = _HERE.parent.parent / "infra" / "planes" / "results-conversion" / "state-machine.asl.json.tftpl"
 _EXECUTION_ID = "11111111-2222-4333-8444-555555555555"
 
 

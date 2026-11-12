@@ -77,8 +77,8 @@ Pipe and its role, the state machine with its log group and role, the execution 
 policy the caller renders, and one `docker-lambda` call per verb. It derives every name from the
 plane's slug by the rule the planes use today, receives every cross-plane ARN as an input, and
 reads no data source. Two traps the shape page carries as prose become structure: every verb's
-ARN reaches the definition template by verb key, so there is no hand-kept function map to forget
-an entry in, and a plane that declares a ceiling gets its `TIMED_OUT` notifier because it declared
+ARN reaches the definition template under a name generated from its verb, so there is no
+hand-kept function map to forget an entry in, and a plane that declares a ceiling gets its `TIMED_OUT` notifier because it declared
 the ceiling.
 
 #### Acceptance Criteria:
@@ -97,9 +97,12 @@ the ceiling.
       the suffixes the planes use today (`-requests.fifo`, `-requests-dlq.fifo`, `-pipe`,
       `-pipe-role`, `-orchestrator`, `-sfn-role`, `-execution-role`, `-<verb>`), except where
       `execution_role_name` is given.
-- [ ] The definition template is rendered with `function_arns`, a map from verb key to that
-      function's ARN covering **every** key of `functions`, merged with `definition_vars`; a
-      template naming a verb that does not exist fails at `tofu validate` or plan, not at apply.
+- [ ] The definition template is rendered with one variable per verb, `<verb>_function_arn`
+      (hyphens as underscores), generated from **every** key of `functions` rather than listed by
+      hand, merged with `definition_vars`; a template naming a verb that does not exist fails at
+      `tofu validate` or plan, not at apply. (The names are generated rather than passed as one
+      map so the templates keep the placeholders every definition reader already parses; shared
+      spaces' `acknowledge_function_arn` becomes `acknowledge_membership_function_arn`.)
 - [ ] The `TIMED_OUT` rule, its target and its permission exist **if and only if** `ceiling` is
       non-null; they target `ceiling.notifier_verb`, the rule carries `ceiling.rule_description`,
       and `ceiling.seconds` reaches the template as `state_machine_timeout_seconds`, which every

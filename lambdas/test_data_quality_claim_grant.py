@@ -27,7 +27,7 @@ import sys
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXECUTION_POLICY = ROOT / "infra" / "modules" / "data-quality" / "policies" / "execution.json.tftpl"
+EXECUTION_POLICY = ROOT / "infra" / "planes" / "data-quality" / "execution.json.tftpl"
 MODULE_IAM = ROOT / "infra" / "modules" / "data-quality" / "iam.tf"
 MODULE_LOCALS = ROOT / "infra" / "modules" / "data-quality" / "locals.tf"
 LIFECYCLE = ROOT / "infra" / "modules" / "analytics" / "s3.tf"

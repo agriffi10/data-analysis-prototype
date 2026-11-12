@@ -16,7 +16,7 @@ import re
 
 _TFTPL = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
+    "..", "..", "infra", "planes", "table-builder", "state-machine.asl.json.tftpl",
 )
 
 #: The uniform Retry contract every Task state carries. The three middle names are

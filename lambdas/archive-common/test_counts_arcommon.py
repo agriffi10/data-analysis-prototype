@@ -50,7 +50,7 @@ from arcommon import counts, notify
 from cpcommon import clients
 from cpcommon.errors import TerminalError
 
-_ASL = os.path.join(_HERE, "..", "..", "infra", "modules", "archive", "state-machine.asl.json.tftpl")
+_ASL = os.path.join(_HERE, "..", "..", "infra", "planes", "archive", "state-machine.asl.json.tftpl")
 _TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 _ARCHIVE_ID = "57d14bb9-be06-4790-81ab-d5a95d484926"
 _RESTORE_ID = "6a1e2c3d-4b5f-4c6d-8e7f-9a0b1c2d3e4f"

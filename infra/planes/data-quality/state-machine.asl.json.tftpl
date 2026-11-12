@@ -7,7 +7,7 @@
       "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state. A failure here REPLACES the state rather than merging into it, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared failure path is uniform.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate-authorize"]}",
+        "FunctionName": "${validate_authorize_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -57,7 +57,7 @@
       "Comment": "List + classify by extension, probe every file's header, write the S3 MANIFEST and pass its key onward. States pass a manifest POINTER, never an inline file list: Step Functions caps a state payload at 256 KB and States.DataLimitExceeded is thrown OUTSIDE any Catch — so an inline list would give the user NO notification at all, the worst failure mode in the pipeline.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["inspect-source"]}",
+        "FunctionName": "${inspect_source_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -99,7 +99,7 @@
       "Comment": "Create the temp external table over the SOURCE (+ for CSV, the single-column RAW-LINE table the ragged check needs). Temp tables live in the USER'S OWN database, which is exactly why every failure path below must reach DropTempTables.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["create-temp-tables"]}",
+        "FunctionName": "${create_temp_tables_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -141,7 +141,7 @@
       "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. Each StartQueryExecution carries its own ClientRequestToken (the hyphen-free request id plus a per-query suffix), or a Retry after a post-submission transient error would start a SECOND query. One token shared by the three would be worse than none: the ragged and duplicates submissions would re-attach to the profile execution.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["start-profile-query"]}",
+        "FunctionName": "${start_profile_query_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -189,7 +189,7 @@
       "Comment": "One GetQueryExecution PER QUERY (profile + ragged + duplicates), returning a per-query block each plus an AGGREGATE queryStatus the Choice below branches on. The aggregate is computed in the verb, not in the Choice, and that is deliberate: `ragged` is null for JSON/Parquet, and a Choice rule reading $.ragged.status on a null raises States.Runtime — which a Choice CANNOT Catch, so the execution would die without reaching NotifyFailure and the user would be told nothing at all. Only the PROFILE query's FAILED/CANCELLED raises TerminalError; a failed ragged/duplicates degrades to not_computed and the run still succeeds.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["check-query"]}",
+        "FunctionName": "${check_query_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -243,7 +243,7 @@
       "Comment": "The ONE thing SQL cannot see: a bounded, SAMPLED raw-byte encoding check. Its budget is PER REQUEST (DQ_SCAN_TOTAL_BYTES, default 2 GiB), divided across the manifest's files — never per file.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["byte-scan"]}",
+        "FunctionName": "${byte_scan_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -285,7 +285,7 @@
       "Comment": "Join the Athena results + the byte scan + the cross-file column agreement (computed from inspect-source's per-file probe, NOT in SQL — an external table has one schema for the whole folder and would HIDE exactly that disagreement) into report.json.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["assemble-report"]}",
+        "FunctionName": "${assemble_report_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -327,7 +327,7 @@
       "Comment": "Success-path cleanup. Idempotent by design — it must tolerate being reached before any table was created. Touches GLUE ONLY (no s3:DeleteObject is granted anywhere in this arc), which is what makes it safe to reach from every path.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["drop-temp-tables"]}",
+        "FunctionName": "${drop_temp_tables_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -401,7 +401,7 @@
       "Comment": "THE CATCH ALWAYS REACHES CLEANUP. The failure-path twin of DropTempTables, invoking the SAME Lambda (a state can have only one Next, hence the twin). Without it, every failed request would LEAK a temp table into the user's own Glue database — visible in the Query workspace's schema rail and eventually colliding with their real table names. ResultPath parks the result on a scratch field so $.error (the original failure) survives for RecordFailure. Its OWN Catch goes straight to RecordFailure: cleanup is best-effort on the failure path and must NEVER mask the original error, and this is what stops the failure path looping back into itself.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["drop-temp-tables"]}",
+        "FunctionName": "${drop_temp_tables_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": "$.cleanup",
@@ -458,7 +458,7 @@
       "Comment": "Emit the friendly failure notification to the actor. PLACEHOLDER here — the notification producer wires the real handler. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": "$.notified",

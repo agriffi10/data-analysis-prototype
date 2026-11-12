@@ -8,7 +8,7 @@
       "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root, enforces the request-shape caps, and annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. The request is deliberately NOT threaded alongside it: the Pipe record carries the same selection again as an escaped JSON string, so keeping both would roughly double the state for the whole run — the failure path reads the request from the CONTEXT OBJECT instead, which costs nothing until it is needed. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate-authorize"]}",
+        "FunctionName": "${validate_authorize_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -61,7 +61,7 @@
       "Comment": "Expands every selected item under the authorized root — folders through their pagination boundary — applies this plane's exclusions, refuses an overlapping or name-colliding selection, enforces the object and byte caps, and writes the copy plan to the admin bucket. NEITHER THE OBJECT LIST NOR ANY KEY RETURNS TO THE STATE: at SEND_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, so what comes back is the plan's KEY plus the count and byte total. Unlike ValidateAuthorize its input IS the request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["inspect-source"]}",
+        "FunctionName": "${inspect_source_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -119,7 +119,7 @@
             "Comment": "Returns the guard record whole — {status, recipient, reason, detail} — so the item's output IS the record. On the clear path the recipient carries the destination bucket and root it resolved, which is what lets the manifest builder compute a destination per object without resolving one per object.",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["check-target-absent"]}",
+              "FunctionName": "${check_target_absent_function_arn}",
               "Payload.$": "$"
             },
             "OutputPath": "$.Payload",
@@ -184,7 +184,7 @@
       "Comment": "Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient x planned object), each destination built by fscommon.paths.destination_key. A refused recipient contributes nothing and is carried forward untouched. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["build-transfer-manifest"]}",
+        "FunctionName": "${build_transfer_manifest_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -269,7 +269,7 @@
             "Comment": "One batch of transfer items per invocation. No Catch: a batch that fails after its retries must FAIL its child execution, because that is what files it under FAILED_n.json where the collector can attribute every item it carried. A deterministic single-item fault does not get here at all — the verb reports it per item and succeeds, and the collector reads those out of SUCCEEDED_n.json.",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "FunctionName": "${function_arns["copy-objects"]}",
+              "FunctionName": "${copy_objects_function_arn}",
               "Payload.$": "$"
             },
             "OutputPath": "$.Payload",
@@ -323,7 +323,7 @@
       "Comment": "Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree. It also derives the item NAMES the summary reports, which is the last state holding the selection they come from.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["collect-transfer-results"]}",
+        "FunctionName": "${collect_transfer_results_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -378,7 +378,7 @@
       "Comment": "The plane's ONLY outcome producer: one message to the sender per recipient outcome, and one to each recipient who actually received something (a user directly, a space through its registered owner). It runs on the summary rather than inside the Maps because that is what makes it possible to say each thing once — and it is why no verb upstream emits. ResultPath is null so the execution's output stays the terminal the machine shaped: the notifier threads the summary back, but the state is what ShapeSummary decided. Its Catch goes straight to Succeeded, and that direction is deliberate: the copy has already happened, so a missed notification must never turn a delivered send into a failed execution.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify"]}",
+        "FunctionName": "${notify_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": null,
@@ -454,7 +454,7 @@
       "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY. The duplicate it has to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": null,

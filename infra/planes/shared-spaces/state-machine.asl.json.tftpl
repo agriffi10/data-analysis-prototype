@@ -7,7 +7,7 @@
       "Comment": "Verify token + authorize. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated context object the whole state for the Choice + verb (ResultPath can't merge into an array).",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["validate"]}",
+        "FunctionName": "${validate_function_arn}",
         "Payload.$": "$"
       },
       "OutputPath": "$.Payload",
@@ -108,7 +108,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["create"]}",
+        "FunctionName": "${create_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -147,7 +147,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["add-members"]}",
+        "FunctionName": "${add_members_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -186,7 +186,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["remove-members"]}",
+        "FunctionName": "${remove_members_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -225,7 +225,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["leave"]}",
+        "FunctionName": "${leave_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -264,7 +264,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["delete"]}",
+        "FunctionName": "${delete_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -303,7 +303,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["forget"]}",
+        "FunctionName": "${forget_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -343,7 +343,7 @@
       "Comment": "A member confirms they've picked up the space; flips them pending -> active in the owner's projection.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["acknowledge-membership"]}",
+        "FunctionName": "${acknowledge_membership_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -383,7 +383,7 @@
       "Comment": "The owner hands the space to an existing member. Nothing about the space's resources changes and no grant moves, because access here is membership and the roster is untouched — what changes is the registry's owner, the acknowledged list derived from it, and every member's cached copy of both.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["transfer-ownership"]}",
+        "FunctionName": "${transfer_ownership_function_arn}",
         "Payload.$": "$"
       },
       "Retry": [
@@ -468,7 +468,7 @@
       "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error (one missing env var once crashed this very plane at cold start), a state timeout, a task that could not be invoked. This plane's verbs notify from INSIDE their handlers, so a verb that never ran notified nothing. The duplicate for the two verbs that DO emit their own failure message (create, delete) is collapsed by the FIFO dedup token, which the verb reproduces exactly — not by a Python guard, because the other five verbs emit no failure message at all and a guard would restore their silence. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${function_arns["notify-failure"]}",
+        "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
       "ResultPath": "$.notified",
