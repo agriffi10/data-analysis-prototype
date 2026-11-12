@@ -3302,6 +3302,11 @@ parallel once 252 has landed.
 > `scheduled-function` and the new `queue-consumer`; the CI plan was main's pending plan unchanged
 > plus 32 resource moves. The notifications sender-id check is now a root-output precondition.
 
+> **253 shipped 2026-11-12** (PR #960). The CI plan was 17 moves in `module.base`, one of them the
+> plane guard, which is also replaced once because it gained `triggers`:
+> `replace_triggered_by` misses a create on the OpenTofu 1.8 CI runs. A plane's deploy grant is now an entry in
+> `local.control_plane_grants`.
+
 **How each is proved.** Deploys are manual-only from 2026-11-12, so nothing applies these changes
 in the current account, and the next account is deployed fresh. The proof is each PR's CI plan
 (local plans are unreliable here): every resource the spec touches is unchanged or **moved**, with

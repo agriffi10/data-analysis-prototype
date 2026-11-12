@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-253
 title: "The Deploy Role's Plane Grants Are One Template"
 description: "Renders the deploy role's eight per-plane managed policies from one template and one map of planes, so a grant fix is one edit and a new plane is one map entry, with a CI plan showing no IAM document changed."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-252]
 arc: infra-building-blocks
 arc_order: 2
