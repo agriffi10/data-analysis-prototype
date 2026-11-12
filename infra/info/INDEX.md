@@ -7,8 +7,10 @@ inline — what applies green when it is wrong, and what must not be "tidied".
 **A module is one architectural concept, and the root composes them.** A concept built once is a
 module the root calls once (`auth`, `api`, `data`, …). A concept built more than once is a
 **building block** the root calls once per instance, passing every dependency in: the eight control
-planes are eight calls to [`control-plane`](../modules/control-plane/README.md), each in its own
-root file with its plane-specific configuration beside it. The rule and its reasoning are the IaC
+planes are eight calls to [`control-plane`](../modules/control-plane/README.md), the four scheduled
+functions are calls to [`scheduled-function`](../modules/scheduled-function/README.md), and the two
+single-writer queues are calls to [`queue-consumer`](../modules/queue-consumer/README.md), each in
+its own root file with its own configuration beside it. The rule and its reasoning are the IaC
 decision in `docs/decisions/infrastructure/`.
 
 ## Layout
@@ -18,6 +20,8 @@ decision in `docs/decisions/infrastructure/`.
 | `infra/main.tf` | the root: every module block a single concept needs, and the locals that construct cross-module ARNs |
 | `infra/plane-<slug>.tf` | one control plane: its verbs, environment, queue settings, ceiling and caps, its call to `control-plane`, and any module only it uses |
 | `infra/planes/<slug>/` | that plane's ASL definition, execution policy and README — what is distinct about it |
+| `infra/function-<slug>.tf` | one standalone function: its names, environment and policies, and its call to `scheduled-function` or `queue-consumer` |
+| `infra/functions/<slug>/` | that function's policy templates and README — its reasoning |
 | `infra/control-planes.tf` | the constructed ARNs every plane's execution policy may name |
 | `infra/moved.tf` | every address a refactor changed, kept until every state has applied it |
 | `infra/variables.tf` / `outputs.tf` | the stack's inputs and its published values |
@@ -39,7 +43,7 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `auth` | the Cognito User Pool, its SPA client, the Hosted UI domain and both triggers | [README](../modules/auth/README.md) |
 | `analytics` | the Athena workgroup, the **admin bucket**, and the **Lake Formation** bootstrap | [README](../modules/analytics/README.md) |
 | `lambda-artifacts` | the bucket CI staged Lambda zips in — **nothing writes to it and nothing reads it**; retiring it is nobody's spec yet | [README](../modules/lambda-artifacts/README.md) |
-| `observability` | the structured-logging queue and its scheduled sweep | [README](../modules/observability/README.md) |
+| `observability` | the structured-logging queue and its backlog alarm; its sweep is `function-log-sweep.tf`, and this README carries the reasoning for both | [README](../modules/observability/README.md) |
 | `lambda-image` | the registry CI pushes the Lambda container image to | [README](../modules/lambda-image/README.md) |
 | `docker-lambda` | one container-packaged function; every Lambda in the repo is a call to it | [README](../modules/docker-lambda/README.md) |
 
@@ -76,18 +80,25 @@ every trap the planes share.
 | Building block or plane-owned module | Owns | README |
 |---|---|---|
 | `control-plane` | the machine every plane runs | [README](../modules/control-plane/README.md) |
-| `scheduled-function` | one function on an EventBridge schedule — shared spaces' transfer reader | [README](../modules/scheduled-function/README.md) |
+| `scheduled-function` | one function on an EventBridge schedule — shared spaces' transfer reader, and three standalone functions below | [README](../modules/scheduled-function/README.md) |
 | `shared-space-storage` | **the shared-space bucket (Bucket 2)**, its Lake Formation registration and the portal role's grant on it | [README](../modules/shared-space-storage/README.md) |
 | `archive-vault` | **the archive bucket (Bucket 5)** and its policy | [README](../modules/archive-vault/README.md) |
 
 ## Standalone
 
+Each is a root file calling a building block, with its reasoning in `infra/functions/<slug>/`.
+
+| Function | Root file | Building block | README |
+|---|---|---|---|
+| the notifications FIFO queue and its **single writer** | `function-notifications.tf` | [`queue-consumer`](../modules/queue-consumer/README.md) | [README](../functions/notifications/README.md) |
+| the feedback FIFO queue and its **single writer** — written only by the API, with a top-level username rather than an `identity` block, and an undrained DLQ | `function-feedback.tf` | `queue-consumer` | [README](../functions/feedback/README.md) |
+| one scheduled drain over every plane's request DLQ | `function-control-plane-dlq-drain.tf` | `scheduled-function` | [README](../functions/control-plane-dlq-drain/README.md) |
+| the daily username-directory builder | `function-user-directory.tf` | `scheduled-function` | [README](../functions/user-directory/README.md) |
+| the structured-logging sweep | `function-log-sweep.tf` | `scheduled-function` | [README](../modules/observability/README.md) |
+
 | Module | Owns | README |
 |---|---|---|
-| `notifications` | the notifications FIFO queue and its **single writer** | [README](../modules/notifications/README.md) |
-| `feedback` | the feedback FIFO queue and its **single writer** — written only by the API, with a top-level username rather than an `identity` block, and an undrained DLQ | [README](../modules/feedback/README.md) |
-| `control-plane-dlq-drain` | one scheduled drain over every plane's request DLQ | [README](../modules/control-plane-dlq-drain/README.md) |
-| `user-directory` | the daily username-directory builder | [README](../modules/user-directory/README.md) |
+| `queue-consumer` | a FIFO queue, its own DLQ, and the one function that is its single writer | [README](../modules/queue-consumer/README.md) |
 | `verification` | the archive-audit CloudTrail trail and the read-only verification role | [README](../modules/verification/README.md) |
 
 ## The buckets

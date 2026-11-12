@@ -348,7 +348,7 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
     templates = {
         path
         for path in reads
-        if path.startswith(("infra/modules/", "infra/planes/"))
+        if path.startswith(("infra/modules/", "infra/planes/", "infra/functions/"))
         and not path.endswith(".asl.json.tftpl")
     }
     assert len(templates) >= MINIMUM_IAM_TEMPLATE_READS, (

@@ -16,8 +16,8 @@ agree with nothing.
 
 Attributes:
   MODULE_CALL: The validated module call, verbatim.
-  RESOURCE: The zip-packaged shape, lifted verbatim from `infra/modules/observability/lambda.tf`
-    at the commit this branch left. It is the log sweep because that is a function declaring
+  RESOURCE: The zip-packaged shape, lifted verbatim from what was then
+    `infra/modules/observability/lambda.tf`, at the commit that branch left. It is the log sweep because that is a function declaring
     BOTH old spellings, `timeout` and `memory_size`, so neither arm is exercised against text
     written for the test.
 """

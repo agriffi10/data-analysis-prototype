@@ -9,12 +9,15 @@ redelivered event.
 | File | Holds |
 |---|---|
 | `sqs.tf` | the logs queue |
-| `lambda.tf` | the sweep function, its log group, and the 10-minute schedule |
 | `alarm.tf` | the backlog alarm, on the age of the queue's oldest message |
-| `iam.tf` | the sweep's role and its two policies, rendered from `policies/` with `templatefile()` |
-| `policies/` | the sweep's trust, permissions and producer documents |
-| `locals.tf` | names, and the `logs` prefix both the grant and the env read |
-| `outputs.tf` | queue URL/ARN, and the sweep's function name |
+| `locals.tf` | the queue's and the alarm's names |
+| `outputs.tf` | the queue's URL and ARN |
+| `../../function-log-sweep.tf` | the sweep: a call to `scheduled-function` (`module.observability_sweep`), its environment, and the `logs` prefix both its grant and its environment read |
+| `../../functions/log-sweep/` | the sweep's trust, permissions and producer documents |
+
+The sweep is a call to the `scheduled-function` building block rather than part of this module, so
+the role, function, rule and permission are built the way every scheduled function's are. This
+README still carries the sweep's reasoning, because the queue and the sweep are one pipeline.
 
 Code: `lambdas/log-sweep/`. The client side is `cpcommon.observability`, the only way anything in
 this repo logs.
@@ -111,15 +114,16 @@ roles only.
 The sweep is itself a producer — it instruments itself through `cpcommon.observability`, which is
 what proves the whole path end to end without instrumenting a control plane.
 
-## The documents are templates, because this module waits on `module.base`
+## The documents are templates, because the sweep waits on `module.base`
 
-The root calls this module with `depends_on = [module.base]`, so on an apply that changes the
-deploy role's grants, the grant is written before anything here uses it. That edge also defers
-every data source in the module until `module.base` has applied. The three documents were
-`aws_iam_policy_document` data sources, so on every pull request that changed `module.base` the
-plan showed them as `(known after apply)` with their content unchanged, and a document the plan
-cannot show is one no plan-time scan reads. They are `templatefile()` renders now, which the plan
-computes whenever its inputs are known, and the edge stays.
+The root calls this module and the sweep's `scheduled-function` call with `depends_on =
+[module.base]`, so on an apply that changes the deploy role's grants, the grant is written before
+anything here uses it. That edge also defers every data source in the called module until
+`module.base` has applied. The sweep's three documents were `aws_iam_policy_document` data sources,
+so on every pull request that changed `module.base` the plan showed them as `(known after apply)`
+with their content unchanged, and a document the plan cannot show is one no plan-time scan reads.
+They are `templatefile()` renders now (`infra/functions/log-sweep/`), which the plan computes
+whenever its inputs are known, and the edge stays.
 `lambdas/test_depends_on_defers_no_data_source.py` refuses a data source in any module called with
 a `depends_on`.
 

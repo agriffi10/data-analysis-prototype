@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "IaC"
-description: "OpenTofu is the IaC tool (over CDK, Pulumi and SST). **A module is one architectural concept, and the root composes them flat**: a concept built once is a module the root calls once, a concept built more than once is a **building block** the root calls once per instance (`control-plane` ×8), and the root passes every dependency in as a constructed string. A plane's own configuration lives with its call (`infra/plane-<slug>.tf`, `infra/planes/<slug>/`). **A building block's inputs are what varies between its callers, found by diffing resolved values** — reading the HCL text misses a value hidden behind a local. **A refactor moves; it never recreates**: every changed address gets a `moved` block in `infra/moved.tf`, and the PR's plan showing only moves is the proof. IAM policies are `.tftpl` templates rendered with `templatefile()`."
+description: "OpenTofu is the IaC tool (over CDK, Pulumi and SST). **A module is one architectural concept, and the root composes them flat**: a concept built once is a module the root calls once, a concept built more than once is a **building block** the root calls once per instance (`control-plane` ×8, `scheduled-function` ×4, `queue-consumer` ×2), and the root passes every dependency in as a constructed string. A plane's own configuration lives with its call (`infra/plane-<slug>.tf`, `infra/planes/<slug>/`), and a standalone function's with its own (`infra/function-<slug>.tf`, `infra/functions/<slug>/`). **A building block's inputs are what varies between its callers, found by diffing resolved values** — reading the HCL text misses a value hidden behind a local. **A refactor moves; it never recreates**: every changed address gets a `moved` block in `infra/moved.tf`, and the PR's plan showing only moves is the proof. IAM policies are `.tftpl` templates rendered with `templatefile()`."
 ---
 
 OpenTofu (over CDK/Pulumi/SST). IAM policies are `.tftpl` templates rendered with `templatefile()`.
@@ -21,7 +21,9 @@ and its *composition*, *structure* and *refactoring* pages; OpenTofu's agree):
   copies of one machine; they are now eight calls to `infra/modules/control-plane`, each carrying
   only what is distinct about its plane. The traps the copies asked every author to remember — a
   hand-kept function map in the definition, a ceiling that needs its `TIMED_OUT` rule — are
-  structure in the module instead.
+  structure in the module instead. Two smaller shapes were built more than once as well, and are
+  building blocks for the same reason: `scheduled-function` (a function on an EventBridge
+  schedule, ×4) and `queue-consumer` (a FIFO queue's single writer, ×2).
 - **A building block's inputs are derived, not designed.** Each is an argument whose resolved
   value differs between today's callers; an argument that never varies is a literal. Two spec
   review rounds found values the designed interface could not carry (an inline policy's name, a
@@ -42,6 +44,10 @@ building block an input "for flexibility" that no caller's value needs.
 
 ### 2026-11-12
 
+- **The standalone functions followed (SPEC-254):** the user-directory build, the DLQ drain and the
+  log sweep became calls to `scheduled-function`, and notifications and feedback calls to the new
+  `queue-consumer`. One guard could not move into a generic module — the notifications writer's
+  sender-id shape check — and sits as a precondition on the root output that names the writer.
 - **Rewritten (SPEC-252):** bounded-context modules gave way to one-concept modules composed flat
   from the root. The per-feature modules had become eight copies of the control-plane machine
   (5,254 lines of `.tf` across them); the copies are now one building block and eight root calls.

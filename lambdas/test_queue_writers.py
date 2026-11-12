@@ -10,9 +10,10 @@ Attributes:
   REPO: The repository root.
   INFRA: The IaC tree.
   QUEUE_MODULES: The owners of a request queue, enumerated from the filesystem: each plane whose
-    root file calls the control-plane module, which creates its queue, plus every module with its
-    own request queue — feedback, which is not a plane (one verb and no state machine) but owns a
-    request queue on exactly these terms, and notifications.
+    root file calls the control-plane module, which creates its queue, each root call to the
+    queue-consumer module, which creates one too — feedback, which is not a plane (one verb and no
+    state machine) but owns a request queue on exactly these terms, and notifications — plus any
+    module with a request queue of its own.
   EXPECTED_QUEUE_MODULES: The count measured when feedback landed, as a tripwire on the glob
     rather than as the list itself. A glob that found nothing would make every sweep here
     vacuously clean.
@@ -34,6 +35,12 @@ QUEUE_MODULES = sorted(
         for path in INFRA.glob("*.tf")
         for body in module_calls(path.read_text()).values()
         if argument(body, "source").strip('"').rstrip("/") == "./modules/control-plane"
+    ]
+    + [
+        name
+        for path in INFRA.glob("*.tf")
+        for name, body in module_calls(path.read_text()).items()
+        if argument(body, "source").strip('"').rstrip("/") == "./modules/queue-consumer"
     ]
     + [path.parent.name for path in INFRA.glob("modules/*/sqs.tf") if "requests" in path.read_text()]
 )
@@ -130,6 +137,7 @@ def test_every_execution_role_that_notifies_still_holds_its_grant():
     for role in NOTIFYING_ROLES:
         templates = [
             *INFRA.glob(f"planes/{role}/*.json.tftpl"),
+            *INFRA.glob(f"functions/{role}/*.json.tftpl"),
             *INFRA.glob(f"modules/{role}/policies/*.json.tftpl"),
         ]
         sends = [

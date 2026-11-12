@@ -325,3 +325,144 @@ moved {
   from = module.shared_spaces.aws_lambda_permission.transfer_schedule
   to   = module.shared_space_transfer_reader.aws_lambda_permission.this
 }
+
+# ── The standalone functions became building-block calls ─────────────────────
+# The user-directory build, the DLQ drain and the log sweep are calls to scheduled-function (the
+# sweep leaving module.observability for module.observability_sweep); notifications and feedback
+# are calls to queue-consumer at their old addresses, whose queues keep their resource names and
+# need no move. Keep these while any state may predate them.
+
+moved {
+  from = module.user_directory.aws_iam_role.build
+  to   = module.user_directory.aws_iam_role.this
+}
+
+moved {
+  from = module.user_directory.aws_iam_role_policy.build
+  to   = module.user_directory.aws_iam_role_policy.this["build"]
+}
+
+moved {
+  from = module.user_directory.module.build
+  to   = module.user_directory.module.function
+}
+
+moved {
+  from = module.user_directory.aws_cloudwatch_event_rule.schedule
+  to   = module.user_directory.aws_cloudwatch_event_rule.this
+}
+
+moved {
+  from = module.user_directory.aws_cloudwatch_event_target.schedule
+  to   = module.user_directory.aws_cloudwatch_event_target.this
+}
+
+moved {
+  from = module.user_directory.aws_lambda_permission.schedule
+  to   = module.user_directory.aws_lambda_permission.this
+}
+
+moved {
+  from = module.control_plane_dlq_drain.aws_iam_role.drain
+  to   = module.control_plane_dlq_drain.aws_iam_role.this
+}
+
+moved {
+  from = module.control_plane_dlq_drain.aws_iam_role_policy.drain
+  to   = module.control_plane_dlq_drain.aws_iam_role_policy.this["drain"]
+}
+
+moved {
+  from = module.control_plane_dlq_drain.module.drain
+  to   = module.control_plane_dlq_drain.module.function
+}
+
+moved {
+  from = module.control_plane_dlq_drain.aws_cloudwatch_event_rule.sweep
+  to   = module.control_plane_dlq_drain.aws_cloudwatch_event_rule.this
+}
+
+moved {
+  from = module.control_plane_dlq_drain.aws_cloudwatch_event_target.sweep
+  to   = module.control_plane_dlq_drain.aws_cloudwatch_event_target.this
+}
+
+moved {
+  from = module.control_plane_dlq_drain.aws_lambda_permission.sweep
+  to   = module.control_plane_dlq_drain.aws_lambda_permission.this
+}
+
+moved {
+  from = module.observability.aws_iam_role.sweep
+  to   = module.observability_sweep.aws_iam_role.this
+}
+
+moved {
+  from = module.observability.aws_iam_role_policy.sweep
+  to   = module.observability_sweep.aws_iam_role_policy.this["sweep"]
+}
+
+moved {
+  from = module.observability.aws_iam_role_policy.sweep_producer
+  to   = module.observability_sweep.aws_iam_role_policy.this["logs-producer"]
+}
+
+moved {
+  from = module.observability.module.sweep
+  to   = module.observability_sweep.module.function
+}
+
+moved {
+  from = module.observability.aws_cloudwatch_event_rule.sweep
+  to   = module.observability_sweep.aws_cloudwatch_event_rule.this
+}
+
+moved {
+  from = module.observability.aws_cloudwatch_event_target.sweep
+  to   = module.observability_sweep.aws_cloudwatch_event_target.this
+}
+
+moved {
+  from = module.observability.aws_lambda_permission.sweep
+  to   = module.observability_sweep.aws_lambda_permission.this
+}
+
+moved {
+  from = module.notifications.aws_iam_role.writer
+  to   = module.notifications.aws_iam_role.this
+}
+
+moved {
+  from = module.notifications.aws_iam_role_policy.writer
+  to   = module.notifications.aws_iam_role_policy.this
+}
+
+moved {
+  from = module.notifications.module.writer
+  to   = module.notifications.module.function
+}
+
+moved {
+  from = module.notifications.aws_lambda_event_source_mapping.writer
+  to   = module.notifications.aws_lambda_event_source_mapping.this
+}
+
+moved {
+  from = module.feedback.aws_iam_role.writer
+  to   = module.feedback.aws_iam_role.this
+}
+
+moved {
+  from = module.feedback.aws_iam_role_policy.writer
+  to   = module.feedback.aws_iam_role_policy.this
+}
+
+moved {
+  from = module.feedback.module.writer
+  to   = module.feedback.module.function
+}
+
+moved {
+  from = module.feedback.aws_lambda_event_source_mapping.writer
+  to   = module.feedback.aws_lambda_event_source_mapping.this
+}

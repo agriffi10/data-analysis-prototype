@@ -287,9 +287,9 @@ def test_each_family_is_scoped_to_the_name_the_module_will_use(sid: str, resourc
 
     **These literals are the names the module is INTENDED to construct, and until that module
     exists they are pinned to nothing but themselves.** Both halves of the pair are written here,
-    so a typo in one is caught and a shared misunderstanding is not — the real join lands with
-    ``infra/modules/feedback/locals.tf``, where a test reads each constructed name and matches it
-    against these patterns. Measured, before that test existed: renaming the writer function to
+    so a typo in one is caught and a shared misunderstanding is not — the real join is
+    ``test_feedback_module.py``, which reads each name ``infra/function-feedback.tf`` constructs
+    and matches it against these patterns. Measured, before that test existed: renaming the writer function to
     ``…-feedback-writer-fn`` — which neither the function ARN nor the log-group ARN matches, so
     ``CreateFunction`` would be denied at apply — left this whole suite green.
 

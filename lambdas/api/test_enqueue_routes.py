@@ -697,8 +697,9 @@ def test_the_content_based_dedup_flags_are_read_out_of_the_terraform_not_transcr
     is set either way.
 
     The eight control planes set the flag as an argument of their call to the shared module, beside
-    the DLQ's own ``dlq_content_based_deduplication``; the module's request queue is read too, so a
-    call argument that stopped reaching the queue would not read as deployed.
+    the DLQ's own ``dlq_content_based_deduplication``, and notifications as an argument of its call
+    to ``queue-consumer``; each module's request queue is read too, so a call argument that stopped
+    reaching the queue would not read as deployed.
     """
     import sys
 
@@ -715,18 +716,15 @@ def test_the_content_based_dedup_flags_are_read_out_of_the_terraform_not_transcr
         "archive": ("plane-archive.tf", "archive"),
         "file-ops": ("plane-file-ops.tf", "file_ops"),
         "results-conversion": ("plane-results-conversion.tf", "results_conversion"),
+        "notifications": ("function-notifications.tf", "notifications"),
     }
-    shared = blocks((infra / "modules" / "control-plane" / "main.tf").read_text(), "aws_sqs_queue")
-    assert argument(shared["requests"], "content_based_deduplication") == (
-        "var.content_based_deduplication"
-    )
+    for module in ("control-plane", "queue-consumer"):
+        shared = blocks((infra / "modules" / module / "main.tf").read_text(), "aws_sqs_queue")
+        assert argument(shared["requests"], "content_based_deduplication") == (
+            "var.content_based_deduplication"
+        ), f"{module}'s request queue does not take the call's flag"
     deployed = {}
     for queue in contract.QUEUES:
-        if queue.id == "notifications":
-            source = (infra / "modules" / "notifications" / "sqs.tf").read_text()
-            body = blocks(source, "aws_sqs_queue")["requests"]
-            deployed[queue.id] = "content_based_deduplication = true" in body.replace("  ", " ")
-            continue
         file_name, call = plane_call[queue.id]
         body = module_calls((infra / file_name).read_text())[call]
         flag = argument(body, "content_based_deduplication")

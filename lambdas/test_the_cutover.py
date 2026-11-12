@@ -62,13 +62,15 @@ def _fleet_calls() -> dict[pathlib.Path, dict[str, str]]:
       None.
 
     Returns:
-      Each `lambda.tf` mapped to its fleet calls, name to body.
+      Each module file mapped to its fleet calls, name to body. Every `.tf` in the module, not
+      only `lambda.tf`: a building block declares its function in `main.tf`, and a narrower glob
+      passed over both building blocks' calls while still matching enough files to look whole.
 
     Raises:
       None.
     """
     found = {}
-    for path in sorted(MODULES.glob("*/lambda.tf")):
+    for path in sorted(MODULES.glob("*/*.tf")):
         calls = {
             name: body
             for name, body in module_calls(path.read_text(encoding="utf-8")).items()
@@ -151,6 +153,19 @@ def test_every_fleet_call_names_a_handler() -> None:
             assert command.startswith("[") and command.strip("[] \n") != "", (
                 f"{path.relative_to(INFRA)}: {name} supplies {command!r} as its command"
             )
+
+    # A building block's command is `[var.handler]`, so the handler a function runs is the root
+    # call's argument, and an empty one there is the same container that fails at INIT.
+    handlers = {
+        f"{path.name} module.{name}": argument(body, "handler")
+        for path in sorted(INFRA.glob("*.tf"))
+        for name, body in module_calls(path.read_text(encoding="utf-8")).items()
+        if argument(body, "source").strip('"').rstrip("/")
+        in ("./modules/scheduled-function", "./modules/queue-consumer")
+    }
+    assert len(handlers) >= 6, f"only {sorted(handlers)} call a single-function building block"
+    empty = {where: value for where, value in handlers.items() if not re.fullmatch(r'"[^"]+"', value)}
+    assert not empty, f"these calls pass no handler literal: {empty}"
 
 
 def test_no_terraform_file_builds_a_lambda_arn_from_a_template() -> None:

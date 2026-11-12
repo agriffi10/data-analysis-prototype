@@ -1,9 +1,9 @@
-"""The feedback module, held against the grant that authorizes it and the bucket it writes into.
+"""The feedback queue and its writer, held against the grant that authorizes it and the bucket it writes into.
 
 Three joins nothing else in the repo makes, each covering a failure that is silent until an apply
 or until somebody goes looking for a day's records and finds them expired:
 
-- the names the module CONSTRUCTS against the patterns the deploy grant matches, which is the pin
+- the names its root call CONSTRUCTS against the patterns the deploy grant matches, which is the pin
   the grants-first PR was written for and could not make itself;
 - every request DLQ Terraform declares against the drain's own tables, so a future queue cannot be
   silently undrained;
@@ -12,7 +12,9 @@ or until somebody goes looking for a day's records and finds them expired:
 The third of those checks a STRING; the fourth ties it to the key the writer actually builds.
 
 Attributes:
-  MODULE: The feedback module's directory.
+  CALL: The root file holding feedback's call to ``queue-consumer`` and the names it builds.
+  CONSUMER: The ``queue-consumer`` building block, which owns the queues and the mapping.
+  POLICY: The writer's policy template.
   GRANT: The deploy-role policy authorizing it.
   ADMIN_S3: The admin bucket's Terraform, which owns the lifecycle rules.
   SUBSTITUTIONS: What ``templatefile()`` puts into the grant, so it can be parsed as JSON.
@@ -38,7 +40,9 @@ from tf_blocks import (
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
-MODULE = INFRA / "modules" / "feedback"
+CALL = INFRA / "function-feedback.tf"
+CONSUMER = INFRA / "modules" / "queue-consumer"
+POLICY = INFRA / "functions" / "feedback" / "writer.json.tftpl"
 GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-feedback.json.tftpl"
 ADMIN_S3 = INFRA / "modules" / "analytics" / "s3.tf"
 
@@ -58,7 +62,7 @@ SUBSTITUTIONS = {
 
 
 def _constructed_names() -> dict[str, str]:
-    """Every name ``locals.tf`` builds, rendered with stand-in project and environment values.
+    """Every name the root call's ``feedback_*`` locals build, rendered with stand-in values.
 
     Read from the Terraform rather than restated here. A literal copy would agree with itself
     while the module renamed something — which is exactly the failure this file exists to catch,
@@ -69,13 +73,13 @@ def _constructed_names() -> dict[str, str]:
       None.
 
     Returns:
-      Local name to the string it renders to.
+      Local name, less its ``feedback_`` prefix, to the string it renders to.
 
     Raises:
       None.
     """
-    text = (MODULE / "locals.tf").read_text(encoding="utf-8")
-    declared = dict(re.findall(r'^\s+(\w+)\s+=\s+"([^"]+)"$', text, re.MULTILINE))
+    text = CALL.read_text(encoding="utf-8")
+    declared = dict(re.findall(r'^\s+feedback_(\w+)\s+=\s+"([^"]+)"$', text, re.MULTILINE))
     names: dict[str, str] = {}
     # Two passes, because a local is built from another one — the log group's name embeds the
     # function's. Resolving only `var.*` would silently DROP those rows, and a parametrized test
@@ -86,7 +90,7 @@ def _constructed_names() -> dict[str, str]:
                 "${var.environment}", ENVIRONMENT
             )
             for local, value in names.items():
-                rendered = rendered.replace("${local." + local + "}", value)
+                rendered = rendered.replace("${local.feedback_" + local + "}", value)
             if "${" not in rendered:
                 names[name] = rendered
     return names
@@ -125,10 +129,25 @@ def _grant_resources() -> list[str]:
 
 def test_the_module_and_the_grant_are_both_where_this_test_thinks_they_are() -> None:
     """Guard the guard: over a missing file every join below is unreachable, not passing."""
-    assert MODULE.is_dir(), MODULE
+    assert CALL.is_file(), CALL
+    assert CONSUMER.is_dir(), CONSUMER
+    assert POLICY.is_file(), POLICY
     assert GRANT.is_file(), GRANT
     # Every name the parametrized join below asks for must have RESOLVED, or that row silently
     # KeyErrors into a failure that reads like a missing grant rather than a broken renderer.
+    # The join below reads the locals; it means something only if the call is built from them, so an
+    # inline name in the call would bypass it while every row still passed.
+    call = module_calls(CALL.read_text(encoding="utf-8"))["feedback"]
+    for argument_name, local in (
+        ("queue_name", "requests_queue_name"),
+        ("dlq_name", "dlq_name"),
+        ("function_name", "writer_function_name"),
+        ("role_name", "writer_role_name"),
+    ):
+        assert argument(call, argument_name) == f"local.feedback_{local}", (
+            f"module.feedback's {argument_name} is not local.feedback_{local}, so the deploy-grant "
+            "join below checks a name the call does not use"
+        )
     resolved = _constructed_names()
     for required in (
         "requests_queue_name",
@@ -178,7 +197,7 @@ def test_the_writer_holds_no_delete_and_no_unscoped_bucket_reach() -> None:
     absence, so it has no branch that needs one, and a grant with no consumer is a widening
     nobody asked for.
     """
-    policy = (MODULE / "policies" / "writer-permissions.json.tftpl").read_text(encoding="utf-8")
+    policy = POLICY.read_text(encoding="utf-8")
     actions = set(re.findall(r'"(s3:[A-Za-z]+)"', policy))
 
     assert actions == {"s3:GetObject", "s3:PutObject"}, (
@@ -199,7 +218,7 @@ def test_the_queue_is_fifo_with_its_own_dlq_and_encryption_on_both() -> None:
     sys.path.insert(0, str(REPO / "lambdas"))
     from tf_blocks import blocks
 
-    queues = blocks((MODULE / "sqs.tf").read_text(encoding="utf-8"), "aws_sqs_queue")
+    queues = blocks((CONSUMER / "main.tf").read_text(encoding="utf-8"), "aws_sqs_queue")
 
     assert set(queues) == {"requests", "requests_dlq"}
     for name, body in queues.items():
@@ -212,7 +231,11 @@ def test_the_queue_is_fifo_with_its_own_dlq_and_encryption_on_both() -> None:
     assert "aws_sqs_queue.requests_dlq.arn" in queues["requests"], (
         "the request queue does not redrive to its own dead-letter queue"
     )
-    assert "content_based_deduplication = false" in queues["requests"].replace("  ", " "), (
+    assert argument(queues["requests"], "content_based_deduplication") == (
+        "var.content_based_deduplication"
+    ), "the request queue does not take its caller's deduplication flag"
+    call = module_calls(CALL.read_text(encoding="utf-8"))["feedback"]
+    assert argument(call, "content_based_deduplication") == "false", (
         "with body hashing on, a send that stopped setting an explicit MessageDeduplicationId "
         "would still mostly collapse duplicates, so the guard would go with nothing red"
     )
@@ -220,7 +243,7 @@ def test_the_queue_is_fifo_with_its_own_dlq_and_encryption_on_both() -> None:
 
 def test_the_event_source_mapping_delivers_one_record_at_a_time() -> None:
     """The handler's single-record assumption is coupled to this number and nothing else."""
-    lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
+    lambda_tf = (CONSUMER / "main.tf").read_text(encoding="utf-8")
 
     assert re.search(r"^\s*batch_size\s+=\s+1$", lambda_tf, re.MULTILINE), (
         "the mapping does not deliver exactly one record. Asserted anchored to the end of the "
@@ -264,13 +287,58 @@ def _control_plane_calls() -> dict[str, str]:
     return calls
 
 
+def _queue_consumer_calls() -> dict[str, str]:
+    """Every root call into the queue-consumer module, by the call's name.
+
+    Args:
+      None.
+
+    Returns:
+      The call's name mapped to its body.
+
+    Raises:
+      None.
+    """
+    return {
+        name: body
+        for path in sorted(INFRA.glob("*.tf"))
+        for name, body in module_calls(path.read_text(encoding="utf-8")).items()
+        if argument(body, "source").strip('"').rstrip("/") == "./modules/queue-consumer"
+    }
+
+
+def _root_string(expression: str) -> str:
+    """A call argument as the string it is written as, through one root local if it names one.
+
+    Args:
+      expression: The argument, a quoted template or ``local.<name>``.
+
+    Returns:
+      The template, quotes removed.
+
+    Raises:
+      AssertionError: When the local is not declared as a plain string in any root file.
+    """
+    named = re.fullmatch(r"local\.(\w+)", expression.strip())
+    if not named:
+        return expression.strip().strip('"')
+    for path in sorted(INFRA.glob("*.tf")):
+        found = re.search(
+            rf'^\s+{named.group(1)}\s+=\s+"([^"]+)"$', path.read_text(encoding="utf-8"), re.MULTILINE
+        )
+        if found:
+            return found.group(1)
+    raise AssertionError(f"local.{named.group(1)} is not a plain string in any root file")
+
+
 def _declared_dlq_segments() -> set[str]:
     """The domain segment of every request DLQ the infrastructure declares.
 
     Derived from the name each module CONSTRUCTS, which is the only thing about a queue that is
     stable across project and environment — the same fact ``dlq_drain._source_for`` matches on. A
     control plane's DLQ is built by the control-plane module from its root call's ``name``, so
-    those segments are read from the calls, against the module's own naming rule.
+    those segments are read from the calls, against the module's own naming rule. A single-writer
+    queue's DLQ is named whole by its call to ``queue-consumer``, so it is read from that argument.
 
     Args:
       None.
@@ -291,6 +359,13 @@ def _declared_dlq_segments() -> set[str]:
         name = argument(call, "name").strip()
         assert re.fullmatch(r'"[a-z-]+"', name), f"a control-plane call's name is not a literal: {name}"
         segments.add(name.strip('"'))
+    for call in _queue_consumer_calls().values():
+        found = re.fullmatch(
+            r"\$\{var\.project_name\}-\$\{var\.environment\}-(.+?)-requests-dlq\.fifo",
+            _root_string(argument(call, "dlq_name")),
+        )
+        assert found, f"a queue-consumer call's dlq_name does not follow the naming rule: {call}"
+        segments.add(found.group(1))
     for locals_tf in INFRA.glob("modules/*/locals.tf"):
         found = re.search(
             r'dlq_name\s+=\s+"\$\{var\.project_name\}-\$\{var\.environment\}-(.+?)-requests-dlq\.fifo"',
@@ -319,7 +394,7 @@ def test_every_request_dlq_is_either_drained_or_deliberately_not() -> None:
         path.parent.name
         for path in INFRA.glob("modules/*/sqs.tf")
         if "requests_dlq" in path.read_text(encoding="utf-8")
-    } | {stem.removeprefix("plane-") for stem in _control_plane_calls()}
+    } | {stem.removeprefix("plane-") for stem in _control_plane_calls()} | set(_queue_consumer_calls())
     missing = {o.rstrip("s") for o in owners} - {d.replace("-", "-").rstrip("s") for d in declared}
     assert not missing, (
         f"these modules own a request DLQ but their name did not parse out of locals.tf: "
@@ -437,11 +512,11 @@ def test_the_writer_is_sized_for_an_UNBOUNDED_document_and_the_ceiling_is_comput
     fleet's uncapped and capped day-object writers respectively — and that the warning threshold
     sits comfortably under the ceiling the budget buys.
     """
-    lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
-    sweep_tf = (INFRA / "modules" / "observability" / "lambda.tf").read_text(encoding="utf-8")
+    lambda_tf = CALL.read_text(encoding="utf-8")
+    sweep_tf = (INFRA / "function-log-sweep.tf").read_text(encoding="utf-8")
 
-    mine = int(lambda_input(lambda_declaration(lambda_tf, "writer"), "memory"))
-    sweep = int(lambda_input(lambda_declaration(sweep_tf, "sweep"), "memory"))
+    mine = int(lambda_input(lambda_declaration(lambda_tf, "feedback"), "memory"))
+    sweep = int(lambda_input(lambda_declaration(sweep_tf, "observability_sweep"), "memory"))
 
     assert mine == sweep, (
         f"the feedback writer runs on {mine} MB and log-sweep on {sweep}. Both do an unbounded "
@@ -492,9 +567,11 @@ def test_the_one_variable_the_writer_requires_is_set() -> None:
     this function — which it does from the PR that adds the code it probes. This assertion
     covers the one variable the writer genuinely reads, from now.
     """
-    lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
+    lambda_tf = CALL.read_text(encoding="utf-8")
 
-    assert re.search(r"^\s*ADMIN_BUCKET\s*=\s*var\.admin_bucket_name$", lambda_tf, re.MULTILINE), (
+    assert re.search(
+        r"^\s*ADMIN_BUCKET\s*=\s*local\.athena_admin_bucket_name$", lambda_tf, re.MULTILINE
+    ), (
         "the writer's only required variable is unset; every submission would raise at the first "
         "read and dead-letter into the undrained queue"
     )

@@ -379,33 +379,34 @@ def test_a_refused_create_DROPS_rather_than_raising_even_with_no_username():
 
 
 def test_the_untrusted_sender_id_is_wired_to_the_PORTAL_ROLES_UNIQUE_ID_end_to_end():
-    """The infra half, pinned across all three hops rather than at the Lambda alone.
+    """The infra half, pinned across every hop rather than at the Lambda alone.
 
-    lambda.tf on its own cannot see where the value comes from. A MISSING root wiring fails
-    tofu validate, because the variable has no default — but a WRONG one does not: the role's
-    ARN and its name live in the same module as the right value, and either would validate
-    clean and then never match at runtime, which reads exactly like a control that works.
+    The writer's environment is a root local passed to ``queue-consumer``, which takes a plain map
+    and cannot check one key of it. A MISSING wire leaves the key out, and a WRONG one — the
+    role's ARN and its name live in the same module as the right value — would apply clean and
+    then never match at runtime, which reads exactly like a control that works. So the root wires
+    the key to ``module.data.portal_role_unique_id``, that output is the role's ``unique_id``, and
+    a precondition on the root's ``notifications_writer_role_arn`` output refuses, at plan, any
+    value that is not an ``AROA…`` unique ID — absent included, since ``can()`` swallows the
+    missing attribute.
     """
     import os
     import re
 
     infra = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra")
 
-    with open(os.path.join(infra, "modules", "notifications", "lambda.tf")) as handle:
-        lambda_tf = handle.read()
+    with open(os.path.join(infra, "function-notifications.tf")) as handle:
+        call = handle.read()
     assert re.search(
-        r"^\s*NOTIFICATIONS_UNTRUSTED_SENDER_ID\s*=\s*var\.portal_role_unique_id\s*$",
-        lambda_tf,
+        r"^\s*NOTIFICATIONS_UNTRUSTED_SENDER_ID\s*=\s*module\.data\.portal_role_unique_id\s*$",
+        call,
         re.MULTILINE,
-    ), "the writer must take the sender it refuses from var.portal_role_unique_id"
-
-    with open(os.path.join(infra, "main.tf")) as handle:
-        root = handle.read()
+    ), "the root must wire the sender the writer refuses to module.data.portal_role_unique_id"
     assert re.search(
-        r"^\s*portal_role_unique_id\s*=\s*module\.data\.portal_role_unique_id\s*$",
-        root,
+        r"^\s*environment_variables\s*=\s*local\.notifications_writer_environment\s*$",
+        call,
         re.MULTILINE,
-    ), "the root must pass module.data.portal_role_unique_id to the notifications module"
+    ), "the writer's call must take the environment the precondition checks"
 
     with open(os.path.join(infra, "modules", "data", "outputs.tf")) as handle:
         outputs = handle.read()
@@ -417,22 +418,19 @@ def test_the_untrusted_sender_id_is_wired_to_the_PORTAL_ROLES_UNIQUE_ID_end_to_e
         r"^\s*value\s*=\s*aws_iam_role\.portal\.unique_id\s*$", parts[1], re.MULTILINE
     ), "the output must be the role's unique_id — not its name, not its ARN"
 
-    # The variable's own two guards, both silent-failure-shaped if removed. A default would let
-    # a root that forgets the wiring deploy a writer that refuses every notification in the
-    # product; the shape check is what catches a wire to the ARN or the name, which validate
-    # accepts and which then never matches at runtime.
-    with open(os.path.join(infra, "modules", "notifications", "variables.tf")) as handle:
-        variables = handle.read()
-    declared = variables.split('variable "portal_role_unique_id"', 1)
-    assert len(declared) == 2, "the notifications module must declare portal_role_unique_id"
-    block = declared[1].split("\nvariable ", 1)[0]
-    assert not re.search(r"^\s*default\s*=", block, re.MULTILINE), (
-        "portal_role_unique_id must take NO default — a root that forgets to wire it has to "
-        "fail at plan, not deploy a writer that refuses every create"
-    )
-    assert "AROA" in block and "validation" in block, (
-        "portal_role_unique_id must keep its validation block — the role's ARN and its name "
-        "are the plausible mis-wires and both validate clean without it"
+    # The plan-time refusal of a mis-wire: the role's ARN and its name both pass everything else.
+    with open(os.path.join(infra, "outputs.tf")) as handle:
+        root_outputs = handle.read()
+    declared = root_outputs.split('output "notifications_writer_role_arn"', 1)
+    assert len(declared) == 2, "the root must declare notifications_writer_role_arn"
+    block = declared[1].split("\noutput ", 1)[0]
+    assert re.search(
+        r'condition\s*=\s*can\(regex\("\^AROA\[A-Z0-9\]\+\$",\s*'
+        r"local\.notifications_writer_environment\.NOTIFICATIONS_UNTRUSTED_SENDER_ID\)\)",
+        block,
+    ), (
+        "the precondition refusing a non-AROA sender id must stay — the role's ARN and its name "
+        "are the plausible mis-wires and both apply clean without it"
     )
 
 

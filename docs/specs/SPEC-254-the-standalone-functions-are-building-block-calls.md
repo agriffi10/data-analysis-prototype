@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-254
 title: "The Standalone Functions Are Building-Block Calls"
 description: "Moves the scheduled functions and the two single-writer queues onto the scheduled-function module and a new queue-consumer module, composed from the root, with a CI plan showing nothing deployed changed."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-252]
 arc: infra-building-blocks
 arc_order: 3
@@ -103,9 +103,11 @@ home; `infra/info/INDEX.md` lists the two building blocks.
 - [ ] `python3 lambdas/fleet.py` prints the same list as on `main`.
 - [ ] Test IDs collected from the runners on `main` and on the branch differ only by file path where
       a test file moved.
-- [ ] `git grep` for `infra/modules/` followed by any deleted directory name returns nothing outside
-      a dated History entry or a Completed spec's body, and `python3 scripts/validate_docs.py`
-      passes.
+- [ ] `git grep` for `infra/modules/` followed by any deleted directory name returns nothing
+      outside the historical record — a dated History entry, a quoted block in a decision, a
+      spec's body, `ARCS.md`, a delivery doc, `docs/testing/sessions.md`, or a docstring naming
+      what a path was then — each of which keeps the path it was written with (SPEC-252's FR-004
+      list, amended to it during the build), and `python3 scripts/validate_docs.py` passes.
 
 ---
 

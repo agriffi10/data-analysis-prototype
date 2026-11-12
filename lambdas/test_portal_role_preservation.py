@@ -344,7 +344,11 @@ def test_every_policy_statement_is_KEYED_BY_A_SID() -> None:
     """
     templates = sorted(
         path
-        for pattern in ("modules/*/policies/*.json.tftpl", "planes/*/*.json.tftpl")
+        for pattern in (
+            "modules/*/policies/*.json.tftpl",
+            "planes/*/*.json.tftpl",
+            "functions/*/*.json.tftpl",
+        )
         for path in INFRA.glob(pattern)
         if not path.name.endswith(("-trust.json.tftpl", ".asl.json.tftpl"))
     )
