@@ -1,5 +1,9 @@
 # GitHub Actions Workflows
 
+**Deploys are switched off.** Every job that builds an image, applies infrastructure, points a Lambda, deploys the SPA or publishes the flag document runs only while the repository variable `DEPLOYS_ENABLED` is `true` (GitHub compares it in any case), and it is unset: the triggers below still fire, the jobs report as skipped. What still runs on its own is `ci.yml`, `security.yml` and `deploy-infra.yml`'s `tofu plan` on pull requests. `backfill-ever-active.yml` and `migrate-system-settings.yml` are not behind the switch: they are dispatch-only, and a dispatch still writes production data. `lambdas/test_deploys_switch.py` fails when a workflow gains a job that could run on a push or a pull request without the switch.
+
+**Turning deploys back on** is an order, not a variable, and it has to finish before the next merge. Merges made while the switch was off built no Lambda image and applied nothing, and the path-filtered deploys will not run again until a push touches their paths. Set `DEPLOYS_ENABLED` to `true`, then dispatch each of these on `main` and watch it to green before the next: Deploy Lambda image (empty tag), Deploy Infrastructure (its apply waits for that image, and it builds whichever web tier `TF_VAR_web_tier_enabled` names), Deploy Lambdas, Publish Config, then Deploy SPA image, or Deploy SPA static if the tier is off. A merge landing before Deploy Infrastructure has built the tier runs the SPA deploy against a service that does not exist and turns `main` red.
+
 Every workflow in this directory, and what it is for. A count would rot — the row is the
 record, so a workflow without one is a workflow nobody has described:
 
@@ -78,6 +82,7 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
 | `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
 | `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
+| `DEPLOYS_ENABLED` | The switch for everything that builds or deploys: the apply, both image builds and their pull-request gates, the Lambda pointing, the SPA deploys and the flag publish. Off, a merge changes nothing in AWS and a pull request still gets its `tofu plan` | `true`, in any case, turns them on; anything else, unset included, leaves every one of those jobs skipped, manual dispatch too. Unset on purpose since feature work paused for the move to the client environment, so a fresh clone deploys nothing until someone sets it |
 | `TF_VAR_web_tier_enabled` | Whether the container and its VPC serve the portal, or CloudFront and S3 do — a cost decision, not a resource attribute | Exactly `true` or `false`; unset means `true`. Read by `deploy-infra.yml`, `deploy-spa-image.yml` (skipped while `false`) and `deploy-spa-static.yml` (skipped unless `false`). Procedure: [`infra/info/web-tier.md`](../../infra/info/web-tier.md) |
 | `TF_VAR_verification_principal_arns` | Principals you nominate | **Unset by design.** Empty (the default) means the verification role is not created; every reference supplies `|| '[]'` |
 

@@ -3,6 +3,7 @@
 
 These pass locally and fail later — check them as part of the work, not as an afterthought.
 
+- **Deploys are switched off: a merge changes nothing in AWS, and a green `main` proves nothing.** Every job that applies, builds an image, points a Lambda, deploys the SPA or publishes the flag document waits on the repository variable `DEPLOYS_ENABLED`, which is unset. `main`'s push runs are only those workflows, so they all skip and `watch_ci.py --branch main`, the queue's trunk check and the supervisor read green by default: two pull requests that each pass and break together are caught by nothing on `main`. A pull request still gets `ci.yml`, `security.yml` and the `tofu plan` comment. What no longer runs anywhere is the two image matrices, the only checks that every Lambda handler imports inside the built image and that the SPA container serves the right headers; run them by hand with `docker build` and `.github/scripts/lambda-image-matrix.sh <tag>` or `spa-image-matrix.sh <tag>` when a change touches either image. `.github/workflows/README.md` has the switch and the order for turning it back on.
 - **Six steps now fail NOWHERE but your machine** — lint, both suites and mypy are commented out in
   `ci.yml`, whose header names all six and carries the restore rule, so a green PR is no evidence
   any ran. `tsc -b` (via `npm run build`) is the only check CI still makes; `npm run test` never
