@@ -1,0 +1,516 @@
+{
+  "Comment": "Shared-space provisioning orchestrator. The Step Function — not in-Lambda code — routes by action: Validate (read the trusted actor out of the API's identity block, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget / acknowledge-membership) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
+  "StartAt": "Validate",
+  "States": {
+    "Validate": {
+      "Type": "Task",
+      "Comment": "Verify token + authorize. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated context object the whole state for the Choice + verb (ResultPath can't merge into an array).",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["validate"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "Route"
+    },
+    "Route": {
+      "Type": "Choice",
+      "Comment": "The router — one branch per action (not an in-Lambda action-switch).",
+      "Choices": [
+        {
+          "Comment": "The refusal branch, and it is FIRST because a refused request must never reach a verb whatever action it names. IsPresent is paired with IsNull because IsPresent is TRUE for a field that is PRESENT AND NULL — the trap this repo already documents on file-ops' NeedsDestinationGuard, and one this plane sets for itself, since its own ValidateFailureSeed teaches that a null value is fine where a missing key is fatal. The validator sets `refusal` only when there IS one; the pair is what keeps this branch right if that ever changes, instead of routing every request on the plane into a refusal.",
+          "And": [
+            { "Variable": "$.refusal", "IsPresent": true },
+            { "Variable": "$.refusal", "IsNull": false }
+          ],
+          "Next": "RefusedSeed"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "create",
+          "Next": "CreateSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "add_members",
+          "Next": "AddMembers"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "remove_members",
+          "Next": "RemoveMembers"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "leave",
+          "Next": "Leave"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "delete",
+          "Next": "DeleteSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "forget",
+          "Next": "ForgetSpace"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "acknowledge_membership",
+          "Next": "AcknowledgeMembership"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "transfer_ownership",
+          "Next": "TransferOwnership"
+        }
+      ],
+      "Default": "UnknownActionSeed"
+    },
+    "UnknownActionSeed": {
+      "Type": "Pass",
+      "Comment": "The router's Default — an action the validator accepted but this Choice has no branch for. It reached Failed directly and told the user nothing, and unlike every other failure path it has NO $.error key of its own, so it cannot go to RecordFailure unseeded: a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A LITERAL Result merged under ResultPath is the seed that cannot itself fail — it reads no path at all — and merging (rather than replacing) is what keeps the verified actor, which is the only trustworthy recipient there is.",
+      "Result": { "Error": "UnknownAction" },
+      "ResultPath": "$.error",
+      "Next": "RecordFailure"
+    },
+    "CreateSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["create"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "AddMembers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["add-members"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "RemoveMembers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["remove-members"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "Leave": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["leave"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "DeleteSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["delete"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "ForgetSpace": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["forget"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "AcknowledgeMembership": {
+      "Type": "Task",
+      "Comment": "A member confirms they've picked up the space; flips them pending -> active in the owner's projection.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["acknowledge-membership"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "TransferOwnership": {
+      "Type": "Task",
+      "Comment": "The owner hands the space to an existing member. Nothing about the space's resources changes and no grant moves, because access here is membership and the roster is untouched — what changes is the registry's owner, the acknowledged list derived from it, and every member's cached copy of both.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["transfer-ownership"]}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "RefusedSeed": {
+      "Type": "Pass",
+      "Comment": "An expected refusal, carrying its own sentence. It does NOT go through RecordFailure, and that is not a shortcut: RecordFailure projects a fixed six-key shape shared by every verb's Catch, a Pass state's JSONPath hard-fails on an ABSENT key, and adding `message` there would raise an uncatchable States.Runtime on all seven of the existing arms. A refusal has to name the space AND the member it is about — 'that person is not a member' is useless without saying which person — and the notifier's composed wording holds only an action and a space, so the sentence arrives already written. The reason code rides as $.error so the run still records WHICH refusal it was; without it every refusal decodes as an unexpected error. The actor is the verified requester, or for an operator-origin request the space's own owner, who is the named victim of a forgery and the right person to tell.",
+      "Parameters": {
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "action.$": "$.action",
+        "space.$": "$.space",
+        "status": "refused",
+        "message.$": "$.refusal.message",
+        "error": {
+          "Error.$": "$.refusal.code"
+        }
+      },
+      "Next": "NotifyFailure"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A Validate failure REPLACES the state with the error object (its input was the raw SQS array), and its Catch carries NO ResultPath because you cannot merge a key into an array — so the state has been REPLACED by the error object. Seed null context fields + carry the error under $.error so the shared RecordFailure path is uniform for every failure. The nulls are not decoration: RecordFailure is a Pass state, and a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A null VALUE is fine; a missing key is fatal. actor stays NULL rather than being read from the body — the body's own username is attacker-controlled, and the notifier treats a null actor as 'no trustworthy recipient' and stays silent (the drain's rule).",
+      "Parameters": {
+        "traceparent": null,
+        "requestId": null,
+        "actor": null,
+        "action": null,
+        "space": null,
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every verb's Catch now reaches. Shapes the structured outcome { requestId, actor, action, space, status:'failed', error } then notifies and fails the execution. BEFORE THIS SPEC EVERY CATCH WENT STRAIGHT TO Failed WITH NO ResultPath, which replaced the state with the bare error object and threw the verified actor away — so there was no recipient to notify even in principle. The Catches now merge under $.error instead, which is what makes the identity survive. It PROJECTS rather than passing $ through: the validated context carries the whole registry document, and the notifier needs four fields. It carries the RAW $.error {Error, Cause}, never a decoded reason — an ASL States.StringToJson raises an UNCATCHABLE States.Runtime on any Cause that is absent or is not JSON, which is the failure class this whole spec exists to report. Decode with cpcommon.errors.failure_reason, in Python. IT CARRIES THE FORWARDED REQUEST FROM THE CONTEXT OBJECT, $$.Execution.Input, not from the seed that reached it: a failure whose error REPLACED the state has no $.traceparent and no $.requestId left to read, and the envelope is the only surviving copy of the run — notify-failure parses the traceparent and the request id out of it in Python, which is the one place that value is reachable, since prising it out in ASL would need the banned States.StringToJson. Reading $$ here rather than threading it up through the seeds is also what keeps this to one key on one state per plane: the context object cannot be absent, so it is not a read any seed has to supply.",
+      "Parameters": {
+        "raw.$": "$$.Execution.Input",
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "action.$": "$.action",
+        "space.$": "$.space",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error (one missing env var once crashed this very plane at cold start), a state timeout, a task that could not be invoked. This plane's verbs notify from INSIDE their handlers, so a verb that never ran notified nothing. The duplicate for the two verbs that DO emit their own failure message (create, delete) is collapsed by the FIFO dedup token, which the verb reproduces exactly — not by a Python guard, because the other five verbs emit no failure message at all and a guard would restore their silence. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["notify-failure"]}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ProvisioningFailed",
+      "Cause": "The shared-space control plane returned an unrecoverable error."
+    }
+  }
+}

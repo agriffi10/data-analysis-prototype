@@ -1,0 +1,143 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GlueSharedDatabases",
+      "Effect": "Allow",
+      "Action": [
+        "glue:CreateDatabase",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:DeleteDatabase",
+        "glue:CreateTable",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:UpdateTable",
+        "glue:DeleteTable",
+        "glue:BatchDeleteTable"
+      ],
+      "Resource": [
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*",
+        "arn:aws:glue:${aws_region}:${account_id}:userDefinedFunction/*/*"
+      ]
+    },
+    {
+      "Sid": "LakeFormationGrants",
+      "Effect": "Allow",
+      "Action": [
+        "lakeformation:GrantPermissions",
+        "lakeformation:RevokePermissions",
+        "lakeformation:GetDataLakeSettings",
+        "lakeformation:AddLFTagsToResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SharedSpaceBucketObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "${shared_space_bucket_arn}/*"
+    },
+    {
+      "Sid": "SharedSpaceBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${shared_space_bucket_arn}"
+    },
+    {
+      "Sid": "AdminRegistryObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "AdminRegistryList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "shared-spaces/*"
+        }
+      }
+    },
+    {
+      "Sid": "AdminMembershipIndexObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${admin_bucket_arn}/memberships/*"
+    },
+    {
+      "Sid": "AdminMembershipIndexList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "memberships/*"
+        }
+      }
+    },
+    {
+      "Sid": "UserSpaceCacheWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${user_space_bucket_arn}/*/user_settings/shared-connections.json"
+    },
+    {
+      "Sid": "UserSpaceCacheList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${user_space_bucket_arn}"
+    },
+    {
+      "Sid": "CognitoMembershipAttributes",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:ListUsers"
+      ],
+      "Resource": "arn:aws:cognito-idp:${aws_region}:${account_id}:userpool/*"
+    },
+    {
+      "Sid": "EmitNotifications",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${lambda_log_groups_arn}"
+    }
+  ]
+}

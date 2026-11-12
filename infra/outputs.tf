@@ -62,17 +62,17 @@ output "athena_admin_bucket_name" {
 # ── Shared-space foundation ───────────────────────────────────────
 output "shared_space_bucket_name" {
   description = "Name of the shared-space bucket (Bucket 2). Maps to a VITE_* once shared-space file ops land."
-  value       = module.shared_spaces.shared_space_bucket_name
+  value       = module.shared_space_storage.shared_space_bucket_name
 }
 
 output "shared_space_request_queue_url" {
   description = "URL of the FIFO shared-space request queue. The API enqueues control-plane requests here through its one grant."
-  value       = module.shared_spaces.request_queue_url
+  value       = module.shared_spaces.queue_url
 }
 
 output "shared_space_orchestrator_role_arn" {
   description = "ARN of the privileged shared-space orchestrator role (Step Function + provisioner Lambda). Added as a Lake Formation admin."
-  value       = module.shared_spaces.orchestrator_role_arn
+  value       = module.shared_spaces.execution_role_arn
 }
 
 output "shared_space_state_machine_arn" {
@@ -231,6 +231,7 @@ locals {
     module.notifications.function_names,
     module.observability.function_names,
     module.shared_spaces.function_names,
+    [module.shared_space_transfer_reader.function_name],
     module.table_builder.function_names,
     module.table_share.function_names,
     module.user_directory.function_names,

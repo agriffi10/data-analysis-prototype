@@ -1,0 +1,573 @@
+{
+  "Comment": "Table-share control plane. validate-authorize → inspect-source run once per request. The recipient work then splits in three: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP that copies every (recipient × object) pair from a JSONL manifest, and a FINISH Map that creates each cleared recipient's table. Attribution moved out of the Map item and into collect-transfer-results, which reads the Map Run's exported results. ShapeSummary/RecordFailure carry the structured terminal outcomes the notification producer reads. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "TimeoutSeconds": ${state_machine_timeout_seconds},
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "First step: reads the trusted actor out of the API's identity block, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here REPLACES the state rather than merging into it, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["validate-authorize"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "StampExecution"
+    },
+    "StampExecution": {
+      "Type": "Pass",
+      "Comment": "Puts the EXECUTION NAME on the state, where it does two jobs. It is the plane's run identity for notifications: table-share has no request id, so every notice's dedup id is built from this name (tscommon.notify.run_of), and without one two shares ending alike inside the notifications queue's five-minute window were told once. That is why it sits directly after ValidateAuthorize, the first state with an object to merge into, rather than after InspectSource: every notifying verb downstream holds it. It also keys the transfer manifest uniquely to this run. The copy plan beside it is deliberately NOT execution-unique — two overlapping executions describe the same object set unless the source changes between their listings, so outside that residual (tscommon.copy_plan.plan_key) either plan is correct for either run. That argument does not carry to the manifest: its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent, so a shared key would let one run's Map Run copy for a recipient the other's guard had just refused as a conflict. A Pass rather than the task's own Parameters, for the measured reason: reading $$ there means building an object, which WRAPS the payload, and every notification path in this plane reads the request at the TOP level. ResultPath adds a key and disturbs nothing.",
+      "Parameters": {
+        "name.$": "$$.Execution.Name"
+      },
+      "ResultPath": "$.execution",
+      "Next": "InspectSource"
+    },
+    "InspectSource": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["inspect-source"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "GuardRecipients"
+    },
+    "GuardRecipients": {
+      "Type": "Map",
+      "Comment": "The conflict guard ONLY — what used to be the first of three verbs in one per-recipient Map. It stays INLINE and per-recipient because that is what it is: one Glue read and one S3 listing per destination, whose refusal must not abort a sibling. Its per-item Catch records the refusal; the copy and the create now happen either side of it.",
+      "ItemsPath": "$.recipients",
+      "MaxConcurrency": 5,
+      "ItemSelector": {
+        "recipient.$": "$$.Map.Item.Value",
+        "request.$": "$"
+      },
+      "ResultPath": "$.guardResults",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "CheckTargetAbsent",
+        "States": {
+          "CheckTargetAbsent": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${function_arns["check-target-absent"]}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientRefused"
+              }
+            ],
+            "Next": "RecipientCleared"
+          },
+          "RecipientCleared": {
+            "Type": "Pass",
+            "Comment": "Carries the RESOLVED recipient — check-target-absent's output, with the destination bucket and prefix it worked out — because the manifest builder needs exactly those two strings to compute a destination key identical to the one the per-recipient copy used to build.",
+            "Parameters": {
+              "status": "ok",
+              "recipient.$": "$.recipient"
+            },
+            "End": true
+          },
+          "RecipientRefused": {
+            "Type": "Pass",
+            "Comment": "Per-item refusal record. Ends the ITEM, not the Map: sibling recipients continue. `error` is the RAW Step Functions {Error, Cause}; the reason (unknown_user/unknown_space/conflict/target_not_readable…) is decoded in Python by collect-transfer-results with cpcommon.errors.failure_reason, NEVER in ASL (States.StringToJson raises an uncatchable States.Runtime on any Cause that is absent or not JSON). The recipient here is the UNRESOLVED one — the guard failed before or during resolution — which still carries the kind and name the summary needs.",
+            "Parameters": {
+              "status": "failed",
+              "recipient.$": "$.recipient",
+              "error.$": "$.error"
+            },
+            "End": true
+          }
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "BuildTransferManifest"
+    },
+    "BuildTransferManifest": {
+      "Type": "Task",
+      "Comment": "Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient × planned object). A refused recipient contributes nothing. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["build-transfer-manifest"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "HasTransferItems"
+    },
+    "HasTransferItems": {
+      "Type": "Choice",
+      "Comment": "Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.transfer.itemCount", "IsPresent": true },
+            { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
+          ],
+          "Next": "TransferObjects"
+        }
+      ],
+      "Default": "CollectTransferResults"
+    },
+    "TransferObjects": {
+      "Type": "Map",
+      "Comment": "The copy, as a TOP-LEVEL Distributed Map over a flat (recipient × object) manifest — deliberately NOT nested inside a recipient Map, so one fan-out covers every recipient and the nesting question never arises. Child executions are STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart copy would blow EXPRESS's 5-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches. ToleratedFailurePercentage is 100 so an item failure never fails the Map Run and never aborts a sibling — the run MUST finish for collect-transfer-results to attribute it. ResultWriter exports to S3 so this state's own output is the small {MapRunArn, ResultWriterDetails} pointer rather than an array that would breach the 256 KB state limit at the scale this Map exists for.",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSONL"
+        },
+        "Parameters": {
+          "Bucket.$": "$.transfer.manifestBucket",
+          "Key.$": "$.transfer.manifestKey"
+        }
+      },
+      "ItemBatcher": {
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent"
+        }
+      },
+      "MaxConcurrency": ${transfer_map_max_concurrency},
+      "ToleratedFailurePercentage": 100,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "CopyObjects",
+        "States": {
+          "CopyObjects": {
+            "Type": "Task",
+            "Comment": "One batch of transfer items per invocation. No Catch: a batch that fails after its retries must FAIL its child execution, because that is what files it under FAILED_n.json where the collector can attribute every item it carried. A deterministic single-item fault does not get here at all — the verb reports it per item and succeeds, and the collector reads those out of SUCCEEDED_n.json.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${function_arns["copy-objects"]}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultWriter": {
+        "Resource": "arn:aws:states:::s3:putObject",
+        "Parameters": {
+          "Bucket.$": "$.transfer.resultsBucket",
+          "Prefix.$": "$.transfer.resultsPrefix"
+        }
+      },
+      "ResultPath": "$.mapRun",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "CollectTransferResults"
+    },
+    "CollectTransferResults": {
+      "Type": "Task",
+      "Comment": "Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it simply carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["collect-transfer-results"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "FinishRecipients"
+    },
+    "FinishRecipients": {
+      "Type": "Map",
+      "Comment": "Create-table for the recipients that copied cleanly. It iterates EVERY outcome rather than only the clear ones, and carries the others through untouched, because ASL has no array concatenation — one Map over all of them is what keeps the summary a single flat per-recipient array of the shape the terminals and the notifications already read.",
+      "ItemsPath": "$.outcomes",
+      "MaxConcurrency": 5,
+      "ItemSelector": {
+        "entry.$": "$$.Map.Item.Value",
+        "request.$": "$"
+      },
+      "ResultPath": "$.recipientResults",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "RecipientOutcome",
+        "States": {
+          "RecipientOutcome": {
+            "Type": "Choice",
+            "Comment": "IsPresent before the string comparison, for the same uncatchable-States.Runtime reason as HasTransferItems above.",
+            "Choices": [
+              {
+                "And": [
+                  { "Variable": "$.entry.status", "IsPresent": true },
+                  { "Variable": "$.entry.status", "StringEquals": "ok" }
+                ],
+                "Next": "CreateTable"
+              }
+            ],
+            "Default": "RecipientCarried"
+          },
+          "CreateTable": {
+            "Type": "Task",
+            "Comment": "Payload is built explicitly rather than passed through: create-table's contract is {recipient, request}, and the Map item here is {entry, request}. The recipient comes from the outcome entry, where the collector kept the RESOLVED recipient for exactly this.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${function_arns["create-table"]}",
+              "Payload": {
+                "traceparent.$": "$.request.traceparent",
+                "recipient.$": "$.entry.recipient",
+                "request.$": "$.request"
+              }
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "Lambda.ResourceNotReadyException",
+                  "Lambda.ResourceConflictException",
+                  "Lambda.CodeArtifactUserPendingException"
+                ],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientFailed"
+              }
+            ],
+            "Next": "RecipientSucceeded"
+          },
+          "RecipientSucceeded": {
+            "Type": "Pass",
+            "Comment": "Per-recipient success record: a flat {kind, name, status} summary entry — what ShapeSummary collects and the notifications read.",
+            "Parameters": {
+              "kind.$": "$.recipient.kind",
+              "name.$": "$.recipient.name",
+              "status": "ok"
+            },
+            "End": true
+          },
+          "RecipientFailed": {
+            "Type": "Pass",
+            "Comment": "Per-item create-failure record. Ends the ITEM, not the Map. It reads the ENTRY rather than the recipient: a Catch leaves the state machine's input to the task, which here is {entry, request}. `error` is the RAW {Error, Cause} — decode with cpcommon.errors.failure_reason, never in ASL.",
+            "Parameters": {
+              "kind.$": "$.entry.kind",
+              "name.$": "$.entry.name",
+              "status": "failed",
+              "error.$": "$.error"
+            },
+            "End": true
+          },
+          "RecipientCarried": {
+            "Type": "Pass",
+            "Comment": "A recipient whose outcome was already decided — refused by the guard, or short of a copied object. It carries the DECODED reason rather than the raw {Error, Cause}: a Cause runs to hundreds of bytes with its stack, and carrying it here would put a third copy of every refusal on the state (guardResults, outcomes, these results) against the 256 KB limit whose breach lands ON a Map and destroys every per-recipient outcome. collect-transfer-results decodes it with cpcommon.errors.failure_reason and drops the raw error; the raw object is still in the execution history at the state that produced it. Every field read here is present on EVERY entry the collector emits, which is why that shape is uniform rather than sparse: a Pass reading an absent path raises an uncatchable States.Runtime.",
+            "Parameters": {
+              "kind.$": "$.entry.kind",
+              "name.$": "$.entry.name",
+              "status.$": "$.entry.status",
+              "reason.$": "$.entry.reason"
+            },
+            "End": true
+          }
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "ShapeSummary"
+    },
+    "ShapeSummary": {
+      "Type": "Pass",
+      "Comment": "The whole-request success outcome: identity + the per-recipient summary array collected from the finish Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what the sender/recipient notifications read.",
+      "Parameters": {
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "tableName.$": "$.tableName",
+        "results.$": "$.recipientResults"
+      },
+      "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure REPLACES the state with the error object (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure.",
+      "Parameters": {
+        "traceparent": null,
+        "actor": null,
+        "source": { "database": null, "table": null },
+        "tableName": null,
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null on this path: the seed supplies literals, because the error replaced the state). Shapes the structured outcome { actor, source, tableName, status:'failed', error } the notification producer reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. Per-RECIPIENT failures never come here — they end their Map item via RecipientRefused/RecipientFailed and siblings continue. IT CARRIES THE FORWARDED REQUEST FROM THE CONTEXT OBJECT, $$.Execution.Input, not from the seed that reached it: a failure whose error REPLACED the state has no $.traceparent and no $.requestId left to read, and the envelope is the only surviving copy of the run — notify-failure parses the traceparent and the request id out of it in Python, which is the one place that value is reachable, since prising it out in ASL would need the banned States.StringToJson. Reading $$ here rather than threading it up through the seeds is also what keeps this to one key on one state per plane: the context object cannot be absent, so it is not a read any seed has to supply. The EXECUTION NAME comes from the context object for the same reason: StampExecution's copy is on the state only after ValidateAuthorize succeeded, and notify-failure builds the notice's dedup id from it, so two runs failing alike stay two notices.",
+      "Parameters": {
+        "raw.$": "$$.Execution.Input",
+        "execution": {
+          "name.$": "$$.Execution.Name"
+        },
+        "traceparent.$": "$.traceparent",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "tableName.$": "$.tableName",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY, and that needs no guard: a per-recipient failure ends its Map ITEM and the execution SUCCEEDS, so it never reaches RecordFailure and cannot arrive here. The duplicate this DOES have to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["notify-failure"]}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "TableShareFailed",
+      "Cause": "The table-share control plane recorded an unrecoverable whole-request error (see the RecordFailure state output for the structured { status:'failed', reason } outcome)."
+    }
+  }
+}

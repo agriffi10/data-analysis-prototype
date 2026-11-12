@@ -1,0 +1,339 @@
+{
+  "Comment": "Results-conversion control plane: the front door and the description of the result set. validate-authorize reads the trusted actor out of the API's identity block, authorizes the DESTINATION space, contains the destination key inside it, refuses the app-managed folders, and proves the execution is the actor's by the path Athena wrote its result to. describe-results reads the columns and types from the execution's metadata and the result object's size from S3, and refuses what the converter cannot hold. Convert is the only state that writes, and the only one whose refusals are RETURN VALUES routed by a Choice rather than raises. The two seeds, RecordFailure and NotifyFailure are the whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified username is already on the state. Every Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient errors are retried. No state decodes an error Cause: States.StringToJson raises an uncatchable States.Runtime, so the raw error is carried and the notifier decodes it.",
+  "TimeoutSeconds": ${state_machine_timeout_seconds},
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator; OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here happens before the identity exists, so its Catch cannot merge a ResultPath and the error replaces the state — ValidateFailureSeed reads the request back from the context object.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["validate-authorize"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "Validated"
+    },
+    "Validated": {
+      "Type": "Pass",
+      "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via the plane's own state-machine test, which reads this block and the verb's real return value and requires them to agree. It names exactly the keys the verb emits, and nothing else may be read downstream.",
+      "Parameters": {
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "onConflict.$": "$.onConflict",
+        "queryExecutionId.$": "$.queryExecutionId",
+        "resultsKey.$": "$.resultsKey",
+        "columnIndexes.$": "$.columnIndexes",
+        "destination.$": "$.destination"
+      },
+      "Next": "DescribeResults"
+    },
+    "DescribeResults": {
+      "Type": "Task",
+      "Comment": "One GetQueryResults for the column metadata and one HeadObject for the size. No row is read here or anywhere on this plane. Its input IS the validated request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["describe-results"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "Described"
+    },
+    "Described": {
+      "Type": "Pass",
+      "Comment": "The same cross-check for describe-results: the whole of what the converter may read, and nothing else. The plane's state-machine test holds these keys equal to the verb's real return value.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "onConflict.$": "$.onConflict",
+        "queryExecutionId.$": "$.queryExecutionId",
+        "resultsKey.$": "$.resultsKey",
+        "traceparent.$": "$.traceparent",
+        "resultsBytes.$": "$.resultsBytes",
+        "columns.$": "$.columns",
+        "columnIndexes.$": "$.columnIndexes",
+        "destination.$": "$.destination"
+      },
+      "Next": "Convert"
+    },
+    "Convert": {
+      "Type": "Task",
+      "Comment": "The only state on this plane that writes. It downloads the result object to the function's own disk, types every column from the metadata rather than from the values, writes one file, and uploads it under If-None-Match when the request asked to be refused rather than to overwrite. ITS RETRY IS DELIBERATELY UNLIKE EVERY OTHER TASK'S: TransientError alone, and once. The four Lambda service errors are NOT retried here because their window includes a response lost after the function completed — and a re-invocation that meets its own conditional PutObject reports destination_occupied to a user whose save in fact succeeded. The verb raises TransientError only before the upload begins, which is what makes the one retry safe. The second retrier is every Task's: it waits out a function waking from Inactive, and its three errors are refusals before the function runs, so it cannot meet its own write either.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["convert"]}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": ["TransientError"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 1,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "Converted"
+    },
+    "Converted": {
+      "Type": "Pass",
+      "Comment": "The third ASL/verb cross-check point, and the one that matters most: this verb REPLACES the state, so every key a later state reads has to be one it returns. `columns` and `resultsBytes` are deliberately gone — nothing after this reads either, and carrying them would put an unbounded list on the state for no reader. The plane's state-machine test holds these keys equal to the verb's real return value.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "onConflict.$": "$.onConflict",
+        "queryExecutionId.$": "$.queryExecutionId",
+        "resultsKey.$": "$.resultsKey",
+        "destination.$": "$.destination",
+        "traceparent.$": "$.traceparent",
+        "outcome.$": "$.outcome",
+        "reason.$": "$.reason",
+        "rows.$": "$.rows",
+        "bytes.$": "$.bytes",
+        "precisionNote.$": "$.precisionNote",
+        "tokens.$": "$.tokens"
+      },
+      "Next": "ConversionOutcome"
+    },
+    "ConversionOutcome": {
+      "Type": "Choice",
+      "Comment": "An EXPECTED refusal is a return value, not a raise: an unmappable column type, a result that will not parse, Excel's row ceiling, more cells than the Excel path can hold, and a destination name taken since the browser last looked. Routed here rather than raised because the failure path a raise takes cannot carry the counts those refusals have to name. Everything else — a fault, a timeout, a task that could not be invoked — still arrives at the failure path through Convert's own Catch.",
+      "Choices": [
+        {
+          "Variable": "$.outcome",
+          "StringEquals": "refused",
+          "Next": "ConvertRefusedSeed"
+        }
+      ],
+      "Default": "Notify"
+    },
+    "ConvertRefusedSeed": {
+      "Type": "Pass",
+      "Comment": "The third failure seed, for the one failure that is a RETURN VALUE. It shapes a refusal into the {Error, Cause} the failure terminal already reads: Error is the verb's own reason code and there is no Cause, so cpcommon.errors.failure_reason returns that code and notify-failure words it. It is NOT tagged as a TerminalError, which is what stops the notifier suppressing it as a duplicate of a verb notification that never happened. `tokens` carries the result's counts and nothing else — the rows for Excel's row ceiling, and the rows, columns and cells for its cell cap; the file name is recovered from the forwarded request, which RecordFailure carries on every path.",
+      "Parameters": {
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "tokens.$": "$.tokens",
+        "error": {
+          "Error.$": "$.reason"
+        }
+      },
+      "Next": "RecordFailure"
+    },
+    "Notify": {
+      "Type": "Task",
+      "Comment": "The plane's one success producer. NOTHING HERE MAY FAIL THE RUN: the object is already in the user's space by the time this state runs, so ResultPath is null and the Catch leads onward to Succeeded — a notifier that failed the execution would tell the user their save did not happen when it did.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["notify"]}",
+        "Payload.$": "$"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Succeeded"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "RequestFailureSeed": {
+      "Type": "Pass",
+      "Comment": "The failure seed for every state after the request identity exists. The request IS on the state here, so the username comes from $.username — the verified identity the validator already produced — and the format rides with it so the notification can name what was being saved. It no longer carries the forwarded request: RecordFailure reads $$.Execution.Input for itself, so threading the envelope up from here would be the same bytes twice and one more key a seed could forget.",
+      "Parameters": {
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "tokens": null,
+        "error.$": "$.error"
+      },
+      "Next": "RecordFailure"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure REPLACES the state with the error object, because its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. The forwarded batch carries the identity block the notifier recovers the actor from, and RecordFailure reads it from the CONTEXT OBJECT rather than from any seed: $$.Execution.Input is still there whatever the Catch did to the state. The seed supplies every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime.",
+      "Parameters": {
+        "traceparent": null,
+        "requestId": null,
+        "username": null,
+        "format": null,
+        "tokens": null,
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null on this path: the seed supplies literals, because the error replaced the state). It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON. Decode with cpcommon.errors.failure_reason, never in ASL. IT CARRIES THE FORWARDED REQUEST FROM THE CONTEXT OBJECT, $$.Execution.Input, not from the seed that reached it: a failure whose error REPLACED the state has no $.traceparent and no $.requestId left to read, and the envelope is the only surviving copy of the run — notify-failure parses the traceparent and the request id out of it in Python, which is the one place that value is reachable, since prising it out in ASL would need the banned States.StringToJson. Reading $$ here rather than threading it up through the seeds is also what keeps this to one key on one state per plane: the context object cannot be absent, so it is not a read any seed has to supply.",
+      "Parameters": {
+        "traceparent.$": "$.traceparent",
+        "requestId.$": "$.requestId",
+        "username.$": "$.username",
+        "format.$": "$.format",
+        "raw.$": "$$.Execution.Input",
+        "tokens.$": "$.tokens",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where the verb's own decorator never ran and the actor would otherwise be told nothing at all. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${function_arns["notify-failure"]}",
+        "Payload.$": "$"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ResourceNotReadyException",
+            "Lambda.ResourceConflictException",
+            "Lambda.CodeArtifactUserPendingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ResultsConversionFailed",
+      "Cause": "The results-conversion control plane recorded an unrecoverable whole-request error (see the RecordFailure state output for the structured { status:'failed', error } outcome)."
+    }
+  }
+}
