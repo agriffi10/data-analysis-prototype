@@ -85,8 +85,11 @@ the ceiling.
 
 - [ ] **Every argument that differs between today's callers is an input, and nothing else is.**
       The build plan carries an attribute diff: for every resource and module call the eight plane
-      modules declare, each argument's value per plane, so an argument that varies is found by
-      enumeration rather than by memory. Each varying argument is either an input of this module
+      modules declare, each argument's **resolved** value per plane — every local and template
+      argument evaluated (`tofu console` over a backend-less init, or main's rendered plan JSON),
+      never the argument's HCL text, because `child_execution_arn_wildcard = local.child_execution_arn_wildcard`
+      reads identically in every plane while its value does not — so an argument that varies is
+      found by enumeration rather than by memory. Each varying argument is either an input of this module
       or one of FR-003's enumerated changes; an argument that does not vary is a literal in the
       module. The inputs that diff found while this spec was written are in *Interface Contract*;
       the plan reviewer holds the build's diff against that list.
@@ -99,7 +102,9 @@ the ceiling.
       template naming a verb that does not exist fails at `tofu validate` or plan, not at apply.
 - [ ] The `TIMED_OUT` rule, its target and its permission exist **if and only if** `ceiling` is
       non-null; they target `ceiling.notifier_verb`, the rule carries `ceiling.rule_description`,
-      and `ceiling.seconds` reaches the template as `state_machine_timeout_seconds`. A ceiling whose
+      and `ceiling.seconds` reaches the template as `state_machine_timeout_seconds`, which every
+      template with a ceiling reads rather than repeating the number (table-builder's hard-codes
+      `3600` today; the render is unchanged). A ceiling whose
       notifier verb is not a key of `functions` is refused at plan by a `precondition` naming the
       verb, and a test drives that refusal through `tofu` (a `tofu test` with a mock AWS provider,
       which OpenTofu 1.8 supports) and asserts the error text.
@@ -168,7 +173,15 @@ grants move to `module.shared_space_storage`; the transfer reader, its role and 
       and its policy (without `InvokeVerbLambdas` and `StepFunctionLogDelivery`, and with `WriteLogs`
       no longer naming the state machine's log group). Two to add, three to change, **zero to
       destroy**; every other object is unchanged or moved. The execution policy keeps its inline
-      name `orchestrator` through `execution_policy_name`.
+      name `orchestrator` through `execution_policy_name`, and the plane's `name` is
+      `"shared-space"` — singular, as every name it creates is today — while its module address,
+      root file and `planes/` directory keep `shared-spaces`.
+- [ ] The README of `infra/planes/shared-spaces/` records the one ordering risk the split carries
+      in a single apply against a state that has the old shape: the trust and policy shrink
+      independently of the state machine's role swap, so a swap that fails (on the new role's
+      propagation, say) leaves the plane unable to run until a re-apply. No apply of that kind is
+      planned — deploys are off, and the next account is created fresh, where nothing shrinks —
+      so the risk is recorded rather than staged across two PRs.
 - [ ] The PR names, for each statement removed from the `orchestrator` policy, the search showing
       no shared-spaces verb makes that call.
 - [ ] The `orchestrator` role keeps its name and ARN, so the Lake Formation admin list, the
@@ -184,8 +197,9 @@ grants move to `module.shared_space_storage`; the transfer reader, its role and 
       `aws_iam_role_policy.portal_shared_space`, and `time_sleep.wait_for_deploy_policy`. Bucket 5's
       objects move into `module.archive_vault` with no change. Each module receives the role ARNs
       its policies name as constructed strings from the root.
-- [ ] The wait still precedes the plane in a fresh apply: `module.shared_spaces` carries
-      `depends_on = [module.shared_space_storage]`. `module.shared_spaces` and
+- [ ] The wait still precedes the plane and the reader in a fresh apply: `module.shared_spaces` and
+      `module.shared_space_transfer_reader` each carry `depends_on = [module.shared_space_storage]`,
+      as the reader's role and rule wait on it today. `module.shared_spaces` and
       `module.shared_space_transfer_reader` carry no `depends_on` on each other — the plane's verbs
       read the reader role's unique id and the reader reads the plane's queue URL, which is a
       resource-level graph with no cycle and a module-level one with a cycle.
@@ -299,8 +313,9 @@ variable "execution_role_name" {
 
 variable "distributed_map" {
   type = object({
-    manifest_prefix = string                      # under the admin bucket
-    can_stop        = bool
+    manifest_prefix              = string         # under the admin bucket
+    can_stop                     = bool
+    child_execution_arn_wildcard = string         # file-ops ends "/*", the other three ":*"
   })
   default = null
 }
@@ -325,7 +340,14 @@ variable "environment_variables" { type = map(string) }
 variable "lambda_image_repository_url" { type = string }
 variable "lambda_image_tag" { type = string }
 variable "rule_name" { type = string }
-variable "rule_description" { type = string }
+variable "rule_description" {
+  type    = string
+  default = null                                  # user-directory sets none
+}
+variable "trust_policy" {
+  type    = string
+  default = null                                  # null: the module's Lambda trust, Sid "LambdaAssume";
+}                                                 # the sweep's carries no Sid
 variable "schedule_expression" { type = string }
 variable "permission_statement_id" { type = string }
 # outputs.tf: function_name, function_arn, role_arn, role_unique_id
@@ -339,8 +361,11 @@ The Step Functions policy as it stands: seven files, five distinct by
 none, its one role carrying those statements). Read side by side they are three shapes: no
 distributed map (table-builder, data-quality, results-conversion); a distributed map whose
 manifest prefix is the plane's slug (table-share, file-send) or a caller-given prefix (file-ops);
-and that map with `StopExecution` added (archive, file-ops). `manifest_prefix` and `can_stop`
-cover all three; shared spaces takes the first.
+and that map with `StopExecution` added (archive, file-ops). Resolved rather than read as text
+there are four, because file-ops builds its child-execution wildcard as `…:<machine>/*` and the
+other three as `…:<machine>:*`; the contract carries the wildcard as given and preserves both.
+Which form the service actually checks is a separate question, not settled here. Shared spaces
+takes the first shape.
 
 ## File & Folder Structure
 
