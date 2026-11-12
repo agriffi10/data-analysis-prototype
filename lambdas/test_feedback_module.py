@@ -28,7 +28,13 @@ import re
 import sys
 
 import pytest
-from tf_blocks import lambda_declaration, lambda_input, strip_noise
+from tf_blocks import (
+    argument,
+    lambda_declaration,
+    lambda_input,
+    module_calls,
+    strip_noise,
+)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
@@ -235,6 +241,29 @@ def test_the_event_source_mapping_delivers_one_record_at_a_time() -> None:
     )
 
 
+def _control_plane_calls() -> dict[str, str]:
+    """Every root call into the control-plane module, by the root file that makes it.
+
+    Parsed rather than matched as text, so a realigned ``source =`` line cannot drop a plane out
+    of both sides of the comparison below at once.
+
+    Args:
+      None.
+
+    Returns:
+      The root file's stem mapped to the call's body.
+
+    Raises:
+      None.
+    """
+    calls = {}
+    for path in sorted(INFRA.glob("*.tf")):
+        for body in module_calls(path.read_text(encoding="utf-8")).values():
+            if argument(body, "source").strip('"').rstrip("/") == "./modules/control-plane":
+                calls[path.stem] = body
+    return calls
+
+
 def _declared_dlq_segments() -> set[str]:
     """The domain segment of every request DLQ the infrastructure declares.
 
@@ -258,12 +287,10 @@ def _declared_dlq_segments() -> set[str]:
         "the control-plane module no longer names its DLQ <prefix>-requests-dlq.fifo, so the "
         "planes' segments below are read from a rule that is no longer the module's"
     )
-    for plane in INFRA.glob("plane-*.tf"):
-        text = plane.read_text(encoding="utf-8")
-        if 'source = "./modules/control-plane"' in text:
-            found = re.search(r'^\s*name\s*=\s*"([a-z-]+)"', text, re.MULTILINE)
-            assert found, f"{plane.name} calls the control-plane module with no literal name"
-            segments.add(found.group(1))
+    for call in _control_plane_calls().values():
+        name = argument(call, "name").strip()
+        assert re.fullmatch(r'"[a-z-]+"', name), f"a control-plane call's name is not a literal: {name}"
+        segments.add(name.strip('"'))
     for locals_tf in INFRA.glob("modules/*/locals.tf"):
         found = re.search(
             r'dlq_name\s+=\s+"\$\{var\.project_name\}-\$\{var\.environment\}-(.+?)-requests-dlq\.fifo"',
@@ -292,11 +319,7 @@ def test_every_request_dlq_is_either_drained_or_deliberately_not() -> None:
         path.parent.name
         for path in INFRA.glob("modules/*/sqs.tf")
         if "requests_dlq" in path.read_text(encoding="utf-8")
-    } | {
-        path.stem.removeprefix("plane-")
-        for path in INFRA.glob("plane-*.tf")
-        if 'source = "./modules/control-plane"' in path.read_text(encoding="utf-8")
-    }
+    } | {stem.removeprefix("plane-") for stem in _control_plane_calls()}
     missing = {o.rstrip("s") for o in owners} - {d.replace("-", "-").rstrip("s") for d in declared}
     assert not missing, (
         f"these modules own a request DLQ but their name did not parse out of locals.tf: "

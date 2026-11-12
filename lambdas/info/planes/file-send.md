@@ -143,7 +143,7 @@ Six, because there are six quantities, and each is measured against its own budg
 
 | constant | value | what sizes it |
 |---|---|---|
-| `SEND_MAX_OBJECTS` | 20,000 | what the selection EXPANDS to, against the plan held in `inspect-source`'s 1024 MB — a test reads that back from `locals.tf` |
+| `SEND_MAX_OBJECTS` | 20,000 | what the selection EXPANDS to, against the plan held in `inspect-source`'s 1024 MB — a test reads that back from `infra/plane-file-send.tf` |
 | `SEND_MAX_TOTAL_BYTES` | 1 TiB | one selection's bytes at `cpcommon.transfer`'s **makespan** rate (500 MB/s, never the aggregate 4 GB/s) |
 | `SEND_MAX_OBJECT_BYTES` | 10 GiB | `COPY_TIMEOUT_SECONDS` — one object is one worker, and a batch is one round of the pool |
 | `SEND_MAX_TRANSFER_ITEMS` | 50,000 | the memory the two verbs either side of the Map hold the manifest in |

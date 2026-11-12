@@ -23,14 +23,17 @@ Attributes:
 import pathlib
 import re
 
+from tf_blocks import argument, module_calls
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
 
 QUEUE_MODULES = sorted(
     [
         path.stem.removeprefix("plane-")
-        for path in INFRA.glob("plane-*.tf")
-        if 'source = "./modules/control-plane"' in path.read_text()
+        for path in INFRA.glob("*.tf")
+        for body in module_calls(path.read_text()).values()
+        if argument(body, "source").strip('"').rstrip("/") == "./modules/control-plane"
     ]
     + [path.parent.name for path in INFRA.glob("modules/*/sqs.tf") if "requests" in path.read_text()]
 )

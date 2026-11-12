@@ -14,9 +14,9 @@ and its *composition*, *structure* and *refactoring* pages; OpenTofu's agree):
   resource. That is why there is no private-bucket module: the seven buckets share four short
   resources and differ in everything else.
 - **Composition is flat.** The root calls each module and passes its dependencies in, rather than
-  modules nesting modules that create what they need. `docker-lambda` under `control-plane` and
-  `scheduled-function` is the one second level, and it is a utility the fleet's every function
-  goes through.
+  modules nesting modules that create what they need. `docker-lambda` is the one module that is
+  ever nested — under the building blocks and under the single-concept modules that deploy a
+  function — and it is a utility every function in the fleet goes through.
 - **A concept built more than once is a building block.** The eight control planes were eight
   copies of one machine; they are now eight calls to `infra/modules/control-plane`, each carrying
   only what is distinct about its plane. The traps the copies asked every author to remember — a
@@ -44,9 +44,9 @@ building block an input "for flexibility" that no caller's value needs.
 
 - **Rewritten (SPEC-252):** bounded-context modules gave way to one-concept modules composed flat
   from the root. The per-feature modules had become eight copies of the control-plane machine
-  (5,254 lines of `.tf` across them); the copies are now one building block and eight root calls,
-  with a plan showing only moves plus the one deliberate change (shared spaces' state machine got
-  its own role).
+  (5,254 lines of `.tf` across them); the copies are now one building block and eight root calls.
+  The proof the spec requires is the PR's plan showing only moves plus the one deliberate change
+  (shared spaces' state machine gets its own role).
 
 ### 2026-08-02
 

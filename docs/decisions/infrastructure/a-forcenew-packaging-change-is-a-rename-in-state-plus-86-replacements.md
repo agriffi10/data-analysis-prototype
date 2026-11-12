@@ -68,6 +68,15 @@ cannot see, and is recorded rather than implied, is a plane shipping with no gra
 
 ## History
 
+### 2026-11-12
+
+- **The cutover's guard is retired with the blocks it guarded (SPEC-252).** The eight planes'
+  cutover `moved` blocks were applied history and were deleted when the planes became calls to
+  one module, and the guard checking both halves against the frozen fixture went with them. The
+  sixteen cutover blocks left in seven other modules are unguarded now and inert; SPEC-254 deletes
+  them as it moves those modules. The rule this entry states still holds for every new `moved`
+  block, and what proves one is the plan showing the move, never the block's presence.
+
 ### 2026-08-28
 
 - **Settled:** SPEC-213.

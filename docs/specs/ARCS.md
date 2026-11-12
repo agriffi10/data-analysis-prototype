@@ -3285,7 +3285,7 @@ modules they are. The old `moved` history is deleted rather than kept, because t
 one state has applied all of it, and the next environment is created fresh, where a `moved` block
 has nothing to move.
 
-**Why three specs, and why this order.** 252 is the riskiest and leads: it moves 70-odd functions'
+**Why three specs, and why this order.** 252 is the riskiest and leads: it moves 83 functions'
 owners, touches every plane's IAM, makes the one deliberate IAM change (shared spaces' state machine
 gets its own role), and teaches `fleet.py` to read a root call — the mechanism the other two reuse.
 253 renders the deploy role's plane grants from one template; it is IAM on the role that applies

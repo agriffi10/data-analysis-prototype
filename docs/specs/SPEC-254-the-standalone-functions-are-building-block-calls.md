@@ -34,6 +34,10 @@ either a building block or a concept built once.
   function and the event-source mapping — and `notifications` and `feedback` become root calls to
   it at their current addresses.
 - `moved` blocks for every changed address, the re-pointed tests and docs.
+- Deleting the sixteen applied cutover `moved` blocks left in `api`, `auth`,
+  `control-plane-dlq-drain`, `feedback`, `notifications`, `observability` and `user-directory`. The
+  state applied them in 2026-09, and the guard that checked them was retired with the planes' own
+  in SPEC-252; left in place they read as live moves nothing checks.
 
 ### Out of Scope
 

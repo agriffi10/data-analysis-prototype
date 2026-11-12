@@ -235,7 +235,13 @@ proved not to have dropped a function or a test.
       and any other the sweep finds) also names `infra/plane-*.tf` and `infra/planes/**`, and the
       comments saying the root cannot change the fleet are corrected.
 - [ ] Test IDs collected from the runners (pytest's JSON report and Vitest's JSON reporter) on
-      `main` and on the branch differ only by file path where a test file moved; no ID is lost.
+      `main` and on the branch differ only where their subject changed, and every such ID is listed
+      in the PR with its reason: a test whose subject no longer exists (the shared-spaces ARN
+      exemption, the per-plane cutover `moved` blocks, results conversion's "ships no moved block"),
+      a parametrize row that followed its subject (eight per-plane module rows becoming
+      `control-plane` and `scheduled-function`; results conversion's `module_dir`; the notices
+      reader's lookup rows), and the per-plane copies of five templates folded into one. Any other
+      lost ID is a defect.
 - [ ] `git grep` for `infra/modules/` followed by any deleted directory name returns nothing
       outside the historical record — a dated History entry, a quoted block in a decision, a
       spec's body, `ARCS.md`, a delivery doc, or `docs/testing/sessions.md` — each of which keeps
