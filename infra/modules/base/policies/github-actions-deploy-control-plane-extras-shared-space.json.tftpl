@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3SharedSpaceBucketManage",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "${shared_space_bucket_arn}",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "SharedSpaceBackfillInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-shared-space-backfill-*"
+    },
+    {
+      "Sid": "SharedSpaceScheduleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-shared-space-*"
+    }
+  ]
+}

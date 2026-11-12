@@ -72,7 +72,9 @@ names, because the Lake Formation admin list and the user-space bucket allowlist
   validator is not the polars infer step.
 - **No `time_sleep` guard in the module.** The deploy-role grants these resource types need are
   applied in `modules/base` in their own **earlier PR**, so there is no self-grant propagation race
-  to wait out. Shared spaces' 60-second wait lives in `shared-space-storage`, and its plane call
+  to wait out. **A new plane's grant is one entry in `local.control_plane_grants`** in
+  `modules/base/iam.tf`, keyed by the plane's `name`, with `ceiling` set exactly when the call sets
+  one — a test holds the map to the root's calls — and never a copied template. Shared spaces' 60-second wait lives in `shared-space-storage`, and its plane call
   waits on that module.
 
 ## The traps every plane shares

@@ -57,23 +57,163 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 # statement is forced one of two ways: no resource type exists for its actions, or a measured
 # condition key narrows them. GRANTS LAND IN THEIR OWN PR, BEFORE THE RESOURCES THAT NEED
 # THEM. README.md.
-resource "aws_iam_policy" "deploy_shared_spaces" {
-  name        = "${var.project_name}-deploy-shared-spaces"
-  description = "Deploy-role grants for the shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
 
-  policy = templatefile("${path.module}/policies/github-actions-deploy-shared-spaces.json.tftpl", {
+# ── The control planes: one template, one map ──────────────────────────────
+# Every plane's grant renders from ONE template: the seven statements every plane needs, its
+# validate-authorize probe where `probe` is set, and its TIMED_OUT rule where `ceiling` is set.
+# Statements no other plane has go in one extras template named by the plane. A grant fix is
+# one edit, and A NEW PLANE IS ONE ENTRY HERE, landed in its own PR before the plane. README.md.
+#
+# A key is the plane's `name` in its root call to ./modules/control-plane, which is also the
+# infix every statement scopes by. A test holds the keys to those calls and `ceiling` to the
+# calls that set one, so the map cannot drift from the planes in either direction.
+#
+# ⚠ `name` AND `description` ARE ForceNew, and a replaced deploy-role policy is the refresh
+# deadlock in infra/info/deploy-role-iam.md. Both are carried verbatim from the eight resources
+# this map replaced; shared spaces' policy is `deploy-shared-spaces` while its plane is
+# `shared-space`.
+locals {
+  control_plane_grants = {
+    # The archive bucket is scoped by EXACT NAME in the extras, not by the plane's pattern:
+    # "{project}-prod-archive" has no trailing segment, so it does not match
+    # "{project}-*-archive-*" at all, and a pattern-scoped grant would fail the bucket create.
+    "archive" = {
+      name        = "deploy-archive"
+      description = "Deploy-role grants for the archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
+      sid         = "Archive"
+      probe       = true
+      ceiling     = true
+      extras      = "github-actions-deploy-control-plane-extras-archive.json.tftpl"
+    }
+    # No workgroup grant: these verbs run in the SHARED portal Athena workgroup, because a
+    # dedicated one breaks Lake Formation, so there is no plane-specific one to grant on.
+    "data-quality" = {
+      name        = "deploy-data-quality"
+      description = "Deploy-role grants for the data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
+      sid         = "DataQuality"
+      probe       = true
+      ceiling     = false
+      extras      = null
+    }
+    "file-ops" = {
+      name        = "deploy-file-ops"
+      description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
+      sid         = "FileOps"
+      probe       = true
+      ceiling     = true
+      extras      = null
+    }
+    "file-send" = {
+      name        = "deploy-file-send"
+      description = "Deploy-role grants for the file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
+      sid         = "FileSend"
+      probe       = true
+      ceiling     = true
+      extras      = null
+    }
+    "results-conversion" = {
+      name        = "deploy-results-conversion"
+      description = "Deploy-role grants for the results-conversion control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
+      sid         = "ResultsConversion"
+      probe       = true
+      ceiling     = true
+      extras      = null
+    }
+    # No validate-authorize probe: the cold-start probe reaches this plane through
+    # backfill-ever-active instead, granted in the extras, because it defaults to a read-only mode.
+    "shared-space" = {
+      name        = "deploy-shared-spaces"
+      description = "Deploy-role grants for the shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
+      sid         = "SharedSpace"
+      probe       = false
+      ceiling     = false
+      extras      = "github-actions-deploy-control-plane-extras-shared-space.json.tftpl"
+    }
+    "table-builder" = {
+      name        = "deploy-table-builder"
+      description = "Deploy-role grants for the table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
+      sid         = "TableBuilder"
+      probe       = true
+      ceiling     = true
+      extras      = null
+    }
+    "table-share" = {
+      name        = "deploy-table-share"
+      description = "Deploy-role grants for the table-share control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + shared execution role, tscommon layer, log groups), kept off the role's inline-policy aggregate limit."
+      sid         = "TableShare"
+      probe       = true
+      ceiling     = true
+      extras      = null
+    }
+  }
+
+  control_plane_grant_vars = {
     account_id              = var.account_id
     project_name            = var.project_name
     aws_region              = var.aws_region
+    archive_bucket_name     = var.archive_bucket_name
     shared_space_bucket_arn = var.shared_space_bucket_arn
+  }
+}
+
+# The extras are chosen as a STRING before they are decoded: a conditional between `[]` and a
+# decoded tuple of differently-shaped statements is "Inconsistent conditional result types".
+# Statement order is not kept from the eight old documents; the provider compares a policy
+# document as a set of statements.
+resource "aws_iam_policy" "control_plane" {
+  for_each = local.control_plane_grants
+
+  name        = "${var.project_name}-${each.value.name}"
+  description = each.value.description
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = concat(
+      jsondecode(templatefile("${path.module}/policies/github-actions-deploy-control-plane.json.tftpl", merge(local.control_plane_grant_vars, {
+        plane   = each.key
+        sid     = each.value.sid
+        probe   = each.value.probe
+        ceiling = each.value.ceiling
+      }))).Statement,
+      jsondecode(each.value.extras == null ? "{\"Statement\": []}" : templatefile("${path.module}/policies/${each.value.extras}", local.control_plane_grant_vars)).Statement,
+    )
   })
 
   depends_on = [time_sleep.wait_for_self_grant]
 }
 
-resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
+resource "aws_iam_role_policy_attachment" "control_plane" {
+  for_each = local.control_plane_grants
+
   role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_shared_spaces.arn
+  policy_arn = aws_iam_policy.control_plane[each.key].arn
+}
+
+# ── Propagation guard for the planes' grants ───────────────────────────────
+# ⚠ THE APPLY THAT FIRST ADDED THE ARCHIVE GRANTS WENT RED, and the mechanism is invisible in a
+# plan: a plane's resources are created in the SAME apply that attaches the policy authorizing
+# them, and depends_on is not enough because IAM is eventually consistent. The planes wait on
+# this through `depends_on = [module.base]`.
+#
+# `triggers`, keyed to every plane's policy BODY, is what makes it cover every plane rather than
+# the one it was created with: a sleep with no trigger runs once, so a plane added later would
+# get no pause. A new plane, a changed grant or a removed one replaces the sleep, and the
+# replacement waits. `replace_triggered_by` is not enough on its own: before OpenTofu 1.12 it
+# fires on an update or a replacement and never on a create, and CI runs 1.8. It stays for a
+# re-attachment, which changes no body.
+#
+# 30s is a floor on eventual consistency, not a guarantee. A RED FIRST APPLY OF A NEW PLANE IS
+# EXPECTED RATHER THAN A DEFECT; a re-run is the remedy. README.md.
+resource "time_sleep" "wait_for_plane_grants" {
+  create_duration = "30s"
+
+  triggers = { for plane, grant in aws_iam_policy.control_plane : plane => grant.policy }
+
+  depends_on = [aws_iam_role_policy_attachment.control_plane]
+
+  lifecycle {
+    replace_triggered_by = [aws_iam_role_policy_attachment.control_plane]
+  }
 }
 
 # Notifications. Get/Update/Delete EventSourceMapping are resource-scopable, to an
@@ -121,65 +261,6 @@ resource "aws_iam_policy" "deploy_feedback" {
 resource "aws_iam_role_policy_attachment" "deploy_feedback" {
   role       = aws_iam_role.github_actions_deploy.name
   policy_arn = aws_iam_policy.deploy_feedback.arn
-}
-
-# Table-builder. No S3-bucket-manage statement: the module creates no bucket.
-# states:ValidateStateMachineDefinition is not resource-scopable, so it sits alone.
-resource "aws_iam_policy" "deploy_table_builder" {
-  name        = "${var.project_name}-deploy-table-builder"
-  description = "Deploy-role grants for the table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-table-builder.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_table_builder" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_table_builder.arn
-}
-
-# Table-share. Same shape as table-builder's, and no S3-bucket-manage statement.
-resource "aws_iam_policy" "deploy_table_share" {
-  name        = "${var.project_name}-deploy-table-share"
-  description = "Deploy-role grants for the table-share control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + shared execution role, tscommon layer, log groups), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-table-share.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_table_share" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_table_share.arn
-}
-
-# Data-quality. NO workgroup grant: these verbs run in the SHARED portal Athena workgroup,
-# because a dedicated one breaks Lake Formation, so there is no plane-specific one to grant on.
-resource "aws_iam_policy" "deploy_data_quality" {
-  name        = "${var.project_name}-deploy-data-quality"
-  description = "Deploy-role grants for the data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-data-quality.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_data_quality.arn
 }
 
 # The DLQ drain: ONE Lambda, ONE role, ONE log group.
@@ -263,119 +344,6 @@ resource "aws_iam_policy" "deploy_user_directory" {
 resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
   role       = aws_iam_role.github_actions_deploy.name
   policy_arn = aws_iam_policy.deploy_user_directory.arn
-}
-
-# File-send. No S3-bucket-manage statement: a send copies between existing buckets.
-#
-# NO events: STATEMENT at this stage, deliberately — this machine validates and stops, so it
-# has no TimeoutSeconds and no TIMED_OUT rule to manage. The transfer brings the timeout, the
-# rule and the grant, which must extend this policy FIRST. README.md.
-resource "aws_iam_policy" "deploy_file_send" {
-  name        = "${var.project_name}-deploy-file-send"
-  description = "Deploy-role grants for the file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-file-send.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_file_send" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_file_send.arn
-}
-
-# File-operations.
-#
-# IT CARRIES THE events: STATEMENT FROM ITS FIRST VERSION, which the neighbouring planes gained
-# later — not copied habit: this machine has a top-level TimeoutSeconds from day one, because
-# the per-space lock's WAITING loop is in it before any data work is. The grant has to be here
-# or the first apply fails on the rule rather than on the plane's actual purpose. README.md.
-resource "aws_iam_policy" "deploy_file_ops" {
-  name        = "${var.project_name}-deploy-file-ops"
-  description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-file-ops.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_file_ops" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_file_ops.arn
-}
-
-# Results conversion.
-#
-# The same statement families as file-ops, one infix apart, and the events: statement from its
-# first version for the same reason: this machine ships a top-level TimeoutSeconds and its
-# TIMED_OUT rule from day one. The probe invoke statement arrived WITH the function it names,
-# not before it: the probe's own test refuses a grant matching no declared function.
-resource "aws_iam_policy" "deploy_results_conversion" {
-  name        = "${var.project_name}-deploy-results-conversion"
-  description = "Deploy-role grants for the results-conversion control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-results-conversion.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_results_conversion" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_results_conversion.arn
-}
-
-# Archive.
-#
-# ⚠ THE FIRST PLANE POLICY TO CARRY AN S3-BUCKET STATEMENT, and it is scoped by EXACT NAME
-# rather than the name pattern: "{project}-prod-archive" has no trailing segment, so it does
-# not match "{project}-*-archive-*" AT ALL. A pattern-scoped grant would render, apply, and
-# then fail the bucket create with an implicit deny.
-#
-# NO events: STATEMENT at this stage — see file-send's note. README.md.
-resource "aws_iam_policy" "deploy_archive" {
-  name        = "${var.project_name}-deploy-archive"
-  description = "Deploy-role grants for the archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-archive.json.tftpl", {
-    account_id          = var.account_id
-    project_name        = var.project_name
-    aws_region          = var.aws_region
-    archive_bucket_name = var.archive_bucket_name
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_archive" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_archive.arn
-}
-
-# ── Propagation guard for the archive grants ───────────────────────────────
-# ⚠ THE APPLY THAT FIRST ADDED THESE GRANTS WENT RED HERE, and the mechanism is invisible in a
-# plan: the resources are created in the SAME apply that attaches the policy authorizing them,
-# and depends_on is not enough because IAM is eventually consistent.
-#
-# Every other plane dodged this by SPLITTING the work across two PRs — WHICH HOLDS ONLY FOR AS
-# LONG AS SOMEBODY REMEMBERS TO SPLIT. This guard is structural instead.
-#
-# 30s is a floor on eventual consistency, not a guarantee. A RED FIRST APPLY OF A NEW PLANE IS
-# EXPECTED RATHER THAN A DEFECT; a re-run is the remedy. README.md.
-resource "time_sleep" "wait_for_archive_grant" {
-  depends_on      = [aws_iam_role_policy_attachment.deploy_archive]
-  create_duration = "30s"
 }
 
 # Self-grant guard: the main deploy policy grants this role iam:CreatePolicy /

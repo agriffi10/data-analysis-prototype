@@ -1,6 +1,6 @@
 """The deploy role's invoke grant is scoped by a wildcard, so its population is swept.
 
-``github-actions-deploy-shared-spaces.json.tftpl`` grants ``lambda:InvokeFunction`` on
+The shared-space plane's deploy grant gives ``lambda:InvokeFunction`` on
 ``*-shared-space-backfill-*``. That pattern is not a list, so nothing stops a later function
 whose suffix happens to start with ``backfill-`` from inheriting a grant nobody meant to give
 it, and nothing would go red. The population is therefore derived from the plane's own function
@@ -11,10 +11,10 @@ routes to. An invoke grant on a verb is an invoke grant on the delete cascade.
 """
 
 import fnmatch
-import json
 import pathlib
 import re
 
+import plane_grants
 from tf_blocks import argument, map_entries, module_calls, span
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -28,9 +28,8 @@ MODULE_LOCALS = REPO / "infra" / "modules" / "control-plane" / "locals.tf"
 #: pattern it is checked against and the coverage assertions all pass vacuously.
 ACCOUNT_ID = "123456789012"
 
-DEPLOY_POLICY = (
-    REPO / "infra" / "modules" / "base" / "policies" / "github-actions-deploy-shared-spaces.json.tftpl"
-)
+#: The plane's key in the deploy role's map of control-plane grants.
+GRANT_PLANE = "shared-space"
 
 #: The wildcard's middle, as it appears in the granted ARN pattern.
 GRANT_INFIX = "-shared-space-backfill-"
@@ -92,10 +91,9 @@ def test_the_invoke_grant_reaches_nothing_the_state_machine_routes_to():
 def _invoke_statement():
     """The statement granting the invoke, as its own JSON object.
 
-    Parsed rather than sliced out of the raw text: the template's own ``${aws_region}`` carries a
-    closing brace, so splitting the document on one truncates the statement before its resource
-    and the assertion below passes on a policy that says nothing. The interpolations are replaced
-    with plausible values first, which is what makes the document parseable at all.
+    Read from the plane's composed grant, which ``plane_grants`` renders the way Terraform does,
+    and required to be the grant's ONLY invoke statement: selected by Sid alone, a second one the
+    core gained would leave every assertion here green while it widened the reach.
 
     Args:
       None.
@@ -106,16 +104,15 @@ def _invoke_statement():
     Raises:
       StopIteration: When no such statement exists.
     """
-    rendered = DEPLOY_POLICY.read_text()
-    for marker, value in (
-        ("${aws_region}", "us-east-1"),
-        ("${project_name}", "dat"),
-        ("${account_id}", ACCOUNT_ID),
-    ):
-        rendered = rendered.replace(marker, value)
-    rendered = re.sub(r"\$\{\w+\}", "arn:aws:s3:::placeholder", rendered)
-    document = json.loads(rendered)
-    return next(s for s in document["Statement"] if s.get("Sid") == "SharedSpaceBackfillInvoke")
+    values = {"aws_region": "us-east-1", "project_name": "dat", "account_id": ACCOUNT_ID}
+    values = {name: values.get(name, "placeholder") for name in plane_grants.template_variables()}
+    document = plane_grants.document(plane_grants.grants()[GRANT_PLANE], values)
+    invokes = [s for s in document["Statement"] if "lambda:InvokeFunction" in s["Action"]]
+    assert [s.get("Sid") for s in invokes] == ["SharedSpaceBackfillInvoke"], (
+        f"the {GRANT_PLANE} grant's invoke statements are {[s.get('Sid') for s in invokes]}, not the "
+        "backfill one alone; this sweep only measures that one"
+    )
+    return invokes[0]
 
 
 def test_the_grant_is_scoped_to_that_prefix_and_not_to_the_whole_plane():
@@ -139,12 +136,7 @@ def test_the_granted_pattern_actually_matches_the_deployed_function_name():
     from its root call, and matches it against the pattern the policy actually grants, so either
     side moving alone fails here rather than as an AccessDenied in CI.
     """
-    pattern = re.search(r'"(arn:aws:lambda:[^"]*backfill[^"]*)"', DEPLOY_POLICY.read_text()).group(1)
-    pattern = (
-        pattern.replace("${aws_region}", "us-east-1")
-        .replace("${project_name}", "dat")
-        .replace("${account_id}", ACCOUNT_ID)
-    )
+    pattern = _invoke_statement()["Resource"]
     # Rendered from the module's OWN template, not restated here: a hard-coded name pins the
     # policy side only, so renaming the template would silently stop this from testing anything.
     template = re.search(

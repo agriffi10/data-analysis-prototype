@@ -41,6 +41,7 @@ import pathlib
 import re
 
 import fleet
+import plane_grants
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -83,13 +84,26 @@ def _granted() -> set[str]:
     # `github-actions-deploy*`, not `github-actions-deploy-*`. The base policy has no suffix, and
     # it is where both Cognito triggers' grants live — a hyphen here drops two functions from the
     # population and every assertion below still passes.
+    #
+    # The control planes' core and extras templates are not policies until composed, so they are
+    # read as the eight plane grants instead, after the files — which keeps a fixture template's
+    # own refusal the first one raised.
+    documents = []
     for path in sorted(POLICIES.glob("github-actions-deploy*.json.tftpl")):
+        if path in plane_grants.template_paths():
+            continue
         rendered = re.sub(r"\$\{[a-z_]+\}", "PLACEHOLDER", path.read_text(encoding="utf-8"))
         try:
-            document = json.loads(rendered)
+            documents.append((path.name, json.loads(rendered)))
         except ValueError as exc:  # pragma: no cover - a malformed policy fails the apply first
             raise AssertionError(f"{path.name} does not parse as a policy: {exc}") from exc
+    placeholders = dict.fromkeys(plane_grants.template_variables(), "PLACEHOLDER")
+    documents += [
+        (f"the {slug} control plane's grant", document)
+        for slug, document in plane_grants.documents(placeholders).items()
+    ]
 
+    for label, document in documents:
         for statement in document["Statement"]:
             actions = statement["Action"]
             actions = [actions] if isinstance(actions, str) else actions
@@ -104,12 +118,12 @@ def _granted() -> set[str]:
                     .replace("PLACEHOLDER", "*")
                 )
                 assert pattern.strip("*"), (
-                    f"{path.name}: {target} resolves to a pattern that matches every function, so "
+                    f"{label}: {target} resolves to a pattern that matches every function, so "
                     "the derived population below would be the whole fleet and say nothing"
                 )
                 matched = {name for name in deployed if fnmatch.fnmatch(name, pattern)}
                 assert matched, (
-                    f"{path.name}: {target} matches no deployed function. Either the grant is dead "
+                    f"{label}: {target} matches no deployed function. Either the grant is dead "
                     "or Terraform's sources lost the function"
                 )
                 resolved |= matched

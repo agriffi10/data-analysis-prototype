@@ -396,6 +396,7 @@ _RESHAPES_A_MAPPING = frozenset({
     "file-ops-collect-transfer-results",
     "file-ops-finalise-outcomes",
     "file-send-collect-transfer-results",
+    "plane_grants.py",
     "results-conversion-common",
     "table-builder-diff-schema",
     "table-share-collect-transfer-results",

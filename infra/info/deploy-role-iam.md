@@ -6,7 +6,9 @@ page before merging, and read [`../modules/base/README.md`](../modules/base/READ
 role already holds and why it is split across one managed policy per resource family.
 
 **The grant lands in its own PR, applied before the resources that need it.** Every plane module's
-"no `time_sleep` guard is required here" comment is relying on that split.
+"no `time_sleep` guard is required here" comment is relying on that split. **A new control plane's
+grant is one entry in `local.control_plane_grants`** in `modules/base/iam.tf`, rendered from the
+planes' one core template — never a copied template; the base README says what an entry carries.
 
 ## The traps
 
@@ -25,7 +27,9 @@ role already holds and why it is split across one managed policy per resource fa
   > (a sleep guarding the inline policy sits at the top of the graph and cannot cover a managed
   > policy written far below it) and **the failing shape** (this was an existing policy *modified*,
   > not the "Nth resource added" the rule above describes, which is the commoner case). The rule as
-  > written still holds for the control-plane policies, whose sleeps remain create-only.
+  > written held for the control-plane policies until 2026-11-12, when their guard became
+  > `wait_for_plane_grants` with `triggers` keyed to every plane's policy body, so it too re-fires
+  > when a plane's grant is added or changed.
 - **A service may call an action ON YOUR BEHALF that appears in no action list for it (2026-08-26).**
   ELBv2 calls `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`, so a sweep of every
   `elasticloadbalancing:` action the provider makes finds nothing, and the apply fails on an EC2

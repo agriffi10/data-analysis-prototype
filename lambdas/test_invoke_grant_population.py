@@ -39,6 +39,7 @@ import pathlib
 import re
 
 import fleet
+import plane_grants
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -124,11 +125,14 @@ def _attached_templates():
     suite. The role's attachments are the population, so a policy that reaches the role reaches
     this sweep however its file is named.
 
+    The control planes' core and extras templates are skipped here because they are not
+    documents until composed: ``_policies`` reads those eight through ``plane_grants`` instead.
+
     Args:
       None.
 
     Returns:
-      The template paths attached to the deploy role.
+      The template paths attached to the deploy role, the control planes' fragments excepted.
 
     Raises:
       AssertionError: When ``iam.tf`` attaches a template that is not on disk, or attaches an
@@ -143,7 +147,10 @@ def _attached_templates():
     )
 
     paths = []
+    fragments = {path.relative_to(BASE_IAM.parent).as_posix() for path in plane_grants.template_paths()}
     for name in re.findall(r'templatefile\(\s*"\$\{path\.module\}/(policies/[^"]+)"', text):
+        if name in fragments or name == "policies/${each.value.extras}":
+            continue
         path = BASE_IAM.parent / name
         assert path.is_file(), f"iam.tf renders {name}, which is not on disk"
         if path.name.startswith("github-actions-deploy"):
@@ -163,7 +170,12 @@ def _policies():
     Raises:
       AssertionError: When a template does not parse once rendered.
     """
-    documents = []
+    values = {"aws_region": "us-east-1", "project_name": PROJECT, "account_id": ACCOUNT_ID}
+    values = {name: values.get(name, "placeholder") for name in plane_grants.template_variables()}
+    documents = [
+        (f"the {slug} control plane's deploy grant", document)
+        for slug, document in plane_grants.documents(values).items()
+    ]
     for path in _attached_templates():
         try:
             documents.append((path.name, json.loads(_rendered(path))))

@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import tempfile
 
+import plane_grants
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
 
@@ -342,6 +344,10 @@ def test_every_policy_statement_is_KEYED_BY_A_SID() -> None:
     Raises:
       AssertionError: If a statement carries no Sid, or two statements in one document share one.
     """
+    # The control planes' core and extras templates are fragments of eight documents, and a Sid
+    # in one is `${sid}…` until it renders — so those eight are read as RENDERED documents, which
+    # is also the only place a duplicate between core and extras can show.
+    fragments = plane_grants.template_paths()
     templates = sorted(
         path
         for pattern in (
@@ -350,17 +356,21 @@ def test_every_policy_statement_is_KEYED_BY_A_SID() -> None:
             "functions/*/*.json.tftpl",
         )
         for path in INFRA.glob(pattern)
-        if not path.name.endswith(("-trust.json.tftpl", ".asl.json.tftpl"))
+        if not path.name.endswith(("-trust.json.tftpl", ".asl.json.tftpl")) and path not in fragments
     )
 
     assert len(templates) >= 40, (
         f"the glob resolved onto {len(templates)} permission templates, so this comparison is vacuous"
     )
 
+    values = dict.fromkeys(plane_grants.template_variables(), "placeholder")
+    documents = [(str(path.relative_to(REPO)), path.read_text()) for path in templates] + [
+        (f"the {slug} control plane's rendered deploy grant", json.dumps(document, indent=1))
+        for slug, document in plane_grants.documents(values).items()
+    ]
+
     offenders = []
-    for path in templates:
-        body = path.read_text()
-        relative = str(path.relative_to(REPO))
+    for relative, body in documents:
         # An IAM statement carries exactly one Effect, so counting them counts statements without
         # needing the document to be JSON — which these are not until Terraform renders them.
         statements = body.count('"Effect"')

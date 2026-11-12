@@ -182,8 +182,9 @@ def _hermetic_env(**overrides: str) -> dict[str, str]:
 #: so the number lives here, where a test reads it, and nowhere else. Re-derived, not re-checked,
 #: when the planes' five shared templates folded into one module copy: the floor that fit the
 #: per-plane copies could never be met again, so it sits under the new tree's count with the same
-#: headroom it had before.
-MINIMUM_IAM_TEMPLATE_READS = 58
+#: headroom it had before. Re-derived the same way again when the deploy role's eight per-plane
+#: grants became one core template and two extras, five templates fewer.
+MINIMUM_IAM_TEMPLATE_READS = 53
 
 
 def _scope_patterns() -> list[str]:
