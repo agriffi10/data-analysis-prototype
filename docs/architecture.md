@@ -353,9 +353,10 @@ schedule into one NDJSON object per service per day under `logs/`, retained fore
 
 IaC is **OpenTofu** under `infra/`, with S3 remote state. A module is one architectural concept and
 the root composes them flat: the eight control planes are eight root calls to one `control-plane`
-building block, each in its own `infra/plane-<slug>.tf`. IAM
+building block, each in its own `infra/plane-<slug>.tf`, and the five standalone functions are root
+calls to `scheduled-function` or `queue-consumer`, each in its own `infra/function-<slug>.tf`. IAM
 policies are `.tftpl` templates rendered by `templatefile()` — never inline `jsonencode`. Every module
-carries a `README.md` beside its `.tf`, and [`infra/info/INDEX.md`](../infra/info/INDEX.md) is the
+carries a `README.md` beside its `.tf`, each plane and standalone function one beside its templates, and [`infra/info/INDEX.md`](../infra/info/INDEX.md) is the
 router.
 
 **GitHub Actions owns delivery**, through a role assumed by OIDC:

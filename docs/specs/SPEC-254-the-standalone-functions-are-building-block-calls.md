@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-254
 title: "The Standalone Functions Are Building-Block Calls"
 description: "Moves the scheduled functions and the two single-writer queues onto the scheduled-function module and a new queue-consumer module, composed from the root, with a CI plan showing nothing deployed changed."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-252]
 arc: infra-building-blocks
 arc_order: 3
