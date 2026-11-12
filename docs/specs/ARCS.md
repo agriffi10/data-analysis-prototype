@@ -3298,6 +3298,10 @@ parallel once 252 has landed.
 > was 55 moves plus exactly the five planned shared-spaces changes. `scheduled-function` exists, and
 > fleet.py resolves root calls into a building block, for 253 and 254 to build on.
 
+> **254 shipped 2026-11-12** (PR #959). Five standalone functions became calls to
+> `scheduled-function` and the new `queue-consumer`; the CI plan was main's pending plan unchanged
+> plus 32 resource moves. The notifications sender-id check is now a root-output precondition.
+
 **How each is proved.** Deploys are manual-only from 2026-11-12, so nothing applies these changes
 in the current account, and the next account is deployed fresh. The proof is each PR's CI plan
 (local plans are unreliable here): every resource the spec touches is unchanged or **moved**, with
