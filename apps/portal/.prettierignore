@@ -13,3 +13,7 @@ src/types/apiContract.generated.ts
 # source, and were never formatted while they sat under docs/ — reflowing them now would be a
 # diff no human wrote, across files whose line breaks are deliberate.
 info
+
+# Next.js's build output, and the declarations it regenerates on every build.
+.next
+next-env.d.ts

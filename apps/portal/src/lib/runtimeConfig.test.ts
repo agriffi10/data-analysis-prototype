@@ -30,14 +30,16 @@ function respondWith(body: string, init: {ok?: boolean; status?: number} = {}): 
 }
 
 /**
- * Re-import the module with `import.meta.env.DEV` stubbed false.
+ * Re-import the module with `import.meta.env.MODE` stubbed to a build that is not the test runner.
  *
- * The production arm is unreachable any other way: Vitest runs with `DEV` true, so the
- * whole suite — this file included — otherwise exercises the dev fallback, which is the
- * arm that will not exist in a deployed bundle.
+ * The production arm is unreachable any other way: Vitest runs with `MODE` `test`, so the whole
+ * suite, this file included, otherwise exercises the test fallback, which is the arm that exists
+ * in no build the server serves.
+ *
+ * @param mode - `production` for a deployed bundle, `development` for `next dev`.
  */
-async function productionModule() {
-  vi.stubEnv('DEV', false);
+async function productionModule(mode: 'production' | 'development' = 'production') {
+  vi.stubEnv('MODE', mode);
   vi.resetModules();
   return import('./runtimeConfig');
 }
@@ -197,6 +199,15 @@ describe('runtimeConfig — the dev fallback', () => {
 
     expect(() => read('userSpaceBucket')).toThrow(/before \/config\.json was loaded/);
   });
+
+  it('throws under next dev too, because the dev server renders the document', async () => {
+    // Turbopack supplies no VITE_ names, so a fallback reachable here would answer every key
+    // `undefined` and boot a portal that fails every call instead of naming what is missing.
+    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'build-time-bucket');
+    const {configValue: read} = await productionModule('development');
+
+    expect(() => read('userSpaceBucket')).toThrow(/before \/config\.json was loaded/);
+  });
 });
 
 describe('runtimeConfig — the accessor is the only door', () => {
@@ -297,9 +308,10 @@ describe('runtimeConfig — every key has a source in every environment', () => 
 
   it('names every classified key in .env.example, and nothing it does not classify', () => {
     // ASSIGNMENT LINES ONLY. A free-text scrape also finds the variable a comment
-    // records as removed, which is history worth keeping and not a variable at all.
-    const assigned = new Set([...ENV_EXAMPLE.matchAll(/^(VITE_[A-Z0-9_]+)=/gm)].map(([, name]) => name));
-    const classified = new Set<string>(ALL_KEYS.map((key) => VITE_NAME[key]).filter((name) => name !== null));
+    // records as removed, which is history worth keeping and not a variable at all. The names are
+    // the server's, `CONFIG_<key>`, because `next dev` renders the document from `.env.local`.
+    const assigned = new Set([...ENV_EXAMPLE.matchAll(/^(CONFIG_[A-Za-z0-9]+)=/gm)].map(([, name]) => name));
+    const classified = new Set<string>(ALL_KEYS.map((key) => `CONFIG_${key}`));
 
     expect([...assigned].filter((name) => !classified.has(name))).toEqual([]);
     expect([...classified].filter((name) => !assigned.has(name))).toEqual([]);

@@ -71,7 +71,7 @@ describe('the theme preference', () => {
 
 describe('the pre-paint initialiser', () => {
   const initialiser = readFileSync('public/theme-init.js', 'utf8');
-  const html = readFileSync('index.html', 'utf8');
+  const layout = readFileSync('src/app/layout.tsx', 'utf8');
 
   /**
    * Run the initialiser the way the browser does.
@@ -147,18 +147,21 @@ describe('the pre-paint initialiser', () => {
     expect(initialiser).toContain("'(prefers-color-scheme: dark)'");
   });
 
-  it('is loaded blocking, in <head>, before the module script', () => {
-    const initTag = html.indexOf('<script src="/theme-init.js"></script>');
-    expect(initTag, 'index.html must load /theme-init.js').toBeGreaterThan(-1);
-    expect(initTag).toBeLessThan(html.indexOf('</head>'));
-    expect(initTag).toBeLessThan(html.indexOf('type="module"'));
-    expect(html.slice(initTag, initTag + 60)).not.toMatch(/defer|async/);
+  it('is loaded blocking, in <head>, carrying the request nonce', () => {
+    // Blocking and in <head> is what makes it run before the first paint; Next's own scripts are
+    // async, so nothing the framework emits can run ahead of the parser reaching this one. The
+    // nonce is what lets it run at all under the page policy.
+    const tag = /<script\s+src="\/theme-init\.js"\s+nonce=\{nonce\}\s*\/>/.exec(layout);
+    expect(tag, 'the root layout must load /theme-init.js with the nonce').not.toBeNull();
+    expect(tag!.index).toBeGreaterThan(layout.indexOf('<head>'));
+    expect(tag!.index).toBeLessThan(layout.indexOf('</head>'));
+    expect(tag![0]).not.toMatch(/defer|async/);
   });
 
-  it('carries no inline script anywhere, because the CSP has no nonce and no hash', () => {
-    // `script-src 'self'` with neither a nonce nor a hash: an inline initialiser would run in
-    // dev and be refused in production, which is the worst shape of failure available.
-    const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];
-    expect(inline.map((match) => match[1].trim()).filter(Boolean)).toEqual([]);
+  it('is the only script the layout writes, and none is inline', () => {
+    // A second script would need its own nonce plumbing, and an inline one written with
+    // `dangerouslySetInnerHTML` would carry markup the policy exists to refuse.
+    expect(layout.match(/<script\b/g)).toHaveLength(1);
+    expect(layout).not.toContain('dangerouslySetInnerHTML');
   });
 });

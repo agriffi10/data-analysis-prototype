@@ -22,6 +22,21 @@ const AWS_SDK_IMPORTS = {
     'presigned URL the API minted. aws-amplify is unaffected.'
 };
 
+// The server's modules stay on the server. `src/server/` holds what reads the server's environment
+// and what the request proxy runs; a browser module importing one would either fail the build at
+// `server-only` or, for one that forgot it, ship server code to the browser.
+//
+// SPREAD INTO EVERY CLAUSE BELOW THAT GOVERNS features/, components/, lib/ or hooks/, for the
+// AWS_SDK_IMPORTS reason above. RELATIVE patterns only: the rule matches the import SOURCE, which
+// reaches src/server/ as `../server/…` or `../../server/…`, and a `**/server` pattern would also
+// refuse `react-dom/server`.
+const SERVER_IMPORTS = {
+  group: ['../server', '../server/**', '../../server', '../../server/**', '../../../server', '../../../server/**'],
+  message:
+    "src/server/ is the Next.js server's alone. Nothing under features/, components/, lib/ or hooks/ " +
+    'imports it; a value the browser needs reaches it through the runtime document or the API.'
+};
+
 export default defineConfig([
   {
     // Every file under src/, tests included. The three clauses below re-state
@@ -31,7 +46,7 @@ export default defineConfig([
       'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
     }
   },
-  globalIgnores(['dist', 'coverage', 'src/types/apiContract.generated.ts']),
+  globalIgnores(['dist', 'coverage', '.next', 'next-env.d.ts', 'src/types/apiContract.generated.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -97,7 +112,8 @@ export default defineConfig([
               message:
                 'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
             },
-            AWS_SDK_IMPORTS
+            AWS_SDK_IMPORTS,
+            SERVER_IMPORTS
           ]
         }
       ]
@@ -122,10 +138,18 @@ export default defineConfig([
       'src/components/ProtectedLayout.tsx'
     ],
     rules: {
-      // The LAYERING rule is what these files are exempt from — not the SDK ban. A bare
-      // 'off' would exempt them from both, and a test mocking @aws-sdk/client-s3 is a test
-      // of a code path that no longer exists.
-      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
+      // The LAYERING rule is what these files are exempt from — not the SDK ban or the server
+      // fence. A bare 'off' would exempt them from all three, and a test mocking
+      // @aws-sdk/client-s3 is a test of a code path that no longer exists.
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
+    }
+  },
+  {
+    // Every feature, for the server fence. Placed BEFORE the sibling clause below, which replaces
+    // it for the four features that clause names and therefore re-states SERVER_IMPORTS itself.
+    files: ['src/features/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
     }
   },
   {
@@ -193,7 +217,8 @@ export default defineConfig([
               message:
                 'features/query/ and features/data-explorer/ are siblings and must not import from each other, and the layers below them (features/catalog/, features/saved-queries/) may import neither. Anything both need belongs in features/catalog/ (SPEC-176) or features/saved-queries/ (SPEC-177).'
             },
-            AWS_SDK_IMPORTS
+            AWS_SDK_IMPORTS,
+            SERVER_IMPORTS
           ]
         }
       ]

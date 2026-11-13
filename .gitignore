@@ -44,7 +44,10 @@ coverage.xml
 *\ [0-9].json
 .coverage\ [0-9]*
 
-# A locally rendered runtime configuration document. Files under public/ are copied
-# verbatim into dist/, so a committed one would be built into the image and served in
-# preference to the document the container renders.
+# A locally rendered runtime configuration document. Files under public/ are served as they
+# are, so a committed one would collide with the document the server renders at the same path.
 apps/portal/public/config.json
+
+# Next.js's build output, and the type declarations `next build` and `next dev` regenerate.
+apps/portal/.next
+apps/portal/next-env.d.ts

@@ -1,15 +1,24 @@
+import {createRequire} from 'node:module';
+import path from 'node:path';
 import {defineConfig} from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
 
+/**
+ * `server-only`'s no-op entry. Its default entry throws by design outside a server bundle, which is
+ * every Vitest file, so the server modules' own tests could not import them. Next resolves the
+ * package itself when it builds, so this alias reaches the test runner and nothing else.
+ */
+const SERVER_ONLY_EMPTY = path.join(path.dirname(createRequire(import.meta.url).resolve('server-only')), 'empty.js');
+
+/**
+ * Vitest's configuration, and nothing else: Next.js builds and serves the portal. Vite remains
+ * because Vitest runs on it, so this file carries no build plugin and no build-time definition.
+ */
 export default defineConfig({
-  // Some AWS SDK transitive deps (surfaced by @aws-sdk/lib-storage in SPEC-016)
-  // reference Node's `global`, which doesn't exist in the browser and throws
-  // "Can't find variable: global" at bundle load. Map it to `globalThis`.
-  define: {
-    global: 'globalThis'
+  plugins: [react()],
+  resolve: {
+    alias: {'server-only': SERVER_ONLY_EMPTY}
   },
-  plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -34,11 +43,13 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/test/**',
         'src/test-setup.ts',
-        // The bootstrap, in two files only because the dynamic-import boundary forces
-        // the split. Both are composition; their ORDER and REACH are what matters, and
-        // `src/bootstrap.test.tsx` asserts those directly.
-        'src/main.tsx',
+        // The composition above the boot: the provider tree behind the dynamic import, and the
+        // root layout and catch-all page Next renders around it. Their ORDER and REACH are what
+        // matters, and `src/bootstrap.test.tsx` and the image's behaviour matrix assert those
+        // directly; the boot itself is covered.
         'src/AppRoot.tsx',
+        'src/app/layout.tsx',
+        'src/app/\\[\\[...slug\\]\\]/page.tsx',
         // Emitted from the Python contract, so it is that declaration's coverage to earn,
         // not this suite's. It does not match the `.types.ts` rule above.
         'src/types/apiContract.generated.ts'

@@ -2,12 +2,11 @@
  * Resolves the stored theme and stamps it on <html> BEFORE the first paint, so the page never
  * flashes light on its way to dark.
  *
- * An external file, not an inline script: the CSP is `script-src 'self'` with no nonce and no
- * hash, so an inline initialiser would run in dev and be blocked in production — the worst
- * shape of failure available.
+ * An external file that the root layout loads with the request's nonce, so the page policy lets
+ * it run. It stays a file rather than an inline script so the test that runs it can read it.
  *
- * It must throw on nothing. It is a blocking script in <head>, and an exception here would
- * stop the module script that follows from ever loading.
+ * It must throw on nothing. It is a blocking script in <head>, and an exception here stops the
+ * parser before the page it is styling exists.
  *
  * The vocabulary and the storage key are duplicated from `src/lib/useTheme.ts`, because this
  * file cannot import. `useTheme.test.ts` reads this file and asserts the two agree.

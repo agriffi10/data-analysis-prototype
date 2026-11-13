@@ -1,32 +1,14 @@
-"""The Content-Security-Policy, and the move that gave it one home.
+"""The CSP's one environment-shaped directive, and the parser that reads it out of Terraform.
 
-The policy used to be assembled inside ``infra/modules/app``, where a root-level check could not
-read it and where the module's own retirement would have taken the computation with it. It is at
-root now, and this file is what makes that a move rather than a rewrite.
-
-**Why a byte-identity test at all.** A CSP is observed by nothing offline — no unit test, no plan,
-no scanner reads a response header — and the one recorded outage from this file's subject came from
-a single missing ``connect-src`` term that a signed-in tester could not have seen. So the move is
-proved against a literal copy of the pre-move string rather than against a retyped copy of the new
-one, which would assert only that the file equals itself.
-
-**ACCEPTED_PRE_MOVE_DIRECTIVES pins the MOVE, not the policy.** A deliberate CSP change updates both
-halves and that is correct; what must never happen is one half being edited to make the other pass.
-Revisit the decision, do not delete the test.
+``connect-src`` is the only directive Terraform still computes: ``csp_connect_src`` at root, carried
+to the container as ``PORTAL_CSP_CONNECT_SRC``. Every other directive is a property of the bundle
+and lives in the Next.js server's policy builder, where a TypeScript test holds them against a
+recorded literal; this file used to hold that literal too, while Terraform assembled the whole
+policy for a CloudFront distribution that no longer exists.
 
 Attributes:
   INFRA: The IaC tree.
-  ROOT_MAIN: Where both CSP locals live after the move.
-  ROOT_OUTPUTS: Carries the Hosted-UI drift precondition the served policy depends on.
-  ACCEPTED_PRE_MOVE_DIRECTIVES: The policy's directive list as it stood immediately before the
-    move — the true pre-move text, ``${var.csp_connect_src}`` and all. The reference changing to
-    a root local is the ONE permitted difference, normalised at the comparison rather than baked
-    into this constant, so the exemption is visible instead of hidden. The hole's own contents
-    are asserted term by term in ``test_api_module.py``, which owns that list — a copy here would
-    be a second place to edit for one change.
-  ACCEPTED_SEPARATOR: What the directives are joined on. Part of the emitted bytes: joined on a
-    space instead, the policy is one malformed directive and every other directive is dropped by
-    the browser — an element-only comparison cannot see it.
+  ROOT_MAIN: Where ``csp_connect_src`` lives.
 """
 
 import pathlib
@@ -35,72 +17,6 @@ from tf_blocks import join_list_items
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 ROOT_MAIN = INFRA / "main.tf"
-ROOT_OUTPUTS = INFRA / "outputs.tf"
-
-ACCEPTED_SEPARATOR = "; "
-
-ACCEPTED_PRE_MOVE_DIRECTIVES = (
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data:",
-    "font-src 'self' data: https://fonts.gstatic.com",
-    "worker-src 'self' blob:",
-    "connect-src ${var.csp_connect_src}",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-    "upgrade-insecure-requests",
-)
-
-
-def test_the_policy_string_is_byte_identical_to_its_pre_move_value() -> None:
-    """The separator and the directive list, term for term and in order, against a recorded copy.
-
-    Compared against a literal rather than against the file it is testing: a test that re-derived
-    the expectation from the new source would assert that the file equals itself, and would have
-    accepted a directive silently dropped during the move.
-
-    The separator is asserted too, and it is not a formality — joined on a space the whole policy
-    collapses to one malformed directive and the browser drops every other one, which is the app's
-    entire network surface gone with every element still in place.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the separator changed, or when any directive was added, dropped,
-        reordered or edited by the move.
-    """
-    separator, now = join_list_items(ROOT_MAIN.read_text(), "content_security_policy")
-
-    assert separator == ACCEPTED_SEPARATOR, (
-        f"The directives are joined on {separator!r}, not {ACCEPTED_SEPARATOR!r}. Every element "
-        "can be correct and the emitted policy still be one malformed directive."
-    )
-
-    # THE ONE PERMITTED DIFFERENCE, applied here rather than recorded in the constant: the move
-    # repointed connect-src from a module input at a root local. Normalising at the comparison
-    # keeps the exemption readable; baking it into the expectation would make this a copy of the
-    # new source, which is what the test exists not to be.
-    normalised = tuple(
-        directive.replace("${local.csp_connect_src}", "${var.csp_connect_src}") for directive in now
-    )
-
-    assert len(normalised) == len(ACCEPTED_PRE_MOVE_DIRECTIVES), (
-        f"The policy has {len(normalised)} directives; it had "
-        f"{len(ACCEPTED_PRE_MOVE_DIRECTIVES)} before the move. If this is a deliberate CSP change, "
-        "update both halves of this test and say so in the commit — do not edit one to make the "
-        "other pass."
-    )
-    assert normalised == ACCEPTED_PRE_MOVE_DIRECTIVES, (
-        f"The policy changed during a move that was supposed to change nothing.\n"
-        f"  before: {ACCEPTED_PRE_MOVE_DIRECTIVES}\n  after:  {normalised}"
-    )
 
 
 def test_connect_src_still_names_both_cognito_hosts() -> None:

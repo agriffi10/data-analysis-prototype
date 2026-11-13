@@ -10,12 +10,12 @@
  * value before the document is in hand — in production that is a throw, and in a test
  * it silently exercises the deployed names instead of the stubbed ones.
  *
- * A DEV BUILD FALLS BACK TO `import.meta.env`, and a production build must not. A
- * laptop has no container to render the document, and the whole test suite runs on that
- * fallback arm; production reads the document or fails to boot, so a missing value can
- * never reach a caller as `undefined`.
+ * ONLY THE TEST RUNNER FALLS BACK TO `import.meta.env`. The Next.js server renders the document
+ * in a container and under `next dev` alike, so both read it or fail to boot, and a missing value
+ * can never reach a caller as `undefined`. Vitest has no server, and the whole test suite runs on
+ * the fallback arm, which is gated on `MODE === 'test'` so that no other build can reach it.
  */
-import {devFallbackValue, warnIfMisconfigured} from './env';
+import {devFallbackValue} from './env';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {
   RequiredConfigKey,
@@ -23,13 +23,6 @@ import type {
   RuntimeConfigKey,
   RuntimeConfigLoad
 } from '../types/runtimeConfig.types';
-
-/**
- * Re-exported so `main.tsx` reaches it without a sixth static import — the bootstrap's
- * import list is pinned by a sweep, and `lib/env.ts` is already in its graph as this
- * module's own fallback, so this adds nothing to what evaluates before the load.
- */
-export {warnIfMisconfigured};
 
 /** Where the document is served from. Same-origin, and never proxied to the API. */
 const CONFIG_URL = '/config.json';
@@ -76,19 +69,17 @@ export function setRuntimeConfigDocument(next?: RuntimeConfigDocument): void {
  * Never throws: every failure is a reason on the returned result, because the caller's
  * job is to render a boot failure rather than to catch.
  *
- * In a DEV build a failed load still resolves `{ok: true}` with no document installed,
- * so every read falls through to `import.meta.env`. That is what makes local
- * development work with no server able to render the document, and what lets the test
- * suite read configuration with no bootstrap at all.
+ * Under the test runner a failed load still resolves `{ok: true}` with no document installed, so
+ * every read falls through to `import.meta.env`. That is what lets the test suite read
+ * configuration with no server and no bootstrap at all.
  *
  * @returns `{ok: true}`, or the machine reason the document is unusable.
  */
 export async function loadRuntimeConfig(): Promise<RuntimeConfigLoad> {
   const result = await readDocument();
-  // A dev build has no container to render the document, so a failed load is the
-  // ordinary local case rather than a defect: report success with nothing installed and
-  // let every read fall through to `import.meta.env`.
-  if (!result.ok && import.meta.env.DEV) return {ok: true};
+  // The test runner has no server to render the document, so a failed load is its ordinary case
+  // rather than a defect: report success with nothing installed and let every read fall through.
+  if (!result.ok && import.meta.env.MODE === 'test') return {ok: true};
   return result;
 }
 
@@ -165,7 +156,7 @@ export function configValue(name: RuntimeConfigKey): string | undefined {
   if (loaded === undefined) {
     // Gated at the READ so the bundler can delete the fallback, its key table and every
     // VITE_ name from a production build.
-    if (import.meta.env.DEV) return devFallbackValue(name);
+    if (import.meta.env.MODE === 'test') return devFallbackValue(name);
     throw new RuntimeConfigNotLoadedError(name);
   }
   const value = loaded[name];

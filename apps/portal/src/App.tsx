@@ -1,4 +1,3 @@
-import './index.css';
 import {Suspense, lazy} from 'react';
 import {Routes, Route} from 'react-router';
 import {RootLayout} from './components/RootLayout';

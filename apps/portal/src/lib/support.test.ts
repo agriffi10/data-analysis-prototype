@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {toUserMessage} from './errorMessages';
-import {VITE_NAME, devFallbackValue, warnIfMisconfigured} from './env';
+import {VITE_NAME, devFallbackValue} from './env';
 import {isPortalConfigured, missingRequiredConfig} from './runtimeConfig';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 
@@ -112,30 +112,6 @@ describe('env', () => {
       stubAllRequired();
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
       expect(isPortalConfigured()).toBe(true);
-    });
-  });
-
-  describe('warnIfMisconfigured', () => {
-    it('names every missing variable in dev', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      stubAllRequired();
-      vi.stubEnv('VITE_AWS_REGION', '');
-      vi.stubEnv('DEV', true);
-
-      warnIfMisconfigured();
-
-      expect(warn).toHaveBeenCalledOnce();
-      expect(warn.mock.calls[0][0]).toContain('VITE_AWS_REGION');
-    });
-
-    it('says nothing when the portal is configured', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      stubAllRequired();
-      vi.stubEnv('DEV', true);
-
-      warnIfMisconfigured();
-
-      expect(warn).not.toHaveBeenCalled();
     });
   });
 });
