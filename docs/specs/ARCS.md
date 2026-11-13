@@ -3530,7 +3530,11 @@ started as each becomes ready (`several-agents.md`), and every PR through the qu
 **2026-11-13, SPEC-257 refines two contracts.** The session routes gain a second cookie,
 `__Host-dq_signin` (`httpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `Max-Age=3600`), which carries
 the sign-in transaction from `/auth/login` to `/auth/callback` so that starting a sign-in writes
-nothing to the store. The verifier's audience set rides in `OIDC_AUDIENCE` as a comma-separated
+nothing to the store. The request proxy's `matcher` excludes `/api/` and `/auth/`, whose nonce-free
+security headers come from `next.config`'s `headers()`, because a proxy that matches a request with
+a body makes Next.js wait for the whole body before any route handler runs (measured on
+`next start`: a 1 GB declared body held every proxied path; excluded, `/api/` refused it in
+milliseconds). The verifier's audience set rides in `OIDC_AUDIENCE` as a comma-separated
 list, so a single client id stays a valid value. Both of the arc's verifier changes (257's widening
 and 262's narrowing) change a Lambda function's environment, which `frozen_fleet_guard.py` refuses
 while `LAMBDA_BUILDS_ENABLED` is not `true`. Andrew settled it the same day: a build that needs

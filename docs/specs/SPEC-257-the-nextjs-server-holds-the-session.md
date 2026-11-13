@@ -158,7 +158,9 @@ It brands both.
       secret, the callback list and the sign-out list, and that neither declares `read_attributes`
       or `write_attributes`.
 - [ ] The confidential client declares rotation `DISABLED` and revocation `true`, asserted by a
-      test, and on the deployed account `describe-user-pool-client` for it shows both.
+      test, and on the deployed account `describe-user-pool-client` for it shows both, run with
+      `--query 'UserPoolClient.[EnableTokenRevocation,RefreshTokenRotation]'`. The unprojected
+      response carries `ClientSecret`, which must not reach a transcript, a log or a PR.
 - [ ] `SESSION_MAX_AGE_SECONDS` and the client's `refresh_token_validity` are rendered from the same
       local, asserted by a test that fails when either is a literal.
 - [ ] The secret appears in no task definition `environment` entry, no `CONFIG_*` key, no module or
@@ -328,8 +330,11 @@ verifier, a nonce, or a token-endpoint response body.
 
 Every response under `/auth/` carries `Cache-Control: no-store`. Every redirect target and the
 `redirect_uri` are built from `PORTAL_ORIGIN`, never from the request's `Host` or `X-Forwarded-*`
-headers. The authorization code does reach the load balancer's access log as part of the callback
-URL; it is single-use, short-lived, and useless without both the secret and the verifier.
+headers. The load balancer's access log records whole request URLs, so two things now land there
+that did not before. The authorization code arrives as part of the callback URL; it is single-use,
+short-lived, and useless without both the secret and the verifier. Every `/api/` query string
+arrives too (object keys, prefixes, query ids), where API Gateway's own log format records only the
+path; none of it is a credential, and the log sits in the admin-only bucket.
 
 #### Acceptance Criteria:
 
@@ -389,11 +394,27 @@ sends the API today, under the HTTP API's header quota with a worst-case ID toke
 **Bounds.** A request body over the HTTP API's 10 MB payload quota answers 413 `PayloadTooLarge`
 without being forwarded, and the body is read only after the `Origin` and session checks pass. A
 declared `content-length` over the cap is refused before reading, and the read counts bytes and
-stops past the cap for a body that declared none. The request proxy is the trap here: with a proxy
-present, Next.js buffers a body only up to `proxyClientMaxBodySize` (10 MB by default) and passes a
-longer one on **truncated, with no error**, so a handler counting bytes would see exactly 10 MB and
-forward a cut-off JSON body. `experimental.proxyClientMaxBodySize` is therefore set one byte above
-the cap, so an oversized body reaches the handler long enough to be counted. A
+stops past the cap for a body that declared none.
+
+**The request proxy does not run on `/api/` or `/auth/`.** When the proxy matches a request that has
+a body, Next.js clones the body for it and then waits for the **whole** body to arrive before any
+route handler runs, discarding what lies past `proxyClientMaxBodySize` but still reading it. Then
+neither the `Origin` check nor the session check nor the 413 can answer before an attacker's body
+ends, and a body past 10 MB reaches the handler truncated, with no error. Measured while authoring
+on `next start` (Next.js 16.4.6) with a request declaring 1 GB and sending one byte: with the proxy
+matching every path, no answer came within four seconds, on `/api/` or anywhere else. With
+`/api/` and `/auth/` excluded from the proxy's `matcher`, the handler answered 403 in 16 ms without
+`Origin`, and 413 in 3 ms with it. So this spec excludes both prefixes from SPEC-255's matcher. The
+security headers the proxy sets that carry no nonce are defined once and reach these two prefixes
+through `next.config`'s `headers()`, together with `Content-Security-Policy: default-src 'none';
+frame-ancestors 'none'`, since these responses are JSON or redirects and run no script. The nonce
+stays the proxy's, as the charter says, because no page renders under either prefix.
+
+**Redirects are not followed.** The forward uses `redirect: 'manual'`, and an API answer in the 3xx
+range yields 503 `ApiUnavailable`. Measured on Node 25: a followed cross-origin 307 drops the
+`authorization` header but re-sends the body to the other host and hands its answer to the browser,
+and a same-origin redirect keeps the bearer. The API answers nothing in that range today, so this
+closes a door rather than a hole. A
 forward that has not answered after 35 seconds, past the API Gateway integration's 30, answers 503
 `ApiUnavailable`. An API 401 passes through as the API sent it, and the session is left alone.
 
@@ -421,8 +442,16 @@ design and is protected by `state` and the sign-in cookie.
       without one; an API that does not answer in 35 seconds yields 503 (driven with fake timers);
       an API 401 reaches the browser unchanged and the item is not deleted.
 - [ ] Against `next start` with SPEC-255's request proxy in place, not in Vitest, which runs no
-      proxy: a `POST` through `/api/` of 10 MB plus one byte answers 413 and reaches no API double,
-      and one of exactly 10 MB is forwarded whole, its byte count asserted at the double.
+      proxy: a `POST` to `/api/x` and one to `/auth/refresh`, each declaring a 1 GB body and sending
+      one byte, answer 403 within one second with no `Origin`; with `Origin: PORTAL_ORIGIN` and a
+      session, the `/api/x` one answers 413 within one second; and a `POST` through `/api/` of
+      exactly 10 MB is forwarded whole, its byte count asserted at the API double.
+- [ ] Every response under `/api/` and `/auth/` carries the proxy's nonce-free security headers,
+      read from the one definition the proxy also reads, plus `default-src 'none'; frame-ancestors
+      'none'` as its CSP, asserted against `next start`; no response there carries the proxy's
+      nonce.
+- [ ] An API answer of 302 and one of 307 each yield 503 `ApiUnavailable`, and the fetch double
+      records exactly one request, so no redirect was followed.
 - [ ] Every unsafe method under `/api/` and on each `/auth/` route answers 403 `AccessDenied` with
       `Origin` absent, with `Origin` set to the API's origin, and with `Origin` set to
       `PORTAL_ORIGIN` plus a port, in each case before any store read. The same request with
@@ -625,7 +654,8 @@ infra/
 ├── modules/spa/                           # + environment, secrets, task-role and execution-role grants
 └── modules/base/policies/                 # + the deploy role's grants, in their own PR
 scripts/check_client_bundle.py              # FR-007
-apps/portal/next.config.*                   # + experimental.proxyClientMaxBodySize (FR-005)
+apps/portal/src/proxy.ts                    # matcher excludes /api/ and /auth/ (FR-005)
+apps/portal/next.config.*                   # + headers() for /api/ and /auth/ (FR-005)
 ```
 
 ## Implementation Phases
