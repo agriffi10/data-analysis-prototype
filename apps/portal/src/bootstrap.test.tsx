@@ -181,11 +181,12 @@ describe('the boot module graph', () => {
 });
 
 describe('the catch-all route', () => {
-  // Globbed one level down and filtered, because the folder's brackets are glob syntax.
+  // Globbed one level down and filtered, because the folder's brackets are glob syntax; the route's
+  // own tests are not part of the route.
   const ROUTE = Object.fromEntries(
     Object.entries(
       import.meta.glob('./app/*/*.tsx', {query: '?raw', import: 'default', eager: true}) as Record<string, string>
-    ).filter(([file]) => file.startsWith('./app/[[...slug]]/'))
+    ).filter(([file]) => file.startsWith('./app/[[...slug]]/') && !file.includes('.test.'))
   );
 
   it('reads both of its files', () => {
