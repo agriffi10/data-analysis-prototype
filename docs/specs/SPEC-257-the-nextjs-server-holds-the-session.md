@@ -398,24 +398,22 @@ without being forwarded, and the body is read only after the `Origin` and sessio
 declared `content-length` over the cap is refused before reading, and the read counts bytes and
 stops past the cap for a body that declared none.
 
-**The request proxy does not run on `/api/` or `/auth/`.** When the proxy matches a request that has
-a body, Next.js clones the body for it and then waits for the **whole** body to arrive before any
-route handler runs, discarding what lies past `proxyClientMaxBodySize` but still reading it. Then
-neither the `Origin` check nor the session check nor the 413 can answer before an attacker's body
-ends, and a body past 10 MB reaches the handler truncated, with no error. Measured while authoring
-on `next start` (Next.js 16.4.6) with a request declaring 1 GB and sending one byte: with the proxy
-matching every path, no answer came within four seconds, on `/api/` or anywhere else. With
-`/api/` and `/auth/` excluded from the proxy's `matcher`, the handler answered 403 in 16 ms without
-`Origin`, and 413 in 3 ms with it. So this spec excludes both prefixes from SPEC-255's matcher, which
-SPEC-255 states as "runs on every request" (its FR-004). The security headers the proxy sets that
-carry no nonce move into one plain module, `src/lib/securityHeaders.ts`, which the proxy and
-`next.config.ts` both read; `headers()` sends them on these two prefixes, together with
-`Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, since these responses are
-JSON or redirects and run no script. The module cannot sit under `src/server/`: measured on the same
-scratch app, a `next.config.ts` that imports a module beginning `import 'server-only'` fails
-`next build` with *"This module cannot be imported from a Client Component module"*, while a plain
-module's headers reach `/api/` as written. The nonce stays the proxy's, as the charter says, because
-no page renders under either prefix.
+**A request with a body never waits for the proxy.** When the request proxy matches a request that
+has a body, Next.js clones the body for it and then waits for the **whole** body to arrive before
+any route handler runs, discarding what lies past `proxyClientMaxBodySize` but still reading it.
+Then neither the `Origin` check nor the session check nor the 413 could answer before an attacker's
+body ended. Measured while authoring on `next start` (Next.js 16.4.6) with a request declaring 1 GB
+and sending one byte: with the proxy matching every path, no answer came within four seconds; with
+the proxy not matching, the handler answered 403 in 16 ms without `Origin` and 413 in 3 ms with it.
+**SPEC-255's build closes this for every path, and this spec relies on it rather than adding a path
+exclusion of its own:** the proxy's `matcher` is `/:path*` with `missing` on `content-length` and
+`transfer-encoding`, so a request carrying a body skips the proxy, and `next.config.ts`'s
+`headers()` gives exactly those requests the security headers and the lockdown policy, both from
+`src/lib/securityHeaders.ts` (`SECURITY_HEADERS`, `LOCKDOWN_POLICY`). That module is plain, not
+`server-only`, and must stay so: measured, a `next.config.ts` that imports a module beginning
+`import 'server-only'` fails `next build` with *"This module cannot be imported from a Client
+Component module"*. A request with no body to `/api/` or `/auth/` passes through the proxy like any
+other and takes its headers and policy; the nonce stays the proxy's, as the charter says.
 
 **Redirects are not followed.** The forward uses `redirect: 'manual'`, and an API answer in the 3xx
 range yields 503 `ApiUnavailable`. Measured on Node 25: a followed cross-origin 307 drops the
@@ -453,10 +451,10 @@ design and is protected by `state` and the sign-in cookie.
       one byte, answer 403 within one second with no `Origin`; with `Origin: PORTAL_ORIGIN` and a
       session, the `/api/x` one answers 413 within one second; and a `POST` through `/api/` of
       exactly 10 MB is forwarded whole, its byte count asserted at the API double.
-- [ ] Every response under `/api/` and `/auth/` carries the proxy's nonce-free security headers,
-      read from the one definition the proxy also reads, plus `default-src 'none'; frame-ancestors
-      'none'` as its CSP, asserted against `next start`; no response there carries the proxy's
-      nonce.
+- [ ] Against `next start`, every response under `/api/` and `/auth/` carries SPEC-255's
+      `SECURITY_HEADERS`: one to a request with a body carries `LOCKDOWN_POLICY` as its CSP, and
+      one to a request without a body carries the proxy's policy. This spec changes neither the
+      proxy's `matcher` nor `next.config.ts`'s `headers()`, asserted by its diff.
 - [ ] An API answer of 302 and one of 307 each yield 503 `ApiUnavailable`, and the fetch double
       records exactly one request, so no redirect was followed.
 - [ ] Every unsafe method under `/api/` and on each `/auth/` route answers 403 `AccessDenied` with
@@ -662,12 +660,7 @@ infra/
 ├── modules/auth/                          # + confidential client, SSM parameter
 ├── modules/spa/                           # + environment, secrets, task-role and execution-role grants
 └── modules/base/policies/                 # + the deploy role's grants, in their own PR
-apps/portal/
-├── scripts/assert-bundle-*.mjs             # check:bundle gains the DynamoDB rule (FR-007)
-├── next.config.ts                          # + headers() for /api/ and /auth/ (FR-005)
-└── src/
-    ├── proxy.ts                            # matcher excludes /api/ and /auth/ (FR-005)
-    └── lib/securityHeaders.ts              # the nonce-free headers, no server-only (FR-005)
+apps/portal/scripts/assert-bundle-*.mjs    # check:bundle gains the DynamoDB rule (FR-007)
 ```
 
 ## Implementation Phases
