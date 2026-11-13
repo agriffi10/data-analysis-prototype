@@ -3557,3 +3557,15 @@ to or from an App Router page becomes a document load after a deploy or an outag
 ruling, over accepting the loss); signing out asks nothing, as today. 258, the first spec with an
 App Router page, runs 256's cross-router navigation scenarios live, since 256 can prove them only
 against its stand-in.
+
+**2026-11-13, SPEC-258 to 261 fix the shape of an area move, and SPEC-256 changes to fit it.** A
+move adds its pages under `src/app/(signed-in)/<area>/`, each loading the area's view through
+`next/dynamic` with `ssr: false`, flips its own record to `'app'`, and adds tests to its own split
+test file. It edits neither `src/routes/table.tsx` nor its area module: 256's area modules export
+views rather than react-router routes, and the table builds routes only for the areas whose records
+still say `'catch-all'`, with a guard that fails when a record and the pages disagree. No move edits
+a file 262 rewrites, or the Amplify and `lib/idToken` mocks 262 removes from the split test files.
+256's note above named 258 for the cross-router live checks; since the moves land in any order, each
+runs them on its own pages instead. 256 also gains the title rule (no `metadata` under `src/app/`,
+because a layout title set that way overwrote the pages' own titles after App Router navigations,
+measured) and states Next's scroll to the top on a navigation that changes the page.

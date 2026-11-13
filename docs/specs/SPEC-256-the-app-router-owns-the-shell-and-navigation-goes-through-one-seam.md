@@ -58,8 +58,9 @@ App Router a navigation can become a reload.
 - **Features stop importing react-router**, tests included, held by a lint rule.
 - **Hand-offs and the link waits on the seam**: `lib/routeHandoff.ts`'s senders and receivers and
   `useSpaceLinkPending` keep their rules, now on the seam's state, key and navigation type.
-- **One module per area**: the react-router table in `src/routes/areas/<area>.tsx`, the record of
-  which router serves each area in `src/lib/navigation/areas/<area>.ts`, and `App.test.tsx`,
+- **One module per area**: each area's views in `src/routes/areas/<area>.tsx`, from which the
+  react-router table builds its routes, the record of which router serves each area in
+  `src/lib/navigation/areas/<area>.ts`, and `App.test.tsx`,
   `App.navigation.test.tsx`, `App.queryNavigation.test.tsx` and `routes/routes.test.tsx` split the
   same way.
 - **Tests under either router**: `src/test/renderWithProviders.tsx` provides the seam rather than a
@@ -84,9 +85,9 @@ App Router a navigation can become a reload.
   payload is fetched when it is navigated to.
 - **Keeping an old build serving after a deploy.** The leave confirmation covers unfinished uploads;
   nothing makes a navigation after a deploy stay in the old build.
-- **The cross-router live checks.** With no App Router page until 258, the scenarios of FR-003
-  that cross the two routers are proved here against the test stand-in and run live by 258, the
-  first spec that can reach them.
+- **The cross-router live checks.** With no App Router page until an area moves, the scenarios of
+  FR-003 that cross the two routers are proved here against the test stand-in, and each area move
+  (258 to 261, in whatever order they land) runs them live on its own pages.
 - **A leave confirmation for anything but uploads.** A running query and an in-flight file operation
   carry on server-side through a reload, as today; only what `UploadsAtRiskNotice` counts asks.
 
@@ -139,8 +140,8 @@ server, and it never threw.
       and the directory beside it: none statically imports anything under `src/features/`,
       `src/components/`, `src/routes/` or `AppFrame`, each reaches its view through
       `dynamic(..., {ssr: false})`, and none declares a parameter, so none reads the `params` or
-      `searchParams` props a native navigation leaves stale. The `(signed-in)` folder has no page until 258 adds one, so the
-      sweep is also proved against a fixture corpus asserting its reason: a page importing a
+      `searchParams` props a native navigation leaves stale. The `(signed-in)` folder has no page
+      until the first area move adds one, so the sweep is also proved against a fixture corpus asserting its reason: a page importing a
       feature statically fails naming that import, a page using `next/dynamic` without
       `ssr: false` fails naming the option, and a conforming page passes.
 - [ ] The root layout's static imports reach nothing under `src/features/`, `src/components/`,
@@ -150,6 +151,12 @@ server, and it never threw.
       which fails naming the option.
 - [ ] `vite.config.ts`'s coverage exclusion of `src/AppRoot.tsx` names `src/AppFrame.tsx` instead,
       the one module the proof does not render.
+- [ ] The root layout writes the document title as a `<title>` in its `<head>` (the one
+      `index.html` carried), replacing a `metadata` title if 255's layout set one that way, and a
+      source check fails when any file under `src/app/` exports `metadata` or `generateMetadata`. Measured: with the layout's title set through `metadata` instead, three of
+      five App Router navigations ended with the tab titled "Data Quarry" rather than the page's own
+      title, because Next reapplied it after the page's effect; with the `<title>` in `<head>`,
+      every navigation kept the page's title, in two runs.
 - [ ] `next build` followed by `next start` serves every signed-in path, `/` and an unknown path
       with status 200, checked against the production build before the push.
 
@@ -196,9 +203,9 @@ sign-out.
       and an in-flight folder operation stays on screen with its space gated, each waiting for its
       destination before asserting (the scenarios `App.navigation.test.tsx` holds today).
 - [ ] The same survival holds when the navigation goes through the seam's App Router path: a test
-      that marks Files as served by the App Router through its area record, and gives `renderApp`
-      a page at `src/app/(signed-in)/files/page.tsx` rendering the real Files page through its
-      `pages` option, keeps the upload across a round trip to a catch-all page and back.
+      that serves Files from the App Router through `renderApp`'s `routers` option, with a page at
+      `src/app/(signed-in)/files/page.tsx` rendering the real Files view through its `pages` option,
+      keeps the upload across a round trip to a catch-all page and back.
 - [ ] Signing out aborts the upload and drops the operations; following a link to `/` or to an
       unknown path unmounts the shell, and both render with no shell and no redirect for a
       signed-out user.
@@ -242,6 +249,10 @@ the shapes the Interface Contract gives, plus the `NavigationProvider` the frame
   without rendering a new segment, so the catch-all page stays mounted. Every other navigation goes
   through Next's `router.push` or `router.replace`. Because a native navigation leaves a page's
   `params` and `searchParams` props as they were, no page reads them: pages read the seam.
+- **Scroll.** A navigation through `router.push` scrolls to the top, as Next does by default, and a
+  traversal back restores the position; a native one leaves the scroll where it was, as every
+  navigation does today. Measured on both routers. The first area move is the first place a user
+  can see the difference, and it is the expected one when the page changes.
 - **Addresses are compared normalized.** Next's `useSearchParams` re-serializes the search
   (`%20` comes back as `+`), so every comparison of two addresses parses both searches through
   `URLSearchParams` first. Measured with a folder name holding a space, the shape
@@ -300,6 +311,8 @@ address.
       the test App Router: a push, a replace, a same-address `Link` click (a `'REPLACE'` with a new
       key), a hash-only push, Back to a pushed entry (`'POP'` with that entry's own key) and an
       in-page anchor (`'POP'` with `'default'`).
+- [ ] A push to another page with a hash (`/help#files` from Files' help panel) renders the
+      destination with that hash on its first render, from and to either router.
 - [ ] A navigation between two catch-all paths, and a search-only or hash-only one on a page the
       App Router serves, call neither `router.push` nor `router.replace` and do not remount the
       page; one whose target the App Router serves at another pathname calls `router.push`. Each is
@@ -337,8 +350,8 @@ address.
 Every import of `react-router` outside the seam moves to the seam: the features, `components/`,
 the route pages under `src/routes/`, and their tests. A `no-restricted-imports` pattern forbids
 `react-router` in every file under `src/` except the seam (`src/lib/navigation/**`), the route
-table (`src/routes/table.tsx` and `src/routes/areas/*.tsx`, with `*.test.tsx` excluded from that
-glob) and the test harness (`src/test/**`). The catch-all's entry needs no exemption: it renders
+table (`src/routes/table.tsx`, and not its test) and the test harness (`src/test/**`). The area
+modules need no exemption: they export views, and only the table turns them into routes. The catch-all's entry needs no exemption: it renders
 the seam's `CatchAllRouter` around the table. Tests elsewhere are not exempt: they reach routes
 through the harness's options, not by composing react-router themselves. The pattern is spread into
 every `no-restricted-imports` clause, 255's `src/server/` clause included, because flat config
@@ -363,8 +376,8 @@ therefore holds the bare `'react-router'` literal to the exempt places as well. 
       `src/` outside the three exempt places, in any form: a static import, a dynamic import, a
       `vi.mock` or a type query.
 - [ ] Committing an import of `react-router` in a feature, in a component, in a route page, in a
-      feature's test and in an area's test each fails lint naming the seam in its message; the same
-      import in the seam and in an area's route module passes. A `vi.mock('react-router', …)` in a
+      feature's test, in an area module and in an area's test each fails lint naming the seam in its
+      message; the same import in the seam and in the route table passes. A `vi.mock('react-router', …)` in a
       feature's test fails the sweep. Each observed, not read from the config.
 - [ ] `eslintConfigShape.test.ts` fails when any `no-restricted-imports` clause other than the two
       exemptions omits the new pattern (255's `src/server/` clause included), when the two
@@ -405,18 +418,42 @@ the four pairings of the two routers, were measured while authoring.
 
 #### Description:
 
-`App.tsx` becomes `src/routes/table.tsx`, which composes the landing route, each area's routes from
-`src/routes/areas/<area>.tsx` (`files`, `notifications`, `help`, `query`, `explore`, `connections`,
-`data-quality`) and the `*` route. The layout routes leave the table, since the frame now holds
-both layouts. Each area's record, `src/lib/navigation/areas/<area>.ts`, names its path patterns and
-which router serves it, and `areas/index.ts` composes them; every record says `'catch-all'` after
-this spec, and an area move changes its own record to `'app'`.
+Each area module, `src/routes/areas/<area>.tsx` (`files`, `notifications`, `help`, `query`,
+`explore`, `connections`, `data-quality`), exports its views, one per path pattern: the
+composition each route element holds today (`FeatureRoute`, then for a lazy page its keyed
+`ErrorBoundary` and `Suspense`, then the page), with no react-router in it. Each area's record,
+`src/lib/navigation/areas/<area>.ts`, names its path patterns and which router serves it, and
+`areas/index.ts` composes them; every record says `'catch-all'` after this spec. `App.tsx` becomes
+`src/routes/table.tsx`, which renders the landing route, then a `<Route>` for each path of each
+area whose record says `'catch-all'`, with the view the area module exports for that path, then the
+`*` route. The layout routes leave the table, since the frame now holds both layouts.
+
+That shape is what lets the four area moves run in parallel without sharing a file. A move adds its
+App Router pages, which reach the same views through `next/dynamic`, and flips its own record to
+`'app'`; the table then stops building the area's routes without being edited, and the area module
+does not change. A guard keeps the two halves together: it fails when a record says `'app'` and a
+path of it has no page under `src/app/(signed-in)/`, when a page there serves a path whose record
+says `'catch-all'`, or when a page there serves a path no record claims. The first would send the
+seam's `router.push` to the optional catch-all, which would match the path and render the 404,
+since the table no longer builds it; the last would render outside the sign-in gate, since the
+chrome treats a path no record claims as public. The views are named for the moves to import:
+`FilesView`, `NotificationsView`, `HelpView`, `QueryView`, `ExploreView`, `ConnectionsView`,
+`DataQualityView` and `DataQualityReportView`.
+
+Which router serves an area is read, by the seam, the chrome and the table alike, through a context
+whose default is the records. Nothing in production provides it; `renderApp` does, so a test can
+serve an area from either router whatever is on disk, and a test that crosses the two routers holds
+in whatever order the area moves land. Two other guards read `App.tsx`'s source today and move to
+the records: `features/help/helpSurfaces.test.ts` (every help surface names a routed path) and
+`features/notifications/NotificationsPage.test.tsx` (the report's path pattern is one the app
+serves).
 
 The four cross-area test files split into `src/routes/areas/<area>.test.tsx`, each holding the
 scenarios whose subject is that area: Files keeps the upload survival, the throwing-page tests and
 the sign-out test; Query keeps the runs that outlive the page; each area keeps its own route-block
-and page checks; `src/routes/table.test.tsx` keeps the 404, the landing route and the check that
-no two areas' boundaries share a key, read across every area module.
+and page checks; `src/routes/table.test.tsx` keeps the 404, the landing route, the check that no two
+areas' boundaries share a key, read across every area module, and the lazy route that fails to load,
+whose file-wide mock makes the Query page throw and so must not sit in Query's file.
 
 The proof renders the real route table through `renderApp`, a test App Router in
 `src/test/appRouter.tsx`. It renders the real `AppChrome` (`RootLayout`, the gate and the shell)
@@ -447,7 +484,19 @@ out of the harness, as the decision requires.
 #### Acceptance Criteria:
 
 - [ ] `src/routes/table.tsx` and the seven area modules exist, `App.tsx` and `AppRoot.tsx` do not,
-      and every route the table served before it serves now, each asserted by rendering its path.
+      and every path the table served before is served now, each asserted by rendering it through
+      `renderApp`, so an area move changes which router serves it without reddening the test.
+- [ ] Rendered directly under `renderWithProviders`, with an area served by the App Router through
+      the override context, the table builds none of that area's routes and renders the 404 at its
+      path.
+- [ ] The record-and-page guard fails for a record saying `'app'` with a path that has no page, for a
+      page whose record says `'catch-all'`, and for a page whose path no record claims, each against
+      a fixture naming the area and path; it passes on the tree as this spec leaves it.
+- [ ] `helpSurfaces.test.ts` and `NotificationsPage.test.tsx` read the area records instead of
+      `App.tsx`, and flipping a record leaves both green.
+- [ ] `renderApp`'s `routers` option serves a named area from the catch-all with its page on disk
+      ignored, and from the App Router with the page its `pages` option supplies; a `pages` entry at a
+      path that has a page on disk replaces it.
 - [ ] Each area's checks that read route source (`FeatureRoute`, then `ErrorBoundary`, then
       `Suspense`, with the right flag, for each lazy route) read that area's module; the key
       uniqueness check reads every area module through a glob and fails on a block copied with its
@@ -544,8 +593,10 @@ export function renderApp(
   options?: Omit<ProviderOptions, 'route' | 'path' | 'routes' | 'auth'> & {
     /** A fixed auth value, or a component providing the auth context for a test whose subject is the status changing. */
     auth?: AuthContextValue | ComponentType<{children: ReactNode}>;
-    /** Page files added beside the ones on disk, keyed by their path under src/app/: a test-only override. */
+    /** Page files keyed by their path under src/app/, added beside those on disk or replacing one at the same path. */
     pages?: Record<string, ComponentType>;
+    /** Which router serves an area in this test, whatever is on disk; an area set to 'catch-all' has its pages ignored. */
+    routers?: Partial<Record<AreaRecord['area'], AreaRouter>>;
   }
 ): RenderWithProvidersResult;
 
