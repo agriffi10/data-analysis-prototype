@@ -102,7 +102,7 @@ jobs:
   # reads. The applied output is still read — by the `pointed` job, where "did we deploy what is
   # actually out there" is the question being asked.
   plan:
-    if: vars.DEPLOYS_ENABLED == 'true'
+    if: vars.LAMBDA_BUILDS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -261,7 +261,7 @@ jobs:
   # matters most is the one where it does not run.
   pointed:
     needs: [plan, deploy]
-    if: always() && vars.DEPLOYS_ENABLED == 'true'
+    if: always() && vars.LAMBDA_BUILDS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

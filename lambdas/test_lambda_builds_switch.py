@@ -1,19 +1,20 @@
-"""The deploy switch: no job that builds or deploys runs on its own while ``DEPLOYS_ENABLED`` is unset.
+"""The Lambda builds switch: exactly the jobs that build, prove or point the Lambda image wait on it.
 
-Feature work paused for the move to the client environment, so every job that builds an image,
-applies infrastructure, points a Lambda, deploys the SPA or publishes the flag document carries
-``vars.DEPLOYS_ENABLED == 'true'`` in its ``if``. The variable is unset, so those jobs report as
-skipped. The test derives the jobs a push, a pull request or a schedule could start from the
-workflow directory, and holds them to an exact list, so a new deploy workflow without the switch
-fails here and so does a check that quietly lost its switch.
+Feature work paused for the move to the client environment, so the Lambda fleet's image build, its
+pull-request matrix and the pointing of every function at it carry
+``vars.LAMBDA_BUILDS_ENABLED == 'true'`` in their ``if``, and the variable is unset. Every other
+deploy runs: the infrastructure apply, the SPA deploys and the flag publish. The test derives which
+jobs a push, a pull request or a schedule could start from the workflow directory, and holds the
+ones the switch keeps off to an exact list, so a Lambda job that loses its switch fails here and so
+does a deploy that quietly gains it.
 
 Attributes:
   ROOT: The repository root.
   WORKFLOWS: The directory the jobs are derived from.
   GATE: The condition that keeps a job off while the variable is unset.
   MANUAL_EVENTS: The one trigger a person chooses to fire; every other event counts as automatic.
-  STILL_RUNNING: The jobs that must keep running with the switch off: the app and Lambda checks,
-    the security scans, and the infrastructure plan on pull requests.
+  HELD_OFF: The jobs the switch keeps off: the Lambda image build and its matrix, and the four
+    jobs of the Lambda pointing, whose last two follow the first by skip propagation.
 """
 
 import pathlib
@@ -24,15 +25,16 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
-GATE = "vars.DEPLOYS_ENABLED == 'true'"
+GATE = "vars.LAMBDA_BUILDS_ENABLED == 'true'"
 MANUAL_EVENTS = frozenset({"workflow_dispatch"})
-STILL_RUNNING = frozenset(
+HELD_OFF = frozenset(
     {
-        "ci.yml:ci",
-        "ci.yml:lambdas",
-        "security.yml:scan",
-        "security.yml:dast",
-        "deploy-infra.yml:plan",
+        "deploy-lambda-image.yml:push",
+        "lambda-image.yml:matrix",
+        "deploy-lambdas.yml:plan",
+        "deploy-lambdas.yml:deploy",
+        "deploy-lambdas.yml:pointed",
+        "deploy-lambdas.yml:probe",
     }
 )
 
@@ -134,8 +136,8 @@ def _triggers(document: dict[Any, Any]) -> set[str]:
     return set(on or {})
 
 
-def test_only_the_checks_and_the_plan_run_while_deploys_are_switched_off() -> None:
-    """Every automatically triggered job outside the checks and the plan carries the switch.
+def test_the_switch_holds_off_exactly_the_lambda_build_jobs() -> None:
+    """The automatically triggered jobs the switch keeps off are the Lambda build jobs and no others.
 
     Args:
       None.
@@ -144,21 +146,23 @@ def test_only_the_checks_and_the_plan_run_while_deploys_are_switched_off() -> No
       None.
 
     Raises:
-      AssertionError: If a job could run without the switch and is not on the list, or a job on
-        the list no longer runs, which would mean the list has gone stale.
+      AssertionError: If a Lambda build job could run without the switch, or another job waits on
+        it, which would hold off a deploy that is meant to run.
     """
-    running = set()
+    held = set()
     for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if _triggers(document) - MANUAL_EVENTS:
-            running |= {
-                f"{path.name}:{job}" for job in _runnable_without_switch(document)
+            jobs = set(document.get("jobs") or {})
+            held |= {
+                f"{path.name}:{job}"
+                for job in jobs - _runnable_without_switch(document)
             }
-    assert sorted(running - STILL_RUNNING) == [], (
-        "jobs that build or deploy without the DEPLOYS_ENABLED switch"
+    assert sorted(HELD_OFF - held) == [], (
+        "Lambda build jobs that run without the LAMBDA_BUILDS_ENABLED switch"
     )
-    assert sorted(STILL_RUNNING - running) == [], (
-        "jobs the list keeps running that no longer run"
+    assert sorted(held - HELD_OFF) == [], (
+        "jobs the switch holds off that are meant to deploy"
     )
 
 
@@ -182,7 +186,7 @@ def test_the_switch_must_hold_the_whole_condition() -> None:
     assert not _gated(f"a == 'push' || a == 'workflow_dispatch' && {GATE}")
     assert not _gated(f"(a) || (b) && {GATE}")
     assert not _gated(f"{GATE} || a == 'push'")
-    assert not _gated("vars.DEPLOYS_ENABLED != 'false'")
+    assert not _gated("vars.LAMBDA_BUILDS_ENABLED != 'false'")
     assert not _gated(f"(a == '(') || (b) && {GATE}")
 
 

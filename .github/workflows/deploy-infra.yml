@@ -154,6 +154,32 @@ jobs:
           done
           echo "validated ${checked} module(s) the root does not call."
 
+      # The image a function CREATED by this run starts from; an existing function ignores it.
+      # While Lambda builds are on that is this commit's, built by `deploy-lambda-image.yml` on the
+      # same push. While they are off nothing builds this commit's image, so a new function starts
+      # from the one the fleet already runs, read from the API function: `deploy-lambdas.yml`
+      # points every function at one image, so one function names it. The shape check is what
+      # stops a failed or odd read from reaching Terraform as an empty or digest-form tag.
+      - name: Choose the Lambda image
+        id: lambda_image
+        env:
+          LAMBDA_BUILDS_ENABLED: ${{ vars.LAMBDA_BUILDS_ENABLED }}
+          FUNCTION: dat-prod-api
+        run: |
+          set -euo pipefail
+          if [ "$(printf '%s' "$LAMBDA_BUILDS_ENABLED" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+            TAG="$GITHUB_SHA"
+          else
+            URI=$(aws lambda get-function --function-name "$FUNCTION" --query 'Code.ImageUri' --output text)
+            TAG="${URI##*:}"
+            echo "::notice title=Lambda builds off::functions this run creates start from ${TAG}, the image ${FUNCTION} runs."
+          fi
+          if ! [[ "$TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=No Lambda image::could not choose an image tag (read '${TAG}'). Every Lambda image is tagged by a commit sha."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
       - name: OpenTofu plan
         working-directory: infra
         # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
@@ -190,10 +216,9 @@ jobs:
           # The web tier's off switch. Unset means on, so nothing is torn down by a variable
           # nobody set; exactly 'false' turns it off. infra/info/web-tier.md.
           TF_VAR_web_tier_enabled: ${{ vars.TF_VAR_web_tier_enabled || 'true' }}
-          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
-          # repository variable: it is an input github.sha already knows, and a stale
+          # Chosen by the step above, never a repository variable or a fallback: a stale
           # default would create functions from an image nobody meant.
-          TF_VAR_lambda_image_tag: ${{ github.sha }}
+          TF_VAR_lambda_image_tag: ${{ steps.lambda_image.outputs.tag }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the
@@ -463,7 +488,7 @@ jobs:
         run: rm -f plan.json tfplan
 
   apply:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.DEPLOYS_ENABLED == 'true'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # 60, not 30. A job timeout cancels `tofu apply` mid-run WITH THE STATE LOCK HELD, which is
     # a lost apply and a lock to clear by hand. It was raised for the CloudFront teardown, which
@@ -499,11 +524,38 @@ jobs:
             -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
 
+      # The image a function CREATED by this run starts from; an existing function ignores it.
+      # While Lambda builds are on that is this commit's, built by `deploy-lambda-image.yml` on the
+      # same push. While they are off nothing builds this commit's image, so a new function starts
+      # from the one the fleet already runs, read from the API function: `deploy-lambdas.yml`
+      # points every function at one image, so one function names it. The shape check is what
+      # stops a failed or odd read from reaching Terraform as an empty or digest-form tag.
+      - name: Choose the Lambda image
+        id: lambda_image
+        env:
+          LAMBDA_BUILDS_ENABLED: ${{ vars.LAMBDA_BUILDS_ENABLED }}
+          FUNCTION: dat-prod-api
+        run: |
+          set -euo pipefail
+          if [ "$(printf '%s' "$LAMBDA_BUILDS_ENABLED" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+            TAG="$GITHUB_SHA"
+          else
+            URI=$(aws lambda get-function --function-name "$FUNCTION" --query 'Code.ImageUri' --output text)
+            TAG="${URI##*:}"
+            echo "::notice title=Lambda builds off::functions this run creates start from ${TAG}, the image ${FUNCTION} runs."
+          fi
+          if ! [[ "$TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=No Lambda image::could not choose an image tag (read '${TAG}'). Every Lambda image is tagged by a commit sha."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
       # A container function cannot be CREATED pointing at a tag the registry does not hold. After
       # creation the value is ignored, so the constraint is real exactly once per function — but
       # "once" includes every function this apply creates, and `deploy-lambda-image.yml` carries no
       # `paths:` filter, so it fires on the SAME PUSH as this apply and the two race. Losing that
-      # race fails CreateFunction partway through the fleet.
+      # race fails CreateFunction partway through the fleet. While Lambda builds are off the tag is
+      # one the fleet already runs, so this returns on its first look.
       #
       # IT FAILS ON A DISPATCH TOO, and that is deliberate rather than an oversight. The dispatch
       # path exists for a dropped push event — which drops the IMAGE build as well, so main's tip
@@ -515,23 +567,24 @@ jobs:
       # A poll rather than a `data "aws_ecr_image"`: the plan job runs on pull requests, where
       # github.sha is a MERGE COMMIT whose image was never pushed, and a data source would fail
       # every PR.
-      - name: Wait for this commit's Lambda image
+      - name: Wait for the Lambda image
         env:
           PROJECT: dat
           ENVIRONMENT: prod
+          TAG: ${{ steps.lambda_image.outputs.tag }}
         run: |
           set -euo pipefail
           NAME="${PROJECT}-${ENVIRONMENT}-lambda"
           for attempt in $(seq 1 60); do
             if aws ecr describe-images --repository-name "$NAME" \
-                 --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>&1; then
-              echo "::notice title=Image ready::${NAME}:${GITHUB_SHA} is in the registry."
+                 --image-ids "imageTag=${TAG}" >/dev/null 2>&1; then
+              echo "::notice title=Image ready::${NAME}:${TAG} is in the registry."
               exit 0
             fi
-            echo "Waiting for ${NAME}:${GITHUB_SHA} (attempt ${attempt}/60)…"
+            echo "Waiting for ${NAME}:${TAG} (attempt ${attempt}/60)…"
             sleep 10
           done
-          echo "::error title=No image::${NAME}:${GITHUB_SHA} is not in the registry after ~10 min. Check the 'Deploy Lambda image' run for this commit; an apply that CREATES a function from a tag the registry does not hold fails partway through the fleet. To recover, dispatch 'Deploy Lambda image' with an empty tag, then dispatch this workflow."
+          echo "::error title=No image::${NAME}:${TAG} is not in the registry after ~10 min. Check the 'Deploy Lambda image' run for this commit; an apply that CREATES a function from a tag the registry does not hold fails partway through the fleet. To recover, dispatch 'Deploy Lambda image' with an empty tag, then dispatch this workflow."
           exit 1
 
       - name: OpenTofu apply
@@ -572,10 +625,9 @@ jobs:
           # The web tier's off switch. Unset means on, so nothing is torn down by a variable
           # nobody set; exactly 'false' turns it off. infra/info/web-tier.md.
           TF_VAR_web_tier_enabled: ${{ vars.TF_VAR_web_tier_enabled || 'true' }}
-          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
-          # repository variable: it is an input github.sha already knows, and a stale
+          # Chosen by the step above, never a repository variable or a fallback: a stale
           # default would create functions from an image nobody meant.
-          TF_VAR_lambda_image_tag: ${{ github.sha }}
+          TF_VAR_lambda_image_tag: ${{ steps.lambda_image.outputs.tag }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the
