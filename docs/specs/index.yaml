@@ -1762,6 +1762,13 @@ specs:
     depends_on: ["SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261"]
     arc: "nextjs"
     path: "docs/specs/SPEC-262-the-browser-signs-in-through-the-server.md"
+  - id: "SPEC-263"
+    title: "The Landing Page and the 404 Move, and React Router Retires"
+    description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, and collapses the navigation seam and the test harness onto Next.js alone, closing the arc."
+    spec_status: "Draft"
+    depends_on: ["SPEC-262"]
+    arc: "nextjs"
+    path: "docs/specs/SPEC-263-the-landing-page-and-the-404-move-and-react-router-retires.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1798,7 +1805,7 @@ arcs:
   - name: "infra-building-blocks"
     order: ["SPEC-252", "SPEC-253", "SPEC-254"]
   - name: "nextjs"
-    order: ["SPEC-255", "SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261", "SPEC-262"]
+    order: ["SPEC-255", "SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261", "SPEC-262", "SPEC-263"]
   - name: "notifications"
     order: ["SPEC-058", "SPEC-059", "SPEC-060", "SPEC-061"]
   - name: "observability"
