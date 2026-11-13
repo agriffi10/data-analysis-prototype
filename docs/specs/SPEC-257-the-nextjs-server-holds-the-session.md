@@ -82,9 +82,18 @@ associated with every private route table, carries the session store's traffic i
 neither crosses the NAT nor bills per gigabyte there. The task security group gains egress on 443 to
 `0.0.0.0/0`, because neither destination has a fixed address range, and to the DynamoDB prefix list.
 
+**Task start stays on endpoints.** FR-002 delivers the client secret through the task definition's
+`secrets`, which the ECS agent fetches from SSM through the task's own network interface at start.
+An `ssm` interface endpoint joins the three the module already has, so the agent fetches the
+parameter the way it already pulls the image and opens the log stream. Starting a task never
+depends on the NAT, and the NAT carries only the two destinations above. It is one more interface
+endpoint per zone, billed only while the tier is on.
+
 Everything here lives in `network` or `spa`, so it is on `web_tier_enabled` and costs nothing while
 the tier is off. Flow logs stay: they are now the record of what the task reached, not only of what
-was refused.
+was refused. **A change to the IAM in `network` or `spa` goes unplanned and unscanned while the tier
+is off** (`infra/info/web-tier.md`), so this spec's infrastructure PR opens with the tier already
+switched on (Implementation Phases).
 
 #### Acceptance Criteria:
 
@@ -94,14 +103,18 @@ was refused.
       twice.
 - [ ] Every private route table's one default route targets that NAT gateway, and no route table in
       any other module carries a default route, asserted by a test over the HCL.
-- [ ] The DynamoDB endpoint's route tables are derived from `aws_route_table.private`, never listed,
-      asserted the way the S3 endpoint's are.
+- [ ] A new test asserts that both gateway endpoints, S3's and DynamoDB's, take their route tables
+      from `aws_route_table.private` by expression, never as a list of names. No test asserts this
+      for S3 today.
+- [ ] The interface endpoints' set is exactly `ecr.api`, `ecr.dkr`, `logs` and `ssm`, asserted by a
+      test, and the task's egress to them stays the existing security-group rule.
 - [ ] With the tier on, `describe-route-tables` for each private table shows the local route, the
       S3 and DynamoDB prefix-list routes and `0.0.0.0/0` to the NAT gateway, read beside a sign-in
       on the deployed tier that completed (the token endpoint was reached through it).
-- [ ] The CI plan of the switch-off that ends the live checks destroys the NAT gateway and the
-      Elastic IP and shows no change to the session table, its key, the client-secret parameter or
-      the confidential client.
+- [ ] The switch-off that ends the live checks is a dispatch, and a dispatch applies with no plan
+      job, so its apply log is the record: it destroys only addresses under `module.network[0]` and
+      `module.spa[0]`, the NAT gateway and the Elastic IP among them, and touches nothing under
+      `module.session_store` or `module.auth`.
 - [ ] `infrastructure/there-is-no-nat-gateway-and-the-endpoints-are-the-whole-outbound-story` is
       rewritten in place with a dated History entry, and every other live site stating the no-NAT
       design carries a supersede marker or is corrected: `docs/architecture.md`,
@@ -198,9 +211,18 @@ TTL is storage hygiene and never the boundary.
 token endpoint with the stored refresh token, then writes the new ID token with the condition
 `attribute_exists(pk) AND version = :read_version`, incrementing `version`. The loser of a race gets
 `ConditionalCheckFailedException`, re-reads, and uses the winner's token; if the re-read finds no
-item, the session ended while it refreshed, and the answer is a 401. `attribute_exists(pk)` is not
-optional: `UpdateItem` creates an absent item, so without it a refresh that races a sign-out would
-bring the session back.
+item, the session ended while it refreshed, and the answer is a 401. The condition is what stops a
+refresh that races a sign-out from bringing the session back, because `UpdateItem` creates an
+absent item. Either clause alone refuses an absent item, since a comparison on a missing attribute
+is false; `attribute_exists(pk)` is kept as the explicit statement of that intent, not because the
+version clause would let the write through.
+
+**A forced refresh never adopts an older token.** A `POST /auth/refresh` exists to pick up a
+membership granted a moment ago, and the request it lost to may have called Cognito before that
+grant. So a forced refresh that loses writes its own token against the version it re-read, up to
+three attempts, and answers 503 if it still loses. With rotation off both tokens are valid, so
+writing the newer one costs nothing. A refresh made only because the token was near expiry adopts
+the winner's token, which serves it as well as its own.
 
 **Two tabs refreshing at once** are two requests carrying one cookie, possibly on two tasks.
 Measured while authoring: the live public client reports no `RefreshTokenRotation`, and Cognito
@@ -229,20 +251,28 @@ the server refreshes ahead of them.
       above, recorded in `docs/security-baseline.md`.
 - [ ] A store read that returns an item at or past its absolute expiry yields no session, a 401 from
       the route, and a delete of that item, asserted against a store double.
-- [ ] **The offline harness.** Against a store double that enforces both clauses of the condition,
-      with the interleaving forced (both requests read, then each writes): two refreshes of one
-      session both return a valid ID token, the stored `version` advances once per successful write,
-      and the losing request uses the winner's token with no 401. A sign-out forced between a
+- [ ] **The offline harness.** Against a store double that evaluates the condition as DynamoDB does
+      (a comparison on a missing attribute is false, and an unconditional update creates the item),
+      with the interleaving forced (both requests read, then each writes): two near-expiry refreshes
+      of one session both return a valid ID token, the stored `version` advances once per successful
+      write, and the losing request uses the winner's token with no 401. A sign-out forced between a
       refresh's read and its write leaves the item absent and answers that refresh with 401.
+- [ ] A forced refresh that loses to a near-expiry refresh leaves its own token stored, and one that
+      loses three times answers 503, both against the same double.
 - [ ] The DynamoDB adapter sends exactly the condition expression the double enforces, asserted on
-      the command's input. Deleting `attribute_exists(pk)` from the adapter and the double makes the
-      sign-out interleaving fail; run once and reverted (plant and run, not argued).
+      the command's input. Removing the whole condition expression from the adapter makes the
+      sign-out interleaving fail, because the write recreates the item; run once and reverted (plant
+      and run, not argued).
 - [ ] A test resets the module registry between two requests carrying one cookie, and the second
       finds the session only through the store double.
 - [ ] **The live harness.** On the deployed tier, with one signed-in cookie, 20 concurrent
-      `POST /auth/refresh` and 20 concurrent `GET` calls through `/api/` all succeed, and
-      `GET /auth/session` answers 200 afterwards. A sign-in, a session read, a refresh and a sign-out
-      on the deployed tier each succeed, which is the proof the task role's grants are enough.
+      `POST /auth/refresh` and 20 concurrent `GET /auth/session` all succeed, and `GET /auth/session`
+      answers 200 afterwards. Neither route runs a Lambda. Calls through `/api/` in the harness run at
+      most five at once, because each is an API Lambda invocation and the account's Lambda
+      concurrency is small (10 when this spec was written; `aws lambda get-account-settings` reads
+      it), and a throttle relayed as 503 would read as a session fault. A sign-in, a session read, a
+      refresh and a sign-out on the deployed tier each succeed, which is the proof the task role's
+      grants are enough.
 
 ### FR-004: The session routes and the cookies
 
@@ -252,9 +282,11 @@ Route handlers under `apps/portal/src/app/auth/`, using modules in `src/server/s
 
 - **`GET /auth/login`** generates `state`, a PKCE verifier (S256) and an OIDC `nonce`, sets the
   sign-in cookie `__Host-dq_signin` holding the three (`httpOnly`, `Secure`, `SameSite=Lax`,
-  `Path=/`, `Max-Age=600`, no `Domain`), and redirects to the authorize URL with
-  `redirect_uri=<portal origin>/auth/callback`. The transaction rides in the cookie rather than the
-  table, so an unauthenticated flood of `/auth/login` writes nothing. Nothing can plant the cookie
+  `Path=/`, `Max-Age=3600`, no `Domain`), and redirects to the authorize URL with
+  `redirect_uri=<portal origin>/auth/callback`. An hour, because a sign-up or a password reset in
+  Managed Login waits on an emailed code, and a transaction that expired while the user fetched it
+  would land a newly confirmed user on `/?signin=failed`, signed out. The transaction rides in the
+  cookie rather than the table, so an unauthenticated flood of `/auth/login` writes nothing. Nothing can plant the cookie
   in a victim's browser, because the `__Host-` prefix refuses a sibling subdomain's `Domain` cookie
   and `Secure` refuses the network.
 - **`GET /auth/callback`** requires the sign-in cookie and a `state` equal to the cookie's, exchanges
@@ -266,8 +298,10 @@ Route handlers under `apps/portal/src/app/auth/`, using modules in `src/server/s
   under a **fresh** random id (32 bytes, base64url), sets `__Host-dq_session` exactly as the
   charter names it (`httpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, no `Max-Age`, no `Domain`),
   clears the sign-in cookie, and redirects to `/`. Any failure, including a provider `error`
-  parameter, a missing or mismatched cookie, a failed exchange and a failed claim check, clears the
-  sign-in cookie and redirects to `/?signin=failed`.
+  parameter, a missing or mismatched cookie, a failed exchange and a failed claim check, redirects
+  to `/?signin=failed`. It clears the sign-in cookie only when the cookie's `state` matched: a
+  mismatch means the cookie belongs to another sign-in still in flight, from a second tab or a
+  replayed old callback, and clearing it would fail that one too.
 - **`POST /auth/logout`** deletes the session item, then revokes the refresh token at the revocation
   endpoint (a failed revocation is logged by its code and does not fail the sign-out), clears the
   session cookie, and answers 200 with `{logoutUrl}`, the provider's logout URL with the
@@ -305,8 +339,9 @@ URL; it is single-use, short-lived, and useless without both the secret and the 
       cookie's verifier, asserted by parsing both.
 - [ ] A callback with no sign-in cookie, a mismatched `state`, an `error` parameter, a failed
       exchange, or an ID token whose `aud`, `iss`, `token_use`, `nonce` or `exp` is wrong each
-      redirect to `/?signin=failed`, create no session, and clear the sign-in cookie: one test per
-      exit, each asserting that the token endpoint was or was not called, as its exit requires.
+      redirect to `/?signin=failed` and create no session: one test per exit, each asserting that
+      the token endpoint was or was not called, as its exit requires. Every exit whose `state`
+      matched the cookie clears the sign-in cookie, and the mismatched-`state` exit leaves it set.
 - [ ] A successful callback sets `__Host-dq_session` with exactly the charter's attributes, to an id
       that differs from any session cookie the request carried, deletes the session that cookie
       named, and redirects to `/`.
@@ -353,6 +388,12 @@ sends the API today, under the HTTP API's header quota with a worst-case ID toke
 
 **Bounds.** A request body over the HTTP API's 10 MB payload quota answers 413 `PayloadTooLarge`
 without being forwarded, and the body is read only after the `Origin` and session checks pass. A
+declared `content-length` over the cap is refused before reading, and the read counts bytes and
+stops past the cap for a body that declared none. The request proxy is the trap here: with a proxy
+present, Next.js buffers a body only up to `proxyClientMaxBodySize` (10 MB by default) and passes a
+longer one on **truncated, with no error**, so a handler counting bytes would see exactly 10 MB and
+forward a cut-off JSON body. `experimental.proxyClientMaxBodySize` is therefore set one byte above
+the cap, so an oversized body reaches the handler long enough to be counted. A
 forward that has not answered after 35 seconds, past the API Gateway integration's 30, answers 503
 `ApiUnavailable`. An API 401 passes through as the API sent it, and the session is left alone.
 
@@ -376,9 +417,12 @@ design and is protected by `state` and the sign-in cookie.
       never reaches the browser, and the forwarded header names equal the allowlist exactly.
 - [ ] A session whose ID token expires within 300 seconds is refreshed before the forward, and one
       expiring later is not, asserted on the token-endpoint double's call count.
-- [ ] A body over 10 MB answers 413 with no forward; an API that does not answer in 35 seconds
-      yields 503 (driven with fake timers); an API 401 reaches the browser unchanged and the item is
-      not deleted.
+- [ ] A body over 10 MB answers 413 with no forward, both with a `content-length` and chunked
+      without one; an API that does not answer in 35 seconds yields 503 (driven with fake timers);
+      an API 401 reaches the browser unchanged and the item is not deleted.
+- [ ] Against `next start` with SPEC-255's request proxy in place, not in Vitest, which runs no
+      proxy: a `POST` through `/api/` of 10 MB plus one byte answers 413 and reaches no API double,
+      and one of exactly 10 MB is forwarded whole, its byte count asserted at the double.
 - [ ] Every unsafe method under `/api/` and on each `/auth/` route answers 403 `AccessDenied` with
       `Origin` absent, with `Origin` set to the API's origin, and with `Origin` set to
       `PORTAL_ORIGIN` plus a port, in each case before any store read. The same request with
@@ -413,10 +457,11 @@ code is running in the fleet before a later PR sets it to two ids. In the other 
 still running the old code reads `a,b` as one exact audience and refuses every token. **Lambda
 builds must be on for both merges**: while `LAMBDA_BUILDS_ENABLED` is not `true`, no image is built
 or pointed, and `.github/scripts/frozen_fleet_guard.py` refuses any plan that changes a function's
-`environment`. The build switches Lambda builds on following `.github/workflows/README.md`
-(*Turning Lambda builds back on*) before the first of those merges, confirms after the second that
-the API function runs the commit that set both audiences, and switches them back off. It says so in
-its report.
+`environment`. Unless they are already on, the build switches Lambda builds on through the
+repository variable, following `.github/workflows/README.md` (*Turning Lambda builds back on*),
+before the first of those merges, and confirms after the second that the API function runs the
+commit that set both audiences. Its report says when it turned them on. Andrew approved them staying
+on for the arc's build-out (2026-11-13); they go off when the arc ends, not when this spec does.
 
 #### Acceptance Criteria:
 
@@ -580,6 +625,7 @@ infra/
 ├── modules/spa/                           # + environment, secrets, task-role and execution-role grants
 └── modules/base/policies/                 # + the deploy role's grants, in their own PR
 scripts/check_client_bundle.py              # FR-007
+apps/portal/next.config.*                   # + experimental.proxyClientMaxBodySize (FR-005)
 ```
 
 ## Implementation Phases
@@ -597,7 +643,12 @@ scripts/check_client_bundle.py              # FR-007
 
 ### Phase 2: The infrastructure
 
-- `network`: the NAT gateway, its Elastic IP, the private default routes, the DynamoDB endpoint;
+- **Switch the tier on through the repository variable and CI before this phase's PR opens**, so its
+  plan holds `network` and `spa` and the plan-time IAM scan reads their new policies. Opened with
+  the tier off, the PR's plan would hold neither, and its apply would be the first time those
+  policies were evaluated (`infra/info/web-tier.md`).
+- `network`: the NAT gateway, its Elastic IP, the private default routes, the DynamoDB endpoint, the
+  `ssm` interface endpoint;
   `spa`: the task's egress, environment, `secrets`, and both roles' grants; `auth`: the confidential
   client and the SSM parameter; `session-store`: the table and key; the root: `OIDC_AUDIENCE` set to
   both clients; `deploy-infra.yml`: branding for both clients.
@@ -610,8 +661,9 @@ scripts/check_client_bundle.py              # FR-007
 
 ### Phase 4: Live, then off
 
-- Switch the tier on through the repository variable and CI, run FR-001's, FR-002's, FR-003's and
-  FR-005's live checks, switch the tier off and read that plan, and switch Lambda builds off.
+- With the tier still on from Phase 2, run FR-001's, FR-002's, FR-003's and FR-005's live checks,
+  then switch the tier off through the repository variable and CI, and read that apply's log
+  (FR-001).
 - The completion ritual: the four decisions rewritten in place, a new `identity-and-access/`
   decision for the session's design (the cookie-held sign-in transaction, the compare-and-set
   refresh, expiry on read, faults that are not sign-outs, the `Origin` check), and `owed.md` rows
