@@ -3353,7 +3353,7 @@ questions settle the arc's shape:
   Cognito's token endpoint and the API.
 
 **What does not change.** There is still **one API**. The Next.js server's route handlers are the
-session (sign-in, callback, sign-out, the current user, a forced refresh) and a pass-through proxy
+session (sign-in, callback, sign-out, the current user, a forced refresh) and a pass-through
 to that API, and nothing else: a business route in the Next.js server is a second API, which
 `CLAUDE.md`'s Out of Scope forbids. The API stays a bearer **verifier** and no route changes; its
 one change is the audience it accepts (257 and 262 below). File bytes still go straight from the
@@ -3370,19 +3370,20 @@ authority; this table is the reasoning.
 |---|---|---|---|
 | 255 | The portal is a Next.js app served by a Node container: the toolchain, the client-only mount, the runtime document, the security headers and per-request CSP nonce, the image, and the CloudFront static path retired | — | — |
 | 256 | The App Router owns the shell: providers and the signed-in shell move into layouts above every page, every feature navigates through one seam, router-state hand-offs stop depending on react-router, and the route table and its cross-area tests split into one module per area | 255 | 257 |
-| 257 | The Next.js server holds the session, beside Amplify and not yet used by the browser: the NAT gateway, a confidential Cognito app client, the session store, the session routes, the API proxy and its CSRF defence, and the verifier accepting both clients | 255 | 256, 258–261 |
+| 257 | The Next.js server holds the session, beside Amplify and not yet used by the browser: the NAT gateway, a confidential Cognito app client, the session store, the session routes, the `/api/` pass-through and its CSRF defence, and the verifier accepting both clients | 255 | 256, 258–261 |
 | 258 | Files, Notifications and Help move onto the App Router | 256 | 257, 259–261 |
 | 259 | Query moves onto the App Router | 256 | 257, 258, 260, 261 |
 | 260 | Explore and Connections move onto the App Router | 256 | 257, 258, 259, 261 |
 | 261 | Data quality and its report route move onto the App Router | 256 | 257, 258–260 |
-| 262 | The browser signs in through the server: the auth provider and the API client move onto the session routes and the proxy, Amplify and the public app client retire, the verifier narrows to the confidential client, and `connect-src` loses the Cognito hosts and the API origin | 256, 257, 258–261 | — |
+| 262 | The browser signs in through the server: the auth provider and the API client move onto the session routes and the `/api/` route handler, Amplify and the public app client retire, the verifier narrows to the confidential client, and `connect-src` loses the Cognito hosts and the API origin | 256, 257, 258–261 | — |
 | 263 | The landing page and the 404 move, and react-router and the catch-all retire | 262 | — |
 
 **Why this order.** 255 is the critical path and the riskiest change, because every later spec
 builds on its toolchain and it switches the live front door. It is one spec because its halves
 cannot merge apart: a Next.js build breaks both the nginx image and the static deploy the moment it
-lands. 256 and 257 build in parallel; the one source file they share is `eslint.config.js`, whose
-`no-restricted-imports` clauses both edit, so whichever lands second rebases onto the first and
+lands. 256 and 257 build in parallel. The source files they share are `eslint.config.js`, whose
+`no-restricted-imports` clauses both edit, `src/lib/eslintConfigShape.test.ts`, which guards those
+clauses, and `package.json` with its lockfile; whichever lands second rebases onto the first and
 keeps both. The four area moves need only 256's seam, and 256 splits the route table and the four
 cross-area test files (`App.test.tsx`, `App.navigation.test.tsx`, `App.queryNavigation.test.tsx`,
 `routes/routes.test.tsx`) so that each move edits only its own. **262 waits for the area moves**
@@ -3405,43 +3406,63 @@ dated note under this entry.
   the coverage include already reach them. Server-only modules sit in `apps/portal/src/server/`,
   each beginning `import 'server-only'`, and nothing under `src/features/`, `src/components/` or
   `src/lib/` imports them.
-- **The shell lives above every page.** The signed-in shell (`ProtectedLayout` and what it holds:
-  the upload queue, the in-flight file operations, the Query workspace's runs) outlives every
-  signed-in page and no ancestor may remount it. So from 256 on, the providers sit in the root
-  layout and the signed-in shell and its gate in `src/app/(signed-in)/layout.tsx`, **above both the
-  catch-all and every moved area's page**: a navigation between an area still on react-router and
-  one on the App Router swaps a child of that layout and never remounts it. 256 rewrites
-  `layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits` for this, including how its
-  proof keeps rendering the real route table when part of the table is the file system.
+- **The shell outlives every signed-in page, and only signed-in pages.** These are invariants; how
+  the layout tree meets them is 256's to design, and its spec review runs the design rather than
+  reading it. The signed-in shell (`ProtectedLayout` and what it holds: the upload queue, the
+  in-flight file operations, the Query workspace's runs) must not remount on any navigation between
+  two signed-in pages, whichever router renders each, so it lives in an App Router layout above
+  both the catch-all and the moved areas' pages. It must still unmount on sign-out and on leaving
+  for a public page. The landing page (`/`) and the 404 render without the shell and outside the
+  sign-in gate, as today, even though the optional catch-all matches both, so the gate decides by
+  path rather than by where the catch-all sits. `RootLayout` (the header, the skip link, the
+  nav-rail provider, the outer boundary) stays above both the public pages and the shell, as today.
+  256 rewrites `layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits` for this,
+  including how its proof keeps rendering the real route table when part of the table is the file
+  system.
+- **The boot stays ahead of everything that reads configuration.** Today `main.tsx` loads
+  `/config.json`, configures Amplify, and only then imports the app, and `bootstrap.test.tsx`
+  asserts that order. A layout above the catch-all is prerendered on the server, where a provider
+  that reads configuration throws in a production build while dev and Vitest stay green, because
+  both fall back to development values. So every provider hoisted into a layout renders client-only
+  behind the boot, the boot and its static-import sweep move with them (256), and nothing
+  module-scoped, such as the `QueryClient`, is shared across server requests.
 - **Every page renders per request.** A per-request nonce exists only on a dynamically rendered
   page; a prerendered one carries none and its scripts are blocked. 255's root layout opts the
   whole app into dynamic rendering, and no later page opts out.
-- **The request proxy** owns the nonce and the security headers. Session work belongs in route
-  handlers, not in the proxy.
+- **The request proxy** (`src/proxy.ts`) owns the nonce and the security headers. Session work
+  belongs in route handlers, not in the request proxy.
 - **Environment.** Runtime-document keys stay `CONFIG_<key>`, and the browser-facing source list is
   still `PORTAL_CSP_CONNECT_SRC`. Server-only settings (the session, the OIDC client and its secret)
   are server environment variables only and never appear in the browser's document.
 - **The session routes** (257). `GET /auth/login` and `GET /auth/callback` run the authorization
-  code flow with PKCE and `state`. `POST /auth/logout` ends the server session and answers with
+  code flow with PKCE and `state`. A successful callback redirects to `/`, where the landing page
+  reads the saved return path from sessionStorage as it does today; a failed or cancelled one
+  redirects to `/?signin=failed`, which shows today's "Sign-in failed or was cancelled." message. `POST /auth/logout` ends the server session and answers with
   the provider's logout URL, which the browser then navigates to (a form post to another origin is
   refused by the CSP's `form-action 'self'`). `GET /auth/session` answers `{username, email?}`, the
   existing `AuthUser` shape, or a 401. `POST /auth/refresh` forces a token refresh so newly granted
-  shared-space claims arrive. The cookie is `__Host-dq_session`: `httpOnly`, `Secure`,
+  shared-space claims arrive, answering 204, or 401 when the session is gone. The cookie is `__Host-dq_session`: `httpOnly`, `Secure`,
   `SameSite=Lax`, `Path=/`, no `Max-Age`, no `Domain`.
-- **The API proxy** (257) is the same-origin prefix `/api/`: `/api/<rest>` is forwarded to
-  `<apiBaseUrl>/<rest>` with the prefix removed, so today's `/v1/...` paths arrive unchanged, and
-  the server attaches the session's ID token as the bearer. The proxy owns refresh: it refreshes a
-  token near expiry before forwarding, so a 401 that reaches the browser means the session is gone.
+- **The `/api/` route handler** (257) is the API's same-origin pass-through: `/api/<rest>` is
+  forwarded to `<API origin>/<rest>` with the prefix removed, so today's `/v1/...` paths arrive
+  unchanged, and the server attaches the session's ID token as the bearer. The API origin is a
+  server-only setting, not the browser document's `apiBaseUrl`, which 262 removes along with the
+  Amplify keys. The `/api/` route handler owns refresh: it refreshes a token near expiry before
+  forwarding, so a 401 that reaches the browser means the session is gone.
   Every unsafe method on `/api/` and `/auth/` checks `Origin` against the portal's own origin,
   because `SameSite=Lax` does not stop a request from a sibling subdomain such as the API's.
 - **The verifier's audience** (257, 262). The API checks one exact `aud`, today the public client's
-  id. 257 widens it to the set of both clients, so the proxy can be proved while the browser still
+  id. 257 widens it to the set of both clients, so the `/api/` route handler can be proved while the browser still
   signs in through Amplify; 262 narrows it to the confidential client when the public one retires.
 - **The confidential client's login page** (257). Managed Login's pages fail to render for an app
   client without a branding style, and `deploy-infra.yml` brands only the client it names; 257 brands the
   new client too.
 - **The navigation seam** (256): `apps/portal/src/lib/navigation/` exports the hooks and links
-  every feature uses (navigate, link, nav link, location, search params, route params). After 256 a
+  every feature uses: navigate, link, nav link, location, search params, route params, the
+  navigation type (push, replace or pop), a per-history-entry key, a declarative redirect and a
+  path matcher, because `useSpaceLinkPending.ts` reads `location.key` and `useNavigationType()`,
+  `linkFlags.ts` uses `matchPath`, and `ProtectedLayout` renders `<Navigate>`, none of which the
+  App Router provides as such. After 256 a
   feature imports nothing from `react-router` directly, and a lint rule holds that. During the
   coexistence the seam decides per path whether a navigation belongs to react-router or to the App
   Router.
@@ -3449,7 +3470,9 @@ dated note under this entry.
   `src/routes/areas/<area>.tsx`; the record of which router owns an area is
   `src/lib/navigation/areas/<area>.ts`; the cross-area tests are split the same way. An area's App
   Router page is `src/app/(signed-in)/<area>/page.tsx`, and the data-quality report's is
-  `src/app/(signed-in)/data-quality/[space]/[requestId]/page.tsx`.
+  `src/app/(signed-in)/data-quality/[space]/[requestId]/page.tsx`. 256 also makes the shared
+  test harness, `src/test/renderWithProviders.tsx`, work under either router, since today it
+  hard-codes `MemoryRouter` and every area move would otherwise edit it.
 - **Where the new infrastructure sits** (257). The NAT gateway belongs to the `network` module and
   so to the web tier's switch. The session table and its customer-managed key sit outside the
   switch, so switching the tier off does not schedule a key for deletion or drop every session.
@@ -3469,8 +3492,10 @@ the spec named, and every other site still stating the old claim gets a supersed
   `security-scanning`: the weekly ZAP scan has no target while the tier is off, and must neither
   fail nor go quiet unnoticed.
 - 256, under `browser/`: `sibling-features-hand-off-through-router-state-read-once-per-history`
-  (the hand-off keeps its read-once rule on a mechanism that works under both routers) and
-  `layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits`.
+  (the hand-off keeps its read-once rule on a mechanism that works under both routers),
+  `layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits`, and
+  `a-space-the-cached-list-lacks-is-refused-only-on-a-read-after-the-link` (its "a pop is not a
+  follow" rule now reads the seam's navigation type).
 - 257: `infrastructure/there-is-no-nat-gateway-and-the-endpoints-are-the-whole-outbound-story`,
   `infrastructure/the-web-tier-has-an-off-switch-and-the-balancer-gave-up-its-deletion` (what the
   switch now holds), `identity-and-access/the-provider-block-is-the-apis-verifier-configuration-and-it-is-server`
@@ -3481,11 +3506,15 @@ the spec named, and every other site still stating the old claim gets a supersed
   session per browser), `the-api-is-a-verifier-not-an-oidc-client` (its verifier half stands; its
   "no cookie, so no CSRF surface" half now describes the API alone, and the server's cookie carries
   257's defence), `apirequest-retries-nothing-and-idempotency-is-declared-per-route` (the browser's
-  401-then-refresh path gives way to the proxy's refresh), `hosted-ui-managed-login-v2` (sign-in
+  401-then-refresh path gives way to the `/api/` route handler's refresh), `hosted-ui-managed-login-v2` (sign-in
   and sign-up go through `/auth/login`, not Amplify), and `no-backend` (the browser reaches presigned
-  bytes and its own origin, and nothing else). Also
-  `infrastructure/configuration-is-a-runtime-document-and-a-production-build-has-no`, whose Amplify
-  keys leave the browser's document.
+  bytes and its own origin, and nothing else), and `the-provider-block-is-the-apis-verifier-configuration-and-it-is-server`
+  (its Amplify passages). Under `infrastructure/`: `configuration-is-a-runtime-document-and-a-production-build-has-no`
+  (the Amplify keys and `apiBaseUrl` leave the browser's document),
+  `connect-src-comes-from-the-task-definition-every-other-csp-directive-is` (its end state named
+  the Cognito hosts and the API), and `the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover`
+  (the API's CORS and the public client's callback list retire with the public client, since no
+  browser calls the API any more).
 
 `docs/transition_plan.md` §2 item 11 and §4.7 put the session backend in the API Lambda; that
 placement is reversed to the Next.js server, and every state rule in §4.7 stands.

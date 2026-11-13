@@ -269,7 +269,7 @@ Treated as inputs. Do not re-litigate without new information.
     **Re-decided 2026-11-13 (the Next.js arc): the session runs in the portal's Next.js server.**
     The client environment's requirement for a Next.js server put a server beside the SPA again,
     and it holds the opaque cookie, the code exchange and the token store; the API stays a bearer
-    verifier behind that server's proxy. Every state rule in §4.7 stands.
+    verifier behind that server's `/api/` pass-through. Every state rule in §4.7 stands.
 12. **Users and groups must exist in Identity Center BEFORE use, and nothing in this architecture
     creates them.** The token exchange maps a claim to an existing Identity Center user and populates
     nothing; **Identity Center performs no just-in-time provisioning**, so an unprovisioned user's
@@ -1695,7 +1695,7 @@ neither routes through this application's API — is in `docs/specs/ARCS.md` und
 > Next.js on Node instead of nginx, and the CSP gains a per-request nonce (SPEC-255). The jobs in
 > the table below keep their answers, re-implemented in the server. The two-origins paragraph just
 > below is superseded too: the session cookie is host-only (`__Host-`) on the portal's origin and
-> never reaches the API, the browser calls the API through the server's same-origin proxy, and
+> never reaches the API, the browser calls the API through the server's same-origin `/api/` pass-through, and
 > `connect-src` ends as `'self'` plus the S3 endpoints for presigned bytes (SPEC-262).
 
 **The shape that landed, because this section was written before it.** The SPA is the container
@@ -1787,7 +1787,7 @@ backend, the portal acquires genuine uptime work it did not have before. Budget 
 runs was re-decided on 2026-11-13 (the Next.js arc):** the session — the opaque cookie, the
 authorization-code exchange and the token store — runs in the portal's **Next.js server**, in the
 web tier's container, and the API stays a **Lambda behind API Gateway** that verifies the bearer the
-server's proxy forwards. Arc B had placed the BFF in that Lambda, because no server sat beside the
+server's `/api/` pass-through forwards. Arc B had placed the BFF in that Lambda, because no server sat beside the
 SPA; the client environment's requirement for a Next.js server put one there again, and the session
 went to it. Where Phase 1's Identity Center exchange runs, the server or the API, is decided in that
 phase against the state rules below.
