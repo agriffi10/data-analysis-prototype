@@ -459,14 +459,19 @@ check_absent "…and not the first's" "$(header content-security-policy)" "cogni
 
 section "Shutdown"
 # ECS stops a task with SIGTERM and kills it thirty seconds later. A server that ignores the signal
-# holds every deployment for those thirty seconds and then dies mid-request.
+# holds every deployment for those thirty seconds and then dies mid-request. The timeout is stated
+# rather than inherited, because a daemon's default can be a second, and judged by exit code as well
+# as time: 137 is a container that was killed, whatever the clock says.
 STARTED=$(date +%s)
-docker stop "$NAME" >/dev/null 2>&1
+docker stop --time 10 "$NAME" >/dev/null 2>&1
 ELAPSED=$(( $(date +%s) - STARTED ))
-if [ "$ELAPSED" -le 3 ]; then
-  pass "SIGTERM stops the server within three seconds (${ELAPSED}s)"
+STOP_CODE=$(docker inspect -f '{{.State.ExitCode}}' "$NAME" 2>/dev/null)
+if [ -z "$STOP_CODE" ]; then
+  fail "SIGTERM stops the server" "could not read the stopped container's exit code"
+elif [ "$STOP_CODE" = "137" ] || [ "$ELAPSED" -gt 3 ]; then
+  fail "SIGTERM stops the server within three seconds" "exit ${STOP_CODE} after ${ELAPSED}s; 137 means it was killed, not stopped"
 else
-  fail "SIGTERM stops the server within three seconds" "it took ${ELAPSED}s"
+  pass "SIGTERM stops the server within three seconds (exit ${STOP_CODE}, ${ELAPSED}s)"
 fi
 
 printf '\n%s\n' "----------------------------------------"
