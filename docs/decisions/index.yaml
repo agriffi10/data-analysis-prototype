@@ -1168,7 +1168,7 @@ areas:
         status: "stable"
         path: "docs/decisions/infrastructure/the-scopability-measurement-turns-on-which-arn-the-deny-leg-uses-and.md"
       - title: "The SPA deploy decides from what is running, not from a path filter — and the Lambda image deliberately does not"
-        fence: "`deploy-spa-image.yml` decides from live state against the deployed commit, re-points unless the PRIMARY deployment settled, and never skips on a dispatch. Do not add a `paths:` filter, and leave the Lambda image building on every push: downstream workflows name `github.sha` as its tag."
+        fence: "`deploy-spa-image.yml` decides from live state against the deployed commit, re-points unless the PRIMARY deployment settled, and never skips on a dispatch. Do not add a `paths:` filter, and while Lambda builds are on, leave the Lambda image building on every push: downstream workflows name `github.sha` as its tag. While `LAMBDA_BUILDS_ENABLED` is off, nothing builds it and `deploy-infra.yml` names the image the fleet runs."
         status: "stable"
         path: "docs/decisions/infrastructure/the-spa-deploy-decides-from-what-is-running-not-from-a-path-filter-and.md"
       - title: "The web tier has an off switch, and the balancer gave up its deletion protection for it"

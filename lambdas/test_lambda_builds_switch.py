@@ -215,3 +215,38 @@ def test_a_skipped_job_holds_off_what_needs_it_unless_a_status_function_override
         }
     }
     assert _runnable_without_switch(document) == {"report", "notify", "lint"}
+
+
+def test_every_step_that_reads_the_switch_reads_the_same_variable_as_the_jobs() -> None:
+    """The deploy steps that branch on the switch read the variable the job conditions name.
+
+    The image choice and the frozen fleet guard read the switch through a step's ``env``, which no
+    job condition sees, so renaming the variable in the conditions alone would leave them reading
+    an empty value forever, choosing the running image and refusing plans with builds on.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a step reads the switch under another name, or the three readers are not
+        all found.
+    """
+    variable = GATE.split()[0]
+    readers = []
+    for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for name, job in (document.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                for key, value in (step.get("env") or {}).items():
+                    if key.endswith("BUILDS_ENABLED") or "BUILDS_ENABLED" in str(value):
+                        readers.append(
+                            (f"{path.name}:{name}:{step.get('name')}", key, value)
+                        )
+    assert len(readers) == 3, readers
+    for where, key, value in readers:
+        assert (key, value) == ("LAMBDA_BUILDS_ENABLED", "${{ " + variable + " }}"), (
+            where
+        )

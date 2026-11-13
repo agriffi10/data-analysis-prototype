@@ -166,7 +166,7 @@ class TestVerdict:
 
     @pytest.mark.parametrize("conclusion", ["skipped", "neutral"])
     def test_a_skipped_or_neutral_run_passes(self, conclusion):
-        """While deploys are switched off, every push run on main is skipped, and main must still read as green."""
+        """A workflow whose jobs all skipped, as the Lambda builds do while switched off, must still read as green."""
         ok, bad = watch_ci.verdict([run("Deploy Lambdas", conclusion=conclusion)])
         assert ok is True
         assert bad == []

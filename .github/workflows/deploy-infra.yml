@@ -17,6 +17,7 @@ on:
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
+            '.github/scripts/frozen_fleet_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
@@ -27,6 +28,7 @@ on:
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
+            '.github/scripts/frozen_fleet_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
@@ -264,6 +266,14 @@ jobs:
             echo "::error title=Checkov (plan)::plan.json is not valid plan output — refusing to report zero."
             exit 1
           fi
+
+      # While Lambda builds are off a merge reaches a function's configuration and never its code,
+      # so a plan that creates a function or changes its handler command or environment would
+      # merge green and fail at invoke. The script says which changes it lets through and why.
+      - name: Refuse Lambda changes the running image cannot serve
+        env:
+          LAMBDA_BUILDS_ENABLED: ${{ vars.LAMBDA_BUILDS_ENABLED }}
+        run: python3 .github/scripts/frozen_fleet_guard.py --plan infra/plan.json
 
       # The fixture SPEC-213 FR-002 compares the cutover against, captured from the plan as it is
       # BEFORE anything moves. It is uploaded rather than written into the repo by CI: a fixture a
@@ -555,7 +565,8 @@ jobs:
       # "once" includes every function this apply creates, and `deploy-lambda-image.yml` carries no
       # `paths:` filter, so it fires on the SAME PUSH as this apply and the two race. Losing that
       # race fails CreateFunction partway through the fleet. While Lambda builds are off the tag is
-      # one the fleet already runs, so this returns on its first look.
+      # one the fleet already runs, so this returns on its first look, and the dispatch recovery
+      # below does not apply: a dispatched image build is skipped too.
       #
       # IT FAILS ON A DISPATCH TOO, and that is deliberate rather than an oversight. The dispatch
       # path exists for a dropped push event — which drops the IMAGE build as well, so main's tip
@@ -584,7 +595,7 @@ jobs:
             echo "Waiting for ${NAME}:${TAG} (attempt ${attempt}/60)…"
             sleep 10
           done
-          echo "::error title=No image::${NAME}:${TAG} is not in the registry after ~10 min. Check the 'Deploy Lambda image' run for this commit; an apply that CREATES a function from a tag the registry does not hold fails partway through the fleet. To recover, dispatch 'Deploy Lambda image' with an empty tag, then dispatch this workflow."
+          echo "::error title=No image::${NAME}:${TAG} is not in the registry after ~10 min. Check the 'Deploy Lambda image' run for this commit; an apply that CREATES a function from a tag the registry does not hold fails partway through the fleet. To recover with Lambda builds on, dispatch 'Deploy Lambda image' with an empty tag, then dispatch this workflow. With them off the tag is the one dat-prod-api runs, so check it is still in the registry."
           exit 1
 
       - name: OpenTofu apply
