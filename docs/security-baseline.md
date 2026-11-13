@@ -724,7 +724,7 @@ So the statement became two:
 
 ## What remains, and why it is not fixable
 
-> **Superseded again 2026-11-02:** the static portal's deploy grant raises both findings for two unscopable CloudFront actions, and `.github/checkov-plan-accepted.txt` carries them. **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
+> **Nothing remains again, 2026-11-13:** the static portal was deleted when the Next.js server became the only front door, its deploy grant was removed once the destroy had applied, and `.github/checkov-plan-accepted.txt` is empty. **Superseded again 2026-11-02:** the static portal's deploy grant raises both findings for two unscopable CloudFront actions, and `.github/checkov-plan-accepted.txt` carries them. **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
 > role's `cloudfront:*` statement came off one apply later; with it gone the rendered policy reports
 > **zero** CKV_AWS_290 and CKV_AWS_355, so `.github/checkov-plan-accepted.txt` is empty and every IAM
 > finding on the plan now blocks. Measured against the pinned checkov's own scanner, not argued —

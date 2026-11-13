@@ -12,10 +12,10 @@
 # Gating those twice would make this job fail for reasons that have nothing to do with what
 # it exists to check. The full count is still published to the summary.
 #
-# WHY AN ACCEPT LIST AND NOT A BLANKET BLOCK. It holds two findings on the static portal's deploy
-# grant, raised by CloudFront create actions the scanner's data calls restrictable and IAM does
-# not. An entry is accepted by check ID AND resource — not by check ID — so the same rule firing on
-# any other policy still fails.
+# WHY AN ACCEPT LIST AND NOT A BLANKET BLOCK. It is empty today; it has held findings raised by
+# actions the scanner's data calls restrictable and IAM does not (the static portal's CloudFront
+# create actions, gone with its grant). An entry is accepted by check ID AND resource — not by check
+# ID — so the same rule firing on any other policy still fails.
 #
 # A STALE ACCEPT IS A HARD ERROR, same as the .tf enforced list. An acceptance that matches
 # no finding either describes something already fixed or points at a resource that has been

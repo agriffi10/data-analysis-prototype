@@ -62,9 +62,9 @@ env:
   # `report` | `block`, applied by .github/scripts/apply-gate.sh.
   #
   # BLOCKING as of 2026-08-09, on a narrowed count: IAM findings that are not on
-  # .github/checkov-plan-accepted.txt. That list is EMPTY as of 2026-09-02, so the count is
-  # every IAM finding on the plan — the two it carried were the deploy role's `cloudfront:*`
-  # statement, and they went with it. The list stays keyed by check ID AND resource, because
+  # .github/checkov-plan-accepted.txt. That list is EMPTY, so the count is every IAM finding on
+  # the plan. It has held the deploy role's CloudFront create actions twice, and each time they
+  # went with the distribution they existed for, the second time with the static portal. The list stays keyed by check ID AND resource, because
   # the next acceptance must not suppress the same rule on another policy. The isolation
   # policies have never had one.
   GATE_CHECKOV_PLAN: block
