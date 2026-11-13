@@ -65,6 +65,21 @@ charter accepts.
   their guards deleted, the weekly ZAP scan made to skip loudly while the tier is off, and the
   deploy role's static-portal grant narrowed once the destroy has applied.
 - The live checks below, run on the web tier switched on through CI and then switched off.
+- The documents that describe what this replaces, brought up to date in the build:
+  `apps/portal/info/runtime-configuration.md` (the wiring sites), the runtime-config boot-failure
+  row of `docs/testing/owed.md` (whose procedure is nginx, `jq` and the entrypoint),
+  `infra/modules/spa/README.md`, `docs/architecture.md`'s front-door passage, `docs/testing/e2e.md`'s
+  container checks, `docs/process/ci-and-deploy-traps.md`'s wiring-site bullet, and
+  `docs/security-baseline.md` for the Checkov removal.
+- At completion, the decision rewrites the charter assigns to 255: under `infrastructure/`,
+  `cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill`,
+  `the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are`, `response-headers-csp`,
+  `the-image-is-the-file-set-which-retires-a-reconciliation-pass-and-an`,
+  `connect-src-comes-from-the-task-definition-every-other-csp-directive-is`,
+  `configuration-is-a-runtime-document-and-a-production-build-has-no` and
+  `the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover` (the development origin
+  stays `localhost:5173` because the dev script pins Next's port); under `gates-and-tests/`,
+  `security-scanning`; and `CLAUDE.md`'s Project Overview and Tech Stack rows.
 
 ### Out of Scope
 
@@ -99,7 +114,11 @@ Vite migration guide, a root layout replaces `index.html`, and one optional catc
 The boot keeps today's order: fetch `/config.json`, configure Amplify, then import `AppRoot`
 (`BrowserRouter` and everything inside it) and render it, or render `BootFailure` with the one
 console line naming the reason. `main.tsx` and `index.html` are deleted, and the boot's
-static-import sweep moves to the new boot module.
+static-import sweep moves to the new boot module. The root layout, not the boot, imports
+`index.css`, so the stylesheet is linked in the server's HTML rather than injected after the boot;
+the guard that pins the one stylesheet import (`colourLiterals.test.ts`) follows it there. The
+layout's `<html>` carries `suppressHydrationWarning`, because `theme-init.js` stamps `data-theme`
+on it before hydration and React otherwise reports the mismatch (measured under `next dev`).
 
 `npm run build` is `tsc -b && next build`, and `next.config.ts` sets
 `typescript.ignoreBuildErrors: true`, because the measured `next build` check reads the solution
@@ -162,9 +181,10 @@ holds no JavaScript.
 
 - [ ] No file under `apps/portal/src` outside tests contains `?worker`, `?raw` or `?url`, and
       `SqlEditor.test.tsx` carries no mock of a worker path.
-- [ ] `npm run check:bundle` exits 0 after `npm run build`; with a planted
-      `import.meta.env.VITE_PLANTED` read outside any `MODE` guard it exits non-zero naming the
-      name; with `.next/static` removed it exits non-zero.
+- [ ] `npm run check:bundle` exits 0 after `npm run build`; with a planted unguarded
+      `devFallbackValue('appUrl')` call in a module the app imports (which keeps the `VITE_` name
+      table alive in the bundle, the thing the script is documented to catch) it exits non-zero
+      naming a `VITE_` name; with `.next/static` removed it exits non-zero.
 - [ ] A unit test with `MODE` stubbed to `production` asserts that a configuration read before
       the document loads throws `RuntimeConfigNotLoadedError`, and one with `MODE` stubbed to
       `development` asserts the same, so the fallback cannot answer under `next dev`.
@@ -188,7 +208,10 @@ task environment: `{version: 1}` plus one key per entry of the browser's own cla
 because the document is world-readable. The route handler `src/app/config.json/route.ts` serves it
 as JSON with `Cache-Control: no-store`. Reading the classification the browser reads collapses two
 of today's five wiring sites (the classification and the entrypoint's own `KEYS`/`REQUIRED` lists)
-into one, so the guards that compare the legs compare four.
+into one. The four left are the classification, `apps/portal/.env.example` (now its `CONFIG_`
+names), `.github/config-outputs.json` with its genuine inputs, and Terraform's runtime map. Because
+the server imports the classification, the risk that replaces the entrypoint's drift is the server
+module growing a key list of its own, and that is what its guard asserts against.
 
 `src/instrumentation.ts` checks the environment once at server start, on the Node runtime only.
 Every required `CONFIG_<key>` that is unset or empty, and `PORTAL_CSP_CONNECT_SRC` when it is unset,
@@ -212,10 +235,11 @@ missing a variable hears its name at start.
 - [ ] With `PORTAL_CSP_CONNECT_SRC` unset, empty, or carrying `"` or `;`, the server exits 1 and
       stderr names `PORTAL_CSP_CONNECT_SRC`; no stderr line in any refusal contains a variable's value.
 - [ ] `next build` with no `CONFIG_` variable set exits 0 (the check is start-time only).
-- [ ] The guard that compared the entrypoint's lists against the classification and
-      `.github/config-outputs.json` now compares the classification, the config-outputs map, the
-      Terraform runtime map and the server's reading of the classification, and fails when a
-      planted key is added to the classification alone.
+- [ ] The guards that compared the entrypoint's lists now compare the four remaining sites: a key
+      planted in the classification alone fails them, and so does one planted in `.env.example`
+      alone (the `.env.example` check in `runtimeConfig.test.ts` reads `CONFIG_` assignments).
+- [ ] `src/server/runtimeDocument.ts` contains no string literal naming a configuration key, and a
+      guard fails when one is planted there.
 - [ ] **Live:** on the deployed tier, `/config.json` carries the production values and the portal
       boots signed in.
 
@@ -245,19 +269,24 @@ shell.
 
 The proxy is now the one home of the policy's bundle directives. Terraform's root
 `content_security_policy` local loses its last consumer with the distribution and is deleted;
-`csp_connect_src` stays at root and reaches the container as today.
+`csp_connect_src` stays at root and reaches the container as today. Two Python guards parse that
+local and go with it: `lambdas/test_csp_policy.py`, which holds today's directives as a recorded
+literal (`ACCEPTED_PRE_MOVE_DIRECTIVES`) with its separator, and `test_spa_image.py`'s baked-policy
+test. The recorded literal and the separator move into the TypeScript test of
+`contentSecurityPolicy.ts`, with `script-src` the one directive allowed to differ; an expectation
+re-derived from the module itself would only assert that the file equals itself.
 
 #### Acceptance Criteria:
 
-- [ ] Two requests for `/` carry different nonces; in each, every `<script>` and every
-      `<link rel="stylesheet">` in the HTML carries exactly the nonce in that response's policy,
-      and the `theme-init.js` script is among them.
+- [ ] Two requests for `/` carry different nonces; in each, the HTML holds at least one
+      `<script>` and at least one `<link rel="stylesheet">`, every one of them carries exactly the
+      nonce in that response's policy, and the `theme-init.js` script is among them.
 - [ ] A request sending its own `x-nonce` and `Content-Security-Policy` headers gets a page whose
       nonce is not the one it sent.
 - [ ] The production policy's `script-src` is exactly `'self' 'nonce-<nonce>'`; the development
       policy's adds `'unsafe-eval'`; `style-src` carries no `nonce-` source in either; every other
-      directive equals today's, asserted directive by directive in order, with the join separator
-      asserted too.
+      directive equals the literal carried over from `test_csp_policy.py`, in order, with the join
+      separator asserted too; and `test_csp_policy.py` no longer exists.
 - [ ] Every response class in FR-005's matrix carries the policy and all seven security headers,
       none carries `X-Powered-By`, `Server` or `Cross-Origin-Embedder-Policy`, and HSTS carries no
       `preload`.
@@ -318,13 +347,27 @@ security headers, the document, the refusals, and that one digest emits a second
 
 `infra/modules/static-portal`, its module block in `infra/main.tf`, `deploy-spa-static.yml` and
 `lambdas/test_static_portal_module.py` are deleted, and every workflow and guard that referred to
-them stops doing so. Switching the tier off now removes `network` and `spa` and builds nothing in
-their place. The nine CloudFront check IDs leave `.github/checkov-enforced.txt` in the same change,
-with any other enforced ID whose only evaluated resource sat in the module (the S3 checks' counts
-include the portal bucket, and `CKV_AWS_70` evaluates one resource), because an enforced ID that
-matches nothing is a hard error. `infra/info/web-tier.md` is rewritten
+them stops doing so (`deploy-infra.yml` names the static side only in comments). The module test's
+one assertion that outlives it, that `network` and `spa` are both counted on `web_tier_enabled`,
+moves into a web-tier test, since no other guard holds it. Switching the tier off now removes
+`network` and `spa` and builds nothing in their place. The pull request is planned and merged with
+the tier off, as it is today, so its plan shows the static side's destroy and nothing under
+`module.spa`.
+
+The ten IDs `.github/checkov-enforced.txt` gained when CloudFront came back leave it in the same
+change: the nine CloudFront checks and `CKV_AWS_70`, whose one evaluated resource is the portal
+bucket's policy (the file's header records both the addition and, from the last retirement, that
+`CKV_AWS_70` went with the distribution). The list is re-measured with the regeneration command
+the header gives, because an enforced ID that matches nothing is a
+hard error. `docs/security-baseline.md` records the removal, which that file's header requires. `infra/info/web-tier.md` is rewritten
 for a switch with one side: off means the portal does not resolve, and on means the apply and
-then the image deploy.
+then the image deploy. It also records a trap the retirement creates. The portal's certificate
+stays outside the switch, but with the distribution gone it is in use only while the load balancer
+exists, and ACM renews a certificate only while it is in use, starting 60 days before it expires.
+So the page says how to read the certificate's expiry (`aws acm describe-certificate`), that the
+tier must be switched on inside that window for the renewal to happen, and that a certificate which
+lapsed while the tier was off must be re-issued by a reviewed infrastructure change (`deploy-infra.yml`
+has no replace input today) before the tier can serve.
 
 The weekly ZAP baseline has no target while the tier is off. Its job reads
 `vars.TF_VAR_web_tier_enabled`: when it is `false` it skips the scan with a `::warning` annotation and
@@ -341,14 +384,21 @@ otherwise apply the narrowing and the destroy in parallel.
 
 - [ ] `git grep` for `static-portal`, `static_portal` and `deploy-spa-static` outside `docs/specs/`,
       `docs/spec-delivery/` and History entries returns only supersede markers.
-- [ ] The pull request's infrastructure plan destroys only resources under
-      `module.static_portal[0]` and changes nothing else.
-- [ ] `checkov-enforced.txt` lists no CloudFront check and no ID that now evaluates nothing, and
-      the Checkov job is green.
+- [ ] Planned with the tier off, the pull request's infrastructure plan destroys only resources
+      under `module.static_portal[0]` and changes nothing else.
+- [ ] A web-tier test asserts that `network` and `spa` are both counted on `web_tier_enabled`,
+      and fails when either count is planted to a constant.
+- [ ] `checkov-enforced.txt` lists none of the ten IDs and no ID that now evaluates nothing, the
+      Checkov job is green, and `docs/security-baseline.md` records the removal.
+- [ ] `infra/info/web-tier.md` names the certificate's renewal-while-in-use window, the command
+      that reads its expiry, and the recovery for one that expired while the tier was off.
 - [ ] A `security.yml` run with the tier variable `false` ends green, carries the warning
-      annotation and the summary section, and starts no ZAP container.
-- [ ] After the narrowing pull request, the deploy-role policy names no CloudFront or static
-      bucket action, and its plan changes only the deploy role's policy.
+      annotation and the summary section, and starts no ZAP container; the skip compares against
+      the exact string `false`, as Deploy SPA image does, so a `0` scans rather than skips.
+- [ ] After the narrowing pull request, the deploy role holds no CloudFront or static-bucket grant,
+      and its plan touches exactly `module.base.aws_iam_policy.deploy_portal_static` and
+      `module.base.aws_iam_role_policy_attachment.deploy_portal_static` (destroyed) and `module.base.time_sleep.wait_for_platform_grant` (replaced,
+      because its triggers name that policy).
 - [ ] **Live:** with the tier switched on through CI, `https://portal.dataquarry.app` is served by
       the Next.js container; with it switched off again through CI, the host does not resolve
       after the negative-caching window and every resource under `module.network` and
@@ -459,7 +509,10 @@ apps/portal/
 .github/workflows/deploy-spa-static.yml      deleted
 .github/scripts/spa-image-matrix.sh          rewritten
 infra/modules/static-portal/                 deleted
-lambdas/test_static_portal_module.py         deleted
+lambdas/test_static_portal_module.py         deleted (its switch-count assertion moves to a web-tier test)
+lambdas/test_csp_policy.py                   deleted (its recorded directives move to the TypeScript test)
+lambdas/test_spa_image.py                    rewritten for the Node image
+lambdas/test_config_outputs.py               compares the four remaining wiring sites
 ```
 
 ## Implementation Phases
@@ -487,8 +540,9 @@ lambdas/test_static_portal_module.py         deleted
 
 ### Phase 4: The static path retired
 
-- Delete the module, the workflow and the module test; update `deploy-infra.yml`, the enforced
-  Checkov list, the ZAP job and `web-tier.md`.
+- Delete the module, the workflow and the module test, moving its switch-count assertion into a
+  web-tier test; update `deploy-infra.yml`'s comments, the enforced Checkov list with its baseline
+  entry, the ZAP job, `web-tier.md` and the documents In Scope names.
 
 ### Phase 5: After the destroy has applied
 
