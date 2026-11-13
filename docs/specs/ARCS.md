@@ -3541,3 +3541,19 @@ while `LAMBDA_BUILDS_ENABLED` is not `true`. Andrew settled it the same day: a b
 them switches Lambda builds on through the repository variable, in the order
 `.github/workflows/README.md` gives, and says in its report when it did. They stay on for the arc's
 build-out and go off when the arc ends.
+
+**2026-11-13, SPEC-256 refines the shell and seam contracts**, on behaviour measured against
+Next.js 16.4.6 while authoring. The shell lives in the root layout: `PortalMount` moves up to wrap
+every page, the providers sit in a frame `PortalBoot` reaches through a dynamic import, and the
+chrome decides by path through the area records, above the gate; the catch-all stays at
+`src/app/[[...slug]]/` and the `(signed-in)` group has no layout of its own. react-router inside the
+catch-all is a `<Router>` fed by the seam rather than 255's `BrowserRouter`, which renders the 404
+on every return from an App Router page once its chunk is cached. Each area page under
+`(signed-in)` (258 to 261) reaches its view only through `next/dynamic` with `ssr: false` and reads
+no `params` or `searchParams` props, because a page's static imports run at hydration, before the
+runtime document arrives, and a native navigation leaves those props stale; 256's sweep holds both.
+While an upload is unfinished the browser asks before the document unloads, because a navigation
+to or from an App Router page becomes a document load after a deploy or an outage (Andrew's
+ruling, over accepting the loss); signing out asks nothing, as today. 258, the first spec with an
+App Router page, runs 256's cross-router navigation scenarios live, since 256 can prove them only
+against its stand-in.
