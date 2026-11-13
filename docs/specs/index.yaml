@@ -1713,6 +1713,13 @@ specs:
     depends_on: []
     arc: "nextjs"
     path: "docs/specs/SPEC-255-the-portal-is-a-nextjs-app-served-by-a-node-container.md"
+  - id: "SPEC-257"
+    title: "The Next.js Server Holds the Session"
+    description: "The portal's Next.js server becomes an OIDC client that holds each browser's session in DynamoDB behind an opaque httpOnly cookie and forwards same-origin API calls with the session's token, built beside Amplify and not yet used by the browser, so SPEC-262 can switch the browser onto it."
+    spec_status: "Draft"
+    depends_on: ["SPEC-255"]
+    arc: "nextjs"
+    path: "docs/specs/SPEC-257-the-nextjs-server-holds-the-session.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1749,7 +1756,7 @@ arcs:
   - name: "infra-building-blocks"
     order: ["SPEC-252", "SPEC-253", "SPEC-254"]
   - name: "nextjs"
-    order: ["SPEC-255"]
+    order: ["SPEC-255", "SPEC-257"]
   - name: "notifications"
     order: ["SPEC-058", "SPEC-059", "SPEC-060", "SPEC-061"]
   - name: "observability"

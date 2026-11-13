@@ -3526,3 +3526,18 @@ verifier change beyond its audience. No holding page while the tier is off.
 
 **How the arc runs.** The session that wrote this entry orchestrates: one build session per spec,
 started as each becomes ready (`several-agents.md`), and every PR through the queue.
+
+**2026-11-13, SPEC-257 refines two contracts.** The session routes gain a second cookie,
+`__Host-dq_signin` (`httpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, `Max-Age=3600`), which carries
+the sign-in transaction from `/auth/login` to `/auth/callback` so that starting a sign-in writes
+nothing to the store. 257's `/api/` and `/auth/` checks rely on 255's proxy skipping every request
+that carries a body, because a proxy that matches such a request makes Next.js wait for the whole
+body before any route handler runs (measured on `next start`: a 1 GB declared body held every
+proxied path). 257 adds no path exclusion of its own. The verifier's audience set rides in
+`OIDC_AUDIENCE` as a comma-separated
+list, so a single client id stays a valid value. Both of the arc's verifier changes (257's widening
+and 262's narrowing) change a Lambda function's environment, which `frozen_fleet_guard.py` refuses
+while `LAMBDA_BUILDS_ENABLED` is not `true`. Andrew settled it the same day: a build that needs
+them switches Lambda builds on through the repository variable, in the order
+`.github/workflows/README.md` gives, and says in its report when it did. They stay on for the arc's
+build-out and go off when the arc ends.
