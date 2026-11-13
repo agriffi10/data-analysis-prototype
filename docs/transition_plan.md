@@ -259,8 +259,8 @@ Treated as inputs. Do not re-litigate without new information.
    workspace browsing ship first.
 10. **Hosting is ECS Fargate, not CloudFront.** The SPA is served from a container. The task role
     supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
-    Since 2026-11-13 the container runs the **Next.js server** on Node rather than nginx serving
-    static files (the Next.js arc).
+    Decided 2026-11-13: the container runs the **Next.js server** on Node rather than nginx serving
+    static files, landing in the Next.js arc (SPEC-255).
 11. **~~The token-exchange backend runs in the same container as the SPA.~~ REVERSED — Arc B
     landed.** The API is a **Lambda behind API Gateway**, its own origin, and the SPA is a container
     behind an ALB; the co-location argument was made when the backend existed only to exchange
@@ -612,6 +612,9 @@ the SPA is a front end to it. This is the backend-for-frontend pattern. What cro
 browser is AWS temporary credentials, which is what the Identity Pool sent until SPEC-202 retired
 it — so the posture would be a return to it rather than a new exposure, and today's browser holds
 no AWS credentials at all. What must never cross is the Identity Center token.
+
+> **Re-decided 2026-11-13 (§4.7):** the OAuth client is now the portal's Next.js server, not the API
+> Lambda. The backend-for-frontend reasoning above is unchanged.
 
 **The backend needs session state in both variants — but for DIFFERENT reasons, and the difference is
 a security property the baseline does not get.** The design conclusion is the same either way:
@@ -1688,10 +1691,12 @@ neither routes through this application's API — is in `docs/specs/ARCS.md` und
 > the availability work the arc deferred (autoscaling, capacity providers, a WAF, the multi-AZ
 > obligations) and the two coupling points at the end, which bite at Phase 1.
 
-> **Superseded in part 2026-11-13 (the Next.js arc):** the container's web server is now
-> Next.js on Node, not nginx, and the CSP carries a per-request nonce. The jobs in the table below
-> keep their answers, re-implemented in the server; the cache, header and health-check rows are
-> the first spec's to reproduce.
+> **Superseded in part 2026-11-13 (the Next.js arc):** the container's web server becomes
+> Next.js on Node instead of nginx, and the CSP gains a per-request nonce (SPEC-255). The jobs in
+> the table below keep their answers, re-implemented in the server. The two-origins paragraph just
+> below is superseded too: the session cookie is host-only (`__Host-`) on the portal's origin and
+> never reaches the API, the browser calls the API through the server's same-origin proxy, and
+> `connect-src` ends as `'self'` plus the S3 endpoints for presigned bytes (SPEC-262).
 
 **The shape that landed, because this section was written before it.** The SPA is the container
 behind the ALB; the **API is a Lambda behind API Gateway**, not the ALB — viable because the bulk
@@ -2511,7 +2516,8 @@ on any IAM role. The design is §3; the work items are here.
 - Create the customer-managed application — **requires the management account or a delegated
   administrator** (§4.5). Register a second, separate application if the broader
   identity-brokering capability is being pursued (§5.1).
-- Build the token-exchange backend with its session store (§3.5).
+- Build the token exchange onto the Next.js server's session store, which the Next.js arc's
+  SPEC-257 builds, rather than a second store (§3.5, §4.7).
 - Create the catalog carrier role (§3.6).
 - Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
   likely a create, not a join.
