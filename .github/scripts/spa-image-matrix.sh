@@ -344,6 +344,20 @@ fetch "/removed-$RANDOM.js"
 check_eq "a removed root file still answers 200" "$(status)" "200"
 check_contains "…as text/html, which is why removals are read from content-type" "$(header content-type)" "text/html"
 
+# ── The responses Next answers before routing ─────────────────────────────────
+section "Answered before routing, so carrying no policy (an accepted residual)"
+
+# Next normalises some URLs and refuses malformed ones before the proxy or `headers()` ever run, so
+# these responses carry no policy and none of the security headers. Each body is fixed text or a
+# same-origin redirect, and the next response carries the full set, so nothing here can be framed or
+# run (docs/security-baseline.md). PINNED, so a change to this class is visible rather than silent.
+fetch "/files/"
+check_eq "a trailing slash is a 308 to the bare path" "$(status)" "308"
+check_eq "…to the same origin's path" "$(header location)" "/files"
+fetch "/%zz"
+check_eq "a malformed escape is a 500" "$(status)" "500"
+check_absent "…with a plain body, not a page" "$(header content-type)" "text/html"
+
 # ── A request that carries a body ─────────────────────────────────────────────
 section "A request with a body is answered promptly"
 
@@ -374,9 +388,17 @@ bodied() {
     return 0
   fi
   pass "$label: answered ($(head -1 /tmp/matrix-head))"
+  # The same seven headers as every other class, and exactly ONE policy: two would be enforced
+  # together, and a check reading the first would pass either way.
+  check_eq "$label: exactly one Content-Security-Policy" "$(grep -ci '^content-security-policy:' /tmp/matrix-head)" "1"
   check_eq "$label: the lockdown policy" "$(header content-security-policy)" "$LOCKDOWN_CSP"
-  check_eq "$label: X-Frame-Options" "$(header x-frame-options)" "DENY"
   check_eq "$label: HSTS" "$(header strict-transport-security)" "max-age=31536000; includeSubDomains"
+  check_eq "$label: X-Frame-Options" "$(header x-frame-options)" "DENY"
+  check_eq "$label: nosniff" "$(header x-content-type-options)" "nosniff"
+  check_eq "$label: Referrer-Policy" "$(header referrer-policy)" "strict-origin-when-cross-origin"
+  check_contains "$label: Permissions-Policy" "$(header permissions-policy)" "geolocation=()"
+  check_eq "$label: COOP" "$(header cross-origin-opener-policy)" "same-origin"
+  check_eq "$label: CORP" "$(header cross-origin-resource-policy)" "same-origin"
 }
 
 for path in / /files /config.json /healthz "/_next/static/chunks/missing-$RANDOM.js"; do
@@ -439,6 +461,16 @@ for held_out in "${REQUIRED_ENV[@]}"; do
 done
 
 refusal "connect-src EMPTY" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC=
+# Whitespace passed an allowlist that admits a space, and served `connect-src  ;` — a policy that
+# blocks every fetch, the document's included — from a server the balancer read as healthy.
+refusal "connect-src only whitespace" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" -e "PORTAL_CSP_CONNECT_SRC=   "
+without_api=()
+for entry in "${REQUIRED_ENV[@]}"; do
+  case "$entry" in -e|CONFIG_apiBaseUrl=*) continue ;; esac
+  without_api+=(-e "$entry")
+done
+refusal "CONFIG_apiBaseUrl only whitespace" CONFIG_apiBaseUrl "${without_api[@]}" -e "CONFIG_apiBaseUrl=  " \
+  -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}"
 # A `;` would append a directive of the sender's choosing to every page's policy.
 refusal "connect-src carrying a quote and a semicolon" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" \

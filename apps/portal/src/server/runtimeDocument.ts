@@ -24,6 +24,20 @@ export type StartupProblem = {
 };
 
 /**
+ * Whether a variable carries a value, as distinct from being unset, empty or only whitespace.
+ *
+ * Whitespace is unset too: a source list of one space passed the allowlist and served
+ * `connect-src  ;`, a policy that blocks every fetch, the document's included, from a server the
+ * load balancer read as healthy.
+ *
+ * @param value - The variable's value, if any.
+ * @returns True when there is something besides whitespace.
+ */
+function isSet(value: string | undefined): value is string {
+  return value !== undefined && value.trim() !== '';
+}
+
+/**
  * The name of the environment variable that carries one configuration key.
  *
  * @param key - A classified key.
@@ -48,7 +62,7 @@ export function renderRuntimeDocument(env: NodeJS.ProcessEnv = process.env): Run
   const document: RuntimeConfigDocument = {version: DOCUMENT_VERSION};
   for (const key of [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG]) {
     const value = env[variableFor(key)];
-    if (value) document[key] = value;
+    if (isSet(value)) document[key] = value;
   }
   return document;
 }
@@ -56,20 +70,20 @@ export function renderRuntimeDocument(env: NodeJS.ProcessEnv = process.env): Run
 /**
  * Every reason this server must not start, collected so one run names them all.
  *
- * Unset and empty are the same failure: an unset repository variable and an unset task variable
- * both arrive as the empty string, and a server that starts with an empty required value serves a
+ * Unset, empty and whitespace-only are the same failure: an unset repository variable and an unset
+ * task variable both arrive as the empty string, and a server that starts with an empty required value serves a
  * portal that fails every call it makes.
  *
  * @param env - The environment to read; the process's own by default.
  * @returns The problems, empty when the server may start.
  */
 export function startupProblems(env: NodeJS.ProcessEnv = process.env): StartupProblem[] {
-  const problems: StartupProblem[] = REQUIRED_CONFIG.filter((key) => !env[variableFor(key)]).map((key) => ({
+  const problems: StartupProblem[] = REQUIRED_CONFIG.filter((key) => !isSet(env[variableFor(key)])).map((key) => ({
     variable: variableFor(key),
     reason: 'unset-or-empty'
   }));
   const connectSrc = env[CONNECT_SRC_VARIABLE];
-  if (!connectSrc) {
+  if (!isSet(connectSrc)) {
     problems.push({variable: CONNECT_SRC_VARIABLE, reason: 'unset-or-empty'});
   } else if (!SOURCE_LIST.test(connectSrc)) {
     problems.push({variable: CONNECT_SRC_VARIABLE, reason: 'invalid-characters'});
@@ -87,7 +101,7 @@ export function startupProblems(env: NodeJS.ProcessEnv = process.env): StartupPr
  */
 export function connectSource(env: NodeJS.ProcessEnv = process.env): string {
   const value = env[CONNECT_SRC_VARIABLE];
-  return value && SOURCE_LIST.test(value) ? value : "'self'";
+  return isSet(value) && SOURCE_LIST.test(value) ? value : "'self'";
 }
 
 /**

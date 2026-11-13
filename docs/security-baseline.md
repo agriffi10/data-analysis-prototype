@@ -405,6 +405,18 @@ now so the first scan has something to diff **per alert ID** rather than a judge
 | **`Server: nginx` on the container origin (SPEC-194)** | **ACCEPT — a divergence from the CloudFront path, stated rather than assumed.** The distribution strips `Server` outright; nginx cannot. `server_tokens off` hides the **version** and nothing more, and removing the header needs the third-party `headers-more` module, which the official images do not ship. Compiling it against the runtime base's exact source, in lockstep with every base bump and with an ABI mismatch stopping nginx from starting, is real maintenance coupling bought for a banner that now discloses only "nginx". **This alert fires on a VERSION, so it does not regress** — the Phase 5 ZAP diff is read per alert ID to confirm no new *Server Leaks Version Information* row appears. Re-open if a client security review objects to the banner; `headers-more` is the path, and the brotli decision moves with it, both being the same "no third-party module compile stage" call. |
 | **HSTS `preload` dropped on the container origin (SPEC-194)** | **ACCEPT, and it costs no finding.** **`CKV_AWS_259` is a CloudFront check**, evaluated against `aws_cloudfront_response_headers_policy.portal` — which still carries HSTS with `preload` and still passes it. nginx's header is invisible to that check, so dropping `preload` on the container origin regresses nothing. **When the distribution is deleted, `CKV_AWS_259` must come off `.github/checkov-enforced.txt` in the same change**: an enforced check ID matching no finding is a hard error, which is the gate working as designed. Three reasons in order of weight: emitting `preload` claims a submission this deployment has not made and does not intend, which is the class of silent divergence the container work exists to catch; the grant is against the **registrable domain** and is close to irreversible, and the SPA and API are subdomains of a parent this repository does not own, so the claim commits sibling services nobody asked; and the cost of dropping it is zero. `max-age=31536000; includeSubDomains` is kept. **Do not re-flip this to satisfy `CKV_AWS_259`** — that check does not read this header, and after the distribution goes it reads nothing at all. |
 
+### Addendum — the Next.js server (2026-11-13), recorded ahead of its first scan
+
+The container now runs the Next.js server, and its request proxy sets the policy and the seven
+headers. Two dispositions change and one residual is new; the first scan diffs per alert ID against
+these.
+
+| Alert | Disposition |
+|---|---|
+| **`Server` banner** | **CLOSED.** The Node server sends no `Server` header, so the divergence `Server: nginx` was recorded as is gone, and `X-Powered-By` is switched off. |
+| **CSP `script-src`** | **Tightened.** Scripts run from this origin or with a per-request nonce; `style-src` keeps `'unsafe-inline'` for Monaco and so carries no nonce. |
+| **Responses answered before routing carry no policy** | **ACCEPT, low.** Next answers a trailing-slash path, a `//host` or `/\host` path and an absolute-form request line with a 308 to a same-origin path, and a malformed escape (`/%zz`) or `OPTIONS *` with a plain-text 500, before the proxy or `next.config.ts`'s `headers()` run, so those responses carry no CSP and none of the seven headers. Each body is fixed text or a same-origin redirect and the next response carries the full set, so nothing in this class can be framed or run. The image's behaviour matrix pins `/files/` and `/%zz` so a change to the class is visible. A scanner alert for a missing header on one of these URLs is this row. |
+
 
 ### Enforce-list removal — CKV_AWS_366, with the Identity Pool (2026-08-30)
 

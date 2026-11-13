@@ -55,20 +55,24 @@ describe('the start-time refusal', () => {
     expect(startupProblems(completeEnvironment())).toEqual([]);
   });
 
-  it('treats unset and empty alike, and names every problem in one pass', () => {
+  it('treats unset, empty and whitespace alike, and names every problem in one pass', () => {
     const env = completeEnvironment();
     delete env.CONFIG_appUrl;
     env.CONFIG_cognitoDomain = '';
+    env.CONFIG_apiBaseUrl = '  ';
 
     expect(startupProblems(env)).toEqual([
+      {variable: 'CONFIG_apiBaseUrl', reason: 'unset-or-empty'},
       {variable: 'CONFIG_appUrl', reason: 'unset-or-empty'},
       {variable: 'CONFIG_cognitoDomain', reason: 'unset-or-empty'}
     ]);
+    expect(renderRuntimeDocument(env)).not.toHaveProperty('apiBaseUrl');
   });
 
   it.each([
     ['unset', undefined, 'unset-or-empty'],
     ['empty', '', 'unset-or-empty'],
+    ['only whitespace', '   ', 'unset-or-empty'],
     ['carrying a quote', `'self" https://x`, 'invalid-characters'],
     ['carrying a semicolon', "'self'; script-src *", 'invalid-characters'],
     ['carrying a newline', "'self'\nX-Injected: 1", 'invalid-characters']
@@ -114,5 +118,6 @@ describe('the connect-src the proxy reads per request', () => {
   it("fails closed to 'self' for a value the start-time check would have refused", () => {
     expect(connectSource({PORTAL_CSP_CONNECT_SRC: "'self'; script-src *"})).toBe("'self'");
     expect(connectSource({})).toBe("'self'");
+    expect(connectSource({PORTAL_CSP_CONNECT_SRC: ' '})).toBe("'self'");
   });
 });
