@@ -10,6 +10,68 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-13 (every plane after the module restructure's first apply)
+
+**What was under test.** The first apply of the three infrastructure restructure specs (the control
+planes as one module, the deploy role's plane grants as one template, and the standalone functions
+as building-block calls). Deploy Infrastructure run 43422262900 on `8867e3f3` (#963) applied them at
+12:07Z: *"Apply complete! Resources: 3 added, 4 changed, 1 destroyed."* The changes were the shared-spaces
+Step Functions role and its policy (created), shared spaces' execution role, its policy and its state
+machine (updated), the OIDC thumbprint (updated), and `module.base.time_sleep.wait_for_plane_grants`
+(replaced). The log carries 103 `has moved to` lines. The portal was the static tier
+(`TF_VAR_WEB_TIER_ENABLED` false), deployed from `8867e3f3`; the Lambda image was not rebuilt, since
+`LAMBDA_BUILDS_ENABLED` is off. The browser rows ran from about 14:20Z (the first upload's timestamp) to 14:34Z.
+
+**Browser.** Chrome through the Claude in Chrome extension, in a tab of its own group, as
+**agriffith**, which Andrew signed in himself at the Cognito form. `innerWidth` 1512.
+
+**Instruments, each a way this run differed from a user's.**
+- `document.visibilityState` and `hidden` overridden to visible, with `visibilitychange` and `focus`
+  dispatched on `window`.
+- `element.click()` for most buttons, menus, checkboxes and radios; text fields and selects set with
+  the native value setter plus an `input` or `change` event. Pointer clicks and real typing from the
+  extension for Monaco, the Upload button, the table menus and one Run.
+- Uploads through the extension's `file_upload` into the page's own file input.
+- The download was captured by replacing `HTMLAnchorElement.prototype.click` for one call and
+  fetching the presigned URL in the page, so no file was written. The editor toolbar's **Download**
+  was also clicked once by mistake: it saved the query text as a 121-byte `.sql` in `~/Downloads`,
+  which was moved to the Trash.
+- An `element.click()` on **Run statement** once left the previous result in place; a pointer click
+  on the same button ran the query. Use the pointer for Run.
+- Read-only CLI: Step Functions `list-executions` per plane and CloudWatch Lambda and Events metrics.
+
+**Approval.** Andrew asked for an end-to-end run in chat. He declined archive and restore, and
+approved creating and deleting a throwaway shared space.
+
+| Row | Result |
+|---|---|
+| Fleet state after the apply | **PASS.** All 91 `dat-prod` functions `Active`, last update `Successful`. |
+| The four scheduled functions, moved into `scheduled-function` | **PASS.** Since the apply, user-directory build ran 1 time, dlq-drain 11, log-sweep 11 and the shared-space transfer reader 2, all with 0 `Errors` and no rule `FailedInvocations`. |
+| Upload, listing and download | **PASS.** Nine folders made and ten files uploaded through the portal. The download's presigned URL (`dat-prod-user-space.s3…`) returned 200 and the uploaded 138 bytes, 11 lines. |
+| Single-file rename, move, copy and delete | **PASS.** Each toasted its outcome and the listing matched. These go straight through the API, not the file-ops plane, because the plane takes anything that is not exactly one file. |
+| File-ops plane: folder copy, folder delete | **PASS.** Copy 14:23:41Z to 14:24:01Z and delete 14:25:08Z to 14:25:12Z, both `SUCCEEDED`, the copy's completion notification arrived, and the deleted folder left the listing. **Copy, Move and Delete stay disabled on a folder until its running copy reports done**, which is the lock working, not a stuck control. |
+| Table builder: flat and partitioned (`year`, string, `2025, 2026`) | **PASS.** Both `SUCCEEDED` (14:25:42Z, 14:25:58Z) with ready notifications. `SELECT year, count(*), sum(cast(amount AS integer)) … GROUP BY year` returned `2025 10 385` and `2026 10 1085`, the fixture's own totals. An unqualified table name was refused with *"Add a database to each table"*, as designed. |
+| Saved query | **PASS.** Saved to `saved_queries/` with a toast, then deleted. |
+| Results conversion to Excel | **PASS.** `SUCCEEDED` 14:28:12Z to 14:28:25Z; notification *"Saved 2 rows as Excel to …xlsx"*. |
+| Data quality: agreeing pair and disagreeing pair | **PASS.** Both `SUCCEEDED` in about 50 s. `dq_agree` reported **Clean**. `dq_disagree` reported **Issues found**, naming `dq_bad.csv` missing `region` and carrying the extra `zone`. The run's `dq_tmp_*` tables were gone from the rail afterwards. |
+| Shared spaces: create, on the plane that gained a role | **PASS.** `SUCCEEDED` 14:28:41Z; the card went from *Provisioning…* to *Active* with *"…is ready"*. |
+| File send to the space | **PASS.** `SUCCEEDED` 14:29:25Z to 14:29:41Z; both the sender's and the space owner's notifications. |
+| Table share to the space | **PASS.** `SUCCEEDED` 14:29:54Z to 14:30:10Z; both notifications. `SELECT count(*) FROM e2e_1113_space.e2e1113_flat` returned **150**. |
+| Notifications and feedback, the two `queue-consumer` callers | **PASS.** Every outcome above arrived in the inbox. Feedback toasted *"Thanks — your feedback has been sent."*, and `dat-prod-feedback-writer` ran with 0 errors. |
+| Shared spaces: delete | **PASS.** `SUCCEEDED` 14:31:50Z to 14:31:56Z after the typed-name confirm; the space left both the Shared spaces list and the Query rail. |
+
+### Not run
+
+- **Archive and restore**, at Andrew's direction. The archive plane's moved state machine has no
+  execution since the apply.
+- The rest of `e2e.md` §4 (Data Explorer, Help, flags, responsive, dark mode, the front door): the
+  restructure changed no browser code, so this run covered the planes and functions it moved.
+
+**Left behind.** Nothing of this session's: the fixture folder, both tables, the saved query and the
+space were deleted. The space's files and tables are kept by administrators, as its delete dialog says.
+
+---
+
 ## Live-check session — 2026-09-29, later (Drop view in a shared space)
 
 **What was under test.** Drop view's double-quoting of a database name that needs it, on the build

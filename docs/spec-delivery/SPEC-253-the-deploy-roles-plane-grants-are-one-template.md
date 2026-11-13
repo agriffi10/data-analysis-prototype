@@ -1,7 +1,10 @@
 # Completed Spec — SPEC-253: The Deploy Role's Plane Grants Are One Template
 
-Merged as PR #960 (`07a908f2`), 2026-11-12. Deploys were switched off, so nothing applied; the PR's
-CI plan is the proof.
+Merged as PR #960 (`07a908f2`), 2026-11-12. Deploys were switched off, so nothing applied at merge; the PR's
+CI plan was the proof then. **It was first applied on 2026-11-13**, together with the other two
+restructure specs, by Deploy Infrastructure run 43422262900 on `8867e3f3` (#963): *"3 added, 4 changed,
+1 destroyed"*, with 103 `has moved to` lines in its log. A live session the same day ran every
+plane except archive green against it (`docs/testing/sessions.md`, 2026-11-13).
 
 ## What was completed?
 
@@ -57,4 +60,5 @@ The spec was corrected during the build for the first four, so they are deviatio
 - CI plan on PR #960: **49 to add, 4 to change, 10 to destroy**. Outside `module.base`, the 147
   action lines are identical to SPEC-254's PR plan. Inside it are 16 moves, the guard's move with
   its replacement, and the existing OIDC thumbprint update. No policy or attachment changes.
-- Not applied anywhere. Nothing user-facing changed, so there is no Help & guides update and no live check.
+- Applied on 2026-11-13 (see the status line above), which supersedes "not applied anywhere".
+  Nothing user-facing changed, so there is no Help & guides update and no live check.
