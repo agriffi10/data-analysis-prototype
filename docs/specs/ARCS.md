@@ -3569,3 +3569,11 @@ a file 262 rewrites, or the Amplify and `lib/idToken` mocks 262 removes from the
 runs them on its own pages instead. 256 also gains the title rule (no `metadata` under `src/app/`,
 because a layout title set that way overwrote the pages' own titles after App Router navigations,
 measured) and states Next's scroll to the top on a navigation that changes the page.
+
+**2026-11-13, SPEC-256 gains two rules, both measured on Next.js 16.4.6.** The seam refuses a target
+whose origin is not the portal's (`new URL(to, location.href).origin`), in `navigate` and in `Link`,
+because `router.push` sends an off-site target to a document navigation and react-router 7.18.2's
+open-redirect fix would otherwise go with react-router. And path matching is case-sensitive, as
+Next routes: `/Files` is a 404 outside the shell from 256 on, where react-router opened Files and a
+moved area would have shown a 404 inside the shell. `renderApp` also selects its page from the
+stand-in's router state, as Next does, rather than from the address.

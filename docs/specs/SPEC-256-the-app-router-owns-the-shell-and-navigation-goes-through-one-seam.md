@@ -249,6 +249,23 @@ the shapes the Interface Contract gives, plus the `NavigationProvider` the frame
   without rendering a new segment, so the catch-all page stays mounted. Every other navigation goes
   through Next's `router.push` or `router.replace`. Because a native navigation leaves a page's
   `params` and `searchParams` props as they were, no page reads them: pages read the seam.
+- **In-app only.** A `to` is refused when `new URL(to, location.href).origin` is not the portal's
+  own origin, the check `notificationLink.ts` already uses: that catches every form that leaves the
+  site (`//host`, `/\host`, `\\host`, a leading space or tab, `https:host`, an absolute URL), and
+  `javascript:` and `data:` through their null origin. The seam logs a refusal once and navigates
+  nowhere, and its `Link` given such a `to` renders no `href`; a link to another site is authored as
+  a plain `<a>`, not through the seam. react-router 7.18.2 fixed an open redirect through the
+  backslash form (`docs/security-baseline.md`), and measured on Next 16.4.6, `router.push` sends
+  every one of those forms but `javascript:` and `data:` to a document navigation on the other
+  site, so the protection would otherwise go with react-router.
+- **Paths match case-sensitively, as Next routes them.** The seam's `matchPath`, the gate's reading
+  of the area records and the table's routes (`caseSensitive`) all treat `/Files` as no area, so it
+  is a 404 outside the shell under either router. react-router matches case-insensitively, so today
+  `/Files` opens Files; kept that way, an area that has moved would show a 404 inside the shell at
+  `/Files`, because Next routes it elsewhere while the gate still calls it signed in (measured on a
+  harness with no catch-all, where the not-found page rendered inside the shell). The app builds no mis-cased link, and `linkFlags.test.ts`'s `/Files` row
+  becomes a link with no flags. A trailing slash never reaches the seam: Next answers `/files/`
+  with a redirect to `/files`.
 - **Scroll.** A navigation through `router.push` scrolls to the top, as Next does by default, and a
   traversal back restores the position; a native one leaves the scroll where it was, as every
   navigation does today. Measured on both routers. The first area move is the first place a user
@@ -326,6 +343,13 @@ address.
 - [ ] With the stand-in holding an App Router push uncommitted, a second click to a catch-all page
       ends on that page with that page rendered; reading the source from the seam's render instead
       turns the test red.
+- [ ] Each of `//evil.example/x`, `/\\evil.example/x`, `\\\\evil.example/x`, `' //evil.example/x'`,
+      `'/\t/evil.example/x'`, `https:evil.example/x`, `https://evil.example/`, `javascript:alert(1)`
+      and `data:text/html,x`, given to `navigate`, calls neither `router.push` nor
+      `history.pushState`, leaves the address unchanged and logs once, and given to `Link`, renders
+      an anchor with no `href`; `navigate('/files')` and `<Link to="/help#files">` still work.
+- [ ] `/Files` signed in renders the 404 with no shell, and `matchPath('/files', '/Files')` returns
+      `null`.
 - [ ] `useParams` returns `{space: 'a@b c'}` for `/data-quality/a%40b%20c/r1` both inside the
       catch-all and on a page the App Router serves.
 - [ ] Checked live on the web tier, on catch-all pages: the skip link, then another page, then Back
@@ -462,8 +486,10 @@ seeded flags and the seam, without the harness's `CatchAllRouter`, since the cat
 its own and react-router refuses one router inside another), the way today's proof renders the
 real `<App />`. Its `auth` is a fixed value or, for a test whose subject is the status changing (the
 sign-out test, today's `SignOutable`), a component that provides the auth context. It renders this
-around the page the
-address selects from the file system: `import.meta.glob` over `src/app/**/page.tsx`, matched by
+around the page the stand-in's router state selects from the file system, as Next's does: that
+state changes on a router push or replace and on a traversal, and a native `pushState` moves the
+address without changing the page (behaviour 3 below), so `renderApp` must not select by the
+address. The pages come from `import.meta.glob` over `src/app/**/page.tsx`, matched by
 Next's rules for the segment kinds the app uses, static before dynamic before optional catch-all,
 with route groups transparent. What sits above `AppChrome` is composition held by FR-002's source
 check. Next's `next/navigation` is replaced in Vitest by an alias in `vite.config.ts`, beside 255's
