@@ -43,7 +43,8 @@ describe('the runtime document', () => {
     const source = Object.values(
       import.meta.glob('./runtimeDocument.ts', {query: '?raw', import: 'default', eager: true})
     )[0] as string;
-    const literals = new Set([...source.matchAll(/['"`]([A-Za-z]+)['"`]/g)].map(([, literal]) => literal));
+    // Bare or with the variable prefix: `CONFIG_appUrl` is the spelling a second list here would use.
+    const literals = new Set([...source.matchAll(/['"`](?:CONFIG_)?([A-Za-z]+)['"`]/g)].map(([, literal]) => literal));
 
     expect(source).toContain('REQUIRED_CONFIG');
     expect([...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => literals.has(key))).toEqual([]);

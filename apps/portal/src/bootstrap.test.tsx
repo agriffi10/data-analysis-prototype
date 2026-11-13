@@ -122,6 +122,23 @@ describe('the boot', () => {
     expect(error).toHaveBeenCalledOnce();
   });
 
+  it('renders the boot failure when the app chunk cannot be loaded', async () => {
+    // A deploy that replaces the hashed assets mid-boot rejects the dynamic import outright; the
+    // alternative to this screen is a blank page and an unhandled rejection.
+    respondWith(completeDocument());
+    vi.doMock('./AppRoot', () => {
+      throw new Error('chunk gone');
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const PortalBoot = await freshBoot();
+
+    render(<PortalBoot />);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(String(error.mock.calls[0][0])).toContain('(bootstrap)');
+    vi.doUnmock('./AppRoot');
+  });
+
   it('names the reason and the missing KEYS in the console, and no value', async () => {
     vi.stubEnv('MODE', 'production');
     const served = completeDocument();
@@ -161,7 +178,10 @@ describe('the boot module graph', () => {
   });
 
   it('statically imports exactly the four modules that cannot wait', () => {
-    const imported = [...BOOT.matchAll(/^import\s[^'"]*['"]([^'"]+)['"]/gm)].map(([, specifier]) => specifier);
+    // `export … from` evaluates its module exactly as an import does, so it counts as one.
+    const imported = [...BOOT.matchAll(/^(?:import|export)\s[^'"]*['"]([^'"]+)['"]/gm)].map(
+      ([, specifier]) => specifier
+    );
 
     expect(imported.slice().sort()).toEqual([...ALLOWED_STATIC_IMPORTS].sort());
   });

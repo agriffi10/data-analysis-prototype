@@ -131,7 +131,8 @@ def test_the_mounted_paths_are_the_images_writable_set() -> None:
       None.
 
     Raises:
-      AssertionError: When the parse finds no list, or the mounted set differs.
+      AssertionError: When the parse finds no list, the mounted set differs, the mounts are not
+        derived from it, a task volume returns, or the mounts' owner is not the container's user.
     """
     paths = re.search(r"writable_paths\s*=\s*\[([^\]]+)\]", _source())
     assert paths, "No writable_paths local — the mounts are no longer derived from one list."
@@ -140,6 +141,29 @@ def test_the_mounted_paths_are_the_images_writable_set() -> None:
     assert from_local == WRITABLE_PATHS, (
         f"The module mounts {from_local}; the image writes {WRITABLE_PATHS}. A path missing here is "
         "a container that never starts, reported as a generic essential-container exit."
+    )
+    assert "for path in local.writable_paths" in _container_definition(), (
+        "The mounts are hand-listed rather than derived from the writable_paths local."
+    )
+
+    # TMPFS, NOT A TASK VOLUME — measured, not preferred. A Fargate task volume arrives as an
+    # empty root-owned directory and does not initialise from the image, so a container running
+    # as a non-root user cannot write to it. A tmpfs is created owned by the uid its mount
+    # options name, and that uid must be the one the container runs as.
+    assert '"aws_ecs_task_definition"' in _source() and "volume {" not in _source_without_comments(), (
+        "A task-level volume is back. It cannot give a non-root container a writable path: the "
+        "mount arrives owned by root, and the server dies on a permission error that reads as a "
+        "container bug."
+    )
+    tmpfs = re.search(r"tmpfs\s*=\s*\[(.*?)\]\s*\n\s*\}", _container_definition(), re.DOTALL)
+    assert tmpfs, "No tmpfs block — the writable paths have no mechanism at all."
+    assert "uid=${local.container_uid}" in tmpfs.group(1), tmpfs.group(1)
+    assert "gid=${local.container_uid}" in tmpfs.group(1), tmpfs.group(1)
+
+    # The mount's owner and the container's user are ONE value. Split, a mount is silently
+    # unwritable by the process that needs it.
+    assert re.search(r"user\s*=\s*local\.container_uid", _container_definition()), (
+        "The container's user is not the local the tmpfs mounts are owned by."
     )
 
 def test_the_service_ignores_the_image_and_still_obeys_the_desired_count() -> None:

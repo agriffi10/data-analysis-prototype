@@ -281,16 +281,10 @@ describe('runtimeConfig — every key has a source in every environment', () => 
    * Two files, because the wiring is split on purpose — root names the keys and their
    * values, and the module renders one environment entry per key without naming any of them.
    *
-   * THERE IS A SIXTH, and it is not asserted here: the container's entrypoint, which turns
-   * those environment variables into the served document. It is checked in
-   * `lambdas/test_spa_image.py`, with the rest of the image's agreements, because nothing
-   * in this suite can read a shell script's key list against a Dockerfile's user and a
-   * task definition's mounts. A key added to the classification must reach it too.
-   *
-   * That sentence was FALSE for as long as it stood: no test over there read the entrypoint's
-   * `KEYS` against this classification, so the one wiring point whose staleness is silent —
-   * a key MISSING there refuses to start, a key LEFT BEHIND publishes quietly — was the one
-   * nothing compared. The two tests it names now exist.
+   * There is no further site. The Next.js server renders the document by importing this same
+   * classification, so the list a container's entrypoint once carried, and the drift it allowed,
+   * are gone; `src/server/runtimeDocument.test.ts` fails if the server grows a key list of its
+   * own.
    */
   const ROOT_MAIN = Object.values(
     import.meta.glob('../../../../infra/main.tf', {query: '?raw', import: 'default', eager: true})

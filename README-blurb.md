@@ -28,7 +28,7 @@ Deployment is OIDC-based end to end: GitHub Actions assumes an AWS role via shor
 
 **On every pull request, the frontend CI must pass:**
 
-- **TypeScript strict build** (`tsc -b && vite build`) — a type error is a failed build.
+- **TypeScript strict build** (`tsc -b && next build`) — a type error is a failed build.
 - A **bundle assertion** that no `VITE_` name survives into the production output.
 
 **The rest of the gates moved to a mandatory local pre-push run**, to keep CI minutes down: **ESLint** and **Prettier**, **Vitest** integration-style tests with **V8 coverage** (mocking only the AWS service boundary, so real hooks and components are exercised), the **`vitest-axe`** accessibility assertions, and the Python Lambdas' **`ruff`**, **`mypy`** and **`pytest`** — the latter with the real `polars` runtime, so schema-inference logic is tested for real rather than mocked away. They gate every pull request; they are enforced by the session that pushes rather than by a workflow.
