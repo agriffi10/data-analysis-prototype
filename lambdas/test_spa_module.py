@@ -12,9 +12,8 @@ Attributes:
   ROOT_VARIABLES: Where ``spa_desired_count``'s default lives.
   NETWORK_ENDPOINTS: The endpoints file owning the reciprocal ingress rule this module must not
     re-declare.
-  SPEC_193: This module's own spec, whose mounted-pair criterion the mount assertion reads.
-  SPEC_194: The image spec, whose writable-path criterion this module's mounts must equal.
-  WRITABLE_PATHS: The two paths, a third copy on purpose — a shared constant would prove nothing.
+  WRITABLE_PATHS: The one path the image writes, a copy on purpose — a shared constant would
+    prove nothing.
   ALLOWED_TLS_POLICIES: TLS 1.3-capable ALB policies at or stricter than the spec's.
 """
 
@@ -28,20 +27,7 @@ SPA = INFRA / "modules" / "spa"
 ROOT_MAIN = INFRA / "main.tf"
 ROOT_VARIABLES = INFRA / "variables.tf"
 NETWORK_ENDPOINTS = INFRA / "modules" / "network" / "endpoints.tf"
-SPEC_193 = (
-    pathlib.Path(__file__).resolve().parent.parent
-    / "docs"
-    / "specs"
-    / "SPEC-193-network-compute-and-the-front-door.md"
-)
-SPEC_194 = (
-    pathlib.Path(__file__).resolve().parent.parent
-    / "docs"
-    / "specs"
-    / "SPEC-194-the-spa-container.md"
-)
-
-WRITABLE_PATHS = ("/tmp", "/var/cache/nginx")  # noqa: S108 — container paths, not host temp files
+WRITABLE_PATHS = ("/tmp",)  # noqa: S108 — a container path, not a host temp file
 
 ALLOWED_TLS_POLICIES = frozenset(
     {
@@ -131,11 +117,12 @@ def test_the_container_runs_read_only_as_a_non_root_user() -> None:
     assert uid.group(1) != "0", "The container runs as uid 0."
 
 
-def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> None:
-    """An agreement between two specs and one configuration, read from the spec itself.
+def test_the_mounted_paths_are_the_images_writable_set() -> None:
+    """The task mounts exactly the one path the Node image writes.
 
-    The limit is worth stating: this proves the two DOCUMENTS agree. That the image's real
-    writable set matches is the image spec's own build matrix, and is recorded there.
+    The image's real writable set is the behaviour matrix's to prove: it runs the container with a
+    read-only root filesystem and this one tmpfs. This holds the module to that set, and it is the
+    check that would have kept nginx's cache mount alive after nginx was gone.
 
     Args:
       None.
@@ -144,45 +131,16 @@ def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> N
       None.
 
     Raises:
-      AssertionError: When the spec's criterion cannot be found (the parse going trivial), or
-        when the mounted set differs from it.
+      AssertionError: When the parse finds no list, the mounted set differs, the mounts are not
+        derived from it, a task volume returns, or the mounts' owner is not the container's user.
     """
-    own_spec = SPEC_193.read_text()
-    own_anchor = "The mounted pair is exactly"
-    assert own_anchor in own_spec, (
-        f"{SPEC_193.name} no longer states its mounted-pair criterion at '{own_anchor}'. This test "
-        "compares two specs and one configuration; re-point it rather than deleting it."
-    )
-    own_criterion = own_spec[own_spec.index(own_anchor) : own_spec.index(own_anchor) + 200]
-    own_declared = tuple(sorted(set(re.findall(r"`(/[a-z/]+)`", own_criterion))))
-    assert len(own_declared) == 2, f"Parsed {own_declared} from this spec — the parse went trivial."
-
-    spec = SPEC_194.read_text()
-    anchor = "The writable paths the image needs are exactly"
-    assert anchor in spec, (
-        f"{SPEC_194.name} no longer states its writable-path criterion at '{anchor}'. This test "
-        "compares two specs; if the wording moved, re-point it — do not delete it."
-    )
-    criterion = spec[spec.index(anchor) : spec.index(anchor) + 400]
-    declared = tuple(sorted(set(re.findall(r"`(/[a-z/]+)`", criterion))))
-    assert len(declared) == 2, f"Parsed {declared} from the criterion — the parse went trivial."
-    assert declared == tuple(sorted(WRITABLE_PATHS)), (
-        f"{SPEC_194.name} declares {declared}; this file expects {tuple(sorted(WRITABLE_PATHS))}."
-    )
-    assert own_declared == declared, (
-        f"The two specs disagree: {SPEC_193.name} declares {own_declared}, {SPEC_194.name} "
-        f"declares {declared}. One of them was edited alone."
-    )
-
-    text = _source()
-    paths = re.search(r"writable_paths\s*=\s*\[([^\]]+)\]", text)
+    paths = re.search(r"writable_paths\s*=\s*\[([^\]]+)\]", _source())
     assert paths, "No writable_paths local — the mounts are no longer derived from one list."
     from_local = tuple(sorted(re.findall(r'"([^"]+)"', paths.group(1))))
 
-    assert from_local == tuple(sorted(declared)), (
-        f"The module mounts {from_local}; the image spec declares {declared}. A mount set missing "
-        "one of them produces a container that never starts, reported as a generic "
-        "essential-container exit."
+    assert from_local == WRITABLE_PATHS, (
+        f"The module mounts {from_local}; the image writes {WRITABLE_PATHS}. A path missing here is "
+        "a container that never starts, reported as a generic essential-container exit."
     )
     assert "for path in local.writable_paths" in _container_definition(), (
         "The mounts are hand-listed rather than derived from the writable_paths local."
@@ -192,9 +150,9 @@ def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> N
     # empty root-owned directory and does not initialise from the image, so a container running
     # as a non-root user cannot write to it. A tmpfs is created owned by the uid its mount
     # options name, and that uid must be the one the container runs as.
-    assert '"aws_ecs_task_definition"' in text and "volume {" not in _source_without_comments(), (
+    assert '"aws_ecs_task_definition"' in _source() and "volume {" not in _source_without_comments(), (
         "A task-level volume is back. It cannot give a non-root container a writable path: the "
-        "mount arrives owned by root, and nginx dies on a permission error that reads as a "
+        "mount arrives owned by root, and the server dies on a permission error that reads as a "
         "container bug."
     )
     tmpfs = re.search(r"tmpfs\s*=\s*\[(.*?)\]\s*\n\s*\}", _container_definition(), re.DOTALL)
@@ -203,11 +161,10 @@ def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> N
     assert "gid=${local.container_uid}" in tmpfs.group(1), tmpfs.group(1)
 
     # The mount's owner and the container's user are ONE value. Split, a mount is silently
-    # unwritable by the process that needs it — which is the failure this whole change is about.
+    # unwritable by the process that needs it.
     assert re.search(r"user\s*=\s*local\.container_uid", _container_definition()), (
         "The container's user is not the local the tmpfs mounts are owned by."
     )
-
 
 def test_the_service_ignores_the_image_and_still_obeys_the_desired_count() -> None:
     """CI owns the task definition; the count stays Terraform's because a step raises it.

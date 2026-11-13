@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-255
 title: "The Portal Is a Next.js App Served by a Node Container"
 description: "Moves the portal from a Vite build behind nginx and CloudFront to a Next.js app on a Node server: the existing app mounts client-only in one catch-all route, the server renders the runtime document and the per-request CSP, and the Fargate web tier becomes the only front door."
-spec_status: Draft
+spec_status: In Progress
 depends_on: []
 arc: nextjs
 arc_order: 1
@@ -247,8 +247,9 @@ missing a variable hears its name at start.
 
 #### Description:
 
-`src/proxy.ts` runs on every request. It mints a nonce from 16 cryptographically random bytes,
-base64-encoded, and builds the policy in `src/server/contentSecurityPolicy.ts`: today's directives
+`src/proxy.ts` runs on every request that carries no body. It mints a nonce from 16
+cryptographically random bytes, base64-encoded, and builds the policy in
+`src/server/contentSecurityPolicy.ts`: today's directives
 unchanged except `script-src 'self' 'nonce-<nonce>'`, with `'unsafe-eval'` added only when
 `NODE_ENV` is `development` (React's dev build needs it, and production does not), and
 `connect-src` taken from `PORTAL_CSP_CONNECT_SRC` at request time. `style-src` carries no nonce,
@@ -258,6 +259,29 @@ Next stamps the nonce on every script and stylesheet it emits and the root layou
 `theme-init.js`; it sets the policy and the security headers on the response: HSTS without
 `preload`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, the current `Permissions-Policy`
 list, COOP and CORP, and still no COEP.
+
+**A request carrying a body never reaches the proxy.** When the proxy matches such a request, Next
+clones the body for it and then awaits the whole body before any page or handler answers
+(`finalize()` in `next-server.js`, in a `finally`, whatever the proxy returns), so a client that
+declares a 1 GB body and sends one byte held every path, `/healthz` included, with no answer in six
+seconds (measured, after the SPEC-257 session found it). `proxyClientMaxBodySize` caps only how much
+is buffered, not how long the connection waits. So the proxy's matcher is `/:path*` with
+`missing` conditions on `Content-Length` and `Transfer-Encoding`, and `next.config.ts`'s `headers()`
+gives exactly those requests a floor: the same seven security headers and a lockdown policy
+(`default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`), because no
+page takes a body and none should run script for one. Measured, the same 1 GB declaration is
+answered in milliseconds on every path, and a body-less GET still carries exactly one policy, the
+proxy's. The residual is a body-less GET that a client sends with `Content-Length: 0`: it gets the
+lockdown policy and a page that cannot boot, which no browser does on its own.
+
+The nonce-free definitions, the seven headers and the lockdown policy, live in one plain module,
+`src/lib/securityHeaders.ts`, that the proxy and `next.config.ts` both import. It does not import
+`server-only`, because `next.config.ts` runs in plain Node and a server-only import fails the build
+there (measured by the SPEC-257 session; 255 measured the package's throw under Vitest). The
+nonce-carrying policy builder is `src/server/contentSecurityPolicy.ts`, which does begin with
+`import 'server-only'` and is imported by the proxy alone (measured to build and serve). These are
+the two paths the SPEC-257 spec names: its nonce-free headers for `/api/` and `/auth/` import the
+first.
 
 The proxy sets no `Cache-Control`, because a header it sets overrides every other source. Each class
 takes its value from its owner: Next marks pages `private, no-cache, no-store, max-age=0,
@@ -270,9 +294,11 @@ shell.
 The proxy is now the one home of the policy's bundle directives. Terraform's root
 `content_security_policy` local loses its last consumer with the distribution and is deleted;
 `csp_connect_src` stays at root and reaches the container as today. Two Python guards parse that
-local and go with it: `lambdas/test_csp_policy.py`, which holds today's directives as a recorded
-literal (`ACCEPTED_PRE_MOVE_DIRECTIVES`) with its separator, and `test_spa_image.py`'s baked-policy
-test. The recorded literal and the separator move into the TypeScript test of
+local and go with it: `lambdas/test_csp_policy.py`'s byte-identity test, which holds today's
+directives as a recorded literal (`ACCEPTED_PRE_MOVE_DIRECTIVES`) with its separator, and
+`test_spa_image.py`'s baked-policy test. The file's other two tests stay, because their subject
+outlives the local: that `csp_connect_src` still names both Cognito hosts, and the parser's own test.
+The recorded literal and the separator move into the TypeScript test of
 `contentSecurityPolicy.ts`, with `script-src` the one directive allowed to differ; an expectation
 re-derived from the module itself would only assert that the file equals itself.
 
@@ -286,7 +312,8 @@ re-derived from the module itself would only assert that the file equals itself.
 - [ ] The production policy's `script-src` is exactly `'self' 'nonce-<nonce>'`; the development
       policy's adds `'unsafe-eval'`; `style-src` carries no `nonce-` source in either; every other
       directive equals the literal carried over from `test_csp_policy.py`, in order, with the join
-      separator asserted too; and `test_csp_policy.py` no longer exists.
+      separator asserted too; and `test_csp_policy.py` no longer holds the literal or its
+      byte-identity test, while its Cognito-host and parser tests still pass.
 - [ ] Every response class in FR-005's matrix carries the policy and all seven security headers,
       none carries `X-Powered-By`, `Server` or `Cross-Origin-Embedder-Policy`, and HSTS carries no
       `preload`.
@@ -294,6 +321,12 @@ re-derived from the module itself would only assert that the file equals itself.
       asset `immutable`, `theme-init.js` `public, max-age=0`, and `/config.json`, `/healthz` and a
       missing `/_next/static/chunks/x.js` `no-store`; the last answers 404 with a non-HTML type.
 - [ ] `/healthz` answers 200, `text/plain`, body exactly `ok`.
+- [ ] A request declaring `Content-Length: 1073741824` and sending one byte, and one sending a
+      chunked body that never ends, are each answered within one second on `/`, `/files`,
+      `/config.json`, `/healthz` and a missing `/_next/static` chunk, with the seven security
+      headers and the lockdown policy; and a planted matcher without the `missing` conditions makes
+      the same check fail.
+- [ ] A body-less GET of `/` carries exactly one `Content-Security-Policy` header.
 - [ ] `infra/main.tf` has no `content_security_policy` local, and still builds `csp_connect_src`
       with the Cognito User Pool host and the Hosted UI host as separate, named entries.
 - [ ] **Live:** on the deployed tier, an evaluated `fetch` to a host outside `connect-src` raises a
@@ -332,7 +365,8 @@ security headers, the document, the refusals, and that one digest emits a second
 - [ ] The matrix asserts, by response: the shell and a deep link 200 HTML; a hashed asset 200 and
       gzip-encoded when asked, never brotli; a missing hashed asset 404 non-HTML; `/config.json`'s
       exact key set and version 1; `/healthz`; `theme-init.js`; and a removed root-level file
-      answering 200 HTML, pinned as the catch-all's preserved trap.
+      answering 200 HTML, pinned as the catch-all's preserved trap; and FR-004's bodied-request
+      check, so the bound is proven on the image that ships.
 - [ ] The matrix asserts each FR-003 refusal as a container that exits non-zero naming the
       variable, and that one image digest emits each of two `PORTAL_CSP_CONNECT_SRC` values.
 - [ ] `docker stop` stops the container within three seconds, and the image's revision label
@@ -441,7 +475,7 @@ export type StartupProblem = {
 export function renderRuntimeDocument(env?: NodeJS.ProcessEnv): RuntimeConfigDocument;
 export function startupProblems(env?: NodeJS.ProcessEnv): StartupProblem[];
 
-// src/server/contentSecurityPolicy.ts
+// src/server/contentSecurityPolicy.ts — imported by src/proxy.ts only
 import 'server-only';
 export function newNonce(): string; // 16 random bytes, base64
 export function contentSecurityPolicy(options: {
@@ -449,7 +483,10 @@ export function contentSecurityPolicy(options: {
   connectSrc: string;
   development: boolean;
 }): string;
-export const SECURITY_HEADERS: Readonly<Record<string, string>>;
+
+// src/lib/securityHeaders.ts — imported by src/proxy.ts and next.config.ts; no 'server-only'
+export const SECURITY_HEADERS: Readonly<Record<string, string>>; // the seven, no CSP
+export const LOCKDOWN_POLICY: string; // the floor's policy for a request with a body
 
 // src/proxy.ts
 export function proxy(request: NextRequest): NextResponse;
@@ -496,9 +533,10 @@ apps/portal/
     ├── bootstrap.test.tsx             rewritten against PortalBoot
     ├── proxy.ts                       new
     ├── instrumentation.ts             new
+    ├── lib/securityHeaders.ts         new: the nonce-free headers, shared with next.config.ts
     ├── server/
     │   ├── runtimeDocument.ts         new
-    │   └── contentSecurityPolicy.ts   new
+    │   └── contentSecurityPolicy.ts   new: the nonce-carrying policy
     └── app/
         ├── layout.tsx                 new: the root layout, from index.html
         ├── [[...slug]]/page.tsx       new
@@ -510,7 +548,7 @@ apps/portal/
 .github/scripts/spa-image-matrix.sh          rewritten
 infra/modules/static-portal/                 deleted
 lambdas/test_static_portal_module.py         deleted (its switch-count assertion moves to a web-tier test)
-lambdas/test_csp_policy.py                   deleted (its recorded directives move to the TypeScript test)
+lambdas/test_csp_policy.py                   loses its byte-identity test (its recorded directives move to the TypeScript test)
 lambdas/test_spa_image.py                    rewritten for the Node image
 lambdas/test_config_outputs.py               compares the four remaining wiring sites
 ```
@@ -529,7 +567,8 @@ lambdas/test_config_outputs.py               compares the four remaining wiring 
 ### Phase 2: The server
 
 - `src/server/runtimeDocument.ts`, the `/config.json` route and the start-time refusal.
-- `src/server/contentSecurityPolicy.ts`, the proxy, the health route and the `/_next/` 404.
+- `src/lib/securityHeaders.ts`, `src/server/contentSecurityPolicy.ts`, the proxy with its
+  body-less matcher, the `next.config.ts` floor, the health route and the `/_next/` 404.
 - The ESLint clause for `src/server/` and the Vitest alias; delete the root
   `content_security_policy` local; retarget the wiring-site guards.
 

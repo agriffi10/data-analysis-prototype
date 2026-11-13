@@ -1,26 +1,25 @@
 /**
- * The `VITE_*` surface, and the only place it survives.
+ * The `VITE_*` surface, and the only place it survives: the test runner's configuration.
  *
- * A deployed portal reads `/config.json`; these variables are what answers a
- * `configValue` call in a dev build, where nothing renders that document. Every
- * reference below sits behind an `import.meta.env.DEV` branch at its call site, so a
- * production build deletes these tables outright — which is what stops one environment's
- * values being inlined into an artifact promoted to another.
+ * A deployed portal and `next dev` both read `/config.json`, which the Next.js server renders;
+ * these variables are what answers a `configValue` call under Vitest, where no server runs and a
+ * test stubs a value with `vi.stubEnv('VITE_…')`. Every reference below sits behind an
+ * `import.meta.env.MODE === 'test'` branch at its call site, so a production build deletes these
+ * tables outright, which is what stops one environment's values being inlined into an artifact
+ * promoted to another. Turbopack supplies no custom `VITE_*` names at all, so outside Vitest the
+ * branch could only ever read nothing.
  *
  * EVERY READ IS AT CALL TIME, never at module load: a module-level const captures the
  * value before `vi.stubEnv` runs, so a test would silently exercise the deployed names
  * instead of its own.
  */
-import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
 
 /**
- * Which `VITE_*` variable stands in for each runtime-configuration key, in a dev build.
+ * Which `VITE_*` variable stands in for each runtime-configuration key, under the test runner.
  *
- * `null` means the key has no dev fallback at all. Every required key has one: the boot
- * warning below is driven from the classification, so a required key with no variable
- * would name nothing when it is missing — `[null].join()` is the empty string, and the
- * warning would fire forever saying nothing at all.
+ * `null` means the key has no fallback at all. Every key has one today, so a test can stub any
+ * key the browser reads.
  *
  * `satisfies` rather than an annotation, so this is the SINGLE list of variable names —
  * `PortalEnvVar` is derived from it below, and `readEnv`'s table is then exhaustive
@@ -45,7 +44,7 @@ export const VITE_NAME = {
   sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET'
 } as const satisfies Record<RuntimeConfigKey, string | null>;
 
-/** Every variable a dev fallback can read, derived from the table above. */
+/** Every variable the test fallback can read, derived from the table above. */
 export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
 
 /**
@@ -79,11 +78,11 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
 }
 
 /**
- * One configuration key's value from the local `.env`, for a dev build only.
+ * One configuration key's value from the test runner's environment.
  *
- * A container renders the runtime document from its task environment; a laptop has no
- * container, so `npm run dev` and the test suite answer from `import.meta.env` instead.
- * EVERY CALLER MUST GATE THIS ON `import.meta.env.DEV` AT THE CALL SITE — not inside,
+ * The Next.js server renders the runtime document from its environment, in a container and under
+ * `next dev` alike; only the test suite, where no server runs, answers from `import.meta.env`.
+ * EVERY CALLER MUST GATE THIS ON `import.meta.env.MODE === 'test'` AT THE CALL SITE — not inside,
  * and not in the consumer beyond. That gate is what lets the bundler delete this
  * function, `readEnv` and `VITE_NAME` from a production build, and their deletion is
  * what a production bundle's freedom from build-time configuration rests on.
@@ -98,21 +97,4 @@ export function devFallbackValue(key: RuntimeConfigKey): string | undefined {
   if (name === null) return undefined;
   const value = readEnv()[name];
   return value === '' ? undefined : value;
-}
-
-/**
- * Name the missing variables at boot, in dev only.
- *
- * Driven by the runtime classification rather than a list of its own, so a key that
- * becomes required stays covered here. Production has its own hard failure and prints
- * nothing but the key names.
- *
- * @returns None.
- */
-export function warnIfMisconfigured(): void {
-  if (!import.meta.env.DEV) return;
-  const missing = REQUIRED_CONFIG.filter((key) => devFallbackValue(key) === undefined).map((key) => VITE_NAME[key]);
-  if (missing.length > 0) {
-    console.warn(`[env] missing required variables: ${missing.join(', ')} — see apps/portal/.env.example`);
-  }
 }

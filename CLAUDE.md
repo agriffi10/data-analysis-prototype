@@ -27,15 +27,14 @@ govern, in each tree's `info/` folder. Three you will reach for beside this file
 ## Project Overview
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
-Auth is AWS Cognito — a standalone **User Pool**; the Identity Pool is retired and the browser holds
-no AWS credentials. Arc B moved the object surface, the catalog and the nine control-plane queues
-behind an API (`api.dataquarry.app`), and the SPA is on CloudFront or an ALB; what the browser
-still calls directly is **presigned S3 bytes** and Cognito through Amplify. Status: greenfield, no
-production users yet.
+Auth is a Cognito **User Pool**; the browser holds no AWS credentials. The object surface, the
+catalog and the control-plane queues sit behind one API (`api.dataquarry.app`). The portal is Next.js
+on a Node server behind an ALB, the only front door, off when idle; the browser still calls
+**presigned S3 bytes** and Cognito (Amplify) directly. Status: greenfield, no production users yet.
 
 ## Monorepo (npm workspaces)
 
-- `apps/portal/` — React SPA (**all app code lives here**; paths below are relative to it)
+- `apps/portal/` — the Next.js app (**all app code lives here**; paths below are relative to it)
 - `infra/` — OpenTofu IaC (**all IaC paths relative to here**); one-concept modules under `infra/modules/`, composed flat from the root
 - `packages/` — reserved, currently empty
 - `docs/` — architecture, specs, spec-delivery, templates
@@ -44,12 +43,12 @@ production users yet.
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
+| Frontend | React 19 on Next.js 16 (standalone server), TypeScript (strict), TailwindCSS (`@tailwindcss/postcss`); `server-only`; `focus-trap-react` |
 | TypeScript | **Two copies on purpose: `npm ls typescript` reporting 6.x is not a bug.** `tsc -b` runs 7.x from `apps/portal/node_modules`; typescript-eslint pins `<6.1.0` (TS 7 ships no API before 7.1) so npm hoists 6.x to the root for it. `npm ci` reproduces it; `npm install` only if `typescript` goes LAST — named beside `typescript-eslint` it fails ERESOLVE, and `--force`/`--legacy-peer-deps` "fixes" that by breaking lint. Check versions with `npx tsc --version` **from `apps/portal/`** |
 | AWS | `aws-amplify` v6 for Cognito, and nothing else. **No `@aws-sdk/*` package may be added** — an ESLint `no-restricted-imports` clause forbids the import (tests included) and a test over `package.json` forbids the dependency; objects, bytes, the catalog and the queues go through the API |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
-| Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |
+| Testing / lint | Vitest (Vite's only use) + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |
 | Lambda Python | `polars` (pinned twice — table-builder and data-quality — and read fleet-wide since the image installs every requirements file into one site-packages); `xlsxwriter` for the results-conversion **convert** verb's Excel writer and nothing else. **A new `lambdas/**/requirements.txt` must be named TWICE in `lambdas/Dockerfile`** (a `COPY` and a `--requirement`); nothing derives that list from the tree, and an unnamed file installs silently as nothing |
 | IaC | OpenTofu (HCL, S3 remote state) |
 | Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **pre-push**); Semgrep / `pip-audit` / gitleaks / Checkov **block** in `security.yml`; `npm audit` and the OWASP ZAP baseline **report** (SPEC-138 — the modes are the `GATE_*` block at the top of the workflow). Every scanner version-pinned — see the VERSIONS block and #311 |
@@ -63,7 +62,7 @@ Don't add dependencies without noting them here first.
 - Features in `src/features/<name>/`: `index.ts` barrel, `Component.tsx` (+ co-located `.test.tsx`), `useFeature.ts`, `feature.types.ts`, `feature.service.ts`.
 - AWS: no SDK in the browser (Tech Stack row). Objects, the catalog and the queues go through `lib/apiClient`'s `apiRequest`, called from service files, never from components; bytes go to S3 on a URL the API presigned.
 - Services never throw — return `ServiceResult<T>` (`{success:true,data} | {success:false,error:{message,code?}}`).
-- Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
+- Configuration: the server's `CONFIG_<key>` variables, documented in `apps/portal/.env.example`.
 - **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `docs/decisions/`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
 - **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `apps/portal/info/best-practices/react/react.md` §19, `lambdas/info/best-practices/python/python.md` §14.
 - **`lambdas/` production code carries NO inline comments** (only `# noqa` / `# type: ignore` per §14; tests exempt). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes beside the code in `@lambdas/info/` — `shared-layer.md` for `cpcommon`, the plane's own page otherwise — not in the file. Format: `lambdas/info/best-practices/python/python.md` §14.

@@ -339,9 +339,9 @@ locals {
   # come from the subdomain variables above rather than from module.api's domain name, which
   # would route a dependency cycle through base.
   #
-  # It lives at root because the container reads it directly and the assembled policy below
-  # reads it too. Neither belongs in a module: a root-level check cannot read a local
-  # declared in one.
+  # It lives at root because the container reads it directly and a root-level check cannot read
+  # a local declared in a module. Every other directive of the policy describes the bundle and
+  # lives in the Next.js server's policy builder (apps/portal/src/server/contentSecurityPolicy.ts).
   csp_connect_src = join(" ", [
     "'self'",
     "https://cognito-idp.${var.aws_region}.amazonaws.com",
@@ -358,66 +358,9 @@ locals {
   ])
 
 
-  # ── The Content-Security-Policy, assembled once ─────────────────────────────
-  # AT ROOT, and that placement is the decision. `connect-src` above is one
-  # directive of this policy; every other directive describes the BUNDLE — what
-  # it may execute, style, fetch a font from, spawn a worker as — so the two
-  # halves have different owners and only this one is environment-shaped.
-  #
-  # The distribution reads this string whole. The container bakes every directive but
-  # `connect-src`, which it takes from its task environment, and `lambdas/test_spa_image.py`
-  # asserts the baked set against this computation: nothing observes either offline.
-  #
-  # ASSEMBLED FROM VARIABLES, NEVER LITERALS. A hardcoded region or bucket has
-  # to be found and edited by hand during the client-environment transition
-  # (docs/transition_plan.md), which is the one thing this file is read for
-  # then.
-  #
-  # The policy is ENFORCING. It shipped report-only first, and that was not
-  # ceremony: a CSP wrong about `worker-src` or `style-src` breaks the Monaco
-  # editor in production and nowhere else, because no unit test observes a CSP.
-  # Report-only earned its keep twice — it caught the fonts.googleapis.com
-  # omission below, and it exposed that Safari will not evaluate a report-only
-  # policy naming no reporting endpoint (so an unverified CSP would have looked
-  # verified).
-  content_security_policy = join("; ", [
-    "default-src 'self'",
-    "script-src 'self'",
-    # 'unsafe-inline' is for STYLES ONLY, and it is monaco-editor's requirement:
-    # it injects <style> elements at runtime for theming. Scripts get no such
-    # allowance, which is the allowance that matters.
-    #
-    # fonts.googleapis.com is NOT optional: src/index.css line 1 is
-    # `@import url('https://fonts.googleapis.com/css2?family=Inter…')`, and Vite
-    # leaves remote @imports in the built CSS. Without this the app loses its
-    # typeface site-wide — caught by the report-only pass before it ever reached
-    # an enforcing policy.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data:",
-    # The Google stylesheet above serves its actual font files from gstatic.
-    "font-src 'self' data: https://fonts.gstatic.com",
-    # Monaco's worker is a Vite `?worker` import (SqlEditor.tsx). Vite emits a
-    # same-origin chunk, but its worker shim can fall back to a blob: URL.
-    "worker-src 'self' blob:",
-    "connect-src ${local.csp_connect_src}",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    # These two are INERT in report-only by spec — Safari says so out loud
-    # ("directive is ignored when delivered in a report-only policy"). They
-    # take effect only now that the policy is enforcing, so report-only never
-    # tested them. Both were assessed instead of assumed:
-    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY was already
-    #     live and nothing broke, so framing is already proven.
-    #   upgrade-insecure-requests — every subresource is already https
-    #     (same-origin assets, Google Fonts, AWS endpoints), so it is a no-op.
-    "frame-ancestors 'none'",
-    "upgrade-insecure-requests",
-  ])
-
   # ── The runtime configuration document ──────────────────────────────────────
   # Every key the portal's runtime-configuration classification declares, with its value. The
-  # container renders /config.json from these, and modules/static-portal writes it as an object.
+  # Next.js server in the container renders /config.json from these.
   #
   # THE KEYS ARE NAMED HERE AND NOWHERE ELSE IN THE INFRASTRUCTURE. modules/spa renders one
   # CONFIG_<key> environment entry per map entry, so a key added to the classification is
@@ -898,26 +841,6 @@ module "network" {
 
   # base grants the deploy role the VPC, subnet, route-table, security-group, endpoint and
   # flow-log permissions BEFORE anything here lands.
-  depends_on = [module.base]
-}
-
-
-# ── The portal without a VPC ─────────────────────────────────────────────────
-# The other side of the switch: exactly one of this and the web tier serves the portal.
-module "static_portal" {
-  source = "./modules/static-portal"
-  count  = local.web_tier_enabled ? 0 : 1
-
-  project_name = var.project_name
-  environment  = var.environment
-
-  spa_host                = local.spa_host
-  route53_zone_id         = var.route53_zone_id
-  spa_certificate_arn     = aws_acm_certificate_validation.spa.certificate_arn
-  content_security_policy = local.content_security_policy
-  runtime_config          = local.spa_runtime_config
-
-  # base grants the deploy role the bucket and distribution permissions BEFORE anything here lands.
   depends_on = [module.base]
 }
 

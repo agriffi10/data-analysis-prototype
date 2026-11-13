@@ -7,8 +7,8 @@ deploy read them instead, so it is the file that must not drift — a new hand-m
 copy in place of the old one would be the same defect wearing a commit.
 
 Four of the assertions here bind it to something that already exists: the browser's
-classification, ``infra/outputs.tf``, and the container entrypoint's own key lists. The
-fifth binds the deploy role, because the whole change rests on the claim that reading
+classification, ``infra/outputs.tf``, and the Next.js server's reading of that same
+classification. The fifth binds the deploy role, because the whole change rests on the claim that reading
 remote state needs no new grant, and a claim nobody asserts is a claim that quietly stops
 being true.
 
@@ -17,7 +17,7 @@ Attributes:
   MAPPING: The map under test.
   CONFIG_TYPES: The browser's runtime-configuration classification.
   OUTPUTS: The Terraform output declarations the map's left column must exist in.
-  ENTRYPOINT: The container script that renders the served document.
+  SERVER_DOCUMENT: The server module that renders the served document.
   DEPLOY_POLICY: The deploy role's policy template.
   GENUINE_INPUTS: The two configuration keys no resource can tell you, which stay
     repository variables and are therefore absent from the map by design.
@@ -31,9 +31,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MAPPING = ROOT / ".github" / "config-outputs.json"
 CONFIG_TYPES = ROOT / "apps" / "portal" / "src" / "types" / "runtimeConfig.types.ts"
 OUTPUTS = ROOT / "infra" / "outputs.tf"
-ENTRYPOINT = (
-    ROOT / "apps" / "portal" / "docker" / "docker-entrypoint.d" / "40-render-portal-config.sh"
-)
+SERVER_DOCUMENT = ROOT / "apps" / "portal" / "src" / "server" / "runtimeDocument.ts"
 DEPLOY_POLICY = (
     ROOT / "infra" / "modules" / "base" / "policies" / "github-actions-deploy.json.tftpl"
 )
@@ -85,27 +83,6 @@ def _ts_string_array(source: str, name: str) -> list[str]:
     literals = re.findall(r"'([A-Za-z][A-Za-z0-9]*)'", body)
     assert literals, f"{name} declares no key"
     return literals
-
-
-def _shell_word_list(source: str, name: str) -> list[str]:
-    """Reads a single-quoted space-separated shell assignment into a list.
-
-    Args:
-      source: The shell script's text.
-      name: The variable to read, e.g. ``KEYS``.
-
-    Returns:
-      The words assigned, in declaration order.
-
-    Raises:
-      AssertionError: If the assignment is absent or empty, so a parser that matched
-        nothing cannot report an empty list as agreement.
-    """
-    match = re.search(rf"^{name}='([^']+)'", source, re.MULTILINE)
-    assert match, f"no {name}= assignment found in the entrypoint — this has no subject"
-    words = match.group(1).split()
-    assert words, f"{name} is empty"
-    return words
 
 
 def _derived_config_keys() -> set[str]:
@@ -206,13 +183,12 @@ def test_no_mapped_output_is_sensitive() -> None:
     assert offending == [], f"mapped outputs declared sensitive: {offending}"
 
 
-def test_the_entrypoint_renders_the_map_plus_the_genuine_inputs() -> None:
-    """The leg that decides whether the container starts, bound to the map.
+def test_the_server_renders_the_classification_it_shares_with_the_browser() -> None:
+    """The leg that decides what the served document carries, bound to the classification.
 
-    The container refuses to start on an unset required key, so a key in the map and not
-    in ``KEYS`` is a document the container will not serve. The reverse is the silent
-    half: a key in ``KEYS`` that nothing supplies renders empty and is dropped, and the
-    entrypoint's list is the only thing bounding what reaches a world-readable document.
+    The server reads the browser's own arrays rather than a list of its own, which is what
+    collapsed two wiring sites into one. The drift that replaced the old entrypoint's is the
+    server growing a second list, so this asserts the import that makes the two one list.
 
     Args:
       None.
@@ -221,11 +197,15 @@ def test_the_entrypoint_renders_the_map_plus_the_genuine_inputs() -> None:
       None.
 
     Raises:
-      AssertionError: If the entrypoint's key list is not the map plus the two inputs.
+      AssertionError: If the server module stops importing either array from the types module.
     """
-    rendered = set(_shell_word_list(ENTRYPOINT.read_text(), "KEYS"))
-
-    assert rendered == set(_mapping().values()) | GENUINE_INPUTS
+    source = SERVER_DOCUMENT.read_text()
+    imported = re.search(
+        r"^import \{([^}]*)\} from '\.\./types/runtimeConfig\.types';$", source, re.MULTILINE
+    )
+    assert imported, "the server no longer imports the classification from the browser's types"
+    names = {name.strip() for name in imported.group(1).split(",")}
+    assert {"REQUIRED_CONFIG", "OPTIONAL_CONFIG"} <= names, names
 
 
 def test_the_deploy_role_already_reads_the_state_bucket() -> None:

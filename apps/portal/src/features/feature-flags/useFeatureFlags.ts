@@ -95,9 +95,8 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
  * The fallback is deliberately silent, which means a permanently-blocked fetch is
  * indistinguishable from a healthy all-on environment — there is no banner and no toast,
  * because the user is not the audience for that failure. This is the audience. Stripped
- * from production builds by the `DEV` guard, exactly as `warnIfMisconfigured` is, and for
- * the same reason: a deployed app must not narrate its own configuration to a user's
- * console.
+ * from production builds by the `DEV` guard, for the reason every dev diagnostic is: a
+ * deployed app must not narrate its own configuration to a user's console.
  */
 function useDevDiagnostic(status: FeatureFlagsStatus, environment: string | undefined): void {
   useEffect(() => {

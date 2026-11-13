@@ -43,7 +43,6 @@ const h = vi.hoisted(() => {
   return {registerCompletionItemProvider, addCommand, monacoMock, models, rendered, created};
 });
 
-vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({default: class {}}));
 vi.mock('monaco-editor', () => h.monacoMock);
 vi.mock('@monaco-editor/react', () => ({
   loader: {config: vi.fn()},

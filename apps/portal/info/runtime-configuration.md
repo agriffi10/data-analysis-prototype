@@ -23,29 +23,33 @@ The loader is `lib/runtimeConfig.ts`; the shape and its key classification are
 ## The rules that hold it up
 
 - **Same-origin, never proxied.** The SPA has to render its own error states while the API is down,
-  so the document is served by the SPA's own server.
+  so the document is served by the portal's own server: the Next.js route handler
+  `src/app/config.json/route.ts`, rendering `src/server/runtimeDocument.ts` per request from the
+  server's `CONFIG_<key>` environment, in a container and under `next dev` alike.
 - **`Cache-Control: no-store`.** A document answered from a cache populated in the previous
   environment renders a working, fully functional portal pointed at the wrong account, and nothing
-  on screen distinguishes it. The container sets the header on `/config.json` in its own `location`
-  block, and the container matrix asserts it **on a response** rather than in the config text.
-  With the web tier off, Terraform writes the document as an S3 object carrying the same header,
-  and the distribution gives its path a behaviour of its own with caching disabled and the header
-  policy re-attached. Both render it from one map at root, so a key added there reaches both.
+  on screen distinguishes it. The route handler sets the header, the request proxy deliberately sets
+  no `Cache-Control` of its own (one it set would override the handler's), and the image's behaviour
+  matrix asserts it **on a response** rather than in the source.
 - **A production boot with bad configuration fails hard.** Unreachable, unparseable, an unsupported
   version, or a missing required key each render `BootFailure` and mount no route. One `console.error`
   carries the reason and the missing key **names** — never a value.
-- **A dev build falls back to `import.meta.env`; a production build must not.** The fallback's key
-  tables are eliminated from the production bundle, asserted on the built output by
-  `npm run check:bundle`.
-- **The container refuses to start** when a required key is unset or empty. The static path has no
-  such refusal: an empty value leaves the key out, and the portal shows `BootFailure`.
+- **Only the test runner falls back to `import.meta.env`.** Vitest has no server, so a configuration
+  read there answers from `vi.stubEnv('VITE_…')`, gated on `import.meta.env.MODE === 'test'`; `next
+  dev` and a production build both read the document. The fallback's key tables are eliminated from
+  the browser bundle, asserted on the built output by `npm run check:bundle`.
+- **The server refuses to start** when a required key, or `PORTAL_CSP_CONNECT_SRC`, is unset or
+  empty, or the source list carries a character outside its allowlist, naming each variable and
+  exiting 1 (`src/instrumentation.ts`). It exits rather than throws: a throw there was measured to
+  leave a server up and answering 500 to every path.
 
-## A key is wired in five places
+## A key is wired in four places
 
-Adding one means touching all five, and a test compares them:
+Adding one means touching all four, and a test compares them:
 
-1. the classification in `types/runtimeConfig.types.ts`, and its `VITE_` name in `lib/env.ts`
-2. `apps/portal/.env.example`
+1. the classification in `types/runtimeConfig.types.ts`, which the browser's loader and the server's
+   renderer both read (its `VITE_` name in `lib/env.ts` is the test runner's stub, not a wiring site)
+2. `apps/portal/.env.example`, under its `CONFIG_<key>` name, for `next dev`
 3. **its source**, which is one of two things and never both — `.github/config-outputs.json`, the
    one map from Terraform output name to configuration key, for a value Terraform computes; a
    GitHub repository variable for a genuine **input** Terraform is *given*. Today only
@@ -54,14 +58,13 @@ Adding one means touching all five, and a test compares them:
    it is always the default `prod` — Step 3 of `.github/workflows/README.md` says why
 4. the ECS task definition — `local.spa_runtime_config` at root, which `modules/spa` renders one
    `CONFIG_<key>` entry per map entry from
-5. the container entrypoint's own `KEYS`/`REQUIRED` lists in
-   `apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh` — the leg that actually
-   renders the served document, compared against the classification in `lambdas/test_spa_image.py`
 
-It was six until the CloudFront delivery path was retired: `deploy-app.yml` carried a build env
-and a render step, each its own site. **The count went DOWN by a deletion, which is the direction
-that hides a gap** — so the entrypoint's two lists gained a real comparison in merge 1 of the same spec,
-rather than inheriting a claim that a deleted workflow's tests had been covering them.
+It was five while nginx's entrypoint carried its own `KEYS`/`REQUIRED` lists, and six before that,
+while `deploy-app.yml` carried a build env and a render step. **The count went DOWN by a deletion
+each time, which is the direction that hides a gap.** The last site went because the server imports
+the classification itself, so the drift that replaced it is the server growing a key list of its
+own: `src/server/runtimeDocument.test.ts` fails on a key literal there, and
+`lambdas/test_config_outputs.py` on the import going away.
 
 Site 3 survives the retirement and had to be **edited** by it. The map named `cloudfront_domain`
 as the source of `appUrl`; that output is deleted here, and `resolve-config.sh` refuses an output

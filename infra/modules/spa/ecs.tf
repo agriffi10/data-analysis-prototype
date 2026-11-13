@@ -35,12 +35,13 @@ locals {
 
   # tmpfs, NOT a task volume — MEASURED. A Fargate task volume arrives EMPTY and root-owned
   # and does not initialise from the image, so a non-root container cannot write to it and
-  # nginx dies on a permission error that reads as a container bug. README.md.
-  writable_paths = ["/tmp", "/var/cache/nginx"]
+  # dies on a permission error that reads as a container bug. The Node server writes only its
+  # temp directory; the root filesystem is read-only. README.md.
+  writable_paths = ["/tmp"]
 
   # ONE uid feeding both `user` and every mount option. Split between the two, a mount is
   # silently unwritable by the process that needs it.
-  container_uid = "101"
+  container_uid = "1000"
 }
 
 resource "aws_ecs_task_definition" "spa" {
@@ -72,7 +73,7 @@ resource "aws_ecs_task_definition" "spa" {
         }
       ]
 
-      # uid 101 is nginx-unprivileged's own user.
+      # uid 1000 is the node base image's own unprivileged user.
       user                   = local.container_uid
       readonlyRootFilesystem = true
 

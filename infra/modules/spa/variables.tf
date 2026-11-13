@@ -106,7 +106,7 @@ variable "task_memory" {
 }
 
 variable "container_port" {
-  description = "Port the container listens on. 8080 because the runtime base is nginx-unprivileged, which binds it as uid 101 by construction; the image and the target group must agree, and the image honours this value."
+  description = "Port the container listens on. 8080 because the image sets PORT=8080 and runs as an unprivileged user, which cannot bind below 1024; the image and the target group must agree."
   type        = number
   default     = 8080
 }

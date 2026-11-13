@@ -12,6 +12,12 @@
 # resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
 # CKV_AWS_305); they are here because they pass, which is the whole rule.
 #
+# RE-MEASURED 2026-11-13, when the Next.js server became the only front door and the static portal
+# was deleted: 68 IDs. The ten added on 2026-11-02 left with it, every one measured by the command
+# below as evaluating nothing (the nine CloudFront checks and CKV_AWS_70, whose one resource was the
+# portal bucket's policy). CKV2_AWS_40 joined: it now evaluates four standalone functions' inline
+# role policies, passing. Argued in docs/security-baseline.md.
+#
 # TEN ADDED 2026-11-02, when CloudFront came back to serve the portal with the web tier off: 77 IDs.
 # Eight of the nine the distribution took with it (CKV_AWS_259 now fails by decision: no HSTS
 # preload), plus CKV2_AWS_42 and CKV_AWS_174, which it had never passed. docs/security-baseline.md.
@@ -106,17 +112,6 @@ CKV_AWS_76     # Ensure API Gateway has Access Logging enabled (1)
 # aws_athena_workgroup
 CKV_AWS_159    # Ensure that Athena Workgroup is encrypted (1)
 
-# aws_cloudfront_distribution
-CKV2_AWS_32    # Ensure CloudFront distribution has a response headers policy attached (1)
-CKV2_AWS_42    # Ensure AWS CloudFront distribution uses custom SSL certificate (1)
-CKV2_AWS_46    # Ensure AWS CloudFront Distribution with S3 have Origin Access set to enabled (1)
-CKV2_AWS_54    # Ensure AWS CloudFront distribution is using secure SSL protocols for HTTPS communication (1)
-CKV2_AWS_72    # Ensure AWS CloudFront origin protocol policy enforces HTTPS-only (1)
-CKV_AWS_174    # Verify CloudFront Distribution Viewer Certificate is using TLS v1.2 or higher (1)
-CKV_AWS_216    # Ensure CloudFront distribution is enabled (1)
-CKV_AWS_305    # Ensure CloudFront distribution has a default root object configured (1)
-CKV_AWS_34     # Ensure CloudFront distribution ViewerProtocolPolicy is set to HTTPS (1)
-
 # aws_cloudtrail
 CKV_AWS_251    # Ensure CloudTrail logging is enabled (1)
 CKV_AWS_36     # Ensure CloudTrail log file validation is enabled (1)
@@ -148,6 +143,7 @@ CKV_AWS_60     # Ensure IAM role allows only specific services or principals to 
 CKV_AWS_61     # Ensure AWS IAM policy does not allow assume role permission across all services (21)
 
 # aws_iam_role_policy
+CKV2_AWS_40    # Ensure AWS IAM policy does not allow full IAM privileges (4)
 CKV_AWS_62     # Ensure IAM policies that allow full "*-*" administrative privileges are not created (37)
 CKV_AWS_63     # Ensure no IAM policies documents allow "*" as a statement's actions (37)
 
@@ -197,8 +193,6 @@ CKV_AWS_300    # Ensure S3 lifecycle configuration sets period for aborting fail
 # aws_s3_bucket_ownership_controls
 CKV2_AWS_65    # Ensure access control lists for S3 buckets are disabled (4)
 
-# aws_s3_bucket_policy
-CKV_AWS_70     # Ensure S3 bucket does not allow an action with any Principal (1)
 
 # aws_s3_bucket_public_access_block
 CKV_AWS_53     # Ensure S3 bucket has block public ACLS enabled (5)

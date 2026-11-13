@@ -378,14 +378,16 @@ describe('no colour bypasses the tokens', () => {
     expect(dimmedInCss).toEqual([]);
 
     // The stylesheet check reads `index.css` alone, which is enough only while that is the one
-    // stylesheet the app imports. Matched on the whole specifier, not just its basename: a
+    // stylesheet the app imports, from the one place it is imported: the root layout, so the sheet
+    // is linked in the server's HTML. Matched on the whole specifier, not just its basename: a
     // `'./styles/theme.css'` one directory down satisfied the first version of this.
     const imported = new Set<string>();
     for (const [path, source] of Object.entries(SOURCES)) {
       if (NOT_APP_CODE.test(path)) continue;
-      for (const [, specifier] of code(source).matchAll(/import\s+'([^']+\.css)'/g)) imported.add(specifier);
+      for (const [, specifier] of code(source).matchAll(/import\s+'([^']+\.css)'/g))
+        imported.add(`${path} ${specifier}`);
     }
-    expect([...imported]).toEqual(['./index.css']);
+    expect([...imported]).toEqual(['/src/app/layout.tsx ../index.css']);
 
     // An inline style, which is the shape the comment above names. A style object held in a
     // variable is NOT reached, stated so nobody trusts this further than it goes.

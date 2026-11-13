@@ -13,7 +13,7 @@ or belongs to no tree at all.
 |---|---|---|
 | The app | `apps/portal/info/component-inventory/INDEX.md` | a **router** to per-area inventories of what already exists — read the area(s) your spec touches, never all |
 | | `apps/portal/info/best-practices/` | the React and accessibility rulebooks |
-| | `apps/portal/info/runtime-configuration.md` | the `/config.json` contract and the five places a key is wired |
+| | `apps/portal/info/runtime-configuration.md` | the `/config.json` contract and the four places a key is wired |
 | The lambdas | `lambdas/info/INDEX.md` | every function, grouped by control plane — a lookup, not a description |
 | | `lambdas/info/planes/<plane>.md` | one page per plane: its machine, what it accepts, its fences, its layer, and the evidence behind its caps |
 | | `lambdas/info/shared-layer.md` | `cpcommon`'s module map and the long-form *why* behind it |

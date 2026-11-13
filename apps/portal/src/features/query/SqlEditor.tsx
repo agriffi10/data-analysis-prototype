@@ -1,15 +1,14 @@
 import {forwardRef, useEffect, useImperativeHandle, useRef} from 'react';
 import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import {PALETTE, type ColorToken} from '../../lib/palette';
 import type {EffectiveTheme} from '../../lib/theme.types';
 import {useTheme} from '../../lib/useTheme';
 import {createSqlCompletionProvider} from './sqlCompletions';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 
-// Self-host Monaco: no CDN/runtime external. Vite builds the editor worker
-// (?worker), and we point @monaco-editor/react's loader at the bundled
+// Self-host Monaco: no CDN/runtime external. The bundler builds the editor worker from the
+// `new Worker(new URL(...))` below, and we point @monaco-editor/react's loader at the bundled
 // monaco-editor instead of its default CDN. SQL needs only the core editor
 // worker (no language-service worker). This whole module is lazy-loaded by
 // QueryWorkspace, so monaco lands in its own async chunk — never in the Files
@@ -21,7 +20,7 @@ import type {DatabaseSchema} from '../catalog/catalog.types';
 // path now resolves to `esm/vs/esm/vs/…` and fails at build time.
 self.MonacoEnvironment = {
   getWorker() {
-    return new editorWorker();
+    return new Worker(new URL('monaco-editor/editor/editor.worker', import.meta.url), {type: 'module'});
   }
 };
 loader.config({monaco});
