@@ -1,7 +1,13 @@
 # Completed Spec — SPEC-254: The Standalone Functions Are Building-Block Calls
 
-Merged as PR #959 (`4c2f4520`), 2026-11-12. Deploys were switched off, so nothing applied; the PR's
-CI plan is the proof.
+Merged as PR #959 (`4c2f4520`), 2026-11-12. Deploys were switched off, so nothing applied at merge,
+and the PR's CI plan was the proof then. **It was first applied on 2026-11-13**, with the other two
+restructure specs, by Deploy Infrastructure run 43422262900 on `8867e3f3` (#963): *"3 added, 4
+changed, 1 destroyed"*. Its log shows 103 plain moves, and four more resources that moved and changed
+in the same apply: the grant wait and three in shared spaces. The PR plans below are larger because
+they were planned with the web tier switched on; it was switched off again before this apply. A live
+session the same day ran every plane except archive green against it (`docs/testing/sessions.md`,
+2026-11-13).
 
 ## What was completed?
 
@@ -52,5 +58,6 @@ CI plan is the proof.
 - CI plan on PR #959: **48 to add, 4 to change, 9 to destroy** — main's pending plan unchanged (the
   web-tier baseline, the OIDC thumbprint, and SPEC-252's five shared-spaces changes) — plus 32 resource moves into the
   five touched addresses, and no output change outside the web tier's.
-- Not applied anywhere: deploys are off, and the next account is created fresh.
-- Nothing user-facing changed, so there is no Help & guides update and no live check.
+- Applied on 2026-11-13, and a live check ran the same day though none was owed (both in the
+  opening paragraph). The next account is still created fresh.
+- Nothing user-facing changed, so there is no Help & guides update.

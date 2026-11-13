@@ -3315,6 +3315,12 @@ not this arc's: the web tier was switched on (`TF_VAR_WEB_TIER_ENABLED=true`) af
 so it shows the VPC tier created and the static portal destroyed, and it carries one in-place
 change to the OIDC provider's `thumbprint_list`. Those addresses are excluded by name.
 
+> **Superseded in part (2026-11-13, #963 and Deploy Infrastructure run 43422262900):** deploys are
+> back on except the Lambda image build, and that run applied all three of the arc's specs, with 103
+> moves and the shared-spaces role split. The web-tier baseline above describes the PR plans only;
+> the apply ran with the tier off. A live run of every plane but archive passed against it
+> (`docs/testing/sessions.md`, 2026-11-13).
+
 **What the arc does not do.** No bucket module — the seven buckets share four short resources and
 differ in the rest, and a module named for the one resource it wraps is what the guidance calls a
 thin wrapper. No retirement of `lambda-artifacts` (a deletion, its own session). No change to any

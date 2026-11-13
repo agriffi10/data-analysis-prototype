@@ -10,6 +10,80 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-13 (every plane after the module restructure's first apply)
+
+**What was under test.** The first apply of the infra building-blocks arc: the control planes as one
+module, the deploy role's plane grants as one template, and the standalone functions as
+building-block calls. Deploy Infrastructure run 43422262900 on `8867e3f3` (#963) applied them at
+12:07Z: *"Apply complete! Resources: 3 added, 4 changed, 1 destroyed."* It created the shared-spaces
+Step Functions role and its policy; updated shared spaces' execution role, its policy and its state
+machine, and the OIDC thumbprint; and replaced `module.base.time_sleep.wait_for_plane_grants`. The
+log shows 103 plain moves. The portal was the static tier (`TF_VAR_WEB_TIER_ENABLED` false), deployed
+from `8867e3f3`. The Lambda image was not rebuilt, because `LAMBDA_BUILDS_ENABLED` is off. The
+browser rows ran from about 14:20Z (the first upload's timestamp) to 14:34Z.
+
+**Browser.** Chrome through the Claude in Chrome extension, in a tab of its own group, as
+**agriffith**, which Andrew signed in himself at the Cognito form. `innerWidth` 1512.
+
+**Fixtures.** `e2e.md` §2's generator, cut down, under one parent folder `e2e_1113/`:
+`explorer150/` (`explorer-fixture-150.csv`), `partfix/year=2025/` (`part1.csv`) and
+`partfix/year=2026/` (`part2.csv`), `dq_agree/` (`dq_a.csv`, `dq_b.csv`), `dq_disagree/`
+(`dq_a.csv`, `dq_bad.csv`), and `ops/` (`part1.csv`, `part2.csv`, `dq_b.csv`) with a subfolder
+`ops/sub/`. That is nine folders and ten uploads.
+
+**Instruments, each a way this run differed from a user's.**
+- `document.visibilityState` and `hidden` overridden to visible, with `visibilitychange` and `focus`
+  dispatched on `window`, as `e2e.md` §1's first instrument directs for a tab the extension
+  drives. The tab's own state was not read before the override.
+- `element.click()` for most buttons, menus, checkboxes and radios. Text fields and selects were set
+  with the native value setter plus an `input` or `change` event. Pointer clicks and real typing
+  from the extension for Monaco, the Upload button, the table menus and one Run.
+- Uploads through the extension's `file_upload` into the page's own file input.
+- The download was captured by replacing `HTMLAnchorElement.prototype.click` for one call and
+  fetching the presigned URL in the page, so no file was written. The editor toolbar's **Download**
+  was also clicked once by mistake. It saved the query text as a 121-byte `.sql` in `~/Downloads`,
+  which was moved to the Trash.
+- An `element.click()` on **Run statement** once left the previous result in place, and a pointer
+  click on the same button then ran the query. `e2e.md` §1 now carries this as a trap.
+- Read-only CLI: Lambda `get-function-configuration` across the fleet, Step Functions
+  `list-executions` per plane, and CloudWatch Lambda `Invocations` and `Errors` and Events
+  `FailedInvocations`.
+
+**Approval.** Andrew asked for an end-to-end run in chat. He declined archive and restore, and
+approved creating and deleting a throwaway shared space.
+
+| Row | Result |
+|---|---|
+| Fleet state after the apply | **PASS.** All 91 `dat-prod` functions `Active`, last update `Successful`. |
+| The four functions moved into `scheduled-function`, 12:08Z to 14:35Z | **PASS.** `dat-prod-user-directory-build` ran 1 time, `dat-prod-control-plane-dlq-drain` 15, `dat-prod-log-sweep` 15 and `dat-prod-shared-space-transfer-reader` 3, all with 0 `Errors`, and their rules had no `FailedInvocations`. |
+| Upload, listing and download | **PASS.** The fixtures above uploaded and listed. Downloading `ops/part2.csv` from its Details panel produced a presigned URL on `dat-prod-user-space.s3…` that returned 200 and the uploaded 138 bytes, 11 lines. |
+| Single-file rename, move, copy and delete, in `ops/` | **PASS.** `part2.csv` renamed to `part2_renamed.csv`, `dq_b.csv` moved and `part1.csv` copied into `ops/sub/`, and `part2_renamed.csv` deleted. Each toasted its outcome and the listings matched. These go straight through the API, not the file-ops plane, because the plane takes anything that is not exactly one file. |
+| File-ops plane: folder copy and folder delete | **PASS.** `ops/sub/` copied to `e2e_1113/sub/` (14:23:41Z to 14:24:01Z), then `e2e_1113/sub/` deleted (14:25:08Z to 14:25:12Z), both `SUCCEEDED`. The copy's completion notification arrived, and the deleted folder left the listing. **Copy, Move and Delete stay disabled on a folder until its running copy reports done.** That is the lock working, not a stuck control. |
+| Table builder | **PASS.** `e2e1113_flat` built from `explorer150/`, and `e2e1113_part` from `partfix/` with partition key `year` (string, `2025, 2026`). Both `SUCCEEDED` (started 14:25:42Z and 14:25:58Z) with ready notifications. `SELECT year, count(*) AS n, sum(cast(amount AS integer)) AS total FROM agriffith.e2e1113_part GROUP BY year ORDER BY year` returned `2025 10 385` and `2026 10 1085`, the sums of `part1.csv` and `part2.csv`. The same query without `agriffith.` was refused with *"Add a database to each table"*, as designed. |
+| Saved query | **PASS.** That query saved as `e2e1113_query` to `saved_queries/` with a toast, and was deleted at cleanup. |
+| Results conversion to Excel | **PASS.** That query's two-row result, through **Save results…** as Excel into `e2e_1113/`: `SUCCEEDED` 14:28:12Z to 14:28:25Z, with the notification *"Saved 2 rows as Excel to …xlsx"*. |
+| Data quality on `dq_agree/` and `dq_disagree/` | **PASS.** Both `SUCCEEDED` in about 50 s. `dq_agree/` reported **Clean**. `dq_disagree/` reported **Issues found**, naming `dq_bad.csv` as missing `region` and carrying the extra `zone`. The runs' `dq_tmp_*` tables were gone from the rail afterwards. |
+| Shared spaces: create `e2e_1113_space`, the plane that gained a role | **PASS.** `SUCCEEDED` 14:28:41Z. The card went from *Provisioning…* to *Active*, with the notification *"…is ready"*. |
+| File send of `dq_agree/dq_a.csv` to `e2e_1113_space` | **PASS.** `SUCCEEDED` 14:29:25Z to 14:29:41Z, with both the sender's notification and the space owner's. |
+| Table share of `e2e1113_flat` to `e2e_1113_space` | **PASS.** `SUCCEEDED` 14:29:54Z to 14:30:10Z, with both notifications. `SELECT count(*) FROM e2e_1113_space.e2e1113_flat` returned **150**, the row count of `explorer-fixture-150.csv`. |
+| Notifications and feedback, the two `queue-consumer` callers | **PASS.** Every outcome above arrived in the inbox. Feedback toasted *"Thanks — your feedback has been sent."*, and `dat-prod-feedback-writer` ran with 0 errors. |
+| Shared spaces: delete `e2e_1113_space` | **PASS.** `SUCCEEDED` 14:31:50Z to 14:31:56Z after the typed-name confirm. The space left both the Shared spaces list and the Query rail. |
+
+### Not run
+
+- **Archive and restore**, at Andrew's direction. The archive plane's moved state machine has no
+  execution since the apply.
+- The rest of `e2e.md` §4 (Data Explorer, Help, flags, responsive, dark mode, the front door). The
+  restructure changed no browser code, so this run covered the planes and functions it moved.
+
+**Cleanup.** The parent folder `e2e_1113/` was deleted with everything in it, the `.xlsx` included
+(a third file-ops execution, 14:33:14Z to 14:33:28Z, `SUCCEEDED`). Both tables and the saved query
+were deleted too. **Left behind:** only what a shared-space delete keeps by design. That is the
+`dq_a.csv` sent into `e2e_1113_space` and its copy of `e2e1113_flat`, held for administrators, as
+the delete dialog says.
+
+---
+
 ## Live-check session — 2026-09-29, later (Drop view in a shared space)
 
 **What was under test.** Drop view's double-quoting of a database name that needs it, on the build

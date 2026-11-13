@@ -1,7 +1,13 @@
 # Completed Spec — SPEC-252: The Control Planes Are One Module, Composed From the Root
 
-Merged as PR #956 (`4bcb629e`), 2026-11-12. Deploys were switched off, so nothing applied; the PR's
-CI plan is the proof.
+Merged as PR #956 (`4bcb629e`), 2026-11-12. Deploys were switched off, so nothing applied at merge,
+and the PR's CI plan was the proof then. **It was first applied on 2026-11-13**, with the other two
+restructure specs, by Deploy Infrastructure run 43422262900 on `8867e3f3` (#963): *"3 added, 4
+changed, 1 destroyed"*. Its log shows 103 plain moves, and four more resources that moved and changed
+in the same apply: the grant wait and three in shared spaces. The PR plans below are larger because
+they were planned with the web tier switched on; it was switched off again before this apply. A live
+session the same day ran every plane except archive green against it (`docs/testing/sessions.md`,
+2026-11-13).
 
 ## What was completed?
 
@@ -54,5 +60,6 @@ CI plan is the proof.
   destroy): **48 to add, 4 to change, 9 to destroy, 55 moves**. The difference is exactly
   `module.shared_spaces`'s new `sfn` role and its policy, plus in-place updates to the state
   machine's `role_arn` and to the orchestrator role's trust and policy.
-- Not applied anywhere: deploys are off, and the next account is created fresh.
-- Nothing user-facing changed, so there is no Help & guides update and no live check.
+- Applied on 2026-11-13, and a live check ran the same day though none was owed (both in the
+  opening paragraph). The next account is still created fresh.
+- Nothing user-facing changed, so there is no Help & guides update.
