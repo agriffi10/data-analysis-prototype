@@ -38,7 +38,8 @@ machine (updated), the OIDC thumbprint (updated), and `module.base.time_sleep.wa
   which was moved to the Trash.
 - An `element.click()` on **Run statement** once left the previous result in place; a pointer click
   on the same button ran the query. Use the pointer for Run.
-- Read-only CLI: Step Functions `list-executions` per plane and CloudWatch Lambda and Events metrics.
+- Read-only CLI: Lambda `get-function-configuration` across the fleet, Step Functions `list-executions`
+  per plane, and CloudWatch Lambda and Events metrics.
 
 **Approval.** Andrew asked for an end-to-end run in chat. He declined archive and restore, and
 approved creating and deleting a throwaway shared space.
@@ -46,7 +47,7 @@ approved creating and deleting a throwaway shared space.
 | Row | Result |
 |---|---|
 | Fleet state after the apply | **PASS.** All 91 `dat-prod` functions `Active`, last update `Successful`. |
-| The four scheduled functions, moved into `scheduled-function` | **PASS.** Since the apply, user-directory build ran 1 time, dlq-drain 11, log-sweep 11 and the shared-space transfer reader 2, all with 0 `Errors` and no rule `FailedInvocations`. |
+| The four scheduled functions, moved into `scheduled-function` | **PASS.** From 12:08Z to 14:35Z, user-directory build ran 1 time, dlq-drain 15, log-sweep 15 and the shared-space transfer reader 3, all with 0 `Errors` and no rule `FailedInvocations`. |
 | Upload, listing and download | **PASS.** Nine folders made and ten files uploaded through the portal. The download's presigned URL (`dat-prod-user-space.s3…`) returned 200 and the uploaded 138 bytes, 11 lines. |
 | Single-file rename, move, copy and delete | **PASS.** Each toasted its outcome and the listing matched. These go straight through the API, not the file-ops plane, because the plane takes anything that is not exactly one file. |
 | File-ops plane: folder copy, folder delete | **PASS.** Copy 14:23:41Z to 14:24:01Z and delete 14:25:08Z to 14:25:12Z, both `SUCCEEDED`, the copy's completion notification arrived, and the deleted folder left the listing. **Copy, Move and Delete stay disabled on a folder until its running copy reports done**, which is the lock working, not a stuck control. |
@@ -67,8 +68,8 @@ approved creating and deleting a throwaway shared space.
 - The rest of `e2e.md` §4 (Data Explorer, Help, flags, responsive, dark mode, the front door): the
   restructure changed no browser code, so this run covered the planes and functions it moved.
 
-**Left behind.** Nothing of this session's: the fixture folder, both tables, the saved query and the
-space were deleted. The space's files and tables are kept by administrators, as its delete dialog says.
+**Left behind.** Nothing of this session's: the fixture folder (a third file-ops execution, 14:33:14Z to
+14:33:28Z, `SUCCEEDED`), both tables, the saved query and the space were deleted. The space's files and tables are kept by administrators, as its delete dialog says.
 
 ---
 

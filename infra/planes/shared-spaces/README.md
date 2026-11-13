@@ -29,8 +29,8 @@ state machine. The **pipe** role reads the queue and starts the machine.
 shape, one apply shrinks the orchestrator role's trust and policy and swaps the state machine onto
 the new role, and nothing orders the two. If the swap fails (on the new role's propagation, say)
 after the shrink has landed, the machine still runs as a role that can no longer invoke the verbs,
-and the plane cannot run until a re-apply finishes the swap. Production takes it in the first apply
-after deploys came back on; the next account is created fresh, where nothing shrinks. A state that
+and the plane cannot run until a re-apply finishes the swap. Production took it on 2026-11-13, in
+Deploy Infrastructure run 43422262900, without a failure; the next account is created fresh, where nothing shrinks. A state that
 does take the change should be re-applied straight away if it fails.
 
 ## Ordered intake, and what actually makes duplicate names impossible
