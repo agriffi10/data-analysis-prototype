@@ -9,13 +9,14 @@ balancer and its public IPv4 addresses, the Fargate task and Container Insights 
 hour, while everything else in the stack bills by use. The `network` and `spa` modules exist only to
 serve the portal, so both carry `count` on one switch and go whole; `moved` blocks put their state
 at instance `[0]`, and a local plan over scratch state of the same shape showed every resource
-moved and nothing added or destroyed. Procedure: `infra/info/web-tier.md`.
+moved and nothing added or destroyed. Production applied those blocks, and they were deleted once
+it had. Procedure: `infra/info/web-tier.md`.
 
 **The registry left `spa` for a module of its own** (`spa-image`). Inside, it would go with the tier
 — and with `force_delete` deliberately unset the destroy would stop at `DeleteRepository`, while
 with it set the images would go and switching back on would start a service naming a tag that no
-longer exists. The two resource-level `moved` blocks are more specific than the module move and
-win over it.
+longer exists. Its two resource-level `moved` blocks were more specific than the module move and
+won over it.
 
 **The load balancer's deletion protection is off, and `CKV_AWS_150` left the enforced list.** AWS
 refuses `DeleteLoadBalancer` while it is on, and Terraform cannot turn it off and delete in one
