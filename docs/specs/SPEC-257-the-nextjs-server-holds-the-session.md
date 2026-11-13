@@ -322,7 +322,9 @@ contract declares, so a browser cannot tell the server's 401 from the API's.
 
 **Configuration is read when a route runs, never at import or at startup.** A server that reads a
 session setting while booting fails to start whenever one is unset, and takes every page down with
-it rather than only the session routes.
+it rather than only the session routes. SPEC-255's start-time check (`src/instrumentation.ts`)
+exits on a missing `CONFIG_*` key because every page needs those; the session variables stay out of
+it, because no page uses them until SPEC-262, which decides whether they join it.
 
 **No credential reaches a log or a response body.** Error messages are fixed strings. No log line
 carries a token, the session id, its digest, the client secret, an authorization code, a PKCE
@@ -404,11 +406,16 @@ ends, and a body past 10 MB reaches the handler truncated, with no error. Measur
 on `next start` (Next.js 16.4.6) with a request declaring 1 GB and sending one byte: with the proxy
 matching every path, no answer came within four seconds, on `/api/` or anywhere else. With
 `/api/` and `/auth/` excluded from the proxy's `matcher`, the handler answered 403 in 16 ms without
-`Origin`, and 413 in 3 ms with it. So this spec excludes both prefixes from SPEC-255's matcher. The
-security headers the proxy sets that carry no nonce are defined once and reach these two prefixes
-through `next.config`'s `headers()`, together with `Content-Security-Policy: default-src 'none';
-frame-ancestors 'none'`, since these responses are JSON or redirects and run no script. The nonce
-stays the proxy's, as the charter says, because no page renders under either prefix.
+`Origin`, and 413 in 3 ms with it. So this spec excludes both prefixes from SPEC-255's matcher, which
+SPEC-255 states as "runs on every request" (its FR-004). The security headers the proxy sets that
+carry no nonce move into one plain module, `src/lib/securityHeaders.ts`, which the proxy and
+`next.config.ts` both read; `headers()` sends them on these two prefixes, together with
+`Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, since these responses are
+JSON or redirects and run no script. The module cannot sit under `src/server/`: measured on the same
+scratch app, a `next.config.ts` that imports a module beginning `import 'server-only'` fails
+`next build` with *"This module cannot be imported from a Client Component module"*, while a plain
+module's headers reach `/api/` as written. The nonce stays the proxy's, as the charter says, because
+no page renders under either prefix.
 
 **Redirects are not followed.** The forward uses `redirect: 'manual'`, and an API answer in the 3xx
 range yields 503 `ApiUnavailable`. Measured on Node 25: a followed cross-origin 307 drops the
@@ -518,8 +525,9 @@ manifest may name, and the one importable from `src/server/**` only. ESLint flat
 rule's value rather than merging it, so the `src/server/**` clause re-declares
 `no-restricted-imports` with every group the `src/**` clauses carry except the SDK's, and every other
 clause governing `src/` still forbids it. Every module under `src/server/` begins with
-`import 'server-only'`, which makes `next build` fail when a client module imports it. A check over
-the built client chunks proves the chain end to end: it looks for `DynamoDB_20120810`, the protocol
+`import 'server-only'`, which makes `next build` fail when a client module imports it. A second
+rule in `npm run check:bundle`, which CI already runs over `.next/static/` after the build (SPEC-255
+FR-002), proves the chain end to end: it looks for `DynamoDB_20120810`, the protocol
 target every DynamoDB request carries, because a search for `@aws-sdk` would hit the copies Amplify
 vendors until SPEC-262. Measured while authoring: the string is in `@aws-sdk/client-dynamodb`
 3.1168.0's `runtimeConfig.shared.js` and `commandBuilder.js`, and in nothing `aws-amplify` installs
@@ -533,9 +541,10 @@ vendors until SPEC-262. Measured while authoring: the string is in `@aws-sdk/cli
 - [ ] An `@aws-sdk/client-dynamodb` import in a file under `src/features/` fails `npm run lint`, and
       the same import under `src/server/` passes.
 - [ ] A test asserts that every `.ts` file under `src/server/` begins with `import 'server-only'`.
-- [ ] A script run in `ci.yml` after `npm run build` fails when any client chunk contains
-      `DynamoDB_20120810`, and passes on this branch. Importing a `src/server/` module that lacks
-      `server-only` from a client component makes it fail; run once and reverted.
+- [ ] `npm run check:bundle` fails naming the chunk when any file under `.next/static/` contains
+      `DynamoDB_20120810`, keeps its existing `VITE_` rule, and passes on this branch. Importing a
+      `src/server/` module that lacks `server-only` from a client component makes it fail; run once
+      and reverted.
 - [ ] `CLAUDE.md`'s AWS row says the browser uses `aws-amplify` for Cognito and nothing else, and the
       server uses `@aws-sdk/client-dynamodb` for the session store and nothing else; its *Code
       Conventions* AWS line still holds. `browser/the-aws-sdk-ban-is-a-lint-rule-and-a-manifest-sweep-because-amplify`
@@ -653,9 +662,12 @@ infra/
 ├── modules/auth/                          # + confidential client, SSM parameter
 ├── modules/spa/                           # + environment, secrets, task-role and execution-role grants
 └── modules/base/policies/                 # + the deploy role's grants, in their own PR
-scripts/check_client_bundle.py              # FR-007
-apps/portal/src/proxy.ts                    # matcher excludes /api/ and /auth/ (FR-005)
-apps/portal/next.config.*                   # + headers() for /api/ and /auth/ (FR-005)
+apps/portal/
+├── scripts/assert-bundle-*.mjs             # check:bundle gains the DynamoDB rule (FR-007)
+├── next.config.ts                          # + headers() for /api/ and /auth/ (FR-005)
+└── src/
+    ├── proxy.ts                            # matcher excludes /api/ and /auth/ (FR-005)
+    └── lib/securityHeaders.ts              # the nonce-free headers, no server-only (FR-005)
 ```
 
 ## Implementation Phases
