@@ -1706,6 +1706,13 @@ specs:
     depends_on: ["SPEC-252"]
     arc: "infra-building-blocks"
     path: "docs/specs/SPEC-254-the-standalone-functions-are-building-block-calls.md"
+  - id: "SPEC-255"
+    title: "The Portal Is a Next.js App Served by a Node Container"
+    description: "Moves the portal from a Vite build behind nginx and CloudFront to a Next.js app on a Node server: the existing app mounts client-only in one catch-all route, the server renders the runtime document and the per-request CSP, and the Fargate web tier becomes the only front door."
+    spec_status: "Draft"
+    depends_on: []
+    arc: "nextjs"
+    path: "docs/specs/SPEC-255-the-portal-is-a-nextjs-app-served-by-a-node-container.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1741,6 +1748,8 @@ arcs:
     order: ["SPEC-187", "SPEC-188", "SPEC-189", "SPEC-190", "SPEC-191"]
   - name: "infra-building-blocks"
     order: ["SPEC-252", "SPEC-253", "SPEC-254"]
+  - name: "nextjs"
+    order: ["SPEC-255"]
   - name: "notifications"
     order: ["SPEC-058", "SPEC-059", "SPEC-060", "SPEC-061"]
   - name: "observability"
