@@ -12,8 +12,6 @@ value fails the infrastructure plan. It is read by three workflows: Deploy Infra
 one side and removes the other), Deploy SPA image (skipped while off) and Deploy SPA static (skipped
 while on).
 
-**Deploys are switched off as a whole, separately from this switch.** Every apply, image build and SPA deploy runs only while the repository variable `DEPLOYS_ENABLED` is `true` (in any case), and it is unset while the stack moves to the client environment, so each `gh workflow run` below reports a skipped job and changes nothing. Flipping `TF_VAR_web_tier_enabled` with deploys off changes only what the pull-request plan shows. To run the procedure, set `DEPLOYS_ENABLED` to `true` first.
-
 ## What goes, and what stays
 
 | Off removes | On removes | Both keep |

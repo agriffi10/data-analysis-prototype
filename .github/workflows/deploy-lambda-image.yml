@@ -48,7 +48,7 @@ concurrency:
 
 jobs:
   push:
-    if: vars.DEPLOYS_ENABLED == 'true'
+    if: vars.LAMBDA_BUILDS_ENABLED == 'true'
     runs-on: ubuntu-latest
     # Build, matrix and push. Twenty bounds a cold pull and a slow upload clear of GitHub's
     # six-hour default.

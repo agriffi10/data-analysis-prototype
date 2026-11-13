@@ -185,8 +185,9 @@ user‑space S3 bucket, and the pre‑signup Lambda's infrastructure.
 
 **Set `TF_VAR_lambda_image_tag` first.** Every Lambda is container-packaged, the variable has no
 default, and a function cannot be *created* from a tag the registry does not hold — so a first apply
-needs the fleet's image pushed. In CI that is `${{ github.sha }}`, supplied automatically; locally,
-push an image with **Deploy Lambda image** and pass its sha.
+needs the fleet's image pushed. In CI `deploy-infra.yml` supplies it: the commit's sha while Lambda
+builds are on, the image the fleet already runs while they are off. Locally, push an image with
+**Deploy Lambda image** and pass its sha.
 
 ### 4. Configure GitHub Actions (Settings → Secrets and variables → Actions)
 
@@ -204,7 +205,7 @@ each value.
 **Variables** are listed in Step 3 of that guide and not copied here: a test holds that table to
 every variable a workflow reads, and a copy is what drifted. Two that are easy to get wrong:
 
-- `TF_VAR_lambda_image_tag` is **not a variable to set** — CI supplies `${{ github.sha }}`. It is
+- `TF_VAR_lambda_image_tag` is **not a variable to set** — `deploy-infra.yml` chooses it. It is
   required with no default, so a local apply must pass it explicitly.
 - `TF_VAR_project_name`, `TF_VAR_environment` and the name overrides (`TF_VAR_*_bucket_name` and
   the like) **must stay unset**. No workflow hands them to Terraform, so a set one names nothing —

@@ -220,7 +220,7 @@ variable "spa_image_tag" {
 }
 
 variable "lambda_image_tag" {
-  description = "Commit sha of the Lambda fleet image every function is CREATED from. Supplied as TF_VAR_lambda_image_tag from github.sha — a genuine INPUT, not a value Terraform derives, which is why it is a variable rather than a read through the state resolver. NO DEFAULT, deliberately: a default would let an apply create 86 functions from whatever tag was written here months ago, and the value is ignored after creation so nothing would ever correct it."
+  description = "Commit sha of the Lambda fleet image every function is CREATED from. Supplied as TF_VAR_lambda_image_tag by deploy-infra.yml — the commit's sha while Lambda builds are on, the image the fleet already runs while they are off — a genuine INPUT, not a value Terraform derives, which is why it is a variable rather than a read through the state resolver. NO DEFAULT, deliberately: a default would let an apply create 86 functions from whatever tag was written here months ago, and the value is ignored after creation so nothing would ever correct it."
   type        = string
 
   validation {

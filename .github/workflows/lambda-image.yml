@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   matrix:
-    if: vars.DEPLOYS_ENABLED == 'true'
+    if: vars.LAMBDA_BUILDS_ENABLED == 'true'
     name: Build the image and assert its behaviour
     runs-on: ubuntu-latest
     # The dependency install is ~4s and the assemble ~1s on a warm cache; the matrix walks 86

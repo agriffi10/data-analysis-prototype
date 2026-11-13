@@ -37,7 +37,8 @@ moment.
 
 `deploy-lambda-image.yml` carries no `paths:` filter, so it fires on the **same push** as
 `Deploy Infrastructure` and the two race. `Deploy Infrastructure`'s apply therefore polls for this
-commit's tag before `tofu apply`, and **fails if it never arrives — on a `workflow_dispatch` too**.
+commit's tag before `tofu apply` (while `LAMBDA_BUILDS_ENABLED` is off, for the tag the fleet already
+runs instead, since nothing builds this commit's), and **fails if it never arrives — on a `workflow_dispatch` too**.
 That is deliberate: the dispatch path exists for a dropped push event, which drops the image build
 as well, so main's tip has no image and continuing would fail `CreateFunction` with functions
 already destroyed. The recovery needs no extra input — dispatch `Deploy Lambda image` with an empty
