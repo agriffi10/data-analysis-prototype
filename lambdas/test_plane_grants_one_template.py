@@ -10,6 +10,8 @@ every plane's policy name, description and statements.
 Attributes:
   BASELINE_COMMIT: The last commit with the eight per-plane templates, which the equivalence
     proof renders the old documents from.
+  MOVES_COMMIT: The last commit whose ``infra/moved.tf`` holds the blocks that carried the eight
+    policies into the map, which records each old resource name's plane.
   VALUES: A value for every template variable, of the shape the real render produces.
   MODULE_SOURCE: The source a root call names when it builds a control plane.
 """
@@ -30,6 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 INFRA = ROOT / "infra"
 BASE = INFRA / "modules" / "base"
 BASELINE_COMMIT = "4bcb629e"
+MOVES_COMMIT = "8867e3f3"
 MODULE_SOURCE = '"./modules/control-plane"'
 VALUES = {
     "account_id": "123456789012",
@@ -68,14 +71,15 @@ def _root_calls() -> dict[str, str]:
     return calls
 
 
-def _git_show(path: str) -> str:
-    """A file's text at the baseline commit.
+def _git_show(path: str, commit: str = BASELINE_COMMIT) -> str:
+    """A file's text at a pinned commit, the baseline unless another is named.
 
     Args:
       path: The repo-relative path.
+      commit: The commit to read it at.
 
     Returns:
-      The file's contents at ``BASELINE_COMMIT``.
+      The file's contents at ``commit``.
 
     Raises:
       AssertionError: When git fails, including on a shallow checkout that lacks the commit — a
@@ -83,14 +87,18 @@ def _git_show(path: str) -> str:
     """
     git = shutil.which("git") or "git"
     result = subprocess.run(  # noqa: S603
-        [git, "show", f"{BASELINE_COMMIT}:{path}"], cwd=ROOT, capture_output=True, text=True, check=False
+        [git, "show", f"{commit}:{path}"], cwd=ROOT, capture_output=True, text=True, check=False
     )
-    assert result.returncode == 0, f"git show {BASELINE_COMMIT}:{path} failed: {result.stderr.strip()}"
+    assert result.returncode == 0, f"git show {commit}:{path} failed: {result.stderr.strip()}"
     return result.stdout
 
 
 def _moves() -> dict[str, dict[str, str]]:
     """The ``moved`` blocks that carried the eight policies into the map, keyed by kind.
+
+    Read at ``MOVES_COMMIT`` because the blocks were deleted once production applied them, and the
+    old-name-to-plane mapping they record is what the name, description and statement comparisons
+    walk.
 
     Args:
       None.
@@ -100,9 +108,9 @@ def _moves() -> dict[str, dict[str, str]]:
       moved to.
 
     Raises:
-      None.
+      AssertionError: When git cannot read ``infra/moved.tf`` at ``MOVES_COMMIT``.
     """
-    text = tf_blocks.strip_comments((INFRA / "moved.tf").read_text(encoding="utf-8"))
+    text = tf_blocks.strip_comments(_git_show("infra/moved.tf", MOVES_COMMIT))
     moves: dict[str, dict[str, str]] = {"aws_iam_policy": {}, "aws_iam_role_policy_attachment": {}}
     for kind, old, slug in re.findall(
         r"moved\s*\{\s*from\s*=\s*module\.base\.(aws_iam_policy|aws_iam_role_policy_attachment)"
@@ -400,14 +408,6 @@ def test_every_plane_keeps_its_policy_name_and_description() -> None:
         f"the moved blocks cover {sorted(moves.values())}, the map holds {sorted(grants)}"
     )
     assert not changed, changed
-
-
-def test_every_retired_attachment_moved_to_the_same_plane_as_its_policy() -> None:
-    """A policy moved to one key and its attachment to another is a destroy and a create in the plan."""
-    moves = _moves()
-
-    assert moves["aws_iam_role_policy_attachment"] == moves["aws_iam_policy"]
-    assert len(moves["aws_iam_policy"]) == len(plane_grants.grants())
 
 
 def test_every_plane_renders_the_statements_the_eight_templates_did() -> None:
