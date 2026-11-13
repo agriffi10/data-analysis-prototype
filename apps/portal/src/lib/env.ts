@@ -44,7 +44,7 @@ export const VITE_NAME = {
   sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET'
 } as const satisfies Record<RuntimeConfigKey, string | null>;
 
-/** Every variable a dev fallback can read, derived from the table above. */
+/** Every variable the test fallback can read, derived from the table above. */
 export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
 
 /**

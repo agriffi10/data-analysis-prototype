@@ -44,9 +44,10 @@ LABEL org.opencontainers.image.revision="${BUILD_VERSION}"
 
 # HOSTNAME is the address the server binds, not the machine's name: unset, Next binds whatever the
 # platform puts in HOSTNAME, which is not every interface. Telemetry is off so a client environment
-# never calls out on the framework's behalf.
+# never calls out on the framework's behalf. NODE_ENV is not set here: the standalone server sets it
+# itself, and stating it in this file is what lambdas/test_local_install_guard.py refuses, for the
+# build stage's sake.
 ENV BUILD_VERSION="${BUILD_VERSION}" \
-    NODE_ENV=production \
     PORT=8080 \
     HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1

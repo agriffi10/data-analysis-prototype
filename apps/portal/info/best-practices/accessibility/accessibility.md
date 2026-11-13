@@ -272,11 +272,11 @@ The two scales come out of the built stylesheet, so run `npm run build -w
 apps/portal` first:
 
 ```bash
-grep -o -- "--spacing:[^;]*;" apps/portal/dist/assets/index-*.css
+grep -oh -- "--spacing:[^;]*;" apps/portal/.next/static/chunks/*.css
 ```
 
 ```bash
-grep -o -- "--text-sm[^;)]*;" apps/portal/dist/assets/index-*.css
+grep -oh -- "--text-sm[^;)]*;" apps/portal/.next/static/chunks/*.css
 ```
 
 A **control** needs a running browser — a `file://` preview cannot do it, because

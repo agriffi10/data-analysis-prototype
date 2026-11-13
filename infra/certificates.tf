@@ -7,8 +7,9 @@
 # The alias records are NOT here: each lives with the target it points at, which
 # is the only place the target's zone id and hostname are both known.
 #
-# THE SPA'S CERTIFICATE IS ON NEITHER SIDE OF THE WEB TIER'S SWITCH: the listener uses it with the
-# tier on and the distribution with it off, so ACM keeps renewing it either way.
+# THE SPA'S CERTIFICATE IS OUTSIDE THE WEB TIER'S SWITCH, so switching on does not wait for a new
+# certificate to validate. Only the listener uses it, so it is in use only while the tier is on, and
+# ACM renews a certificate only while it is in use: infra/info/web-tier.md says what that costs.
 
 resource "aws_acm_certificate" "spa" {
   domain_name       = local.spa_host

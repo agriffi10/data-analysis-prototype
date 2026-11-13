@@ -294,9 +294,11 @@ shell.
 The proxy is now the one home of the policy's bundle directives. Terraform's root
 `content_security_policy` local loses its last consumer with the distribution and is deleted;
 `csp_connect_src` stays at root and reaches the container as today. Two Python guards parse that
-local and go with it: `lambdas/test_csp_policy.py`, which holds today's directives as a recorded
-literal (`ACCEPTED_PRE_MOVE_DIRECTIVES`) with its separator, and `test_spa_image.py`'s baked-policy
-test. The recorded literal and the separator move into the TypeScript test of
+local and go with it: `lambdas/test_csp_policy.py`'s byte-identity test, which holds today's
+directives as a recorded literal (`ACCEPTED_PRE_MOVE_DIRECTIVES`) with its separator, and
+`test_spa_image.py`'s baked-policy test. The file's other two tests stay, because their subject
+outlives the local: that `csp_connect_src` still names both Cognito hosts, and the parser's own test.
+The recorded literal and the separator move into the TypeScript test of
 `contentSecurityPolicy.ts`, with `script-src` the one directive allowed to differ; an expectation
 re-derived from the module itself would only assert that the file equals itself.
 
@@ -310,7 +312,8 @@ re-derived from the module itself would only assert that the file equals itself.
 - [ ] The production policy's `script-src` is exactly `'self' 'nonce-<nonce>'`; the development
       policy's adds `'unsafe-eval'`; `style-src` carries no `nonce-` source in either; every other
       directive equals the literal carried over from `test_csp_policy.py`, in order, with the join
-      separator asserted too; and `test_csp_policy.py` no longer exists.
+      separator asserted too; and `test_csp_policy.py` no longer holds the literal or its
+      byte-identity test, while its Cognito-host and parser tests still pass.
 - [ ] Every response class in FR-005's matrix carries the policy and all seven security headers,
       none carries `X-Powered-By`, `Server` or `Cross-Origin-Embedder-Policy`, and HSTS carries no
       `preload`.
@@ -545,7 +548,7 @@ apps/portal/
 .github/scripts/spa-image-matrix.sh          rewritten
 infra/modules/static-portal/                 deleted
 lambdas/test_static_portal_module.py         deleted (its switch-count assertion moves to a web-tier test)
-lambdas/test_csp_policy.py                   deleted (its recorded directives move to the TypeScript test)
+lambdas/test_csp_policy.py                   loses its byte-identity test (its recorded directives move to the TypeScript test)
 lambdas/test_spa_image.py                    rewritten for the Node image
 lambdas/test_config_outputs.py               compares the four remaining wiring sites
 ```

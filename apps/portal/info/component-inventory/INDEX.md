@@ -22,7 +22,7 @@ a symbol none of its files exports, fails the build.
 > of truth; verify signatures before relying on them.
 
 **Adding a configuration key** is not an inventory question and has its own checklist — a key is
-wired in five places and a missed one stops the container starting:
+wired in four places and a missed one stops the server starting:
 [`../runtime-configuration.md`](../runtime-configuration.md).
 
 ## Shared (read when building anything)

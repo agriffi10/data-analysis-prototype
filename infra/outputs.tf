@@ -172,7 +172,7 @@ output "api_host" {
 }
 
 output "spa_certificate_arn" {
-  description = "Regional ACM certificate for spa_host, validated. Consumed by the HTTPS listener with the web tier on and the distribution with it off."
+  description = "Regional ACM certificate for spa_host, validated. Consumed by the HTTPS listener while the web tier is on; ACM renews it only while it is in use (infra/info/web-tier.md)."
   value       = aws_acm_certificate_validation.spa.certificate_arn
 }
 

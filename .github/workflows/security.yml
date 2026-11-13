@@ -822,9 +822,26 @@ jobs:
 
       - name: Resolve the target
         id: target
+        env:
+          TIER: ${{ vars.TF_VAR_web_tier_enabled }}
         run: |
           url="${{ vars.VITE_APP_URL }}"
-          if [ -z "$url" ]; then
+          # The web tier is the only front door, and while it is off nothing answers at the portal's
+          # host, so there is nothing to scan. Skip loudly rather than fail on a host that does not
+          # resolve, and never quietly: the annotation and the summary say the week went unscanned,
+          # and a scan dispatched while someone has the tier on is how a baseline is taken. The
+          # comparison is against the exact string `false`, as Deploy SPA image's is, so any other
+          # value scans rather than skips.
+          if [ "$TIER" = "false" ]; then
+            echo "::warning title=ZAP::the web tier is off, so nothing serves the portal — skipping the DAST scan."
+            {
+              echo "### OWASP ZAP baseline — not scanned"
+              echo
+              echo "The web tier is off (\`TF_VAR_web_tier_enabled=false\`), so nothing answers at the portal's host."
+              echo "Dispatch this workflow while the tier is on to take a baseline (infra/info/web-tier.md)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$url" ]; then
             # Skip loudly rather than fail, and never fall back to a default target —
             # scanning a host we did not mean to scan is worse than not scanning.
             echo "::warning title=ZAP::vars.VITE_APP_URL is not set — skipping the DAST scan."

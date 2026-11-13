@@ -184,7 +184,7 @@ variable "api_subdomain" {
 }
 
 variable "web_tier_enabled" {
-  description = "Whether the portal's web tier exists: the VPC, its endpoints, the load balancer, the Fargate service and the portal's certificate. Idle, these are most of what the stack costs, so false removes them whole and true builds them back; users, files, tables, the API and the image registry are untouched either way. Set as the TF_VAR_web_tier_enabled repo variable — deploy-infra.yml falls back to true when it is unset. The procedure, both ways, is infra/info/web-tier.md."
+  description = "Whether the portal's web tier exists: the VPC, its endpoints, the load balancer and the Fargate service that runs the Next.js server. Idle, these are most of what the stack costs, so false removes them whole and true builds them back. With it false nothing serves the portal, which is accepted; users, files, tables, the API, the certificates and the image registry are untouched either way. Set as the TF_VAR_web_tier_enabled repo variable — deploy-infra.yml falls back to true when it is unset. The procedure, both ways, is infra/info/web-tier.md."
   type        = string
   default     = "true"
 

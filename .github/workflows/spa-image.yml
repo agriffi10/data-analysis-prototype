@@ -2,7 +2,7 @@ name: SPA image
 
 # The image's behaviour gate, on PULL REQUESTS. Every criterion the image is built against is a
 # response header, a status code or a file in a layer, and nothing in the other two suites observes
-# any of them — no Vitest test sees nginx, no pytest sees a Dockerfile. Without this job the whole
+# any of them — no Vitest test runs the standalone server, no pytest sees a Dockerfile. Without this job the whole
 # specification is documentation.
 #
 # IT RUNS BEFORE MERGE, deliberately. The deploy workflow runs the same script against the same

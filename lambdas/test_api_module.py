@@ -616,19 +616,19 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
         f"root's connect-src is {sorted(found_terms)}; expected {sorted(CSP_CONNECT_SRC_TERMS)}. "
         "A term dropped here breaks one feature, only in a browser, and nothing offline sees it"
     )
-    # The policy is assembled at ROOT and nowhere else. It used to be worth asserting that
-    # modules/app did not assemble its own copy; that module is retired, so what is left to
-    # assert is that no module reintroduced one — checked across the whole tree rather than
-    # against a single file, since the next one to try would be a different file.
+    # Terraform computes connect-src and nothing else of the policy: every other directive is
+    # the Next.js server's, held against a recorded literal in its own test. So no Terraform file
+    # may assemble a whole policy again — checked across the whole tree rather than against a
+    # single file, since the next one to try would be a different file.
     assemblers = [
         path
-        for path in (INFRA / "modules").rglob("*.tf")
-        if "content_security_policy = join(" in path.read_text()
+        for path in INFRA.rglob("*.tf")
+        if ".terraform" not in path.parts and "content_security_policy = join(" in path.read_text()
     ]
     assert assemblers == [], (
-        f"{[str(p) for p in assemblers]} assembles a Content-Security-Policy. Root computes it "
-        "once, and the container's image is asserted against that computation — a second "
-        "assembly is a second policy nothing compares"
+        f"{[str(p) for p in assemblers]} assembles a Content-Security-Policy. The server builds "
+        "the policy from connect-src alone, so a second assembly is a second policy nothing "
+        "compares and nothing serves"
     )
 
     callbacks = re.search(

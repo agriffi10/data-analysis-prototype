@@ -43,12 +43,12 @@ These pass locally and fail later — check them as part of the work, not as an 
   `npm run test -w apps/portal`.
 - **`import.meta.env.VITE_*` read at module top level** is captured at import — `vi.stubEnv` in
   `beforeEach` is too late and CI has no `.env`. Stub at top level **and dynamic-import** the module.
-- **A new configuration key is wired in FIVE places, and none of them is a build env.** Production
-  reads a runtime `/config.json`; a `VITE_*` value is the **dev
-  fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
-  at all. Wiring the build env and stopping there ships a key that exists nowhere the browser can
-  see it. The list — including the container entrypoint's own `KEYS`/`REQUIRED`, which is what
-  decides whether the container starts — is
+- **A new configuration key is wired in FOUR places, and none of them is a build env.** The browser
+  reads a runtime `/config.json` that the Next.js server renders from `CONFIG_<key>` variables, in a
+  container and under `next dev` alike; a `VITE_*` value is the **test runner's stub only**, and
+  `npm run check:bundle` asserts the browser bundle carries no `VITE_` names at all. Wiring a build
+  env and stopping there ships a key that exists nowhere the browser can see it, and a required key
+  left out of the task definition stops the server starting. The list is
   [`apps/portal/info/runtime-configuration.md`](../../apps/portal/info/runtime-configuration.md).
   **The third site is no longer "a repository variable":** a value Terraform computes is read from
   state through `.github/config-outputs.json`, and only a genuine **input** — one Terraform is given

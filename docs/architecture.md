@@ -23,7 +23,7 @@ register.
 
 ```
   Cognito Hosted UI ──▶ ┌──────────────────────────────────────────────┐
-  (Managed Login v2)    │  the browser — React 19 SPA, Vite, strict    │
+  (Managed Login v2)    │  the browser — React 19 on Next.js, strict   │
                         │  TypeScript, TanStack Query; configuration   │
                         │  read at runtime from /config.json           │
                         └───┬─────────────┬──────────────┬─────────────┘
@@ -68,9 +68,9 @@ far), or **by enqueuing onto a control plane** (anything privileged, cross-user 
 
 ## The browser application
 
-`apps/portal/` is a React 19 + Vite + TypeScript (strict) SPA, and it is most of the code in this
-repo. `infra/` is the OpenTofu that stands everything else up, `lambdas/` is the privileged
-server-side work, and `packages/` is reserved and empty.
+`apps/portal/` is a React 19 + TypeScript (strict) app on Next.js, served by a Node server, and it is
+most of the code in this repo. `infra/` is the OpenTofu that stands everything else up, `lambdas/` is
+the privileged server-side work, and `packages/` is reserved and empty.
 
 **One tree, and the dependency runs one way.** `src/lib/` holds the clients and primitives,
 `src/components/` shared UI, `src/hooks/` shared hooks, and `src/features/<name>/` a feature's own
@@ -102,20 +102,19 @@ Routing is `react-router` v8, imported from `react-router` (v8 removed `react-ro
 
 ## How the SPA reaches a user
 
-**One switch, two delivery paths, and exactly one exists at a time.** With `web_tier_enabled` off,
-which is how it runs today, CloudFront serves the built SPA from a private S3 bucket and
-`deploy-spa-static.yml` deploys it on every push to `main`. With it on, an nginx container on ECS
-Fargate behind an internet-facing ALB serves it, in a VPC that exists for nothing else. Both answer
-`portal.dataquarry.app`, so nothing that names the origin changes (`infra/info/web-tier.md`).
+**The web tier is the only front door, and it has an off switch.** The portal is a Next.js app on a
+Node server, run on ECS Fargate behind an internet-facing ALB in a VPC that exists for nothing else,
+and it answers `portal.dataquarry.app`. A Node app has no static fallback, so with
+`web_tier_enabled` off nothing serves the portal; that is accepted, and the tier is switched on
+through CI while someone is working (`infra/info/web-tier.md`). The whole existing app runs in the
+browser inside one optional catch-all route, react-router intact, while the areas move onto the App
+Router one spec at a time.
 
-It ran beside a CloudFront + S3 origin for the length of the arc, because two front doors are what
-made the rollback exercisable: both were admitted **additively** to CORS, the CSP and Cognito's
-callback list, since an allowlist naming a single origin makes the other a rollback nobody can use.
-SPEC-202 narrowed all three lists and destroyed the distribution, its OAC, its response-headers
-policy and the static bucket. What the container inherited from it is the header set, reproduced
-with three deliberate divergences — `Server: nginx`, no brotli, and HSTS without `preload` — and
-the per-class cache scheme. What it does not inherit is the reconciliation: **the image IS the file
-set**, so there is no `--delete` pass and no orphan class.
+The server does the jobs a static origin did: it renders `/config.json`, refuses to start without
+its configuration, and its request proxy stamps every page with an enforcing CSP carrying a fresh
+nonce, plus the security headers, leaving each cache class to its owner. Two divergences from the
+CloudFront path that came before it remain — no brotli, and HSTS without `preload` — and the image
+**is** the file set, so there is no `--delete` pass and no orphan class.
 
 **Configuration is a runtime document.** The SPA fetches a same-origin `/config.json` once before the
 first render, rather than reading `VITE_*` values inlined at build time — so promoting a build is a

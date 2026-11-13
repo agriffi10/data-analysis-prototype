@@ -70,10 +70,10 @@ This is an **npm workspaces monorepo**.
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18 + Vite |
+| Frontend | React 19 on Next.js (App Router, a Node server); the existing app mounts client-only in one catch-all route |
 | Language | TypeScript (strict mode) |
 | Styling | TailwindCSS v4 (`@theme` design tokens — no `tailwind.config`) |
-| Routing | `react-router-dom` v7 (library mode) |
+| Routing | `react-router` v8 (library mode) inside the catch-all, moving onto the App Router area by area |
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
 | AWS SDK | **None** — no `@aws-sdk/*` package may be added (an ESLint rule and a `package.json` test forbid it): objects, the catalog and the queues go through the API, and file bytes through presigned URLs |
@@ -103,15 +103,14 @@ This is an **npm workspaces monorepo**.
 
 ```bash
 npm install                      # installs all workspaces from the repo root
-npm run dev      -w apps/portal  # Vite dev server → http://localhost:5173
+npm run dev      -w apps/portal  # Next.js dev server → http://localhost:5173
 ```
 
 App scripts (run from `apps/portal/`, or from the root with `-w apps/portal`):
 
 ```bash
 npm run dev        # start the dev server
-npm run build      # production build → apps/portal/dist/
-npm run preview    # serve the production build locally
+npm run build      # tsc -b, then the Next.js standalone build → apps/portal/.next/
 npm run test       # Vitest (unit + component)
 npm run lint       # ESLint
 npm run format     # Prettier
@@ -120,8 +119,9 @@ npm run format     # Prettier
 ### Running it locally
 
 `apps/portal/.env.example` documents every variable. Copy it to `apps/portal/.env.local` and point
-the `VITE_COGNITO_*`, `VITE_API_BASE_URL` and `VITE_S3_USER_SPACE_BUCKET` variables at a deployed
-environment's `tofu output` values, then sign in normally. Uploads and downloads redeem presigned
+its `CONFIG_*` variables and `PORTAL_CSP_CONNECT_SRC` at a deployed environment's `tofu output`
+values, then sign in normally: the dev server renders `/config.json` from them exactly as the
+deployed container does, and refuses to start, naming each one, when a required one is missing. Uploads and downloads redeem presigned
 URLs from `http://localhost:5173`, which both buckets' CORS allowlists name.
 
 There used to be a second mode — an unauthenticated one that browsed a public test bucket with

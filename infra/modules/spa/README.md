@@ -1,9 +1,8 @@
-# `spa` — the container delivery path
+# `spa` — the portal's only front door
 
-The SPA served from a Fargate container behind an internet-facing ALB, pulling from the
-[`spa-image`](../spa-image/README.md) registry. **It serves the portal only while the web tier is
-on**; with it off, [`static-portal`](../static-portal/README.md) does. It reproduces every job a
-distribution does, with three deliberate divergences.
+The portal's Next.js server, run from a Fargate container behind an internet-facing ALB and pulled
+from the [`spa-image`](../spa-image/README.md) registry. **It is the only thing that serves the
+portal, and only while the web tier is on**; with it off, nothing does (`infra/info/web-tier.md`).
 
 | File | Holds |
 |---|---|
@@ -16,9 +15,10 @@ distribution does, with three deliberate divergences.
 | `outputs.tf` / `variables.tf` | the module interface |
 | `policies/` | task trust, execution policy, ALB access-log bucket policy |
 
-The image itself — the Dockerfile, the nginx configuration, what `/healthz` serves — belongs to the
-spec that builds it. **The three divergences from CloudFront are `Server: nginx`, no brotli, and
-HSTS without `preload`.**
+The image itself — the Dockerfile, the server's routes, its request proxy, what `/healthz` serves —
+belongs to `apps/portal`. **Two divergences from what CloudFront once served remain: no brotli (Next
+compresses with gzip per request) and HSTS without `preload`.** The `Server` banner nginx could not
+drop is gone: the Node server sends none.
 
 ## ⚠ CI must point the service, not just register a revision
 
@@ -50,11 +50,10 @@ diagnosis this arc's central claim is tested by. Rollback may be enabled once a 
 **`linuxParameters.tmpfs`** — measured, after task-level volumes were tried and **could not work**.
 
 A Fargate task volume is a fresh, **empty, root-owned** directory. **It does not initialise from the
-image**, so a container running as a non-root user cannot write to it: the container printed
-`uid=101(nginx)` beside `drwxr-xr-x root root /tmp` and `drwxr-xr-x root root /var/cache/nginx` — the
-second of which the base image ships owned by 101, which is how we know nothing is copied. nginx then
-died on `mkdir() "/tmp/proxy_temp" failed (13: Permission denied)`, **a message that reads as a
-container bug and is not one**.
+image**, so a container running as a non-root user cannot write to it. Measured with the nginx image
+this module once ran: its process, uid 101, saw `drwxr-xr-x root root /tmp`, and died on a permission
+error writing its temp files, **a message that reads as a container bug and is not one**. The Node
+server writes only its temp directory, so `/tmp` is the one mount, owned by uid 1000.
 
 **tmpfs takes uid, gid and mode as mount options**, which is the whole difference: the mount is
 created owned by the user that has to write to it.
@@ -69,15 +68,14 @@ hand-written list is how a container ships serving seven of twenty-one values** 
 present, every optional one missing, and a portal with no shared spaces, no notifications and no
 queues.
 
-The prefix and the camelCase key are the document's own, and this is now the **only** producer of
-`/config.json` — the CloudFront render step that used the same naming is retired. The convention is
-kept: it is what the entrypoint's `KEYS` list is compared against, so a key added to the
-classification and not here fails a test rather than shipping a container missing one value.
+The prefix and the camelCase key are the document's own. The Next.js server renders `/config.json`
+from these variables, reading the same classification the browser does, and **refuses to start**
+when a required one is unset or empty, so a key added to the classification and not here fails a
+test rather than shipping a container missing one value.
 
-`csp_connect_src` arrives whole from root, which is the one computation the image's baked
-directives are asserted against. **nginx has
-no escaping**, so anything interpolated in is allowlisted — a quote truncates the policy on a
-container reporting healthy.
+`csp_connect_src` arrives whole from root as `PORTAL_CSP_CONNECT_SRC`, the policy's one
+environment-shaped directive. The server validates it against an allowlist at start and refuses
+anything else, because a `;` in it would append a directive of its own to every page's policy.
 
 ## The off switch, and why the balancer carries no deletion protection
 
@@ -223,14 +221,14 @@ role holds `iam:PutRolePolicy` and neither `iam:AttachRolePolicy` nor a usable `
 ## What the offline guards prove, and what they cannot
 
 `lambdas/test_spa_image.py` and `lambdas/test_spa_module.py` are **text assertions** over a
-Dockerfile, two nginx templates, a shell script and this module's Terraform. They hold the
-agreements no single response can observe — that the image and the task definition agree about a
-port, a health path, a uid and a writable set; that the policy the image bakes is the one root
-computes; that the document the entrypoint renders carries the version the loader accepts.
+Dockerfile, the server's TypeScript and this module's Terraform. They hold the agreements no single
+response can observe — that the image and the task definition agree about a port, a health path, a
+uid and a writable set, and that `connect-src` arrives from the task definition rather than being
+built into the image.
 
 Each failure they guard **applies green somewhere and fails somewhere else**:
 
-- a health path the module does not probe makes the balancer read `index.html`'s 200 and call
+- a health path the module does not probe makes the balancer read the catch-all's 200 and call
   every container healthy;
 - a writable set the task does not mount produces a container that never starts, reported as a
   generic essential-container exit — and `ResourceInitializationError` is indistinguishable from
@@ -241,9 +239,9 @@ Each failure they guard **applies green somewhere and fails somewhere else**:
 - a `version` literal drifted from the loader's ships a document every browser refuses whole — a
   white screen after a green deploy.
 
-**The writable-path set is named in three places on purpose.** The assertion is an agreement
+**The writable-path set is named in two places on purpose.** The assertion is an agreement
 between an image and a configuration; a shared constant would prove nothing.
 
-What they cannot prove — that the rendered policy is what nginx emits, that the refusals happen,
+What they cannot prove — that the policy is what the server emits, that the refusals happen,
 that a task reaches `healthy`, that the redirect answers — belongs to the behaviour matrix in CI,
 which runs a real container, and to the live checks in `docs/testing/`.

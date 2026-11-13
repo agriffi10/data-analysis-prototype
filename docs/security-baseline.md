@@ -423,6 +423,22 @@ API's execution role and nothing else, so no browser can assume it at all.
 one to measure rather than reason about — the distribution's bucket policy is one of five, and
 whether it is that ID's only subject cannot be settled by reading.
 
+### Enforce-list removal — the same ten, with the static portal, and one addition (2026-11-13)
+
+The Next.js server cannot be served from a bucket, so the static portal was deleted and the web
+tier became the only front door. The file's regeneration command, run through `checkov-scan.sh`
+against checkov 3.3.9 on the change's tree, measured exactly the ten IDs added on 2026-11-02 as
+evaluating nothing: the nine CloudFront checks and `CKV_AWS_70`, whose one subject was the portal
+bucket's policy. They leave the list, because an enforced ID with no subject is a hard error by
+design. The distribution's open findings in the triage table (`CKV_AWS_259`, `CKV_AWS_68`,
+`CKV2_AWS_47`, `CKV_AWS_86`, `CKV_AWS_310`, `CKV_AWS_374`) have no subject either and close with it.
+
+The same run measured `CKV2_AWS_40` passing with no failure: it evaluates the inline role policies of
+four standalone functions (`control_plane_dlq_drain`, `observability_sweep`, `user_directory`,
+`shared_space_transfer_reader`). It joins the list, which holds 68 IDs, and `checkov-enforced.sh`
+exits 0 over them. `CKV_AWS_115`, `CKV_AWS_117` and `CKV_AWS_319` also pass and stay unenforced for
+the reasons their own section gives.
+
 ### Enforce-list addition — ten IDs, with the static portal (2026-11-02)
 
 CloudFront came back to serve the portal while the web tier is off, and the file's regeneration

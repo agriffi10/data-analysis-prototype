@@ -51,14 +51,14 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 
 | Module | Owns | README |
 |---|---|---|
-| `spa` | the **container** path — Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
+| `spa` | the portal's **only** front door — the Fargate service running the Next.js server, the ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
 | `spa-image` | the registry CI pushes the SPA container image to, kept outside `spa` so it survives the off switch | [README](../modules/spa-image/README.md) |
-| `static-portal` | the portal without a VPC: the S3 bucket, the distribution and the alias, while the web tier is off | [README](../modules/static-portal/README.md) |
 | `api` | the HTTP API, its Lambda, custom domain and DNS record | [README](../modules/api/README.md) |
 
-**`network` and `spa` have an off switch, and `static-portal` is its other side.** Idle, the two are
-most of what the stack costs, so `web_tier_enabled = false` removes both whole and CloudFront and S3
-serve the portal instead. How to switch it: [`web-tier.md`](web-tier.md).
+**`network` and `spa` have an off switch, and nothing serves the portal while it is off.** Idle, the
+two are most of what the stack costs, so `web_tier_enabled = false` removes both whole; the portal is
+a Next.js app on a Node server and has no static fallback. How to switch it:
+[`web-tier.md`](web-tier.md).
 
 ## Control planes
 
