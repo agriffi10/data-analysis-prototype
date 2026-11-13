@@ -24,6 +24,11 @@ moved the Lambda fleet onto one container image with its configuration read from
 So the browser holds no AWS credentials, the SPA is a container behind an ALB, and the identity work
 below starts from an API that already verifies a bearer and assumes a role from the verified claim.
 
+**2026-11-13: the transition is approved, and the client environment requires Next.js.** The
+portal moves from a Vite SPA to Next.js on a Node server in the same Fargate container, and that
+server holds the session (§2 item 11, §4.7). The work is the **Next.js arc** in
+`docs/specs/ARCS.md`, and it lands in this repository before the code base moves.
+
 ## Two variants of the identity plane
 
 The corporate identity provider is **Microsoft Entra ID**. Which mechanism it can offer is not ours
@@ -254,11 +259,17 @@ Treated as inputs. Do not re-litigate without new information.
    workspace browsing ship first.
 10. **Hosting is ECS Fargate, not CloudFront.** The SPA is served from a container. The task role
     supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
+    Since 2026-11-13 the container runs the **Next.js server** on Node rather than nginx serving
+    static files (the Next.js arc).
 11. **~~The token-exchange backend runs in the same container as the SPA.~~ REVERSED — Arc B
     landed.** The API is a **Lambda behind API Gateway**, its own origin, and the SPA is a container
     behind an ALB; the co-location argument was made when the backend existed only to exchange
     tokens. What survives is everything §4.7 says about **state** — the opaque `httpOnly` cookie,
     the refresh token in DynamoDB under a customer-managed key, and the three clocks.
+    **Re-decided 2026-11-13 (the Next.js arc): the session runs in the portal's Next.js server.**
+    The client environment's requirement for a Next.js server put a server beside the SPA again,
+    and it holds the opaque cookie, the code exchange and the token store; the API stays a bearer
+    verifier behind that server's proxy. Every state rule in §4.7 stands.
 12. **Users and groups must exist in Identity Center BEFORE use, and nothing in this architecture
     creates them.** The token exchange maps a claim to an existing Identity Center user and populates
     nothing; **Identity Center performs no just-in-time provisioning**, so an unprovisioned user's
@@ -1677,6 +1688,11 @@ neither routes through this application's API — is in `docs/specs/ARCS.md` und
 > the availability work the arc deferred (autoscaling, capacity providers, a WAF, the multi-AZ
 > obligations) and the two coupling points at the end, which bite at Phase 1.
 
+> **Superseded in part 2026-11-13 (the Next.js arc):** the container's web server is now
+> Next.js on Node, not nginx, and the CSP carries a per-request nonce. The jobs in the table below
+> keep their answers, re-implemented in the server; the cache, header and health-check rows are
+> the first spec's to reproduce.
+
 **The shape that landed, because this section was written before it.** The SPA is the container
 behind the ALB; the **API is a Lambda behind API Gateway**, not the ALB — viable because the bulk
 data work moved to a control plane first, leaving the API thin enough that the 29-second integration
@@ -1763,11 +1779,13 @@ backend, the portal acquires genuine uptime work it did not have before. Budget 
 ### 4.7 The backend, and where its state lives
 
 §3.5 established that a token-exchange backend is mandatory and must hold session state. **Where it
-runs is settled and is not where this section originally said:** the BFF is a **Lambda behind API
-Gateway**, not a process co-located with the SPA in one container. The co-location argument — one
-origin, no CORS, one artifact, one certificate — was made when the backend existed only to exchange
-tokens; it now serves the whole application's AWS surface, and API Gateway is the target
-environment's established pattern.
+runs was re-decided on 2026-11-13 (the Next.js arc):** the session — the opaque cookie, the
+authorization-code exchange and the token store — runs in the portal's **Next.js server**, in the
+web tier's container, and the API stays a **Lambda behind API Gateway** that verifies the bearer the
+server's proxy forwards. Arc B had placed the BFF in that Lambda, because no server sat beside the
+SPA; the client environment's requirement for a Next.js server put one there again, and the session
+went to it. Where Phase 1's Identity Center exchange runs, the server or the API, is decided in that
+phase against the state rules below.
 
 **Everything this section says about STATE is unchanged, and is more load-bearing rather than
 less.** A Lambda satisfies the container-is-stateless rule by construction, and its execution role
@@ -1787,9 +1805,9 @@ supplies the SigV4 credentials `CreateTokenWithIAM` needs, exactly as a task rol
   end it.
 - **Keep the compute stateless.** State belongs in DynamoDB, not in process memory — otherwise
   scaling breaks sessions and every restart logs everyone out. A Lambda gives this by construction;
-  it was a rule to enforce when the backend was a container.
+  the Next.js server is a container, so there it is a rule to enforce: it keeps no session in memory.
 
-**Credentials come from the execution role**, rotating, with no static secrets and no IAM Roles
+**Credentials come from the execution role** (the task role, for the Next.js server), rotating, with no static secrets and no IAM Roles
 Anywhere trust anchor to stand up: the token-exchange backend needs SigV4 credentials to call
 `CreateTokenWithIAM`, and the role supplies them for free. Scope it narrowly — it is a privileged
 identity that mints sessions on behalf of users.
@@ -2373,9 +2391,10 @@ and that is fine.
 
 - Register the portal as an **OIDC application in Entra**, on the **default signing key** (a custom
   signing key is unsupported for the trusted-token-issuer path in Phase 5 — get it right now, not
-  then). Confidential client; the redirect URI is the API's callback route.
-- The API performs the code exchange and holds the tokens; the browser gets the `httpOnly` session
-  cookie and nothing else (§3.5, §4.7).
+  then). Confidential client; the redirect URI is the Next.js server's callback route
+  (`/auth/callback`; it was the API's until the 2026-11-13 re-decision in §4.7).
+- The Next.js server performs the code exchange and holds the tokens; the browser gets the
+  `httpOnly` session cookie and nothing else (§3.5, §4.7).
 - **Do not apply `infra/modules/auth`.** No User Pool, no Identity Pool, no Managed Login, no custom
   attributes, no `supported_identity_providers`, no self-signup to turn off.
 
@@ -2619,7 +2638,8 @@ freeze. This is the whole reason the old account survives the quiet period.
   needs a third OAuth issuer, which is unscoped infrastructure.
 - Session lifetime: a refresh token can outlive an Identity Center session revocation, so a
   deprovisioned employee could hold a valid portal session. What window is acceptable, and does
-  sign-out need single logout? Unchanged by the variant — the API holds the tokens either way.
+  sign-out need single logout? Unchanged by the variant — the Next.js server holds the tokens either
+  way (the API did until the 2026-11-13 re-decision in §4.7).
 
 **Gating Phase 2:**
 
@@ -2652,7 +2672,9 @@ freeze. This is the whole reason the old account survives the quiet period.
 **Gating the hosting workstream (§4.6, §4.7):**
 
 - ~~Where does the container run?~~ **Settled — ECS Fargate**, task role supplies credentials.
-- ~~Does the backend co-locate or stay a Lambda?~~ **Settled — a Lambda behind API Gateway** (§4.7). *The earlier answer here was "co-located in the same container"; Arc B reversed it.*
+- ~~Does the backend co-locate or stay a Lambda?~~ **Settled — a Lambda behind API Gateway** (§4.7). *The earlier answer here was "co-located in the same container"; Arc B reversed it.* **Re-decided
+  2026-11-13: the session runs in the Next.js server** in the portal's container (§4.7), and the API
+  stays a Lambda behind API Gateway.
 - ~~**One image promoted across environments, or a build per environment?**~~ **Settled and built —
   one image**, with configuration fetched at runtime from `/config.json` (SPEC-192) and its values
   read from Terraform state (SPEC-215). §4.6 carries the one argument worth keeping.
@@ -2807,6 +2829,11 @@ IAM and STS:
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
 
+- **2026-11-13 — the Next.js revision.** The transition is approved and the client environment
+  requires Next.js on a Node server. *Where we stand* gains the note; §2 items 10 and 11 and §4.7
+  move the session into the Next.js server, reversing Arc B's placement in the API Lambda with
+  §4.7's state rules unchanged; §4.6 records nginx's replacement. The work is the Next.js arc in
+  `docs/specs/ARCS.md`.
 - **2026-09-06 — operator break-glass transfer.** Recorded in **§3.11** as a seventh projection
   trigger, deferred to it, routing to SPEC-217's recorded threat model rather than restating
   SPEC-208's objection. §3.11's index-guard sentence corrected in place: the guard fires on a
