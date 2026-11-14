@@ -287,7 +287,7 @@ export {seededClient, clearAfterTest};
 /** Options only `renderWithProviders` takes: they shape the render, not the provider stack. */
 export type RenderWithProvidersOptions = ProviderOptions & {
   /**
-   * Render under `StrictMode`, as `AppRoot` does, so effects run twice on mount.
+   * Render under `StrictMode`, as `AppFrame` does, so effects run twice on mount.
    *
    * React double-runs a subtree's effects only when the element it PLACES is `StrictMode` or sits
    * inside one — measured: a `StrictMode` handed in as `ui`, beneath the provider wrapper, runs

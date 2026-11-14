@@ -188,9 +188,10 @@ call the shared helper:
 
 ```ts
 import { expectNoA11yViolations, ROUTE_AXE_OPTIONS, COMPONENT_AXE_OPTIONS } from '../test/axe';
+import { TestProviders } from '../test/renderWithProviders';
 
 // A whole page (landmarks/heading-order enabled):
-await expectNoA11yViolations(<MemoryRouter><MyPage /></MemoryRouter>, ROUTE_AXE_OPTIONS);
+await expectNoA11yViolations(<TestProviders><MyPage /></TestProviders>, ROUTE_AXE_OPTIONS);
 
 // A primitive rendered outside any landmark (region rule off):
 await expectNoA11yViolations(<MyDialog open />, COMPONENT_AXE_OPTIONS);

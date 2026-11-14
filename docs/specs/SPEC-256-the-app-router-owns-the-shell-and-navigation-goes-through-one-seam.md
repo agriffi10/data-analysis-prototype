@@ -538,8 +538,11 @@ out of the harness, as the decision requires.
 - [ ] A test renders a component that navigates with the seam under `renderWithProviders` with no
       router option, and the same component as a catch-all page through `renderApp`, and both
       reach the destination; no test outside `src/test/` imports `react-router`.
-- [ ] Putting the shell's providers into the harness turns the Query runs proof red, as it does
-      today.
+- [ ] The harness carries none of the shell's providers: removing `QueryRunsProvider` from the shell
+      turns the Query runs proof red. (Amended while building: the mutant first written here, adding
+      the shell's providers to the harness, cannot go red, because the shell's own provider is the
+      nearest and stays in charge; what the rule protects against is the proof passing with the
+      shell's provider deleted, which this mutant is.)
 
 ---
 
