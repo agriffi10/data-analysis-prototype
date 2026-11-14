@@ -19,9 +19,9 @@ Cognito clients. The first attempt (run 43602954200, the entry below) stopped at
 
 **What ran.** With `TF_VAR_web_tier_enabled` false, Deploy Infrastructure dispatch 43607397695 on
 `241fb4ca` succeeded: *"Apply complete! Resources: 0 added, 0 changed, 55 destroyed."* Its apply log
-has 55 `Destroying...` lines, every one under `module.network[0]` or `module.spa[0]`, with
+has 55 `Destroying...` lines, 32 under `module.network[0]` and 23 under `module.spa[0]`, with
 `aws_nat_gateway.main`, `aws_eip.nat`, `aws_internet_gateway.main` and `aws_vpc.main` among them,
-and none under `module.session_store` or `module.auth`. The row is settled and left `owed.md`.
+and no `Destroying`, `Modifying` or `Creating` line under `module.session_store` or `module.auth`. The row is settled and left `owed.md`.
 
 ## Live-check session — 2026-11-14, morning (SPEC-256, the shell and the navigation seam)
 
