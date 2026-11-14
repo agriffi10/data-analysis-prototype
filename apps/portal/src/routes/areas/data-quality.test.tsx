@@ -56,12 +56,16 @@ vi.mock('../../features/data-quality/dataQualityReport.service', async (importAc
   ...(await importActual<typeof import('../../features/data-quality/dataQualityReport.service')>()),
   getQualityReport: vi.fn()
 }));
-vi.mock('../../features/data-quality/dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
+vi.mock('../../features/data-quality/dataQuality.service', async (importActual) => ({
+  ...(await importActual<typeof import('../../features/data-quality/dataQuality.service')>()),
+  enqueueQualityCheck: vi.fn()
+}));
 vi.mock('../../features/shared-spaces/sharedSpaces.service', async (importActual) => ({
   ...(await importActual<typeof import('../../features/shared-spaces/sharedSpaces.service')>()),
   readSharedConnectionsCache: vi.fn()
 }));
-vi.mock('../../features/notifications/notifications.service', () => ({
+vi.mock('../../features/notifications/notifications.service', async (importActual) => ({
+  ...(await importActual<typeof import('../../features/notifications/notifications.service')>()),
   getNotifications: vi.fn(),
   enqueueNotificationAction: vi.fn()
 }));
@@ -103,6 +107,22 @@ function deferred<T>() {
   return {promise, settle};
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
+  vi.mocked(readSharedConnectionsCache).mockResolvedValue({success: true, data: NO_SPACES});
+  vi.mocked(getRunsIndex).mockResolvedValue({success: true, data: []});
+  vi.mocked(getQualityReport).mockResolvedValue({success: true, data: csvReport()});
+  vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
+  vi.mocked(enqueueNotificationAction).mockResolvedValue({success: true, data: undefined});
+  vi.mocked(getFeatureFlags).mockResolvedValue({success: true, data: FEATURE_FLAG_DEFAULTS});
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 /** The Notifications page as an App Router page, for a test that serves Notifications from either router. */
 function NotificationsAppPage() {
   return <NotificationsView />;
@@ -115,20 +135,11 @@ describe('the data-quality pages on the App Router', () => {
   const mockInbox = vi.mocked(getNotifications);
 
   beforeEach(() => {
-    vi.clearAllMocks();
     standIns.on = false;
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
-    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
-    mockCache.mockResolvedValue({success: true, data: NO_SPACES});
-    mockRuns.mockResolvedValue({success: true, data: []});
-    mockReport.mockResolvedValue({success: true, data: csvReport()});
-    mockInbox.mockResolvedValue({success: true, data: []});
-    vi.mocked(enqueueNotificationAction).mockResolvedValue({success: true, data: undefined});
   });
 
   afterEach(() => {
     standIns.on = true;
-    vi.unstubAllEnvs();
   });
 
   it('lists the runs, opens a run’s report from its row, and comes back to the list on Back', async () => {
@@ -182,7 +193,8 @@ describe('the data-quality pages on the App Router', () => {
     vi.mocked(getFeatureFlags).mockReturnValue(flags.promise);
     renderApp('/data-quality/alice/req-1', {auth: authenticated('alice'), routers: ON_APP, seedFeatureFlags: false});
 
-    await waitFor(() => expect(getFeatureFlags).toHaveBeenCalled());
+    // Loaded, the page shows the gate's loader or, were the gate open early, starts a read; which is the subject.
+    await waitFor(() => expect(screen.queryByText('Loading…') !== null || mockReport.mock.calls.length > 0).toBe(true));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
