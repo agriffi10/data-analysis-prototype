@@ -43,7 +43,8 @@ The spec was amended during the build for the first three, so they depart from i
   because the server sends its secret there and skips the ID token's signature check only over TLS.
 - **Phases 2 and 3 landed in one PR (#978)**, as the spec allowed.
 - **The switch-off check did not run here.** SPEC-256 still held the web tier when these checks
-  finished, so the tier stayed on. Reading the next switch-off's apply log is a row in `owed.md`.
+  finished, so the tier stayed on. Reading the next switch-off's apply log was a row in `owed.md`,
+  settled on 2026-11-14 by dispatch 43607397695 (`docs/testing/sessions.md`).
 - **Lambda builds stay on for the arc**, by Andrew's decision, and go off when the arc ends.
 
 ## What changed from earlier specs?

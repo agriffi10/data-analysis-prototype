@@ -9,12 +9,6 @@ import {RouteTable} from './table';
 vi.mock('aws-amplify/auth', () => ({
   fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
 }));
-// The accepted rollover race: a lazy route's chunk request lands on a task built from another
-// commit and the import rejects. A throwing factory is what makes the dynamic import reject. It is
-// file-wide, which is why this scenario lives here and not in the Query area's own file.
-vi.mock('./QueryPage', () => {
-  throw new Error('chunk load failed');
-});
 
 /** Every area view module's source, keyed by its file. */
 const VIEW_SOURCES = Object.fromEntries(
@@ -88,24 +82,10 @@ describe('App routing', () => {
     expect(await screen.findByRole('heading', {name: 'Page not found'})).toBeInTheDocument();
   });
 
-  it('lets a lazy route that failed to load give way to the next one', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const {user} = renderApp('/query', {auth: authenticated('alice')});
-    expect(await screen.findByRole('alert')).toHaveTextContent('This part of the page didn’t load');
-
-    await user.click(screen.getByRole('link', {name: 'Data Explorer'}));
-
-    expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    consoleError.mockRestore();
-    consoleWarn.mockRestore();
-  });
-
-  // Sibling routes render their element into the same slot, so two route-level boundaries of the
-  // same shape and the same key are ONE instance, and a chunk that failed on one route pins the
-  // fallback on the next. The test above drives that for one pair of routes; this holds every
-  // boundary the area views declare, including the next one copied from an existing block.
+  // Each route renders its own view component, so React remounts a boundary on a route change
+  // whatever its key, and no render can show two boundaries sharing one. The keys matter the day two
+  // routes render one view component, and this holds them distinct before that day, including a
+  // block copied with its key.
   it('gives every route-level error boundary a key no other one shares', () => {
     const keys = boundaryKeys(VIEW_SOURCES);
 

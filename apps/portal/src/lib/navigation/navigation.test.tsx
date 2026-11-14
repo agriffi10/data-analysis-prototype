@@ -45,8 +45,11 @@ vi.mock('../../routes/DataQualityReportPage', async () => ({
 
 const READOUT_AREAS = ['files', 'notifications', 'help', 'data-quality'] as const;
 
+/** Options that name each area's router rather than following the records. */
+type Served = Omit<RenderAppOptions, 'routers'> & {routers: Partial<Record<AreaName, AreaRouter>>};
+
 /** Each readout area on one router, its App Router pages supplied when that router is the App Router's. */
-function servedBy(router: AreaRouter, areas: readonly AreaName[] = READOUT_AREAS): RenderAppOptions {
+function servedBy(router: AreaRouter, areas: readonly AreaName[] = READOUT_AREAS): Served {
   const routers: Partial<Record<AreaName, AreaRouter>> = {};
   const pages: NonNullable<RenderAppOptions['pages']> = {};
   for (const area of areas) {
@@ -58,7 +61,7 @@ function servedBy(router: AreaRouter, areas: readonly AreaName[] = READOUT_AREAS
 }
 
 /** Two option sets merged, their routers and pages together. */
-function both(a: RenderAppOptions, b: RenderAppOptions): RenderAppOptions {
+function both(a: Served, b: Served): Served {
   return {...a, ...b, routers: {...a.routers, ...b.routers}, pages: {...a.pages, ...b.pages}};
 }
 

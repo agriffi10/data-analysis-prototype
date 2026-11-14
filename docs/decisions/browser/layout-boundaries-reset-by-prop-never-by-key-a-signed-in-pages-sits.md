@@ -89,7 +89,12 @@ same element shape — `FeatureRoute`, then `ErrorBoundary`, then `Suspense` —
 React reuses ONE boundary instance across them: a chunk that failed on `/query` stayed on screen after
 a click to `/explore`, and a reused `Suspense` shows no loading state on the way in. Each now carries
 a static key of its own, so switching lazy routes remounts only the page's subtree, which it did
-anyway.
+anyway. Since each area became a view component of its own, each route's element is a different
+type, so React remounts the boundary on a route change whatever its key; the keys hold only for the
+day two routes render one view component. Measured 2026-11-14 on a cleared Vitest cache: the
+behaviour test went red only with one view type shared AND a key shared, never on either alone, and
+stayed green with Query's own boundary removed, since the shell's page boundary catches the failed
+chunk and resets on the route change. So it was deleted, and the source check below holds the keys.
 
 **What the proof has to be.** `routes/areas/files.test.tsx` renders the real chrome through
 `renderApp` (`src/test/appRouter.tsx`): the real `AppChrome` under the harness's providers, around the
@@ -126,6 +131,12 @@ instead, as the upload suites do. Removing the shell's provider turns all three 
 keying it on the page turns both survival tests red.
 
 ## History
+
+### 2026-11-14
+
+- **Changed:** the lazy-route behaviour test was deleted as vacuous: with each route rendering its
+  own view component, it could not fail on a shared key, nor without the view's own boundary. The
+  source check keeps the keys distinct.
 
 ### 2026-11-13
 
