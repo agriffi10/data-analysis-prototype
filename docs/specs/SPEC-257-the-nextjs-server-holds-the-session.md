@@ -314,8 +314,10 @@ Route handlers under `apps/portal/src/app/auth/`, using modules in `src/server/s
 - **`POST /auth/refresh`** refreshes whatever the expiry, so newly granted shared-space claims
   arrive, and answers 204, or 401 when the session is gone.
 
-**A fault is not a sign-out.** A 401 means the session is gone. A store failure, an unreachable
-token endpoint, or an `invalid_client` answer (the server's secret is wrong, which no user can fix)
+**A fault is not a sign-out.** A 401 means the session is gone. Every call to the token and
+revocation endpoints is bounded at 5 seconds, and every session-store call at 2 seconds; SPEC-262's
+browser timeout is pinned above the sum these bounds and the forward deadline make. A store failure, an unreachable token endpoint, or an `invalid_client` answer (the server's
+secret is wrong, which no user can fix)
 answers 503 `ApiUnavailable`. Only an `invalid_grant` answer to a refresh ends the session, by
 deleting it. Every refusal the server mints uses the API's failure envelope and a code the API's
 contract declares, so a browser cannot tell the server's 401 from the API's.
@@ -668,7 +670,8 @@ apps/portal/scripts/assert-bundle-*.mjs    # check:bundle gains the DynamoDB rul
 ### Phase 1: The deploy role's grants and the verifier's list (inert)
 
 - Expand the deploy role's IAM for the NAT gateway, the Elastic IP, the DynamoDB table, the KMS key
-  and its alias, and the SSM parameter, working through `infra/info/deploy-role-iam.md`'s traps:
+  and its alias, and SSM parameters under the `/<project>-<environment>/portal/` path (SPEC-262 adds
+  a second one there), working through `infra/info/deploy-role-iam.md`'s traps:
   `kms:CreateKey` and SSM's `DescribeParameters` are not resource-scopable, DynamoDB creates KMS
   grants on the creator's behalf, the provider's refresh of an SSM `SecureString` reads its value,
   and the guard sleep must re-fire for a modified policy.
