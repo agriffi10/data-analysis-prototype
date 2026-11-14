@@ -184,8 +184,12 @@ resource "aws_cognito_user_pool_client" "server" {
   # which signs the user out for no reason they can see. The refresh token never leaves the server.
   enable_token_revocation = true
 
+  # The grace period is stated although rotation is off, because the provider plans an omitted one
+  # as null and then reads AWS's 0 back: the create succeeds in AWS and the apply fails as an
+  # inconsistent result, leaving everything that depends on the client unapplied.
   refresh_token_rotation {
-    feature = "DISABLED"
+    feature                    = "DISABLED"
+    retry_grace_period_seconds = 0
   }
 
   id_token_validity      = local.server_token_validity.id_minutes
