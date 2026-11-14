@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-260
 title: "Explore and Connections Move Onto the App Router"
 description: "Serves the Data Explorer and the Connections page from App Router pages instead of the react-router catch-all, with the Explorer's deep links and hand-offs unchanged."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 6
@@ -78,9 +78,12 @@ loading state while the page's chunk arrives, as today. The pages take no props.
 
 - [ ] Both page files exist, the page sweep and the record-and-page guard pass, and both records say
       `'app'`.
-- [ ] A new test per area renders its page through `renderApp` and asserts something only that page
-      shows (the Explorer's table picker, the Connections heading); with that page file deleted, it
-      turns red on the catch-all's 404. The inherited split tests pass unchanged.
+- [ ] A new test per area renders its page through `renderApp`, naming its area's router as `'app'`
+      in `routers`, and asserts something only that page shows (the Explorer's table picker, the
+      Connections heading); with that page file deleted, it turns red on the catch-all's 404. The
+      inherited split tests that render either area name its router the same way, and pass.
+      (Amended while building: once `renderApp` serves every area from the catch-all unless a test
+      names it, a test that does not name the area never reaches its page.)
 - [ ] With the shared-workspaces flag off, `/connections` renders the unavailable page, and a
       pass-through counter wrapping the Connections page's default export records no render; with
       the Data Explorer flag off, `/explore` does the same for the Explorer's page. The counters are
@@ -107,8 +110,12 @@ follow.
 - [ ] *Explore in Data Explorer* from Query opens one tab, with Query served by the catch-all and
       then by the App Router through the `routers` option (supplying Query's page through `pages`
       while it has none on disk); Back then Forward opens nothing.
-- [ ] A `?space=` link to a space the cached list lacks waits for one read settled after the link,
-      and the skip link followed on the waiting page does not start another read.
+- [ ] A `?space=` link to a space the cached list lacks, followed from another page, waits for one
+      read settled after the link; the skip link followed while it waits leaves the wait and its one
+      read alone, and followed on the refusal it does not start another read. (Amended while
+      building: only the refusal can show a traversal counted as a follow, because a read already
+      in flight is reused rather than repeated; and only a followed link carries a key the skip
+      link can change, since a page loaded at the address already reads `'default'`.)
 
 ### FR-003: Checked live, on the tier
 
