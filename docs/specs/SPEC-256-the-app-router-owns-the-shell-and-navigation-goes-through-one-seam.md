@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-256
 title: "The App Router Owns the Shell, and Navigation Goes Through One Seam"
 description: "Moves the providers and the signed-in shell into the root layout behind the boot, puts every navigation behind one seam that works under both routers, and splits the route table and its cross-area tests into one module per area, so the area moves that follow each edit only their own files."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-255]
 arc: nextjs
 arc_order: 2
