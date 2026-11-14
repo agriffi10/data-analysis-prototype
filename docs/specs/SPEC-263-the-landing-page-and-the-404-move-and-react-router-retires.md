@@ -22,7 +22,7 @@ fence's tests `eslintConfigShape.test.ts`, `navigationFence.test.ts` and `reactR
 whose delivery doc is `docs/spec-delivery/SPEC-256-…`, and on SPEC-258 to 261, which leave every
 signed-in area on the App Router, so the catch-all serves only `/` and unknown paths. It also rests on
 SPEC-255's image (`apps/portal/Dockerfile`) and its matrix (`.github/scripts/spa-image-matrix.sh`),
-which FR-006 changes. The arc's charter is `ARCS.md` →
+which FR-005 changes. The arc's charter is `ARCS.md` →
 *Next.js arc (SPEC-255 → 263)*.
 
 ## Overview
@@ -54,12 +54,13 @@ rendered the not-found page, and a request whose path carries a malformed percen
 - The lazy views' static keys and the check that no two share one, which hold only for two routes
   rendering one view component, which no route does.
 - 255's image matrix row that pins the catch-all's trap (a removed root-level file answering 200
-  HTML, `.github/scripts/spa-image-matrix.sh`) rewritten to the 404 it now gets, and every document
-  or decision 255 wrote that records that 200.
+  HTML, `.github/scripts/spa-image-matrix.sh`) rewritten to the 404 it now gets, its "deep link" row
+  (`/files/alice/reports`, a path no page serves, answering 200) moved to a path a page serves, and
+  every document or decision 255 wrote that records that 200.
 - A request whose path carries a malformed percent-escape answers 400 with the security headers
   and logs a line, whichever page, route handler or not-found would serve it, with or without a
   body: a guard ahead of Next in the image, and 255's image matrix row that pins the 500 reversed
-  (FR-006).
+  (FR-005).
 - At completion: the decisions and documents that describe the coexistence, named in Phase 4.
 
 ### Out of Scope
@@ -112,7 +113,9 @@ same level, so this FR and the catch-all's deletion (FR-002) land in one change.
       answered 404 with the not-found page outside the shell, signed in and out, every script
       carried the response's nonce, and a client-side `not-found.tsx` loading its page through
       `next/dynamic` rendered without error.
-- [ ] 255's image matrix asserts 404 for a removed root-level file, and passes against the image.
+- [ ] 255's image matrix asserts 404 for a removed root-level file and for `/files/alice/reports`,
+      its "deep link" row fetches `/data-quality/alice/r1` (a page 261 serves) and asserts 200 with
+      the page's cache class, and the matrix passes against the image.
 
 ### FR-002: React Router and the catch-all are gone
 
@@ -127,7 +130,10 @@ prove the seam, the table and the harness were the only ones allowed it, goes wi
 the removal is `reactRouterSweep.test.ts`, now with no exempt place, and a check that `package.json`
 names no package whose name begins `react-router`. The sweep matches any module specifier beginning
 `react-router` (so `react-router-dom` and `react-router/dom` too), and both guards build that name at
-runtime rather than spelling it, so neither finds itself. The lazy views keep their `ErrorBoundary`
+runtime rather than spelling it, so neither finds itself. That changes the sweep in two ways: it stops
+reading the name from `eslint.config.js`'s `REACT_ROUTER_IMPORTS`, which goes with the lint pattern,
+and its control that `react-router-dom-ish` is not a match flips, since a specifier beginning
+`react-router` now is one; the prose control (the name in a comment) stays a non-match. The lazy views keep their `ErrorBoundary`
 and `Suspense` but lose their static keys: each route renders its own view component, so React
 remounts the boundary on a route change whatever its key (measured on 256's completion, where the
 behaviour test that leaned on the keys was deleted as vacuous), and each area is its own App Router
@@ -238,7 +244,7 @@ sweep now covers whole. The `ROUTERS` rows of the seam's `it.each` tests keep th
       `CatchAllRouter`, `CatchAllMount` or `routers` option, and the test-utilities inventory no
       longer offers `routers`.
 
-### FR-006: A malformed percent-escape answers 400, not 500
+### FR-005: A malformed percent-escape answers 400, not 500
 
 #### Description:
 
@@ -254,10 +260,12 @@ accepted residual, and this FR reverses it. Next means to answer these 400, as i
 router catches the decode failure and renders the pages router's `/_error` at 400. An App Router-only
 build has no `/_error` (its `server/pages/` holds only `500.html`), so the answer is 500 instead.
 
-A guard ahead of Next answers them: `apps/portal/server-guard.cjs`, which the image starts in place of
-`server.js`. It wraps the request listener Next's standalone server creates, by replacing
-`http.createServer` before it requires `server.js`. It tests the request target's path segment by
-segment, and when one does not decode it answers 400 with `SECURITY_HEADERS`, `LOCKDOWN_POLICY` as the
+A guard ahead of Next answers them: `apps/portal/server-guard.cjs`, which the Dockerfile copies into
+the image and its `CMD` starts in place of `server.js`. Run as the entry point, it wraps the request
+listener Next's standalone server creates, by replacing `http.createServer` before it requires
+`server.js`; imported, it only exports its check and its responder, so a unit test can load it. It
+takes the path as the request target up to the first `?` or `#`, tests it segment by segment, and when
+one does not decode it answers 400 with the security headers, `LOCKDOWN_POLICY` as the
 `Content-Security-Policy`, a plain-text body and `Connection: close`, and writes `request: refused a
 path with a malformed percent-escape (<method>)`. The line names the method and not the path, since
 the path is the caller's text. It reads no body, so a request with a body is answered at once and
@@ -272,8 +280,12 @@ router `_error` and `_document`, added to make Next's own 400 work, did not buil
 stopped on "Cannot find module for page: /_document"), and would bring back a second router as this
 spec removes one.
 
-The guard's headers come from `src/lib/securityHeaders.ts`, the one definition `next.config.ts` and
-the proxy read, held equal by a unit test, since the guard is plain JavaScript outside the build. It
+The guard carries its own copy of `SECURITY_HEADERS` and `LOCKDOWN_POLICY`, because it is plain
+JavaScript that runs outside the build and the image carries no `src/`; a unit test under
+`src/server/` imports both the guard and `src/lib/securityHeaders.ts` and holds the copy equal. A
+WebSocket upgrade never reaches the request listener: Next answers no upgrade for a malformed path at
+all, destroying the socket and logging `Error handling upgrade request` (measured in review), so it
+never answers 500, and the guard leaves upgrades alone. The guard
 depends on Next's standalone server creating its listener through `http.createServer`, which the image
 matrix holds: a Next upgrade that stops doing so turns the matrix's 400 rows red rather than silently
 restoring the 500. `next start` does not run the guard; the proof is the standalone server the image
@@ -282,12 +294,13 @@ runs.
 #### Acceptance Criteria:
 
 - [ ] A unit test of the guard's check passes `/`, `/files`, `/data-quality/a%40b/r1`, `/files/a%2Fb`,
-      `/%2e`, `/query?x=%E0` and an absolute-form target, refuses `/%ZZ`, `/files%`, `/%E0`,
-      `/nope/%E0%A4`, `/_next/%E0` and `/data-quality/%E0/r1`, and goes red with the check removed or
-      with the whole path decoded at once.
-- [ ] A unit test asserts that the guard's 400 carries every `SECURITY_HEADERS` entry and
-      `LOCKDOWN_POLICY` as they stand in `securityHeaders.ts`, and that its log line names the method
-      and contains no part of the path; changing a header in either place turns it red.
+      `/%2e`, `/query?x=%E0`, `/files#%E0` and an absolute-form target, refuses `/%ZZ`, `/files%`,
+      `/%E0`, `/nope/%E0%A4`, `/_next/%E0` and `/data-quality/%E0/r1`, and goes red with the check
+      removed, with the query decoded as part of the path, or with the path ending only at `?`.
+- [ ] A unit test asserts that the guard's copy of the headers equals `SECURITY_HEADERS` and
+      `LOCKDOWN_POLICY` as they stand in `securityHeaders.ts`, that its 400 carries every one, and that
+      its log line names the method and contains no part of the path; changing a header in either
+      place turns it red, and importing the guard starts no server.
 - [ ] 255's image matrix row for `/%zz` asserts 400, the lockdown policy and `nosniff`, with rows for
       `/data-quality/%E0/r1`, `/_next/%E0` and a POST with a body to `/api/%E0`, and a row that
       `/data-quality/a%40b/r1` still answers 200. The matrix goes red against an image built with the
@@ -296,7 +309,7 @@ runs.
       to a malformed path and sending one byte is answered 400 at once, while the health probe
       answers.
 
-### FR-007: Checked live, on the tier
+### FR-006: Checked live, on the tier
 
 #### Description:
 
@@ -347,10 +360,10 @@ export type AreaRecord = {
 ## File & Folder Structure
 
 ```
-.github/scripts/spa-image-matrix.sh  the malformed-escape rows at 400 (FR-006)
+.github/scripts/spa-image-matrix.sh  the malformed-escape rows at 400 (FR-005)
 apps/portal/
 ├── Dockerfile                        copies the guard; CMD starts it instead of server.js
-├── server-guard.cjs                  new: refuses a malformed escape ahead of Next (FR-006)
+├── server-guard.cjs                  new: refuses a malformed escape ahead of Next (FR-005)
 └── src/
 apps/portal/src/
 ├── app/
@@ -404,7 +417,7 @@ the page it renders; so the two phases below are built together and land in one 
 
 ### Phase 4: The malformed escape
 
-- On `main` first, against the standalone server, the 500 measured again for the FR-006 corpus;
+- On `main` first, against the standalone server, the 500 measured again for the FR-005 corpus;
   then the guard, its unit tests and the Dockerfile, and the same corpus against the standalone
   server under the guard answering 400 with the headers and one log line each; then the image
   matrix's rows, run against the image.
@@ -418,7 +431,9 @@ the page it renders; so the two phases below are built together and land in one 
   `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, whose
   react-router half becomes history while the eight Next behaviours the seam rests on stay its live
   claim, since the seam still rests on all eight (rewritten in place under its name, as every
-  reversal is); and `infrastructure/response-headers-csp.md`, which gains the guard. `CLAUDE.md`'s
+  reversal is); `infrastructure/response-headers-csp.md`, which gains the guard; and
+  `infrastructure/the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md`, whose
+  plain-text 500 for a malformed escape and `/%zz` pin become the guard's 400. `CLAUDE.md`'s
   routing row, `docs/architecture.md`'s routing sentence, the foundations inventory's seam rows and
   the notifications inventory's `NavLink` row, the test-utilities inventory's `renderApp` row,
   `react.md` §21's harness line, the cross-router steps 256 to 261 wrote into `docs/testing/e2e.md`

@@ -3,8 +3,8 @@
 The build landed as one PR, #977 (`a05098b9`), on 2026-11-14, with the decisions it rewrote and the
 docs that would have gone stale on its merge. The live checks ran the same day on the deployed image,
 with the web tier on through CI. The switch-off that followed (run 43602954200) failed partway on the
-deploy role's grant for releasing the NAT's address, so the tier went back on for that fix; the switch
-it owes is in `docs/testing/owed.md`. Nothing changes for a user except one thing: while an upload
+deploy role's grant for releasing the NAT's address, so the tier went back on for that fix (#981), and
+the switch-off after it (run 43607397695) completed (`docs/testing/sessions.md`). Nothing changes for a user except one thing: while an upload
 is unfinished, the browser asks before the page is reloaded or closed.
 
 ## What was completed?

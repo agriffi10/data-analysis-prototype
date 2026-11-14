@@ -25,10 +25,11 @@ and no `Destroying`, `Modifying` or `Creating` line under `module.session_store`
 
 ## Live-check session — 2026-11-14, morning (SPEC-256, the shell and the navigation seam)
 
-**What was under test.** The shell in the root layout, the navigation seam and the leave guard, on the
-image of #977 (`a05098b9`), deployed by Deploy SPA image on that merge while SPEC-257 held the tier on.
-The page's history entries carried `__seamKey` beside Next's `__NA`, which is how the build was
-identified. Afterwards the tier was switched off through the repository variable and Deploy
+**What was under test.** The shell in the root layout, the navigation seam and the leave guard, on
+image `b0d7734b` (#978, which contains #977), task-definition revision 271, registered by Deploy SPA
+image dispatch 43565072354 while SPEC-257 held the tier on; no SPA deploy ran after it until the
+switch-off. The page's history entries carried `__seamKey` beside Next's `__NA`, which shows the
+image contains #977. Afterwards the tier was switched off through the repository variable and Deploy
 Infrastructure run 43602954200, which failed (below), and SPEC-257 switched it back on (run
 43603739482) to land the deploy role's fix.
 

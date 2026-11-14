@@ -3622,7 +3622,7 @@ click with the leave guard disarmed. Each move still runs the cross-router scena
 pages, recorded in `docs/testing/e2e.md` §4.1. The decision is
 `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`.
 
-**2026-11-13, SPEC-263 closes the arc.** The landing page and the 404 become `src/app/page.tsx` and
+**2026-11-14, SPEC-263 closes the arc.** The landing page and the 404 become `src/app/page.tsx` and
 `src/app/not-found.tsx`, so an address that matches no page now answers 404 rather than the
 catch-all's 200 (measured on a harness with no catch-all). The seam's native rule narrows to
 same-pathname navigations, because the coexistence rule, which wrote a navigation between two
