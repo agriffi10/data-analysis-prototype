@@ -123,6 +123,7 @@ FOREIGN_OWNERS = frozenset({"aws"})
 PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
+    POLICY_DIR / "github-actions-deploy-session.json.tftpl",
 )
 
 #: The MANAGED_POLICIES glob ends in ``-``, which excludes ``github-actions-deploy.json.tftpl``
@@ -211,6 +212,14 @@ PLANNED_RESOURCES = {
     "DNS change": "arn:aws:route53:::change/C0123456789ABC",
     "HTTP API": "arn:aws:apigateway:us-east-1::/apis/abcdef1234",
     "API custom domain": "arn:aws:apigateway:us-east-1::/domainnames/api.example.com",
+    "NAT gateway": "arn:aws:ec2:us-east-1:696000197480:natgateway/nat-0abc",
+    "NAT gateway's Elastic IP": "arn:aws:ec2:us-east-1:696000197480:elastic-ip/eipalloc-0abc",
+    "session table": "arn:aws:dynamodb:us-east-1:696000197480:table/dat-prod-sessions",
+    "session key": "arn:aws:kms:us-east-1:696000197480:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+    "session key alias": "arn:aws:kms:us-east-1:696000197480:alias/dat-prod-session",
+    "client-secret parameter": (
+        "arn:aws:ssm:us-east-1:696000197480:parameter/dat-prod/portal/oidc-client-secret"
+    ),
 }
 
 NON_SCOPABLE = frozenset(
@@ -282,6 +291,14 @@ NON_SCOPABLE = frozenset(
         "lambda:ListEventSourceMappings",
         "cloudtrail:DescribeTrails",
         "cloudtrail:ListTrails",
+        # The session grant's six, each measured the same way before it was added: implicitDeny
+        # on the service-wide ARN, allowed on "*". The provider calls each on read or create.
+        "ec2:DescribeAddresses",
+        "ec2:DescribeAddressesAttribute",
+        "ec2:DescribeNatGateways",
+        "kms:CreateKey",
+        "kms:ListAliases",
+        "ssm:DescribeParameters",
     }
 )
 
@@ -1962,3 +1979,53 @@ def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
         "Condition ARN as a STRING, because each equals the Resource it conditions — so this "
         "compares counts. Fix _arns rather than this number."
     )
+
+
+def test_the_platform_guard_waits_for_every_platform_policy() -> None:
+    """A platform policy the guard does not name is one whose new grant nothing waits for.
+
+    The guard re-fires when a policy body in its triggers changes, and sits after the attachments in
+    its depends_on. A document left out of either reaches its first use the moment it is written,
+    which is the 1.7-second race the guard exists for.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a platform policy is missing from the guard's triggers or depends_on.
+    """
+    text = BASE_IAM.read_text()
+    guard = text[text.index('resource "time_sleep" "wait_for_platform_grant"') :]
+    guard = guard[: guard.index("\n}\n")]
+    policies = {
+        match.group(1)
+        for match in re.finditer(
+            r'resource "aws_iam_policy" "(\w+)" \{(?:(?!\nresource ).)*?policies/([\w.-]+)"', text, re.DOTALL
+        )
+        if POLICY_DIR / match.group(2) in PLATFORM_POLICIES
+    }
+    assert len(policies) == len(PLATFORM_POLICIES), f"found {policies} for {PLATFORM_POLICIES}"
+    for name in policies:
+        assert f"aws_iam_policy.{name}.policy" in guard, f"the guard does not re-fire for {name}"
+        assert f"aws_iam_role_policy_attachment.{name}" in guard, f"the guard does not wait for {name}"
+
+
+def test_the_session_tables_key_is_used_only_through_dynamodb() -> None:
+    """A typo in the service name denies CreateTable on the apply that first uses it, on main.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the table's key statement is not conditioned on DynamoDB in this region.
+    """
+    document = json.loads(_render(POLICY_DIR / "github-actions-deploy-session.json.tftpl"))
+    statement = next(s for s in document["Statement"] if s["Sid"] == "SessionKeyUseByTable")
+    assert statement["Condition"] == {"StringEquals": {"kms:ViaService": "dynamodb.us-east-1.amazonaws.com"}}
+

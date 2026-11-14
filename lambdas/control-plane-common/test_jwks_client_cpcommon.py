@@ -215,7 +215,7 @@ def test_a_transport_failure_is_unavailable_and_never_an_auth_failure():
 
     cfg = auth.VerifierConfig(
         issuer="https://provider.example",
-        audience="a-client",
+        audiences=frozenset({"a-client"}),
         jwks_uri=JWKS_URI,
         username_claim="username",
         required_claims={},

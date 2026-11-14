@@ -81,7 +81,11 @@ class VerifierConfig:
 
     Attributes:
       issuer: The exact ``iss`` a token must carry.
-      audience: The exact ``aud`` a token must carry — the client the token was issued to.
+      audiences: The clients a token may have been issued to. Its ``aud`` must be one of them.
+        A set rather than one id because the portal's browser client and its server client are
+        both live while sign-in moves from one to the other; the loader refuses an empty set,
+        since PyJWT given no audience refuses every token, which reads to every user as a
+        sign-out rather than as the configuration fault it is.
       jwks_uri: Where the signing keys are published. **Configured, never concatenated from
         the issuer**: Cognito happens to publish at ``{issuer}/.well-known/jwks.json`` and
         other providers do not, so deriving it would reintroduce the provider assumption this
@@ -91,7 +95,7 @@ class VerifierConfig:
     """
 
     issuer: str
-    audience: str
+    audiences: frozenset[str]
     jwks_uri: str
     username_claim: str
     required_claims: Mapping[str, str]
@@ -143,7 +147,7 @@ def _verify_claims(token: str, cfg: VerifierConfig) -> Principal:
             token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=cfg.audience,
+            audience=sorted(cfg.audiences),
             issuer=cfg.issuer,
             options={
                 "require": ["exp", "iss", "aud"],

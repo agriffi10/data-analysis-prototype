@@ -17,7 +17,7 @@ on:
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
-            '.github/scripts/frozen_fleet_guard.py',
+            '.github/scripts/frozen_fleet_guard.py', '.github/scripts/checkov_scrub.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
@@ -28,7 +28,7 @@ on:
             '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
             '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             '.github/scripts/checkov-enforced.sh', '.github/scripts/checkov-tf-population.sh',
-            '.github/scripts/frozen_fleet_guard.py',
+            '.github/scripts/frozen_fleet_guard.py', '.github/scripts/checkov_scrub.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
@@ -470,14 +470,23 @@ jobs:
           findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt plan.json)
           echo "CHECKOV_PLAN_FINDINGS=$findings" >> "$GITHUB_ENV"
 
-      # The Checkov RESULT is publishable. The plan that produced it is not — see the
-      # cleanup step below.
+      # The Checkov RESULT is publishable only once scrubbed. Checkov copies each resource's
+      # planned values into `check_result.entity`, and a plan carries a sensitive value in plain
+      # text: measured, a SecureString parameter's value reached the result whole. The scrub
+      # writes a SEPARATE file and the upload names only that one, so a scrub that fails uploads
+      # nothing rather than the original. The plan that produced it is not publishable at all —
+      # see the cleanup step below.
+      - name: Scrub Checkov result
+        if: always()
+        working-directory: infra
+        run: python3 ../.github/scripts/checkov_scrub.py checkov-plan.json checkov-plan-publishable.json
+
       - name: Upload Checkov result
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: checkov-plan
-          path: infra/checkov-plan.json
+          path: infra/checkov-plan-publishable.json
           retention-days: 30
           if-no-files-found: warn
 
@@ -491,11 +500,13 @@ jobs:
       # A rendered plan is strictly more revealing than the .tf it came from: resolved
       # ARNs, account identifiers, and every policy document in full. SPEC-138 uploads
       # each scanner's raw input; this one deliberately does not, and the files are
-      # removed so a step added to this job later cannot pick them up by accident.
+      # removed so a step added to this job later cannot pick them up by accident. The
+      # unscrubbed Checkov result goes too: it carries the plan's values, sensitive ones
+      # included, which is why only its scrubbed copy is ever uploaded.
       - name: Remove the plan files
         if: always()
         working-directory: infra
-        run: rm -f plan.json tfplan
+        run: rm -f plan.json tfplan checkov-plan.json
 
   apply:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'

@@ -86,3 +86,29 @@ def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(mo
     assert response["statusCode"] != 401
 
 
+
+
+def test_every_client_in_the_audience_list_is_admitted_and_no_other(monkeypatch, stub_directory):
+    """Two clients sign in while sign-in moves from the browser to the server; a third does not.
+
+    The refusal of the third is held byte-identical to the no-token refusal, so admitting a list
+    opened no way to tell an unknown client from a missing token.
+    """
+    monkeypatch.setenv("OIDC_AUDIENCE", "test-app-client,server-client")
+
+    for admitted in ("test-app-client", "server-client"):
+        response = router.route("GET", "/v1/user-directory", bearer(aud=admitted))
+        assert response["statusCode"] == 200, f"{admitted} was not admitted"
+
+    refused = router.route("GET", "/v1/user-directory", bearer(aud="third-client"))
+    no_token = router.route("GET", "/v1/user-directory", {})
+    assert refused["statusCode"] == 401
+    assert json.dumps(refused, sort_keys=True) == json.dumps(no_token, sort_keys=True)
+
+
+def test_a_malformed_audience_list_is_a_server_fault_and_never_a_401(monkeypatch):
+    """An empty element is a mis-rendered list. Read as fewer clients, it would sign people out."""
+    for malformed in ("a,", ",b", "a,,b", " , "):
+        monkeypatch.setenv("OIDC_AUDIENCE", malformed)
+        response = router.route("GET", "/v1/user-directory", bearer())
+        assert response["statusCode"] >= 500, f"{malformed!r} answered {response['statusCode']}"
