@@ -375,6 +375,27 @@ describe('an unfinished upload asks before the document goes', () => {
     expect(unloadIsCancelled()).toBe(true);
   });
 
+  // A download is a navigation to the presigned URL, and Chrome raises `beforeunload` inside its
+  // click before it knows the response is an attachment; asked there, Stay cancelled the download.
+  it('lets a download go without asking while an upload runs', async () => {
+    holdUploadsOpen();
+    mock.getDownloadUrl.mockResolvedValue(
+      ok({url: 'https://user-space.s3.amazonaws.com/alice/report.csv?sig=1'}) as never
+    );
+    const asked: boolean[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      if (this.href.startsWith('https://user-space.')) asked.push(unloadIsCancelled());
+    });
+    const {user} = renderFiles('/files');
+    await startUploads(user);
+
+    await user.dblClick(screen.getByText('report.csv'));
+
+    await waitFor(() => expect(asked).toEqual([false]));
+    expect(unloadIsCancelled()).toBe(true);
+    click.mockRestore();
+  });
+
   it('registers no unload listener on a page without the shell', async () => {
     const added = vi.spyOn(window, 'addEventListener');
     renderFiles('/nope');

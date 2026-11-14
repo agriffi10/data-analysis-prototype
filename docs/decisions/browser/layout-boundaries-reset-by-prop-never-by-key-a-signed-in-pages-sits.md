@@ -67,7 +67,10 @@ upload is unfinished (the set `UploadsAtRiskNotice` counts) the shell's `UnloadG
 `beforeunload`, so the browser asks; on "Stay" the document, the shell, the uploads and the page all
 remain. It also asks on a reload or a closed tab mid-upload, which before cancelled the uploads
 silently (Andrew's ruling, 2026-11-13, over accepting the loss). It listens only while something would
-be lost. **Signing out asks nothing**, as before: Amplify's sign-out moves the document in the same
+be lost. **A download is not the document going**: it is a navigation to the presigned URL, and
+Chrome raises `beforeunload` inside its click before it learns the response is an attachment, so
+mid-upload a download asked "Leave site?" and on "Stay" never happened (measured). Both download
+helpers run their click through `withoutLeaveGuard`, which restores the guard as it was. **Signing out asks nothing**, as before: Amplify's sign-out moves the document in the same
 task that announces the signed-out status, before the shell unmounts, so the auth provider's `signOut`
 disarms the guard synchronously (`lib/leaveGuard.ts`) before it starts, and re-arms it if the
 sign-out fails.

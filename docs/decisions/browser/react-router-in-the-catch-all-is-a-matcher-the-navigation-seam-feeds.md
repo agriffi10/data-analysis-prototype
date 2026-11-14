@@ -85,7 +85,8 @@ navigator that sends every push and replace back through the seam.
 **How it is proved.** `src/test/nextNavigation.ts` replaces `next/navigation` in Vitest (an alias in
 `vite.config.ts`) and models all eight behaviours on jsdom's own history, one test each; `renderApp`
 renders the real chrome around the page its router state selects. `lib/navigation/navigation.test.tsx`
-runs every rule above through it under both routers, and a planted defect for each (a listener
+runs every rule above through it, under both routers wherever the router decides the outcome, and a
+planted defect for each (a listener
 classifier, no stamping, a raw comparison, the source read from the pending push, a `BrowserRouter`,
 no origin check, case-insensitive matching) turns its test red. The cross-router scenarios are live
 checks for each area move, since until one lands there is no App Router page to drive.

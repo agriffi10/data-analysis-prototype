@@ -316,9 +316,15 @@ describe('the state a navigation carries', () => {
     }
   );
 
-  it.each(ROUTERS)('reaches the first render, and is gone after Back, Forward and a reload (%s)', async (router) => {
+  it.each([
+    ['catch-all', 'catch-all'],
+    ['catch-all', 'app'],
+    ['app', 'catch-all'],
+    ['app', 'app']
+  ] as const)('reaches the first render, and is gone after Back, Forward and a reload (%s to %s)', async (from, to) => {
     resetReadout([...LINKS, {label: 'To files with state', to: '/files', state: {handOff: 1}}]);
-    const view = renderApp('/notifications', servedBy(router));
+    const options = both(servedBy(from, ['notifications', 'help']), servedBy(to, ['files']));
+    const view = renderApp('/notifications', options);
     await screen.findByRole('heading', {name: 'page notifications'});
 
     await follow(view.user, 'To files with state');
@@ -334,7 +340,7 @@ describe('the state a navigation carries', () => {
 
     view.unmount();
     resetReadout(LINKS);
-    renderApp(window.location.pathname, servedBy(router));
+    renderApp(window.location.pathname, options);
     await screen.findByRole('heading', {name: 'page files'});
     expect(lastCommit().state).toBeUndefined();
   });

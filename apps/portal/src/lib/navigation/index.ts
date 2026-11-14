@@ -7,6 +7,7 @@ export {Link, type LinkProps} from './Link';
 export {NavLink, type NavLinkProps} from './NavLink';
 export {Navigate} from './Navigate';
 export {matchPath} from './matchPath';
+export {decodePath} from './address';
 export {NavigationProvider} from './NavigationProvider';
 export {CatchAllRouter} from './CatchAllRouter';
 export {AREAS, AreaRecordsContext, areaOf, routerFor, useAreaRecords} from './areas';

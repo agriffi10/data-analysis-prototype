@@ -21,8 +21,9 @@ shared.
 its own, so the navigation seam (`lib/navigation/`) holds what a navigation carries in memory, for the
 entry that navigation made, and writes none of it to history. A receiver reads `location.state` and
 `location.key` from the seam exactly as it read react-router's, under either router. Because nothing
-is written to history, a reload or a traversal can no longer deliver a hand-off at all; measured on
-all four pairings of the two routers, a hand-off is read once and is gone on Back, Forward and reload.
+is written to history, a reload or a traversal can no longer deliver a hand-off at all: on all four
+pairings of the two routers, state reaches the destination's first render and is gone on Back, Forward
+and reload, measured while SPEC-256 was authored and held by `lib/navigation/navigation.test.tsx`.
 The seam's key is fresh per push or replace and stamped on the entry beside Next's state, so a
 traversal back reads it again.
 
