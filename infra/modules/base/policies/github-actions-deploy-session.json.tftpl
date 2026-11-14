@@ -1,0 +1,125 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SessionNatDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeAddresses",
+        "ec2:DescribeAddressesAttribute",
+        "ec2:DescribeNatGateways"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SessionNatManage",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AllocateAddress",
+        "ec2:ReleaseAddress",
+        "ec2:DisassociateAddress",
+        "ec2:CreateNatGateway",
+        "ec2:DeleteNatGateway",
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:${aws_region}:${account_id}:elastic-ip/*",
+        "arn:aws:ec2:${aws_region}:${account_id}:natgateway/*",
+        "arn:aws:ec2:${aws_region}:${account_id}:subnet/*",
+        "arn:aws:ec2:${aws_region}:${account_id}:network-interface/*",
+        "arn:aws:ec2:${aws_region}:${account_id}:vpc/*"
+      ]
+    },
+    {
+      "Sid": "SessionTableManage",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DeleteTable",
+        "dynamodb:DescribeTable",
+        "dynamodb:UpdateTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:UpdateTimeToLive",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:TagResource",
+        "dynamodb:UntagResource",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "arn:aws:dynamodb:${aws_region}:${account_id}:table/${project_name}-*-sessions"
+    },
+    {
+      "Sid": "SessionKeyGlobal",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateKey",
+        "kms:ListAliases"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SessionKeyManage",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:PutKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:EnableKeyRotation",
+        "kms:DisableKeyRotation",
+        "kms:EnableKey",
+        "kms:DisableKey",
+        "kms:UpdateKeyDescription",
+        "kms:ListResourceTags",
+        "kms:TagResource",
+        "kms:UntagResource",
+        "kms:ScheduleKeyDeletion",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": [
+        "arn:aws:kms:${aws_region}:${account_id}:key/*",
+        "arn:aws:kms:${aws_region}:${account_id}:alias/${project_name}-*-session"
+      ]
+    },
+    {
+      "Sid": "SessionKeyUseByTable",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant",
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "arn:aws:kms:${aws_region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "SessionParameterManage",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:DeleteParameter",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource",
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ssm:${aws_region}:${account_id}:parameter/${project_name}-*/portal/*"
+    },
+    {
+      "Sid": "SessionParameterDescribe",
+      "Effect": "Allow",
+      "Action": "ssm:DescribeParameters",
+      "Resource": "*"
+    }
+  ]
+}

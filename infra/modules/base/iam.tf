@@ -475,6 +475,36 @@ resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
   policy_arn = aws_iam_policy.deploy_platform_frontdoor.arn
 }
 
+# The portal server's session: the NAT gateway and its Elastic IP the web tier reaches Cognito
+# and the API through, the session table, the customer-managed key it is encrypted with, and the
+# portal's SSM parameters. Its own document because the platform policy has no room left under
+# the managed limit.
+#
+# The key's statements name key/* because a key's id is random and not known until it exists. A tag
+# condition could narrow the update and delete actions, since the provider tags inside CreateKey, and
+# is not used: the role can grant itself anything through its own self-manage grant, so a tag scope
+# would bound a misdirected apply rather than anyone with the role. An alias condition would bound
+# nothing, because this policy may point its own alias at any key. The table's KMS use is
+# conditioned on kms:ViaService, which DynamoDB always populates.
+# infra/info/deploy-role-iam.md.
+resource "aws_iam_policy" "deploy_session" {
+  name        = "${var.project_name}-deploy-session"
+  description = "Deploy-role grants for the portal server's session: the web tier's NAT gateway and Elastic IP, the session table, its customer-managed key and alias, and the portal's SSM parameters."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-session.json.tftpl", {
+    account_id   = var.account_id
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_session" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_session.arn
+}
+
 # A SECOND sleep, not a wider dependency on the first: wait_for_self_grant has long finished
 # by the time these are written and gates nothing. Every module using a platform grant depends
 # on module.base as a whole, so placing the pause AFTER the attachments is what puts it between
@@ -490,11 +520,13 @@ resource "time_sleep" "wait_for_platform_grant" {
   triggers = {
     platform  = aws_iam_policy.deploy_platform.policy
     frontdoor = aws_iam_policy.deploy_platform_frontdoor.policy
+    session   = aws_iam_policy.deploy_session.policy
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.deploy_platform,
     aws_iam_role_policy_attachment.deploy_platform_frontdoor,
+    aws_iam_role_policy_attachment.deploy_session,
   ]
 }
 

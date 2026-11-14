@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-257
 title: "The Next.js Server Holds the Session"
 description: "The portal's Next.js server becomes an OIDC client that holds each browser's session in DynamoDB behind an opaque httpOnly cookie and forwards same-origin API calls with the session's token, built beside Amplify and not yet used by the browser, so SPEC-262 can switch the browser onto it."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-255]
 arc: nextjs
 arc_order: 3

@@ -145,6 +145,7 @@ GUARDED = {
         word="checkov",
         harmless=re.compile(
             r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam|tf-population)\.sh(?![\w.-])"
+            r"|(?<![\w-])checkov_scrub\.py(?![\w.-])"
             r"|[\w./-]*checkov[\w-]*\.(?:json|txt)(?![\w.-])"
             r"""|\bpip3?\s+install\s+(["']?)checkov==[^\s"']+\1"""
             r"|\\?`checkov\\?`"
@@ -526,6 +527,12 @@ def _runs_outside_its_wrapper(line: str, guarded: _Guarded) -> bool:
         ("checkov", ".github/scripts/checkov-scan.sh -d infra && checkov -f plan.json", True),
         ("checkov", ".github/scripts/checkov-bare.sh -d infra", True),
         ("checkov", "../.github/scripts/checkov-scan.sh -f plan.json \\", False),
+        (
+            "checkov",
+            "python3 ../.github/scripts/checkov_scrub.py checkov-plan.json checkov-plan-publishable.json",
+            False,
+        ),
+        ("checkov", "python3 ../.github/scripts/checkov_scrub.py a.json b.json && checkov -f plan.json", True),
         ("checkov", "bash ./.github/scripts/checkov-scan.sh -d infra", False),
         ("checkov", ".github/scripts/checkov-scan-test.sh", False),
         ("checkov", ".github/scripts/checkov-tf-population.sh", False),

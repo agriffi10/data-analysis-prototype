@@ -99,6 +99,28 @@ def _require(name: str) -> str:
     return value
 
 
+def _audiences(raw: str) -> frozenset[str]:
+    """Parses the comma-separated client ids a token's ``aud`` may be one of.
+
+    A single id is a valid value, so the format the variable held before it became a list still
+    parses. Each element must be non-empty: ``a,`` and ``a,,b`` are a mis-rendered list, and
+    reading them as fewer clients would refuse tokens for a client the operator meant to admit.
+
+    Args:
+      raw: The variable's value, already known to be non-empty.
+
+    Returns:
+      The set of client ids.
+
+    Raises:
+      ConfigError: If any element is empty after trimming.
+    """
+    elements = [element.strip() for element in raw.split(",")]
+    if any(not element for element in elements):
+        raise ConfigError(f"{_OIDC_VARS['AUDIENCE']} holds an empty client id")
+    return frozenset(elements)
+
+
 def verifier_config() -> VerifierConfig:
     """Builds the provider parameters this API verifies tokens against.
 
@@ -113,9 +135,10 @@ def verifier_config() -> VerifierConfig:
       The provider block.
 
     Raises:
-      ConfigError: If any of the five is unset, or the required-claims document is not a JSON
-        object. Failing here is the fail-closed direction: the alternative is verifying against
-        a partially-configured provider, which succeeds for tokens it should refuse.
+      ConfigError: If any of the five is unset, the audience list holds an empty element, or the
+        required-claims document is not a JSON object. Failing here is the fail-closed
+        direction: the alternative is verifying against a partially-configured provider, which
+        succeeds for tokens it should refuse.
     """
     raw = _require(_OIDC_VARS["REQUIRED_CLAIMS"])
     try:
@@ -127,7 +150,7 @@ def verifier_config() -> VerifierConfig:
 
     return VerifierConfig(
         issuer=_require(_OIDC_VARS["ISSUER"]),
-        audience=_require(_OIDC_VARS["AUDIENCE"]),
+        audiences=_audiences(_require(_OIDC_VARS["AUDIENCE"])),
         jwks_uri=_require(_OIDC_VARS["JWKS_URI"]),
         username_claim=_require(_OIDC_VARS["USERNAME_CLAIM"]),
         required_claims={str(claim): str(value) for claim, value in required.items()},
