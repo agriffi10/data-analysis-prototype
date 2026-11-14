@@ -3598,4 +3598,15 @@ behaviour 257's note above relies on. The nonce-free headers are `src/lib/securi
 of `server-only` so `next.config.ts` can import it, and a 257 route handler that sets its own
 headers takes them from there; the nonce-carrying policy is `src/server/contentSecurityPolicy.ts`,
 imported by the proxy alone. The API's CORS never admitted `localhost:5173`, so `npm run dev` signs
-in but cannot call the API until 257's `/api/` pass-through.
+in but cannot call the API until 257's `/api/` pass-through. *(Marked 2026-11-14: 257 built the
+pass-through, and `npm run dev` still cannot call the API until SPEC-262 points the browser at it.)*
+
+**2026-11-14, SPEC-257 refines the refresh rule and the cookie read, and is complete.** A losing
+refresh uses the stored token unless it was forced and that token's `iat` is earlier; the spec's
+first rule, a forced loser always writing its own, answered 503 to between 6 and 13 of a burst of
+twenty on one cookie. The cookie reader trims only space and tab, because `trim()` strips U+00A0 and a
+0xA0-prefixed name carries none of the `__Host-` prefix's protection. The server refuses a token,
+revoke or API URL that is not HTTPS, or HTTP to a loopback host. 262 switches the browser onto these routes and changes
+them (an `/api/` call must name its user in `x-dq-user`), and the
+decision is `identity-and-access/the-portal-server-holds-the-session-and-only-the-provider-or-the-clock-ends-it.md`.
+

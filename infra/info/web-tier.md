@@ -74,8 +74,9 @@ gh workflow run deploy-infra.yml --ref main
 ```
 
 Watch that run to green. A dispatch applies without a separate plan job, so read what the apply's
-log says it destroyed: only resources under `module.network[0]` and `module.spa[0]`. Nothing is
-built in their place.
+log says it destroyed: only resources under `module.network[0]` and `module.spa[0]`, and nothing
+under `module.session_store` or `module.auth`. The first switch-off after SPEC-257 discharges a row
+in `docs/testing/owed.md` with that reading. Nothing is built in their place.
 
 **The load balancer's deletion protection must already be off in AWS.** It is off by design; if a
 switch-off ever stops at `DeleteLoadBalancer` with the listeners, the alias record and the service

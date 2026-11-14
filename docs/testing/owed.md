@@ -114,6 +114,16 @@ has now run, the last on 2026-09-22.
 | ~~**The loser of two same-name creates is refused**~~ **DISCHARGED 2026-09-21 inside the window** ([`sessions.md`](sessions.md), 2026-09-21 evening). Two creates of `live0921_race` over `live0921race_a/` and `live0921race_b/`, sent without waiting (218 ms for both), gave one *ready to query* and one *"…a table with that name already exists in "agriffith"."* The loser's execution passed `CheckTableAbsent` and was refused inside `ExecuteDdl`: *"table_exists: … was built by another request: its LOCATION is not this one's. Nothing was created."* That is the post-condition speaking, not the pre-check. The table reads `race_a`'s 10 rows. The recipe: fire two `POST /v1/enqueue/table-build` creates of one name in one database back to back, over **different folders**, and read both notifications. | One says *Table "X" is ready to query*, the other *Couldn't create table "X": a table with that name already exists in "…"*. The window is between `check-table-absent` and the DDL, so the two submissions must land inside one inspection — one signed-in session can do it with two requests sent without waiting. Recipe §2.2. A single-submit check passes with the defect present, because the pre-check catches an ordinary duplicate. |
 | ~~**SPEC-239's API-level half** — split out of the CSV row above when its browser recipe ran on 2026-09-21~~ **RAN 2026-09-22** ([`sessions.md`](sessions.md)), sent from the signed-in page rather than through the script, whose usage notes still read the token from `localStorage`. `columnIndexes: [1,0]` against `explorer150` wrote a CSV reading `region,id` — the 2nd and 1st columns in that order and no others — and `[0,0]` was refused by **`validate-authorize`** with reason `invalid_columns` and the sentence *"the columns chosen for this file don't match the query's results, so nothing was saved."*, with no file written. Its payload carries `requestId` alone, which is the `validate-authorize` path this page already excuses from carrying a `format`; the success payload beside it carries `format: "csv"`. |
 
+### SPEC-257's switch-off — owed to whoever switches the web tier off next
+
+SPEC-257's live checks finished on 2026-11-14 while SPEC-256 still held the tier, so the switch-off
+that would have ended them did not run. A switch-off is a dispatch, which applies with no plan job,
+so its apply log is the only record.
+
+| Check | Why | Recipe |
+|---|---|---|
+| **The switch-off destroys only the web tier**, the NAT gateway and its Elastic IP among it, and nothing of the session store or the Cognito clients (SPEC-257 FR-001) | A switch-off that took the session store would sign everyone out, and one that took the key would schedule it for deletion. Nothing but the apply log shows which addresses a dispatch destroyed. | After `gh variable set TF_VAR_web_tier_enabled --body false` and `gh workflow run deploy-infra.yml --ref main`, read the run's apply log: every `Destroying...` line names an address under `module.network[0]` or `module.spa[0]`, `aws_nat_gateway.main` and `aws_eip.nat` among them, and none names `module.session_store` or `module.auth`. |
+
 ### Needs a second (or third) account
 
 Evidence for every row run on 2026-09-21 is in [`sessions.md`](sessions.md), 2026-09-21 night:
