@@ -499,7 +499,7 @@ jobs:
           TAG: ${{ steps.scope.outputs.tag }}
         run: |
           set -euo pipefail
-          docker build --platform linux/amd64 \
+          docker build --platform linux/amd64 --provenance=false --sbom=false \
             -f apps/portal/Dockerfile \
             --build-arg BUILD_VERSION="$TAG" \
             -t "spa:$TAG" .
