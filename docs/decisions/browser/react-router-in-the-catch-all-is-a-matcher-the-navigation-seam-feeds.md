@@ -62,7 +62,13 @@ navigator that sends every push and replace back through the seam.
   then acts on again. So a page's replace on the same path, while both the committed address and the
   seam's entry are the ones the router navigation left, is written onto that entry carrying Next's own
   state, which Next's history patch passes through (3): the push survives, Back finds the corrected
-  address, and the page does not re-render with it, since it is leaving. That shape is how a page
+  address, and the page does not re-render with it, since it is leaving; a second correction builds on
+  the committed search, which is why `useSearchParams`' functional setter reads it, and the entry keeps
+  its key and gets no state. An in-page anchor meanwhile makes an entry Next ignores (4), so the leave
+  goes on from the anchor's address and the anchor's entry gets Next's state for the corrected page.
+  Measured against real Next on 2026-11-14 (standalone build, Chrome): a write carrying `__NA` left a
+  held push intact, the same write without it discarded the push, and Back found the corrected
+  address with no reload or refetch. That shape is how a page
   corrects its address; a link the user clicks (the seam's `follow`, which `Link` uses), a push, or a
   replace to another page is the user leaving again and goes through, and the last click wins as it
   does without a leave. Any move of the address ends the leave, arrival included, before the

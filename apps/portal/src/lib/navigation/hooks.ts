@@ -1,6 +1,7 @@
 import {useCallback, useMemo} from 'react';
 import {useParams as useRouteParams} from 'react-router';
 import {useParams as useNextParams} from 'next/navigation';
+import {committedAddress} from './address';
 import {useInCatchAll, useSeam} from './seamContext';
 import type {NavigateOptions, NavigationType, NavLocation, To} from './navigation.types';
 
@@ -38,10 +39,11 @@ export function useSearchParams(): [URLSearchParams, (next: NextSearch, options?
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const setParams = useCallback(
     (next: NextSearch, options?: NavigateOptions) => {
-      const value = typeof next === 'function' ? next(new URLSearchParams(location.search)) : next;
+      // From the committed search, which a page that is leaving has corrected without re-rendering.
+      const value = typeof next === 'function' ? next(new URLSearchParams(committedAddress().search)) : next;
       navigate(`?${value.toString()}`, options);
     },
-    [location.search, navigate]
+    [navigate]
   );
   return [params, setParams];
 }

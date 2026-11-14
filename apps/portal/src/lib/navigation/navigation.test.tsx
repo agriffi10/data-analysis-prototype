@@ -14,7 +14,7 @@ import {
   resetReadout,
   type FixtureLink
 } from '../../test/seamReadout';
-import {useNavigate} from './hooks';
+import {useNavigate, useSearchParams} from './hooks';
 import {matchPath} from './matchPath';
 import type {AreaName, AreaRouter} from './areas';
 
@@ -317,12 +317,14 @@ describe('a target’s trailing slash', () => {
 // A router navigation waits on the server while the page it leaves stays mounted. A native write in
 // that window makes Next restore, and a restore discards the pending navigation, so the click is lost.
 describe('a page that is leaving', () => {
+  // Twice, the first spelled as the browser re-encodes it, so the leave must follow the address shown.
   it('corrects its address without losing the click', async () => {
     const {user} = renderApp('/files', servedBy('app'));
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
     await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=a b', {replace: true}));
     act(() => fixture.navigate?.('?space=team', {replace: true}));
     release();
 
@@ -358,6 +360,29 @@ describe('a page that is leaving', () => {
     act(() => fixture.navigate?.('?x=1', {replace: true}));
 
     await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?x=1'}));
+  });
+
+  // The page does not re-render with its correction, so a second one must build on the address shown,
+  // or it would put back what the first removed.
+  it('builds a second correction on the first', async () => {
+    const options = servedBy('app');
+    const {user} = renderApp('/files', {
+      ...options,
+      pages: {...options.pages, '(signed-in)/files/page.tsx': FilesWithSearch}
+    });
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => {
+      search.set?.((previous) => new URLSearchParams([...previous, ['a', '1']]), {replace: true});
+      search.set?.((previous) => new URLSearchParams([...previous, ['b', '2']]), {replace: true});
+    });
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?a=1&b=2'}));
   });
 
   // A child's layout effects run before the seam's own, so the destination's first write lands
@@ -403,6 +428,53 @@ describe('the user’s next move during a leave', () => {
     expect(screen.queryByRole('heading', {name: 'page data-quality'})).not.toBeInTheDocument();
   });
 });
+
+// An in-page anchor makes an entry with no state, which Next ignores, so the navigation in flight goes
+// on: the anchor must neither end the leave nor be left without the Next state Back needs.
+describe('an in-page anchor during a leave', () => {
+  it('leaves the navigation in flight, and the page’s correction after it does too', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To notifications');
+    await followAnchor(user);
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+
+    await screen.findByRole('heading', {name: 'page notifications'});
+    expect(lastCommit()).toMatchObject({page: 'notifications', pathname: '/notifications'});
+  });
+
+  it('is restorable after a correction, so Back shows the page it belongs to', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    await followAnchor(user);
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?space=team', hash: '#section'}));
+  });
+});
+
+/** The search setter of the page on screen, for a test to call as the page would. */
+const search: {set: ReturnType<typeof useSearchParams>[1] | null} = {set: null};
+
+/** The Files readout, exposing its search setter. */
+function FilesWithSearch() {
+  const [, set] = useSearchParams();
+  useLayoutEffect(() => {
+    search.set = set;
+  }, [set]);
+  return <FilesReadout />;
+}
+
+const FilesReadout = readoutPage('files');
 
 /** A destination that corrects its own address in its first layout effect. */
 function WritesOnArrival() {

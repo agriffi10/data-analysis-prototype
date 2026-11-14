@@ -51,7 +51,9 @@ type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unkno
  * mounted, and a native write would make Next restore and discard that navigation, losing the
  * click. So a page's own replace on the same path, how a page corrects its address, is written onto
  * the entry it left with Next's state, which Next passes through; the page does not re-render with
- * it. A link (`follow`), a push, or another page is the user leaving again, and the last click wins.
+ * it, and the entry keeps its key and gets no state. A link (`follow`), a push, or another page is
+ * the user leaving again, and the last click wins. An in-page anchor meanwhile is one Next ignores,
+ * so the leave goes on through it.
  *
  * STATE AND KEYS. State lives only in this component's memory, for the entry the navigation made,
  * so a reload or a traversal delivers none. Every push or replace gets a fresh key, written onto
@@ -141,13 +143,23 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     const onPopState = (event: PopStateEvent) => {
       const at = committedAddress();
       const now = entryRef.current;
-      if (!sameDocument(at, now)) return;
+      const left = leaving.current;
+      const leavingNow = left !== null && left.from === now;
       // An in-page anchor makes an entry with no state, and Next ignores a popstate whose state is
       // null, so a later Back onto this entry would leave the page it came from on screen. Stamped
-      // with the Next state of the page it belongs to, it is one Next restores.
-      if (event.state == null && lastNextState.current) {
+      // with the Next state of the page it belongs to, it is one Next restores. A page that is leaving
+      // shows its corrected address, not the one it rendered.
+      const shown = leavingNow ? resolveTo(left.at, now) : now;
+      if (event.state == null && lastNextState.current && sameDocument(at, shown)) {
         window.history.replaceState({...lastNextState.current}, '');
       }
+      // Next ignored that anchor, so the navigation in flight goes on and the page is still leaving,
+      // now from the anchor's address.
+      if (event.state == null && leavingNow) {
+        leaving.current = {...left, at: hrefOf(at)};
+        return;
+      }
+      if (!sameDocument(at, now)) return;
       const key = keyOf(event.state);
       if (now.type === 'POP' && now.key === key && now.hash === at.hash) return;
       setEntry({...at, state: undefined, key, type: 'POP'});
@@ -192,7 +204,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
         const data = state?.__NA ? state : lastNextState.current && {...state, ...lastNextState.current};
         if (data) {
           window.history.replaceState(data, '', href);
-          leaving.current = {...left, at: href};
+          leaving.current = {...left, at: hrefOf(committedAddress())};
         }
         return;
       }
