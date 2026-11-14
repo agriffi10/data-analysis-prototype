@@ -118,8 +118,8 @@ API: the eight queue URLs when the control-plane enqueues moved, `VITE_ATHENA_WO
 catalog did, and `VITE_COGNITO_IDENTITY_POOL_ID` when the Identity Pool was retired. `VITE_ENVIRONMENT` lost its last reader with `deploy-app.yml`: a
 production bundle reads no `VITE_` name (`npm run check:bundle`), and the feature-flag block is
 chosen by `/config.json`'s `environment`, which the container renders from Terraform's
-`var.environment`. Only a dev build still reads the name, from a local `.env`
-(`apps/portal/.env.example`), as its stand-in for that key. The list and the ordering are in
+`var.environment`. Only the test runner still reads the name, as a `vi.stubEnv` stub; `next dev`
+reads `/config.json` as production does. The list and the ordering are in
 [`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
 `Deploy SPA image` and `Publish Config`**, because until then they are what a revert falls back to.
 `Deploy App` is gone, so `Publish Config` is the only workflow still resolving configuration from

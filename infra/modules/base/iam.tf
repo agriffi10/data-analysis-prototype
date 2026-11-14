@@ -475,26 +475,6 @@ resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
   policy_arn = aws_iam_policy.deploy_platform_frontdoor.arn
 }
 
-# What serves the portal while the web tier is off: its bucket, its distribution and the two
-# policies the distribution uses. The role's own document cannot take these: it is near IAM's
-# aggregate limit. infra/info/web-tier.md.
-resource "aws_iam_policy" "deploy_portal_static" {
-  name        = "${var.project_name}-deploy-portal-static"
-  description = "Deploy-role grants for the static portal (S3 bucket, CloudFront distribution, origin access control, response headers policy)."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-portal-static.json.tftpl", {
-    account_id   = var.account_id
-    project_name = var.project_name
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_portal_static" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_portal_static.arn
-}
-
 # A SECOND sleep, not a wider dependency on the first: wait_for_self_grant has long finished
 # by the time these are written and gates nothing. Every module using a platform grant depends
 # on module.base as a whole, so placing the pause AFTER the attachments is what puts it between
@@ -508,15 +488,13 @@ resource "time_sleep" "wait_for_platform_grant" {
   create_duration = "60s"
 
   triggers = {
-    platform      = aws_iam_policy.deploy_platform.policy
-    frontdoor     = aws_iam_policy.deploy_platform_frontdoor.policy
-    portal_static = aws_iam_policy.deploy_portal_static.policy
+    platform  = aws_iam_policy.deploy_platform.policy
+    frontdoor = aws_iam_policy.deploy_platform_frontdoor.policy
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.deploy_platform,
     aws_iam_role_policy_attachment.deploy_platform_frontdoor,
-    aws_iam_role_policy_attachment.deploy_portal_static,
   ]
 }
 

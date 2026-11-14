@@ -29,7 +29,7 @@ wired in four places and a missed one stops the server starting:
 
 | Area | File | What's in it |
 |---|---|---|
-| Foundations | [`foundations.md`](foundations.md) | `src/lib/` — the API client, the ID token, `ServiceResult` adapters, `toUserMessage`, JSON documents, runtime config, query client |
+| Foundations | [`foundations.md`](foundations.md) | `src/lib/` — the API client, the ID token, `ServiceResult` adapters, `toUserMessage`, JSON documents, runtime config, query client; the boot and the server modules (`PortalBoot.tsx`, `src/server/`) |
 | Shared components | [`shared-components.md`](shared-components.md) | `src/components/` — Modal, ConfirmDialog, Drawer, Pager, Menu, MobileActionBar, Button/Input/Badge/Banner, ErrorBanner, Toast |
 | Shared types | [`shared-types.md`](shared-types.md) | `src/types/` |
 | Shared hooks | [`shared-hooks.md`](shared-hooks.md) | `src/hooks/` |

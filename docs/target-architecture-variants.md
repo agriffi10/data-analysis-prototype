@@ -95,7 +95,7 @@ flowchart TB
   end
 
   subgraph PORTAL["THE PORTAL"]
-    SPA["ECS Fargate + ALB<br/>SPA container, nginx<br/>app.example.com"]
+    SPA["ECS Fargate + ALB<br/>Next.js server container<br/>app.example.com"]
     APIGW["API Gateway<br/>api.example.com"]
     BFF["BFF Lambda<br/>owns /auth/login and /auth/callback<br/>every request-path AWS call<br/>(the target splits this: authorizer + worker)"]
     DDB[("DynamoDB<br/>session + IdC refresh token<br/>CMK · TTL checked on read")]

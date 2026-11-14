@@ -255,15 +255,15 @@ Grouped by rule; the count is the number of resources.
 | 4 | CKV_AWS_284 | Step Functions X-Ray | **accept** — same reasoning as CKV_AWS_50. |
 | 2 | CKV_AWS_300 | Abort incomplete multipart uploads | ~~**FIX**~~ **FIXED 2026-08-05.** Rules added to the artifacts and static buckets, and bucket-wide on the admin bucket. The admin one needed the `admin_lifecycle_rules_are_prefix_scoped` check narrowed to rules that actually EXPIRE something — an abort-MPU rule carries no expiration and so cannot reach `logs/`, which the guard exists to protect. The user-space and shared-space buckets already had the rule. |
 | 1 | CKV2_AWS_32 | CloudFront response headers policy | ~~**FIX**~~ **CLEARED by SPEC-140** — was the CSP / HSTS / `X-Frame-Options` gap, and the one finding ZAP reported independently. Two scanners, one cause. |
-| 1 | CKV_AWS_259 | Response header policy enforces HSTS | ~~accept~~ **FAILS BY DECISION since 2026-11-02**: the static portal's policy sets no `preload`. Was FIXED 2026-08-03 — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
+| 1 | CKV_AWS_259 | Response header policy enforces HSTS | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). ~~accept~~ **FAILS BY DECISION since 2026-11-02**: the static portal's policy sets no `preload`. Was FIXED 2026-08-03 — `preload` flipped to `true`, check passes. It is inert without a manual hstspreload.org submission, which we have not made; **do not submit this `*.cloudfront.net` domain**, since preload is near-irreversible and a custom domain will replace it. Original reasoning for declining, retained: **accept — introduced by SPEC-140, deliberately.** The check fails on **`preload` alone**; max-age, `include_subdomains` and `override` all satisfy it (verified against checkov 3.3.9, whose check returns FAILED at the `preload` branch and PASSED with it flipped). `preload` declares intent to be submitted to hstspreload.org — we are not submitting, the domain is a shared-suffix `*.cloudfront.net` that a custom domain will replace (see CKV2_AWS_42), and preload is near-irreversible once granted. Revisit with the custom domain. **Note the arithmetic:** this appearing and CKV2_AWS_32 clearing cancelled out, leaving the total at 305 — the total is not a useful signal across this change. |
 | 1 | CKV_AWS_82 | Athena workgroup enforces configuration | ~~**FIX**~~ **ACCEPT — this disposition was WRONG (corrected 2026-08-05).** "It stops a client overriding the result location" describes the isolation MECHANISM, not a weakness: Athena has no per-user result location, so the app sets `s3://<user-space>/{username}/athenaresults/` on every `StartQueryExecution` and IAM confines each caller to its own prefix (SPEC-032 FR-006). Enforcing workgroup configuration would force every query to the workgroup default — the admin-only bucket — breaking per-user results and query history for every user. `analytics/athena.tf` already carries a comment predicting exactly this fix being attempted. Revisit only if Athena gains a per-user output location. |
-| 1 | CKV_AWS_68 | CloudFront WAF | **defer** — real cost, and this is a pre-production system. |
-| 1 | CKV2_AWS_47 | WAF managed rules for Log4Shell | **accept** — follows from CKV_AWS_68; also no Java anywhere. |
-| 1 | CKV_AWS_86 | CloudFront access logging | **defer**, and live again since 2026-11-02: the static portal keeps no access logs, where the balancer logged to the admin bucket. |
-| 1 | CKV_AWS_174 | Viewer certificate TLS ≥ 1.2 | **PASSES and ENFORCED since 2026-11-02**, with a custom certificate on the distribution. Was **accept** — the default CloudFront certificate already enforces this; the check fires because no custom cert is configured. |
-| 1 | CKV2_AWS_42 | Custom SSL certificate | **PASSES and ENFORCED since 2026-11-02.** Was **accept** — no custom domain yet. |
-| 1 | CKV_AWS_310 | Origin failover | **accept** — single S3 origin by design. |
-| 1 | CKV_AWS_374 | Geo restriction | **accept** — no geographic access policy. |
+| 1 | CKV_AWS_68 | CloudFront WAF | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **defer** — real cost, and this is a pre-production system. |
+| 1 | CKV2_AWS_47 | WAF managed rules for Log4Shell | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **accept** — follows from CKV_AWS_68; also no Java anywhere. |
+| 1 | CKV_AWS_86 | CloudFront access logging | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **defer**, and live again since 2026-11-02: the static portal keeps no access logs, where the balancer logged to the admin bucket. |
+| 1 | CKV_AWS_174 | Viewer certificate TLS ≥ 1.2 | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **PASSES and ENFORCED since 2026-11-02**, with a custom certificate on the distribution. Was **accept** — the default CloudFront certificate already enforces this; the check fires because no custom cert is configured. |
+| 1 | CKV2_AWS_42 | Custom SSL certificate | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **PASSES and ENFORCED since 2026-11-02.** Was **accept** — no custom domain yet. |
+| 1 | CKV_AWS_310 | Origin failover | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **accept** — single S3 origin by design. |
+| 1 | CKV_AWS_374 | Geo restriction | **No subject since 2026-11-13:** the static portal was deleted (*Enforce-list removal — the same ten, with the static portal*). **accept** — no geographic access policy. |
 | 1 | CKV2_AWS_61 | S3 lifecycle configuration | **defer** — subsumed by the CKV_AWS_300 work. |
 
 ~~**Five fixes fall out of this:** S3 versioning, the multipart-abort lifecycle rule, the CloudFront
@@ -417,6 +417,29 @@ these.
 | **CSP `script-src`** | **Tightened.** Scripts run from this origin or with a per-request nonce; `style-src` keeps `'unsafe-inline'` for Monaco and so carries no nonce. |
 | **Responses answered before routing carry no policy** | **ACCEPT, low.** Next answers a trailing-slash path, a `//host` or `/\host` path and an absolute-form request line with a 308 to a same-origin path, and a malformed escape (`/%zz`) or `OPTIONS *` with a plain-text 500, before the proxy or `next.config.ts`'s `headers()` run, so those responses carry no CSP and none of the seven headers. Each body is fixed text or a same-origin redirect and the next response carries the full set, so nothing in this class can be framed or run. The image's behaviour matrix pins `/files/` and `/%zz` so a change to the class is visible. A scanner alert for a missing header on one of these URLs is this row. |
 
+
+### The Next.js server's first scan (2026-11-13)
+
+**Run:** [43538730372](https://github.com/agriffi10/data-analysis-prototype/actions/runs/43538730372),
+`workflow_dispatch` on `main` at `9dfafec1`, with the web tier switched on for it, target
+`https://portal.dataquarry.app` serving image `65516853`. `FAIL-NEW: 0  WARN-NEW: 6  PASS: 65`.
+Diffed per alert ID against the addendum above and the post-SPEC-140 table; nothing new needs a fix.
+
+| Alert | Instances | Disposition |
+|---|---|---|
+| 10055 CSP: `style-src unsafe-inline` | 4 | **accept, unchanged** — Monaco's injected styles; a nonce in `style-src` would switch `'unsafe-inline'` off |
+| 90004 Cross-Origin-Embedder-Policy | 4 | **accept, unchanged** |
+| 10027 Suspicious Comments | 1 | **accept** — now on `/theme-init.js`, whose comment explains why it runs before the app; it was the vendor bundle before |
+| 10049 Storable and Cacheable / Non-Storable / Storable but Non-Cacheable | 11 | **accept** — one ID, three instance shapes, each a cache class by design: hashed assets `immutable`; pages `no-store`, new, because each carries a per-request nonce; `/favicon.svg` and `/theme-init.js` `public, max-age=0`, Next's class for `public/` files, also new |
+| 10109 Modern Web Application | 5 | **accept** — informational |
+| 90005 Sec-Fetch-* Header Missing | 8 | **accept** — request headers ZAP's spider does not send |
+
+**Closed by the server:** 10036 (HTTP Server Response Header) and 10037 (`X-Powered-By`) pass, so the
+`Server` banner row above is confirmed closed. 10096 (Timestamp Disclosure) and 10094 (Base64
+Disclosure), accepted before as bundle noise, also pass. The spider's `/robots.txt` and `/sitemap.xml`
+answered 200 with the app shell, the optional catch-all's preserved trap; they appear only as instances
+of the alerts above and raised no alert of their own.
+With the tier off, run 43516167248 skipped the scan with its warning and summary, as designed.
 
 ### Enforce-list removal — CKV_AWS_366, with the Identity Pool (2026-08-30)
 
@@ -724,7 +747,7 @@ So the statement became two:
 
 ## What remains, and why it is not fixable
 
-> **Superseded again 2026-11-02:** the static portal's deploy grant raises both findings for two unscopable CloudFront actions, and `.github/checkov-plan-accepted.txt` carries them. **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
+> **Nothing remains again, 2026-11-13:** the static portal was deleted when the Next.js server became the only front door, its deploy grant was removed once the destroy had applied, and `.github/checkov-plan-accepted.txt` is empty. **Superseded again 2026-11-02:** the static portal's deploy grant raises both findings for two unscopable CloudFront actions, and `.github/checkov-plan-accepted.txt` carries them. **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
 > role's `cloudfront:*` statement came off one apply later; with it gone the rendered policy reports
 > **zero** CKV_AWS_290 and CKV_AWS_355, so `.github/checkov-plan-accepted.txt` is empty and every IAM
 > finding on the plan now blocks. Measured against the pinned checkov's own scanner, not argued —

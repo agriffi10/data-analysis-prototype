@@ -2040,7 +2040,10 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
 - **SPA: a container on ECS Fargate behind an ALB.** It cannot go through CloudFront. `infra/modules/app`
   (CloudFront + static site) is retired. *(Superseded 2026-11-02 for the live deployment: the client
   environment behind that constraint is shelved, and CloudFront serves the portal while the web tier
-  is off. `docs/decisions/infrastructure/`.)*
+  is off. `docs/decisions/infrastructure/`.)* *(Superseded again 2026-11-13 by SPEC-255: the portal
+  is a Next.js server with no static fallback, so the CloudFront path is retired and the web tier is
+  the only front door, off and down when idle.
+  `docs/decisions/infrastructure/cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md`.)*
 > **SUPERSEDED for this arc by SPEC-195 (2026-08-27) — the NEXT THREE BULLETS describe the
 > DEFERRED design, inherited by the later arc rather than cancelled.** What shipped is a
 > **verifier, not an OIDC client**: no code exchange, no refresh token, no session, no cookie.
@@ -2512,6 +2515,12 @@ reason it matters is measured: CachingOptimized applies its **1 s MinTTL even ag
 > and a `;` appended a directive, on a container that started and reported healthy. And responses
 > nginx generates **before it resolves a location** reach no location block at all, so a
 > per-location header discipline needs a server-level floor beneath it.
+>
+> **Superseded in part by SPEC-255 (2026-11-13): nginx is gone.** The Next.js server renders
+> `/config.json` and its route handler sets `no-store`; it checks the source list at start against
+> the same allowlist and exits 1 naming the variable; and the responses it answers before routing
+> carry no policy, an accepted residual with no floor beneath it. `docs/decisions/infrastructure/`,
+> the runtime-configuration, `connect-src` and server-jobs entries.
 
 **One live check was withdrawn rather than deferred**, and it is worth knowing why before someone
 re-adds it: after `/config.json` gets a `CachingDisabled` behaviour, no observation distinguishes a
@@ -3577,3 +3586,12 @@ open-redirect fix would otherwise go with react-router. And path matching is cas
 Next routes: `/Files` is a 404 outside the shell from 256 on, where react-router opened Files and a
 moved area would have shown a 404 inside the shell. `renderApp` also selects its page from the
 stand-in's router state, as Next does, rather than from the address.
+
+**2026-11-13, SPEC-255 refines the request-proxy contract, and is complete.** The proxy skips every
+request that carries a body: its matcher excludes `Content-Length` and `Transfer-Encoding`, and
+`next.config.ts` gives those requests the security headers and a lockdown policy, which is the
+behaviour 257's note above relies on. The nonce-free headers are `src/lib/securityHeaders.ts`, free
+of `server-only` so `next.config.ts` can import it, and a 257 route handler that sets its own
+headers takes them from there; the nonce-carrying policy is `src/server/contentSecurityPolicy.ts`,
+imported by the proxy alone. The API's CORS never admitted `localhost:5173`, so `npm run dev` signs
+in but cannot call the API until 257's `/api/` pass-through.
