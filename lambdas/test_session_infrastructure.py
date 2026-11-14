@@ -105,6 +105,28 @@ def test_the_server_client_mirrors_the_spa_client_and_differs_only_where_it_must
     assert re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', server)
 
 
+def test_every_rotation_block_states_its_grace_period() -> None:
+    """An omitted grace period plans as null and reads back as AWS's 0, which fails the apply.
+
+    The provider marks ``retry_grace_period_seconds`` optional but not computed, so a client created
+    without it exists in AWS while the apply fails as an inconsistent result, leaving everything
+    that depends on the client unapplied. The plan is green either way, so only this test sees it.
+    """
+    files = sorted(INFRA.rglob("*.tf"))
+    assert len(files) > 20, f"Swept only {len(files)} .tf files — the glob found the wrong tree."
+    dynamic = [str(path.relative_to(INFRA)) for path in files if re.search(r'dynamic\s+"refresh_token_rotation"', path.read_text())]
+    assert dynamic == [], f"a dynamic refresh_token_rotation block escapes this sweep: {dynamic}"
+    rotations = [
+        (path.relative_to(INFRA), match.group(1))
+        for path in files
+        for match in re.finditer(r"refresh_token_rotation\s*\{([^}]*)\}", path.read_text())
+    ]
+    assert rotations, "no refresh_token_rotation block found; the sweep reads nothing"
+    stated = re.compile(r"^[ \t]*retry_grace_period_seconds[ \t]*=[ \t]*\d+[ \t]*$", re.MULTILINE)
+    missing = [str(path) for path, body in rotations if not stated.search(body)]
+    assert missing == [], f"refresh_token_rotation without a numeric retry_grace_period_seconds in {missing}"
+
+
 def test_the_session_ceiling_and_the_refresh_token_come_from_one_local() -> None:
     """A session that outlives its refresh token answers 401 on a cookie the user believes is live."""
     server = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")["server"]
