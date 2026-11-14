@@ -116,9 +116,10 @@ has now run, the last on 2026-09-22.
 
 ### SPEC-257's switch-off — owed to whoever switches the web tier off next
 
-SPEC-257's live checks finished on 2026-11-14 while SPEC-256 still held the tier, so the switch-off
-that would have ended them did not run. A switch-off is a dispatch, which applies with no plan job,
-so its apply log is the only record.
+SPEC-257's live checks finished on 2026-11-14 while SPEC-256 still held the tier. The next
+switch-off (Deploy Infrastructure run 43602954200) stopped half-way on a missing deploy-role grant
+for the Elastic IP's disassociation, so the check is owed to the first switch-off after that grant.
+A switch-off is a dispatch, which applies with no plan job, so its apply log is the only record.
 
 | Check | Why | Recipe |
 |---|---|---|

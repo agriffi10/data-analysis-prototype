@@ -48,6 +48,16 @@ planes' one core template — never a copied template; the base README says what
   `aws iam simulate-custom-policy` before spending a CI round — and scope the deny leg to a
   **service-wide `arn:aws:<svc>:<region>:<acct>:*`**, per *The wildcard* below. Any narrower ARN
   risks being the wrong resource *type*, which reads exactly like non-scopable.
+- **A destroy can authorize against `*/*` an action that accepts a narrower ARN (2026-11-14).** A
+  web-tier switch-off deletes the NAT gateway, then destroys its Elastic IP with the association id
+  still in state, and EC2 evaluated that `ec2:DisassociateAddress` against
+  `arn:aws:ec2:us-east-1:<account>:*/*`, not the address (Deploy Infrastructure run 43602954200). A
+  grant scoped to `elastic-ip/*` was denied and the apply stopped half-way. The service-wide ARN,
+  `arn:aws:ec2:<region>:<account>:*`, matches what EC2 passed (simulated: allowed, and implicitDeny in
+  another region), so the grant takes that rather than `"*"`. Nothing but a destroy exercises the path:
+  the plan, the plan-time scan, a simulate of the planned ARNs and the switch-on all passed. When a spec
+  adds a resource type to a switched module, read the provider's **delete** before scoping the grant.
+  Whether every call naming only an association id is evaluated this way is not measured.
 - **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
   the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
   statement to a list of both.
