@@ -1,7 +1,6 @@
 import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
-import {Route, Routes} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../../test/authFixtures';
 import {expectContainerHasNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
@@ -70,26 +69,19 @@ function withFlags(overrides: Partial<FeatureFlags>) {
 }
 
 /**
- * The report route inside a real `Routes` tree.
+ * The report page at its real pattern.
  *
- * Load-bearing, not ceremony: without a matching `<Route path>` the page's `useParams()` is
+ * Load-bearing, not ceremony: without the pattern the page's `useParams()` is
  * empty and it declines to fetch on its own — which would make every "no S3 request"
  * assertion below pass for the wrong reason. The positive control at the end of the group is
  * what caught exactly that.
  */
 function renderReportRoute(route = '/data-quality/alice/req-1') {
   return renderWithProviders(
-    <Routes>
-      <Route
-        path="/data-quality/:space/:requestId"
-        element={
-          <FeatureRoute flag="dataQuality">
-            <DataQualityReportPage />
-          </FeatureRoute>
-        }
-      />
-    </Routes>,
-    {...opts, route}
+    <FeatureRoute flag="dataQuality">
+      <DataQualityReportPage />
+    </FeatureRoute>,
+    {...opts, route, path: '/data-quality/:space/:requestId'}
   );
 }
 

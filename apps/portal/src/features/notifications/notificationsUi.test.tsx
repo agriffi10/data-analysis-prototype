@@ -1,8 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {TestProviders, renderWithProviders} from '../../test/renderWithProviders';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
-import {MemoryRouter} from 'react-router';
 import {NotificationRow} from './NotificationRow';
 import {NotificationsBell} from './NotificationsBell';
 import {isSafeInAppPath, reviewHref} from './notificationLink';
@@ -126,9 +125,12 @@ describe('NotificationRow', () => {
 describe('NotificationsBell', () => {
   function renderBell(props: {hasUnread: boolean; unreadCount: number}, initialPath = '/files') {
     return render(
-      <MemoryRouter initialEntries={[initialPath]}>
+      <TestProviders
+        route={initialPath}
+        auth={null}
+        seedFeatureFlags={false}>
         <NotificationsBell {...props} />
-      </MemoryRouter>
+      </TestProviders>
     );
   }
 

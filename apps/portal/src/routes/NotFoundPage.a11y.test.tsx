@@ -1,16 +1,16 @@
 import {describe, it, expect, vi} from 'vitest';
 import {render, screen} from '@testing-library/react';
-import {MemoryRouter} from 'react-router';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../test/axe';
+import {TestProviders} from '../test/renderWithProviders';
 
 vi.mock('../hooks/usePageTitle', () => ({usePageTitle: vi.fn()}));
 
 const {default: NotFoundPage} = await import('./NotFoundPage');
 
 const tree = (
-  <MemoryRouter>
+  <TestProviders auth={null}>
     <NotFoundPage />
-  </MemoryRouter>
+  </TestProviders>
 );
 
 describe('NotFoundPage accessibility (SPEC-045 FR-003)', () => {

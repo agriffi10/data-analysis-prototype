@@ -1,5 +1,4 @@
 import {useEffect} from 'react';
-import {Route, Routes} from 'react-router';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
@@ -1101,17 +1100,14 @@ function renderFilesPage() {
   );
 }
 
-/** The report route inside a real `Routes` tree, so the page's `useParams()` has its space. */
+/** The report page at its real pattern, so the page's `useParams()` has its space. */
 function renderReportRoute(path: string) {
-  renderWithProviders(
-    <Routes>
-      <Route
-        path="/data-quality/:space/:requestId"
-        element={<DataQualityReportPage />}
-      />
-    </Routes>,
-    {route: path, auth: authenticated('alice'), seedFeatureFlags: false}
-  );
+  renderWithProviders(<DataQualityReportPage />, {
+    route: path,
+    path: '/data-quality/:space/:requestId',
+    auth: authenticated('alice'),
+    seedFeatureFlags: false
+  });
 }
 
 /** One completed check in `space`, named for its space so a query can tell the rows apart. */

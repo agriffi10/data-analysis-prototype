@@ -1,4 +1,4 @@
-import {matchPath} from 'react-router';
+import {decodePath, matchPath} from '../../lib/navigation';
 import {NAV_PATH_FLAGS} from './gatedSurfaces';
 import type {FeatureFlagKey} from './featureFlags.types';
 
@@ -68,12 +68,13 @@ export function linkFlags(link: string, username: string | null): FeatureFlagKey
   }
   const flags = new Set<FeatureFlagKey>();
   // `matchPath`, not string comparison, so a link matches its route exactly as the router does —
-  // case-insensitively, and at a segment boundary.
+  // on the decoded path, case-sensitively, as Next routes, and at a segment boundary.
+  const pathname = decodePath(url.pathname);
   for (const [path, flag] of NAV_PATH_FLAGS) {
-    if (matchPath({path, end: false}, url.pathname)) flags.add(flag);
+    if (matchPath({path, end: false}, pathname)) flags.add(flag);
   }
   for (const reader of SPACE_READERS) {
-    const match = matchPath(reader.pattern, url.pathname);
+    const match = matchPath(reader.pattern, pathname);
     if (!match) continue;
     const name = reader.read(url, match.params);
     if (name && !reader.isPersonal(name, username)) flags.add('sharedWorkspaces');

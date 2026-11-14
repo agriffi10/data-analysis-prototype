@@ -98,7 +98,12 @@ the single source of wording; rendering `error.message` is a defect, not a short
 **Mobile-first, one tree.** Two breakpoints are compiled — `tablet:` at 900, `desktop:` at 1300 — and
 the same tree reflows. A `*Mobile`/`*Desktop` twin is a smell.
 
-Routing is `react-router` v8, imported from `react-router` (v8 removed `react-router-dom`).
+**Navigation goes through one seam.** Every feature navigates through `src/lib/navigation/`, which
+works under both routers while the areas move onto the App Router: it holds what the App Router lacks
+(a navigation's state, its type and a key per history entry), decides per path which router performs a
+navigation, and feeds react-router inside the catch-all as a matcher. The providers and the signed-in
+shell live in the root layout above every page, behind a client-only boot, and the chrome decides by
+the address, through the area records, whether a page is public or signed in.
 
 ## How the SPA reaches a user
 
@@ -106,9 +111,9 @@ Routing is `react-router` v8, imported from `react-router` (v8 removed `react-ro
 Node server, run on ECS Fargate behind an internet-facing ALB in a VPC that exists for nothing else,
 and it answers `portal.dataquarry.app`. A Node app has no static fallback, so with
 `web_tier_enabled` off nothing serves the portal; that is accepted, and the tier is switched on
-through CI while someone is working (`infra/info/web-tier.md`). The whole existing app runs in the
-browser inside one optional catch-all route, react-router intact, while the areas move onto the App
-Router one spec at a time.
+through CI while someone is working (`infra/info/web-tier.md`). The areas not yet moved onto the App
+Router render inside one optional catch-all route, matched by react-router, and move one spec at a
+time.
 
 The server does the jobs a static origin did: it renders `/config.json`, refuses to start without
 its configuration, and its request proxy stamps every page with an enforcing CSP carrying a fresh
@@ -518,3 +523,4 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 53 | [CloudFront serves the portal again, because the VPC was the bill](decisions/infrastructure/cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md) | The web tier was nearly the whole bill, and the client environment that required a container is shelved. | Exactly one front door exists: the existing switch picks CloudFront over S3 or the container, at one origin, so nothing naming the origin changes. **Superseded by row 55 (SPEC-255):** a Node app has no static fallback, so the CloudFront path is retired and the tier is always the front door; off means the portal is down. |
 | 54 | [A module is one concept, and the root composes them flat](decisions/infrastructure/iac.md) | The per-feature modules had become eight copies of the control-plane machine, so a fix to the machine was eight edits that had to agree and a new plane started as a copy. | One `control-plane` building block, called once per plane from the root at the plane's existing address, with each plane's distinct configuration beside its call; its inputs are exactly what varies between planes, found by diffing resolved values. Its proof is the PR's plan showing only moves, plus the one deliberate change: shared spaces' state machine gets its own role. Supersedes row 30's module shape. |
 | 55 | [The portal is a Next.js server, and the web tier is the only front door](decisions/infrastructure/cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md) | The client environment requires Next.js on a server runtime, and a Node app has no static fallback, so a CloudFront copy of the portal cannot stand in while the tier is off. | One tier, on only while someone is working; with it off the portal is down, which is accepted. The server renders the runtime document, refuses to start without it, and its request proxy stamps each page with a nonce in `script-src`; a request with a body skips the proxy. The certificate renews only while the tier is on. Supersedes row 53, and the nginx half of row 33. |
+| 56 | [The App Router owns the shell, and navigation goes through one seam](decisions/browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md) | The areas move onto the App Router one at a time, so a signed-in page may be served by either router, and the App Router has no history state, navigation type or per-entry key. | The shell lives in the root layout behind a client-only boot, and the chrome decides by the address through the area records; every feature navigates through `lib/navigation/`, which feeds react-router inside the catch-all and decides by the committed address; while an upload is unfinished the shell asks before the document unloads. The layout half is `decisions/browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md`. |

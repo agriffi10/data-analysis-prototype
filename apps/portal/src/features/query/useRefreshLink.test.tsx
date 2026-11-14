@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
-import {useLocation} from 'react-router';
+import {useLocation} from '../../lib/navigation';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {useRefreshLink} from './useRefreshLink';

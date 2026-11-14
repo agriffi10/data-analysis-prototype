@@ -269,8 +269,8 @@ def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
     destination when anything landed, the source when nothing did — never from the link, which
     would check the link against itself and pass one that names the wrong space.
     """
-    app = (_PORTAL / "App.tsx").read_text()
-    assert 'path="/files"' in app, "the file browser's route moved — re-derive the link's path"
+    area = (_PORTAL / "lib" / "navigation" / "areas" / "files.ts").read_text()
+    assert "paths: ['/files']" in area, "the file browser's path moved — re-derive the link's path"
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
     assert "const prefixParam = searchParams.get('prefix') || undefined;" in route, (
         "the route no longer reads ?prefix= as it is"

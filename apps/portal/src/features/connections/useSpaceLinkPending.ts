@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {useLocation, useNavigationType} from 'react-router';
+import {useLocation, useNavigationType} from '../../lib/navigation';
 
 export type UseSpaceLinkPendingParams = {
   username: string | null;

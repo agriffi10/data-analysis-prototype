@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef} from 'react';
-import {useNavigate} from 'react-router';
+import {useNavigate} from '../../lib/navigation';
 import {getTableDdl} from '../catalog/athena.service';
 import {parseS3Url} from '../../lib/s3Url';
 import {spaceBuckets} from '../../lib/userSpace';

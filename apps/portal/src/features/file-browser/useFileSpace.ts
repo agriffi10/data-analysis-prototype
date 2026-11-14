@@ -1,5 +1,5 @@
 import {useCallback, useMemo} from 'react';
-import {useSearchParams} from 'react-router';
+import {useSearchParams} from '../../lib/navigation';
 import {isConnectionUsable} from '../connections/connection.types';
 import {useSpaceLinkPending} from '../connections/useSpaceLinkPending';
 import type {Connection} from '../connections/connection.types';

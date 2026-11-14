@@ -10,6 +10,12 @@ import {
   seedTabs
 } from '../../test/queryWorkspaceSupport';
 import {buildOpenSqlHandoff} from '../../lib/routeHandoff';
+import {Link} from '../../lib/navigation';
+import {renderWithProviders} from '../../test/renderWithProviders';
+import {authenticated} from '../../test/authFixtures';
+import {traverse} from '../../test/nextNavigation';
+import {QueryRunsProvider} from './QueryRunsProvider';
+import {QueryWorkspace} from './QueryWorkspace';
 import {QUERY_TABS_MAX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState} from './query.types';
 
@@ -95,7 +101,7 @@ function persistedTabs(): QueryTabsState {
 }
 
 function render(route: Parameters<typeof renderWorkspace>[0]) {
-  return renderWorkspace(route, {strictMode: true, browserRouter: true});
+  return renderWorkspace(route, {strictMode: true});
 }
 
 /** The phone's read-only SQL view, found by its exact text so whitespace counts. */
@@ -110,14 +116,14 @@ describe('a statement handed over from the Data Explorer', () => {
   it('opens one new tab holding it exactly, runs nothing, and clears the hand-off from history', async () => {
     seedSingle('SELECT 1;');
 
-    render(HANDOFF);
+    const {location} = render(HANDOFF);
 
     expect(await screen.findByRole('tab', {name: /orders/})).toHaveAttribute('aria-selected', 'true');
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     // The editor is lazy, so it is waited for; its text is compared whole.
     await screen.findByLabelText('SQL editor');
     expect(editor().value).toBe(SQL);
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
     expect(window.location.pathname).toBe('/query');
     expect(mockRunQuery).not.toHaveBeenCalled();
   });
@@ -125,24 +131,24 @@ describe('a statement handed over from the Data Explorer', () => {
   it('raises the tab limit at the cap, opens nothing, and still clears the hand-off', async () => {
     seedFullStrip();
 
-    render(HANDOFF);
+    const {location} = render(HANDOFF);
 
     expect(await screen.findByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(QUERY_TABS_MAX);
     expect(screen.queryByRole('tab', {name: /orders/})).toBeNull();
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
   });
 
   it('ignores state it did not build, and leaves the entry alone', async () => {
     seedSingle('SELECT 1;');
     const malformed = {openSql: {sql: 1}};
 
-    render({pathname: '/query', state: malformed});
+    const {location} = render({pathname: '/query', state: malformed});
 
     expect(await screen.findByRole('tab', {name: /Query 1/})).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(1);
     expect(screen.queryByRole('alertdialog')).toBeNull();
-    expect(window.history.state).toMatchObject({usr: malformed});
+    expect(location().state).toEqual(malformed);
   });
 
   it('shows the statement read-only on a phone, and opens its tab for a wider screen', async () => {
@@ -164,12 +170,58 @@ describe('a statement handed over from the Data Explorer', () => {
     window.innerWidth = 390;
     seedFullStrip();
 
-    render(HANDOFF);
+    const {location} = render(HANDOFF);
 
     expect(await screen.findByRole('heading', {name: 'orders'})).toBeInTheDocument();
     expect(shownStatement()).toBeInTheDocument();
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(persistedTabs().tabs).toHaveLength(QUERY_TABS_MAX);
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
+  });
+});
+
+describe('a hand-off already read', () => {
+  beforeEach(installWorkspaceMocks);
+  afterEach(resetViewport);
+
+  // The seam never writes a hand-off to history, so nothing a traversal or a reload restores can
+  // carry one; the receiver's replace is belt and braces. Measured on both routers while authoring.
+  it('opens nothing on Back and then Forward to its entry, and nothing on a reload', async () => {
+    seedSingle('SELECT 1;');
+    const workspace = (
+      <>
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
+        <Link to="/files">Away</Link>
+      </>
+    );
+    const view = renderWithProviders(workspace, {
+      route: HANDOFF,
+      path: '/query',
+      routes: {'/files': <p>Files</p>},
+      auth: authenticated('alice'),
+      strictMode: true
+    });
+    expect(await screen.findByRole('tab', {name: /orders/})).toBeInTheDocument();
+    await waitFor(() => expect(view.location().state).toEqual(null));
+
+    await view.user.click(screen.getByRole('link', {name: 'Away'}));
+    await screen.findByText('Files');
+    await traverse(-1);
+    await traverse(1);
+    await traverse(-1);
+
+    await screen.findByRole('tab', {name: /orders/});
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(view.location().pathname).toBe('/query');
+    expect(view.location().state).toBeUndefined();
+
+    view.unmount();
+    renderWorkspace('/query', {strictMode: true});
+    expect(await screen.findByRole('tab', {name: /orders/})).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 });

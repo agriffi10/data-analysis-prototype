@@ -17,10 +17,10 @@ import {
   isMarkerName
 } from './fileBrowser.constants';
 // Read through Vite's own `?raw` / `import.meta.glob` rather than `node:fs`: the app
-import {createElement} from 'react';
-import type {ReactNode} from 'react';
-import {act, renderHook} from '@testing-library/react';
-import {MemoryRouter, useNavigate} from 'react-router';
+import {act} from '@testing-library/react';
+import {useNavigate} from '../../lib/navigation';
+import {renderHookWithProviders} from '../../test/renderWithProviders';
+import {traverse} from '../../test/nextNavigation';
 import {useFileSpace} from './useFileSpace';
 import type {Connection} from '../connections/connection.types';
 import {QueryClient} from '@tanstack/react-query';
@@ -249,12 +249,10 @@ describe('useFileSpace', () => {
   type Params = Parameters<typeof useFileSpace>[0];
 
   // Later props arrive through `rerender`, the way a settled read of the list reaches the hook. `navigate`
-  // rides along so a test can go Back, which no hook result offers.
+  // rides along so a test can follow a link, which no hook result offers.
   function setup(path: string, overrides: Partial<Params> = {}) {
-    const wrapper = ({children}: {children: ReactNode}) =>
-      createElement(MemoryRouter, {initialEntries: [path]}, children);
     const rereadList = vi.fn().mockResolvedValue(undefined);
-    const rendered = renderHook(
+    const rendered = renderHookWithProviders(
       (props: Partial<Params>) => ({
         ...useFileSpace({
           username: 'alice',
@@ -268,7 +266,7 @@ describe('useFileSpace', () => {
         }),
         navigate: useNavigate()
       }),
-      {wrapper, initialProps: {}}
+      {route: path, auth: null, initialProps: {}}
     );
     return {...rendered, rereadList};
   }
@@ -317,7 +315,7 @@ describe('useFileSpace', () => {
       expect(result.current.fellBack).toBe(true);
     });
 
-    it('asks again on Back into a space the list lacks, though a read settled after it was last followed', () => {
+    it('asks again on Back into a space the list lacks, though a read settled after it was last followed', async () => {
       // A POP is not a follow, but it re-arms on the value. Keyed on the navigation alone, Back onto a
       // space refused earlier would be refused again on whatever read settled in between, and that read
       // may predate the user joining it.
@@ -329,7 +327,7 @@ describe('useFileSpace', () => {
       rerender({listReadsSettled: 2});
       expect(rereadList).toHaveBeenCalledOnce();
 
-      act(() => void result.current.navigate(-1));
+      await traverse(-1);
       expect(result.current.pending).toBe(true);
       expect(result.current.fellBack).toBe(false);
       expect(rereadList).toHaveBeenCalledTimes(2);

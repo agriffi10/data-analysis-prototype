@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)"
-description: "A space link the cached list lacks waits, through `useSpaceLinkPending`, for one read settled after the link before it is refused; presence is trusted at once, and a POP is not a follow. **The refusal is a verdict on a read after the link, never on `isLoading`**, which clears on any cached list, however old — every cold-load test passes while a just-joined space is refused; a link consumer calls `useSpaceLinkPending`."
+description: "A space link the cached list lacks waits, through `useSpaceLinkPending`, for one read settled after the link before it is refused; presence is trusted at once, and a POP is not a follow, read from the navigation seam's `useNavigationType()` under either router. **The refusal is a verdict on a read after the link, never on `isLoading`**, which clears on any cached list, however old — every cold-load test passes while a just-joined space is refused; a link consumer calls `useSpaceLinkPending`."
 ---
 
 A Files link naming a space missing from the cached connections list fell back at once, under
@@ -28,8 +28,12 @@ that second follow was refused on the first follow's read. **A POP is not a foll
 exclusion is load-bearing: an in-page anchor — the shell's own skip link — is a same-document
 navigation whose entry carries no history state, so the key falls back to "default" and every such
 click would re-arm the wait, unmounting the browser and spending a read on the keyboard users the
-bypass link exists for. That was measured in Chromium and is driven in the test, because jsdom
-follows no in-page anchor on a click. The mount-anchored predicate this replaced cannot see a link
+bypass link exists for. That was measured in Chromium, and the test clicks a real anchor: jsdom
+does follow one, moving the address a task later and firing a popstate with no state. **The type and
+the key are the seam's (2026-11-13).** The App Router has neither, so the navigation seam classifies a
+change while it renders — one it did not start, with the address already moved, is a traversal — and
+an in-page anchor still reads as a `'POP'` with the key `'default'`; following the same link again is
+a replace with a new key, which still re-arms the wait. The mount-anchored predicate this replaced cannot see a link
 that arrives after mount at all: keep the count but never re-anchor it, and the two tests that
 follow a link on an open page go red. A failed read counts too, so a failure ends the wait
 rather than loading for ever. The
@@ -50,6 +54,11 @@ until the next read, the same staleness the Files sidebar and the Query rail hav
 would spend a read on every visit.
 
 ## History
+
+### 2026-11-13
+
+- **Changed (SPEC-256):** the navigation type and the entry key come from the navigation seam, which
+  supplies both under either router; the rule is unchanged.
 
 ### 2026-09-16
 

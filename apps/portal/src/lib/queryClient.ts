@@ -1,7 +1,9 @@
 import {QueryClient} from '@tanstack/react-query';
 
 /**
- * Single app-wide QueryClient — all server state (S3 reads/writes) lives here.
+ * The app's QueryClient — all server state (S3 reads/writes) lives in it — made by the frame once
+ * per mount, never at module scope: a client shared by the module would be shared across server
+ * requests the day anything renders it there, and this file is the one home of its defaults.
  *
  * Defaults: staleTime 30s (avoids refetch storms when navigating back into a
  * recently viewed prefix); retry 1 (network blips — the services already retry
@@ -17,12 +19,14 @@ import {QueryClient} from '@tanstack/react-query';
  * layering inversion the `components/` ESLint rule forbids one layer up. It now
  * sits in `features/file-browser/invalidateListing.ts`, beside the keys it builds.
  */
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-      refetchOnWindowFocus: false
+export function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        retry: 1,
+        refetchOnWindowFocus: false
+      }
     }
-  }
-});
+  });
+}

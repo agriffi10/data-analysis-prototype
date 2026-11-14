@@ -1,5 +1,5 @@
 import {useMemo, useState} from 'react';
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
 import {PageLayout} from '../../components/PageLayout';

@@ -1,4 +1,4 @@
-import {NavLink} from 'react-router';
+import {NavLink} from '../lib/navigation';
 import {cx} from '../lib/cx';
 import {DestinationIcon, type Destination} from './DestinationIcon';
 

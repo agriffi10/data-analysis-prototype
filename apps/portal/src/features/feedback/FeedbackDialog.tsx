@@ -1,5 +1,5 @@
 import {useId, useRef, useState} from 'react';
-import {useLocation} from 'react-router';
+import {useLocation} from '../../lib/navigation';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {FIELD_HINT, FIELD_LABEL, SELECT_CLASS} from '../../components/fieldStyles';
 import {FormDialog} from '../../components/FormDialog';

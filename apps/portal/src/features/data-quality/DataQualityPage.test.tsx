@@ -1,14 +1,11 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {TestProviders, renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityPage} from './DataQualityPage';
-import {MemoryRouter, Route, Routes} from 'react-router';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient} from '@tanstack/react-query';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations, expectNoA11yViolations} from '../../test/axe';
-import {ToastProvider} from '../../components/ToastProvider';
-import {AuthContext} from '../auth/authContext';
 import type {DataQualityRunSummary} from './dataQuality.types';
 import type {FileListPage} from '../../types/s3.types';
 import type {ReactElement} from 'react';
@@ -441,20 +438,14 @@ describe('DataQualityPage.a11y', () => {
 
   function withProviders(): ReactElement {
     return (
-      <QueryClientProvider client={client}>
-        <AuthContext.Provider value={authenticated('alice')}>
-          <MemoryRouter initialEntries={['/data-quality']}>
-            <ToastProvider>
-              <Routes>
-                <Route
-                  path="/data-quality"
-                  element={<DataQualityPage />}
-                />
-              </Routes>
-            </ToastProvider>
-          </MemoryRouter>
-        </AuthContext.Provider>
-      </QueryClientProvider>
+      <TestProviders
+        route="/data-quality"
+        path="/data-quality"
+        auth={authenticated('alice')}
+        queryClient={client}
+        seedFeatureFlags={false}>
+        <DataQualityPage />
+      </TestProviders>
     );
   }
 

@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, screen, waitFor, within} from '@testing-library/react';
-import {Link, Route, Routes, useLocation, useNavigate} from 'react-router';
+import {Link, useLocation} from '../../lib/navigation';
 import {QueryClient} from '@tanstack/react-query';
 import {Header} from '../../components/Header';
 import {HelpPanel} from './HelpPanel';
@@ -9,6 +9,7 @@ import {HELP_SECTIONS} from './helpContent';
 import {HELP_SURFACES} from './helpSurfaces';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {traverse} from '../../test/nextNavigation';
 import {authenticated} from '../../test/authFixtures';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
 import {getFeatureFlags} from '../feature-flags/featureFlags.service';
@@ -335,32 +336,24 @@ describe('the header help control', () => {
 // ─── FR-004 / FR-006: closing, focus, and the way out ──────────────────────────
 
 describe('the panel’s dismissal and focus behaviour', () => {
-  /** Header + a stand-in page, two destinations, and a Back control. */
+  /** The page for the address. The field lives on the PAGE, so "what was typed survives" is a
+   *  statement about the page staying mounted and not about a sibling of the drawer. */
+  function Page() {
+    const {pathname} = useLocation();
+    if (pathname === '/files') return <input aria-label="Note" />;
+    if (pathname === '/help') return <HelpPage />;
+    return null;
+  }
+
+  /** Header + a stand-in page and two destinations. */
   function Shell() {
-    const navigate = useNavigate();
     return (
       <>
         <Header />
         <div>
           <Link to="/notifications">To notifications</Link>
           <Link to="/files">To files</Link>
-          <button
-            type="button"
-            onClick={() => navigate(-1)}>
-            Back
-          </button>
-          <Routes>
-            {/* The field lives on the ROUTE, so "what was typed survives" is a statement about
-                the route staying mounted and not about a sibling of the drawer. */}
-            <Route
-              path="/files"
-              element={<input aria-label="Note" />}
-            />
-            <Route
-              path="/help"
-              element={<HelpPage />}
-            />
-          </Routes>
+          <Page />
         </div>
       </>
     );
@@ -425,14 +418,15 @@ describe('the panel’s dismissal and focus behaviour', () => {
   it('is closed by browser Back, which restores a pathname it has already seen', async () => {
     // The failure this pins: Back returns to a pathname the open state was never reset for,
     // and a different section's content is substituted into a live modal.
-    const {user} = renderShell('/files');
+    const {user, location} = renderShell('/files');
 
     await user.click(screen.getByRole('link', {name: 'To notifications'}));
     await user.click(screen.getByRole('button', {name: 'Help for this page'}));
     expect(screen.getByRole('dialog', {name: 'Notifications'})).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', {name: 'Back'}));
+    await traverse(-1);
 
+    expect(location().pathname).toBe('/files');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

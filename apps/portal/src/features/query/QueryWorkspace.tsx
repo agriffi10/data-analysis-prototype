@@ -1,5 +1,5 @@
 import {Suspense, lazy, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useLocation, useNavigate} from 'react-router';
+import {useLocation, useNavigate} from '../../lib/navigation';
 import {useAuth} from '../auth';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';

@@ -1,4 +1,4 @@
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import {Drawer} from '../../components/Drawer';
 import {HelpGuideCard} from './HelpGuideCard';
 import {useVisibleHelpSections} from './visibleSections';

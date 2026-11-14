@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen} from '@testing-library/react';
-import {Route, Routes, useNavigate} from 'react-router';
+import {useNavigate} from '../../lib/navigation';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
@@ -72,22 +72,15 @@ function persistedTab() {
 }
 
 function renderRoutes() {
-  return renderWithProviders(
-    <Routes>
-      <Route
-        path="/explore"
-        element={<DataExplorerWorkspace />}
-      />
-      <Route
-        path="/query"
-        element={<QueryPage />}
-      />
-    </Routes>,
-    {route: '/explore', auth: authenticated('alice'), browserRouter: true}
-  );
+  return renderWithProviders(<DataExplorerWorkspace />, {
+    route: '/explore',
+    path: '/explore',
+    routes: {'/query': <QueryPage />},
+    auth: authenticated('alice')
+  });
 }
 
-/** Renders both routes on jsdom's own history, settles the first run, and opens the disclosure. */
+/** Renders both pages on jsdom's own history, settles the first run, and opens the disclosure. */
 async function renderWithSqlShown() {
   const view = renderRoutes();
   await screen.findByRole('gridcell', {name: 'NY'});
@@ -120,7 +113,7 @@ afterEach(() => {
 
 describe('Open in Query', () => {
   it('takes the shown statement and the tab’s label to Query in router state, not the URL', async () => {
-    const {user, sql} = await renderWithSqlShown();
+    const {user, sql, location} = await renderWithSqlShown();
 
     await user.click(screen.getByRole('button', {name: 'Open in Query'}));
 
@@ -128,7 +121,7 @@ describe('Open in Query', () => {
     expect(window.location.pathname).toBe('/query');
     expect(window.location.search).toBe('');
     expect(sql).toContain(`"state" = 'NY'`);
-    expect((window.history.state as {usr: unknown}).usr).toEqual({openSql: {sql, label: 'orders'}});
+    expect(location().state).toEqual({openSql: {sql, label: 'orders'}});
   });
 
   it('leaves the exploration as it was for when the user comes back', async () => {
@@ -144,13 +137,13 @@ describe('Open in Query', () => {
   });
 
   it('goes from the Options menu too, with the same statement', async () => {
-    const {user, sql} = await renderWithSqlShown();
+    const {user, sql, location} = await renderWithSqlShown();
 
     await user.click(screen.getByRole('button', {name: 'Options'}));
     await user.click(screen.getByRole('menuitem', {name: 'Open in Query'}));
 
     expect(await screen.findByRole('button', {name: 'Back to the Data Explorer'})).toBeInTheDocument();
-    expect((window.history.state as {usr: unknown}).usr).toEqual({openSql: {sql, label: 'orders'}});
+    expect(location().state).toEqual({openSql: {sql, label: 'orders'}});
   });
 
   it('refuses from the Options menu, saying why, when there is no statement to open', async () => {

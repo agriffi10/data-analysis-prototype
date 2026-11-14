@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen} from '@testing-library/react';
-import {Link, useLocation} from 'react-router';
+import {Link, useLocation} from '../../lib/navigation';
 import {HelpGuideCard} from './HelpGuideCard';
 import {HelpPage} from './HelpPage';
 import {HELP_SECTIONS} from './helpContent';
