@@ -12,12 +12,17 @@
       "Resource": "*"
     },
     {
+      "Sid": "SessionEipDisassociate",
+      "Effect": "Allow",
+      "Action": "ec2:DisassociateAddress",
+      "Resource": "arn:aws:ec2:${aws_region}:${account_id}:*"
+    },
+    {
       "Sid": "SessionNatManage",
       "Effect": "Allow",
       "Action": [
         "ec2:AllocateAddress",
         "ec2:ReleaseAddress",
-        "ec2:DisassociateAddress",
         "ec2:CreateNatGateway",
         "ec2:DeleteNatGateway",
         "ec2:CreateTags",

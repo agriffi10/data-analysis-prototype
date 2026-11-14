@@ -55,6 +55,7 @@ Attributes:
     role, mapped to the service name the grant must name.
 """
 
+import fnmatch
 import json
 import pathlib
 import re
@@ -2028,4 +2029,36 @@ def test_the_session_tables_key_is_used_only_through_dynamodb() -> None:
     document = json.loads(_render(POLICY_DIR / "github-actions-deploy-session.json.tftpl"))
     statement = next(s for s in document["Statement"] if s["Sid"] == "SessionKeyUseByTable")
     assert statement["Condition"] == {"StringEquals": {"kms:ViaService": "dynamodb.us-east-1.amazonaws.com"}}
+
+
+def test_the_elastic_ip_disassociation_matches_the_arn_ec2_passed_on_a_switch_off() -> None:
+    """A switch-off's disassociation was authorized against the service-wide ARN, not the address.
+
+    Destroying the Elastic IP just after its NAT gateway, EC2 evaluated ``ec2:DisassociateAddress``
+    against ``arn:aws:ec2:us-east-1:<account>:*/*`` (Deploy Infrastructure run 43602954200), so a
+    grant scoped to ``elastic-ip/*`` was denied and the switch-off stopped half-way. A plan, a
+    simulate of the planned ARNs and every switch-on pass without this grant; only a switch-off
+    exercises it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When no statement allows the call on the ARN EC2 passed, or one allows it in
+        another region.
+    """
+    document = json.loads(_render(POLICY_DIR / "github-actions-deploy-session.json.tftpl"))
+    patterns = [
+        resource
+        for statement in document["Statement"]
+        if statement["Effect"] == "Allow" and "ec2:DisassociateAddress" in _actions(statement)
+        for resource in _resources(statement)
+    ]
+    passed = "arn:aws:ec2:us-east-1:696000197480:*/*"
+    assert any(fnmatch.fnmatchcase(passed, pattern) for pattern in patterns), f"{patterns} miss {passed}"
+    elsewhere = "arn:aws:ec2:us-west-2:696000197480:*/*"
+    assert not any(fnmatch.fnmatchcase(elsewhere, pattern) for pattern in patterns), f"{patterns} admit {elsewhere}"
 

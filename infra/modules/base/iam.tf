@@ -485,7 +485,9 @@ resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
 # is not used: the role can grant itself anything through its own self-manage grant, so a tag scope
 # would bound a misdirected apply rather than anyone with the role. An alias condition would bound
 # nothing, because this policy may point its own alias at any key. The table's KMS use is
-# conditioned on kms:ViaService, which DynamoDB always populates.
+# conditioned on kms:ViaService, which DynamoDB always populates. ec2:DisassociateAddress has its own
+# statement on the service-wide ARN: destroying the address just after its NAT gateway, a switch-off's
+# disassociation was denied on arn:aws:ec2:<region>:<account>:*/* under a grant scoped to the address.
 # infra/info/deploy-role-iam.md.
 resource "aws_iam_policy" "deploy_session" {
   name        = "${var.project_name}-deploy-session"
