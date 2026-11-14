@@ -10,6 +10,38 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-14, early morning (SPEC-257, the server-held session)
+
+**What was under test.** The session routes, the NAT gateway and the session store, on image
+`b0d7734b` (#978) in task-definition revision 271, which pairs that image with the client secret
+and the ten session settings after #979's apply (`568c3d76`). The tier was switched on through CI
+before #978 opened (Deploy Infrastructure run 43557991588) and stayed on afterwards, because SPEC-256
+still held it; the switch-off check is owed (`owed.md`, SPEC-257's switch-off).
+
+**Browser.** Andrew's own Chrome, through the extension, for the signed-in rows (his account; the
+harness read only which fields the session carried, so the username is not recorded); the in-app browser
+pane for the Managed Login page, which it showed because the pane held no Managed Login session.
+Instruments: page-context `fetch` in the portal's own tab, which carries the `HttpOnly` cookie
+without reading it, and `curl` and read-only AWS CLI calls from the terminal. Width not recorded.
+
+**Results.**
+- Both private route tables: local, `pl-63a5400a` (S3), `pl-02cd2c6b` (DynamoDB), and `0.0.0.0/0`
+  to `nat-0c53cfc850bf202e0`.
+- The server client, projected: revocation `true`, rotation `DISABLED` with a grace period of 0;
+  Managed Login branding present; the API's `OIDC_AUDIENCE` holds both clients' ids.
+- `/auth/login` in Chrome returned to `/` without a password (a warm Managed Login session), and
+  `/auth/session` then answered 200 with a username and an email.
+- Two runs of 20 concurrent `POST /auth/refresh` beside 20 concurrent `GET /auth/session`: every
+  refresh 204, every read 200, and 20 reads alone 200. Five concurrent `/api/v1/feature-flags`: 200,
+  `application/json`, the API's own body.
+- `POST /auth/logout`: 200, a Cognito `/logout` URL whose `logout_uri` is the portal; then
+  `/auth/session` 401 and `/auth/refresh` 401. The Cognito logout URL was not followed.
+- `POST /auth/refresh` with `Origin: https://api.dataquarry.app` 403, with none 403, with the portal's
+  and no cookie 401; `/api/x` and `/auth/session` answered `application/json`, not the portal's page.
+- `/ecs/dat-prod-spa` logged no `session:` line in the hour around the run.
+
+---
+
 ## Live-check session — 2026-11-13, evening (SPEC-255, the Next.js server)
 
 **What was under test.** The portal as a Next.js server in the web tier, image `65516853` (#971),

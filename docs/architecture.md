@@ -195,7 +195,8 @@ through `cpcommon.actor` instead, because who may write their queues is enumerat
 the shared-space queue an operator reader admitted by `SenderId` (rows 43 and 46). Nothing re-derives a username, and nothing anywhere reads a username the caller stated.
 
 - **It is a verifier, not an OIDC client.** No code exchange, no PKCE, no client secret, no redirect
-  URI — those belong to Amplify, in the browser. Provider-agnosticism is five server-side config
+  URI — those belong to Amplify, in the browser. *(Since SPEC-257 the portal's Next.js server is a
+  confidential OIDC client too, with its own secret; the API is still only a verifier.)* Provider-agnosticism is five server-side config
   fields ([`infra/modules/api/README.md`](../infra/modules/api/README.md)), so swapping the identity
   provider is a change of values.
 - **It assumes the same role with the same tags from the same claims** the Identity Pool read, which

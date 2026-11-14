@@ -352,6 +352,24 @@ must list the Hosted UI domain — Amplify's code exchange is a `fetch`, not a n
 curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 ```
 
+**The server-held session (SPEC-257).** Until SPEC-262 the browser does not use these routes, so
+they are driven from the portal's own tab: a same-origin `fetch` carries the `HttpOnly` cookie
+without reading it, and the browser sets `Origin` on every `POST`. Sign in by navigating the tab to
+`$APP_URL/auth/login`; a warm Managed Login cookie completes it without a password. From SPEC-262 an
+`/api/` fetch must also send the signed-in username as `x-dq-user`, or it answers 401.
+
+| Do | Expect |
+|---|---|
+| Open `$APP_URL/auth/login` | Managed Login's sign-in page for the confidential client, skipped when a Managed Login session is already warm, then back to `$APP_URL/` (never `/?signin=failed`). |
+| In that tab, 20 concurrent `fetch('/auth/refresh', {method: 'POST'})` beside 20 concurrent `fetch('/auth/session')` | Every refresh 204 and every read 200, and a read afterwards 200. |
+| Five concurrent `fetch('/api/v1/feature-flags')`, never more: each is an API Lambda invocation, and the account's concurrency is small | 200 with the API's own JSON body. |
+| `fetch('/auth/logout', {method: 'POST'})`, then a read and a refresh | 200 with a Cognito `logoutUrl` whose `logout_uri` is `$APP_URL`; then 401 and 401. |
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Origin: https://api.<domain>" "$APP_URL/auth/refresh"   # 403
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$APP_URL/api/x"                                    # 401 application/json; charset=utf-8
+```
+
 ### 4.2 Files
 
 | Do | Expect |
@@ -1519,11 +1537,11 @@ the boot, the catch-all, the request proxy or the image.
 - **`npm run dev` signs in.** With `apps/portal/.env.local` filled from the deployed document
   (double-quote `PORTAL_CSP_CONNECT_SRC`), sign in at `http://localhost:5173`: the Hosted UI returns
   there and the token exchange answers 200. **The file listing then fails with a network error**,
-  because the API's CORS does not admit `localhost:5173`; that is expected until SPEC-257's same-origin
-  `/api/` pass-through, not a defect to fix by widening the API's CORS.
+  because the API's CORS does not admit `localhost:5173`; that is expected until SPEC-262 points the
+  browser at SPEC-257's same-origin `/api/` pass-through, not a defect to fix by widening the API's CORS.
 
 **What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
-read beside a route table, the redirect, target health), the container under real concurrency, and
+read beside a route table, superseded in part since SPEC-257 added a NAT gateway, the redirect, target health), the container under real concurrency, and
 anything about `/config.json` that the container renders rather than the browser reads. Those are
 [`owed.md`](owed.md)'s, and the platform half was discharged 2026-08-26.
 

@@ -231,7 +231,10 @@ start-time check (`src/instrumentation.ts`): a server missing one exits naming i
 as well, which is what tells a developer to run the script. The image's behaviour matrix
 (`.github/scripts/spa-image-matrix.sh`) starts its containers from a fixture environment, so that
 fixture gains a value for each session variable, and the matrix gains one refusal row per variable;
-otherwise every container in it exits at start.
+otherwise every container in it exits at start. SPEC-257's configuration refuses `API_ORIGIN`,
+`OIDC_TOKEN_URL` and `OIDC_REVOKE_URL` unless each is `https:` or `http:` to a loopback host, so the
+fixture's values must be one or the other; `sessionConfig` names a refused value, like an unset
+one, as "unset or unusable".
 
 **The deploy role.** The dev client is a resource type SPEC-257 already granted. The dev-session
 parameter is a second SSM parameter under the same `/<project>-<environment>/portal/` path, which
