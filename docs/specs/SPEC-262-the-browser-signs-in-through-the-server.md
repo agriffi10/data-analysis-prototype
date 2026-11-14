@@ -159,8 +159,10 @@ already, and a sign-out in one tab signs the others out at their next request.
 #### Description:
 
 `apiRequest` builds `/api` + the route's filled path + its query, on the page's own origin, and sends
-it with `credentials: 'same-origin'` and no `authorization` header. The token provider, the
-forced-refresh retry and `MAX_AUTH_RETRIES` are deleted: refreshing is the `/api/` route handler's
+it with `credentials: 'same-origin'` and no `authorization` header. The token provider and its
+registration in `AppFrame` (SPEC-256), the forced-refresh retry and `MAX_AUTH_RETRIES` are deleted,
+along with the `aws-amplify` and `lib/idToken` mocks the area moves' split test files inherited
+(SPEC-258 to SPEC-261 left them for this spec): refreshing is the `/api/` route handler's
 job now (SPEC-257 FR-005), so a 401 that reaches the browser means the session is gone. `apiRequest`
 calls the unauthenticated handler once and returns `SessionExpired`, with no second request. The
 one-segment refusal and the per-route retry policy are unchanged.
