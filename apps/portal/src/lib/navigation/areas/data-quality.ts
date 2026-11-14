@@ -4,5 +4,5 @@ import type {AreaRecord} from './area.types';
 export const dataQualityArea: AreaRecord = {
   area: 'data-quality',
   paths: ['/data-quality', '/data-quality/:space/:requestId'],
-  router: 'catch-all'
+  router: 'app'
 };
