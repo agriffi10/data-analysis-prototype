@@ -51,8 +51,8 @@ rendered the not-found page, and a request whose path carries a malformed percen
   matcher, and `renderApp` without its `routers` option.
 - The lint and source guards that held react-router to the seam, replaced by a source sweep with no
   exemption and a manifest check.
-- The lazy views' static keys and the check that no two share one, which existed only because
-  react-router rendered sibling routes into one slot.
+- The lazy views' static keys and the check that no two share one, which hold only for two routes
+  rendering one view component, which no route does.
 - 255's image matrix row that pins the catch-all's trap (a removed root-level file answering 200
   HTML, `.github/scripts/spa-image-matrix.sh`) rewritten to the 404 it now gets, and every document
   or decision 255 wrote that records that 200.
@@ -128,11 +128,12 @@ the removal is `reactRouterSweep.test.ts`, now with no exempt place, and a check
 names no package whose name begins `react-router`. The sweep matches any module specifier beginning
 `react-router` (so `react-router-dom` and `react-router/dom` too), and both guards build that name at
 runtime rather than spelling it, so neither finds itself. The lazy views keep their `ErrorBoundary`
-and `Suspense` but lose their static keys, because each area is its own App Router segment and Next
-remounts a page's subtree when the segment changes, measured while authoring 256; the check that no
-two keys collide, and its planted copy, go with them. Of `table.test.tsx`'s other tests, the
+and `Suspense` but lose their static keys: each route renders its own view component, so React
+remounts the boundary on a route change whatever its key (measured on 256's completion, where the
+behaviour test that leaned on the keys was deleted as vacuous), and each area is its own App Router
+segment besides. The check that no two keys collide, and its planted copy, go with them. Of `table.test.tsx`'s other tests, the
 override-context one (no route built for an area the App Router serves) goes with the override, and
-the rest move rather than vanish: the landing page, the 404, the chunk failure, `/Files` answering
+the rest move rather than vanish: the landing page, the 404, `/Files` answering
 the not-found page signed in and signed out with no redirect, and `/fil%65s` sending a signed-out
 user to `/`, since the gate still matches the decoded path.
 
@@ -149,8 +150,6 @@ user to `/`, since the gate still matches the decoded path.
       ships ("You cannot render a <Router> inside another <Router>") is found in a build made before
       the package is removed and in none after. A one-off check by the builder, not a standing
       rule: the manifest check and the sweep are what hold the removal.
-- [ ] After a lazy page's chunk fails to load, navigating to another lazy page shows that page and
-      no stale error, through `renderApp`.
 - [ ] `/Files` renders the not-found page signed in and signed out, the signed-out one staying at
       `/Files`, and `/fil%65s` sends a signed-out user to `/`, through `renderApp` on the App Router;
       each turns red with the gate matching case-insensitively or on the undecoded path.
@@ -357,8 +356,8 @@ apps/portal/src/
 ├── app/
 │   ├── page.tsx                      new: the landing page
 │   ├── not-found.tsx                 new: the 404
-│   ├── publicPages.test.tsx          new: the landing, 404, `/Files`, `/fil%65s` and chunk-failure
-│   │                                 tests moved from table.test.tsx
+│   ├── publicPages.test.tsx          new: the landing, 404, `/Files` and `/fil%65s` tests moved
+│   │                                 from table.test.tsx
 │   └── [[...slug]]/                  deleted
 ├── lib/navigation/
 │   ├── CatchAllRouter.tsx            deleted
@@ -387,7 +386,7 @@ the page it renders; so the two phases below are built together and land in one 
 ### Phase 1: The two pages, and the catch-all gone
 
 - `src/app/page.tsx` and `src/app/not-found.tsx`, with the catch-all's directory deleted in the same
-  change; the landing, 404, `/Files`, `/fil%65s` and chunk-failure tests moved out of
+  change; the landing, 404, `/Files` and `/fil%65s` tests moved out of
   `table.test.tsx` into `src/app/publicPages.test.tsx`.
 
 ### Phase 2: The seam and the harness on one router

@@ -2,9 +2,10 @@
 
 The build landed as one PR, #977 (`a05098b9`), on 2026-11-14, with the decisions it rewrote and the
 docs that would have gone stale on its merge. The live checks ran the same day on the deployed image,
-with the web tier on through CI; the tier was switched off afterwards through the repository variable
-and Deploy Infrastructure. Nothing changes for a user except one thing: while an upload is
-unfinished, the browser asks before the page is reloaded or closed.
+with the web tier on through CI. The switch-off that followed (run 43602954200) failed partway on the
+deploy role's grant for releasing the NAT's address, so the tier went back on for that fix; the switch
+it owes is in `docs/testing/owed.md`. Nothing changes for a user except one thing: while an upload
+is unfinished, the browser asks before the page is reloaded or closed.
 
 ## What was completed?
 
@@ -45,15 +46,21 @@ unfinished, the browser asks before the page is reloaded or closed.
 
 ### Fixed after the merge
 
-The area moves found three tests that read the production records where they meant a fixed tree:
-the record-and-page guard's planted cases, a harness test that reached a catch-all page at `/files`,
-and the chunk-failure test, which needs Query and Explore in one react-router slot. A move's flip
-turned the first two red and left the third green while it stopped testing anything. So the
-completion change made the default a fixture: `renderApp` and `renderWithProviders` serve every area
-from the catch-all (`CATCH_ALL_RECORDS`) unless a test names an area's router, `routers:
-'as-recorded'` follows the production records, and the guard's planted cases run on fixed records and
-pages, with only "agree on the tree as it stands" reading the disk. With Files flipped and its page
-added, the whole suite gives the same result as before the flip.
+The area moves found two tests that read the production records where they meant a fixed tree: the
+record-and-page guard's planted cases, and a harness test that reached a catch-all page at `/files`.
+A move's flip turned both red. So the completion change made the default a fixture: `renderApp` and
+`renderWithProviders` serve every area from the catch-all (`CATCH_ALL_RECORDS`), `renderApp`'s
+`routers` names an area's router, `routers: 'as-recorded'` follows the production records, and the
+guard's planted cases run on fixed records and pages, with only "agree on the tree as it stands"
+reading the disk. With Files flipped and its page added, the suite gives the same result as before
+the flip. The other side of that default: a move's own tests, inherited and new, must name their
+area's router as `'app'`, or they keep testing the catch-all's view and never the moved page.
+
+A third test, "lets a lazy route that failed to load give way to the next one", was vacuous since
+256 made each area a view component of its own: on a cleared Vitest cache it went red only with one
+view type shared and a key shared together, never on either alone, and stayed green with Query's own
+boundary removed, since the shell's page boundary catches the failed chunk. It was deleted; the
+source check keeps the lazy views' keys distinct.
 
 ## What changed from earlier specs?
 
