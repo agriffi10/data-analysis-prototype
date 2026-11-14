@@ -194,8 +194,8 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
 
     m.handler(summary, None)
 
-    app = (_PORTAL / "App.tsx").read_text()
-    assert 'path="/files"' in app, "the file browser's route moved — re-derive the link's path"
+    area = (_PORTAL / "lib" / "navigation" / "areas" / "files.ts").read_text()
+    assert "paths: ['/files']" in area, "the file browser's path moved — re-derive the link's path"
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
     assert "const prefixParam = searchParams.get('prefix') || undefined;" in route, (
         "the route no longer reads ?prefix= as it is"
