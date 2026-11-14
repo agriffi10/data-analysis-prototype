@@ -1,5 +1,6 @@
+import {StrictMode, type ReactNode} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import {renderApp as renderTheApp} from '../../test/appRouter';
 import {wrappersOf} from '../../test/viewSource';
 import {renderWithProviders} from '../../test/renderWithProviders';
@@ -7,6 +8,7 @@ import {authenticated} from '../../test/authFixtures';
 import QueryPage from '../QueryPage';
 import {QueryRunsProvider} from '../../features/query/QueryRunsProvider';
 import {
+  editor,
   installWorkspaceMocks,
   mockGetResults,
   mockRunQuery,
@@ -18,6 +20,11 @@ import {
   statusMap
 } from '../../test/queryWorkspaceSupport';
 import {POLL_INTERVAL_MS} from '../../features/catalog/catalog.constants';
+import {AuthContext} from '../../features/auth/authContext';
+import {EXPLORATION_TABS_STORAGE_PREFIX} from '../../features/data-explorer/dataExplorer.constants';
+import {newExploration} from '../../features/data-explorer/exploration';
+import type {ExplorationTabsState} from '../../features/data-explorer/dataExplorer.types';
+import {requests, traverse} from '../../test/nextNavigation';
 
 /**
  * A Query run outlives the Query page, driven through the REAL chrome and route table.
@@ -82,7 +89,7 @@ vi.mock('../../features/notifications/notifications.service', () => ({
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
-const renderApp = () => renderTheApp('/query', {auth: authenticated('alice')});
+const renderApp = () => renderTheApp('/query', {auth: authenticated('alice'), routers: {query: 'app'}});
 
 type User = ReturnType<typeof renderApp>['user'];
 
@@ -220,5 +227,124 @@ describe('the Query view', () => {
   it('wraps the page in FeatureRoute → ErrorBoundary → Suspense, in that order, behind the query flag', () => {
     expect(wrappersOf(VIEW, 'QueryPage')).toEqual(['FeatureRoute', 'ErrorBoundary', 'Suspense']);
     expect(VIEW).toContain('<FeatureRoute flag="query">');
+  });
+});
+
+// ─── Query on the App Router ───
+
+const SIGNED_IN = authenticated('alice');
+
+/**
+ * The signed-in auth context under `StrictMode`, as `AppFrame` renders it. React doubles the
+ * effects of a subtree only when the fiber it places is or sits inside a `StrictMode`, so this
+ * doubles every page a navigation mounts below it, which is the hazard a hand-off's receiver guards.
+ */
+function StrictlySignedIn({children}: {children: ReactNode}) {
+  return (
+    <StrictMode>
+      <AuthContext.Provider value={SIGNED_IN}>{children}</AuthContext.Provider>
+    </StrictMode>
+  );
+}
+
+/** One exploration of `alice.sales_2026` with a filter, so its generated SQL says something. */
+function seedExploration() {
+  const exploration = newExploration(
+    {kind: 'table', spaceId: 'personal', database: 'alice', table: 'sales_2026'},
+    't1'
+  );
+  exploration.query = {
+    ...exploration.query,
+    filters: [{column: 'region', operator: '=', value: 'us-east', valueKind: 'string'}]
+  };
+  const state: ExplorationTabsState = {
+    version: 1,
+    tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
+    activeTabId: 't1'
+  };
+  sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
+}
+
+describe('the Query page', () => {
+  it('serves /query from its App Router page, inside the shell', async () => {
+    renderTheApp('/query', {auth: SIGNED_IN, routers: {query: 'app'}});
+    // Settled on whichever renders, so a missing page fails on the catch-all's 404, not on a wait.
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText('SQL editor') ?? screen.queryByRole('heading', {name: 'Page not found'})
+      ).not.toBeNull()
+    );
+
+    expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
+    expect(screen.getByLabelText('SQL editor')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main');
+  });
+
+  // The catch-all would serve /query without a request; only the App Router's page is fetched. The
+  // page it leaves is pinned to the catch-all, because leaving an App Router page is a fetch whoever
+  // serves the destination.
+  it('is fetched from the server when the user arrives from a catch-all page', async () => {
+    const {user} = renderTheApp('/notifications', {
+      auth: SIGNED_IN,
+      routers: {notifications: 'catch-all', query: 'app'}
+    });
+    await screen.findByRole('heading', {name: 'Notifications', level: 1});
+
+    await user.click(screen.getByRole('link', {name: 'Query'}));
+
+    expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
+    expect(requests()).toContain('/query');
+  });
+});
+
+// The App Router row renders Explore's own page from disk; the catch-all row ignores it.
+describe.each([
+  ['the catch-all', 'catch-all'],
+  ['the App Router', 'app']
+] as const)('Open in Query from the Data Explorer served by %s', (_name, explore) => {
+  it('opens one tab with the statement, and nothing more on Back and then Forward', async () => {
+    seedExploration();
+    const {user} = renderTheApp('/explore', {
+      auth: StrictlySignedIn,
+      routers: {explore, query: 'app'}
+    });
+    await screen.findByRole('gridcell', {name: 'us-east'});
+    await user.click(screen.getByText('Generated SQL'));
+    const sql = (screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value;
+
+    await user.click(screen.getByRole('button', {name: 'Open in Query'}));
+
+    expect(await screen.findByRole('tab', {name: /orders/})).toHaveAttribute('aria-selected', 'true');
+    expect(editor().value).toBe(sql);
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+
+    await traverse(-1);
+    await screen.findByRole('gridcell', {name: 'us-east'});
+    await traverse(1);
+    await screen.findByLabelText('SQL editor');
+
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+// `requests()` is what catches a router replace: the stand-in keys a page by its file, not its search,
+// so the page element survives one there; the element check catches a remount by any other cause.
+describe('a refresh link on the Query page', () => {
+  it('opens the dialog for its table, and dismissing it drops the parameters without fetching or remounting the page', async () => {
+    const {user} = renderTheApp('/query?refreshTable=alice.sales_2026&removed=legacy_id', {
+      auth: SIGNED_IN,
+      routers: {query: 'app'}
+    });
+    const dialog = await screen.findByRole('alertdialog', {name: 'Confirm refresh table alice.sales_2026'});
+    const page = screen.getByLabelText('SQL editor');
+    const fetched = requests().length;
+
+    await user.click(within(dialog).getByRole('button', {name: 'Cancel'}));
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(window.location.pathname + window.location.search).toBe('/query');
+    expect(requests()).toHaveLength(fetched);
+    expect(screen.getByLabelText('SQL editor')).toBe(page);
   });
 });
