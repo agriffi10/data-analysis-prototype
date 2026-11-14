@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-259
 title: "Query Moves Onto the App Router"
 description: "Serves the Query workspace from an App Router page instead of the react-router catch-all, with its editor, its runs and its hand-offs unchanged."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 5
@@ -76,8 +76,10 @@ changes `router` to `'app'`.
 - [ ] The page file exists, the page sweep and the record-and-page guard pass, and the Query record
       says `'app'`.
 - [ ] A new test renders `/query` through `renderApp` and finds the workspace's editor region; with
-      the page file deleted it turns red on the catch-all's 404. The inherited split tests pass
-      unchanged, the runs that outlive the page among them.
+      the page file deleted it turns red on the catch-all's 404. Because `renderApp` serves every
+      area from the catch-all unless a test names it, every `renderApp` call in Query's split file
+      names Query's router `'app'`, the runs that outlive the page among them, and they pass; with
+      Query's page broken, those runs tests turn red too.
 - [ ] `next build` lists `/query` as a dynamic route, and `next start` answers it with status 200.
 
 ### FR-002: The links into Query keep their rules
