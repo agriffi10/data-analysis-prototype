@@ -3613,17 +3613,19 @@ decision is `identity-and-access/the-portal-server-holds-the-session-and-only-th
 **2026-11-14, SPEC-256 is complete, and settles what an area move builds on.** The gate, the seam's
 choice of router and `linkFlags` read the area records against the decoded path, as the route table
 matches it, so `/fil%65s` is Files to all of them. A move's tests serve its area from either router
-with `renderApp`'s `routers` and `pages`, read where a navigation went from `location()`, and drive
-Back with `traverse`; the stand-in's `hold`, `requests()` and `external()` show what Next's router
-was asked to do. A download is not the document going: both download helpers click with the leave
-guard disarmed. Each move still runs the cross-router scenarios live on its own pages, recorded in
-`docs/testing/e2e.md` §4.1. The decision is
+with `renderApp`'s `routers` and `pages` (every area is on the catch-all unless a test names it, so
+a move's flip changes no test that does not ask about it), read where a navigation went from
+`location()`, and drive Back with `traverse`; the stand-in's `hold`, `requests()` and `external()`
+show what Next's router was asked to do. A download is not the document going: both download helpers
+click with the leave guard disarmed. Each move still runs the cross-router scenarios live on its own
+pages, recorded in `docs/testing/e2e.md` §4.1. The decision is
 `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`.
-**2026-11-13, SPEC-263 closes the arc.** The landing page and the 404 become `src/app/page.tsx`
-and `src/app/not-found.tsx`, so an address that matches no page now answers 404 rather than the
+
+**2026-11-13, SPEC-263 closes the arc.** The landing page and the 404 become `src/app/page.tsx` and
+`src/app/not-found.tsx`, so an address that matches no page now answers 404 rather than the
 catch-all's 200 (measured on a harness with no catch-all). The seam's native rule narrows to
 same-pathname navigations, because the coexistence rule, which wrote a navigation between two
-unclaimed paths natively, left the 404 on screen under `/` once the catch-all was gone (measured). It
-also stops a malformed percent-escape in a path from answering 500, which every such path did on
+unclaimed paths natively, left the 404 on screen under `/` once the catch-all was gone (measured).
+It also stops a malformed percent-escape in a path from answering 500, which every such path did on
 `main` with nothing logged (measured 2026-11-14): the proxy answers a bodyless request 400 with a
 log line, and a request with a body keeps skipping the proxy, so it keeps Next's 500.

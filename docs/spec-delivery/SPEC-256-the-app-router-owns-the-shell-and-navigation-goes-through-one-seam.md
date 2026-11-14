@@ -43,6 +43,18 @@ unfinished, the browser asks before the page is reloaded or closed.
   that reddens the Query runs proof; adding it to the harness cannot, since the shell's provider stays
   the nearest.
 
+### Fixed after the merge
+
+The area moves found three tests that read the production records where they meant a fixed tree:
+the record-and-page guard's planted cases, a harness test that reached a catch-all page at `/files`,
+and the chunk-failure test, which needs Query and Explore in one react-router slot. A move's flip
+turned the first two red and left the third green while it stopped testing anything. So the
+completion change made the default a fixture: `renderApp` and `renderWithProviders` serve every area
+from the catch-all (`CATCH_ALL_RECORDS`) unless a test names an area's router, `routers:
+'as-recorded'` follows the production records, and the guard's planted cases run on fixed records and
+pages, with only "agree on the tree as it stands" reading the disk. With Files flipped and its page
+added, the whole suite gives the same result as before the flip.
+
 ## What changed from earlier specs?
 
 - SPEC-255's `PortalMount` moved from the catch-all's directory up to `src/app/`, and the catch-all's

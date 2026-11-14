@@ -8,6 +8,7 @@ import {authValue} from './authFixtures';
 import {useStandInTree} from './nextNavigation';
 import {patternOf, selectPage} from './pageSelection';
 import {
+  CATCH_ALL_RECORDS,
   ProviderStack,
   USER_EVENT_OPTIONS,
   clearAfterTest,
@@ -38,8 +39,12 @@ export type RenderAppOptions = Omit<ProviderOptions, 'route' | 'path' | 'routes'
   auth?: AuthContextValue | ComponentType<{children: ReactNode}>;
   /** Page files keyed by their path under src/app/, added beside those on disk or replacing one at the same path. */
   pages?: Record<string, ComponentType>;
-  /** Which router serves an area in this test, whatever is on disk; an area set to 'catch-all' has its pages ignored. */
-  routers?: Partial<Record<AreaName, AreaRouter>>;
+  /**
+   * Which router serves an area in this test, whatever is on disk: every area the catch-all unless
+   * named here, and an area on the catch-all has its pages ignored. `'as-recorded'` follows the
+   * production records instead, for a test about the tree as it stands.
+   */
+  routers?: Partial<Record<AreaName, AreaRouter>> | 'as-recorded';
 };
 
 /**
@@ -77,9 +82,9 @@ function SelectedPage({files}: {files: Record<string, ComponentType>}) {
  * one does. What sits above `AppChrome` in production is composition, held by the page sweep.
  *
  * The page is chosen by the stand-in's router state, never by the address, because a native
- * navigation moves the address and leaves the page as it was. Each area's router comes from the
- * records unless `routers` says otherwise, so a test that crosses the two routers holds in whatever
- * order the area moves land.
+ * navigation moves the address and leaves the page as it was. Every area is served by the catch-all
+ * unless `routers` names it, never by the production records, so an area move changes no test that
+ * does not ask for it and a test that crosses the two routers holds in whatever order the moves land.
  *
  * @param route - Where the test starts.
  * @param options - The auth, the extra pages and the routers, beside the provider options.
@@ -99,7 +104,10 @@ export function renderApp(
     featureFlags
   }: RenderAppOptions = {}
 ): RenderWithProvidersResult {
-  const records = AREAS.map((record) => ({...record, router: routers[record.area] ?? record.router}));
+  const records =
+    routers === 'as-recorded'
+      ? AREAS
+      : CATCH_ALL_RECORDS.map((record) => ({...record, router: routers[record.area] ?? record.router}));
   const files = pagesFor(DISK_PAGES, pages, records);
   startAt(route, (pathname) => selectPage(Object.keys(files), pathname));
   const client = seededClient(queryClient, seedFeatureFlags, featureFlags);

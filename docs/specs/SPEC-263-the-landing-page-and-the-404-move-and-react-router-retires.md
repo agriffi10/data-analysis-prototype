@@ -213,9 +213,10 @@ they read does not change. The area records keep `area` and `paths` and lose
 meaning, now by setting the pattern the stand-in matches the address against, so its
 `useParams` returns that match's raw values, encoded as Next's are, and the seam decodes them once;
 `routes` renders, for the current address, the element whose pattern the seam's matcher accepts, so
-a test whose subject navigates away still sees where it went. `renderApp` loses `routers`, keeps
+a test whose subject navigates away still sees where it went. `renderApp` loses `routers` (its
+`'as-recorded'` with it) and the harness its `CATCH_ALL_RECORDS` fixture, keeps
 `pages`, and renders `src/app/not-found.tsx` when no page matches, as Next does. Every test that
-used `routers` drops it and runs on the App Router: a test that ran in both routers keeps its App
+used `routers`, or ran on the fixture's catch-all by default, runs on the App Router: a test that ran in both routers keeps its App
 Router half, a test that ran on the catch-all alone or crossed the two runs between App Router
 pages, and one left duplicating another is deleted. The seam's tests of the catch-all go: the move
 between two catch-all pages, the first render of a catch-all page after an App Router page, and the

@@ -45,8 +45,22 @@ function recordPageFindings(records: readonly AreaRecord[], pageFiles: readonly 
   return findings;
 }
 
+/**
+ * The guard's own cases run on a fixed tree, every area on the catch-all and no page but the
+ * catch-all's, because an area move flips a production record and adds pages: a case built on the
+ * live tree goes red on a move that is correct, or stops finding what it plants once the area it
+ * plants in has moved. Only the first case reads the tree as it stands.
+ */
+const FIXTURE_RECORDS: readonly AreaRecord[] = [
+  {area: 'files', paths: ['/files'], router: 'catch-all'},
+  {area: 'data-quality', paths: ['/data-quality', '/data-quality/:space/:requestId'], router: 'catch-all'}
+];
+// A public page outside the group, which no record claims and none should: the guard reads only
+// `(signed-in)/`, or it would call the landing page an unclaimed area.
+const FIXTURE_PAGES: readonly string[] = ['[[...slug]]/page.tsx', 'about/page.tsx'];
+
 const flipped = (area: AreaRecord['area']) =>
-  AREAS.map((record) => (record.area === area ? {...record, router: 'app' as const} : record));
+  FIXTURE_RECORDS.map((record) => (record.area === area ? {...record, router: 'app' as const} : record));
 
 describe('the records and the pages', () => {
   it('agree on the tree as it stands', () => {
@@ -54,30 +68,31 @@ describe('the records and the pages', () => {
     expect(recordPageFindings(AREAS, PAGE_FILES)).toEqual([]);
   });
 
-  it('agree once a move adds its pages and flips its record', () => {
+  it('agree on the fixture, and once a move adds its pages and flips its record', () => {
     const pages = [
-      ...PAGE_FILES,
+      ...FIXTURE_PAGES,
       '(signed-in)/data-quality/page.tsx',
       '(signed-in)/data-quality/[space]/[requestId]/page.tsx'
     ];
+    expect(recordPageFindings(FIXTURE_RECORDS, FIXTURE_PAGES)).toEqual([]);
     expect(recordPageFindings(flipped('data-quality'), pages)).toEqual([]);
   });
 
   it('find a record saying app with a path that has no page', () => {
-    const pages = [...PAGE_FILES, '(signed-in)/data-quality/page.tsx'];
+    const pages = [...FIXTURE_PAGES, '(signed-in)/data-quality/page.tsx'];
     expect(recordPageFindings(flipped('data-quality'), pages)).toEqual([
       "data-quality says 'app' but /data-quality/:space/:requestId has no page under (signed-in)/"
     ]);
   });
 
   it('find a page whose record says catch-all', () => {
-    expect(recordPageFindings(AREAS, [...PAGE_FILES, '(signed-in)/files/page.tsx'])).toEqual([
+    expect(recordPageFindings(FIXTURE_RECORDS, [...FIXTURE_PAGES, '(signed-in)/files/page.tsx'])).toEqual([
       "(signed-in)/files/page.tsx serves /files, but files says 'catch-all'"
     ]);
   });
 
   it('find a page whose path no record claims', () => {
-    expect(recordPageFindings(AREAS, [...PAGE_FILES, '(signed-in)/reports/page.tsx'])).toEqual([
+    expect(recordPageFindings(FIXTURE_RECORDS, [...FIXTURE_PAGES, '(signed-in)/reports/page.tsx'])).toEqual([
       '(signed-in)/reports/page.tsx serves /reports, which no area record claims'
     ]);
   });

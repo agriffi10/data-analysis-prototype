@@ -8,6 +8,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {Route, Routes} from 'react-router';
 import type {ReactElement, ReactNode} from 'react';
 import {
+  AREAS,
   AreaRecordsContext,
   CatchAllRouter,
   NavigationProvider,
@@ -175,9 +176,18 @@ type StackProps = {
   /** react-router inside the seam, for `ui` that reads route params; `renderApp` brings its own. */
   catchAllRouter: boolean;
   onLocation?: (location: NavLocation) => void;
-  /** The area records the seam, the chrome and the table read; the production records otherwise. */
+  /** The area records the seam, the chrome and the table read; {@link CATCH_ALL_RECORDS} otherwise. */
   records?: readonly AreaRecord[];
 };
+
+/**
+ * Every area on the optional catch-all, as the harness serves them unless a test asks otherwise.
+ *
+ * A fixture, not the production records: an area move flips its own record, and a test that read the
+ * live records would change what it renders, or stop exercising its hazard without going red, when a
+ * move it never mentions lands. Only a test that names the live records follows them.
+ */
+export const CATCH_ALL_RECORDS: readonly AreaRecord[] = AREAS.map((record) => ({...record, router: 'catch-all'}));
 
 /** Reports the seam's location after every commit, for the render result's `location()`. */
 function LocationProbe({onLocation}: {onLocation: (location: NavLocation) => void}) {
@@ -199,7 +209,7 @@ export function ProviderStack({
   initialState,
   catchAllRouter,
   onLocation,
-  records
+  records = CATCH_ALL_RECORDS
 }: StackProps): ReactElement {
   const content = <ToastProvider>{children}</ToastProvider>;
   const seam = (
@@ -211,7 +221,7 @@ export function ProviderStack({
   const tree = (
     <NextStandInRoot>
       <QueryClientProvider client={client}>
-        {records ? <AreaRecordsContext.Provider value={records}>{seam}</AreaRecordsContext.Provider> : seam}
+        <AreaRecordsContext.Provider value={records}>{seam}</AreaRecordsContext.Provider>
       </QueryClientProvider>
     </NextStandInRoot>
   );
