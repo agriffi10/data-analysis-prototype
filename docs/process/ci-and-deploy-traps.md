@@ -41,6 +41,9 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.
+- **Vitest's module cache stays off.** It freezes the file list of a glob not spelled exactly
+  `import.meta.glob(`, so a page added after one run went unseen by `renderApp`; a test refuses a run
+  with it on. `docs/decisions/gates-and-tests/vitests-module-cache-stays-off-because-it-freezes-a-globs-file-list.md`.
 - **`import.meta.env.VITE_*` read at module top level** is captured at import — `vi.stubEnv` in
   `beforeEach` is too late and CI has no `.env`. Stub at top level **and dynamic-import** the module.
 - **A new configuration key is wired in FOUR places, and none of them is a build env.** The browser

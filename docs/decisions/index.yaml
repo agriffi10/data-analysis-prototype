@@ -827,7 +827,7 @@ areas:
   - name: "Gates, scanners and tests"
     slug: "gates-and-tests"
     path: "docs/decisions/gates-and-tests/gates-and-tests.md"
-    governs: ["scripts/**", ".github/scripts/**", ".github/workflows/**", "pyproject.toml", "apps/portal/eslint.config.js", "apps/portal/vite.config.ts"]
+    governs: ["scripts/**", ".github/scripts/**", ".github/workflows/**", "pyproject.toml", "apps/portal/eslint.config.js", "apps/portal/vite.config.ts", "apps/portal/vitest.globalSetup.ts"]
     decisions:
       - title: "A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)"
         fence: "**Every way a change-detection gate goes wrong answers \"nothing changed\", the cheap direction, behind a green check.** Read paths RAW with `-z`, because `git diff --name-only` C-quotes a path out of every anchored pattern; prove the pattern list with a POSITIVE CONTROL, a path it must always select, because `grep` answers three ways and some broken lists exit an ordinary 1; hold `pipefail`, because a pipeline's status is `tr`'s; and print the change set a skip decided over. **A script a test EXECUTES must keep its scratch files private.** A workflow step naming a fixed path under `/tmp` is one file per *job* on a runner, and one file per *machine* under the suite — which runs those scripts verbatim, on a checkout several sessions work at once. Two runs truncate and rewrite it: the loud half is a `jq` parse error on spliced bytes, the quiet half is a clean read of the OTHER run's fixture, which answered a wrong verdict with no error and passed as a flake on a different test each time. Create the file with `mktemp`; `$RUNNER_TEMP` is for one that must cross steps. **No silent caps.** If a check bounds coverage, say what was dropped — silent truncation reads as \"covered everything\"."
@@ -881,6 +881,10 @@ areas:
         fence: "`main`'s build is only the runs a push to `main` triggers, filtered by the API's `--event push`; the queue and `watch_ci.py` ignore Dependabot, dispatch and scheduled runs on that sha, so a head with only non-push runs waits for a human override."
         status: "stable"
         path: "docs/decisions/gates-and-tests/the-queue-reads-mains-build-from-its-push-runs-and-nothing-else-that.md"
+      - title: "Vitest's module cache stays off, because it freezes the file list of a glob it does not recognise (2026-11-14)"
+        fence: "**`fsModuleCache: false` in `apps/portal/vite.config.ts`, and a test refuses a run that resolved it on.** Vitest 5 skips caching a module whose source holds the literal `import.meta.glob(`, but caches one that spells the call any other way Vite accepts, such as `import.meta.glob<T>(`, with the glob's file list frozen in, so a page added after one run stays invisible to `renderApp` until the cache is cleared. The skip is a substring test, and what it misses fails silently, so do NOT turn the cache back on and rely on how globs are spelled. The cost is measured in the entry."
+        status: "stable"
+        path: "docs/decisions/gates-and-tests/vitests-module-cache-stays-off-because-it-freezes-a-globs-file-list.md"
   - name: "Identity, access and the name that ties them together"
     slug: "identity-and-access"
     path: "docs/decisions/identity-and-access/identity-and-access.md"
