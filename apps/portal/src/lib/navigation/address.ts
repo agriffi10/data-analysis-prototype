@@ -81,6 +81,42 @@ export function isOffSite(href: string): boolean {
   }
 }
 
+/**
+ * Whether the seam refuses a target: when it leaves the portal as written, or once resolved.
+ *
+ * Both, because they can differ: a dot segment before a doubled slash (`/.//host/x`) is a path as
+ * written, and resolves through the URL parser to a protocol-relative `//host/x`. The resolution
+ * collapses doubled slashes as react-router's does, so such a target stays in the portal, and the
+ * check on the resolved address is what holds if it ever does not.
+ *
+ * @param to - The target.
+ * @param from - The address it is resolved against.
+ * @returns True when the target is not the portal's own.
+ */
+export function isRefusedTarget(to: To, from: Address): boolean {
+  return isOffSite(toHref(to)) || isOffSite(hrefOf(resolveTo(to, from)));
+}
+
+/**
+ * A path as react-router matches it: each segment decoded, an encoded slash kept encoded, so the
+ * gate claims exactly the paths the route table serves (`/fil%65s` is Files to both).
+ *
+ * @param pathname - A path, percent-encoded as in the address.
+ * @returns The decoded path.
+ */
+export function decodePath(pathname: string): string {
+  return pathname
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment).replace(/\//g, '%2F');
+      } catch {
+        return segment;
+      }
+    })
+    .join('/');
+}
+
 /** What the URL parser strips from a target before reading it: outer C0 controls and spaces, inner tabs and newlines. */
 function stripLikeTheParser(to: string): string {
   // eslint-disable-next-line no-control-regex -- the URL parser strips exactly these, so the seam does too.
@@ -91,7 +127,8 @@ function stripLikeTheParser(to: string): string {
  * Resolves a `To` against an address the way react-router resolves one against a location, so
  * nothing changes for a caller: a hash-only target keeps the path and drops the query, a
  * query-only one keeps the path and drops the hash, an absolute path replaces the path, and a
- * relative one resolves beneath the current path. The path comes back as the address bar spells it.
+ * relative one resolves beneath the current path, doubled slashes collapsing. The path comes back as
+ * the address bar spells it.
  *
  * @param to - The target.
  * @param from - The address it is resolved against.
@@ -112,6 +149,8 @@ export function resolveTo(to: To, from: Address): Address {
   } else {
     parts = {pathname: to.pathname ?? '', search: to.search ?? '', hash: to.hash ?? ''};
   }
+  // Doubled slashes collapse, as react-router's resolution collapses them.
+  parts.pathname = parts.pathname.replace(/[/\\]{2,}/g, '/');
   const pathname = !parts.pathname
     ? from.pathname
     : /^[/\\]/.test(parts.pathname)

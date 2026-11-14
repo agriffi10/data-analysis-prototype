@@ -23,8 +23,11 @@ import {act} from '@testing-library/react';
  * 6. A router push or replace fetches the page, recorded in `requests()`, and a push to the
  *    current address replaces the entry rather than adding one.
  * 7. A router push can stay uncommitted while the user clicks again (`hold()`): a later router
- *    navigation supersedes it, and an external `pushState` drops it and moves the address over the
- *    page already shown.
+ *    navigation supersedes it, and an external `pushState` or a traversal drops it, the first moving
+ *    the address over the page already shown.
+ *
+ * A router navigation to another origin is a document navigation that leaves the portal; it is
+ * recorded in `external()` and changes nothing here.
  * 8. `useParams` returns the selected page's params percent-encoded, from the page the router last
  *    navigated to, not from the address.
  */
@@ -45,6 +48,7 @@ type StandIn = {
   state: RouterState;
   listeners: Set<() => void>;
   requests: string[];
+  external: string[];
   reloads: number;
   holding: boolean;
   parked: Navigation | null;
@@ -83,6 +87,7 @@ function install(): StandIn {
     },
     listeners: new Set(),
     requests: [],
+    external: [],
     reloads: 0,
     holding: false,
     parked: null,
@@ -130,6 +135,8 @@ function install(): StandIn {
         instance.reloads += 1;
         return;
       }
+      // A traversal takes priority over a navigation still in flight, which Next drops.
+      instance.parked = null;
       const tree = (data.__PRIVATE_NEXTJS_INTERNALS_TREE as Tree | undefined) ?? instance.state.tree;
       const href = currentHref();
       flushSync(() =>
@@ -159,6 +166,10 @@ function subscribe(listener: () => void): () => void {
 /** Behaviour 6 and 7: a router navigation, recorded, then committed or parked. */
 function routerNavigate(href: string, mode: 'push' | 'replace'): void {
   const instance = standIn();
+  if (new URL(href, window.location.href).origin !== window.location.origin) {
+    instance.external.push(href);
+    return;
+  }
   const {url, hash} = urlOf(href);
   instance.requests.push(url);
   const navigation: Navigation = {url, hash, kind: mode};
@@ -257,6 +268,7 @@ export function resetStandIn(resolver: PageResolver | null = null): void {
   const instance = standIn();
   const url = window.location.pathname + window.location.search;
   instance.requests = [];
+  instance.external = [];
   instance.reloads = 0;
   instance.holding = false;
   instance.parked = null;
@@ -277,6 +289,11 @@ export function writeAddressRaw(state: unknown, href: string): void {
 /** The router navigations made since the reset, by path and query: the pages Next would have fetched. */
 export function requests(): readonly string[] {
   return [...standIn().requests];
+}
+
+/** The router navigations that would have left the portal for another origin. */
+export function external(): readonly string[] {
+  return [...standIn().external];
 }
 
 /** How many popstates Next would have answered by reloading the document. */

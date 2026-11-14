@@ -2,7 +2,7 @@ import {act, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {renderApp, type RenderAppOptions} from '../../test/appRouter';
 import {authenticated} from '../../test/authFixtures';
-import {hold, nextPopstate, requests, traverse} from '../../test/nextNavigation';
+import {external, hold, nextPopstate, requests, traverse} from '../../test/nextNavigation';
 import {
   commits,
   commitsOf,
@@ -149,6 +149,27 @@ describe('the seam’s location, type and key', () => {
     await followAnchor(user);
 
     expect(lastCommit()).toMatchObject({page: 'notifications', hash: '#section', type: 'POP', key: 'default'});
+  });
+
+  // Next drops a navigation still in flight when a traversal arrives. Taken as the navigation that
+  // rendered, the dropped push would call the Back a push, with its key and its state.
+  it('reads Back over a router push Next dropped as a POP, with the entry’s own key and no state', async () => {
+    resetReadout([...LINKS, {label: 'To data quality with state', to: '/data-quality', state: {dropped: true}}]);
+    const options = both(servedBy('app', ['data-quality']), servedBy('catch-all', ['files']));
+    const {user} = renderApp('/data-quality', options);
+    await screen.findByRole('heading', {name: 'page data-quality'});
+    const first = lastCommit();
+    await follow(user, 'To files');
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To data quality with state');
+    commits.length = 0;
+    await traverse(-1);
+
+    await screen.findByRole('heading', {name: 'page data-quality'});
+    expect(commits.map((commit) => commit.type)).toEqual(commits.map(() => 'POP'));
+    expect(lastCommit()).toMatchObject({page: 'data-quality', key: first.key, state: undefined});
   });
 
   // React renders a traversal inside Next's popstate dispatch, before any listener the app adds,
@@ -353,6 +374,24 @@ describe('targets outside the portal', () => {
 
     expect(screen.getByText('Off site')).not.toHaveAttribute('href');
   });
+
+  // A dot segment before a doubled slash is a path as written and protocol-relative once the URL
+  // parser resolves it. Resolved as react-router resolves it, the slashes collapse and it stays here.
+  it.each(['/.//evil.example/x', '/a/..//evil.example/x', '/%2e//evil.example/x'])(
+    'keeps %j in the portal, resolving it as react-router does',
+    async (target) => {
+      resetReadout([{label: 'Dotted', to: target}]);
+      renderApp('/files', servedBy('app'));
+      await screen.findByRole('heading', {name: 'page files'});
+
+      expect(screen.getByText('Dotted')).toHaveAttribute('href', '/evil.example/x');
+      act(() => fixture.navigate?.(target));
+
+      await waitFor(() => expect(window.location.pathname).toBe('/evil.example/x'));
+      expect(window.location.origin).toBe('http://localhost:3000');
+      expect(external()).toEqual([]);
+    }
+  );
 
   it('still navigates to the portal’s own paths', async () => {
     const {user} = renderApp('/files', servedBy('catch-all'));

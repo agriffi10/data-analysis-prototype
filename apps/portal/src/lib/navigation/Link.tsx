@@ -1,6 +1,6 @@
 'use client';
 import type {AnchorHTMLAttributes, MouseEvent} from 'react';
-import {committedAddress, hrefOf, isOffSite, resolveTo, toHref} from './address';
+import {committedAddress, hrefOf, isRefusedTarget, resolveTo} from './address';
 import {useSeam} from './seamContext';
 import type {To} from './navigation.types';
 
@@ -27,7 +27,7 @@ export type LinkProps = {to: To; replace?: boolean; state?: unknown} & Omit<
  */
 export function Link({to, replace, state, onClick, target, ...rest}: LinkProps) {
   const {location, navigate} = useSeam();
-  const offSite = isOffSite(toHref(to));
+  const offSite = isRefusedTarget(to, location);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);

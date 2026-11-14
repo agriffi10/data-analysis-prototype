@@ -10,6 +10,7 @@ import {getCurrentAuthUser, startSignOut} from '../../features/auth/auth.service
 import * as fileService from '../../features/file-browser/fileBrowser.service';
 import {submitFileOperation} from '../../features/file-browser/fileOps.service';
 import {Link} from '../../lib/navigation';
+import {disarmLeaveGuard} from '../../lib/leaveGuard';
 import type {FileListPage} from '../../types/s3.types';
 import {FilesView} from './files';
 
@@ -403,5 +404,30 @@ describe('an unfinished upload asks before the document goes', () => {
 
     await waitFor(() => expect(aborted()).toEqual([true]));
     expect(asked).toEqual([false]);
+  });
+
+  it('asks again once a sign-out fails and the uploads carry on', async () => {
+    const aborted = holdUploadsOpen();
+    vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
+    vi.mocked(startSignOut).mockResolvedValue({success: false, error: {message: 'offline', code: 'NetworkError'}});
+    const {user} = renderApp('/files', {auth: AuthProvider});
+    await startUploads(user);
+
+    await user.click(screen.getByRole('button', {name: 'Account: alice'}));
+    await user.click(await screen.findByRole('menuitem', {name: 'Sign out'}));
+    await waitFor(() => expect(startSignOut).toHaveBeenCalledOnce());
+
+    await waitFor(() => expect(unloadIsCancelled()).toBe(true));
+    expect(aborted()).toEqual([false]);
+  });
+
+  it('asks in a shell that mounts after an earlier sign-out disarmed the guard', async () => {
+    disarmLeaveGuard();
+    holdUploadsOpen();
+    const {user} = renderFiles('/files');
+
+    await startUploads(user);
+
+    expect(unloadIsCancelled()).toBe(true);
   });
 });

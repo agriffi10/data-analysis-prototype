@@ -6,9 +6,9 @@ import {
   hold,
   release,
   reloads,
+  traverse,
   requests,
   resetStandIn,
-  traverse,
   useParams,
   usePathname,
   useRouter,
@@ -168,6 +168,18 @@ describe('the next/navigation stand-in', () => {
     release();
     // Dropped: the address moved under it, over the page already shown.
     expect(last()).toMatchObject({pathname: '/e', tree: '/c'});
+  });
+
+  it('7: drops a router push still in flight when a traversal arrives', async () => {
+    start('/a');
+    act(() => router().push('/b'));
+
+    hold();
+    act(() => router().push('/c'));
+    await traverse(-1);
+    release();
+
+    expect(last()).toMatchObject({pathname: '/a', tree: '/a'});
   });
 
   it('8: hands over the selected page’s params percent-encoded, from the page and not the address', () => {

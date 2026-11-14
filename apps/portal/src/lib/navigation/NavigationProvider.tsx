@@ -6,13 +6,12 @@ import {
   KEY_FIELD,
   committedAddress,
   hrefOf,
-  isOffSite,
+  isRefusedTarget,
   keyOf,
   newKey,
   normalizePathname,
   resolveTo,
   sameDocument,
-  toHref,
   type Address
 } from './address';
 import {SeamContext, type Seam} from './seamContext';
@@ -20,6 +19,9 @@ import type {NavigateOptions, NavigationType, NavLocation, To} from './navigatio
 
 /** A history entry as the seam knows it: the location, and how it was reached. */
 type Entry = NavLocation & {type: NavigationType};
+
+/** A navigation the seam started and has not seen render: written natively, or handed to Next's router. */
+type Expected = Entry & {native: boolean};
 
 /** Next's own fields on a history entry, which the seam copies onto an in-page anchor's. */
 type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unknown};
@@ -66,18 +68,33 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     key: keyOf(window.history.state),
     type: 'POP'
   }));
-  const [expected, setExpected] = useState<Entry | null>(null);
+  const [expected, setExpected] = useState<Expected | null>(null);
   const entryRef = useRef(entry);
   const lastNextState = useRef<NextHistoryState | null>(null);
 
   let current = entry;
   if (!sameDocument(entry, rendered)) {
     const at = committedAddress();
-    if (expected && sameDocument(expected, rendered)) {
-      current = expected;
+    // An expectation is what renders only while it can be: a native one has written its own entry,
+    // and a router one renders before Next writes the address. A router push Next dropped for a
+    // traversal to the same address is neither, and taking it would call the Back a push.
+    const arrived =
+      expected !== null &&
+      sameDocument(expected, rendered) &&
+      (expected.native ? keyOf(window.history.state) === expected.key : !sameDocument(at, rendered));
+    if (arrived) {
+      current = {
+        pathname: expected.pathname,
+        search: expected.search,
+        hash: expected.hash,
+        state: expected.state,
+        key: expected.key,
+        type: expected.type
+      };
       setExpected(null);
     } else if (sameDocument(at, rendered)) {
       current = {...at, state: undefined, key: keyOf(window.history.state), type: 'POP'};
+      if (expected) setExpected(null);
     } else {
       current = {...rendered, state: undefined, key: newKey(), type: 'PUSH'};
     }
@@ -130,11 +147,11 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
 
   const navigate = useCallback(
     (to: To, options: NavigateOptions = {}) => {
-      if (isOffSite(toHref(to))) {
+      const from = committedAddress();
+      if (isRefusedTarget(to, from)) {
         console.warn('[navigation] refused a navigation to a target outside the portal');
         return;
       }
-      const from = committedAddress();
       const target = resolveTo(to, from);
       const type: NavigationType = options.replace ? 'REPLACE' : 'PUSH';
       const next: Entry = {...target, state: options.state, key: newKey(), type};
@@ -143,14 +160,14 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
         target.pathname === normalizePathname(from.pathname) ||
         (routerFor(from.pathname, records) === 'catch-all' && routerFor(target.pathname, records) === 'catch-all');
       if (!native) {
-        setExpected(next);
+        setExpected({...next, native: false});
         if (type === 'PUSH') router.push(href);
         else router.replace(href);
         return;
       }
       // Next re-renders only when its path or search moves; when neither does, nothing would.
       if (sameDocument(target, entryRef.current)) setEntry(next);
-      else setExpected(next);
+      else setExpected({...next, native: true});
       const data = {[KEY_FIELD]: next.key};
       if (type === 'PUSH') window.history.pushState(data, '', href);
       else window.history.replaceState(data, '', href);

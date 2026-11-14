@@ -47,7 +47,10 @@ navigator that sends every push and replace back through the seam.
 - **The source is the committed address.** A second click during a slow push (7) must not read the
   push in flight as where the user is: measured, reading the seam's render showed the Files page under
   `/data-quality`. The stand-in's held push and the seam's test go red if the source becomes the seam's
-  pending navigation.
+  pending navigation. For the same reason a navigation the seam started is taken as the one rendering
+  only while it can be: a native one once its own entry is written, a router one before Next writes the
+  address. Next drops a push still in flight when a traversal arrives, and taking the dropped push for
+  a Back to the same address called the Back a push, with the dropped push's key and state.
 - **A traversal is classified while rendering** (1, 2): a change the seam did not start, with the
   address already moved, is a `'POP'` and reads its key from the entry. A popstate listener cannot do
   this, because React renders the traversal before the listener runs; measured, that called a Back a
@@ -66,13 +69,18 @@ navigator that sends every push and replace back through the seam.
 - **`useParams` is react-router's inside the catch-all and Next's decoded elsewhere** (8), so a page
   reads `a@b c` under either router.
 - **Off-site targets are refused**: `navigate` and `Link` refuse any `to` whose
-  `new URL(to, location.href).origin` is not the portal's, logging once, and `Link` renders no `href`.
+  `new URL(to, location.href).origin` is not the portal's, as written or once resolved, logging once,
+  and `Link` renders no `href`. Both, because a dot segment before a doubled slash (`/.//host/x`) is a
+  path as written and protocol-relative once the URL parser resolves it; the resolution collapses
+  doubled slashes as react-router's does, so it stays in the portal.
   `router.push` sends every off-site form but `javascript:` and `data:` to a document navigation on the
   other site (measured), and react-router 7.18.2's open-redirect fix would otherwise have left with
   react-router. A link to another site is a plain `<a>`.
 - **Paths match case-sensitively**, as Next routes: the seam's `matchPath`, the chrome's reading of the
   area records and the table's routes all treat `/Files` as no area, a 404 outside the shell. Kept
-  case-insensitive, a moved area would have shown a 404 inside the shell at `/Files`.
+  case-insensitive, a moved area would have shown a 404 inside the shell at `/Files`. The chrome reads
+  the records against the decoded path, as the table matches it, so `/fil%65s` is Files to both and
+  never Files outside the gate.
 
 **How it is proved.** `src/test/nextNavigation.ts` replaces `next/navigation` in Vitest (an alias in
 `vite.config.ts`) and models all eight behaviours on jsdom's own history, one test each; `renderApp`

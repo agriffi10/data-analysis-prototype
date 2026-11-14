@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {screen} from '@testing-library/react';
+import {screen, waitFor} from '@testing-library/react';
 import {renderApp} from '../test/appRouter';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
@@ -66,6 +66,14 @@ describe('App routing', () => {
 
     expect(await screen.findByRole('heading', {name: 'Page not found'})).toBeInTheDocument();
     expect(location().pathname).toBe('/Files');
+  });
+
+  // Matched decoded, as the table matches it: `/fil%65s` is Files to both, so the gate claims it and
+  // a signed-out user goes to `/` rather than seeing Files outside the gate.
+  it('claims a percent-encoded spelling of an area’s path for the gate, as the table serves it', async () => {
+    const {location} = renderApp('/fil%65s', {auth: unauthenticated()});
+
+    await waitFor(() => expect(location().pathname).toBe('/'));
   });
 
   it('builds no route for an area the App Router serves, and renders the 404 at its path', async () => {

@@ -1,4 +1,5 @@
 import {createContext, useContext} from 'react';
+import {decodePath} from '../address';
 import {matchPath} from '../matchPath';
 import type {AreaRecord, AreaRouter} from './area.types';
 import {filesArea} from './files';
@@ -37,14 +38,16 @@ export function useAreaRecords(): readonly AreaRecord[] {
 }
 
 /**
- * The area that claims a path, matched whole and case-sensitively.
+ * The area that claims a path, matched whole and case-sensitively on the decoded path, as the route
+ * table matches it.
  *
  * @param pathname - The path to look up.
  * @param records - The records to read; {@link AREAS} unless a test overrides them.
  * @returns The record, or null for a public path: `/`, or one no area claims.
  */
 export function areaOf(pathname: string, records: readonly AreaRecord[] = AREAS): AreaRecord | null {
-  return records.find((record) => record.paths.some((pattern) => matchPath(pattern, pathname))) ?? null;
+  const decoded = decodePath(pathname);
+  return records.find((record) => record.paths.some((pattern) => matchPath(pattern, decoded))) ?? null;
 }
 
 /**
