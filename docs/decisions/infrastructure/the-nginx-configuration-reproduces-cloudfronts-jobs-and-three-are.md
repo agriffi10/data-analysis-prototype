@@ -1,27 +1,76 @@
 ---
 type: Decision
-title: "The nginx configuration reproduces CloudFront's jobs, and three are divergences (SPEC-194)"
-description: "**The SPA container reproduced every CloudFront job bar three DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own** (hence one snippet per location, `always` throughout, and a server-level floor for errors raised before a location resolves); assert on **responses**, never config text; `/healthz` is exact-match, or a probe falls through and a broken container reads healthy."
+title: "The Next.js server reproduces CloudFront's jobs, and two are divergences (SPEC-194, SPEC-255)"
+description: "**The portal's server reproduces every job the distribution did bar two DIVERGENCES**: no brotli, no HSTS `preload`. **A header the request proxy sets overrides every other source**, a route handler's `Cache-Control` and Next's `immutable` included, so the proxy sets none. **The optional catch-all answers any unmatched path 200 with the app shell**: a missing `/_next/` chunk needs the `%5Fnext` route's plain-text 404, and `/healthz` must stay a route handler answering `ok`, or a probe reads a broken server as healthy. Assert on **responses**, never config text."
 ---
 
-The SPA moved from a distribution over an S3 origin to a container behind a load balancer. Producing the image is trivial — a Vite build served by nginx — and **that triviality is the trap**: the distribution was doing five other jobs, each configured once and then invisible, and **every one fails silently when it is wrong**. A missing fallback breaks only deep links and only on reload. A wrong cache header runs last week's bundle intermittently, on exactly the users whose cache is warm. A CSP missing one host breaks one flow days later. A health check that falls through to the shell makes the balancer call a broken container healthy and keep it in rotation forever. So each job is either reproduced or named as a divergence out loud, and the whole set is asserted **on responses** by a CI matrix — grepping the config passes on a config nginx never loaded, on a server block that lost to another on the same port, and on a header wiped by the inheritance rule below.
+Producing the image is easy, and **that ease is the trap**: a CDN in front of a bucket was doing
+several jobs, each configured once and then invisible, and **every one fails silently when it is
+wrong**. A missing fallback breaks only deep links and only on reload. A wrong cache header runs last
+week's bundle intermittently, on exactly the users whose cache is warm. A CSP missing one host breaks
+one flow days later. A health check that falls through to the shell makes the balancer call a broken
+server healthy and keep it in rotation. So each job is either reproduced or named as a divergence out
+loud, and the whole set is asserted **on responses** by `.github/scripts/spa-image-matrix.sh`, which
+runs on every pull request that touches the portal and before every image push. Reading the source
+passes on a header something else overrides.
 
-**`add_header` inheritance is what makes this configuration fragile in a way no review catches.** nginx inherits `add_header` from the enclosing level **only when the current level defines none of its own**. Each location sets its own `Cache-Control`, which on its own **wipes every security header from that location's responses** while the rest of the site looks perfect. Every location therefore `include`s one shared snippet, and every directive carries `always` — measured: without `always`, the `/assets/` 404 carried **no** `Cache-Control` and **not one** security header while the 200 beside it carried all of them. Two further shapes were measured rather than reasoned: `return 404;` with **no body string** emits nginx's stock HTML page and ignores `default_type` entirely; and a 404's content-type follows the **request's extension**, because nginx fixes it before `error_page` runs — so the criterion is "not HTML", never "is `text/plain`", which would redden truthfully and be "fixed" by weakening it.
+**Who does each job.** The request proxy, `src/proxy.ts`, puts the page policy and the seven security
+headers on every request that carries no body. Next owns the cache classes: pages `private, no-cache,
+no-store, max-age=0, must-revalidate`, hashed assets `public, max-age=31536000, immutable`, `public/`
+files `public, max-age=0`. The route handlers for `/config.json`, `/healthz` and the `/_next/` 404 set
+`no-store`. A request carrying a body skips the proxy, and `next.config.ts` gives it the security
+headers and a lockdown policy (`response-headers-csp.md` says why).
 
-**Responses generated before a location is resolved reach none of that.** A malformed request line, a malformed header field and an over-long URI are answered by nginx before it picks a location — measured, they came back as HTML with no `Cache-Control` and no security header at all, which is precisely the shape the per-location discipline exists to prevent, arriving by the one route it cannot reach. The set is declared at the **server** level as a floor, where the same inheritance rule works in our favour: a location setting its own header still overrides it, so every cache class is unchanged.
+**A header the proxy sets overrides every other source**, measured: a `Cache-Control` set there
+replaced a route handler's `no-store` and Next's `immutable` on hashed assets alike. So the proxy sets
+no `Cache-Control`, and a change that adds one breaks every cache class at once while each page still
+renders.
 
-**The three divergences, each with its cost and its re-open trigger.**
+**The optional catch-all answers any path nothing else matched with a 200 and the app shell.** That
+is how a deep link works, and it is also three traps. A missing hashed chunk under `/_next/` would get
+the shell as `text/html` too, so `src/app/%5Fnext/[...rest]/route.ts` answers any `/_next/` path that
+matched no built file with a plain-text 404 (the folder name escapes the underscore, because Next
+treats a folder starting with `_` as private and routes nothing to it). `/healthz` is a route handler
+answering `ok` in plain text, and the matrix asserts the body, because a deleted handler would leave
+the catch-all answering the probe with a 200. And a removed root-level file still answers 200 HTML,
+preserved deliberately and pinned by the matrix, which is why a removal is read from the
+content type and never from the status code here.
 
-1. **`Server: nginx` remains.** The distribution stripped the S3 origin's banner. nginx cannot: `server_tokens off` hides the *version* and nothing more, and removing the header needs the third-party `headers-more` module, which the official images do not ship. The alternative is a build stage compiling it against the runtime base's exact source, recompiled in lockstep with every base bump, where an ABI mismatch stops nginx starting — real maintenance coupling for a banner that now discloses only "nginx". The scanner alert that motivated the strip fires on a **version**, so it does not regress. Re-open trigger: a client security review objecting to the banner.
-2. **gzip only, no brotli.** `gzip_static` over `.gz` siblings produced at build time gives every asset a maximum-ratio artefact at no per-request CPU. Brotli needs the same third-party compile stage, and accepting it there while refusing it above would be incoherent. **The residual is real and not papered over:** brotli-capable browsers — effectively all of them — receive gzip, so the bundle transfers roughly 15–20% larger than through the distribution. Moves with the trigger above.
-3. **HSTS drops `preload`.** It was flipped on to clear a scanner check and is recorded as inert — browsers act on the preload list and entry needs a manual submission. Emitting it claims a submission this deployment has not made and does not intend; the grant is against the **registrable domain** and close to irreversible, and these are subdomains of a parent this repository does not own, so the claim would commit sibling services nobody asked. It costs no finding, though not for the reason it first appears: **`CKV_AWS_259` is a CloudFront check**, evaluated against `aws_cloudfront_response_headers_policy.portal` — which still carries HSTS with `preload` and still passes it. nginx's header is invisible to that check, so dropping `preload` on the container origin regresses nothing. **When the distribution is deleted, `CKV_AWS_259` must come off `.github/checkov-enforced.txt` in the same change**: an enforced check ID matching no finding is a hard error, which is the gate working as designed.
+**Responses Next answers before routing reach neither the proxy nor `next.config.ts`.** A trailing
+slash or a `//host` path gets a 308 to a same-origin path, and a malformed escape gets a plain-text
+500, with no policy and no security header. nginx had a server-level floor for its equivalent; Next
+has none, and the class is accepted in `docs/security-baseline.md` because each body is fixed text or
+a same-origin redirect. The matrix pins `/files/` and `/%zz` so a change to it is visible.
 
-`x-amz-server-side-encryption` needed no decision and gets no criterion: it was the S3 origin's banner, there is no S3 origin, and there is no route by which nginx could emit it. An assertion about it could not fail, and stating it as evidence would misrepresent a consequence as a control.
+**The two divergences, each with its cost and its re-open trigger.**
 
-`/healthz` is exact-match, or a probe falls through to the shell and a broken container reads healthy.
+1. **gzip only, no brotli.** Next compresses with gzip per request. Brotli-capable browsers,
+   effectively all of them, receive gzip, so the bundle transfers roughly 15–20% larger than it did
+   through the distribution. Re-open trigger: a measured load-time problem, or a CDN back in front.
+2. **HSTS drops `preload`.** Emitting it claims a submission to the preload list this deployment has
+   not made and does not intend; the grant is against the **registrable domain** and close to
+   irreversible, and these are subdomains of a parent this repository does not own, so the claim would
+   commit sibling services nobody asked. It costs no Checkov finding, because the check that wanted
+   it, `CKV_AWS_259`, evaluates only a CloudFront response-headers policy, and none exists now.
+
+The `Server` banner is no longer a divergence: the Node server sends no `Server` header, and
+`poweredByHeader: false` stops `X-Powered-By`. The matrix asserts both absent.
 
 ## History
 
+### 2026-11-13
+
+- **Changed:** SPEC-255 replaced nginx with the Next.js server. The `Server: nginx` divergence closed,
+  because Node sends no banner. nginx's `add_header` inheritance rule, its per-location snippet and
+  its server-level floor went with it; what replaces them is one proxy for the headers and each cache
+  class's own owner, and two new traps: a proxy header overrides everything, and the optional
+  catch-all answers unmatched paths 200, which is why `/_next/` has its own 404 route and `/healthz`
+  its asserted body. Responses answered before routing carry no policy, accepted.
+
 ### 2026-08-27
 
-- **Settled:** SPEC-194.
+- **Settled:** SPEC-194. The SPA moved from a distribution over an S3 origin to an nginx container,
+  which reproduced every CloudFront job bar three divergences (`Server: nginx`, no brotli, no HSTS
+  `preload`). Its trap was `add_header` inheritance: a location defining any header of its own
+  inherited none, so every location included one snippet with `always`, under a server-level floor
+  for errors raised before a location resolved.

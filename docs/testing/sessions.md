@@ -10,6 +10,45 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-13, evening (SPEC-255, the Next.js server)
+
+**What was under test.** The portal as a Next.js server in the web tier, image `65516853` (#971),
+task-definition revision 265. The tier was switched on through CI for the session
+(`TF_VAR_web_tier_enabled=true`, Deploy Infrastructure run 43517942441, *"46 added"*) and off again
+afterwards (variable set `false` at 01:23:46Z on 2026-11-14 UTC, Deploy Infrastructure run
+43540336336, *"Apply complete! Resources: 0 added, 0 changed, 46 destroyed."*, every resource under
+`module.network[0]` or `module.spa[0]`). After the switch-off `portal.dataquarry.app` answered
+NXDOMAIN from 1.1.1.1 and 8.8.8.8.
+
+**Browser.** Andrew's own Chrome, signed in as `agriffith`, for the sign-in, the upload and the
+Back and Forward clicks; the in-app browser pane (CDP) for the policy check and the signed-out
+navigation; AppleScript JavaScript (Control_Chrome) for reads. Width not recorded.
+
+| Check | Result |
+|---|---|
+| Deploy (FR-005) | Deploy SPA image run 43518664168: build, matrix, push, register and point green; `desired=1 running=1 rollout=COMPLETED` on revision 265 |
+| `/config.json` (FR-003) | 200 with the ten production keys and `version: 1` |
+| Enforcement (FR-004) | In the pane, `fetch('https://example.com/')` raised `securitypolicyviolation` with `connect-src` and `enforce`; `fetch('/healthz')` in the same run returned `200 ok` |
+| Fresh sign-in (FR-004) | Andrew signed in at the Hosted UI with no warm portal session, in a normal profile; the app's POST to the Hosted UI's `/oauth2/token` returned 200 under the enforcing policy, and he landed signed in |
+| Upload (FR-004) | a `.txt` to his space: the presigned `PUT` to `dat-prod-user-space` 200, `/v1/objects/upload` 200 |
+| Deep link and reload (FR-001) | `/files` loaded signed in; a reload of `/query` stayed on `/query` |
+| Back and Forward (FR-001) | Andrew clicked Query, Data Explorer, Back, Forward and Files: a marker set before survived, one navigation entry, one `/config.json` fetch. Also passed signed out in the pane, from the public 404 to the home link |
+| `npm run dev` (FR-001) | `localhost:5173` with an `.env.local` from the deployed document: the Hosted UI returned there and the token exchange answered 200; the file listing then failed with a network error, the API's CORS not admitting the dev origin (expected until SPEC-257) |
+| Monaco (FR-002) | SQL highlighted (`mtk` spans), the worker loaded from `/_next/static/chunks/turbopack-worker-…`, `SELECT 1;` succeeded with one row, no `securitypolicyviolation` |
+| Theme and font (FR-002) | `portal-theme=dark` and a reload: `data-theme=dark`, `color-scheme: dark`, body `rgb(13, 16, 20)`, `theme-init.js` blocking in `<head>` with a nonce, Inter loaded |
+| ZAP with the tier on (FR-006) | `security.yml` run 43538730372 green: FAIL-NEW 0, WARN-NEW 6, PASS 65; diffed per alert ID in `docs/security-baseline.md` |
+| ZAP with the tier off (FR-006) | run 43516167248 on the build branch green, with the warning annotation and the summary section; the scan step skipped |
+
+**Observed, not a failure.** Clicks fired from AppleScript JavaScript carry no user activation, so the
+history entries they push are skipped by Chrome's own Back button: an AppleScript `go back` went
+straight to the Cognito page, and `history.back()` from Control_Chrome's isolated world threw. Back and
+Forward were therefore run with Andrew's real clicks; `e2e.md` §4.18 now says so.
+
+### Not run
+
+The first painted frame of the dark theme cannot be captured, so the evidence is the blocking,
+nonced head script. A private window's cold cache for a fresh sign-in is still owed (`owed.md`).
+
 ## Live-check session — 2026-11-13 (every plane after the module restructure's first apply)
 
 **What was under test.** The first apply of the infra building-blocks arc: the control planes as one

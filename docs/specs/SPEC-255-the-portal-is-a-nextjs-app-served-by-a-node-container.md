@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-255
 title: "The Portal Is a Next.js App Served by a Node Container"
 description: "Moves the portal from a Vite build behind nginx and CloudFront to a Next.js app on a Node server: the existing app mounts client-only in one catch-all route, the server renders the runtime document and the per-request CSP, and the Fargate web tier becomes the only front door."
-spec_status: In Progress
+spec_status: Completed
 depends_on: []
 arc: nextjs
 arc_order: 1

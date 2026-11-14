@@ -1386,8 +1386,9 @@ there.
 **Folded in when Arc B closed** (2026-09-02, from `arc-b-api-container-e2e.md`, which is deleted —
 its per-spec sections and their dated results are in git history and in [`sessions.md`](sessions.md)).
 `portal.dataquarry.app` was then a container on Fargate and the only front door, with the CloudFront
-distribution and the Identity Pool destroyed; CloudFront serves it again while the web tier is off.
-Run this section on any change to the API, the
+distribution and the Identity Pool destroyed. Since SPEC-255 (2026-11-13) the container is a Next.js
+server and the web tier is the only front door, so with the tier off there is nothing to check: switch
+it on first (§0's first row). Run this section on any change to the API, the
 image, the CSP, the origins or the credential path — none of it is observable offline.
 
 **Classify every other arc's owed checks against this one before trusting them.** Anything asserting
@@ -1492,6 +1493,34 @@ its positive control**: the window must hold real mints, evidenced by `key_lengt
 `presign_expires_in` records, or zero means the window was empty. And a **hit is not automatically a
 leak** — `error.stack` carries source lines, and `botocore/auth.py` contains all six as literals, so
 read the record: a leak carries a signature *value*, a traceback carries the parameter *name*.
+
+**The Next.js server's own checks** (SPEC-255, first run 2026-11-13). Run them on any change to
+the boot, the catch-all, the request proxy or the image.
+
+- **Deep links and reloads stay put.** Load `$APP_URL/files` cold: the app boots signed in on Files.
+  Reload on `/query`: it stays on `/query`.
+- **Back and Forward change the page without reloading the document or re-running the boot.** Set a
+  marker (`window.__m = 1`), click Query, then Data Explorer, then Back and Forward with **real
+  clicks**, then read `window.__m`, `performance.getEntriesByType('navigation').length` and the
+  `/config.json` entries in `performance.getEntriesByType('resource')`. Expect the marker kept, one
+  navigation entry and one `/config.json` fetch. **Clicks fired from AppleScript JavaScript (the
+  Control_Chrome tools) carry no user activation**, so Chrome's own Back skips the history entries
+  they push and lands on the Cognito page, and `history.back()` from that isolated world throws: drive
+  this with your own clicks or the in-app browser pane, never with Control_Chrome.
+- **The Query editor works under the policy.** Open Query: SQL is highlighted (Monaco's `mtk` spans),
+  its worker loads from `/_next/static/chunks/turbopack-worker-…`, `SELECT 1;` succeeds with one row,
+  and no `securitypolicyviolation` fires (install the listener from the CSP block above first).
+- **The saved theme applies before the app.** With `portal-theme` set to `dark` in `localStorage`,
+  reload: `<html data-theme="dark">`, `color-scheme: dark`, and `theme-init.js` is a blocking
+  `<script>` in `<head>` carrying the page's nonce. `document.fonts` reports Inter loaded. The first
+  painted frame cannot be captured; the blocking, nonced head script is the evidence.
+- **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the ten keys,
+  and nothing else.
+- **`npm run dev` signs in.** With `apps/portal/.env.local` filled from the deployed document
+  (double-quote `PORTAL_CSP_CONNECT_SRC`), sign in at `http://localhost:5173`: the Hosted UI returns
+  there and the token exchange answers 200. **The file listing then fails with a network error**,
+  because the API's CORS does not admit `localhost:5173`; that is expected until SPEC-257's same-origin
+  `/api/` pass-through, not a defect to fix by widening the API's CORS.
 
 **What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
 read beside a route table, the redirect, target health), the container under real concurrency, and

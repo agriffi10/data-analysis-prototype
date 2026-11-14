@@ -418,6 +418,28 @@ these.
 | **Responses answered before routing carry no policy** | **ACCEPT, low.** Next answers a trailing-slash path, a `//host` or `/\host` path and an absolute-form request line with a 308 to a same-origin path, and a malformed escape (`/%zz`) or `OPTIONS *` with a plain-text 500, before the proxy or `next.config.ts`'s `headers()` run, so those responses carry no CSP and none of the seven headers. Each body is fixed text or a same-origin redirect and the next response carries the full set, so nothing in this class can be framed or run. The image's behaviour matrix pins `/files/` and `/%zz` so a change to the class is visible. A scanner alert for a missing header on one of these URLs is this row. |
 
 
+### The Next.js server's first scan (2026-11-13)
+
+**Run:** [43538730372](https://github.com/agriffi10/data-analysis-prototype/actions/runs/43538730372),
+`workflow_dispatch` on `main` at `9dfafec1`, with the web tier switched on for it, target
+`https://portal.dataquarry.app` serving image `65516853`. `FAIL-NEW: 0  WARN-NEW: 6  PASS: 65`.
+Diffed per alert ID against the addendum above and the post-SPEC-140 table; nothing new needs a fix.
+
+| Alert | Instances | Disposition |
+|---|---|---|
+| 10055 CSP: `style-src unsafe-inline` | 4 | **accept, unchanged** — Monaco's injected styles; a nonce in `style-src` would switch `'unsafe-inline'` off |
+| 90004 Cross-Origin-Embedder-Policy | 4 | **accept, unchanged** |
+| 10027 Suspicious Comments | 1 | **accept** — now on `/theme-init.js`, whose comment explains why it runs before the app; it was the vendor bundle before |
+| 10049 Storable and Cacheable / Non-Storable / Storable but Non-Cacheable | 11 | **accept** — one ID, three instance shapes, each a cache class by design: hashed assets `immutable`; pages `no-store`, new, because each carries a per-request nonce; `/favicon.svg` and `/theme-init.js` `public, max-age=0`, Next's class for `public/` files, also new |
+| 10109 Modern Web Application | 5 | **accept** — informational |
+| 90005 Sec-Fetch-* Header Missing | 8 | **accept** — request headers ZAP's spider does not send |
+
+**Closed by the server:** 10036 (HTTP Server Response Header) and 10037 (`X-Powered-By`) pass, so the
+`Server` banner row above is confirmed closed. 10096 (Timestamp Disclosure) and 10094 (Base64
+Disclosure), accepted before as bundle noise, also pass. The spider's `/robots.txt` and `/sitemap.xml`
+answered 200 with the app shell, which is the optional catch-all's preserved trap and raised no alert.
+With the tier off, run 43516167248 skipped the scan with its warning and summary, as designed.
+
 ### Enforce-list removal — CKV_AWS_366, with the Identity Pool (2026-08-30)
 
 `CKV_AWS_366` (*Ensure AWS Cognito identity pool does not allow unauthenticated guest access*) is

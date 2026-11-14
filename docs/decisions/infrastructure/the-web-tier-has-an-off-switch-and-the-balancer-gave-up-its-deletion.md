@@ -27,7 +27,7 @@ applies once: the merge that adds it turns protection off with the tier still on
 the variable take the tier down.
 Disposition: `docs/security-baseline.md`.
 
-*(Superseded 2026-11-02: the certificate left the switch, because `static-portal` uses it while the tier is off.)* **The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
+*(Superseded 2026-11-02: the certificate left the switch, because `static-portal` uses it while the tier is off. Marked 2026-11-13: SPEC-255 deleted `static-portal`, and the certificate stays outside the switch, in use and so renewed only while the tier is on; `cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md` has the trap and `infra/info/web-tier.md` the recovery.)* **The SPA's certificate is on the switch too**, found by review rather than by any gate. ACM renews
 a public certificate only while a service uses it, so one kept through an off period spanning its
 renewal window would expire; the provider then reads the validation as gone and fails recreating
 it on an expired certificate, which turns every later apply red, on or off. Destroyed with the
@@ -54,6 +54,10 @@ the balancer's deletion protection back on while the switch exists.
 The switch is the `web_tier_enabled` variable.
 
 ## History
+
+### 2026-11-13
+
+- **Changed:** Marked for SPEC-255: `static-portal` is gone, so the certificate is outside the switch with nothing using it while the tier is off, and renews only while the tier is on.
 
 ### 2026-09-30
 
