@@ -33,9 +33,10 @@ export function isLeaveGuardDisarmed(): boolean {
  *
  * For a navigation that is not the document going: a download is a top-level navigation to the
  * presigned URL, and Chrome raises `beforeunload` before it learns the response is an attachment, so
- * mid-upload a download asked "Leave site?" and, on Stay, never happened (measured). The event fires
- * inside the click, so disarming around it is enough. Restored rather than re-armed, so a sign-out
- * already under way stays disarmed.
+ * mid-upload a download asked "Leave site?" and, on Stay, never happened (measured). Chrome fires the
+ * event inside the click, so disarming around it is enough there; a browser that fires it later
+ * still asks, as it did before. Restored rather than re-armed, so a sign-out already under way stays
+ * disarmed.
  *
  * @param act - The synchronous action, such as an anchor's `click()`.
  */

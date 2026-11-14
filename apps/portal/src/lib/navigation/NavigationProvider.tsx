@@ -93,8 +93,9 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
       };
       setExpected(null);
     } else if (sameDocument(at, rendered)) {
+      // An expectation left here is not cleared: one for another address may be a router navigation
+      // still to render, and one for this address can no longer arrive, by the rule above.
       current = {...at, state: undefined, key: keyOf(window.history.state), type: 'POP'};
-      if (expected) setExpected(null);
     } else {
       current = {...rendered, state: undefined, key: newKey(), type: 'PUSH'};
     }

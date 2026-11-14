@@ -20,6 +20,16 @@ describe('the leave guard', () => {
     expect(isLeaveGuardDisarmed()).toBe(true);
   });
 
+  it('puts the guard back after an action that throws', () => {
+    expect(() =>
+      withoutLeaveGuard(() => {
+        throw new Error('click failed');
+      })
+    ).toThrow('click failed');
+
+    expect(isLeaveGuardDisarmed()).toBe(false);
+  });
+
   it('lets a text file download without asking', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:portal/1');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});

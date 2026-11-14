@@ -2,7 +2,7 @@ import {act, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {renderApp, type RenderAppOptions} from '../../test/appRouter';
 import {authenticated} from '../../test/authFixtures';
-import {external, hold, nextPopstate, requests, traverse} from '../../test/nextNavigation';
+import {external, hold, nextPopstate, release, requests, traverse} from '../../test/nextNavigation';
 import {
   commits,
   commitsOf,
@@ -170,6 +170,24 @@ describe('the seam’s location, type and key', () => {
     await screen.findByRole('heading', {name: 'page data-quality'});
     expect(commits.map((commit) => commit.type)).toEqual(commits.map(() => 'POP'));
     expect(lastCommit()).toMatchObject({page: 'data-quality', key: first.key, state: undefined});
+  });
+
+  // Two navigations in one event, a native one first: Next renders the native one before the router
+  // one, and the router one must still arrive with its own state.
+  it('keeps a router navigation’s state when a native navigation renders ahead of it', async () => {
+    const options = both(servedBy('catch-all', ['files']), servedBy('app', ['data-quality']));
+    renderApp('/files', options);
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    act(() => {
+      fixture.navigate?.('?x=1', {replace: true});
+      fixture.navigate?.('/data-quality', {state: {handOff: true}});
+    });
+    release();
+
+    await screen.findByRole('heading', {name: 'page data-quality'});
+    expect(lastCommit()).toMatchObject({page: 'data-quality', type: 'PUSH', state: {handOff: true}});
   });
 
   // React renders a traversal inside Next's popstate dispatch, before any listener the app adds,
