@@ -315,8 +315,8 @@ Route handlers under `apps/portal/src/app/auth/`, using modules in `src/server/s
   arrive, and answers 204, or 401 when the session is gone.
 
 **A fault is not a sign-out.** A 401 means the session is gone. Every call to the token and
-revocation endpoints is bounded at 5 seconds, a constant SPEC-262's browser timeout is pinned
-above. A store failure, an unreachable token endpoint, or an `invalid_client` answer (the server's
+revocation endpoints is bounded at 5 seconds, and every session-store call at 2 seconds; SPEC-262's
+browser timeout is pinned above the sum these bounds and the forward deadline make. A store failure, an unreachable token endpoint, or an `invalid_client` answer (the server's
 secret is wrong, which no user can fix)
 answers 503 `ApiUnavailable`. Only an `invalid_grant` answer to a refresh ends the session, by
 deleting it. Every refusal the server mints uses the API's failure envelope and a code the API's

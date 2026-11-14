@@ -88,18 +88,32 @@ that import.
 
 **When a session ends under a page** (Andrew, 2026-11-13, which closes the `owed.md` row *What
 `setUnauthenticatedHandler` should DO*). `AuthProvider` registers the API client's unauthenticated
-handler on mount. On a 401 it re-reads `/auth/session`. A 401 there moves the tab to signed-out, as
-if it had signed out itself, and the landing page's sign-in returns to the page the user was on. A
-200 naming **another** user reloads the document, so one person's page never acts as another's. A
-200 naming the same user leaves the tab signed in, and the call that failed reports
-`SessionExpired`.
+handler on mount. On a 401 it re-reads `/auth/session`, one re-read at a time however many 401s
+arrive. A 401 there moves the tab to signed-out **in local state only**: no `/auth/logout` request
+and no logout navigation, because by then the browser's cookie may already belong to someone who
+signed in in another tab, and a logout sent on it would end their session. The landing page's
+sign-in returns to the page the user was on. A 200 naming **another** user disarms SPEC-256's leave
+guard and reloads the document, so one person's page never acts as another's and an upload's
+prompt cannot hold the stale page open. A 200 naming the same user leaves the tab signed in, and
+the call that failed reports `SessionExpired`.
 
 **A tab never acts as another user.** One cookie serves the whole browser, so if Alice signs out in
 one tab and Bob signs in there, Alice's other tab would send Bob's cookie on its next request: a
 window-focus refetch or a poll would act as Bob under Alice's name. So `apiRequest` sends the
-username the tab holds as `x-dq-user`, and the `/api/` route handler (SPEC-257 FR-005) answers 401
-`SessionExpired`, before forwarding, when that header is present and differs from the session's
-`cognito:username`. The header is consumed there and is not on the forwarded allowlist.
+username the tab holds as `x-dq-user`, and refuses to send at all (`SessionExpired`, no request)
+when the tab holds none. The `/api/` route handler (SPEC-257 FR-005) answers 401 `SessionExpired`,
+before forwarding, when the header is **absent** or differs from the session's `cognito:username`.
+A missing header is refused rather than waved through because the gap is exactly when a request is
+most likely to be stale: while the tab's user is being cleared or not yet published. A required
+custom header also refuses a cross-site top-level navigation into `/api/`, which `SameSite=Lax`
+admits. The header is consumed there and is not on the forwarded allowlist.
+
+**A session serves only the client that created it.** A dev server and the deployed portal share
+the session table, and under `next dev` the cookie is unprefixed and not `Secure` (FR-003), so a
+dev cookie could travel to any localhost server and be replayed against the portal as
+`__Host-dq_session`. So every session load (SPEC-257's `loadSession`) answers 401 and leaves the
+item alone when the stored ID token's `aud` is not the server's own `OIDC_CLIENT_ID`. A dev session
+then works only on a dev server, and a production session only in production.
 
 One session now covers the browser: a second tab, or a link opened in a new tab, is signed in
 already, and a sign-out in one tab signs the others out at their next request.
@@ -116,12 +130,18 @@ already, and a sign-out in one tab signs the others out at their next request.
 - [ ] The provider shows *"Sign-in failed or was cancelled."* when the landing page carries
       `?signin=failed`, and after mounting the address no longer carries the parameter.
 - [ ] With the provider mounted, an API 401 followed by a 401 from `/auth/session` moves the tab to
-      signed-out; one followed by a 200 naming another user reloads the document; and one followed
-      by a 200 naming the same user leaves it signed in. Each is asserted against doubles, which
-      is the offline proof the handler is registered.
-- [ ] `apiRequest` sends `x-dq-user` with the held username. The `/api/` route handler answers 401
-      with no forward when the header differs from the session's username, forwards when it
+      signed-out and sends no request to `/auth/logout`; one followed by a 200 naming another user
+      disarms the leave guard and then reloads the document, asserted on call order; and one
+      followed by a 200 naming the same user leaves it signed in. Three 401s at once cause one
+      session read. Each is asserted against doubles, which is the offline proof the handler is
+      registered.
+- [ ] `apiRequest` sends `x-dq-user` with the held username, and with no held username returns
+      `SessionExpired` without a request. The `/api/` route handler answers 401 with no forward
+      when the header is absent and when it differs from the session's username, forwards when it
       matches, and never forwards the header.
+- [ ] A session load answers 401 and leaves the item in place when the stored ID token's `aud` is
+      another client's id, tested both ways: a dev-client session on a server configured as the
+      production client, and the reverse.
 - [ ] `signOut` disarms the leave guard before the request to `/auth/logout` starts, asserted on
       call order, and with an upload running no leave prompt is raised (SPEC-256's own test,
       re-pointed at the new sign-out).
@@ -147,10 +167,12 @@ one-segment refusal and the per-route retry policy are unchanged.
 
 **The timeout moves above the server's.** `TIMEOUT_MS` is 30 seconds today, set from the API
 Gateway integration's ceiling so that the server always gives up first. The `/api/` route handler
-now sits in between: it may read the session, refresh within SPEC-257's 5-second token-endpoint
-bound, and wait 35 seconds for the API. So `TIMEOUT_MS` becomes 45 seconds. A test pins it above
-the sum of the server's forward deadline and its token-endpoint bound, read from the server's own
-constants, so a write the server completes is never reported to the user as `RequestTimeout`.
+now sits in between. Its worst path before forwarding is three store calls (the read, the
+compare-and-set write and the re-read after losing it) and one token-endpoint call, each bounded by
+SPEC-257 (2 seconds per store call, 5 for the token endpoint), and then it waits 35 seconds for the
+API: 46 seconds in all. So `TIMEOUT_MS` becomes 50 seconds. A test pins it above that sum, computed
+from the server's own constants, so a write the server completes is never reported to the user as
+`RequestTimeout`.
 
 `lib/idToken.ts` keeps `getIdToken` at its path, so the three forced-refresh call sites (in the
 Files and Connections areas) are untouched. A forced call posts `POST /auth/refresh` and returns
@@ -168,8 +190,9 @@ is kept for the callers' sake.
       as well, so no status retries.
 - [ ] `getIdToken(true)` posts `/auth/refresh` with no body and resolves success on 204 and failure
       on 401; `getIdToken()` makes no request.
-- [ ] `TIMEOUT_MS` exceeds the server's forward deadline plus its token-endpoint bound, asserted by a
-      test that imports both server constants; lowering it to 39 seconds fails that test.
+- [ ] `TIMEOUT_MS` exceeds the server's forward deadline, plus its token-endpoint bound, plus three
+      store-call bounds, asserted by a test that imports the server's constants; lowering it to 45
+      seconds fails that test.
 - [ ] The non-test source files of the three forced-refresh callers are byte-identical before and
       after this spec, asserted on the diff.
 - [ ] `identity-and-access/apirequest-retries-nothing-and-idempotency-is-declared-per-route` is
@@ -227,8 +250,10 @@ missing read grant fails the apply after the create, as well as the create itsel
       variables, asserted by a test that fails when either side names a literal; it is a
       `SecureString`, and no Terraform output exposes it.
 - [ ] Run twice against a stubbed `aws` command, `dev:session-env` leaves exactly one marked block,
-      preserves a line outside it, writes every variable the start check requires, and prints no
-      value, asserted on captured output.
+      preserves a line outside it, writes every variable the start check requires, leaves
+      `.env.local` with mode `0600`, and prints no value, asserted on captured output. Against a
+      parameter whose value is malformed, it exits non-zero and its output still contains no value
+      from the parameter (a sentinel planted in the secret is absent).
 - [ ] A cookie test with `NODE_ENV` set to `production` gets the `__Host-` names with `Secure`, and
       one with `development` gets the unprefixed names without `Secure`.
 - [ ] With one session variable unset, the server exits 1 and names it, as SPEC-255's check does
@@ -400,7 +425,7 @@ startSignUp(): Promise<ServiceResult<void>>;              // the same
 startSignOut(): Promise<ServiceResult<void>>;             // POST /auth/logout, assigns logoutUrl
 
 // apps/portal/src/lib/apiClient.ts — same signature; fetches `/api${path}${query}`, same-origin,
-// sending `x-dq-user: <held username>`; TIMEOUT_MS = 45_000
+// sending `x-dq-user: <held username>`; TIMEOUT_MS = 50_000
 apiRequest<R extends ApiRouteId>(route: R, ...args: ApiRequestArgs<R>): Promise<ServiceResult<ResponseOf<R>>>;
 ```
 
@@ -430,7 +455,7 @@ apps/portal/
     ├── features/auth/AuthProvider.tsx   # no Hub; ?signin=failed; registers the 401 handler
     ├── lib/amplify.ts                   # deleted
     ├── lib/idToken.ts                   # over POST /auth/refresh
-    ├── lib/apiClient.ts                 # /api/, same-origin, x-dq-user, no retry, 45 s
+    ├── lib/apiClient.ts                 # /api/, same-origin, x-dq-user, no retry, 50 s
     ├── lib/env.ts                       # - six dev-fallback entries (merge 2)
     ├── types/runtimeConfig.types.ts     # - six keys (merge 2)
     ├── app/api/[...path]/route.ts       # + the x-dq-user check (SPEC-257's handler)
