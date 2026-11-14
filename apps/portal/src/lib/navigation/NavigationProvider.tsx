@@ -70,6 +70,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
   }));
   const [expected, setExpected] = useState<Expected | null>(null);
   const entryRef = useRef(entry);
+  const leaving = useRef<Entry | null>(null);
   const lastNextState = useRef<NextHistoryState | null>(null);
 
   let current = entry;
@@ -161,11 +162,15 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
         target.pathname === normalizePathname(from.pathname) ||
         (routerFor(from.pathname, records) === 'catch-all' && routerFor(target.pathname, records) === 'catch-all');
       if (!native) {
+        leaving.current = entryRef.current;
         setExpected({...next, native: false});
         if (type === 'PUSH') router.push(href);
         else router.replace(href);
         return;
       }
+      // A page a router navigation is leaving has no address left to correct, and a native write
+      // would make Next restore, which discards that navigation and loses the click.
+      if (leaving.current === entryRef.current) return;
       // Next re-renders only when its path or search moves; when neither does, nothing would.
       if (sameDocument(target, entryRef.current)) setEntry(next);
       else setExpected({...next, native: true});

@@ -298,6 +298,40 @@ describe('which router performs a navigation', () => {
   });
 });
 
+// A router navigation waits on the server while the page it leaves stays mounted. A native write in
+// that window makes Next restore, and a restore discards the pending navigation, so the click is lost.
+describe('a page that is leaving', () => {
+  it('drops its same-page write while the navigation is in flight, and the click lands', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+
+    await screen.findByRole('heading', {name: 'page notifications'});
+    expect(lastCommit()).toMatchObject({page: 'notifications', pathname: '/notifications', search: ''});
+    act(() => fixture.navigate?.('?x=1', {replace: true}));
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'notifications', search: '?x=1'}));
+  });
+
+  it('writes a same-page navigation again once a Back has dropped the one in flight', async () => {
+    const {user} = renderApp('/data-quality', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page data-quality'});
+    await follow(user, 'To files');
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To notifications');
+    await traverse(-1);
+    await screen.findByRole('heading', {name: 'page data-quality'});
+    act(() => fixture.navigate?.('?x=1', {replace: true}));
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'data-quality', search: '?x=1'}));
+  });
+});
+
 describe('an in-page anchor’s entry', () => {
   // A native anchor makes an entry with no state, and Next ignores a popstate whose state is null,
   // so without the seam stamping it Back would leave the page it came from on screen.
@@ -434,12 +468,16 @@ describe('targets outside the portal', () => {
 });
 
 describe('route params', () => {
-  it.each(ROUTERS)('decodes a percent-encoded segment (%s)', async (router) => {
-    renderApp('/data-quality/a%40b%20c/r1', servedBy(router));
+  // `a%2541` is the one that tells a single decode from a double: twice, it would read `aA`.
+  it.each(ROUTERS.flatMap((router) => [[router, 'a%40b%20c', 'a@b c'] as const, [router, 'a%2541', 'a%41'] as const]))(
+    'decodes a percent-encoded segment exactly once (%s, %s)',
+    async (router, segment, space) => {
+      renderApp(`/data-quality/${segment}/r1`, servedBy(router));
 
-    await screen.findByRole('heading', {name: 'page report'});
-    expect(lastCommit().params).toMatchObject({space: 'a@b c', requestId: 'r1'});
-  });
+      await screen.findByRole('heading', {name: 'page report'});
+      expect(lastCommit().params).toMatchObject({space, requestId: 'r1'});
+    }
+  );
 
   it('matches case-sensitively, as Next routes', () => {
     expect(matchPath('/files', '/Files')).toBeNull();

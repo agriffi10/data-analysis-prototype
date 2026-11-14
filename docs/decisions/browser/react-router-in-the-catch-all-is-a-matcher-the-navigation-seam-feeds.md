@@ -51,6 +51,13 @@ navigator that sends every push and replace back through the seam.
   only while it can be: a native one once its own entry is written, a router one before Next writes the
   address. Next drops a push still in flight when a traversal arrives, and taking the dropped push for
   a Back to the same address called the Back a push, with the dropped push's key and state.
+- **A page a router navigation is leaving writes nothing natively** (3, 7). The page stays mounted
+  while the push waits on the server, and a native write then makes Next restore, which discards the
+  push (`app-router-instance.js` marks the pending action `discarded` on a NAVIGATE or RESTORE): a
+  deep link's `clear()` or a conflict review closing after a round trip would lose the user's click
+  once the area moves make those exits router pushes (found reviewing the Explore move). So a same-page navigation from the entry a router
+  navigation left is dropped, held by that entry's identity, which arrival, a traversal or an outside
+  write all replace, so the drop never outlasts the leave. The page has no address left to correct.
 - **A traversal is classified while rendering** (1, 2): a change the seam did not start, with the
   address already moved, is a `'POP'` and reads its key from the entry. A popstate listener cannot do
   this, because React renders the traversal before the listener runs; measured, that called a Back a
@@ -97,6 +104,11 @@ page that reads `params` or `searchParams` props; Next's `<Link>` or prefetching
 plain anchors); history state as a carrier.
 
 ## History
+
+### 2026-11-14
+
+- **Changed:** a page a router navigation is leaving writes nothing natively, because the area moves
+  make leaving an App Router page a router push, and a same-page write in flight loses the click.
 
 ### 2026-11-13
 
