@@ -41,7 +41,7 @@ describe('the data-quality area', () => {
     ['/data-quality', 'Data quality runs'],
     ['/data-quality/alice/req-1', 'A data quality report']
   ])('serves %s inside the shell', async (path, heading) => {
-    renderApp(path, {auth: authenticated('alice')});
+    renderApp(path, {auth: authenticated('alice'), routers: 'as-recorded'});
 
     expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Files'})).toBeInTheDocument();

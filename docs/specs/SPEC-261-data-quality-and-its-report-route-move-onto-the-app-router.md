@@ -82,7 +82,11 @@ report already reads. The Data quality record changes `router` to `'app'`.
       `'app'`.
 - [ ] A new test renders the runs page through `renderApp` and finds its runs list, and another
       renders a report through it and finds the report's heading; with either page file deleted,
-      its test turns red on the catch-all's 404. The inherited split tests pass unchanged.
+      its test turns red on the catch-all's 404. Each names the area's router as `'app'`, and the
+      inherited split tests follow the records (`routers: 'as-recorded'`), since the harness serves
+      an area a test does not name from the catch-all. *(Amended while building: SPEC-256's
+      completion made the catch-all the harness default, so a test that names no router would keep
+      testing the catch-all after the move.)*
 - [ ] Through `renderApp`, with shared workspaces on and a connection whose database is `a@b c`,
       `/data-quality/a%40b%20c/req-1` renders the report for space `a@b c` and request `req-1`.
 - [ ] `next build` lists `/data-quality` and `/data-quality/[space]/[requestId]` as dynamic routes,
