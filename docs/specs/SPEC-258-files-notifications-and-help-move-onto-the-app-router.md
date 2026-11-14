@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-258
 title: "Files, Notifications and Help Move Onto the App Router"
 description: "Serves the Files, Notifications and Help pages from App Router pages instead of the react-router catch-all, with nothing a user does on them changing."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 4
