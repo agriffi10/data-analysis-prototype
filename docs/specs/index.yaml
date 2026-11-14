@@ -1755,6 +1755,13 @@ specs:
     depends_on: ["SPEC-256"]
     arc: "nextjs"
     path: "docs/specs/SPEC-261-data-quality-and-its-report-route-move-onto-the-app-router.md"
+  - id: "SPEC-262"
+    title: "The Browser Signs In Through the Server"
+    description: "The browser stops holding tokens: it signs in, signs out and calls the API through the Next.js server's session routes and /api/ pass-through, Amplify and the public Cognito client retire, local development signs in through its own client, and every allowlist that served the old path narrows in a second merge."
+    spec_status: "Draft"
+    depends_on: ["SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261"]
+    arc: "nextjs"
+    path: "docs/specs/SPEC-262-the-browser-signs-in-through-the-server.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1791,7 +1798,7 @@ arcs:
   - name: "infra-building-blocks"
     order: ["SPEC-252", "SPEC-253", "SPEC-254"]
   - name: "nextjs"
-    order: ["SPEC-255", "SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261"]
+    order: ["SPEC-255", "SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261", "SPEC-262"]
   - name: "notifications"
     order: ["SPEC-058", "SPEC-059", "SPEC-060", "SPEC-061"]
   - name: "observability"
