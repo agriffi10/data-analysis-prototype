@@ -23,6 +23,9 @@ type Entry = NavLocation & {type: NavigationType};
 /** A navigation the seam started and has not seen render: written natively, or handed to Next's router. */
 type Expected = Entry & {native: boolean};
 
+/** The entry a router navigation left, and the address it left from. */
+type Leave = {from: Entry; at: string};
+
 /** Next's own fields on a history entry, which the seam copies onto an in-page anchor's. */
 type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unknown};
 
@@ -70,7 +73,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
   }));
   const [expected, setExpected] = useState<Expected | null>(null);
   const entryRef = useRef(entry);
-  const leaving = useRef<Entry | null>(null);
+  const leaving = useRef<Leave | null>(null);
   const lastNextState = useRef<NextHistoryState | null>(null);
 
   let current = entry;
@@ -162,15 +165,24 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
         target.pathname === normalizePathname(from.pathname) ||
         (routerFor(from.pathname, records) === 'catch-all' && routerFor(target.pathname, records) === 'catch-all');
       if (!native) {
-        leaving.current = entryRef.current;
+        leaving.current = {from: entryRef.current, at: hrefOf(from)};
         setExpected({...next, native: false});
         if (type === 'PUSH') router.push(href);
         else router.replace(href);
         return;
       }
-      // A page a router navigation is leaving has no address left to correct, and a native write
-      // would make Next restore, which discards that navigation and loses the click.
-      if (leaving.current === entryRef.current) return;
+      // A page correcting its own address while a router navigation leaves it would make Next restore,
+      // which discards that navigation and loses the click. The leave lasts while both the address and
+      // the entry are the ones it left; a push is the user leaving again, and the last click wins.
+      const left = leaving.current;
+      if (
+        left !== null &&
+        type === 'REPLACE' &&
+        target.pathname === normalizePathname(from.pathname) &&
+        left.from === entryRef.current &&
+        left.at === hrefOf(from)
+      )
+        return;
       // Next re-renders only when its path or search moves; when neither does, nothing would.
       if (sameDocument(target, entryRef.current)) setEntry(next);
       else setExpected({...next, native: true});

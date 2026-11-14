@@ -1,3 +1,4 @@
+import {useLayoutEffect} from 'react';
 import {act, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {renderApp, type RenderAppOptions} from '../../test/appRouter';
@@ -13,6 +14,7 @@ import {
   resetReadout,
   type FixtureLink
 } from '../../test/seamReadout';
+import {useNavigate} from './hooks';
 import {matchPath} from './matchPath';
 import type {AreaName, AreaRouter} from './areas';
 
@@ -238,6 +240,18 @@ describe('which router performs a navigation', () => {
     expect(requests()).toEqual([]);
   });
 
+  // Next's router strips a trailing slash, so handed `/files/` from `/files` it would land where it
+  // started, and a navigation that never leaves would leave the page's own writes dropped.
+  it('writes a target that differs only by a trailing slash natively, at the bare path', async () => {
+    renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    act(() => fixture.navigate?.('/files/?x=1', {replace: true}));
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', pathname: '/files', search: '?x=1'}));
+    expect(requests()).toEqual([]);
+  });
+
   it('changes only the query or the hash on an App Router page without Next’s router, and without a remount', async () => {
     resetReadout([...LINKS, {label: 'Same page, another query', to: '/help?topic=y'}]);
     const {user} = renderApp('/help', servedBy('app'));
@@ -316,21 +330,67 @@ describe('a page that is leaving', () => {
     await waitFor(() => expect(lastCommit()).toMatchObject({page: 'notifications', search: '?x=1'}));
   });
 
+  // The Back lands on an entry with the same address as the one left, so only the entry tells that the
+  // leave is over.
   it('writes a same-page navigation again once a Back has dropped the one in flight', async () => {
-    const {user} = renderApp('/data-quality', servedBy('app'));
-    await screen.findByRole('heading', {name: 'page data-quality'});
-    await follow(user, 'To files');
+    const {user} = renderApp('/files', servedBy('app'));
     await screen.findByRole('heading', {name: 'page files'});
+    act(() => fixture.navigate?.('/files'));
 
     hold();
     await follow(user, 'To notifications');
     await traverse(-1);
-    await screen.findByRole('heading', {name: 'page data-quality'});
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', type: 'POP'}));
     act(() => fixture.navigate?.('?x=1', {replace: true}));
 
-    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'data-quality', search: '?x=1'}));
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?x=1'}));
+  });
+
+  // The seam cannot tell a click from a page's own write, so it drops only a replace on the same path,
+  // which is how a page corrects its address; anything else is the user leaving again, and the last
+  // click wins.
+  it.each([
+    ['a push on the same page', 'To the files section', {page: 'files', pathname: '/files', hash: '#files'}],
+    ['a replace to another page', 'Replace with help', {page: 'help', pathname: '/help'}]
+  ])('lets the user’s next click win while the navigation is in flight: %s', async (_kind, label, landed) => {
+    const {user} = renderApp(
+      '/files',
+      both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
+    );
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To data quality');
+    await follow(user, label);
+    release();
+
+    await waitFor(() => expect(lastCommit()).toMatchObject(landed));
+    expect(screen.queryByRole('heading', {name: 'page data-quality'})).not.toBeInTheDocument();
+  });
+
+  // A child's layout effects run before the seam's own, so the destination's first write lands
+  // while the seam's entry is still the one left; Next has written the new address by then.
+  it('keeps a write the destination makes as it first lays out', async () => {
+    const options = servedBy('app');
+    const {user, location} = renderApp('/files', {
+      ...options,
+      pages: {...options.pages, '(signed-in)/notifications/page.tsx': WritesOnArrival}
+    });
+    await screen.findByRole('heading', {name: 'page files'});
+
+    await follow(user, 'To notifications');
+
+    await screen.findByRole('heading', {name: 'page arrived'});
+    await waitFor(() => expect(location().search).toBe('?x=1'));
   });
 });
+
+/** A destination that corrects its own address in its first layout effect. */
+function WritesOnArrival() {
+  const navigate = useNavigate();
+  useLayoutEffect(() => navigate('?x=1', {replace: true}), [navigate]);
+  return <h1>page arrived</h1>;
+}
 
 describe('an in-page anchor’s entry', () => {
   // A native anchor makes an entry with no state, and Next ignores a popstate whose state is null,
