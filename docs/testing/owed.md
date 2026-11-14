@@ -121,6 +121,15 @@ switch-off (Deploy Infrastructure run 43602954200) stopped half-way on a missing
 for the Elastic IP's disassociation, so the check is owed to the first switch-off after that grant.
 A switch-off is a dispatch, which applies with no plan job, so its apply log is the only record.
 
+> **Ran 2026-11-14 and failed** (Deploy Infrastructure run 43602954200, SPEC-256's switch-off;
+> [`sessions.md`](sessions.md), 2026-11-14). The apply stopped at `module.network[0].aws_eip.nat`:
+> the deploy role is not allowed `ec2:DisassociateAddress`, so it can create the NAT gateway's Elastic
+> IP but not release it. Before that, 52 addresses were destroyed, every one under `module.network[0]`
+> or `module.spa[0]`, `aws_nat_gateway.main` among them, and nothing outside the two modules was
+> touched: the safety half of the row holds. Left standing: `aws_eip.nat`, `aws_internet_gateway.main`
+> and `aws_vpc.main`. The row stays owed until the deploy role can release the address and a switch-off
+> completes.
+
 | Check | Why | Recipe |
 |---|---|---|
 | **The switch-off destroys only the web tier**, the NAT gateway and its Elastic IP among it, and nothing of the session store or the Cognito clients (SPEC-257 FR-001) | A switch-off that took the session store would sign everyone out, and one that took the key would schedule it for deletion. Nothing but the apply log shows which addresses a dispatch destroyed. | After `gh variable set TF_VAR_web_tier_enabled --body false` and `gh workflow run deploy-infra.yml --ref main`, read the run's apply log: every `Destroying...` line names an address under `module.network[0]` or `module.spa[0]`, `aws_nat_gateway.main` and `aws_eip.nat` among them, and none names `module.session_store` or `module.auth`. |

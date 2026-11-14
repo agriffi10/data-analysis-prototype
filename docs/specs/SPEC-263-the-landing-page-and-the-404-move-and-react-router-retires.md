@@ -2,7 +2,7 @@
 type: Spec
 id: SPEC-263
 title: "The Landing Page and the 404 Move, and React Router Retires"
-description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, and collapses the navigation seam and the test harness onto Next.js alone, closing the arc."
+description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in the path of a request without a body from answering 500, closing the arc."
 spec_status: Draft
 depends_on: [SPEC-262]
 arc: nextjs
@@ -12,11 +12,17 @@ arc_order: 9
 **Dependency notes:** SPEC-262 (the browser signs in through the server: the auth provider on the
 session routes, so the landing page's sign-in and sign-up start `GET /auth/login`, and a failed or
 cancelled sign-in comes back to `/?signin=failed`; this spec moves the landing page as 262 leaves
-it and follows whatever 262 settled for those two routes). Through 262 it rests on SPEC-256 (the
-shell in the root layout, the navigation seam, the area records and views, the record-and-page
-guard, the page sweep, `renderApp` and the `next/navigation` stand-in) and on SPEC-258 to 261,
-which leave every signed-in area on the App Router, so the catch-all serves only `/` and unknown
-paths. The arc's charter is `ARCS.md` → *Next.js arc (SPEC-255 → 263)*.
+it and follows whatever 262 settled for those two routes: the auth provider reads `?signin=failed`,
+shows the message and drops the parameter). Through 262 it rests on SPEC-256, as built in #977 (the
+shell in the root layout; the navigation seam in `src/lib/navigation/`; the area records in
+`src/lib/navigation/areas/` and the views in `src/routes/areas/`; the record-and-page guard in
+`areas/areas.test.ts`; the page sweep `src/app/pageSweep.test.ts`; `renderApp` with its `routers` and
+`pages`; the stand-in `src/test/nextNavigation.ts` with `hold`, `requests()` and `external()`; the
+fence's tests `eslintConfigShape.test.ts`, `navigationFence.test.ts` and `reactRouterSweep.test.ts`),
+whose delivery doc is `docs/spec-delivery/SPEC-256-…`, and on SPEC-258 to 261, which leave every
+signed-in area on the App Router, so the catch-all serves only `/` and unknown paths. It also rests on
+SPEC-255's request proxy (`src/proxy.ts`), which FR-006 extends. The arc's charter is `ARCS.md` →
+*Next.js arc (SPEC-255 → 263)*.
 
 ## Overview
 
@@ -25,9 +31,10 @@ and the 404, both through the optional catch-all that SPEC-255 mounted to host t
 spec moves those two pages onto the App Router and then removes everything the coexistence needed:
 the catch-all, react-router itself, the route table, the half of the navigation seam that decided
 between two routers, the per-area record of which router serves an area, and the test machinery
-that let a test choose a router. What a user sees does not change, with one exception that is a
-correction: an address that matches no page now answers with status 404 instead of a 200 that
-rendered the not-found page. The arc ends here.
+that let a test choose a router. What a user sees does not change, with two exceptions that are
+corrections: an address that matches no page now answers with status 404 instead of a 200 that
+rendered the not-found page, and a request without a body whose path carries a malformed
+percent-escape answers 400 instead of a 500 that logged nothing. The arc ends here.
 
 ## Scope
 
@@ -48,6 +55,8 @@ rendered the not-found page. The arc ends here.
 - 255's image matrix row that pins the catch-all's trap (a removed root-level file answering 200
   HTML, `.github/scripts/spa-image-matrix.sh`) rewritten to the 404 it now gets, and every document
   or decision 255 wrote that records that 200.
+- A request without a body whose path carries a malformed percent-escape answers 400 and logs a
+  line, whichever page, route handler or not-found serves the path (FR-006).
 - At completion: the decisions and documents that describe the coexistence, named in Phase 4.
 
 ### Out of Scope
@@ -110,13 +119,19 @@ same level, so this FR and the catch-all's deletion (FR-002) land in one change.
 `CatchAllRouter` and `react-router` itself are deleted, and the page sweep loses its case for the
 catch-all's directory (it keeps every other). The lint pattern that held react-router to the seam
 and its two exemption clauses come out of every `no-restricted-imports` clause, since there is
-nothing left to exempt. What holds the removal is the source sweep, now with no exempt place, and a
-check that `package.json` names no package whose name begins `react-router`. The sweep matches any
-module specifier beginning `react-router` (so `react-router-dom` and `react-router/dom` too), and
-both guards build that name at runtime rather than spelling it, so neither finds itself. The lazy
-views keep their `ErrorBoundary` and `Suspense` but lose their static keys, because each area is its
-own App Router segment and Next remounts a page's subtree when the segment changes, measured while
-authoring 256; the check that no two keys collide goes with them.
+nothing left to exempt, and `navigationFence.test.ts`, which lints a planted import in each place to
+prove the seam, the table and the harness were the only ones allowed it, goes with them. What holds
+the removal is `reactRouterSweep.test.ts`, now with no exempt place, and a check that `package.json`
+names no package whose name begins `react-router`. The sweep matches any module specifier beginning
+`react-router` (so `react-router-dom` and `react-router/dom` too), and both guards build that name at
+runtime rather than spelling it, so neither finds itself. The lazy views keep their `ErrorBoundary`
+and `Suspense` but lose their static keys, because each area is its own App Router segment and Next
+remounts a page's subtree when the segment changes, measured while authoring 256; the check that no
+two keys collide, and its planted copy, go with them. Of `table.test.tsx`'s other tests, the
+override-context one (no route built for an area the App Router serves) goes with the override, and
+the rest move rather than vanish: the landing page, the 404, the chunk failure, `/Files` answering
+the not-found page signed in and signed out with no redirect, and `/fil%65s` sending a signed-out
+user to `/`, since the gate still matches the decoded path.
 
 #### Acceptance Criteria:
 
@@ -133,6 +148,9 @@ authoring 256; the check that no two keys collide goes with them.
       rule: the manifest check and the sweep are what hold the removal.
 - [ ] After a lazy page's chunk fails to load, navigating to another lazy page shows that page and
       no stale error, through `renderApp`.
+- [ ] `/Files` renders the not-found page signed in and signed out, the signed-out one staying at
+      `/Files`, and `/fil%65s` sends a signed-out user to `/`, through `renderApp` on the App Router;
+      each turns red with the gate matching case-insensitively or on the undecoded path.
 
 ### FR-003: The seam runs on `next/navigation` alone
 
@@ -140,19 +158,24 @@ authoring 256; the check that no two keys collide goes with them.
 
 The seam keeps every rule 256 gave it that concerns the App Router (the committed address as a
 navigation's source, normalized comparison, the per-entry key, traversals classified while they
-render, an in-page anchor's entry made restorable, state held in memory, decoded params, in-app
-targets only, and the scroll statement) and loses the one that concerned react-router: a navigation
+render, an expected navigation accepted only while it can still be the one rendering, so a push Next
+dropped is never taken for Back, an in-page anchor's entry made restorable, state held in memory,
+decoded params, in-app targets only, checked as written and once resolved with doubled slashes
+collapsed, and the scroll statement) and loses the one that concerned react-router: a navigation
 is written natively when it keeps the committed pathname, and goes through `router.push` or
 `router.replace` otherwise. The old rule cannot survive the catch-all: it wrote a navigation between
 two paths no record claims natively, which was right while one catch-all page rendered both, and is
 wrong once `/` and the 404 are separate App Router pages. Measured while authoring, with the
 catch-all gone and the old rule kept, a link from the 404 to `/` left the not-found page on screen
 under `/`; with the new rule, every navigation among `/`, the 404 and a signed-in page, and Back
-through them, showed the right page. `useParams` returns Next's parameters, decoded. `matchPath` is the
-seam's own: static segments, `:name` parameters and `end: false` prefix matching, the three shapes `linkFlags.ts` and the gate
-use. It matches case-sensitively, as 256 already made the seam do, and returns parameter values
-undecoded, as react-router's `matchPath` does today (measured: `a%40b%20c`), so `linkFlags.ts`
-reads what it reads now; decoding stays `useParams`' job alone, done once. The area records keep `area` and `paths` and lose
+through them, showed the right page. `useParams` returns Next's parameters, decoded once.
+`matchPath` is the seam's own: static segments, `:name` parameters and `end: false` prefix matching,
+the three shapes `linkFlags.ts` and the gate's `areaOf` use. It matches case-sensitively, as 256
+already made the seam do, and returns each parameter as it stands in the path it was given except
+that `%2F` becomes `/`, exactly as react-router's `matchPath` does today (read in its source:
+`a%40b` comes back as `a%40b`). It decodes nothing itself: `linkFlags.ts` and `areaOf` hand it the
+path `decodePath` has already decoded segment by segment, keeping an encoded slash as `%2F`, so what
+they read does not change. The area records keep `area` and `paths` and lose
 `router`, so `routerFor`, the override context behind it and the record-and-page guard's
 `'catch-all'` clauses go; the guard now fails when a record's path has no page under
 `src/app/(signed-in)/`, or a page there serves a path no record claims.
@@ -160,8 +183,10 @@ reads what it reads now; decoding stays `useParams`' job alone, done once. The a
 #### Acceptance Criteria:
 
 - [ ] `matchPath` agrees with every case `linkFlags.ts`'s tests and the gate exercise, and with a
-      fixture corpus of static, parameterized, encoded, mis-cased and prefix patterns, asserted on
-      the params it returns (undecoded) as well as on whether it matched.
+      fixture corpus of static, parameterized, encoded (`%40`, `%2F`), mis-cased and prefix patterns,
+      asserted on the params it returns as well as on whether it matched; the corpus is run once
+      against react-router's `matchPath` with `caseSensitive: true` before the package goes, and
+      every row agrees.
 - [ ] A navigation between two pages calls `router.push`; a search-only, hash-only or same-address
       one calls neither `router.push` nor `router.replace`, each asserted on the call made.
 - [ ] From the not-found page, a link to `/` shows the landing page, and Back shows the not-found
@@ -170,9 +195,13 @@ reads what it reads now; decoding stays `useParams`' job alone, done once. The a
       router state as 256 requires.
 - [ ] The seam's tests from 256 that do not mention the catch-all pass unchanged in what they
       assert: the committed address as source, keys, navigation types, state, traversals, the
-      anchor, normalization, decoding, case-sensitive matching and in-app targets. 256's
-      uncommitted-push test, whose second click lands on a catch-all page, is retargeted to a second
-      App Router page and its mutant (reading the source from the seam's render) still reddens.
+      anchor, normalization, decoding, case-sensitive matching and in-app targets. Three of them
+      mix the two routers and are retargeted to App Router pages, each still red under its mutant:
+      the dropped push read as Back (accepting an expectation without checking it can still be
+      rendering), the router navigation whose state survives a native one rendering ahead of it,
+      and the in-flight push, whose second navigation becomes a search-only change to the pending
+      target, so a seam that took the pending navigation rather than the committed address as its
+      source would write it natively and leave the first page on screen.
 - [ ] The record-and-page guard fails for a record path with no page and for a page no record
       claims, each against a fixture, and passes on the tree.
 
@@ -188,8 +217,10 @@ a test whose subject navigates away still sees where it went. `renderApp` loses 
 `pages`, and renders `src/app/not-found.tsx` when no page matches, as Next does. Every test that
 used `routers` drops it and runs on the App Router: a test that ran in both routers keeps its App
 Router half, a test that ran on the catch-all alone or crossed the two runs between App Router
-pages, and one left duplicating another is deleted. The seam's tests of the catch-all
-(`CatchAllRouter`, the `BrowserRouter` mutant, a navigation between two catch-all paths) go.
+pages, and one left duplicating another is deleted. The seam's tests of the catch-all go: the move
+between two catch-all pages, the first render of a catch-all page after an App Router page, and the
+sweep for a `BrowserRouter`, `MemoryRouter` or `HashRouter` under `src/`, which the react-router
+sweep now covers whole. The `ROUTERS` rows of the seam's `it.each` tests keep their App Router row.
 
 #### Acceptance Criteria:
 
@@ -201,9 +232,52 @@ pages, and one left duplicating another is deleted. The seam's tests of the catc
 - [ ] The test names collected from the runner before and after this spec differ by exactly the
       removals, moves and additions the plan lists, diffed from a JSON run on both refs.
 - [ ] `vite.config.ts`, `src/test/` and the split test files name no `[[...slug]]`,
-      `CatchAllRouter`, `CatchAllMount` or `routers` option.
+      `CatchAllRouter`, `CatchAllMount` or `routers` option, and the test-utilities inventory no
+      longer offers `routers`.
 
-### FR-005: Checked live, on the tier
+### FR-006: A malformed percent-escape answers 400, not 500
+
+#### Description:
+
+A path whose percent-escapes do not decode, a `%` not followed by two hex digits (`/%ZZ`, `/files%`)
+or bytes that are not UTF-8 (`/%E0`, `/nope/%E0%A4`), answers 400 and writes one log line, whichever
+page, route handler or not-found serves the path. Measured on `main` under `next start` while
+authoring: every such path answered 500 and logged nothing, `/data-quality/%E0/r1` on 261's report
+page among them, while `/data-quality/a%40b/r1` (escapes that decode) answered 200 and `/query?x=%E0`
+(the escape in the query, which no router decodes) answered 200. Next means to answer these 400, as
+its source reads: its router catches the decode failure and renders the pages router's `/_error` at
+400. An App Router-only build has no `/_error` (its `server/pages/` holds only `500.html`), and the
+answer is 500 instead. A pages
+router `_error` and `_document` added to make that work did not build here (`next build` stopped:
+"Cannot find module for page: /_document"), and would bring back a second router as this spec
+removes one. The proxy answers instead: before anything else, it decodes the request's pathname
+segment by segment and, when a segment does not decode, returns 400 with a short plain-text body,
+the security headers and the lockdown policy, and writes `request: refused a path with a malformed
+percent-escape (<method>)`, which names the method and not the path, since the path is the caller's
+text. Measured while authoring, with that check in the proxy, the bodyless corpus answered 400 with
+one line each, and `/data-quality/a%40b/r1` and `/query?x=%E0` still answered 200. A request carrying
+a body still skips the proxy, as the CSP decision requires, so a bodied request to a malformed path
+keeps Next's 500; sending bodied requests to the proxy for paths containing `%` was measured to
+answer them 400 too, and is refused, because a proxy-matched request with a body holds every path
+until its body arrives, and the `%` would be the caller's choice. That residual is recorded in the
+CSP decision with this reason; no browser sends a body to a malformed path, since the app builds
+every path it posts to.
+
+#### Acceptance Criteria:
+
+- [ ] A unit corpus for the proxy's check asserts 400, the body, the security headers and the log
+      line's text for `/%ZZ`, `/files%`, `/%E0`, `/nope/%E0%A4` and `/data-quality/%E0/r1`, and
+      asserts the request passes on with no line for `/`, `/files`, `/data-quality/a%40b/r1`,
+      `/files/a%2Fb`, `/query?x=%E0` and `/%2e`, each observed red with the check removed or
+      decoding the whole path at once.
+- [ ] Under `next start`, the same corpus as GET and HEAD answers 400 with one log line each, the
+      line naming the method and not containing the path, and the passing paths answer as they did
+      on `main`, measured before and after on one build each.
+- [ ] Under `next start`, a POST with a body to `/data-quality/%E0/r1` and to `/api/%E0` still skips
+      the proxy (no line, the lockdown policy), and `/healthz` answers while a request declaring a
+      large body to a `%` path sends one byte.
+
+### FR-007: Checked live, on the tier
 
 #### Description:
 
@@ -217,6 +291,7 @@ another session's live checks may overlap.
       folder; a cancelled sign-in comes back to `/` with "Sign-in failed or was cancelled.".
 - [ ] `/no-such-page` shows the not-found page with status 404, outside the shell, signed in and
       out.
+- [ ] `/data-quality/%E0/r1` answers 400, and its log line reaches the web tier's log group.
 - [ ] Every area opens from the header, Back and Forward move between them without a document
       reload, and each page keeps its own tab title.
 
@@ -254,21 +329,25 @@ export type AreaRecord = {
 
 ```
 apps/portal/src/
+├── proxy.ts                          refuses a malformed escape with 400 and a log line (FR-006)
 ├── app/
 │   ├── page.tsx                      new: the landing page
 │   ├── not-found.tsx                 new: the 404
+│   ├── publicPages.test.tsx          new: the landing, 404, `/Files`, `/fil%65s` and chunk-failure
+│   │                                 tests moved from table.test.tsx
 │   └── [[...slug]]/                  deleted
 ├── lib/navigation/
 │   ├── CatchAllRouter.tsx            deleted
+│   ├── navigationFence.test.ts       deleted
 │   ├── NavigationProvider.tsx        one native rule, no router lookup
 │   ├── matchPath.ts                  the seam's own matcher
-│   └── areas/                        records without `router`
+│   └── areas/                        records without `router`; the guard without 'catch-all'
 ├── routes/
 │   ├── table.tsx                     deleted
-│   ├── table.test.tsx                deleted; its landing, 404 and chunk-failure tests move to
-│   │                                 landing.test.tsx, NotFoundPage tests and a chunk-failure test of their own
+│   ├── table.test.tsx                deleted
 │   └── areas/*.tsx                   views without static keys
 └── test/
+    ├── reactRouterSweep.test.ts      no exempt place, plus the manifest check
     ├── renderWithProviders.tsx       no CatchAllRouter; `path` and `routes` on the seam's matcher
     └── appRouter.tsx                 no `routers`
 ```
@@ -284,7 +363,8 @@ the page it renders; so the two phases below are built together and land in one 
 ### Phase 1: The two pages, and the catch-all gone
 
 - `src/app/page.tsx` and `src/app/not-found.tsx`, with the catch-all's directory deleted in the same
-  change; the landing, 404 and chunk-failure tests moved out of `table.test.tsx`.
+  change; the landing, 404, `/Files`, `/fil%65s` and chunk-failure tests moved out of
+  `table.test.tsx` into `src/app/publicPages.test.tsx`.
 
 ### Phase 2: The seam and the harness on one router
 
@@ -295,18 +375,28 @@ the page it renders; so the two phases below are built together and land in one 
 
 ### Phase 3: react-router removed
 
-- The package and lockfile entry, the lint pattern and its exemption clauses, the views' static keys
-  and their check; the source sweep without exemptions and the manifest check; the bundle check.
+- The package and lockfile entry, the lint pattern and its exemption clauses with
+  `navigationFence.test.ts`, the views' static keys and their check; the source sweep without
+  exemptions and the manifest check; the bundle check.
 
-### Phase 4: The production build, the live checks and the record
+### Phase 4: The malformed escape
+
+- On `main` first, under `next start`, the 500 measured again for the FR-006 corpus; then the
+  proxy's check and its unit corpus, and the same corpus under `next start` answering 400 with one
+  log line each.
+
+### Phase 5: The production build, the live checks and the record
 
 - `next build` and `next start` locally, then the live checks on the tier.
-- The decisions rewritten in place with History entries: the layout boundaries (no keyed lazy
-  routes; the proof's table is the file system alone), and the `browser/` decision 256 added, whose
+- The decisions rewritten in place with History entries:
+  `browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md` (no keyed lazy
+  routes; the proof's table is the file system alone);
+  `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, whose
   react-router half becomes history while the eight Next behaviours the seam rests on stay its live
-  claim, since the seam still rests on all eight. `CLAUDE.md`'s routing row,
-  `docs/architecture.md`'s routing sentence, the notifications inventory's `NavLink` row, the
-  test-utilities inventory's `routers` option, `react.md` §21's harness line, the cross-router
-  steps 258 to 261 wrote into `docs/testing/e2e.md`, 255's records of the catch-all's 200, and
-  `docs/security-baseline.md`'s react-router passages (the open-redirect protection is now the
+  claim, since the seam still rests on all eight (rewritten in place under its name, as every
+  reversal is); and `infrastructure/response-headers-csp.md`, which gains the malformed escape. `CLAUDE.md`'s routing row, `docs/architecture.md`'s routing sentence, the foundations
+  inventory's seam rows and the notifications inventory's `NavLink` row, the test-utilities
+  inventory's `renderApp` row, `react.md` §21's harness line, the cross-router steps 256 to 261 wrote
+  into `docs/testing/e2e.md` (256's block in §4.1 among them), 255's records of the catch-all's 200,
+  and `docs/security-baseline.md`'s react-router passages (the open-redirect protection is now the
   seam's in-app rule) brought up to date, and the arc's entry in `ARCS.md` closed.

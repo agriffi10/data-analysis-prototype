@@ -10,6 +10,35 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-14, morning (SPEC-256, the shell and the navigation seam)
+
+**What was under test.** The shell in the root layout, the navigation seam and the leave guard, on the
+image of #977 (`a05098b9`), deployed by Deploy SPA image on that merge while SPEC-257 held the tier on.
+The page's history entries carried `__seamKey` beside Next's `__NA`, which is how the build was
+identified. Afterwards the tier was switched off through the repository variable and Deploy
+Infrastructure run 43602954200, which failed (below).
+
+**Browser.** The Claude app's browser pane (Chromium), because the Chrome extension was not connected;
+`agriffith`, signed in by Andrew; emulated at 1440×900. Instruments: page-context JavaScript reading
+`location`, `history.state`, `performance` resource entries and the upload drawer's progress bars, and
+setting generated files on the upload input; the pane's own navigation for Back. The pane handles page
+dialogs itself, so it cannot show the browser's leave prompt.
+
+| Check | Result |
+|---|---|
+| A change of query only makes no request for the page | `/files` to `/files?space=shared_dwb_team` from the sidebar: the only new requests were the API's listing and a settings read; nothing carried `_rsc`, and no document load. |
+| The skip link, another page, then Back | Skip link to `/files?space=shared_dwb_team#main`, whose entry then carried Next's state and no seam key (the stamp); Query by its tab; Back showed that Files page, not Query, with no document load. |
+| A folder whose name holds a space, from a Query table action, then Back | A table `spec_256_check` built from `agriffith/spec 256 table/`; Query's **Options → View source files** opened Files at `?prefix=agriffith%2Fspec%20256%20table%2F` with its `rows.csv`; Back returned to Query with no document load. |
+| An upload survives Files to Query and back | Two generated 768 MB files at 4–5%; Query by its tab, then Files by its tab; the drawer showed both still uploading at 37–38%, and a marked element of the shell was the same node throughout. |
+| Reloading during an upload raises the prompt | **Not run.** With an upload running, a `beforeunload` dispatched in the page came back cancelled; the browser's own dialog is owed ([`owed.md`](owed.md), SPEC-256's leave prompt). Andrew chose not to run the manual step. |
+| Signing out during an upload asks nothing | During a 300 MB upload, **Sign out**: the `beforeunload` the browser dispatched came back not cancelled, the pane went through the provider's logout to `/`, signed out, and the upload ended with the page. |
+| The switch-off | **Failed** at `module.network[0].aws_eip.nat`: the deploy role is not allowed `ec2:DisassociateAddress`. 52 addresses under `module.network[0]` and `module.spa[0]` were destroyed, the NAT gateway among them; nothing outside them was touched; the Elastic IP, the internet gateway and the VPC still stand ([`owed.md`](owed.md), SPEC-257's switch-off). |
+
+**Left behind.** In `agriffith`'s space: the folders `spec-256-live-uploads/` (about 1.9 GB of
+generated files) and `spec 256 table/`, and the table `spec_256_check`. The in-page generated files ran
+the pane out of blob storage past about 2 GB, after which uploads failed in the browser before reaching
+S3 (status 0) until smaller files were used; that was the instrument, not the portal.
+
 ## Live-check session — 2026-11-14, early morning (SPEC-257, the server-held session)
 
 **What was under test.** The session routes, the NAT gateway and the session store, on image

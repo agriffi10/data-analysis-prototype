@@ -3623,4 +3623,7 @@ guard disarmed. Each move still runs the cross-router scenarios live on its own 
 and `src/app/not-found.tsx`, so an address that matches no page now answers 404 rather than the
 catch-all's 200 (measured on a harness with no catch-all). The seam's native rule narrows to
 same-pathname navigations, because the coexistence rule, which wrote a navigation between two
-unclaimed paths natively, left the 404 on screen under `/` once the catch-all was gone (measured).
+unclaimed paths natively, left the 404 on screen under `/` once the catch-all was gone (measured). It
+also stops a malformed percent-escape in a path from answering 500, which every such path did on
+`main` with nothing logged (measured 2026-11-14): the proxy answers a bodyless request 400 with a
+log line, and a request with a body keeps skipping the proxy, so it keeps Next's 500.
