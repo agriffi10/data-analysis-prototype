@@ -65,16 +65,13 @@ function sqlsRun(): string[] {
 }
 
 function render(options: {query?: boolean} = {}) {
-  return renderWithProviders(
-    <DataExplorerWorkspace />,
-    {
-      route: '/explore',
-      path: '/explore',
-      routes: {'/query': <p>The Query page</p>},
-      auth: authenticated('alice'),
-      ...(options.query === false ? {featureFlags: {query: false}} : {})
-    }
-  );
+  return renderWithProviders(<DataExplorerWorkspace />, {
+    route: '/explore',
+    path: '/explore',
+    routes: {'/query': <p>The Query page</p>},
+    auth: authenticated('alice'),
+    ...(options.query === false ? {featureFlags: {query: false}} : {})
+  });
 }
 
 async function filterStatusIsNotNull(user: ReturnType<typeof render>['user']) {

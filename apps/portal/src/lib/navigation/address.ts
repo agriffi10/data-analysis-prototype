@@ -41,7 +41,10 @@ export function normalizePathname(pathname: string): string {
  * aside, each compared in its canonical form.
  */
 export function sameDocument(a: Address, b: Address): boolean {
-  return normalizePathname(a.pathname) === normalizePathname(b.pathname) && normalizeSearch(a.search) === normalizeSearch(b.search);
+  return (
+    normalizePathname(a.pathname) === normalizePathname(b.pathname) &&
+    normalizeSearch(a.search) === normalizeSearch(b.search)
+  );
 }
 
 /** The address as one string, as written into the history entry. */
@@ -113,7 +116,8 @@ export function resolveTo(to: To, from: Address): Address {
     ? from.pathname
     : /^[/\\]/.test(parts.pathname)
       ? normalizePathname(parts.pathname)
-      : new URL(parts.pathname, `${PARSE_BASE}${from.pathname.endsWith('/') ? from.pathname : `${from.pathname}/`}`).pathname;
+      : new URL(parts.pathname, `${PARSE_BASE}${from.pathname.endsWith('/') ? from.pathname : `${from.pathname}/`}`)
+          .pathname;
   return {
     pathname,
     search: parts.search === '?' ? '' : parts.search,

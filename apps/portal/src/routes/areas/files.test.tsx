@@ -259,22 +259,25 @@ describe('the signed-in shell outlives the page', () => {
     ['nowhere', 'catch-all'],
     ['the landing page', 'app'],
     ['nowhere', 'app']
-  ])('ends on a public page: a link to %s from a %s page aborts the upload and drops the shell', async (target, router) => {
-    standIn.throwsAt = () => false;
-    const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', router === 'app' ? FILES_ON_THE_APP_ROUTER : {auth: authenticated('alice')});
-    await startUploads(user);
-    if (router === 'catch-all') {
-      await user.click(screen.getByRole('link', {name: 'Data quality'}));
-      await screen.findByText('Data quality stand-in');
+  ])(
+    'ends on a public page: a link to %s from a %s page aborts the upload and drops the shell',
+    async (target, router) => {
+      standIn.throwsAt = () => false;
+      const aborted = holdUploadsOpen();
+      const {user} = renderApp('/files', router === 'app' ? FILES_ON_THE_APP_ROUTER : {auth: authenticated('alice')});
+      await startUploads(user);
+      if (router === 'catch-all') {
+        await user.click(screen.getByRole('link', {name: 'Data quality'}));
+        await screen.findByText('Data quality stand-in');
+      }
+
+      await user.click(screen.getByRole('link', {name: `To ${target}`}));
+
+      await waitFor(() => expect(aborted()).toEqual([true]));
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Upload'})).not.toBeInTheDocument();
     }
-
-    await user.click(screen.getByRole('link', {name: `To ${target}`}));
-
-    await waitFor(() => expect(aborted()).toEqual([true]));
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Upload'})).not.toBeInTheDocument();
-  });
+  );
 
   // The other side of the same claim: a fix that kept the providers alive by hoisting them above
   // the auth gate would pass every test above, and leave a signed-out tab uploading.

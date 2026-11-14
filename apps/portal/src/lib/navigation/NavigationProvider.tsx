@@ -102,7 +102,10 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
   useEffect(() => {
     const state = window.history.state as NextHistoryState | null;
     if (state?.__NA) {
-      lastNextState.current = {__NA: state.__NA, __PRIVATE_NEXTJS_INTERNALS_TREE: state.__PRIVATE_NEXTJS_INTERNALS_TREE};
+      lastNextState.current = {
+        __NA: state.__NA,
+        __PRIVATE_NEXTJS_INTERNALS_TREE: state.__PRIVATE_NEXTJS_INTERNALS_TREE
+      };
     }
   });
 

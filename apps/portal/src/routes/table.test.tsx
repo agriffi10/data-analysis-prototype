@@ -31,7 +31,9 @@ const VIEW_SOURCES = Object.fromEntries(
  */
 function boundaryKeys(sources: Record<string, string>): (string | null)[] {
   return Object.values(sources).flatMap((source) =>
-    [...source.matchAll(/<ErrorBoundary\b([^>]*)>/g)].map(([, attributes]) => /\bkey="([^"]+)"/.exec(attributes)?.[1] ?? null)
+    [...source.matchAll(/<ErrorBoundary\b([^>]*)>/g)].map(
+      ([, attributes]) => /\bkey="([^"]+)"/.exec(attributes)?.[1] ?? null
+    )
   );
 }
 

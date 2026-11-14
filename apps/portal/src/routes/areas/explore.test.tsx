@@ -8,7 +8,9 @@ vi.mock('aws-amplify/auth', () => ({
   fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
 }));
 
-const VIEW = Object.values(import.meta.glob('./explore.tsx', {query: '?raw', import: 'default', eager: true}))[0] as string;
+const VIEW = Object.values(
+  import.meta.glob('./explore.tsx', {query: '?raw', import: 'default', eager: true})
+)[0] as string;
 
 describe('App routing', () => {
   // The path is `/explore`, it is not the 404, and the lazy chunk resolves — the picker is the

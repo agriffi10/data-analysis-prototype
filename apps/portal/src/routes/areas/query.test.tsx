@@ -213,7 +213,9 @@ describe('QueryPage', () => {
 });
 
 describe('the Query view', () => {
-  const VIEW = Object.values(import.meta.glob('./query.tsx', {query: '?raw', import: 'default', eager: true}))[0] as string;
+  const VIEW = Object.values(
+    import.meta.glob('./query.tsx', {query: '?raw', import: 'default', eager: true})
+  )[0] as string;
 
   it('wraps the page in FeatureRoute → ErrorBoundary → Suspense, in that order, behind the query flag', () => {
     expect(wrappersOf(VIEW, 'QueryPage')).toEqual(['FeatureRoute', 'ErrorBoundary', 'Suspense']);

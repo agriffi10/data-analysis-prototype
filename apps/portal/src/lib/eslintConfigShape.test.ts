@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import eslintConfig from '../../eslint.config.js';
+import eslintConfig, {REACT_ROUTER_IMPORTS} from '../../eslint.config.js';
 
 /**
  * The `@aws-sdk/*` ban is one rule declared four times, and that is the hazard.
@@ -14,22 +14,52 @@ import eslintConfig from '../../eslint.config.js';
  * `no-restricted-imports` must carry the group. An entry added later without it reddens
  * here, which a review of that entry alone would not.
  */
-describe('the @aws-sdk ban survives every no-restricted-imports clause', () => {
-  // A glob need not START with `src/` to govern it: the base entry is `**/*.{ts,tsx}`, and
-  // an entry with no `files` at all governs everything. Filtering on the `src/` prefix let
-  // exactly that shape — the one most likely to be added next — declare the rule without the
-  // group while this test passed and an `@aws-sdk` import in `features/` linted clean
-  // (reproduced). So the question is inverted: an entry is out of scope only if EVERY glob it
-  // names is demonstrably not under `src/`.
-  const governsSrc = (entry: (typeof eslintConfig)[number]): boolean => {
-    const globs = entry.files;
-    if (globs === undefined || globs.length === 0) return true;
-    return globs.some((glob) => glob.startsWith('src/') || !glob.startsWith('.'));
-  };
+/**
+ * Whether an entry may govern a file under `src/`. A glob need not START with `src/` to govern it:
+ * the base entry matches every TypeScript file, and an entry with no `files` at all governs everything. So
+ * an entry is out of scope only if EVERY glob it names is demonstrably not under `src/`.
+ */
+function governsSrc(entry: (typeof eslintConfig)[number]): boolean {
+  const globs = entry.files;
+  if (globs === undefined || globs.length === 0) return true;
+  return globs.some((glob) => glob.startsWith('src/') || !glob.startsWith('.'));
+}
 
-  const governing = eslintConfig.filter(
-    (entry) => entry.rules?.['no-restricted-imports'] !== undefined && governsSrc(entry)
-  );
+/** Every entry that declares `no-restricted-imports` and governs a file under `src/`, in config order. */
+function governingEntries() {
+  return eslintConfig.filter((entry) => entry.rules?.['no-restricted-imports'] !== undefined && governsSrc(entry));
+}
+
+/** The groups an entry's `no-restricted-imports` names, flattened; null for a shape this test cannot read. */
+function groupsOf(entry: (typeof eslintConfig)[number]): string[] | null {
+  const value = entry.rules?.['no-restricted-imports'];
+  if (!Array.isArray(value)) return null;
+  const options = value[1] as {patterns?: {group: string[]}[]} | undefined;
+  return options?.patterns?.flatMap((pattern) => pattern.group) ?? null;
+}
+
+/** A flat-config glob as a regular expression: `**`, `*` and `{a,b}`, the forms this config uses. */
+function globMatches(glob: string, file: string): boolean {
+  let pattern = '';
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index];
+    if (char === '*' && glob[index + 1] === '*') {
+      pattern += glob[index + 2] === '/' ? '(?:.*/)?' : '.*';
+      index += glob[index + 2] === '/' ? 2 : 1;
+    } else if (char === '*') pattern += '[^/]*';
+    else if (char === '{') pattern += '(?:';
+    else if (char === '}') pattern += ')';
+    else if (char === ',') pattern += '|';
+    else pattern += char.replace(/[.+?^$()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${pattern}$`).test(file);
+}
+
+describe('the @aws-sdk ban survives every no-restricted-imports clause', () => {
+  // Filtering on the `src/` prefix let an entry with no `files` declare the rule without the
+  // group while this test passed and an `@aws-sdk` import in `features/` linted clean
+  // (reproduced), which is why `governsSrc` inverts the question.
+  const governing = governingEntries();
 
   it('is declared by every clause that governs a file under src/', () => {
     // Guard-the-guard: a filter that found nothing would agree with a config carrying no
@@ -76,5 +106,57 @@ describe('no @aws-sdk dependency survives', () => {
     // Guard-the-guard: a parse that read nothing would agree with an empty manifest.
     expect(declared).toContain('aws-amplify');
     expect(declared.filter((name) => name.startsWith('@aws-sdk/'))).toEqual([]);
+  });
+});
+
+/**
+ * react-router is held to three places: the navigation seam, the route table and the test harness.
+ * The pattern is one group spread into every clause, and the places it is lifted are two clauses of
+ * their own, for the reason the SDK ban above gives: each clause replaces the rule for the files it
+ * matches, so an exemption that dropped a group would lift that ban too.
+ */
+describe('react-router is held to the seam, the route table and the harness', () => {
+  const ROUTER = REACT_ROUTER_IMPORTS.group[0];
+  const EXEMPT_PLACES = [['src/lib/navigation/**/*.{ts,tsx}'], ['src/routes/table.tsx', 'src/test/**/*.{ts,tsx}']];
+  /** Files the exemptions cover, to find which earlier clauses each one overrides. */
+  const PROBES = [
+    'src/lib/navigation/index.ts',
+    'src/lib/navigation/navigation.test.tsx',
+    'src/routes/table.tsx',
+    'src/test/renderWithProviders.tsx'
+  ];
+  const governing = governingEntries();
+  const exemptions = governing.filter((entry) => !(groupsOf(entry) ?? []).includes(ROUTER));
+
+  it('is refused by every clause but the two exemptions', () => {
+    expect(governing.length).toBeGreaterThanOrEqual(7);
+    expect(exemptions.map((entry) => entry.files)).toEqual(EXEMPT_PLACES);
+  });
+
+  it('is lifted only where the exemptions say, and each keeps every other group of the clauses it overrides', () => {
+    for (const exemption of exemptions) {
+      const kept = new Set(groupsOf(exemption));
+      const position = governing.indexOf(exemption);
+      for (const probe of PROBES.filter((file) => exemption.files?.some((glob) => globMatches(glob, file)))) {
+        const overridden = governing
+          .slice(0, position)
+          .filter((entry) => entry.files?.some((glob) => globMatches(glob, probe)));
+        expect(overridden.length, `nothing earlier governs ${probe}`).toBeGreaterThan(0);
+        const owed = overridden
+          .flatMap((entry) => groupsOf(entry) ?? [])
+          .filter((group) => !REACT_ROUTER_IMPORTS.group.includes(group));
+        expect(
+          owed.filter((group) => !kept.has(group)),
+          `${probe} loses a ban`
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('reads a glob as flat config does', () => {
+    expect(globMatches('src/**/*.{ts,tsx}', 'src/routes/table.tsx')).toBe(true);
+    expect(globMatches('src/lib/**/*.test.{ts,tsx}', 'src/lib/navigation/navigation.test.tsx')).toBe(true);
+    expect(globMatches('src/lib/**/*.test.{ts,tsx}', 'src/lib/navigation/index.ts')).toBe(false);
+    expect(globMatches('src/routes/table.tsx', 'src/routes/table.test.tsx')).toBe(false);
   });
 });

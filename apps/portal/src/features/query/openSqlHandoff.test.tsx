@@ -10,6 +10,12 @@ import {
   seedTabs
 } from '../../test/queryWorkspaceSupport';
 import {buildOpenSqlHandoff} from '../../lib/routeHandoff';
+import {Link} from '../../lib/navigation';
+import {renderWithProviders} from '../../test/renderWithProviders';
+import {authenticated} from '../../test/authFixtures';
+import {traverse} from '../../test/nextNavigation';
+import {QueryRunsProvider} from './QueryRunsProvider';
+import {QueryWorkspace} from './QueryWorkspace';
 import {QUERY_TABS_MAX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import type {QueryTabsState} from './query.types';
 
@@ -171,5 +177,51 @@ describe('a statement handed over from the Data Explorer', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(persistedTabs().tabs).toHaveLength(QUERY_TABS_MAX);
     await waitFor(() => expect(location().state).toEqual(null));
+  });
+});
+
+describe('a hand-off already read', () => {
+  beforeEach(installWorkspaceMocks);
+  afterEach(resetViewport);
+
+  // The seam never writes a hand-off to history, so nothing a traversal or a reload restores can
+  // carry one; the receiver's replace is belt and braces. Measured on both routers while authoring.
+  it('opens nothing on Back and then Forward to its entry, and nothing on a reload', async () => {
+    seedSingle('SELECT 1;');
+    const workspace = (
+      <>
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
+        <Link to="/files">Away</Link>
+      </>
+    );
+    const view = renderWithProviders(workspace, {
+      route: HANDOFF,
+      path: '/query',
+      routes: {'/files': <p>Files</p>},
+      auth: authenticated('alice'),
+      strictMode: true
+    });
+    expect(await screen.findByRole('tab', {name: /orders/})).toBeInTheDocument();
+    await waitFor(() => expect(view.location().state).toEqual(null));
+
+    await view.user.click(screen.getByRole('link', {name: 'Away'}));
+    await screen.findByText('Files');
+    await traverse(-1);
+    await traverse(1);
+    await traverse(-1);
+
+    await screen.findByRole('tab', {name: /orders/});
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(view.location().pathname).toBe('/query');
+    expect(view.location().state).toBeUndefined();
+
+    view.unmount();
+    renderWorkspace('/query', {strictMode: true});
+    expect(await screen.findByRole('tab', {name: /orders/})).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 });

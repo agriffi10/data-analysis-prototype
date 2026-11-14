@@ -16,7 +16,9 @@ vi.mock('aws-amplify/auth', () => ({
   fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
 }));
 
-const VIEW = Object.values(import.meta.glob('./connections.tsx', {query: '?raw', import: 'default', eager: true}))[0] as string;
+const VIEW = Object.values(
+  import.meta.glob('./connections.tsx', {query: '?raw', import: 'default', eager: true})
+)[0] as string;
 
 describe('ConnectionsPage', () => {
   // The route component is a thin wrapper: it sets the page title and renders the REAL

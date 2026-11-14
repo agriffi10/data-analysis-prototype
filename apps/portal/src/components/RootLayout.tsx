@@ -46,9 +46,7 @@ export function RootLayout({children}: {children: ReactNode}) {
             ProtectedLayout's boundary; this one is for the public routes and for the
             shell itself. */}
         <div className="flex flex-1 flex-col">
-          <ErrorBoundary resetKey={location.pathname + location.search}>
-            {children}
-          </ErrorBoundary>
+          <ErrorBoundary resetKey={location.pathname + location.search}>{children}</ErrorBoundary>
         </div>
       </div>
     </NavRailProvider>

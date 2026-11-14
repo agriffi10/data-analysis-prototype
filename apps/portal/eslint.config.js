@@ -37,13 +37,35 @@ const SERVER_IMPORTS = {
     'imports it; a value the browser needs reaches it through the runtime document or the API.'
 };
 
+// Navigation goes through one seam, `src/lib/navigation/`, because the App Router has no history
+// state, no navigation type and no per-entry key, and react-router is only the catch-all's matcher
+// until it retires. So nothing imports react-router but the seam, the route table that turns the
+// area views into routes, and the test harness.
+//
+// SPREAD INTO EVERY CLAUSE BELOW but the two exemptions at the end, for the AWS_SDK_IMPORTS reason
+// above. The rule sees only static imports: `vi.mock('react-router')`, a dynamic import and a type
+// query all lint clean, so `src/test/reactRouterSweep.test.ts` holds the bare literal too.
+export const REACT_ROUTER_IMPORTS = {
+  group: ['react-router', 'react-router/*'],
+  message:
+    'Navigation goes through the seam: import it from src/lib/navigation. Only the seam, the route table ' +
+    '(src/routes/table.tsx) and the test harness (src/test/) import react-router.'
+};
+
+/** The layering ban: the shared layers above `features/` never import a feature. */
+const LAYERING_IMPORTS = {
+  group: ['**/features/*', '**/features/**'],
+  message:
+    'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
+};
+
 export default defineConfig([
   {
     // Every file under src/, tests included. The three clauses below re-state
     // AWS_SDK_IMPORTS because each of them replaces this one for the files it matches.
     files: ['src/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, REACT_ROUTER_IMPORTS]}]
     }
   },
   globalIgnores(['dist', 'coverage', '.next', 'next-env.d.ts', 'src/types/apiContract.generated.ts']),
@@ -106,15 +128,7 @@ export default defineConfig([
       'no-restricted-imports': [
         'error',
         {
-          patterns: [
-            {
-              group: ['**/features/*', '**/features/**'],
-              message:
-                'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
-            },
-            AWS_SDK_IMPORTS,
-            SERVER_IMPORTS
-          ]
+          patterns: [LAYERING_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS, REACT_ROUTER_IMPORTS]
         }
       ]
     }
@@ -141,7 +155,7 @@ export default defineConfig([
       // The LAYERING rule is what these files are exempt from — not the SDK ban or the server
       // fence. A bare 'off' would exempt them from all three, and a test mocking
       // @aws-sdk/client-s3 is a test of a code path that no longer exists.
-      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS, REACT_ROUTER_IMPORTS]}]
     }
   },
   {
@@ -149,7 +163,7 @@ export default defineConfig([
     // it for the four features that clause names and therefore re-states SERVER_IMPORTS itself.
     files: ['src/features/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, SERVER_IMPORTS, REACT_ROUTER_IMPORTS]}]
     }
   },
   {
@@ -218,10 +232,31 @@ export default defineConfig([
                 'features/query/ and features/data-explorer/ are siblings and must not import from each other, and the layers below them (features/catalog/, features/saved-queries/) may import neither. Anything both need belongs in features/catalog/ (SPEC-176) or features/saved-queries/ (SPEC-177).'
             },
             AWS_SDK_IMPORTS,
-            SERVER_IMPORTS
+            SERVER_IMPORTS,
+            REACT_ROUTER_IMPORTS
           ]
         }
       ]
+    }
+  },
+  {
+    // The first of the two places react-router may be imported: the seam, whose matcher it is. TWO
+    // clauses, not one, because each replaces the rule for the files it matches: this one must keep
+    // every other group of the clauses it overrides (the layering ban and the server fence from the
+    // shared-layer clause, the SDK ban from all of them), and measured, a single exemption carrying
+    // only the SDK group let a file in the seam import a feature and lint clean.
+    files: ['src/lib/navigation/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {patterns: [LAYERING_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
+    }
+  },
+  {
+    // The second: the route table, which turns the area views into react-router routes, and the test
+    // harness, which composes routes for a test. They override only the `src/**` clause, so the SDK
+    // ban is all they keep; the harness imports features by design.
+    files: ['src/routes/table.tsx', 'src/test/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
     }
   }
 ]);

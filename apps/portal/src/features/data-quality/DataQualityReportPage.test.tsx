@@ -937,7 +937,9 @@ describe('DataQualityReportPage', () => {
       await user.click(await screen.findByRole('button', {name: 'Open folder'}));
 
       // `?space=` takes the connection id — the literal 'personal', not the username.
-      await waitFor(() => expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'}));
+      await waitFor(() =>
+        expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'})
+      );
     });
 
     it('opens a FILE report at its parent folder, not at the file key', async () => {
@@ -945,7 +947,9 @@ describe('DataQualityReportPage', () => {
       const {user, location} = renderReport('/data-quality/alice/req-1');
       await user.click(await screen.findByRole('button', {name: 'Open folder'}));
 
-      await waitFor(() => expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'}));
+      await waitFor(() =>
+        expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'})
+      );
     });
 
     it('offers no Convert to Parquet action while the converter is unshipped (SPEC-120)', async () => {

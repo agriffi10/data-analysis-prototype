@@ -90,7 +90,14 @@ function SelectedPage({files}: {files: Record<string, ComponentType>}) {
  */
 export function renderApp(
   route: TestRoute,
-  {auth = authValue(), pages = {}, routers = {}, queryClient, seedFeatureFlags = true, featureFlags}: RenderAppOptions = {}
+  {
+    auth = authValue(),
+    pages = {},
+    routers = {},
+    queryClient,
+    seedFeatureFlags = true,
+    featureFlags
+  }: RenderAppOptions = {}
 ): RenderWithProvidersResult {
   const records = AREAS.map((record) => ({...record, router: routers[record.area] ?? record.router}));
   const files = pagesFor(DISK_PAGES, pages, records);

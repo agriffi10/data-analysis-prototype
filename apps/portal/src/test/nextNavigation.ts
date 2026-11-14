@@ -76,7 +76,11 @@ function standIn(): StandIn {
 
 function install(): StandIn {
   const instance: StandIn = {
-    state: {url: window.location.pathname + window.location.search, tree: {href: window.location.pathname + window.location.search}, write: null},
+    state: {
+      url: window.location.pathname + window.location.search,
+      tree: {href: window.location.pathname + window.location.search},
+      write: null
+    },
     listeners: new Set(),
     requests: [],
     reloads: 0,
@@ -104,7 +108,11 @@ function install(): StandIn {
         // tree it already shows at the new address.
         instance.parked = null;
         const moved = urlOf(String(url));
-        setState(instance, {url: moved.url, tree: instance.state.tree, write: {kind: 'preserve', href: moved.url + moved.hash}});
+        setState(instance, {
+          url: moved.url,
+          tree: instance.state.tree,
+          write: {kind: 'preserve', href: moved.url + moved.hash}
+        });
       }
       original(copied, unused, url);
     };
@@ -125,7 +133,11 @@ function install(): StandIn {
       const tree = (data.__PRIVATE_NEXTJS_INTERNALS_TREE as Tree | undefined) ?? instance.state.tree;
       const href = currentHref();
       flushSync(() =>
-        setState(instance, {url: window.location.pathname + window.location.search, tree, write: {kind: 'preserve', href}})
+        setState(instance, {
+          url: window.location.pathname + window.location.search,
+          tree,
+          write: {kind: 'preserve', href}
+        })
       );
     },
     true
@@ -227,7 +239,8 @@ export function NextStandInRoot({children}: {children: ReactNode}) {
     const instance = standIn();
     const next = {__NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: state.tree};
     if (write.kind === 'push' && currentHref() !== write.href) instance.originalPush(next, '', write.href);
-    else if (write.kind === 'preserve') instance.originalReplace({...(window.history.state ?? {}), ...next}, '', write.href);
+    else if (write.kind === 'preserve')
+      instance.originalReplace({...(window.history.state ?? {}), ...next}, '', write.href);
     else instance.originalReplace(next, '', write.href);
   }, [state]);
   return children;
