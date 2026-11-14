@@ -66,9 +66,13 @@ export function pageFindings(files: Record<string, string>): string[] {
       }
     }
     for (const call of dynamicCalls(source)) {
-      if (/ssr:\s*false/.test(call)) reachesAView = true;
-      else findings.push(`${file} loads through next/dynamic without ssr: false`);
-      if (/\bloading\s*:/.test(call)) findings.push(`${file} gives next/dynamic a loading fallback`);
+      if (!/ssr:\s*false/.test(call)) {
+        findings.push(`${file} loads through next/dynamic without ssr: false`);
+        continue;
+      }
+      reachesAView = true;
+      if (!/,\s*\{\s*ssr\s*:\s*false\s*,?\s*\}\s*,?\s*\)$/.test(call))
+        findings.push(`${file} passes next/dynamic more than {ssr: false}`);
     }
     if (file.endsWith('/page.tsx')) {
       const declared = /export default (?:async )?function \w*\(([^)]*)\)/.exec(source);
@@ -157,21 +161,27 @@ describe('the page rules, against fixtures', () => {
     ]);
   });
 
-  it('name next/dynamic without ssr: false', () => {
-    const source = CONFORMING.replace(', {ssr: false}', '');
-    expect(pageFindings({[PAGE]: source})).toEqual([
+  // The view shows its own loading state, so a `loading` fallback, however it is spelled, would show
+  // a second loader before it; the page passes `{ssr: false}` and nothing more, laid out as it likes.
+  it('name next/dynamic given anything but {ssr: false}, and pass that option however it is laid out', () => {
+    const withOptions = (options: string) => CONFORMING.replace('{ssr: false}', options);
+    expect(pageFindings({[PAGE]: CONFORMING.replace(', {ssr: false}', '')})).toEqual([
       `${PAGE} loads through next/dynamic without ssr: false`,
       `${PAGE} reaches no view through dynamic(…, {ssr: false})`
     ]);
-  });
-
-  // The view's own Suspense shows the loading state, so a fallback here would show a second loader
-  // before it. A view whose name says loading is not a fallback.
-  it('name a loading fallback on next/dynamic, and pass a view named for loading', () => {
-    const fallback = CONFORMING.replace('{ssr: false}', '{ssr: false, loading: () => <p>Loading…</p>}');
-    const named = CONFORMING.replace("'../../../routes/areas/files'", "'../../../routes/areas/loading'");
-    expect(pageFindings({[PAGE]: fallback})).toEqual([`${PAGE} gives next/dynamic a loading fallback`]);
-    expect(pageFindings({[PAGE]: named})).toEqual([]);
+    for (const options of [
+      '{ssr: false, loading: () => null}',
+      '{ssr: false, loading}',
+      '{...withLoader, ssr: false}'
+    ]) {
+      expect(pageFindings({[PAGE]: withOptions(options)})).toEqual([
+        `${PAGE} passes next/dynamic more than {ssr: false}`
+      ]);
+    }
+    expect(pageFindings({[PAGE]: withOptions('{\n  ssr: false\n}')})).toEqual([]);
+    expect(
+      pageFindings({[PAGE]: CONFORMING.replace("'../../../routes/areas/files'", "'../../../routes/areas/loading'")})
+    ).toEqual([]);
   });
 
   it('name a declared parameter', () => {

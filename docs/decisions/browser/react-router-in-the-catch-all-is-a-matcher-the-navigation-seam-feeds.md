@@ -31,7 +31,9 @@ navigator that sends every push and replace back through the seam.
 4. A popstate whose state is null is ignored.
 5. `useSearchParams` re-serializes the search (`%20` comes back as `+`).
 6. A router push or replace to the current address fetches the page and replaces the entry.
-7. A router push can stay uncommitted while the user clicks again.
+7. A router push can stay uncommitted while the user clicks again; a later router navigation
+   supersedes it, and an outside `pushState` or `replaceState` without `__NA`, or a traversal,
+   discards it.
 8. `useParams` returns values percent-encoded.
 
 **The rules, and the behaviour each answers.**
@@ -51,22 +53,26 @@ navigator that sends every push and replace back through the seam.
   only while it can be: a native one once its own entry is written, a router one before Next writes the
   address. Next drops a push still in flight when a traversal arrives, and taking the dropped push for
   a Back to the same address called the Back a push, with the dropped push's key and state.
-- **A page a router navigation is leaving does not correct its own address** (3, 7). The page stays
-  mounted while the push waits on the server, and a native write then makes Next restore, which
-  discards the push (`app-router-instance.js` marks the pending action `discarded` on a NAVIGATE or
-  RESTORE): a deep link's `clear()` or a conflict review closing after a round trip would lose the
+- **A page a router navigation is leaving corrects its address without cancelling it** (3, 7). The
+  page stays mounted while the push waits on the server, and a native write then makes Next restore,
+  which discards the push (`app-router-instance.js` marks the pending action `discarded` on a NAVIGATE
+  or RESTORE): a deep link's `clear()` or a conflict review closing after a round trip would lose the
   user's click once the area moves make those exits router pushes (found reviewing the Explore move).
-  So a page's native replace on the same path is dropped while both the committed address and the
-  seam's entry are the ones the router navigation left. That shape is how a page corrects its address;
-  a link the user clicks (the seam's `follow`, which `Link` uses), a push, or a replace to another page
-  is the user leaving again and goes through, and the last click wins as it does without a leave. Any
-  move of the address ends the leave, arrival included, before the destination's first layout effect
-  (a child's layout effects run before the seam's); a new entry ends it on a Back to an entry at the
-  same address. A target's trailing slash is dropped as Next's router drops it, so no seam navigation
-  differing from the address only by that slash goes to the router. The leave outlasts its navigation
-  only if Next discards it while neither moves: an outside write to the very same URL, or a server
-  redirect back to where it started. Nothing in `src/` does either today; if something comes to, the
-  page's replaces stay dropped until the next navigation.
+  Dropping the write instead keeps the click but leaves a one-shot parameter on the entry, which Back
+  then acts on again. So a page's replace on the same path, while both the committed address and the
+  seam's entry are the ones the router navigation left, is written onto that entry carrying Next's own
+  state, which Next's history patch passes through (3): the push survives, Back finds the corrected
+  address, and the page does not re-render with it, since it is leaving. That shape is how a page
+  corrects its address; a link the user clicks (the seam's `follow`, which `Link` uses), a push, or a
+  replace to another page is the user leaving again and goes through, and the last click wins as it
+  does without a leave. Any move of the address ends the leave, arrival included, before the
+  destination's first layout effect (a child's layout effects run before the seam's); a new entry
+  ends it on a Back to an entry at the same address. A target's trailing slash is dropped as Next's
+  router drops it, so no seam navigation differing from the address only by that slash goes to the
+  router. The leave outlasts its navigation only if Next discards it while neither moves: an outside
+  write to the very same URL, or a server redirect back to where it started. Nothing in `src/` does
+  either today; if something comes to, the page's corrections stay unrendered until the next
+  navigation.
 - **A traversal is classified while rendering** (1, 2): a change the seam did not start, with the
   address already moved, is a `'POP'` and reads its key from the entry. A popstate listener cannot do
   this, because React renders the traversal before the listener runs; measured, that called a Back a
@@ -116,9 +122,10 @@ plain anchors); history state as a carrier.
 
 ### 2026-11-14
 
-- **Changed:** a page a router navigation is leaving does not correct its own address, because the
-  area moves make leaving an App Router page a router push, and a same-page replace in flight loses
-  the click; a target's trailing slash is dropped, as Next's router drops it.
+- **Changed:** a page a router navigation is leaving corrects its address onto the entry it left,
+  carrying Next's state, because the area moves make leaving an App Router page a router push, and a
+  native write in flight would lose the click; a link always navigates; a target's trailing slash is
+  dropped, as Next's router drops it.
 
 ### 2026-11-13
 

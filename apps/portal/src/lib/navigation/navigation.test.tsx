@@ -317,7 +317,7 @@ describe('a target’s trailing slash', () => {
 // A router navigation waits on the server while the page it leaves stays mounted. A native write in
 // that window makes Next restore, and a restore discards the pending navigation, so the click is lost.
 describe('a page that is leaving', () => {
-  it('drops its same-page write while the navigation is in flight, and the click lands', async () => {
+  it('corrects its address without losing the click', async () => {
     const {user} = renderApp('/files', servedBy('app'));
     await screen.findByRole('heading', {name: 'page files'});
 
@@ -328,49 +328,36 @@ describe('a page that is leaving', () => {
 
     await screen.findByRole('heading', {name: 'page notifications'});
     expect(lastCommit()).toMatchObject({page: 'notifications', pathname: '/notifications', search: ''});
-    act(() => fixture.navigate?.('?x=1', {replace: true}));
-    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'notifications', search: '?x=1'}));
+  });
+
+  it('keeps the correction on the entry it left, for Back', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?space=team', type: 'POP'}));
   });
 
   // The Back lands on an entry with the same address as the one left, so only the entry tells that the
   // leave is over.
-  it('writes a same-page navigation again once a Back has dropped the one in flight', async () => {
+  it('corrects its address as usual once a Back has dropped the navigation', async () => {
     const {user} = renderApp('/files', servedBy('app'));
     await screen.findByRole('heading', {name: 'page files'});
     act(() => fixture.navigate?.('/files'));
-
     hold();
     await follow(user, 'To notifications');
     await traverse(-1);
     await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', type: 'POP'}));
+
     act(() => fixture.navigate?.('?x=1', {replace: true}));
 
     await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?x=1'}));
-  });
-
-  // A page's own write cannot be told from the user's, so the seam drops only a page's replace on the
-  // same path, how a page corrects its address; a link clicked, a push or another page is the user
-  // leaving again, and the last click wins.
-  it.each([
-    ['a link to the address shown', 'link', {page: 'files', pathname: '/files', hash: ''}],
-    ['a page’s push on the same path', 'push', {page: 'files', pathname: '/files', hash: '#files'}],
-    ['a page’s replace to another page', 'replace', {page: 'help', pathname: '/help'}]
-  ] as const)('lets the user’s next move win while the navigation is in flight: %s', async (_kind, move, landed) => {
-    const {user} = renderApp(
-      '/files',
-      both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
-    );
-    await screen.findByRole('heading', {name: 'page files'});
-
-    hold();
-    await follow(user, 'To data quality');
-    if (move === 'link') await follow(user, 'To files');
-    else if (move === 'push') act(() => fixture.navigate?.('#files'));
-    else act(() => fixture.navigate?.('/help', {replace: true}));
-    release();
-
-    await waitFor(() => expect(lastCommit()).toMatchObject(landed));
-    expect(screen.queryByRole('heading', {name: 'page data-quality'})).not.toBeInTheDocument();
   });
 
   // A child's layout effects run before the seam's own, so the destination's first write lands
@@ -387,6 +374,33 @@ describe('a page that is leaving', () => {
 
     await screen.findByRole('heading', {name: 'page arrived'});
     await waitFor(() => expect(location().search).toBe('?x=1'));
+  });
+});
+
+// A page's own write cannot be told from the user's, so only a page's replace on the same path, how a
+// page corrects its address, is held to the page; a link clicked, a push or another page is the user
+// leaving again, and the last click wins.
+describe('the user’s next move during a leave', () => {
+  it.each([
+    ['a link to the address shown', 'link', {page: 'files', pathname: '/files', hash: ''}],
+    ['a page’s push on the same path', 'push', {page: 'files', pathname: '/files', hash: '#files'}],
+    ['a page’s replace to another page', 'replace', {page: 'help', pathname: '/help'}]
+  ] as const)('wins over the navigation in flight: %s', async (_kind, move, landed) => {
+    const {user} = renderApp(
+      '/files',
+      both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
+    );
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To data quality');
+    if (move === 'link') await follow(user, 'To files');
+    else if (move === 'push') act(() => fixture.navigate?.('#files'));
+    else act(() => fixture.navigate?.('/help', {replace: true}));
+    release();
+
+    await waitFor(() => expect(lastCommit()).toMatchObject(landed));
+    expect(screen.queryByRole('heading', {name: 'page data-quality'})).not.toBeInTheDocument();
   });
 });
 

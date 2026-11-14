@@ -14,7 +14,13 @@ export function useNavigationType(): NavigationType {
   return useSeam().navigationType;
 }
 
-/** The seam's navigate: `navigate(to, {replace, state})`. It takes no history delta. */
+/**
+ * The seam's navigate: `navigate(to, {replace, state})`. It takes no history delta.
+ *
+ * While a router navigation is leaving the page, a replace on the same path corrects the address of
+ * the entry left without re-rendering, so the navigation is not cancelled; a `Link` is the way to
+ * let a click win over one in flight.
+ */
 export function useNavigate(): (to: To, options?: NavigateOptions) => void {
   return useSeam().navigate;
 }

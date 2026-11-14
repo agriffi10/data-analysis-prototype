@@ -23,8 +23,8 @@ import {act} from '@testing-library/react';
  * 6. A router push or replace fetches the page, recorded in `requests()`, and a push to the
  *    current address replaces the entry rather than adding one.
  * 7. A router push can stay uncommitted while the user clicks again (`hold()`): a later router
- *    navigation supersedes it, and an external `pushState` or a traversal drops it, the first moving
- *    the address over the page already shown.
+ *    navigation supersedes it, and an external `pushState` or `replaceState` without `__NA`, or a
+ *    traversal, drops it, the first moving the address over the page already shown.
  *
  * A router navigation to another origin is a document navigation that leaves the portal; it is
  * recorded in `external()` and changes nothing here.
