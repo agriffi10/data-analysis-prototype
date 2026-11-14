@@ -132,6 +132,11 @@ jobs:
       # linux/amd64 EXPLICITLY, matching every function's current architecture. An arm64 image
       # fails at function start with a manifest error that reads nothing like the mismatch it is.
       #
+      # NO ATTESTATIONS. Docker now adds a provenance attestation by default, which makes the push an
+      # OCI image INDEX rather than one manifest, and Lambda refuses an index: UpdateFunctionCode
+      # answered "the image manifest, config or layer media type ... is not supported" for every
+      # function, while the image it replaced, a single manifest, still ran.
+      #
       # Values reach `run:` through `env:`, never interpolated: the tag can originate in a dispatch
       # input, and a value interpolated straight into `run:` is a command-injection sink.
       - name: Build
@@ -140,7 +145,7 @@ jobs:
           TAG: ${{ steps.names.outputs.tag }}
         run: |
           set -euo pipefail
-          docker build --platform linux/amd64 \
+          docker build --platform linux/amd64 --provenance=false --sbom=false \
             --build-arg BUILD_VERSION="$TAG" \
             -f lambdas/Dockerfile \
             -t "lambda-fleet:${TAG}" .
@@ -154,6 +159,14 @@ jobs:
         env:
           TAG: ${{ steps.names.outputs.tag }}
         run: .github/scripts/lambda-image-matrix.sh "lambda-fleet:${TAG}"
+
+      # BEFORE THE PUSH, like the matrix: an index never reaches the registry, where it cannot be
+      # deleted and every function would refuse it at the next deploy.
+      - name: Assert a single manifest
+        if: steps.names.outputs.build == 'run'
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: .github/scripts/assert-single-manifest.sh "lambda-fleet:${TAG}"
 
       - name: Push
         if: steps.names.outputs.build == 'run'

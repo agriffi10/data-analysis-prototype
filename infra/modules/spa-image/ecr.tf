@@ -24,8 +24,10 @@ resource "aws_ecr_repository" "spa" {
   tags = { Name = local.image_name }
 }
 
-# With IMMUTABLE tags an untagged image is one a later push orphaned and nothing can
-# reference. Thirty tagged images is a rollback window measured in deploys, not days.
+# With IMMUTABLE tags and single-manifest pushes (both SPA builds pass --provenance=false
+# --sbom=false), an untagged image is one nothing references. Thirty images is then a rollback
+# window of thirty deploys; an index push would spend three slots per deploy on itself and its
+# untagged children.
 resource "aws_ecr_lifecycle_policy" "spa" {
   repository = aws_ecr_repository.spa.name
 

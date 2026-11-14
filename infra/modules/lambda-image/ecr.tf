@@ -34,11 +34,12 @@ resource "aws_ecr_repository" "lambda" {
 # measurement rather than retyping a number.
 #
 # ONE INTERACTION THIS BOUND DOES NOT SEE: an untagged image still occupies a slot in the count
-# below even though rule 1 is the only rule that may expire it. That is zero today, because the
-# build is a plain single-platform `docker build` into an immutable repository — nothing orphans a
-# tag and nothing writes a manifest list. `docker buildx` would change that: its default
-# provenance attestations arrive as untagged manifests, roughly one per push, and would quietly
-# take the effective tagged bound below what this test computes.
+# below even though rule 1 is the only rule that may expire it. That is zero only because both
+# fleet builds pass `--provenance=false --sbom=false`, which a test pins: without them Docker's
+# default provenance attestation makes every push an image index whose children carry no tag,
+# which also takes the effective tagged bound below what this test computes, and which Lambda
+# refuses outright. Provenance, if it is ever wanted, attaches outside the image (a registry
+# referrer or a GitHub artifact attestation), never inside the index.
 #
 # What makes a generous bound cheap: ECR de-duplicates layers within a repository, and the
 # dependency layer is identical across builds that do not touch a requirements file. The marginal

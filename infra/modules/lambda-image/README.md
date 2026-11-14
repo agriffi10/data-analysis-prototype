@@ -46,10 +46,12 @@ actually produces an untagged manifest in an immutable repository is an image in
 or `buildx`-provenance build writes child manifests that carry no tag of their own) or a deliberate
 tag deletion.
 
-The rule earns its place for those, and the distinction matters for the next spec in this arc: if
-the build ever moves to `docker buildx`, a one-day untagged expiry begins acting on the children of
-a live tagged index, and a reader who believed the orphaned-by-re-push story would not think to
-look.
+The rule earns its place for those, and the distinction is not hypothetical: a plain `docker build`
+on the runner began writing provenance indexes on 2026-11-09, and Lambda refused them at
+`UpdateFunctionCode`. Both fleet builds now pass `--provenance=false --sbom=false`, a test pins the
+flags, and `.github/scripts/assert-single-manifest.sh` refuses any other shape before the push. Were
+an index pushed, a one-day untagged expiry would act on the children of a live tagged index, and a
+reader who believed the orphaned-by-re-push story would not think to look.
 
 ## What the deploy role must already hold
 
