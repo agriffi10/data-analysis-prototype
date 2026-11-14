@@ -28,7 +28,8 @@ export const AREAS: readonly AreaRecord[] = [
 
 /**
  * The records as the seam, the chrome and the table read them. Nothing in production provides
- * it; the test App Router does, so a test can serve an area from either router whatever is on disk.
+ * it; every test harness does, with every area on the catch-all unless the test names another
+ * router, so a test can serve an area from either router whatever is on disk.
  */
 export const AreaRecordsContext = createContext<readonly AreaRecord[]>(AREAS);
 

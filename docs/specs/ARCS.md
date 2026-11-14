@@ -3614,7 +3614,8 @@ decision is `identity-and-access/the-portal-server-holds-the-session-and-only-th
 choice of router and `linkFlags` read the area records against the decoded path, as the route table
 matches it, so `/fil%65s` is Files to all of them. A move's tests serve its area from either router
 with `renderApp`'s `routers` and `pages` (every area is on the catch-all unless a test names it, so
-a move's flip changes no test that does not ask about it), read where a navigation went from
+a move's flip changes no test that does not ask about it, and a move's own tests, inherited and new,
+name its area `'app'` or they never see the moved page), read where a navigation went from
 `location()`, and drive Back with `traverse`; the stand-in's `hold`, `requests()` and `external()`
 show what Next's router was asked to do. A download is not the document going: both download helpers
 click with the leave guard disarmed. Each move still runs the cross-router scenarios live on its own

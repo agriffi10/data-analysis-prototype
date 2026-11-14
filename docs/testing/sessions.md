@@ -10,6 +10,19 @@ from a user's.
 
 ---
 
+## Switch-off check — 2026-11-14 (SPEC-257's owed row, discharged)
+
+**What was under test.** SPEC-257 FR-001's owed row: a switch-off of the web tier destroys only the
+web tier, the NAT gateway and its Elastic IP among it, and nothing of the session store or the
+Cognito clients. The first attempt (run 43602954200, the entry below) stopped at the Elastic IP;
+#981 (`241fb4ca`) granted the disassociation on the service-wide ARN AWS checks it against.
+
+**What ran.** With `TF_VAR_web_tier_enabled` false, Deploy Infrastructure dispatch 43607397695 on
+`241fb4ca` succeeded: *"Apply complete! Resources: 0 added, 0 changed, 55 destroyed."* Its apply log
+has 55 `Destroying...` lines, every one under `module.network[0]` or `module.spa[0]`, with
+`aws_nat_gateway.main`, `aws_eip.nat`, `aws_internet_gateway.main` and `aws_vpc.main` among them,
+and none under `module.session_store` or `module.auth`. The row is settled and left `owed.md`.
+
 ## Live-check session — 2026-11-14, morning (SPEC-256, the shell and the navigation seam)
 
 **What was under test.** The shell in the root layout, the navigation seam and the leave guard, on the
@@ -33,7 +46,7 @@ dialogs itself, so it cannot show the browser's leave prompt.
 | An upload survives Files to Query and back | Two generated 768 MB files at 4–5%; Query by its tab, then Files by its tab; the drawer showed both still uploading at 37–38%, and a marked element of the shell was the same node throughout. |
 | Reloading during an upload raises the prompt | **Not run.** With an upload running, a `beforeunload` dispatched in the page came back cancelled; the browser's own dialog is owed ([`owed.md`](owed.md), SPEC-256's leave prompt). Andrew chose not to run the manual step. |
 | Signing out during an upload asks nothing | During a 300 MB upload, **Sign out**: the `beforeunload` the browser dispatched came back not cancelled, the pane went through the provider's logout to `/`, signed out, and the upload ended with the page. |
-| The switch-off | **Failed** at `module.network[0].aws_eip.nat`: the deploy role's grant named `ec2:DisassociateAddress` only on scoped resource ARNs, and AWS checks it against `arn:aws:ec2:us-east-1:…:*/*`. 52 addresses under `module.network[0]` and `module.spa[0]` were destroyed, the NAT gateway among them; nothing outside them was touched; the Elastic IP, the internet gateway and the VPC still stand ([`owed.md`](owed.md), SPEC-257's switch-off). |
+| The switch-off | **Failed** at `module.network[0].aws_eip.nat`: the deploy role's grant named `ec2:DisassociateAddress` only on scoped resource ARNs, and AWS checks it against `arn:aws:ec2:us-east-1:…:*/*`. 52 addresses under `module.network[0]` and `module.spa[0]` were destroyed, the NAT gateway among them; nothing outside them was touched; the Elastic IP, the internet gateway and the VPC stood until the switch-off after #981 (the switch-off check above). |
 
 **Left behind.** In `agriffith`'s space: the folders `spec-256-live-uploads/` (about 1.9 GB of
 generated files) and `spec 256 table/`, and the table `spec_256_check`. The in-page generated files ran
@@ -46,7 +59,7 @@ S3 (status 0) until smaller files were used; that was the instrument, not the po
 `b0d7734b` (#978) in task-definition revision 271, which pairs that image with the client secret
 and the ten session settings after #979's apply (`568c3d76`). The tier was switched on through CI
 before #978 opened (Deploy Infrastructure run 43557991588) and stayed on afterwards, because SPEC-256
-still held it; the switch-off check is owed (`owed.md`, SPEC-257's switch-off).
+still held it; the switch-off check was owed, and was settled the same day (the switch-off check above).
 
 **Browser.** Andrew's own Chrome, through the extension, for the signed-in rows (his account; the
 harness read only which fields the session carried, so the username is not recorded); the in-app browser
