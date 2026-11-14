@@ -1,21 +1,21 @@
-"""The private subnets must have no way out, and the endpoints must replace it exactly.
+"""The private subnets have one way out, the NAT gateway, and AWS services are reached by endpoint.
 
-Every failure guarded here applies green, and the no-NAT assertion is repo-wide rather than
-module-scoped on purpose. The reasoning, and what only the acceptance script can settle, is in
+Every failure guarded here applies green, and the one-NAT-gateway assertion is repo-wide rather
+than module-scoped on purpose. The reasoning, and what only the acceptance script can settle, is in
 ``infra/modules/network/README.md``.
 
 Attributes:
-  INFRA: The IaC tree, swept whole by the no-NAT assertion.
+  INFRA: The IaC tree, swept whole by the NAT gateway and default-route assertions.
   NETWORK: The network module's directory.
   MAIN: Its VPC, subnets, route tables, security groups and flow logs.
   ROOT_MAIN: The root composition, which owns the availability-zones read — the module's own
     depends_on would defer it to apply, and the subnets' for_each cannot take a deferred value.
   GRANT: The deploy-role policy that scopes the flow-logs role by name.
-  ENDPOINTS: Its four VPC endpoints.
+  ENDPOINTS: Its six VPC endpoints.
   FLOW_LOG_PERMISSIONS: The flow-log delivery role's permissions, which must not let it create
     its own log group.
-  INTERFACE_ENDPOINT_SERVICES: The three interface endpoints a Fargate task needs to start and
-    log with no route to the internet.
+  INTERFACE_ENDPOINT_SERVICES: The four interface endpoints a Fargate task needs to start, read
+    its secret and log without the NAT gateway.
 """
 
 import fnmatch
@@ -33,15 +33,16 @@ GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-platfor
 ENDPOINTS = NETWORK / "endpoints.tf"
 FLOW_LOG_PERMISSIONS = NETWORK / "policies" / "flow-logs-permissions.json.tftpl"
 
-INTERFACE_ENDPOINT_SERVICES = ("ecr.api", "ecr.dkr", "logs")
+INTERFACE_ENDPOINT_SERVICES = ("ecr.api", "ecr.dkr", "logs", "ssm")
 
 
-def test_no_nat_gateway_or_elastic_ip_exists_anywhere_in_the_iac() -> None:
-    """The design's central claim, asserted over the whole tree rather than one module.
+def test_the_nat_gateway_and_its_elastic_ip_are_declared_once_and_only_in_the_network_module() -> None:
+    """One NAT gateway, on the web tier's switch, asserted over the whole tree.
 
-    A connect timeout from a private subnet is the slowest failure here to diagnose, and the
-    fix that suggests itself is a NAT gateway. This makes reintroducing one a deliberate act
-    that has to delete an assertion, rather than a one-line addition in a hurry.
+    Scoped to the network module it would be satisfied by a second gateway somewhere else, which is
+    what a quick fix for a connect timeout looks like. Both wait for the internet gateway: a public
+    NAT gateway created before the gateway is attached fails, and only a switch-on from nothing can
+    hit that, which no check runs.
 
     Args:
       None.
@@ -50,29 +51,35 @@ def test_no_nat_gateway_or_elastic_ip_exists_anywhere_in_the_iac() -> None:
       None.
 
     Raises:
-      AssertionError: When a NAT gateway or Elastic IP appears anywhere under ``infra/``.
+      AssertionError: When either resource is declared anywhere else, more than once, or without
+        the dependency on the internet gateway.
     """
     files = sorted(INFRA.rglob("*.tf"))
     assert len(files) > 20, f"Swept only {len(files)} .tf files — the glob found the wrong tree."
 
-    offenders = sorted(
-        f"{path.relative_to(INFRA)}:{number}"
+    declared = sorted(
+        (str(path.relative_to(INFRA)), match.group(1), match.group(2))
         for path in files
-        for number, line in enumerate(path.read_text().splitlines(), 1)
-        if re.search(r'resource\s+"(aws_nat_gateway|aws_eip)"', line)
+        for match in re.finditer(r'resource\s+"(aws_nat_gateway|aws_eip)"\s+"([^"]+)"', path.read_text())
     )
-    assert not offenders, (
-        f"A NAT gateway or Elastic IP is declared at {offenders}. The private subnets reach AWS "
-        "through VPC endpoints and reach nothing else, on purpose — if a destination is genuinely "
-        "unreachable, add an interface endpoint for it or spec the change. Do not delete this test."
-    )
+    assert declared == [
+        ("modules/network/main.tf", "aws_eip", "nat"),
+        ("modules/network/main.tf", "aws_nat_gateway", "main"),
+    ], f"The NAT gateway and its Elastic IP are declared as {declared}; there is one of each, in network."
+
+    text = MAIN.read_text()
+    for kind, name in (("aws_eip", "nat"), ("aws_nat_gateway", "main")):
+        body = blocks(text, kind)[name]
+        assert re.search(r"depends_on\s*=\s*\[\s*aws_internet_gateway\.main\s*\]", body), (
+            f"{kind}.{name} does not wait for the internet gateway"
+        )
 
 
-def test_no_private_route_table_carries_a_default_route() -> None:
-    """A `0.0.0.0/0` entry on a private table would undo the whole design silently.
+def test_every_private_route_table_defaults_to_the_nat_gateway_and_nothing_else_defaults() -> None:
+    """The one way out of the private subnets is the NAT gateway, and nothing else adds one.
 
-    Asserted over every ``aws_route`` and every inline ``route`` block, because the two are
-    different mechanisms and a reader who checks one often forgets the other.
+    Asserted over every ``aws_route`` and every inline ``route`` block in the whole tree, because
+    the two are different mechanisms and a reader who checks one often forgets the other.
 
     Args:
       None.
@@ -81,24 +88,57 @@ def test_no_private_route_table_carries_a_default_route() -> None:
       None.
 
     Raises:
-      AssertionError: When any route to the private tables carries a default destination.
+      AssertionError: When a private table has an inline default route, the private default does
+        not cover every private table or target the NAT gateway, or any other route defaults.
     """
     text = "\n".join(path.read_text() for path in sorted(NETWORK.rglob("*.tf")))
     private_tables = blocks(text, "aws_route_table")
     assert "private" in private_tables, "No private route table found — the parse went trivial."
-
     for name, body in private_tables.items():
-        if "private" in name:
-            assert "0.0.0.0/0" not in body and "::/0" not in body, (
-                f"aws_route_table.{name} declares an inline default route."
-            )
+        assert "0.0.0.0/0" not in body and "::/0" not in body, (
+            f"aws_route_table.{name} declares an inline default route."
+        )
 
-    for name, body in blocks(text, "aws_route").items():
-        if "0.0.0.0/0" in body or "::/0" in body:
-            assert "aws_route_table.public" in body, (
-                f"aws_route.{name} sends a default route somewhere other than the public table. "
-                "Only the public subnets reach the internet."
-            )
+    routes = blocks(text, "aws_route")
+    private_default = routes.get("private_default", "")
+    assert re.search(r"for_each\s*=\s*aws_route_table\.private\b", private_default), (
+        "the private default route is not derived from every private table"
+    )
+    assert re.search(r"nat_gateway_id\s*=\s*aws_nat_gateway\.main\.id", private_default), (
+        "the private default route does not target the NAT gateway"
+    )
+
+    defaulting = sorted(
+        f"{path.relative_to(INFRA)}: aws_route.{name}"
+        for path in sorted(INFRA.rglob("*.tf"))
+        for name, body in blocks(path.read_text(), "aws_route").items()
+        if "0.0.0.0/0" in body or "::/0" in body
+    )
+    assert defaulting == [
+        "modules/network/main.tf: aws_route.private_default",
+        "modules/network/main.tf: aws_route.public_internet",
+    ], f"Default routes are declared at {defaulting}; only the public table and the NAT path may have one."
+
+
+def test_both_gateway_endpoints_take_their_route_tables_from_the_private_tables() -> None:
+    """A gateway endpoint on the wrong tables applies green and does nothing, so neither lists them.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When either gateway endpoint names its route tables any other way.
+    """
+    endpoints = blocks(ENDPOINTS.read_text(), "aws_vpc_endpoint")
+    for name in ("s3", "dynamodb"):
+        body = endpoints.get(name, "")
+        assert re.search(r'vpc_endpoint_type\s*=\s*"Gateway"', body), f"aws_vpc_endpoint.{name} is not a gateway"
+        assert re.search(
+            r"route_table_ids\s*=\s*\[\s*for\s+(\w+)\s+in\s+aws_route_table\.private\s*:\s*\1\.id\s*\]", body
+        ), f"aws_vpc_endpoint.{name} does not derive its route tables from aws_route_table.private"
 
 
 def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks() -> None:

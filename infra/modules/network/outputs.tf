@@ -32,3 +32,8 @@ output "s3_prefix_list_id" {
   description = "The S3 gateway endpoint's managed prefix list. The task's egress to S3 must be allowed by PREFIX LIST, because a CIDR rule does not match gateway-endpoint traffic."
   value       = aws_vpc_endpoint.s3.prefix_list_id
 }
+
+output "dynamodb_prefix_list_id" {
+  description = "The DynamoDB gateway endpoint's managed prefix list, which the task's egress to the session store is allowed by."
+  value       = aws_vpc_endpoint.dynamodb.prefix_list_id
+}

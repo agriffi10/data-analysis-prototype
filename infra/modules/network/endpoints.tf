@@ -1,7 +1,8 @@
-# ── The endpoints that replace the NAT gateway ────────────────────────────────
+# ── The endpoints: every AWS service the task reaches, kept off the NAT gateway ──
 #
-# Three interface endpoints and one gateway endpoint. EVERY ONE OF THEM APPLIES GREEN WHEN IT IS
-# WRONG. The S3 gateway endpoint is NOT an optimisation — ECR serves image layers from S3, and
+# Four interface endpoints and two gateway endpoints. Task startup (the image pull, the log
+# stream, the secret ECS injects) travels only these, so a task starts whether or not the NAT
+# gateway works. EVERY ONE OF THEM APPLIES GREEN WHEN IT IS WRONG. The S3 gateway endpoint is NOT an optimisation — ECR serves image layers from S3, and
 # without it the pull fails as `CannotPullContainerError`, which reads like authorization and is
 # not. README.md.
 
@@ -30,7 +31,7 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_tasks" {
 # `private_dns_enabled` needs the VPC's two DNS settings. Without them the endpoints exist,
 # apply green, and nothing uses them. README.md.
 resource "aws_vpc_endpoint" "interface" {
-  for_each = toset(["ecr.api", "ecr.dkr", "logs"])
+  for_each = toset(["ecr.api", "ecr.dkr", "logs", "ssm"])
 
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${var.aws_region}.${each.key}"
@@ -56,4 +57,18 @@ resource "aws_vpc_endpoint" "s3" {
   route_table_ids   = [for table in aws_route_table.private : table.id]
 
   tags = { Name = "${local.name_prefix}-s3" }
+}
+
+# The session store's traffic. A GATEWAY endpoint, so DynamoDB is reached without the NAT gateway
+# and without its per-gigabyte charge; the prefix-list route it adds is more specific than the
+# default route, so it wins. Route tables derived, never listed, exactly as S3's.
+#
+# NO ENDPOINT POLICY: the task role names the one table it may use, which is the bound.
+resource "aws_vpc_endpoint" "dynamodb" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws_region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [for table in aws_route_table.private : table.id]
+
+  tags = { Name = "${local.name_prefix}-dynamodb" }
 }

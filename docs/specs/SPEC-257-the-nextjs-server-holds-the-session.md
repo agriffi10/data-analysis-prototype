@@ -221,10 +221,20 @@ version clause would let the write through.
 
 **A forced refresh never adopts an older token.** A `POST /auth/refresh` exists to pick up a
 membership granted a moment ago, and the request it lost to may have called Cognito before that
-grant. So a forced refresh that loses writes its own token against the version it re-read, up to
-three attempts, and answers 503 if it still loses. With rotation off both tokens are valid, so
-writing the newer one costs nothing. A refresh made only because the token was near expiry adopts
-the winner's token, which serves it as well as its own.
+grant. So a forced refresh that loses re-reads the item and compares the two ID tokens' `iat`: when
+the stored one was issued in the same second as its own or later, it uses that one; when the stored
+one is older, it writes its own against the version it re-read. A refresh made only because the token
+was near expiry uses the stored token whatever its age, which serves it as well as its own. So the
+stored token only moves forward, and a burst of refreshes on one cookie settles on one write, with
+every request answered. Five writes are a backstop, not a limit a burst reaches: every write after
+the first follows another refresh's write of a token issued in an earlier whole second than this
+one's, so losing five times takes five concurrent refreshes issued in five distinct earlier seconds,
+each landing between this one's read and its write. A refresh still losing after five answers 503.
+`iat` counts whole seconds, so a token issued in the same second as the forced refresh's own counts
+as fresh even if Cognito issued it a moment before the grant; the next forced refresh issues a later
+second's token and stores it. (Measured in the execution review: the first design, where a forced
+loser always wrote its own token up to three times, answered 503 to 6 to 13 of 20 concurrent forced
+refreshes on one cookie, and could write an older token over a newer one.)
 
 **Two tabs refreshing at once** are two requests carrying one cookie, possibly on two tasks.
 Measured while authoring: the live public client reports no `RefreshTokenRotation`, and Cognito
@@ -249,8 +259,9 @@ the server refreshes ahead of them.
 - [ ] `session-store` takes no input from `network` or `spa`, and its key policy's only principal is
       the account root, both asserted by tests over the HCL.
 - [ ] The table and key pass Checkov `CKV_AWS_119` and `CKV_AWS_7`, which join
-      `.github/checkov-enforced.txt`; `CKV_AWS_28` is skipped on the table with the backup reason
-      above, recorded in `docs/security-baseline.md`.
+      `.github/checkov-enforced.txt`; `CKV_AWS_28` fails on the table by decision and is accepted
+      with the backup reason above in `docs/security-baseline.md`'s Checkov table, which is how this
+      repo records an accepted finding (it suppresses none inline).
 - [ ] A store read that returns an item at or past its absolute expiry yields no session, a 401 from
       the route, and a delete of that item, asserted against a store double.
 - [ ] **The offline harness.** Against a store double that evaluates the condition as DynamoDB does
@@ -259,14 +270,17 @@ the server refreshes ahead of them.
       of one session both return a valid ID token, the stored `version` advances once per successful
       write, and the losing request uses the winner's token with no 401. A sign-out forced between a
       refresh's read and its write leaves the item absent and answers that refresh with 401.
-- [ ] A forced refresh that loses to a near-expiry refresh leaves its own token stored, and one that
-      loses three times answers 503, both against the same double.
+- [ ] Against the same double: a forced refresh that loses to an older token's write stores its own;
+      one that loses to a token issued in the same second or later uses that token and writes no
+      more; and one that keeps losing to older tokens answers 503 after exactly five writes.
 - [ ] The DynamoDB adapter sends exactly the condition expression the double enforces, asserted on
       the command's input. Removing the whole condition expression from the adapter makes the
       sign-out interleaving fail, because the write recreates the item; run once and reverted (plant
       and run, not argued).
-- [ ] A test resets the module registry between two requests carrying one cookie, and the second
-      finds the session only through the store double.
+- [ ] A test serves a session through one store double and then asks for the same cookie, in the
+      same module, through an empty one, and finds nothing; an in-memory cache planted in
+      `loadSession` fails it when the test runs alone. (A module-registry reset was the first shape,
+      and it passed with the cache planted, because the fresh module brought a fresh, empty cache.)
 - [ ] **The live harness.** On the deployed tier, with one signed-in cookie, 20 concurrent
       `POST /auth/refresh` and 20 concurrent `GET /auth/session` all succeed, and `GET /auth/session`
       answers 200 afterwards. Neither route runs a Lambda. Calls through `/api/` in the harness run at
@@ -290,7 +304,13 @@ Route handlers under `apps/portal/src/app/auth/`, using modules in `src/server/s
   would land a newly confirmed user on `/?signin=failed`, signed out. The transaction rides in the
   cookie rather than the table, so an unauthenticated flood of `/auth/login` writes nothing. Nothing can plant the cookie
   in a victim's browser, because the `__Host-` prefix refuses a sibling subdomain's `Domain` cookie
-  and `Secure` refuses the network.
+  and `Secure` refuses the network. That holds only while the server reads a cookie's name exactly:
+  it trims space and tab and nothing else. `String.prototype.trim` also strips U+00A0, which Node
+  reads from a 0xA0 header byte, so a cookie named 0xA0 followed by `__Host-dq_signin` would read as
+  the real one while the browser, checking the prefix against the name it stored, gave it none of the
+  prefix's protection. (Found by the security review against the real server and Chrome: a sibling
+  subdomain planted a sign-in this way, and the victim's next upload reached the API as the
+  attacker.)
 - **`GET /auth/callback`** requires the sign-in cookie and a `state` equal to the cookie's, exchanges
   the code at the token endpoint with the verifier and the client secret (`client_secret_basic`),
   and checks the returned ID token's `iss`, `aud` (the confidential client), `token_use` (`id`),
@@ -351,6 +371,8 @@ path; none of it is a credential, and the log sits in the admin-only bucket.
       redirect to `/?signin=failed` and create no session: one test per exit, each asserting that
       the token endpoint was or was not called, as its exit requires. Every exit whose `state`
       matched the cookie clears the sign-in cookie, and the mismatched-`state` exit leaves it set.
+- [ ] A cookie whose name is either cookie's name with a U+00A0 before or after it reads as absent,
+      and one padded with spaces and tabs reads as present, asserted on the cookie reader.
 - [ ] A successful callback sets `__Host-dq_session` with exactly the charter's attributes, to an id
       that differs from any session cookie the request carried, deletes the session that cookie
       named, and redirects to `/`.
@@ -396,9 +418,10 @@ another host and would hand it the session's token.
 sends the API today, under the HTTP API's header quota with a worst-case ID token.
 
 **Bounds.** A request body over the HTTP API's 10 MB payload quota answers 413 `PayloadTooLarge`
-without being forwarded, and the body is read only after the `Origin` and session checks pass. A
-declared `content-length` over the cap is refused before reading, and the read counts bytes and
-stops past the cap for a body that declared none.
+without being forwarded. For an unsafe method the order is the `Origin` check, then a declared
+`content-length` over the cap (refused from the header alone, before any session is read), then the
+session, then the body, whose read counts bytes and stops past the cap for a body that declared
+none. Neither a forged request nor an oversized one costs a store read.
 
 **A request with a body never waits for the proxy.** When the request proxy matches a request that
 has a body, Next.js clones the body for it and then waits for the **whole** body to arrive before
@@ -450,9 +473,11 @@ design and is protected by `state` and the sign-in cookie.
       an API 401 reaches the browser unchanged and the item is not deleted.
 - [ ] Against `next start` with SPEC-255's request proxy in place, not in Vitest, which runs no
       proxy: a `POST` to `/api/x` and one to `/auth/refresh`, each declaring a 1 GB body and sending
-      one byte, answer 403 within one second with no `Origin`; with `Origin: PORTAL_ORIGIN` and a
-      session, the `/api/x` one answers 413 within one second; and a `POST` through `/api/` of
-      exactly 10 MB is forwarded whole, its byte count asserted at the API double.
+      one byte, answer 403 within one second with no `Origin`; with `Origin: PORTAL_ORIGIN`, the
+      `/api/x` one answers 413 within one second, before any session is read. A `POST` through
+      `/api/` of exactly 10 MB is forwarded whole, its byte count asserted at the API double, in the
+      handler suite: a session needs a store `next start` does not have, and once the proxy skips a
+      bodied request (the rows above), nothing between the socket and the handler can cut the body.
 - [ ] Against `next start`, every response under `/api/` and `/auth/` carries SPEC-255's
       `SECURITY_HEADERS`: one to a request with a body carries `LOCKDOWN_POLICY` as its CSP, and
       one to a request without a body carries the proxy's policy. This spec changes neither the
@@ -618,6 +643,10 @@ export function loadSession(cookieValue: string | undefined, opts: {forceRefresh
 
 Server environment variables of the portal's container, set in the `spa` task definition. None is a
 `CONFIG_*` key, and none appears in the browser's runtime document. Each is read when a route runs.
+`API_ORIGIN`, `OIDC_TOKEN_URL` and `OIDC_REVOKE_URL` must be `https:`, or `http:` to a loopback host
+for a local harness, and any other value answers 503 as an unset one does: the server sends the
+client secret and the bearer to them, and skips the ID token's signature check only because the
+token arrives over TLS.
 
 ```
 PORTAL_ORIGIN=https://<portal domain>                  # redirect targets, redirect_uri, the Origin check

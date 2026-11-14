@@ -25,6 +25,12 @@
         "logs:PutLogEvents"
       ],
       "Resource": "${log_group_arn}:*"
+    },
+    {
+      "Sid": "ReadTheClientSecret",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameters",
+      "Resource": "${client_secret_parameter_arn}"
     }
   ]
 }

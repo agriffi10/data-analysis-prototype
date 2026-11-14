@@ -82,7 +82,7 @@ module "api" {
     # The provider block: five fields, and the verifier reads nothing else about who issues
     # its tokens. Computed at root, so there is exactly one wiring site. README.md.
     OIDC_ISSUER          = var.oidc_issuer
-    OIDC_AUDIENCE        = var.oidc_audience
+    OIDC_AUDIENCE        = join(",", var.oidc_audience)
     OIDC_JWKS_URI        = var.oidc_jwks_uri
     OIDC_USERNAME_CLAIM  = var.oidc_username_claim
     OIDC_REQUIRED_CLAIMS = var.oidc_required_claims

@@ -9,7 +9,7 @@ portal, and only while the web tier is on**; with it off, nothing does (`infra/i
 | `ecs.tf` | the cluster, the task definition and the service |
 | `alb.tf` | the load balancer, target group, both listeners, **and the admin bucket's first policy** |
 | `security-groups.tf` | the ALB's group, and **every rule that names the task group** |
-| `iam.tf` | the execution role and the (empty) task role |
+| `iam.tf` | the execution role, and the task role with its one grant, the session store |
 | `dns.tf` | the A-alias record |
 | `names.tf` | the names the deploy role's grants are written against |
 | `outputs.tf` / `variables.tf` | the module interface |
@@ -27,7 +27,7 @@ points the service at it**. Without the ignore, every later infra apply would po
 straight back at whatever tag Terraform last rendered.
 
 **A pipeline that only registers a revision leaves a `CannotPullContainerError` indistinguishable
-from the endpoint failure the whole no-NAT platform is tested for.**
+from the endpoint failure task startup is tested for.**
 
 **`desired_count` is deliberately not in that list.** The count is a Terraform variable whose raise
 from 0 to 1 is a verification **step**, and an ignored attribute makes that step a silent no-op that
@@ -38,7 +38,7 @@ than two quietly disagreeing.
 ## Platform version 1.4.0 is pinned, and it is load-bearing
 
 On **1.3.0 the image pull travelled a separate Amazon-owned ENI to which VPC endpoints did not
-apply**, so the whole endpoints-instead-of-a-NAT design silently does not hold.
+apply**, so task startup's endpoints-only path silently does not hold.
 
 **The circuit breaker is enabled with rollback disabled.** With rollback on and no previous good task
 set, a missing image reads as a *rollback* rather than as `CannotPullContainerError` — the one
@@ -166,14 +166,17 @@ served over it, but the port has to be reachable for a browser that types the ba
 where to go. **The HTTP listener has no forward and no fixed response**: a listener that can serve
 anything over port 80 is one that can serve the app over it.
 
-## Two roles, and the second holds nothing
+## Two roles, and each holds only its own work
 
-The **execution** role is ECS's — it pulls the image and opens the log stream, **before the container
-exists**. The **task** role is the container's own AWS identity, and the SPA container makes no AWS
-call, so it has **no policy at all**.
+The **execution** role is ECS's — it pulls the image, opens the log stream and reads the server
+client's secret from SSM, **before the container exists**. The **task** role is the container's own
+AWS identity, and the server's one AWS call is its session store: item actions on that one table, and
+the table's key only as DynamoDB uses it for that table (`kms:ViaService` and the table-name
+encryption context). `key/*` because the key is created in the same apply as this document, which
+the plan-time IAM scan must be able to read.
 
 **Merging them applies green forever**, because nothing the container does would fail — and hands the
-running container the registry pull and log-write grants for no reason.
+running container the registry pull, log-write and secret-read grants for no reason.
 
 The execution policy is **a scoped document, not `AmazonECSTaskExecutionRolePolicy`**. The managed
 policy grants the three pull actions on **every repository in the account** and hides that breadth
@@ -196,7 +199,7 @@ role holds `iam:PutRolePolicy` and neither `iam:AttachRolePolicy` nor a usable `
   unmanaged and retained forever, and `retention_in_days` is an enforced scanner gate. The stronger
   reason is diagnostic: **with no group at all every task dies at start with
   `ResourceInitializationError`**, which during verification is indistinguishable from the
-  `CannotPullContainerError` the no-NAT design is tested by.
+  `CannotPullContainerError` task startup is tested by.
 - **`runtime_platform` is declared, not defaulted.** The default is `X86_64` either way, but an image
   built by hand on an Apple Silicon laptop is arm64 and the task fails with an image-manifest error
   **that reads nothing like the architecture mismatch it is**. CI names `--platform linux/amd64` to
@@ -232,7 +235,7 @@ Each failure they guard **applies green somewhere and fails somewhere else**:
   every container healthy;
 - a writable set the task does not mount produces a container that never starts, reported as a
   generic essential-container exit — and `ResourceInitializationError` is indistinguishable from
-  the `CannotPullContainerError` the no-NAT design is tested by;
+  the `CannotPullContainerError` task startup is tested by;
 - `appUrl` carrying the CloudFront origin fails only in a browser, only on a fresh sign-in;
 - a merged task and execution role applies green forever, because nothing the container does
   would fail;

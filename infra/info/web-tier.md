@@ -21,11 +21,12 @@ with a warning and a job-summary note while off, because there is no host to sca
 
 | Off removes | Both keep |
 |---|---|
-| the VPC, subnets, route tables, security groups, the three interface endpoints, the S3 gateway endpoint, flow logs | Cognito and every user account |
+| the VPC, subnets, route tables, security groups, the four interface endpoints, the S3 and DynamoDB gateway endpoints, flow logs | Cognito and every user account, both app clients, and the server client's secret parameter |
 | the load balancer, its listeners and target group, and its `portal.` alias record | every data bucket and everything in it |
 | the ECS cluster, service, task definition, log group and both task roles | the portal's and the API's certificates |
 | the admin bucket's policy, which only admits the load balancer's access logs | the Glue catalog and every Lake Formation grant |
-| | the API at `api.`, every Lambda, queue and state machine, and the SPA image registry |
+| the NAT gateway and its Elastic IP, which bill by the hour | the API at `api.`, every Lambda, queue and state machine, and the SPA image registry |
+| | the session table and its customer-managed key: off must not schedule the key for deletion or drop every session |
 
 **The hostname does not change**, so Cognito's callbacks, the buckets' CORS rules, the API's CORS rule
 and the CSP's `connect-src` are the same whenever the tier is on.

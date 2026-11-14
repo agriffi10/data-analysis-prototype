@@ -33,6 +33,15 @@ locals {
     }
   ]
 
+  # The portal server's session settings, named exactly as the server reads them. Never CONFIG_
+  # keys, so none can reach the browser's runtime document; the variable's validation holds that.
+  session_environment = [
+    for key in sort(keys(var.session_environment)) : {
+      name  = key
+      value = var.session_environment[key]
+    }
+  ]
+
   # tmpfs, NOT a task volume — MEASURED. A Fargate task volume arrives EMPTY and root-owned
   # and does not initialise from the image, so a non-root container cannot write to it and
   # dies on a permission error that reads as a container bug. The Node server writes only its
@@ -89,12 +98,21 @@ resource "aws_ecs_task_definition" "spa" {
         ]
       }
 
-      environment = concat(local.config_environment, [
+      environment = concat(local.config_environment, local.session_environment, [
         {
           name  = "PORTAL_CSP_CONNECT_SRC"
           value = var.csp_connect_src
         }
       ])
+
+      # The client secret is the one value that is not plain environment: ECS reads it from SSM at
+      # task start, as the execution role, so it appears in no task definition revision.
+      secrets = [
+        {
+          name      = "OIDC_CLIENT_SECRET"
+          valueFrom = var.client_secret_parameter_arn
+        }
+      ]
 
       logConfiguration = {
         logDriver = "awslogs"

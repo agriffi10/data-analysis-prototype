@@ -75,3 +75,8 @@ variable "lambda_image_tag" {
   description = "The commit sha this module's functions are CREATED from. Ignored after creation — CI re-points every function with update-function-code on each deploy — but it must be a tag the registry already holds, or CreateFunction fails."
   type        = string
 }
+
+variable "client_secret_parameter_name" {
+  description = "The SSM parameter the server client's secret is written to. Named at root, which also builds its ARN for the task's execution role from the same string, so the two cannot disagree."
+  type        = string
+}

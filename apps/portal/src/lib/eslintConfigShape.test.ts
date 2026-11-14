@@ -91,12 +91,37 @@ describe('the @aws-sdk ban survives every no-restricted-imports clause', () => {
  * transitively, so an assertion over the installed tree would fail permanently and be
  * deleted inside a week — and a deleted guard and a passing one look identical in CI.
  */
-describe('no @aws-sdk dependency survives', () => {
+describe('the server holds the one exception to the ban', () => {
+  const serverClauses = eslintConfig.filter((entry) => entry.files?.includes('src/server/**/*.{ts,tsx}'));
+
+  it('admits @aws-sdk/client-dynamodb under src/server/ and nothing else, and nowhere else', () => {
+    expect(serverClauses).toHaveLength(1);
+    const options = (serverClauses[0].rules?.['no-restricted-imports'] as unknown[])[1] as {
+      patterns: {group: string[]}[];
+    };
+    expect(options.patterns.map((pattern) => pattern.group)).toEqual([
+      ['@aws-sdk/*', '@aws-sdk/**', '!@aws-sdk/client-dynamodb'],
+      REACT_ROUTER_IMPORTS.group
+    ]);
+
+    const negated = eslintConfig
+      .filter((entry) => !serverClauses.includes(entry))
+      .flatMap((entry) => {
+        const value = entry.rules?.['no-restricted-imports'];
+        const patterns = Array.isArray(value) ? ((value[1] as {patterns?: {group: string[]}[]})?.patterns ?? []) : [];
+        return patterns.flatMap((pattern) => pattern.group.filter((glob) => glob.startsWith('!')));
+      });
+    expect(negated).toEqual([]);
+    expect(eslintConfig.indexOf(serverClauses[0])).toBe(eslintConfig.length - 1);
+  });
+});
+
+describe('the manifest names one @aws-sdk package, for the server', () => {
   const PACKAGE_JSON = Object.values(
     import.meta.glob('../../package.json', {query: '?raw', import: 'default', eager: true})
   )[0] as string;
 
-  it('names none in dependencies or devDependencies', () => {
+  it('names exactly @aws-sdk/client-dynamodb in dependencies or devDependencies', () => {
     const manifest = JSON.parse(PACKAGE_JSON) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -105,7 +130,7 @@ describe('no @aws-sdk dependency survives', () => {
 
     // Guard-the-guard: a parse that read nothing would agree with an empty manifest.
     expect(declared).toContain('aws-amplify');
-    expect(declared.filter((name) => name.startsWith('@aws-sdk/'))).toEqual([]);
+    expect(declared.filter((name) => name.startsWith('@aws-sdk/'))).toEqual(['@aws-sdk/client-dynamodb']);
   });
 });
 

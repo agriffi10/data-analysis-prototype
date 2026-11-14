@@ -327,6 +327,35 @@ locals {
   # is how they come to disagree.
   cognito_issuer = "https://cognito-idp.${var.aws_region}.amazonaws.com/${module.auth.user_pool_id}"
 
+  # ── The portal server's session ──
+  # Each name is written ONCE, here, and both the resource that owns it and the grant that names it
+  # read it: the table and the task role, the parameter and the execution role. An ARN built from
+  # the same string is known at plan, which the plan-time IAM scan needs.
+  session_table_name           = "${var.project_name}-${var.environment}-sessions"
+  session_table_arn            = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.session_table_name}"
+  client_secret_parameter_name = "/${var.project_name}-${var.environment}/portal/oidc-client-secret"
+  client_secret_parameter_arn  = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.client_secret_parameter_name}"
+
+  # The OIDC client's endpoints, as FIELDS rather than derived inside the server from a domain:
+  # the concatenation happens once, here, as the verifier's JWKS URI's does.
+  cognito_domain_origin = "https://${local.cognito_hosted_ui_domain}"
+
+  # What the server reads, named exactly as it reads it. Server-only: none is a CONFIG_ key, and
+  # the secret is not here (the task definition's `secrets` carries it).
+  session_environment = {
+    PORTAL_ORIGIN           = local.spa_origin
+    API_ORIGIN              = local.api_origin
+    OIDC_ISSUER             = local.cognito_issuer
+    OIDC_CLIENT_ID          = module.auth.server_client_id
+    OIDC_AUTHORIZE_URL      = "${local.cognito_domain_origin}/oauth2/authorize"
+    OIDC_TOKEN_URL          = "${local.cognito_domain_origin}/oauth2/token"
+    OIDC_REVOKE_URL         = "${local.cognito_domain_origin}/oauth2/revoke"
+    OIDC_LOGOUT_URL         = "${local.cognito_domain_origin}/logout"
+    SESSION_TABLE_NAME      = local.session_table_name
+    SESSION_MAX_AGE_SECONDS = tostring(module.auth.server_session_max_age_seconds)
+    AWS_REGION              = var.aws_region
+  }
+
   # The load balancer's access-log prefix in the admin bucket. At ROOT because two modules must
   # agree on it: the one that points the balancer at it and writes the bucket policy, and the one
   # that owns the bucket's lifecycle rules. A literal in each would be two literals.
@@ -439,6 +468,9 @@ module "auth" {
   # the raw var would leave the module's own ternary free to drift from the CSP's
   # — silently allowing a host the user pool does not have.
   cognito_domain_prefix = local.cognito_domain_prefix
+
+  # Named at root, where the execution role's grant builds its ARN from the same string.
+  client_secret_parameter_name = local.client_secret_parameter_name
 
   # Post-confirmation Lambda inputs. account_id/region scope the exec
   # role's Glue ARNs; portal_role_arn (constructed, cycle-free) is the LF grant
@@ -805,7 +837,7 @@ module "api" {
   max_shared_memberships = var.max_shared_memberships
 
   oidc_issuer          = local.cognito_issuer
-  oidc_audience        = module.auth.user_pool_client_id
+  oidc_audience        = [module.auth.user_pool_client_id, module.auth.server_client_id]
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"
   oidc_username_claim  = "cognito:username"
   oidc_required_claims = jsonencode({ token_use = "id" })
@@ -844,6 +876,20 @@ module "network" {
   depends_on = [module.base]
 }
 
+# ── The portal server's session store ─────────────────────────────────────────
+# OUTSIDE the web tier's switch: switching the tier off must neither schedule the key for deletion
+# nor drop every session. It reads no `network` or `spa` output. modules/session-store/README.md.
+module "session_store" {
+  source = "./modules/session-store"
+
+  project_name = var.project_name
+  environment  = var.environment
+  account_id   = data.aws_caller_identity.current.account_id
+  table_name   = local.session_table_name
+
+  # base grants the deploy role the table, key and alias permissions BEFORE anything here lands.
+  depends_on = [module.base]
+}
 
 # ── The SPA image's registry ──────────────────────────────────────────────────
 # Outside the switch: the tier can be off for months, and the registry keeps its images through it.
@@ -913,6 +959,13 @@ module "spa" {
 
   runtime_config  = local.spa_runtime_config
   csp_connect_src = local.csp_connect_src
+
+  # The portal server's session: its settings, the secret's parameter, the table its task role may
+  # use, and the route to it.
+  session_environment         = local.session_environment
+  client_secret_parameter_arn = local.client_secret_parameter_arn
+  session_table_arn           = local.session_table_arn
+  dynamodb_prefix_list_id     = module.network[0].dynamodb_prefix_list_id
 
   # base grants the deploy role the ECS, ECR, load-balancer, role and log-group permissions
   # BEFORE anything here lands; analytics creates the bucket whose policy this module writes.

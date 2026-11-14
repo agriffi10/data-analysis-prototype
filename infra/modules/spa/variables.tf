@@ -88,6 +88,39 @@ variable "runtime_config" {
   type        = map(string)
 }
 
+variable "session_environment" {
+  description = "The portal server's session settings, from root, rendered into the task environment under exactly these names. Server-only: none may be a CONFIG_ key, which would put it in the browser's document, and the client secret is not among them (it arrives through `secrets`)."
+  type        = map(string)
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.session_environment) :
+      !startswith(key, "CONFIG_") && !strcontains(upper(key), "SECRET")
+    ])
+    error_message = "session_environment may hold no CONFIG_ key and no secret; the secret reaches the task through client_secret_parameter_arn."
+  }
+
+  validation {
+    condition     = contains(keys(var.session_environment), "SESSION_TABLE_NAME")
+    error_message = "session_environment must name SESSION_TABLE_NAME, which the task role's grant is bound to."
+  }
+}
+
+variable "client_secret_parameter_arn" {
+  description = "The SSM SecureString holding the confidential client's secret, injected as OIDC_CLIENT_SECRET at task start. Built at root from the parameter's name, so the plan knows it."
+  type        = string
+}
+
+variable "session_table_arn" {
+  description = "The session table the task role may use. Built at root from the table's name, so the plan-time IAM scan can read the grant."
+  type        = string
+}
+
+variable "dynamodb_prefix_list_id" {
+  description = "The DynamoDB gateway endpoint's managed prefix list, from `network`, which the task's egress to the session store names."
+  type        = string
+}
+
 variable "csp_connect_src" {
   description = "The whole connect-src source list, built at root and carried to the container as PORTAL_CSP_CONNECT_SRC. It is computed at root rather than here because root is where the origins are built — it fed both delivery paths while there were two, and feeds the only one now."
   type        = string

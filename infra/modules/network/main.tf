@@ -1,8 +1,9 @@
-# ── The VPC the container runs in, and the route it deliberately does not have ──
+# ── The VPC the container runs in, and the one way out of it ──────────────────
 #
-# Private subnets carry the ECS tasks and have NO DEFAULT ROUTE AT ALL. There is no NAT gateway
-# in this design; the residual is that any destination without an endpoint fails as a CONNECT
-# TIMEOUT, which is why flow logs are on. README.md.
+# Private subnets carry the ECS tasks. AWS services are reached through endpoints; the portal
+# server's two internet destinations (the Cognito domain's token endpoint and the API's custom
+# domain) go out through ONE NAT gateway, which exists only while the web tier is switched on.
+# Flow logs record what the tasks reached. README.md.
 #
 # The AZ list is filtered on `opt-in-not-required`, NOT on `state`. A state filter ties
 # membership to AZ health and recreates every subnet during a zone event; the opt-in filter also
@@ -92,8 +93,8 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# ONE PER AZ, and none carries a `0.0.0.0/0` entry of any kind. The only route these gain is the
-# S3 gateway endpoint's prefix-list route, added by association rather than declared here.
+# ONE PER AZ. Each gains the two gateway endpoints' prefix-list routes by association, and one
+# default route, to the NAT gateway, declared below as its own resource and never inline.
 resource "aws_route_table" "private" {
   for_each = local.subnets
 
@@ -109,6 +110,41 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[each.key].id
 }
 
+# ── The NAT gateway: the server's way to Cognito and the API ──────────────────
+# ONE, zonal, in the first sorted zone's public subnet. The tier has no users and is on only while
+# someone works, so a zone outage costs what switching the tier off costs. The pinned provider has
+# no regional mode.
+#
+# BOTH WAIT FOR THE INTERNET GATEWAY. A public NAT gateway created before the gateway is attached
+# fails (`Gateway.NotAttached`), and nothing in either argument list orders them; a switch-on from
+# nothing is the only apply that can hit it, and no check runs one. README.md.
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = { Name = "${local.name_prefix}-nat" }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[local.azs[0]].id
+
+  tags = { Name = "${local.name_prefix}-nat" }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+# Every private table's one default route, derived from the tables so a later zone cannot be left
+# without one.
+resource "aws_route" "private_default" {
+  for_each = aws_route_table.private
+
+  route_table_id         = each.value.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.main.id
+}
+
 # ── Security groups ───────────────────────────────────────────────────────────
 # The task group lives HERE because the endpoint group's ingress rule references it. Its own
 # rules live with the LOAD BALANCER, and are not duplicated here.
@@ -116,6 +152,10 @@ resource "aws_route_table_association" "private" {
 # THIS GROUP PERMITS NOTHING ON ITS OWN, AND THAT IS CORRECT. Every leg of task startup travels
 # this ENI, so a pull attempted with the load balancer module's rules absent WILL time out. Do
 # not read such a timeout as an endpoint defect. README.md.
+#
+# Its description predates the NAT gateway, and the egress rules in `spa` now also reach HTTPS on
+# the internet. It is not reworded: a description is ForceNew, and replacing a group that running
+# tasks' interfaces hold fails the apply.
 resource "aws_security_group" "task" {
   name        = "${local.name_prefix}-spa-task"
   description = "The SPA container. Ingress from the load balancer only; egress to the VPC endpoints only."

@@ -44,8 +44,13 @@ const packageJson = Object.values(
  * first offender this sweep found was `'…the DDL fetch (Athena hard cap)'`, which is prose. A
  * sweep that fires on prose is one somebody loosens.
  */
+// The browser's sources. `src/server/` is not among them: the Next.js server calls the provider and
+// forwards the browser's API calls, and no browser module can import it (the lint fence and
+// `server-only` both refuse it), so these browser rules do not govern it.
 const appSources = Object.fromEntries(
-  Object.entries(allAppSources).filter(([path]) => !path.includes('.test.') && !path.includes('/test/'))
+  Object.entries(allAppSources).filter(
+    ([path]) => !path.includes('.test.') && !path.includes('/test/') && !path.startsWith('../server/')
+  )
 );
 
 /**

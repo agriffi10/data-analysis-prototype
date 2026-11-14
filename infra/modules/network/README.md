@@ -1,9 +1,10 @@
-# `network` — the VPC, and the route it deliberately does not have
+# `network` — the VPC, its endpoints, and its one way out
 
 Two availability zones. Public subnets carry the load balancer and reach the internet through an
-internet gateway. Private subnets carry the ECS tasks and have **no default route at all** — there
-is no NAT gateway anywhere in this design, and the three destinations a task actually needs are
-reached by VPC endpoints instead.
+internet gateway. Private subnets carry the ECS tasks. **Every AWS service a task uses is reached by
+a VPC endpoint**, and the portal server's two internet destinations, the Cognito domain's token
+endpoint and the API's custom domain, go out through **one NAT gateway**, the only default route a
+private table has.
 
 **Behind the web tier's off switch**, with `spa`: `web_tier_enabled = false` removes this module
 whole, so nothing outside the two may read its outputs or be placed in the VPC
@@ -11,34 +12,32 @@ whole, so nothing outside the two may read its outputs or be placed in the VPC
 
 | File | Holds |
 |---|---|
-| `main.tf` | the VPC, subnets, route tables, both security groups, and flow logs |
-| `endpoints.tf` | three interface endpoints and one gateway endpoint |
+| `main.tf` | the VPC, subnets, route tables, the NAT gateway and its Elastic IP, both security groups, and flow logs |
+| `endpoints.tf` | four interface endpoints and two gateway endpoints |
 | `outputs.tf` | ids the platform modules consume, and the two a live check asserts against |
 | `variables.tf` | the module interface |
 | `policies/` | the flow-log role's trust and permission templates |
 
 **Every one of these applies green when it is wrong.** That is the theme of the module.
 
-## Why no NAT gateway — and it is not cost
+## One NAT gateway, for two destinations an endpoint cannot serve
 
-Interface endpoints bill per-AZ-hour plus data processed, a NAT gateway bills per-hour plus per-GB,
-and across two AZs at this traffic level the endpoint set happens to be cheaper. That is a fact that
-could change. What does not change is that **"no route to the internet" is a property a reviewer
-reads off a route table**, where "a NAT gateway nobody uses" is a claim somebody re-argues every
-year.
+The portal's Next.js server holds each browser's session, so it must reach the Cognito domain's
+token and revocation endpoints and the API's public custom domain. Neither has a VPC endpoint. **One
+zonal NAT gateway**, in the first sorted zone's public subnet, carries them, and every private table
+routes `0.0.0.0/0` to it. One rather than one per zone because the tier has no users and is on only
+while someone works: a zone outage costs what switching the tier off costs. The pinned provider has
+no regional mode. The gateway and its Elastic IP wait for the internet gateway, because a public NAT
+gateway created before the gateway is attached fails, and only a switch-on from nothing can hit that.
 
-**The residual, stated plainly:** any future destination with no VPC endpoint is unreachable from a
-task, and it fails as a **connect timeout** rather than a 403 — the slowest failure there is to
-diagnose. Foreclosed today: ECS Exec (`ssmmessages`, `ssm`, `ec2messages`), Secrets Manager, SSM
-Parameter Store, any runtime package fetch, and any non-AWS host. The remedy for an AWS destination
-is another interface endpoint; for a non-AWS one there is none short of a NAT gateway, and that is a
-spec rather than a patch.
+**AWS services stay on endpoints**, so task startup never depends on the NAT gateway: the image pull,
+the log stream and the client secret ECS injects (`ssm`) all travel endpoints, and the session store
+has a DynamoDB gateway endpoint whose prefix-list route is more specific than the default and wins.
 
-**Flow logs exist because of this.** A connect timeout leaves nothing behind, and the flow log is the
-only record of a rejected packet — which is what makes it worth its cost in a design whose whole
-premise is that certain traffic cannot leave. The aggregation interval is 60s, not AWS's default
-600: ten minutes on top of the publish delay is long enough that the person debugging gives up and
-adds a NAT gateway.
+**Flow logs record what the tasks reached.** They were the only record of a rejected packet while no
+traffic could leave; now they are also the record of what did. The aggregation interval is 60s, not
+AWS's default 600: ten minutes on top of the publish delay is long enough that the person debugging
+gives up and guesses.
 
 ## The S3 gateway endpoint is not an optimisation
 
@@ -60,8 +59,8 @@ restrictions in task IAM roles still apply on top of it. The minimum alternative
 one bucket — `prod-{region}-starport-layer-bucket`, where ECR serves layers from — so this is a
 choice, not an absence of options. The residual is real: with the default policy, **every S3 bucket
 in every AWS account is reachable from these subnets**. What bounds it is the task role, which holds
-nothing — the SPA container makes no AWS call — so there is no identity in these subnets that S3
-would answer. **Tighten this to the starport bucket the moment a task has a reason to reach S3 on
+no S3 permission — its one grant is the session table — so there is no identity in these subnets
+that S3 would answer. **Tighten this to the starport bucket the moment a task has a reason to reach S3 on
 its own behalf**, because the identity bound disappears at that point and this one does not.
 
 ## `private_dns_enabled` needs the VPC's two DNS settings
@@ -136,15 +135,15 @@ order cannot prevent that; removing the action does. `test_network_module.py` re
 ## What the offline guard proves, and what it cannot
 
 `lambdas/test_network_module.py` is a text assertion over this module's Terraform. Every failure
-it guards **applies green**: a NAT gateway somebody adds to fix a timeout, a default route in a
-private table, a gateway endpoint associated with the wrong route table, an interface endpoint
-with private DNS off. Terraform accepts all of them, the plan reads as an ordinary addition, and
+it guards **applies green**: a second NAT gateway, or one outside this module, a default route that
+bypasses it, a gateway endpoint associated with the wrong route table, an interface endpoint with
+private DNS off. Terraform accepts all of them, the plan reads as an ordinary addition, and
 the only symptom is an image pull that cannot complete — or a task that silently reaches the
 internet.
 
-**The no-NAT assertion is repo-wide rather than module-scoped, and that is the point.** Scoped to
-this module it would be satisfied by adding the gateway somewhere else, which is precisely what a
-future quick fix for a connect timeout looks like.
+**The one-NAT-gateway assertion is repo-wide rather than module-scoped, and that is the point.**
+Scoped to this module it would be satisfied by adding a gateway somewhere else, which is precisely
+what a quick fix for a connect timeout looks like.
 
 It cannot tell you the applied route tables match, that DNS resolves to the endpoint, or that a
 pull completes. Only the live checks can — and the acceptance script pairs the pull with a

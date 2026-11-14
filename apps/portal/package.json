@@ -13,7 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "test:a11y": "vitest run a11y",
     "test:ui": "vitest --ui",
-    "check:bundle": "node scripts/assert-bundle-has-no-vite-names.mjs",
+    "check:bundle": "node scripts/assert-bundle-has-no-vite-names.mjs && node scripts/assert-bundle-has-no-server-sdk.mjs",
     "prelint": "node ../../scripts/check-local-install.mjs",
     "preformat:check": "node ../../scripts/check-local-install.mjs",
     "pretest": "node ../../scripts/check-local-install.mjs",
@@ -21,6 +21,7 @@
     "prebuild": "node ../../scripts/check-local-install.mjs && node ../../scripts/check-compiler-major.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1169.0",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.102.8",
     "aws-amplify": "^6.20.0",

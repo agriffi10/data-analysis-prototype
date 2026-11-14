@@ -71,3 +71,26 @@ resource "aws_vpc_security_group_egress_rule" "tasks_to_s3" {
   to_port           = 443
   description       = "To S3 through the gateway endpoint: the image layers"
 }
+
+# The portal server's two internet destinations, the Cognito domain's token endpoint and the API's
+# custom domain, through the NAT gateway. BY CIDR, because neither has a fixed address range to
+# name. HTTPS only.
+resource "aws_vpc_security_group_egress_rule" "tasks_to_internet_https" {
+  security_group_id = var.task_security_group_id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "To Cognito and the API through the NAT gateway"
+}
+
+# The session store, through its gateway endpoint. The rule above already admits this traffic;
+# this one names it, so the session store's path is read off the group rather than inferred.
+resource "aws_vpc_security_group_egress_rule" "tasks_to_dynamodb" {
+  security_group_id = var.task_security_group_id
+  prefix_list_id    = var.dynamodb_prefix_list_id
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "To DynamoDB through the gateway endpoint: the session store"
+}

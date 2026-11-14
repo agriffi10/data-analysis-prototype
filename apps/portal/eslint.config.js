@@ -22,6 +22,15 @@ const AWS_SDK_IMPORTS = {
     'presigned URL the API minted. aws-amplify is unaffected.'
 };
 
+// The server's one AWS client, and the only exception to the ban. The session store lives on the
+// Next.js server, which needs it; nothing the browser bundles may import it, and `src/server/` is
+// fenced off from every browser layer by SERVER_IMPORTS below, with `server-only` failing the build
+// behind that. Every other @aws-sdk package stays banned there too.
+const SERVER_AWS_SDK_IMPORTS = {
+  group: ['@aws-sdk/*', '@aws-sdk/**', '!@aws-sdk/client-dynamodb'],
+  message: 'The server holds one AWS client, @aws-sdk/client-dynamodb, for the session store, and no other.'
+};
+
 // The server's modules stay on the server. `src/server/` holds what reads the server's environment
 // and what the request proxy runs; a browser module importing one would either fail the build at
 // `server-only` or, for one that forgot it, ship server code to the browser.
@@ -257,6 +266,15 @@ export default defineConfig([
     files: ['src/routes/table.tsx', 'src/test/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
+    }
+  },
+  {
+    // The server's modules, tests included. LAST, so it replaces the src/** clause for these files
+    // rather than being replaced by it, and so it keeps that clause's react-router ban beside its own
+    // narrowed SDK ban.
+    files: ['src/server/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {patterns: [SERVER_AWS_SDK_IMPORTS, REACT_ROUTER_IMPORTS]}]
     }
   }
 ]);

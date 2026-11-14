@@ -670,17 +670,21 @@ jobs:
         working-directory: infra
         run: |
           USER_POOL_ID=$(tofu output -raw cognito_user_pool_id)
-          CLIENT_ID=$(tofu output -raw cognito_user_pool_client_id)
-          if aws cognito-idp create-managed-login-branding \
-               --user-pool-id "$USER_POOL_ID" \
-               --client-id "$CLIENT_ID" \
-               --use-cognito-provided-values \
-               --region "${{ vars.AWS_REGION }}" >/dev/null 2>err.log; then
-            echo "Created Cognito-provided default Managed Login branding."
-          elif grep -q "ManagedLoginBrandingExistsException" err.log; then
-            echo "Managed Login branding already exists — nothing to do."
-          else
-            echo "Failed to ensure Managed Login branding:" >&2
-            cat err.log >&2
-            exit 1
-          fi
+          # EVERY app client: Managed Login's pages fail to render for one with no style, and a
+          # client missing from this list is one whose sign-in page is broken.
+          for OUTPUT in cognito_user_pool_client_id cognito_server_client_id; do
+            CLIENT_ID=$(tofu output -raw "$OUTPUT")
+            if aws cognito-idp create-managed-login-branding \
+                 --user-pool-id "$USER_POOL_ID" \
+                 --client-id "$CLIENT_ID" \
+                 --use-cognito-provided-values \
+                 --region "${{ vars.AWS_REGION }}" >/dev/null 2>err.log; then
+              echo "Created Cognito-provided default Managed Login branding for $OUTPUT."
+            elif grep -q "ManagedLoginBrandingExistsException" err.log; then
+              echo "Managed Login branding already exists for $OUTPUT — nothing to do."
+            else
+              echo "Failed to ensure Managed Login branding for $OUTPUT:" >&2
+              cat err.log >&2
+              exit 1
+            fi
+          done
