@@ -39,6 +39,12 @@ export default defineConfig({
     // the module registry between files in a worker, and 122 of ours fail immediately
     // because one file's `vi.mock` then leaks into the next.
     pool: 'threads',
+    // Off, and a test refuses a run that resolved it on. The cache skips a module whose source holds
+    // the literal `import.meta.glob(`, but caches one spelled any other way Vite accepts, such as with
+    // a type argument, with the glob's file list frozen in: `renderApp` went on serving a deleted and
+    // restored page as the 404. A rule about spelling would fail as silently as the skip does.
+    fsModuleCache: false,
+    globalSetup: ['./vitest.globalSetup.ts'],
     coverage: {
       provider: 'v8',
       // Pins the measured population to this app's TypeScript sources, which is what makes the
