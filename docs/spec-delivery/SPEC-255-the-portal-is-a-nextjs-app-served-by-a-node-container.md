@@ -17,6 +17,7 @@ under `module.network[0]` or `module.spa[0]`, and `portal.dataquarry.app` then a
   forces dynamic rendering so every page carries a nonce.
 - Monaco's worker is a `new Worker(new URL(…))`, Tailwind runs through `@tailwindcss/postcss`, and
   the `VITE_*` fallback answers only under `MODE === 'test'`. `check:bundle` reads `.next/static/`.
+  `import.meta.env.DEV` stays where it guards a dev-only diagnostic, as the spec says: Turbopack supports it.
 - The server renders `/config.json` from `CONFIG_<key>` (`src/server/runtimeDocument.ts`), and
   `src/instrumentation.ts` exits 1 at start naming any required variable unset, empty or unsafe. The
   wiring sites went from five to four.
@@ -45,8 +46,6 @@ The spec was amended during the build for the first three, so they are deviation
   outlive the deleted local.
 - **`CKV2_AWS_40` joined the enforced Checkov list.** The re-measurement that retired the ten
   CloudFront-era IDs found it passing with no failure (`docs/security-baseline.md`).
-- **`import.meta.env.DEV` stays** where it guards a dev-only diagnostic: Turbopack supports it, so it
-  is not a Vite-only construct.
 - **`npm run dev` signs in but cannot call the API.** The API's CORS never admitted
   `http://localhost:5173`, under Vite or now. SPEC-257's same-origin `/api/` pass-through removes the
   gap; the production API's CORS is not widened for it.

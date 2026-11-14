@@ -45,4 +45,5 @@ root. **Do NOT keep the tier on to save a switch-on**: the cost is the reason th
 
 - **Settled:** entered the register. The web tier was nearly the whole bill and the client
   environment that required a container was shelved, so the existing switch picked the front door:
-  CloudFront over S3 while off, the container while on, one origin either way.
+  CloudFront over S3 while off, the container while on, one origin either way. A private repo,
+  `agriffi10/data-quarry-vpc`, holds the tree as it stood before that change, at `167ca968`.

@@ -44,7 +44,9 @@ over a live Cognito session. Where the list comes from is
 `script-src` but **not** from `connect-src`, so an evaluated `fetch` to a host the policy excludes must
 raise a `securitypolicyviolation` with `effectiveDirective: "connect-src"` and `disposition:
 "enforce"`, and a same-origin `fetch` in the same run must succeed: without the control, a blocked
-request and a broken network are the same observation. Reporting no violations is not evidence. The
+request and a broken network are the same observation. Reporting no violations is not evidence. **No unit test observes a CSP**, so a
+policy wrong about `worker-src` or `style-src` breaks the Monaco editor in production and nowhere
+else, which is why the live checks open the Query editor under the enforcing policy. The
 report-only stage this policy went through taught the same thing twice: Safari applies nothing from a
 report-only policy naming no reporting endpoint, and report-only never blocks, so a pass under it
 proves a flow works and nothing about whether it survives enforcement.

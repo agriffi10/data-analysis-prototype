@@ -46,7 +46,9 @@ workflows that act without OpenTofu — Deploy SPA image skips its job, and Secu
 baseline, while the tier is off — compare against the string `false`. A `0` would have taken the
 tier down while they carried on deploying to and scanning nothing. A validation holds it to exactly
 `true` or `false`, so every reader agrees on every value OpenTofu accepts. *(Since 2026-11-02 ZAP no
-longer skips, because a portal exists on both sides of the switch.)*
+longer skips, because a portal exists on both sides of the switch. Marked 2026-11-13: it skips again
+since SPEC-255, loudly, because nothing serves the portal while the tier is off;
+`docs/decisions/gates-and-tests/security-scanning.md`.)*
 
 **Do NOT** wire another module to a `network` or `spa` output, place a resource in the VPC, or turn
 the balancer's deletion protection back on while the switch exists.
@@ -57,7 +59,7 @@ The switch is the `web_tier_enabled` variable.
 
 ### 2026-11-13
 
-- **Changed:** Marked for SPEC-255: `static-portal` is gone, so the certificate is outside the switch with nothing using it while the tier is off, and renews only while the tier is on.
+- **Changed:** Marked for SPEC-255: `static-portal` is gone, so the certificate is outside the switch with nothing using it while the tier is off, and renews only while the tier is on; and the ZAP baseline skips again while the tier is off.
 
 ### 2026-09-30
 

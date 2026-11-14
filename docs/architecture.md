@@ -403,8 +403,9 @@ something.
 - **Lake Formation is in hybrid mode**, and leaving hybrid mode breaks direct-IAM S3 access.
 - **Usernames are constrained at signup** because the same string is a prefix, a tag and a database
   name. The pool is case-insensitive.
-- **SPA client-side routing needs the origin to serve `index.html` for 403/404**, or a refresh on a
-  deep link returns a raw error.
+- **Client-side routing needs the server to answer every app path with the shell**, or a refresh on
+  a deep link returns a raw error. The optional catch-all route does it, which is also why a path
+  nothing matches answers 200 rather than 404.
 - **`shared-connections.json` is a cache, not the record.** The per-user file only mirrors the S3
   registry; a missing file means empty, not broken.
 - **A membership or flag change lands at the next credential vend**, not immediately.
