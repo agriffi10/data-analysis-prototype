@@ -125,6 +125,16 @@ A switch-off is a dispatch, which applies with no plan job, so its apply log is 
 |---|---|---|
 | **The switch-off destroys only the web tier**, the NAT gateway and its Elastic IP among it, and nothing of the session store or the Cognito clients (SPEC-257 FR-001) | A switch-off that took the session store would sign everyone out, and one that took the key would schedule it for deletion. Nothing but the apply log shows which addresses a dispatch destroyed. | After `gh variable set TF_VAR_web_tier_enabled --body false` and `gh workflow run deploy-infra.yml --ref main`, read the run's apply log: every `Destroying...` line names an address under `module.network[0]` or `module.spa[0]`, `aws_nat_gateway.main` and `aws_eip.nat` among them, and none names `module.session_store` or `module.auth`. |
 
+### SPEC-256's leave prompt — owed to a real reload
+
+The 2026-11-14 run settled everything else live ([`sessions.md`](sessions.md), 2026-11-14). The browser's
+own dialog is what is left: the in-app browser pane handles page dialogs itself, so a reload driven
+there shows nothing, and Andrew chose not to run the manual step that day.
+
+| Check | Why | Recipe |
+|---|---|---|
+| **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
+
 ### Needs a second (or third) account
 
 Evidence for every row run on 2026-09-21 is in [`sessions.md`](sessions.md), 2026-09-21 night:

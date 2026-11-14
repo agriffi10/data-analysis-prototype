@@ -3610,3 +3610,13 @@ revoke or API URL that is not HTTPS, or HTTP to a loopback host. 262 switches th
 them (an `/api/` call must name its user in `x-dq-user`), and the
 decision is `identity-and-access/the-portal-server-holds-the-session-and-only-the-provider-or-the-clock-ends-it.md`.
 
+**2026-11-14, SPEC-256 is complete, and settles what an area move builds on.** The gate, the seam's
+choice of router and `linkFlags` read the area records against the decoded path, as the route table
+matches it, so `/fil%65s` is Files to all of them. A move's tests serve its area from either router
+with `renderApp`'s `routers` and `pages`, read where a navigation went from `location()`, and drive
+Back with `traverse`; the stand-in's `hold`, `requests()` and `external()` show what Next's router
+was asked to do. A download is not the document going: both download helpers click with the leave
+guard disarmed. Each move still runs the cross-router scenarios live on its own pages, recorded in
+`docs/testing/e2e.md` §4.1. The decision is
+`browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`.
+

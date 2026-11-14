@@ -370,6 +370,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Origin: https://api.<domain
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$APP_URL/api/x"                                    # 401 application/json; charset=utf-8
 ```
 
+**The shell and the navigation seam (SPEC-256).** Every signed-in page sits inside one shell in the
+root layout, whichever router serves it, and every navigation goes through one seam. Drive these with
+real clicks in a signed-in tab: Chrome shows the leave prompt only after a real gesture, and an
+automation layer that handles page dialogs itself cannot show it at all. Until an area moves onto the
+App Router every page is the catch-all's; each move (SPEC-258 to 261) adds its cross-router rows here.
+
+| Do | Expect |
+|---|---|
+| On Files, switch to a shared space in the sidebar (a change of query only) | The address gains `?space=`; the network panel shows the API's listing and no request for the page itself (nothing carrying `_rsc`), and no document load. |
+| Focus **Skip to main content**, press Enter, open Query by its tab, then Back | The address ends `#main`, then `/query`, then the first page again with `#main` — that page on screen, not Query, and still no document load. |
+| From a table whose folder name holds a space, Query's rail → **Options** → **View source files**, then Back | Files opens at that folder from `?prefix=…%20…`; Back returns to Query. |
+| Start a large upload on Files, open Query by its tab, come back by the Files tab | The upload is still running and further along; the drawer still lists it. |
+| With an upload running, reload the page | The browser asks before reloading; on Cancel the upload carries on. |
+| With an upload running, sign out | No prompt; the sign-out completes and the upload ends with the page. |
+
 ### 4.2 Files
 
 | Do | Expect |
