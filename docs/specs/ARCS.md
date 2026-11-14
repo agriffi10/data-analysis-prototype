@@ -3627,5 +3627,7 @@ catch-all's 200 (measured on a harness with no catch-all). The seam's native rul
 same-pathname navigations, because the coexistence rule, which wrote a navigation between two
 unclaimed paths natively, left the 404 on screen under `/` once the catch-all was gone (measured).
 It also stops a malformed percent-escape in a path from answering 500, which every such path did on
-`main` with nothing logged (measured 2026-11-14): the proxy answers a bodyless request 400 with a
-log line, and a request with a body keeps skipping the proxy, so it keeps Next's 500.
+`main`, with no security headers and nothing logged, GET and POST alike (measured 2026-11-14). A
+guard the image starts ahead of Next's standalone server answers them 400 with the headers and a log
+line; it reads no body, so it holds nothing, and the proxy cannot do it, since a request with a body
+must skip the proxy.

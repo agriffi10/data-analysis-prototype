@@ -2,7 +2,7 @@
 type: Spec
 id: SPEC-263
 title: "The Landing Page and the 404 Move, and React Router Retires"
-description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in the path of a request without a body from answering 500, closing the arc."
+description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in a path from answering 500, closing the arc."
 spec_status: Draft
 depends_on: [SPEC-262]
 arc: nextjs
@@ -21,7 +21,8 @@ shell in the root layout; the navigation seam in `src/lib/navigation/`; the area
 fence's tests `eslintConfigShape.test.ts`, `navigationFence.test.ts` and `reactRouterSweep.test.ts`),
 whose delivery doc is `docs/spec-delivery/SPEC-256-…`, and on SPEC-258 to 261, which leave every
 signed-in area on the App Router, so the catch-all serves only `/` and unknown paths. It also rests on
-SPEC-255's request proxy (`src/proxy.ts`), which FR-006 extends. The arc's charter is `ARCS.md` →
+SPEC-255's image (`apps/portal/Dockerfile`) and its matrix (`.github/scripts/spa-image-matrix.sh`),
+which FR-006 changes. The arc's charter is `ARCS.md` →
 *Next.js arc (SPEC-255 → 263)*.
 
 ## Overview
@@ -33,8 +34,8 @@ the catch-all, react-router itself, the route table, the half of the navigation 
 between two routers, the per-area record of which router serves an area, and the test machinery
 that let a test choose a router. What a user sees does not change, with two exceptions that are
 corrections: an address that matches no page now answers with status 404 instead of a 200 that
-rendered the not-found page, and a request without a body whose path carries a malformed
-percent-escape answers 400 instead of a 500 that logged nothing. The arc ends here.
+rendered the not-found page, and a request whose path carries a malformed percent-escape answers
+400 instead of a 500 that carried no security headers and logged nothing. The arc ends here.
 
 ## Scope
 
@@ -55,8 +56,10 @@ percent-escape answers 400 instead of a 500 that logged nothing. The arc ends he
 - 255's image matrix row that pins the catch-all's trap (a removed root-level file answering 200
   HTML, `.github/scripts/spa-image-matrix.sh`) rewritten to the 404 it now gets, and every document
   or decision 255 wrote that records that 200.
-- A request without a body whose path carries a malformed percent-escape answers 400 and logs a
-  line, whichever page, route handler or not-found serves the path (FR-006).
+- A request whose path carries a malformed percent-escape answers 400 with the security headers
+  and logs a line, whichever page, route handler or not-found would serve it, with or without a
+  body: a guard ahead of Next in the image, and 255's image matrix row that pins the 500 reversed
+  (FR-006).
 - At completion: the decisions and documents that describe the coexistence, named in Phase 4.
 
 ### Out of Scope
@@ -240,43 +243,59 @@ sweep now covers whole. The `ROUTERS` rows of the seam's `it.each` tests keep th
 
 #### Description:
 
-A path whose percent-escapes do not decode, a `%` not followed by two hex digits (`/%ZZ`, `/files%`)
-or bytes that are not UTF-8 (`/%E0`, `/nope/%E0%A4`), answers 400 and writes one log line, whichever
-page, route handler or not-found serves the path. Measured on `main` under `next start` while
-authoring: every such path answered 500 and logged nothing, `/data-quality/%E0/r1` on 261's report
-page among them, while `/data-quality/a%40b/r1` (escapes that decode) answered 200 and `/query?x=%E0`
-(the escape in the query, which no router decodes) answered 200. Next means to answer these 400, as
-its source reads: its router catches the decode failure and renders the pages router's `/_error` at
-400. An App Router-only build has no `/_error` (its `server/pages/` holds only `500.html`), and the
-answer is 500 instead. A pages
-router `_error` and `_document` added to make that work did not build here (`next build` stopped:
-"Cannot find module for page: /_document"), and would bring back a second router as this spec
-removes one. The proxy answers instead: before anything else, it decodes the request's pathname
-segment by segment and, when a segment does not decode, returns 400 with a short plain-text body,
-the security headers and the lockdown policy, and writes `request: refused a path with a malformed
-percent-escape (<method>)`, which names the method and not the path, since the path is the caller's
-text. Measured while authoring, with that check in the proxy, the bodyless corpus answered 400 with
-one line each, and `/data-quality/a%40b/r1` and `/query?x=%E0` still answered 200. A request carrying
-a body still skips the proxy, as the CSP decision requires, so a bodied request to a malformed path
-keeps Next's 500; sending bodied requests to the proxy for paths containing `%` was measured to
-answer them 400 too, and is refused, because a proxy-matched request with a body holds every path
-until its body arrives, and the `%` would be the caller's choice. That residual is recorded in the
-CSP decision with this reason; no browser sends a body to a malformed path, since the app builds
-every path it posts to.
+A request whose path has a percent-escape that does not decode, a `%` not followed by two hex digits
+(`/%ZZ`, `/files%`) or bytes that are not UTF-8 (`/%E0`, `/nope/%E0%A4`), answers 400 with the
+security headers and the lockdown policy, and writes one log line, whichever page, route handler or
+not-found would serve the path, with or without a body. Measured on `main`'s standalone server while
+authoring: every such path answered 500 with a plain body, no policy and none of the security
+headers, and logged nothing, `/data-quality/%E0/r1` on 261's report page and `/_next/%E0` among them,
+GET and POST with a body alike; `/data-quality/a%40b/r1` (escapes that decode) and `/query?x=%E0` (the
+escape in the query, which no router decodes) answered 200. 255's image matrix pins that 500 as an
+accepted residual, and this FR reverses it. Next means to answer these 400, as its source reads: its
+router catches the decode failure and renders the pages router's `/_error` at 400. An App Router-only
+build has no `/_error` (its `server/pages/` holds only `500.html`), so the answer is 500 instead.
+
+A guard ahead of Next answers them: `apps/portal/server-guard.cjs`, which the image starts in place of
+`server.js`. It wraps the request listener Next's standalone server creates, by replacing
+`http.createServer` before it requires `server.js`. It tests the request target's path segment by
+segment, and when one does not decode it answers 400 with `SECURITY_HEADERS`, `LOCKDOWN_POLICY` as the
+`Content-Security-Policy`, a plain-text body and `Connection: close`, and writes `request: refused a
+path with a malformed percent-escape (<method>)`. The line names the method and not the path, since
+the path is the caller's text. It reads no body, so a request with a body is answered at once and
+never held, and everything else passes to Next untouched. Measured while authoring with that wrapper
+around `main`'s standalone server: the GET corpus, `/_next/%E0` and `/_next/static/%E0` included, and
+POSTs with a body to `/api/%E0`, `/auth/%E0` and `/data-quality/%E0/r1` each answered 400 with the
+policy and `nosniff`, and one line each. The valid paths answered as before. A request declaring a
+gigabyte to `/files/%E0` and sending one byte was refused at once, and `/healthz` answered beside it.
+The proxy cannot be the guard: it runs only for requests without a body, as the CSP decision
+requires, since a proxy-matched request with a body holds every path until its body arrives. A pages
+router `_error` and `_document`, added to make Next's own 400 work, did not build here (`next build`
+stopped on "Cannot find module for page: /_document"), and would bring back a second router as this
+spec removes one.
+
+The guard's headers come from `src/lib/securityHeaders.ts`, the one definition `next.config.ts` and
+the proxy read, held equal by a unit test, since the guard is plain JavaScript outside the build. It
+depends on Next's standalone server creating its listener through `http.createServer`, which the image
+matrix holds: a Next upgrade that stops doing so turns the matrix's 400 rows red rather than silently
+restoring the 500. `next start` does not run the guard; the proof is the standalone server the image
+runs.
 
 #### Acceptance Criteria:
 
-- [ ] A unit corpus for the proxy's check asserts 400, the body, the security headers and the log
-      line's text for `/%ZZ`, `/files%`, `/%E0`, `/nope/%E0%A4` and `/data-quality/%E0/r1`, and
-      asserts the request passes on with no line for `/`, `/files`, `/data-quality/a%40b/r1`,
-      `/files/a%2Fb`, `/query?x=%E0` and `/%2e`, each observed red with the check removed or
-      decoding the whole path at once.
-- [ ] Under `next start`, the same corpus as GET and HEAD answers 400 with one log line each, the
-      line naming the method and not containing the path, and the passing paths answer as they did
-      on `main`, measured before and after on one build each.
-- [ ] Under `next start`, a POST with a body to `/data-quality/%E0/r1` and to `/api/%E0` still skips
-      the proxy (no line, the lockdown policy), and `/healthz` answers while a request declaring a
-      large body to a `%` path sends one byte.
+- [ ] A unit test of the guard's check passes `/`, `/files`, `/data-quality/a%40b/r1`, `/files/a%2Fb`,
+      `/%2e`, `/query?x=%E0` and an absolute-form target, refuses `/%ZZ`, `/files%`, `/%E0`,
+      `/nope/%E0%A4`, `/_next/%E0` and `/data-quality/%E0/r1`, and goes red with the check removed or
+      with the whole path decoded at once.
+- [ ] A unit test asserts that the guard's 400 carries every `SECURITY_HEADERS` entry and
+      `LOCKDOWN_POLICY` as they stand in `securityHeaders.ts`, and that its log line names the method
+      and contains no part of the path; changing a header in either place turns it red.
+- [ ] 255's image matrix row for `/%zz` asserts 400, the lockdown policy and `nosniff`, with rows for
+      `/data-quality/%E0/r1`, `/_next/%E0` and a POST with a body to `/api/%E0`, and a row that
+      `/data-quality/a%40b/r1` still answers 200. The matrix goes red against an image built with the
+      `CMD` back on `server.js`, observed once.
+- [ ] The image matrix's bodied-request section gains a row in which a request declaring a large body
+      to a malformed path and sending one byte is answered 400 at once, while the health probe
+      answers.
 
 ### FR-007: Checked live, on the tier
 
@@ -329,8 +348,12 @@ export type AreaRecord = {
 ## File & Folder Structure
 
 ```
+.github/scripts/spa-image-matrix.sh  the malformed-escape rows at 400 (FR-006)
+apps/portal/
+├── Dockerfile                        copies the guard; CMD starts it instead of server.js
+├── server-guard.cjs                  new: refuses a malformed escape ahead of Next (FR-006)
+└── src/
 apps/portal/src/
-├── proxy.ts                          refuses a malformed escape with 400 and a log line (FR-006)
 ├── app/
 │   ├── page.tsx                      new: the landing page
 │   ├── not-found.tsx                 new: the 404
@@ -382,9 +405,10 @@ the page it renders; so the two phases below are built together and land in one 
 
 ### Phase 4: The malformed escape
 
-- On `main` first, under `next start`, the 500 measured again for the FR-006 corpus; then the
-  proxy's check and its unit corpus, and the same corpus under `next start` answering 400 with one
-  log line each.
+- On `main` first, against the standalone server, the 500 measured again for the FR-006 corpus;
+  then the guard, its unit tests and the Dockerfile, and the same corpus against the standalone
+  server under the guard answering 400 with the headers and one log line each; then the image
+  matrix's rows, run against the image.
 
 ### Phase 5: The production build, the live checks and the record
 
@@ -395,9 +419,12 @@ the page it renders; so the two phases below are built together and land in one 
   `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, whose
   react-router half becomes history while the eight Next behaviours the seam rests on stay its live
   claim, since the seam still rests on all eight (rewritten in place under its name, as every
-  reversal is); and `infrastructure/response-headers-csp.md`, which gains the malformed escape. `CLAUDE.md`'s routing row, `docs/architecture.md`'s routing sentence, the foundations
-  inventory's seam rows and the notifications inventory's `NavLink` row, the test-utilities
-  inventory's `renderApp` row, `react.md` §21's harness line, the cross-router steps 256 to 261 wrote
-  into `docs/testing/e2e.md` (256's block in §4.1 among them), 255's records of the catch-all's 200,
-  and `docs/security-baseline.md`'s react-router passages (the open-redirect protection is now the
-  seam's in-app rule) brought up to date, and the arc's entry in `ARCS.md` closed.
+  reversal is); and `infrastructure/response-headers-csp.md`, which gains the guard. `CLAUDE.md`'s
+  routing row, `docs/architecture.md`'s routing sentence, the foundations inventory's seam rows and
+  the notifications inventory's `NavLink` row, the test-utilities inventory's `renderApp` row,
+  `react.md` §21's harness line, the cross-router steps 256 to 261 wrote into `docs/testing/e2e.md`
+  (256's block in §4.1 among them), 255's records of the catch-all's 200, and
+  `docs/security-baseline.md`'s react-router passages (the open-redirect protection is now the
+  seam's in-app rule) and its "answered before routing" row, which loses the malformed escape (a
+  trailing slash's 308 and `OPTIONS *` stay in it), brought up to date, and the arc's entry in
+  `ARCS.md` closed.
