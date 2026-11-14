@@ -68,6 +68,7 @@ export function pageFindings(files: Record<string, string>): string[] {
     for (const call of dynamicCalls(source)) {
       if (/ssr:\s*false/.test(call)) reachesAView = true;
       else findings.push(`${file} loads through next/dynamic without ssr: false`);
+      if (/\bloading\s*:/.test(call)) findings.push(`${file} gives next/dynamic a loading fallback`);
     }
     if (file.endsWith('/page.tsx')) {
       const declared = /export default (?:async )?function \w*\(([^)]*)\)/.exec(source);
@@ -162,6 +163,15 @@ describe('the page rules, against fixtures', () => {
       `${PAGE} loads through next/dynamic without ssr: false`,
       `${PAGE} reaches no view through dynamic(…, {ssr: false})`
     ]);
+  });
+
+  // The view's own Suspense shows the loading state, so a fallback here would show a second loader
+  // before it. A view whose name says loading is not a fallback.
+  it('name a loading fallback on next/dynamic, and pass a view named for loading', () => {
+    const fallback = CONFORMING.replace('{ssr: false}', '{ssr: false, loading: () => <p>Loading…</p>}');
+    const named = CONFORMING.replace("'../../../routes/areas/files'", "'../../../routes/areas/loading'");
+    expect(pageFindings({[PAGE]: fallback})).toEqual([`${PAGE} gives next/dynamic a loading fallback`]);
+    expect(pageFindings({[PAGE]: named})).toEqual([]);
   });
 
   it('name a declared parameter', () => {

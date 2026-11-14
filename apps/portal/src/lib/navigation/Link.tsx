@@ -26,7 +26,7 @@ export type LinkProps = {to: To; replace?: boolean; state?: unknown} & Omit<
  * <Link to="/help#files">Help</Link>
  */
 export function Link({to, replace, state, onClick, target, ...rest}: LinkProps) {
-  const {location, navigate} = useSeam();
+  const {location, follow} = useSeam();
   const offSite = isRefusedTarget(to, location);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -36,11 +36,11 @@ export function Link({to, replace, state, onClick, target, ...rest}: LinkProps) 
     if (target && target !== '_self') return;
     event.preventDefault();
     if (offSite) {
-      navigate(to);
+      follow(to);
       return;
     }
     const here = committedAddress();
-    navigate(to, {replace: replace ?? hrefOf(resolveTo(to, here)) === hrefOf(here), state});
+    follow(to, {replace: replace ?? hrefOf(resolveTo(to, here)) === hrefOf(here), state});
   };
 
   return (

@@ -56,14 +56,17 @@ navigator that sends every push and replace back through the seam.
   discards the push (`app-router-instance.js` marks the pending action `discarded` on a NAVIGATE or
   RESTORE): a deep link's `clear()` or a conflict review closing after a round trip would lose the
   user's click once the area moves make those exits router pushes (found reviewing the Explore move).
-  So a native replace on the same path is dropped while both the committed address and the seam's
-  entry are the ones the router navigation left. The seam cannot tell a click from a page's own write,
-  so it drops only that shape, how a page corrects its address; a push, or a replace to another page,
-  is the user leaving again and goes through, and the last click wins as it does without a leave. The
-  address ends the leave on arrival before the destination's first layout effect (a child's layout
-  effects run before the seam's), and the entry ends it on a Back to an entry at the same address. A
-  target's trailing slash is dropped as Next's router drops it, so no router navigation can land where
-  it started and leave the page's writes dropped.
+  So a page's native replace on the same path is dropped while both the committed address and the
+  seam's entry are the ones the router navigation left. That shape is how a page corrects its address;
+  a link the user clicks (the seam's `follow`, which `Link` uses), a push, or a replace to another page
+  is the user leaving again and goes through, and the last click wins as it does without a leave. Any
+  move of the address ends the leave, arrival included, before the destination's first layout effect
+  (a child's layout effects run before the seam's); a new entry ends it on a Back to an entry at the
+  same address. A target's trailing slash is dropped as Next's router drops it, so no seam navigation
+  differing from the address only by that slash goes to the router. The leave outlasts its navigation
+  only if Next discards it while neither moves: an outside write to the very same URL, or a server
+  redirect back to where it started. Nothing in `src/` does either today; if something comes to, the
+  page's replaces stay dropped until the next navigation.
 - **A traversal is classified while rendering** (1, 2): a change the seam did not start, with the
   address already moved, is a `'POP'` and reads its key from the entry. A popstate listener cannot do
   this, because React renders the traversal before the listener runs; measured, that called a Back a

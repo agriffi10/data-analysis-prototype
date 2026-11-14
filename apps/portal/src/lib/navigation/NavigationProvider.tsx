@@ -150,8 +150,8 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const navigate = useCallback(
-    (to: To, options: NavigateOptions = {}) => {
+  const go = useCallback(
+    (to: To, options: NavigateOptions, clicked: boolean) => {
       const from = committedAddress();
       if (isRefusedTarget(to, from)) {
         console.warn('[navigation] refused a navigation to a target outside the portal');
@@ -173,10 +173,12 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
       }
       // A page correcting its own address while a router navigation leaves it would make Next restore,
       // which discards that navigation and loses the click. The leave lasts while both the address and
-      // the entry are the ones it left; a push is the user leaving again, and the last click wins.
+      // the entry are the ones it left; a link clicked, a push or another page is the user leaving
+      // again, and the last click wins.
       const left = leaving.current;
       if (
         left !== null &&
+        !clicked &&
         type === 'REPLACE' &&
         target.pathname === normalizePathname(from.pathname) &&
         left.from === entryRef.current &&
@@ -193,10 +195,13 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     [records, router, setEntry, setExpected]
   );
 
+  const navigate = useCallback((to: To, options: NavigateOptions = {}) => go(to, options, false), [go]);
+  const follow = useCallback((to: To, options: NavigateOptions = {}) => go(to, options, true), [go]);
+
   const value = useMemo<Seam>(() => {
     const {type, ...location} = current;
-    return {location, navigationType: type, navigate};
-  }, [current, navigate]);
+    return {location, navigationType: type, navigate, follow};
+  }, [current, navigate, follow]);
 
   return <SeamContext.Provider value={value}>{children}</SeamContext.Provider>;
 }

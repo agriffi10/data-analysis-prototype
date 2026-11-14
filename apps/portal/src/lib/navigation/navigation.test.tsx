@@ -240,18 +240,6 @@ describe('which router performs a navigation', () => {
     expect(requests()).toEqual([]);
   });
 
-  // Next's router strips a trailing slash, so handed `/files/` from `/files` it would land where it
-  // started, and a navigation that never leaves would leave the page's own writes dropped.
-  it('writes a target that differs only by a trailing slash natively, at the bare path', async () => {
-    renderApp('/files', servedBy('app'));
-    await screen.findByRole('heading', {name: 'page files'});
-
-    act(() => fixture.navigate?.('/files/?x=1', {replace: true}));
-
-    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', pathname: '/files', search: '?x=1'}));
-    expect(requests()).toEqual([]);
-  });
-
   it('changes only the query or the hash on an App Router page without Next’s router, and without a remount', async () => {
     resetReadout([...LINKS, {label: 'Same page, another query', to: '/help?topic=y'}]);
     const {user} = renderApp('/help', servedBy('app'));
@@ -312,6 +300,20 @@ describe('which router performs a navigation', () => {
   });
 });
 
+describe('a target’s trailing slash', () => {
+  // Next's router strips a trailing slash, so handed `/files/` from `/files` it would land where it
+  // started, and a navigation that never leaves would leave the page's own writes dropped.
+  it('writes a target that differs only by a trailing slash natively, at the bare path', async () => {
+    renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    act(() => fixture.navigate?.('/files/?x=1', {replace: true}));
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', pathname: '/files', search: '?x=1'}));
+    expect(requests()).toEqual([]);
+  });
+});
+
 // A router navigation waits on the server while the page it leaves stays mounted. A native write in
 // that window makes Next restore, and a restore discards the pending navigation, so the click is lost.
 describe('a page that is leaving', () => {
@@ -346,13 +348,14 @@ describe('a page that is leaving', () => {
     await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?x=1'}));
   });
 
-  // The seam cannot tell a click from a page's own write, so it drops only a replace on the same path,
-  // which is how a page corrects its address; anything else is the user leaving again, and the last
-  // click wins.
+  // A page's own write cannot be told from the user's, so the seam drops only a page's replace on the
+  // same path, how a page corrects its address; a link clicked, a push or another page is the user
+  // leaving again, and the last click wins.
   it.each([
-    ['a push on the same page', 'To the files section', {page: 'files', pathname: '/files', hash: '#files'}],
-    ['a replace to another page', 'Replace with help', {page: 'help', pathname: '/help'}]
-  ])('lets the user’s next click win while the navigation is in flight: %s', async (_kind, label, landed) => {
+    ['a link to the address shown', 'link', {page: 'files', pathname: '/files', hash: ''}],
+    ['a page’s push on the same path', 'push', {page: 'files', pathname: '/files', hash: '#files'}],
+    ['a page’s replace to another page', 'replace', {page: 'help', pathname: '/help'}]
+  ] as const)('lets the user’s next move win while the navigation is in flight: %s', async (_kind, move, landed) => {
     const {user} = renderApp(
       '/files',
       both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
@@ -361,7 +364,9 @@ describe('a page that is leaving', () => {
 
     hold();
     await follow(user, 'To data quality');
-    await follow(user, label);
+    if (move === 'link') await follow(user, 'To files');
+    else if (move === 'push') act(() => fixture.navigate?.('#files'));
+    else act(() => fixture.navigate?.('/help', {replace: true}));
     release();
 
     await waitFor(() => expect(lastCommit()).toMatchObject(landed));
