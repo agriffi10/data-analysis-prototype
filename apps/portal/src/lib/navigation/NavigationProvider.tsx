@@ -23,6 +23,9 @@ type Entry = NavLocation & {type: NavigationType};
 /** A navigation the seam started and has not seen render: written natively, or handed to Next's router. */
 type Expected = Entry & {native: boolean};
 
+/** The entry a router navigation left, and the address it left from. */
+type Leave = {from: Entry; at: string};
+
 /** Next's own fields on a history entry, which the seam copies onto an in-page anchor's. */
 type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unknown};
 
@@ -43,6 +46,14 @@ type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unkno
  * address of its own navigations only after rendering them, and React renders a traversal inside
  * Next's popstate dispatch, before any listener added here could say so. A popstate listener
  * covers only the traversal that leaves the path and search unchanged, an in-page anchor.
+ *
+ * A PAGE THAT IS LEAVING. While a router navigation waits on the server, the page it left stays
+ * mounted, and a native write would make Next restore and discard that navigation, losing the
+ * click. So a page's own replace on the same path, how a page corrects its address, is written onto
+ * the entry it left with Next's state, which Next passes through; the page does not re-render with
+ * it, and the entry keeps its key and gets no state. A link (`follow`), a push, or another page is
+ * the user leaving again, and the last click wins. An in-page anchor meanwhile is one Next ignores,
+ * so the leave goes on through it.
  *
  * STATE AND KEYS. State lives only in this component's memory, for the entry the navigation made,
  * so a reload or a traversal delivers none. Every push or replace gets a fresh key, written onto
@@ -70,6 +81,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
   }));
   const [expected, setExpected] = useState<Expected | null>(null);
   const entryRef = useRef(entry);
+  const leaving = useRef<Leave | null>(null);
   const lastNextState = useRef<NextHistoryState | null>(null);
 
   let current = entry;
@@ -131,13 +143,23 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     const onPopState = (event: PopStateEvent) => {
       const at = committedAddress();
       const now = entryRef.current;
-      if (!sameDocument(at, now)) return;
+      const left = leaving.current;
+      const leavingNow = left !== null && left.from === now;
       // An in-page anchor makes an entry with no state, and Next ignores a popstate whose state is
       // null, so a later Back onto this entry would leave the page it came from on screen. Stamped
-      // with the Next state of the page it belongs to, it is one Next restores.
-      if (event.state == null && lastNextState.current) {
+      // with the Next state of the page it belongs to, it is one Next restores. A page that is leaving
+      // shows its corrected address, not the one it rendered.
+      const shown = leavingNow ? resolveTo(left.at, now) : now;
+      if (event.state == null && lastNextState.current && sameDocument(at, shown)) {
         window.history.replaceState({...lastNextState.current}, '');
       }
+      // Next ignored that anchor, so the navigation in flight goes on and the page is still leaving,
+      // now from the anchor's address.
+      if (event.state == null && leavingNow) {
+        leaving.current = {...left, at: hrefOf(at)};
+        return;
+      }
+      if (!sameDocument(at, now)) return;
       const key = keyOf(event.state);
       if (now.type === 'POP' && now.key === key && now.hash === at.hash) return;
       setEntry({...at, state: undefined, key, type: 'POP'});
@@ -146,8 +168,8 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const navigate = useCallback(
-    (to: To, options: NavigateOptions = {}) => {
+  const go = useCallback(
+    (to: To, options: NavigateOptions, clicked: boolean) => {
       const from = committedAddress();
       if (isRefusedTarget(to, from)) {
         console.warn('[navigation] refused a navigation to a target outside the portal');
@@ -161,9 +183,29 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
         target.pathname === normalizePathname(from.pathname) ||
         (routerFor(from.pathname, records) === 'catch-all' && routerFor(target.pathname, records) === 'catch-all');
       if (!native) {
+        leaving.current = {from: entryRef.current, at: hrefOf(from)};
         setExpected({...next, native: false});
         if (type === 'PUSH') router.push(href);
         else router.replace(href);
+        return;
+      }
+      const left = leaving.current;
+      if (
+        left !== null &&
+        !clicked &&
+        type === 'REPLACE' &&
+        target.pathname === normalizePathname(from.pathname) &&
+        left.from === entryRef.current &&
+        left.at === hrefOf(from)
+      ) {
+        // Carrying Next's own state, the write passes through Next untouched, so the navigation in
+        // flight is not restored away, and Back to this entry finds the corrected address.
+        const state = window.history.state as NextHistoryState | null;
+        const data = state?.__NA ? state : lastNextState.current && {...state, ...lastNextState.current};
+        if (data) {
+          window.history.replaceState(data, '', href);
+          leaving.current = {...left, at: hrefOf(committedAddress())};
+        }
         return;
       }
       // Next re-renders only when its path or search moves; when neither does, nothing would.
@@ -176,10 +218,13 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
     [records, router, setEntry, setExpected]
   );
 
+  const navigate = useCallback((to: To, options: NavigateOptions = {}) => go(to, options, false), [go]);
+  const follow = useCallback((to: To, options: NavigateOptions = {}) => go(to, options, true), [go]);
+
   const value = useMemo<Seam>(() => {
     const {type, ...location} = current;
-    return {location, navigationType: type, navigate};
-  }, [current, navigate]);
+    return {location, navigationType: type, navigate, follow};
+  }, [current, navigate, follow]);
 
   return <SeamContext.Provider value={value}>{children}</SeamContext.Provider>;
 }

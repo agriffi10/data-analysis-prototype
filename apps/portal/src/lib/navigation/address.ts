@@ -158,7 +158,8 @@ export function resolveTo(to: To, from: Address): Address {
       : new URL(parts.pathname, `${PARSE_BASE}${from.pathname.endsWith('/') ? from.pathname : `${from.pathname}/`}`)
           .pathname;
   return {
-    pathname,
+    // A trailing slash goes, as Next's router and server both drop it.
+    pathname: pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname,
     search: parts.search === '?' ? '' : parts.search,
     hash: parts.hash === '#' ? '' : parts.hash
   };

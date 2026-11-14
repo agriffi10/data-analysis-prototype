@@ -1,11 +1,13 @@
 import {createContext, useContext} from 'react';
 import type {NavigateOptions, NavigationType, NavLocation, To} from './navigation.types';
 
-/** What the seam provides: where the user is, how they got there, and the one way to move. */
+/** What the seam provides: where the user is, how they got there, and the way to move. */
 export type Seam = {
   location: NavLocation;
   navigationType: NavigationType;
   navigate: (to: To, options?: NavigateOptions) => void;
+  /** `navigate` for a user's click on a link, which a page that is leaving never drops. */
+  follow: (to: To, options?: NavigateOptions) => void;
 };
 
 /** The seam, provided by `NavigationProvider`. */

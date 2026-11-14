@@ -1,3 +1,4 @@
+import {useLayoutEffect} from 'react';
 import {act, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {renderApp, type RenderAppOptions} from '../../test/appRouter';
@@ -13,6 +14,7 @@ import {
   resetReadout,
   type FixtureLink
 } from '../../test/seamReadout';
+import {useNavigate, useSearchParams} from './hooks';
 import {matchPath} from './matchPath';
 import type {AreaName, AreaRouter} from './areas';
 
@@ -298,6 +300,189 @@ describe('which router performs a navigation', () => {
   });
 });
 
+describe('a target’s trailing slash', () => {
+  // Next's router strips a trailing slash, so handed `/files/` from `/files` it would land where it
+  // started, and a navigation that never leaves would leave the page's own writes dropped.
+  it('writes a target that differs only by a trailing slash natively, at the bare path', async () => {
+    renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    act(() => fixture.navigate?.('/files/?x=1', {replace: true}));
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', pathname: '/files', search: '?x=1'}));
+    expect(requests()).toEqual([]);
+  });
+});
+
+// A router navigation waits on the server while the page it leaves stays mounted. A native write in
+// that window makes Next restore, and a restore discards the pending navigation, so the click is lost.
+describe('a page that is leaving', () => {
+  // Twice, the first spelled as the browser re-encodes it, so the leave must follow the address shown.
+  it('corrects its address without losing the click', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=a b', {replace: true}));
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+
+    await screen.findByRole('heading', {name: 'page notifications'});
+    expect(lastCommit()).toMatchObject({page: 'notifications', pathname: '/notifications', search: ''});
+  });
+
+  it('keeps the correction on the entry it left, for Back', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?space=team', type: 'POP'}));
+  });
+
+  // The Back lands on an entry with the same address as the one left, so only the entry tells that the
+  // leave is over.
+  it('corrects its address as usual once a Back has dropped the navigation', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+    act(() => fixture.navigate?.('/files'));
+    hold();
+    await follow(user, 'To notifications');
+    await traverse(-1);
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', type: 'POP'}));
+
+    act(() => fixture.navigate?.('?x=1', {replace: true}));
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?x=1'}));
+  });
+
+  // The page does not re-render with its correction, so a second one must build on the address shown,
+  // or it would put back what the first removed.
+  it('builds a second correction on the first', async () => {
+    const options = servedBy('app');
+    const {user} = renderApp('/files', {
+      ...options,
+      pages: {...options.pages, '(signed-in)/files/page.tsx': FilesWithSearch}
+    });
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => {
+      search.set?.((previous) => new URLSearchParams([...previous, ['a', '1']]), {replace: true});
+      search.set?.((previous) => new URLSearchParams([...previous, ['b', '2']]), {replace: true});
+    });
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?a=1&b=2'}));
+  });
+
+  // A child's layout effects run before the seam's own, so the destination's first write lands
+  // while the seam's entry is still the one left; Next has written the new address by then.
+  it('keeps a write the destination makes as it first lays out', async () => {
+    const options = servedBy('app');
+    const {user, location} = renderApp('/files', {
+      ...options,
+      pages: {...options.pages, '(signed-in)/notifications/page.tsx': WritesOnArrival}
+    });
+    await screen.findByRole('heading', {name: 'page files'});
+
+    await follow(user, 'To notifications');
+
+    await screen.findByRole('heading', {name: 'page arrived'});
+    await waitFor(() => expect(location().search).toBe('?x=1'));
+  });
+});
+
+// A page's own write cannot be told from the user's, so only a page's replace on the same path, how a
+// page corrects its address, is held to the page; a link clicked, a push or another page is the user
+// leaving again, and the last click wins.
+describe('the user’s next move during a leave', () => {
+  it.each([
+    ['a link to the address shown', 'link', {page: 'files', pathname: '/files', hash: ''}],
+    ['a page’s push on the same path', 'push', {page: 'files', pathname: '/files', hash: '#files'}],
+    ['a page’s replace to another page', 'replace', {page: 'help', pathname: '/help'}]
+  ] as const)('wins over the navigation in flight: %s', async (_kind, move, landed) => {
+    const {user} = renderApp(
+      '/files',
+      both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
+    );
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To data quality');
+    if (move === 'link') await follow(user, 'To files');
+    else if (move === 'push') act(() => fixture.navigate?.('#files'));
+    else act(() => fixture.navigate?.('/help', {replace: true}));
+    release();
+
+    await waitFor(() => expect(lastCommit()).toMatchObject(landed));
+    expect(screen.queryByRole('heading', {name: 'page data-quality'})).not.toBeInTheDocument();
+  });
+});
+
+// An in-page anchor makes an entry with no state, which Next ignores, so the navigation in flight goes
+// on: the anchor must neither end the leave nor be left without the Next state Back needs.
+describe('an in-page anchor during a leave', () => {
+  it('leaves the navigation in flight, and the page’s correction after it does too', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+
+    hold();
+    await follow(user, 'To notifications');
+    await followAnchor(user);
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    release();
+
+    await screen.findByRole('heading', {name: 'page notifications'});
+    expect(lastCommit()).toMatchObject({page: 'notifications', pathname: '/notifications'});
+  });
+
+  it('is restorable after a correction, so Back shows the page it belongs to', async () => {
+    const {user} = renderApp('/files', servedBy('app'));
+    await screen.findByRole('heading', {name: 'page files'});
+    hold();
+    await follow(user, 'To notifications');
+    act(() => fixture.navigate?.('?space=team', {replace: true}));
+    await followAnchor(user);
+    release();
+    await screen.findByRole('heading', {name: 'page notifications'});
+
+    await traverse(-1);
+
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'files', search: '?space=team', hash: '#section'}));
+  });
+});
+
+/** The search setter of the page on screen, for a test to call as the page would. */
+const search: {set: ReturnType<typeof useSearchParams>[1] | null} = {set: null};
+
+/** The Files readout, exposing its search setter. */
+function FilesWithSearch() {
+  const [, set] = useSearchParams();
+  useLayoutEffect(() => {
+    search.set = set;
+  }, [set]);
+  return <FilesReadout />;
+}
+
+const FilesReadout = readoutPage('files');
+
+/** A destination that corrects its own address in its first layout effect. */
+function WritesOnArrival() {
+  const navigate = useNavigate();
+  useLayoutEffect(() => navigate('?x=1', {replace: true}), [navigate]);
+  return <h1>page arrived</h1>;
+}
+
 describe('an in-page anchor’s entry', () => {
   // A native anchor makes an entry with no state, and Next ignores a popstate whose state is null,
   // so without the seam stamping it Back would leave the page it came from on screen.
@@ -434,12 +619,16 @@ describe('targets outside the portal', () => {
 });
 
 describe('route params', () => {
-  it.each(ROUTERS)('decodes a percent-encoded segment (%s)', async (router) => {
-    renderApp('/data-quality/a%40b%20c/r1', servedBy(router));
+  // `a%2541` is the one that tells a single decode from a double: twice, it would read `aA`.
+  it.each(ROUTERS.flatMap((router) => [[router, 'a%40b%20c', 'a@b c'] as const, [router, 'a%2541', 'a%41'] as const]))(
+    'decodes a percent-encoded segment exactly once (%s, %s)',
+    async (router, segment, space) => {
+      renderApp(`/data-quality/${segment}/r1`, servedBy(router));
 
-    await screen.findByRole('heading', {name: 'page report'});
-    expect(lastCommit().params).toMatchObject({space: 'a@b c', requestId: 'r1'});
-  });
+      await screen.findByRole('heading', {name: 'page report'});
+      expect(lastCommit().params).toMatchObject({space, requestId: 'r1'});
+    }
+  );
 
   it('matches case-sensitively, as Next routes', () => {
     expect(matchPath('/files', '/Files')).toBeNull();
