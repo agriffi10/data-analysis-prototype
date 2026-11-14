@@ -79,7 +79,6 @@ function render(route: TestRoute, queryClient?: QueryClient) {
   return renderWithProviders(<DataExplorerWorkspace />, {
     route,
     auth: AUTH,
-    browserRouter: true,
     strictMode: true,
     queryClient
   });
@@ -122,13 +121,13 @@ describe('a statement handed over from a Query result', () => {
     // nobody sees.
     seedTabs([tab('t1', ORDERS)]);
     const client = keepAllClient();
-    const {unmount} = render(HANDOFF_ROUTE, client);
+    const {unmount, location} = render(HANDOFF_ROUTE, client);
 
     expect(await screen.findByRole('tab', {name: LABEL})).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
     expect(sqlsRun()).toEqual([UNFILTERED]);
     expect(screen.getAllByRole('tab')).toHaveLength(2);
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
     expect(window.location.pathname).toBe('/explore');
 
     // What a reload looks like: a fresh workspace on the same history and the same session.
@@ -137,7 +136,7 @@ describe('a statement handed over from a Query result', () => {
       <StrictMode>
         <TestProviders
           auth={AUTH}
-          browserRouter
+          route="/explore"
           queryClient={client}>
           <DataExplorerWorkspace />
         </TestProviders>
@@ -185,11 +184,11 @@ describe('a statement handed over from a Query result', () => {
   });
 
   it('opens a linked table AND a handed-over statement once each, and leaves neither in the URL or state', async () => {
-    render({...HANDOFF_ROUTE, search: '?space=personal&db=alice&table=orders'} as TestRoute);
+    const {location} = render({...HANDOFF_ROUTE, search: '?space=personal&db=alice&table=orders'} as TestRoute);
 
     expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
     expect(await screen.findByRole('tab', {name: LABEL})).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
     expect(window.location.search).toBe('');
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
@@ -212,12 +211,12 @@ describe('a statement handed over from a Query result', () => {
     const same: ExplorationSource = {kind: 'sql', body: BODY, label: LABEL};
     const client = keepAllClient();
     client.setQueryData(executionKey(same, UNFILTERED), 'old-unfiltered');
-    render(HANDOFF_ROUTE, client);
+    const {location} = render(HANDOFF_ROUTE, client);
 
     const dialog = await screen.findByRole('alertdialog', {name: 'Exploration limit reached'});
     expect(within(dialog).getByText(/Close one before opening another/)).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(EXPLORATION_TABS_MAX);
-    await waitFor(() => expect(window.history.state).toMatchObject({usr: null}));
+    await waitFor(() => expect(location().state).toEqual(null));
     expect(client.getQueryData(executionKey(same, UNFILTERED))).toBe('old-unfiltered');
     expect(sqlsRun()).not.toContain(UNFILTERED);
   });

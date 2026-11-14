@@ -1,4 +1,4 @@
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import {Badge} from '../../components/Badge';
 import {StatusPill} from '../../components/StatusPill';
 import {formatRelativeTime} from '../../lib/format';

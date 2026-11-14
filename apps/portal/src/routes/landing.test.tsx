@@ -3,7 +3,6 @@ import {fireEvent, render, screen} from '@testing-library/react';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {LandingNavMenu} from './LandingNavMenu';
 import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../test/axe';
-import {Route, Routes} from 'react-router';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {setReturnPath} from '../lib/returnPath';
 import {TestProviders} from '../test/renderWithProviders';
@@ -100,19 +99,13 @@ describe('LandingPage', () => {
   // `peekReturnPath`/`clearReturnPath` (backed by jsdom sessionStorage). A sibling `/files` route lets
   // us observe navigation/redirects as rendered output.
   function renderApp(auth: AuthContextValue, strictMode = false) {
-    return renderWithProviders(
-      <Routes>
-        <Route
-          path="/"
-          element={<LandingPage />}
-        />
-        <Route
-          path="/files"
-          element={<div>files-page</div>}
-        />
-      </Routes>,
-      {route: '/', auth, strictMode}
-    );
+    return renderWithProviders(<LandingPage />, {
+      route: '/',
+      path: '/',
+      routes: {'/files': <div>files-page</div>},
+      auth,
+      strictMode
+    });
   }
 
   beforeEach(() => {

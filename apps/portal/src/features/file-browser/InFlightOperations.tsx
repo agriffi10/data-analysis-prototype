@@ -1,4 +1,4 @@
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import {formatRelativeTime} from '../../lib/format';
 import {useAsyncFileOperations} from './useAsyncFileOperations';
 import {useFileOpsInFlight} from './fileOpsInFlightContext';

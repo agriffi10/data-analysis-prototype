@@ -1,6 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
-import {Route, Routes} from 'react-router';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {withFakeTimers} from '../../test/fakeTimers';
@@ -67,20 +66,12 @@ function sqlsRun(): string[] {
 
 function render(options: {query?: boolean} = {}) {
   return renderWithProviders(
-    <Routes>
-      <Route
-        path="/explore"
-        element={<DataExplorerWorkspace />}
-      />
-      <Route
-        path="/query"
-        element={<p>The Query page</p>}
-      />
-    </Routes>,
+    <DataExplorerWorkspace />,
     {
       route: '/explore',
+      path: '/explore',
+      routes: {'/query': <p>The Query page</p>},
       auth: authenticated('alice'),
-      browserRouter: true,
       ...(options.query === false ? {featureFlags: {query: false}} : {})
     }
   );
@@ -234,14 +225,14 @@ describe('a condition written in SQL, kept from before the builder', () => {
 
   it('hands the whole statement to Query from the notice’s Open in Query', async () => {
     seedTab({filters: [STATE_NY], expression: "status <> 'void'"});
-    const {user} = render();
+    const {user, location} = render();
     await screen.findAllByRole('gridcell');
     const notice = screen.getByRole('group', {name: 'Condition written in SQL'});
 
     await user.click(within(notice).getByRole('button', {name: 'Open in Query'}));
 
     expect(await screen.findByText('The Query page')).toBeInTheDocument();
-    expect((window.history.state as {usr: {openSql: {sql: string}}}).usr.openSql.sql).toBe(sqlsRun()[0]);
+    expect((location().state as {openSql: {sql: string}}).openSql.sql).toBe(sqlsRun()[0]);
   });
 
   it('offers only Remove SQL condition with the query flag off', async () => {

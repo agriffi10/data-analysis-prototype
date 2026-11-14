@@ -21,7 +21,8 @@ describe('linkFlags', () => {
     ['/help#files', []],
     ['/notifications', []],
     ['/filesystem', []],
-    ['/Files?space=finance', ['files', 'sharedWorkspaces']]
+    // Matched case-sensitively, as Next routes: `/Files` is no page, so it names no flag.
+    ['/Files?space=finance', []]
   ])('%s needs %j', (link, expected) => {
     expect(linkFlags(link, 'alice').sort()).toEqual([...expected].sort());
   });

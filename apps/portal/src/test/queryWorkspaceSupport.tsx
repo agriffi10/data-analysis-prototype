@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {vi} from 'vitest';
 import {screen} from '@testing-library/react';
-import {useLocation} from 'react-router';
+import {useLocation} from '../lib/navigation';
 import {renderWithProviders} from './renderWithProviders';
 import type {TestRoute} from './renderWithProviders';
 import {authenticated} from './authFixtures';
@@ -173,8 +173,8 @@ export function NavRailProbe() {
   return <div aria-label="mobile nav rail">{useNavRailContent()}</div>;
 }
 
-/** A probe that surfaces the router location so navigation is observable without
- *  mocking react-router (everything stays real). */
+/** A probe that surfaces the seam's location so navigation is observable without
+ *  mocking the seam (everything stays real). */
 export function LocationProbe() {
   const loc = useLocation();
   return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
@@ -183,14 +183,11 @@ export function LocationProbe() {
 /**
  * The workspace as alice sees it, with a location probe beside it.
  *
- * `route` takes history state for a hand-off from another feature. A test of that hand-off also
- * passes `strictMode` and `browserRouter`: StrictMode's doubled effect is the hazard the receiver
- * guards against, and the entry it replaces is readable only on jsdom's own history.
+ * `route` takes the state a navigation carried, for a hand-off from another feature. A test of
+ * that hand-off also passes `strictMode`: StrictMode's doubled effect is the hazard the receiver
+ * guards against, and the render result's `location()` shows the entry it replaced.
  */
-export function renderWorkspace(
-  route?: TestRoute,
-  options: {queryClient?: QueryClient; strictMode?: boolean; browserRouter?: boolean} = {}
-) {
+export function renderWorkspace(route?: TestRoute, options: {queryClient?: QueryClient; strictMode?: boolean} = {}) {
   return renderWithProviders(
     <>
       <QueryRunsProvider username="alice">

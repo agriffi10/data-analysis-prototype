@@ -1,5 +1,5 @@
 import {useId} from 'react';
-import {useParams, useNavigate} from 'react-router';
+import {useParams, useNavigate} from '../../lib/navigation';
 import {PageLayout} from '../../components/PageLayout';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';

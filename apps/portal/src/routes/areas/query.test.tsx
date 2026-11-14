@@ -1,8 +1,11 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor} from '@testing-library/react';
-import {App} from './App';
-import {renderWithProviders} from './test/renderWithProviders';
-import {authenticated} from './test/authFixtures';
+import {renderApp as renderTheApp} from '../../test/appRouter';
+import {wrappersOf} from '../../test/viewSource';
+import {renderWithProviders} from '../../test/renderWithProviders';
+import {authenticated} from '../../test/authFixtures';
+import QueryPage from '../QueryPage';
+import {QueryRunsProvider} from '../../features/query/QueryRunsProvider';
 import {
   installWorkspaceMocks,
   mockGetResults,
@@ -13,11 +16,11 @@ import {
   seedSingle,
   seedTabs,
   statusMap
-} from './test/queryWorkspaceSupport';
-import {POLL_INTERVAL_MS} from './features/catalog/catalog.constants';
+} from '../../test/queryWorkspaceSupport';
+import {POLL_INTERVAL_MS} from '../../features/catalog/catalog.constants';
 
 /**
- * A Query run outlives the Query page, driven through the REAL route table.
+ * A Query run outlives the Query page, driven through the REAL chrome and route table.
  *
  * The page unmounts on every nav-tab click, so a run held there lost its results on the way back
  * and its poller on the way out. Only a render of the real shell can tell where the runs live: a
@@ -27,9 +30,9 @@ import {POLL_INTERVAL_MS} from './features/catalog/catalog.constants';
 vi.mock('aws-amplify/auth', () => ({
   fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
 }));
-vi.mock('./features/query/SqlEditor', () => import('./test/sqlEditorStub'));
-vi.mock('./features/catalog/athena.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/catalog/athena.service')>()),
+vi.mock('../../features/query/SqlEditor', () => import('../../test/sqlEditorStub'));
+vi.mock('../../features/catalog/athena.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/catalog/athena.service')>()),
   runQuery: vi.fn(),
   stopQuery: vi.fn(),
   getTableDdl: vi.fn(),
@@ -38,48 +41,48 @@ vi.mock('./features/catalog/athena.service', async (importOriginal) => ({
   getQueryResults: vi.fn(),
   getQueryRowCount: vi.fn()
 }));
-vi.mock('./features/catalog/glue.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/catalog/glue.service')>()),
+vi.mock('../../features/catalog/glue.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/catalog/glue.service')>()),
   getDatabase: vi.fn(),
   listTables: vi.fn()
 }));
-vi.mock('./features/query/queryHistory.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/query/queryHistory.service')>()),
+vi.mock('../../features/query/queryHistory.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/query/queryHistory.service')>()),
   getQueryHistory: vi.fn(),
   appendQueryHistory: vi.fn(),
   updateQueryHistoryEntry: vi.fn()
 }));
-vi.mock('./features/saved-queries/savedQueries.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/saved-queries/savedQueries.service')>()),
+vi.mock('../../features/saved-queries/savedQueries.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/saved-queries/savedQueries.service')>()),
   ensureSavedQueriesFolder: vi.fn(),
   listSavedQueries: vi.fn(),
   readSavedQuery: vi.fn(),
   writeSavedQuery: vi.fn(),
   deleteSavedQuery: vi.fn()
 }));
-vi.mock('./features/shared-spaces/sharedSpaces.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/shared-spaces/sharedSpaces.service')>()),
+vi.mock('../../features/shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/shared-spaces/sharedSpaces.service')>()),
   readSharedConnectionsCache: vi.fn()
 }));
-vi.mock('./features/file-browser/fileBrowser.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/file-browser/fileBrowser.service')>()),
+vi.mock('../../features/file-browser/fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/file-browser/fileBrowser.service')>()),
   copyObject: vi.fn(),
   listFiles: vi.fn()
 }));
-vi.mock('./features/table-share/tableShare.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/table-share/tableShare.service')>()),
+vi.mock('../../features/table-share/tableShare.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/table-share/tableShare.service')>()),
   enqueueTableShare: vi.fn()
 }));
-vi.mock('./features/table-builder/tableBuild.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./features/table-builder/tableBuild.service')>()),
+vi.mock('../../features/table-builder/tableBuild.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/table-builder/tableBuild.service')>()),
   enqueueTableRefresh: vi.fn()
 }));
-vi.mock('./features/notifications/notifications.service', () => ({
+vi.mock('../../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
-const renderApp = () => renderWithProviders(<App />, {route: '/query', auth: authenticated('alice')});
+const renderApp = () => renderTheApp('/query', {auth: authenticated('alice')});
 
 type User = ReturnType<typeof renderApp>['user'];
 
@@ -168,5 +171,52 @@ describe('a Query run outlives the Query page', () => {
 
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
+  });
+});
+
+// ─── from routes.test.tsx ───
+
+describe('QueryPage', () => {
+  // The lazy Monaco editor is stubbed to a plain textarea so the route renders
+  // without the editor chunk / web workers (react.md §21 "stub the heavy editor by
+  // exception"). The workspace's data hooks resolve over the mocked services.
+
+  beforeEach(() => {
+    window.innerWidth = 1280;
+  });
+
+  describe('QueryPage route', () => {
+    it('renders the query workspace for an authenticated user', async () => {
+      renderWithProviders(
+        <QueryRunsProvider username="alice">
+          <QueryPage />
+        </QueryRunsProvider>,
+        {route: '/query', auth: authenticated('alice')}
+      );
+
+      // The workspace toolbar is present (real QueryWorkspace, real tab strip).
+      expect(await screen.findByRole('button', {name: 'Run statement'})).toBeInTheDocument();
+      // The lazy editor mounts (stubbed textarea) once its chunk resolves.
+      expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
+    });
+
+    it('sets the page title', () => {
+      renderWithProviders(
+        <QueryRunsProvider username="alice">
+          <QueryPage />
+        </QueryRunsProvider>,
+        {route: '/query', auth: authenticated('alice')}
+      );
+      expect(document.title).toMatch(/Query/);
+    });
+  });
+});
+
+describe('the Query view', () => {
+  const VIEW = Object.values(import.meta.glob('./query.tsx', {query: '?raw', import: 'default', eager: true}))[0] as string;
+
+  it('wraps the page in FeatureRoute → ErrorBoundary → Suspense, in that order, behind the query flag', () => {
+    expect(wrappersOf(VIEW, 'QueryPage')).toEqual(['FeatureRoute', 'ErrorBoundary', 'Suspense']);
+    expect(VIEW).toContain('<FeatureRoute flag="query">');
   });
 });

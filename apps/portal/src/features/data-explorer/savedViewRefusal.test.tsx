@@ -104,14 +104,14 @@ describe('a saved query that cannot reopen as a view', () => {
   it('hands its SQL, without the view line, to a new Query tab that runs nothing', async () => {
     const text = saved.replace("'void'", "'paid'");
     vi.mocked(readSavedQuery).mockResolvedValue(ok(text));
-    const {user} = await openTheFile();
+    const {user, location} = await openTheFile();
     await screen.findByRole('alertdialog', {name: 'Can’t be opened as a view'});
     await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
 
     await user.click(screen.getByRole('button', {name: 'Open in Query'}));
 
     await waitFor(() => expect(window.location.pathname).toBe('/query'));
-    expect((window.history.state as {usr: unknown}).usr).toEqual({
+    expect(location().state).toEqual({
       openSql: {sql: sql.replace("'void'", "'paid'"), label: 'Orders view'}
     });
   });

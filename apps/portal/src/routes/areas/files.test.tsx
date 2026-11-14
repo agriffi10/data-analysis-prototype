@@ -1,32 +1,56 @@
 import {useState, type ReactNode} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
-import {App} from './App';
-import {renderWithProviders} from './test/renderWithProviders';
-import {authenticated, unauthenticated} from './test/authFixtures';
-import {AuthContext} from './features/auth/authContext';
-import type {AuthContextValue} from './features/auth';
-import * as fileService from './features/file-browser/fileBrowser.service';
-import {submitFileOperation} from './features/file-browser/fileOps.service';
-import type {FileListPage} from './types/s3.types';
+import {renderApp} from '../../test/appRouter';
+import {requests} from '../../test/nextNavigation';
+import {authenticated, unauthenticated} from '../../test/authFixtures';
+import {AuthContext} from '../../features/auth/authContext';
+import {AuthProvider, type AuthContextValue} from '../../features/auth';
+import {getCurrentAuthUser, startSignOut} from '../../features/auth/auth.service';
+import * as fileService from '../../features/file-browser/fileBrowser.service';
+import {submitFileOperation} from '../../features/file-browser/fileOps.service';
+import {Link} from '../../lib/navigation';
+import type {FileListPage} from '../../types/s3.types';
+import {FilesView} from './files';
 
 /**
- * What a route change must leave alone, driven through the REAL route table.
+ * What a page change must leave alone, driven through the REAL chrome and the REAL route table.
  *
  * The signed-in shell holds two session-scoped records — the upload queue and the in-flight file
  * operations — and both are only worth anything if neither a click on a nav tab nor a page that
- * throws remounts the shell. Nothing below the route table can see that: a test that composes its
- * own layouts cannot catch a `key` somewhere above them, and one did exactly that in production,
- * while each nav-tab click aborted the uploads in progress.
+ * throws remounts the shell. Nothing below the chrome can see that: a test that composes its own
+ * layouts cannot catch a `key` somewhere above them, and one did exactly that in production, while
+ * each nav-tab click aborted the uploads in progress.
  *
- * Every navigation here is a click on a link the header really renders, and each one waits for
- * the destination before asserting, so a click that failed to change the route cannot pass for
- * one that did. Only the service boundary is mocked.
+ * Every navigation here is a click on a link the app really renders, and each one waits for the
+ * destination before asserting, so a click that failed to change the page cannot pass for one that
+ * did. Only the service boundary is mocked. Files is the subject, so the shell's survival lives here.
  */
 vi.mock('aws-amplify/auth', () => ({
   fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
 }));
-vi.mock('./features/file-browser/fileBrowser.service', async (importActual) => ({
+// The real auth provider, for the one test whose subject is what IT does on sign-out; every other
+// test injects a fixed auth value and never reaches these.
+const hub = vi.hoisted(() => ({listeners: [] as ((message: {payload: {event: string}}) => void)[]}));
+vi.mock('aws-amplify/utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('aws-amplify/utils')>()),
+  Hub: {
+    listen: (_channel: string, listener: (message: {payload: {event: string}}) => void) => {
+      hub.listeners.push(listener);
+      return () => hub.listeners.splice(hub.listeners.indexOf(listener), 1);
+    }
+  }
+}));
+vi.mock('../../lib/amplify', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/amplify')>()),
+  isAmplifyConfigured: () => true
+}));
+vi.mock('../../features/auth/auth.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/auth/auth.service')>()),
+  getCurrentAuthUser: vi.fn(),
+  startSignOut: vi.fn()
+}));
+vi.mock('../../features/file-browser/fileBrowser.service', async (importActual) => ({
   ...(await importActual<typeof fileService>()),
   ensurePrefixMarker: vi.fn().mockResolvedValue({success: true}),
   listFiles: vi.fn(),
@@ -41,26 +65,33 @@ vi.mock('./features/file-browser/fileBrowser.service', async (importActual) => (
   moveObject: vi.fn(),
   copyObject: vi.fn()
 }));
-vi.mock('./features/file-browser/fileOps.service', () => ({submitFileOperation: vi.fn()}));
-vi.mock('./features/shared-spaces/sharedSpaces.service', () => ({
+vi.mock('../../features/file-browser/fileOps.service', () => ({submitFileOperation: vi.fn()}));
+vi.mock('../../features/shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn().mockResolvedValue({success: true, data: {version: 1, connections: []}}),
   enqueueSharedSpaceRequest: vi.fn()
 }));
-vi.mock('./features/notifications/notifications.service', () => ({
+vi.mock('../../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 // A signed-in page standing in for any eager page's render defect: it throws wherever the test
 // says it does, so one scenario can crash it from its own tab and another can crash it only
-// behind a query string that the tab does not carry.
+// behind a query string that the tab does not carry. When it renders, it offers the two ways off
+// the signed-in pages: the landing page and an unknown path.
 const standIn = vi.hoisted(() => ({throwsAt: (() => true) as (search: string) => boolean}));
-vi.mock('./routes/DataQualityPage', async () => {
-  const {useLocation} = await import('react-router');
+vi.mock('../DataQualityPage', async () => {
+  const navigation = await import('../../lib/navigation');
   return {
     default: function DataQualityStandIn() {
-      const {search} = useLocation();
+      const {search} = navigation.useLocation();
       if (standIn.throwsAt(search)) throw new Error('render failed');
-      return <p>Data quality stand-in</p>;
+      return (
+        <>
+          <p>Data quality stand-in</p>
+          <navigation.Link to="/">To the landing page</navigation.Link>
+          <navigation.Link to="/nope">To nowhere</navigation.Link>
+        </>
+      );
     }
   };
 });
@@ -74,9 +105,9 @@ const page: FileListPage = {
   isTruncated: false
 };
 
-const renderApp = (route: string) => renderWithProviders(<App />, {route, auth: authenticated('alice')});
+const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice')});
 
-type User = ReturnType<typeof renderApp>['user'];
+type User = ReturnType<typeof renderFiles>['user'];
 
 /**
  * Hold every upload open at 50%, settling it as Cancelled on abort the way the real uploader
@@ -108,6 +139,31 @@ async function startUploads(user: User, names = ['up.txt']) {
   await screen.findByRole('progressbar', {name: `Uploading ${names[0]}`});
   await user.keyboard('{Escape}');
 }
+
+/** A `beforeunload` as the browser raises it, and whether the page asked to stay. */
+function unloadIsCancelled(): boolean {
+  const event = new Event('beforeunload', {cancelable: true});
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+/** Files as an App Router page, with the two ways off the signed-in pages beside it. */
+function FilesAppRouterPage() {
+  return (
+    <>
+      <FilesView />
+      <Link to="/">To the landing page</Link>
+      <Link to="/nope">To nowhere</Link>
+    </>
+  );
+}
+
+/** Files served by the App Router, whatever the records on disk say. */
+const FILES_ON_THE_APP_ROUTER = {
+  auth: authenticated('alice'),
+  routers: {files: 'app'},
+  pages: {'(signed-in)/files/page.tsx': FilesAppRouterPage}
+} as const;
 
 /** Come back to Files by its tab, and wait for the listing. */
 async function backToFiles(user: User) {
@@ -153,7 +209,7 @@ afterEach(() => {
 describe('the signed-in shell outlives the page', () => {
   it('keeps an upload running, and still listed, after leaving Files and coming back', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files');
+    const {user} = renderFiles('/files');
     await startUploads(user);
 
     await roundTripThroughNotifications(user);
@@ -164,7 +220,7 @@ describe('the signed-in shell outlives the page', () => {
   });
 
   it('keeps an in-flight folder operation on screen, and its space gated, across a route change', async () => {
-    const {user} = renderApp('/files');
+    const {user} = renderFiles('/files');
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder docs'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
@@ -181,16 +237,50 @@ describe('the signed-in shell outlives the page', () => {
     expect(move.getAttribute('title')).toMatch(/still running here/);
   });
 
+  // The same claim across the two routers: leaving Files for a page the catch-all serves goes
+  // through Next's router, which renders a different page, and the shell above both must not notice.
+  it('keeps an upload running across a round trip between the App Router and the catch-all', async () => {
+    const aborted = holdUploadsOpen();
+    const {user} = renderApp('/files', FILES_ON_THE_APP_ROUTER);
+    await startUploads(user);
+
+    await roundTripThroughNotifications(user);
+    await user.click(screen.getByRole('button', {name: 'Upload'}));
+
+    expect(requests()).toEqual(['/notifications', '/files']);
+    expect(aborted()).toEqual([false]);
+    expect(await screen.findByRole('progressbar', {name: 'Uploading up.txt'})).toHaveAttribute('aria-valuenow', '50');
+  });
+
+  // A public page renders outside the gate, so following a link to one ends the shell, from a page
+  // either router serves: the landing page and an unknown path are no area's.
+  it.each([
+    ['the landing page', 'catch-all'],
+    ['nowhere', 'catch-all'],
+    ['the landing page', 'app'],
+    ['nowhere', 'app']
+  ])('ends on a public page: a link to %s from a %s page aborts the upload and drops the shell', async (target, router) => {
+    standIn.throwsAt = () => false;
+    const aborted = holdUploadsOpen();
+    const {user} = renderApp('/files', router === 'app' ? FILES_ON_THE_APP_ROUTER : {auth: authenticated('alice')});
+    await startUploads(user);
+    if (router === 'catch-all') {
+      await user.click(screen.getByRole('link', {name: 'Data quality'}));
+      await screen.findByText('Data quality stand-in');
+    }
+
+    await user.click(screen.getByRole('link', {name: `To ${target}`}));
+
+    await waitFor(() => expect(aborted()).toEqual([true]));
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Upload'})).not.toBeInTheDocument();
+  });
+
   // The other side of the same claim: a fix that kept the providers alive by hoisting them above
   // the auth gate would pass every test above, and leave a signed-out tab uploading.
   it('ends with the session: signing out aborts the upload and drops the operations', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderWithProviders(
-      <SignOutable>
-        <App />
-      </SignOutable>,
-      {route: '/files', auth: null}
-    );
+    const {user} = renderApp('/files', {auth: SignOutable});
     await startUploads(user);
     await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
@@ -214,7 +304,7 @@ describe('a signed-in page that throws', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files');
+    const {user} = renderFiles('/files');
     await startUploads(user, ['a.txt', 'b.txt', 'c.txt', 'd.txt']);
 
     await user.click(screen.getByRole('link', {name: 'Data quality'}));
@@ -237,7 +327,7 @@ describe('a signed-in page that throws', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     standIn.throwsAt = (search) => search.includes('broken');
-    const {user} = renderApp('/data-quality?broken=1');
+    const {user} = renderFiles('/data-quality?broken=1');
     await screen.findByRole('alert');
     // Nothing is uploading, so a reload costs nothing and the panel does not say it would.
     expect(screen.queryByText(/Reloading cancels/)).not.toBeInTheDocument();
@@ -248,5 +338,67 @@ describe('a signed-in page that throws', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     consoleError.mockRestore();
     consoleWarn.mockRestore();
+  });
+});
+
+describe('an unfinished upload asks before the document goes', () => {
+  // A navigation to or from an App Router page becomes a document load after a deploy or an
+  // outage, and a document load ends the shell; so does a reload or a closed tab. While anything
+  // would be lost, the browser is asked to confirm.
+  it('asks while an upload runs, and not once every upload has settled', async () => {
+    // Done, failed and cancelled: every way an upload ends.
+    mock.uploadFile.mockImplementation((async ({key}: {key: string}) =>
+      key.endsWith('good.txt')
+        ? {success: true, data: undefined}
+        : key.endsWith('bad.txt')
+          ? {success: false, error: {message: 'refused', code: 'AccessDenied'}}
+          : {success: false, error: {message: 'cancelled', code: 'Cancelled'}}) as never);
+    const {user} = renderFiles('/files');
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    await user.upload(
+      await screen.findByLabelText('Choose files'),
+      ['good.txt', 'bad.txt', 'gone.txt'].map((name) => new File(['data'], name, {type: 'text/plain'}))
+    );
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument());
+    await user.keyboard('{Escape}');
+
+    expect(unloadIsCancelled()).toBe(false);
+
+    holdUploadsOpen();
+    await startUploads(user);
+
+    expect(unloadIsCancelled()).toBe(true);
+  });
+
+  it('registers no unload listener on a page without the shell', async () => {
+    const added = vi.spyOn(window, 'addEventListener');
+    renderFiles('/nope');
+    await screen.findByRole('heading', {name: 'Page not found'});
+
+    expect(added.mock.calls.filter(([type]) => type === 'beforeunload')).toEqual([]);
+    added.mockRestore();
+  });
+
+  // Signing out is deliberate and asks nothing, as it always has. The provider's sign-out moves the
+  // document before React unmounts the shell, so the guard would still be armed when the browser
+  // asks; the provider disarms it first, in the same task.
+  it('lets a sign-out go without asking, and the sign-out aborts the upload', async () => {
+    const aborted = holdUploadsOpen();
+    vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
+    const asked: boolean[] = [];
+    vi.mocked(startSignOut).mockImplementation(async () => {
+      asked.push(unloadIsCancelled());
+      for (const listener of [...hub.listeners]) listener({payload: {event: 'signedOut'}});
+      return {success: true, data: undefined};
+    });
+    const {user} = renderApp('/files', {auth: AuthProvider});
+    await startUploads(user);
+
+    await user.click(screen.getByRole('button', {name: 'Account: alice'}));
+    await user.click(await screen.findByRole('menuitem', {name: 'Sign out'}));
+
+    await waitFor(() => expect(aborted()).toEqual([true]));
+    expect(asked).toEqual([false]);
   });
 });

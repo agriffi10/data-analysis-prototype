@@ -1,4 +1,4 @@
-import {useLocation} from 'react-router';
+import {useLocation} from '../lib/navigation';
 import {useAuth} from '../features/auth';
 import {DataQualityReportPage as DataQualityReportView} from '../features/data-quality';
 import {linkFlags} from '../features/feature-flags';

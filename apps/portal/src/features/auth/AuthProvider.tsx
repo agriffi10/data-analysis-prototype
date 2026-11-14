@@ -3,6 +3,7 @@ import {Hub} from 'aws-amplify/utils';
 import {AuthContext} from './authContext';
 import {ALREADY_AUTHENTICATED, getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
 import {isAmplifyConfigured} from '../../lib/amplify';
+import {armLeaveGuard, disarmLeaveGuard} from '../../lib/leaveGuard';
 import {toUserText} from '../../lib/errorMessages';
 import {setReturnPathIfAbsent} from '../../lib/returnPath';
 import type {AuthStatus, AuthUser} from './auth.types';
@@ -110,8 +111,15 @@ export function AuthProvider({children}: {children: ReactNode}) {
 
   const signOut = useCallback(async () => {
     setError(null);
+    // Synchronously, before the provider's sign-out starts: it moves the document to the logout
+    // page in the same task that announces the signed-out status, before the shell unmounts, and a
+    // deliberate sign-out asks nothing.
+    disarmLeaveGuard();
     const result = await startSignOut();
-    if (!result.success) setError(toUserText(result.error));
+    if (!result.success) {
+      armLeaveGuard();
+      setError(toUserText(result.error));
+    }
   }, []);
 
   const value = useMemo(

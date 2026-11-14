@@ -11,7 +11,7 @@
  * tree that later reached one of these hooks — a key of `['saved-queries', undefined]`
  * that nothing throws on and no assertion catches. **That hazard is gone (2026-08-09):**
  * `invalidateListing` moved into `features/file-browser/`, the mocks moved with it, and
- * `AppRoot.tsx` is now the only importer of `lib/queryClient`. The original note also
+ * `AppFrame.tsx` is now the only importer of `lib/queryClient`. The original note also
  * overstated the count — two suites mocked it, not five.
  *
  * The hazard shape is still worth knowing before putting a constant in a module that

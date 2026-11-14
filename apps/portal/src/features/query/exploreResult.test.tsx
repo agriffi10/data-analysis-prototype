@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
-import {useLocation} from 'react-router';
+import {useLocation} from '../../lib/navigation';
 import {
   editor,
   installWorkspaceMocks,

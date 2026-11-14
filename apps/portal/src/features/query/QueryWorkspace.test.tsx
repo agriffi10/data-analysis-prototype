@@ -43,9 +43,8 @@ import {
   statusMap,
   succeeded
 } from '../../test/queryWorkspaceSupport';
-import {MemoryRouter} from 'react-router';
-import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
-import {QueryClient, QueryClientProvider, onlineManager} from '@tanstack/react-query';
+import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {QueryClient, onlineManager} from '@tanstack/react-query';
 import {authValue} from '../../test/authFixtures';
 import {politeAnnouncements} from '../../test/liveRegions';
 import {getDatabase, listTables} from '../catalog/glue.service';
@@ -62,8 +61,6 @@ import {objectExists} from '../file-browser/fileBrowser.service';
 import {QueryWorkspace} from './QueryWorkspace';
 import {QueryRunsProvider} from './QueryRunsProvider';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
-import {ToastProvider} from '../../components/ToastProvider';
-import {AuthContext} from '../auth/authContext';
 import {queryKeys} from './queryKeys';
 import {savedQueryKeys} from '../saved-queries/savedQueryKeys';
 import {catalogKeys} from '../catalog/catalogKeys';
@@ -2671,17 +2668,14 @@ describe('QueryWorkspace.a11y', () => {
       pageParams: [undefined]
     });
     return (
-      <AuthContext.Provider value={authValue()}>
-        <QueryClientProvider client={client}>
-          <MemoryRouter>
-            <ToastProvider>
-              <QueryRunsProvider username="alice">
-                <QueryWorkspace />
-              </QueryRunsProvider>
-            </ToastProvider>
-          </MemoryRouter>
-        </QueryClientProvider>
-      </AuthContext.Provider>
+      <TestProviders
+        auth={authValue()}
+        queryClient={client}
+        seedFeatureFlags={false}>
+        <QueryRunsProvider username="alice">
+          <QueryWorkspace />
+        </QueryRunsProvider>
+      </TestProviders>
     );
   }
 

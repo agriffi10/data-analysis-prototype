@@ -3,7 +3,7 @@ import {cleanup, fireEvent, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
-import {Route, Routes, useNavigate} from 'react-router';
+import {useLocation, useNavigate} from '../lib/navigation';
 import {RootLayout} from './RootLayout';
 import type {AuthContextValue} from '../features/auth';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
@@ -262,9 +262,9 @@ describe('RootLayout', () => {
   // boundary and the only thing mocked here.
 
   /**
-   * Route composition IS the subject here, so each test supplies its own `<Routes>` — but
-   * *inside* the harness's router rather than beside a hand-rolled one (SPEC-154 FR-007),
-   * which is what `LandingPage.test.tsx` already does. `route` sets the entry point.
+   * Composition IS the subject here, so each test supplies the page `RootLayout` wraps, inside
+   * the harness's seam rather than beside a hand-rolled router (SPEC-154 FR-007). `route` sets
+   * the entry point.
    *
    * Auth is the REAL `useAuth` reading an injected context (FR-002). The old
    * `vi.mock('../features/auth')` replaced the whole barrel, so the provider never ran.
@@ -278,22 +278,27 @@ describe('RootLayout', () => {
 
   describe('RootLayout', () => {
     // The boundary is scoped below the Header so a throwing page leaves working
-    // navigation — but RootLayout is a LAYOUT route, so the boundary instance outlives
-    // child-route changes. Without a reset the fallback would persist after navigating
+    // navigation — but RootLayout sits in the root layout, so the boundary instance outlives
+    // every page change. Without a reset the fallback would persist after navigating
     // away: nav visible, content region stuck, and the only escape a reload. The reset
     // is a prop and not a `key`; what a key would cost the signed-in shell is pinned in
-    // `App.navigation.test.tsx`, against the real route table.
-    describe('the error boundary around the Outlet', () => {
+    // `routes/areas/files.test.tsx`, against the real chrome and route table.
+    describe('the error boundary around the page', () => {
       function Boom(): never {
         throw new Error('render failed');
       }
 
-      // A real in-router navigation. Rendering a second MemoryRouter would NOT do:
-      // `initialEntries` applies at mount only, so a rerender leaves the route where it
-      // was and a recovery test would pass against the very bug it exists to catch.
+      // A real navigation through the seam. Re-rendering at another address would NOT do: the
+      // route applies at mount only, so a rerender leaves the page where it was and a recovery
+      // test would pass against the very bug it exists to catch.
       function GoTo({path}: {path: string}) {
         const navigate = useNavigate();
         return <button onClick={() => navigate(path)}>{`go to ${path}`}</button>;
+      }
+
+      /** The page for the address: Help renders, Files and Query throw. */
+      function PageAt() {
+        return useLocation().pathname === '/help' ? <div>HELP CONTENT</div> : <Boom />;
       }
 
       /** What the boundary caught, read off its dev-only log — the one trace a catch leaves. */
@@ -308,22 +313,9 @@ describe('RootLayout', () => {
             <GoTo path="/help" />
             <GoTo path="/files" />
             <GoTo path="/query" />
-            <Routes>
-              <Route element={<RootLayout />}>
-                <Route
-                  path="/files"
-                  element={<Boom />}
-                />
-                <Route
-                  path="/query"
-                  element={<Boom />}
-                />
-                <Route
-                  path="/help"
-                  element={<div>HELP CONTENT</div>}
-                />
-              </Route>
-            </Routes>
+            <RootLayout>
+              <PageAt />
+            </RootLayout>
           </>
         );
       }

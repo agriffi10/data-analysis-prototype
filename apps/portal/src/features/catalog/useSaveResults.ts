@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {useNavigate} from 'react-router';
+import {useNavigate} from '../../lib/navigation';
 import {useQueryClient} from '@tanstack/react-query';
 import {copyObject, objectExists} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';

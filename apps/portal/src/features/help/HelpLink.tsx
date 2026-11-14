@@ -1,4 +1,4 @@
-import {NavLink} from 'react-router';
+import {NavLink} from '../../lib/navigation';
 import {
   HEADER_CONTROL,
   HEADER_CONTROL_ACTIVE,

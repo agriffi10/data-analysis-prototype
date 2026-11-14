@@ -1,12 +1,21 @@
-import {StrictMode, useState} from 'react';
+import {StrictMode, useLayoutEffect, useState} from 'react';
 import {onTestFinished} from 'vitest';
 import {render, renderHook} from '@testing-library/react';
 import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {UserEvent} from '@testing-library/user-event';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {BrowserRouter, MemoryRouter} from 'react-router';
+import {Route, Routes} from 'react-router';
 import type {ReactElement, ReactNode} from 'react';
+import {
+  AreaRecordsContext,
+  CatchAllRouter,
+  NavigationProvider,
+  useLocation,
+  type AreaRecord,
+  type NavLocation
+} from '../lib/navigation';
+import {NextStandInRoot, resetStandIn, writeAddressRaw} from './nextNavigation';
 import {AuthContext} from '../features/auth/authContext';
 import type {AuthContextValue} from '../features/auth/auth.types';
 import {ToastProvider} from '../components/ToastProvider';
@@ -68,13 +77,37 @@ export const USER_EVENT_OPTIONS = {delay: null} as const;
  * An initial router location: a path, or a path with the history state a navigation carried.
  *
  * The object form is for a page that reads `location.state` — a hand-off from another feature —
- * which a string cannot express.
+ * which a string cannot express. The state is held by the seam before `ui` mounts, as the state a
+ * navigation carried to that page's first render.
  */
 export type TestRoute = string | {pathname: string; search?: string; state?: unknown};
+
+/** The address a route names, as one string. */
+function hrefOfRoute(route: TestRoute): string {
+  return typeof route === 'string' ? route : `${route.pathname}${route.search ?? ''}`;
+}
+
+/**
+ * Put a test at `route` on jsdom's own history, which is the only history there is, and put the
+ * address back once the test finishes, since that history outlives the test.
+ *
+ * @param route - Where the test starts.
+ * @param resolver - How a path selects a page, for `renderApp`; none for a plain render.
+ */
+export function startAt(route: TestRoute, resolver: Parameters<typeof resetStandIn>[0] = null): void {
+  const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  writeAddressRaw(null, hrefOfRoute(route));
+  resetStandIn(resolver);
+  onTestFinished(() => writeAddressRaw(null, before));
+}
 
 export type ProviderOptions = {
   /** Initial router location (default `/`). */
   route?: TestRoute;
+  /** The pattern `ui` renders at, so its params resolve, e.g. '/data-quality/:space/:requestId'. */
+  path?: string;
+  /** Other patterns and what renders there, for a test whose subject navigates away. */
+  routes?: Record<string, ReactElement>;
   /** Inject a fixed auth context. Pass `null` to omit the AuthContext provider
    *  (the component doesn't call `useAuth`). Defaults to an authenticated user. */
   auth?: AuthContextValue | null;
@@ -101,16 +134,6 @@ export type ProviderOptions = {
    * would be silently dropped.
    */
   featureFlags?: Partial<FeatureFlags>;
-  /**
-   * Render under a `BrowserRouter` on the real jsdom history, at `route`, instead of a
-   * `MemoryRouter`.
-   *
-   * For the few tests whose subject is the history itself: a memory history answers no
-   * `popstate`, so a same-document navigation — an in-page anchor such as the shell's "Skip to
-   * main content" — cannot happen under one, and a test that clicks such a link there passes
-   * whatever the component does. The URL is restored when the test finishes.
-   */
-  browserRouter?: boolean;
 };
 
 /**
@@ -143,44 +166,123 @@ function seededClient(
   return client;
 }
 
+/** What the provider stack needs that the public options do not carry. */
+type StackProps = {
+  children: ReactNode;
+  auth: AuthContextValue | null;
+  client: QueryClient;
+  initialState: unknown;
+  /** react-router inside the seam, for `ui` that reads route params; `renderApp` brings its own. */
+  catchAllRouter: boolean;
+  onLocation?: (location: NavLocation) => void;
+  /** The area records the seam, the chrome and the table read; the production records otherwise. */
+  records?: readonly AreaRecord[];
+};
+
+/** Reports the seam's location after every commit, for the render result's `location()`. */
+function LocationProbe({onLocation}: {onLocation: (location: NavLocation) => void}) {
+  const location = useLocation();
+  useLayoutEffect(() => onLocation(location), [location, onLocation]);
+  return null;
+}
+
+/**
+ * The harness's one provider stack: Next's stand-in, the query client, the auth context and the
+ * seam, with the toasts inside. `TestProviders` adds react-router inside the seam; `renderApp` puts
+ * the real chrome there instead. The shell's providers are never here: a test that wrapped the
+ * shell's providers around the app would pass wherever the app put them.
+ */
+export function ProviderStack({
+  children,
+  auth,
+  client,
+  initialState,
+  catchAllRouter,
+  onLocation,
+  records
+}: StackProps): ReactElement {
+  const content = <ToastProvider>{children}</ToastProvider>;
+  const seam = (
+    <NavigationProvider initialState={initialState}>
+      {onLocation && <LocationProbe onLocation={onLocation} />}
+      {catchAllRouter ? <CatchAllRouter>{content}</CatchAllRouter> : content}
+    </NavigationProvider>
+  );
+  const tree = (
+    <NextStandInRoot>
+      <QueryClientProvider client={client}>
+        {records ? <AreaRecordsContext.Provider value={records}>{seam}</AreaRecordsContext.Provider> : seam}
+      </QueryClientProvider>
+    </NextStandInRoot>
+  );
+  return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;
+}
+
+/** `ui` alone, or at `path` beside the other `routes`, in react-router's table under the seam. */
+function routed(ui: ReactNode, path: string | undefined, routes: Record<string, ReactElement> | undefined): ReactNode {
+  if (path === undefined && routes === undefined) return ui;
+  return (
+    <Routes>
+      <Route
+        path={path ?? '*'}
+        element={ui}
+      />
+      {Object.entries(routes ?? {}).map(([pattern, element]) => (
+        <Route
+          key={pattern}
+          path={pattern}
+          element={element}
+        />
+      ))}
+    </Routes>
+  );
+}
+
 /**
  * The provider stack as a component, for the few callers that cannot use
  * `renderWithProviders` — chiefly `expectNoA11yViolations`, which renders the element it is
- * given rather than accepting an already-rendered container.
+ * given rather than accepting an already-rendered container. It puts the test at `route` itself.
  */
 export function TestProviders({
   children,
   route = '/',
+  path,
+  routes,
   auth = authValue(),
   queryClient,
   seedFeatureFlags = true,
   featureFlags,
-  browserRouter = false
-}: ProviderOptions & {children: ReactNode}): ReactElement {
+  onLocation,
+  addressSeeded = false
+}: ProviderOptions & {
+  children: ReactNode;
+  onLocation?: (location: NavLocation) => void;
+  /** The render entry points put the test at its address before rendering; a direct caller does not. */
+  addressSeeded?: boolean;
+}): ReactElement {
   // Built here rather than required, so a direct caller (an axe render) gets the same seeded
-  // client `renderWithProviders` would have handed it.
+  // client `renderWithProviders` would have handed it, at the address it asked for.
   const [client] = useState(() => {
+    if (!addressSeeded) startAt(route);
     const created = seededClient(queryClient, seedFeatureFlags, featureFlags);
     // Only when this component owns the client: one passed in was already registered by the
     // `renderWithProviders`/`renderHookWithProviders` call that built it.
     if (!queryClient) clearAfterTest(created);
     return created;
   });
-  const tree = (
-    <QueryClientProvider client={client}>
-      {browserRouter ? (
-        <BrowserRouter>
-          <ToastProvider>{children}</ToastProvider>
-        </BrowserRouter>
-      ) : (
-        <MemoryRouter initialEntries={[route]}>
-          <ToastProvider>{children}</ToastProvider>
-        </MemoryRouter>
-      )}
-    </QueryClientProvider>
+  return (
+    <ProviderStack
+      auth={auth}
+      client={client}
+      initialState={typeof route === 'object' ? route.state : undefined}
+      catchAllRouter
+      onLocation={onLocation}>
+      {routed(children, path, routes)}
+    </ProviderStack>
   );
-  return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;
 }
+
+export {seededClient, clearAfterTest};
 
 /** Options only `renderWithProviders` takes: they shape the render, not the provider stack. */
 export type RenderWithProvidersOptions = ProviderOptions & {
@@ -198,67 +300,84 @@ export type RenderWithProvidersOptions = ProviderOptions & {
 export type RenderWithProvidersResult = ReturnType<typeof render> & {
   user: UserEvent;
   queryClient: QueryClient;
+  /** The seam's location as it stands: where a navigation went, and what it carried. */
+  location: () => NavLocation;
 };
 
+/** A holder for the seam's latest location, and the reader the render result hands out. */
+export function locationRecorder(): {onLocation: (location: NavLocation) => void; location: () => NavLocation} {
+  let latest: NavLocation | null = null;
+  return {
+    onLocation: (location) => {
+      latest = location;
+    },
+    location: () => {
+      if (!latest) throw new Error('the seam has not rendered yet');
+      return latest;
+    }
+  };
+}
+
 /**
- * Renders `ui` inside the app's provider stack (QueryClient + MemoryRouter, or a BrowserRouter on
- * jsdom's own history with `browserRouter`, + AuthContext) and returns a `userEvent` instance alongside the usual RTL
- * result. This is the default entry point for component/feature tests — mock
- * only the AWS service boundary (`*.service.ts` / `src/lib` clients) and let the
- * real hooks and child components render.
+ * Renders `ui` inside the app's provider stack (the QueryClient, the AuthContext, and the
+ * navigation seam on jsdom's own history through Next's stand-in, with react-router inside it so
+ * route params resolve) and returns a `userEvent` instance and the seam's location alongside the
+ * usual RTL result. This is the default entry point for component/feature tests — mock only the
+ * AWS service boundary (`*.service.ts` / `src/lib` clients) and let the real hooks and child
+ * components render.
+ *
+ * `path` puts `ui` at a pattern so its params resolve; `routes` adds other patterns, for a test
+ * whose subject navigates away. The address is restored when the test finishes.
  */
 export function renderWithProviders(
   ui: ReactElement,
   {
-    route,
+    route = '/',
+    path,
+    routes,
     auth,
     queryClient,
     seedFeatureFlags = true,
     featureFlags,
-    browserRouter = false,
     strictMode = false,
     ...options
   }: RenderWithProvidersOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
+  startAt(route);
   const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
-  // A BrowserRouter reads jsdom's own history, so the route is put there rather than passed —
-  // and put back afterwards, since that history outlives the test. State is written in the
-  // router's own entry shape (`usr` is what `location.state` reads), with an index so the router
-  // does not rewrite the entry on mount.
-  if (browserRouter) {
-    const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    const target = typeof route === 'object' ? route : {pathname: route ?? '/'};
-    const entry = target.state === undefined ? null : {usr: target.state, key: 'initial', idx: 0};
-    window.history.replaceState(entry, '', `${target.pathname}${target.search ?? ''}`);
-    onTestFinished(() => window.history.replaceState(null, '', before));
-  }
+  const recorder = locationRecorder();
   const providers = (children: ReactNode) => (
     <TestProviders
       route={route}
+      path={path}
+      routes={routes}
       auth={auth}
       queryClient={client}
       seedFeatureFlags={seedFeatureFlags}
       featureFlags={featureFlags}
-      browserRouter={browserRouter}>
+      onLocation={recorder.onLocation}
+      addressSeeded>
       {children}
     </TestProviders>
   );
   const result = strictMode
     ? render(<StrictMode>{providers(ui)}</StrictMode>, options)
     : render(ui, {wrapper: ({children}) => providers(children), ...options});
-  return {...result, user: userEvent.setup(USER_EVENT_OPTIONS), queryClient: client};
+  return {...result, user: userEvent.setup(USER_EVENT_OPTIONS), queryClient: client, location: recorder.location};
 }
 
 /**
  * `renderHook` wrapped in the same provider stack — for hooks that read
- * TanStack Query, the router, or auth. Returns the RTL result plus the
- * QueryClient so a test can assert cache state.
+ * TanStack Query, the navigation seam, or auth. Returns the RTL result plus the
+ * QueryClient so a test can assert cache state, and the seam's location.
  */
 export function renderHookWithProviders<Result, Props>(
   hook: (props: Props) => Result,
   {
-    route,
+    route = '/',
+    path,
+    routes,
     auth,
     queryClient,
     seedFeatureFlags = true,
@@ -266,20 +385,26 @@ export function renderHookWithProviders<Result, Props>(
     ...options
   }: ProviderOptions & Omit<RenderHookOptions<Props>, 'wrapper'> = {}
 ) {
+  startAt(route);
   const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
+  const recorder = locationRecorder();
   const result = renderHook(hook, {
     wrapper: ({children}) => (
       <TestProviders
         route={route}
+        path={path}
+        routes={routes}
         auth={auth}
         queryClient={client}
         seedFeatureFlags={seedFeatureFlags}
-        featureFlags={featureFlags}>
+        featureFlags={featureFlags}
+        onLocation={recorder.onLocation}
+        addressSeeded>
         {children}
       </TestProviders>
     ),
     ...options
   });
-  return {...result, queryClient: client};
+  return {...result, queryClient: client, location: recorder.location};
 }

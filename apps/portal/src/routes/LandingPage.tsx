@@ -1,5 +1,5 @@
 import {useEffect, type ReactNode} from 'react';
-import {Navigate, useNavigate} from 'react-router';
+import {Navigate, useNavigate} from '../lib/navigation';
 import {useAuth} from '../features/auth';
 import {FEATURE_FLAG_KEYS, navDestination, useFeatureSet} from '../features/feature-flags';
 import {clearReturnPath, peekReturnPath} from '../lib/returnPath';

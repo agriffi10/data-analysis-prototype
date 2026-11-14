@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef} from 'react';
-import {useSearchParams} from 'react-router';
+import {useSearchParams} from '../lib/navigation';
 import {
   FileBrowser,
   ensurePrefixMarker,

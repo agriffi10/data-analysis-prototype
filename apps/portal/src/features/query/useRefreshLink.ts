@@ -1,5 +1,5 @@
 import {useCallback, useMemo} from 'react';
-import {useLocation, useSearchParams} from 'react-router';
+import {useLocation, useSearchParams} from '../../lib/navigation';
 import {useSchema} from '../catalog/useSchema';
 import {parseRefreshLink, useTableRefresh} from '../table-builder';
 import {isConnectionUsable, type Connection} from '../connections/connection.types';

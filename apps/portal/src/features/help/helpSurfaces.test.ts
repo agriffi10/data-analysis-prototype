@@ -2,13 +2,9 @@ import {describe, expect, it} from 'vitest';
 import {HELP_SURFACES} from './helpSurfaces';
 import {HELP_SECTIONS} from './helpContent';
 import {GATED_SURFACES} from '../feature-flags';
+import {AREAS} from '../../lib/navigation';
 
 const SOURCE = import.meta.glob('./helpSurfaces.ts', {query: '?raw', import: 'default', eager: true}) as Record<
-  string,
-  string
->;
-
-const APP_SOURCE = import.meta.glob('../../App.tsx', {query: '?raw', import: 'default', eager: true}) as Record<
   string,
   string
 >;
@@ -26,14 +22,13 @@ describe('HELP_SURFACES', () => {
     // Rendering the header at a path proves the control resolves — it does NOT prove the path
     // is a route, because the header renders the same either way. So a row left behind by a
     // route rename would silently revert that page's control to plain navigation, which is the
-    // failure a registry with a walking test exists to stop.
-    const appSource = Object.values(APP_SOURCE)[0];
-    expect(appSource, 'the App.tsx sweep matched nothing').toBeDefined();
-    const routed = new Set([...appSource!.matchAll(/path="([^"]+)"/g)].map((m) => m[1]));
-    expect(routed.size, 'no route paths were extracted').toBeGreaterThan(5);
+    // failure a registry with a walking test exists to stop. The area records name every
+    // signed-in path, whichever router serves it.
+    const routed = new Set(AREAS.flatMap((record) => record.paths));
+    expect(routed.size, 'no area paths were read').toBeGreaterThan(5);
 
     for (const surface of HELP_SURFACES) {
-      expect(routed.has(surface.path), `${surface.path} is in no <Route path=…>`).toBe(true);
+      expect(routed.has(surface.path), `${surface.path} is in no area record`).toBe(true);
     }
   });
 

@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useState} from 'react';
-import {useLocation} from 'react-router';
+import {useLocation} from '../../lib/navigation';
 import {HELP_SURFACES} from './helpSurfaces';
 import {useVisibleHelpSections} from './visibleSections';
 import type {HelpSectionId} from './help.types';

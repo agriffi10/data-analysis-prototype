@@ -1,4 +1,4 @@
-import {matchPath} from 'react-router';
+import {matchPath} from '../../lib/navigation';
 import {NAV_PATH_FLAGS} from './gatedSurfaces';
 import type {FeatureFlagKey} from './featureFlags.types';
 
@@ -68,7 +68,7 @@ export function linkFlags(link: string, username: string | null): FeatureFlagKey
   }
   const flags = new Set<FeatureFlagKey>();
   // `matchPath`, not string comparison, so a link matches its route exactly as the router does —
-  // case-insensitively, and at a segment boundary.
+  // case-sensitively, as Next routes, and at a segment boundary.
   for (const [path, flag] of NAV_PATH_FLAGS) {
     if (matchPath({path, end: false}, url.pathname)) flags.add(flag);
   }

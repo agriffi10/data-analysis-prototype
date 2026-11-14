@@ -1,7 +1,8 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import type {ReactNode} from 'react';
-import {Link, Route, Routes, useLocation, useNavigate} from 'react-router';
+import {Link, useLocation, useNavigate} from '../lib/navigation';
 import {act, screen, within, waitFor} from '@testing-library/react';
+import {nextPopstate} from '../test/nextNavigation';
 import type {UserEvent} from '@testing-library/user-event';
 import type {QueryClient} from '@tanstack/react-query';
 import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
@@ -306,36 +307,32 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
 
   it('leaves a resolved link alone when the page moves to a fragment, as the skip link does', async () => {
     // The shell's "Skip to main content" is a same-document navigation. Measured in Chromium: the
-    // new entry carries no history state and `popstate` fires, so react-router's location key falls
-    // back to "default" while the address still names the space. Read as a fresh follow, every
-    // skip-link click would unmount the browser and spend a read — on the keyboard users the bypass
-    // link exists for. jsdom follows no in-page anchor on a click (measured: the URL does not move),
-    // so the navigation is driven here, and the link is followed first because that is what puts a
-    // key on the entry for the fragment to lose.
+    // new entry carries no history state and `popstate` fires, so the entry's key falls back to
+    // "default" while the address still names the space. Read as a fresh follow, every skip-link
+    // click would unmount the browser and spend a read — on the keyboard users the bypass link
+    // exists for. jsdom follows an in-page anchor the same way (the address moves a task later and
+    // a null-state `popstate` fires), so the anchor is a real one, clicked; the link is followed
+    // first because that is what puts a key on the entry for the fragment to lose.
     mockReadCache.mockResolvedValue(NO_SPACES);
-    const {user} = renderWithProviders(
-      <UploadQueueProvider>
-        <FileOpsInFlightProvider>
-          <FilesPage />
-          <Link to="/files?space=marketing_data">Open marketing_data</Link>
-        </FileOpsInFlightProvider>
-      </UploadQueueProvider>,
-      {
-        route: '/files',
-        auth: authenticated('alice'),
-        queryClient: clientWithCachedList(0),
-        browserRouter: true
-      }
+    const {user, location} = renderAt(
+      '/files',
+      clientWithCachedList(0),
+      <>
+        <Link to="/files?space=marketing_data">Open marketing_data</Link>
+        <a href="#main">Skip to main content</a>
+      </>
     );
     await user.click(screen.getByRole('link', {name: 'Open marketing_data'}));
     expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
     expect(mockReadCache).toHaveBeenCalledOnce();
 
     await act(async () => {
-      window.history.pushState(null, '', `${window.location.pathname}${window.location.search}#main`);
-      window.dispatchEvent(new PopStateEvent('popstate', {state: null}));
+      const moved = nextPopstate();
+      await user.click(screen.getByRole('link', {name: 'Skip to main content'}));
+      await moved;
     });
 
+    expect(location()).toMatchObject({hash: '#main', key: 'default'});
     expect(screen.getByRole('button', {name: 'New folder'})).toBeInTheDocument();
     expect(screen.queryByText('Loading files…')).not.toBeInTheDocument();
     expect(mockReadCache).toHaveBeenCalledOnce();
@@ -430,19 +427,14 @@ describe('FilesPage — a conflict review deep link', () => {
       const {pathname, search} = useLocation();
       return <output aria-label="Address">{pathname + search}</output>;
     }
+    // The page for the address, inside the shell's providers as the app holds them.
+    function Page() {
+      return useLocation().pathname === '/notifications' ? <p>Inbox</p> : <FilesPage />;
+    }
     const {user} = renderWithProviders(
       <UploadQueueProvider>
         <FileOpsInFlightProvider>
-          <Routes>
-            <Route
-              path="/files"
-              element={<FilesPage />}
-            />
-            <Route
-              path="/notifications"
-              element={<p>Inbox</p>}
-            />
-          </Routes>
+          <Page />
           <Where />
         </FileOpsInFlightProvider>
       </UploadQueueProvider>,

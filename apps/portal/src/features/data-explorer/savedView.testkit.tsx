@@ -1,4 +1,3 @@
-import {Route, Routes} from 'react-router';
 import {appendViewLine} from '../../lib/savedViewLine';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
@@ -91,17 +90,11 @@ export function savedFile(name: string, space: 'alice' | 'teamspace' = 'alice'):
 
 /** The workspace at `/explore`, beside a stub `/query` to land a hand-off on, on jsdom's history. */
 export function renderExplorer(options: {queryClient?: QueryClient} = {}) {
-  return renderWithProviders(
-    <Routes>
-      <Route
-        path="/explore"
-        element={<DataExplorerWorkspace />}
-      />
-      <Route
-        path="/query"
-        element={<p>Query workspace</p>}
-      />
-    </Routes>,
-    {route: '/explore', auth: authenticated('alice'), browserRouter: true, ...options}
-  );
+  return renderWithProviders(<DataExplorerWorkspace />, {
+    route: '/explore',
+    path: '/explore',
+    routes: {'/query': <p>Query workspace</p>},
+    auth: authenticated('alice'),
+    ...options
+  });
 }

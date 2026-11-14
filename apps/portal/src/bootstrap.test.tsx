@@ -1,9 +1,9 @@
-import {StrictMode} from 'react';
+import {StrictMode, type ReactNode} from 'react';
 import {render, screen} from '@testing-library/react';
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 /**
- * The boot: load the configuration, configure Amplify, then render the app.
+ * The boot: load the configuration, configure Amplify, then render the frame around the page.
  *
  * Every assertion here is about ORDER and REACH, which is what the production build turns into a
  * boot failure when it is wrong, and which no other test in the suite can see, because Vitest's
@@ -11,20 +11,23 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
  */
 
 const state = vi.hoisted(() => ({
-  appRootEvaluated: false,
+  frameEvaluated: false,
   order: [] as string[]
 }));
 
-vi.mock('./AppRoot', () => {
+vi.mock('./AppFrame', () => {
   // Runs on IMPORT, so it stays false unless the dynamic import is actually reached.
-  state.appRootEvaluated = true;
+  state.frameEvaluated = true;
   return {
-    AppRoot: function AppRootMock() {
+    AppFrame: function AppFrameMock({children}: {children: ReactNode}) {
       state.order.push('render');
-      return <div data-testid="app-root" />;
+      return <div data-testid="app-frame">{children}</div>;
     }
   };
 });
+
+/** The page the root layout hands the boot, which must render only inside the frame. */
+const PAGE = <p>the page</p>;
 
 vi.mock('./lib/amplify', () => ({
   configureAmplify: () => state.order.push('configure'),
@@ -58,7 +61,7 @@ async function freshBoot() {
 }
 
 beforeEach(() => {
-  state.appRootEvaluated = false;
+  state.frameEvaluated = false;
   state.order = [];
 });
 
@@ -79,9 +82,9 @@ describe('the boot', () => {
     respondWith(completeDocument());
     const PortalBoot = await freshBoot();
 
-    render(<PortalBoot />);
+    render(<PortalBoot>{PAGE}</PortalBoot>);
 
-    expect(await screen.findByTestId('app-root')).toBeInTheDocument();
+    expect(await screen.findByTestId('app-frame')).toHaveTextContent('the page');
     expect(state.order).toEqual(['configure', 'render']);
   });
 
@@ -93,32 +96,34 @@ describe('the boot', () => {
 
     render(
       <StrictMode>
-        <PortalBoot />
+        <PortalBoot>{PAGE}</PortalBoot>
       </StrictMode>
     );
 
-    expect(await screen.findByTestId('app-root')).toBeInTheDocument();
+    expect(await screen.findByTestId('app-frame')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(state.order.filter((step) => step === 'configure')).toHaveLength(1);
   });
 
-  it('renders the boot failure without importing AppRoot, and evaluates no config read on the way', async () => {
+  it('renders the boot failure without importing AppFrame, and evaluates no config read on the way', async () => {
     // The test that can only pass because the boot reaches the app through `await import`. With a
     // static import, the graph is evaluated before the boot runs, so this would throw on the first
     // module-scope read instead of rendering, in a production build only.
     //
-    // WHAT IT DOES NOT PROVE: `AppRoot` is mocked here, so the application graph behind it is
-    // evaluated by nothing in this file. What is under test is the boot's OWN static graph.
+    // WHAT IT DOES NOT PROVE: `AppFrame` is mocked here, so the application graph behind it is
+    // evaluated by nothing in this file. What is under test is the boot's OWN static graph. The page
+    // never renders either: a page's view reads configuration, and only the frame waited for it.
     vi.stubEnv('MODE', 'production');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no document')));
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const PortalBoot = await freshBoot();
 
-    render(<PortalBoot />);
+    render(<PortalBoot>{PAGE}</PortalBoot>);
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(state.appRootEvaluated).toBe(false);
+    expect(state.frameEvaluated).toBe(false);
     expect(state.order).not.toContain('configure');
+    expect(screen.queryByText('the page')).not.toBeInTheDocument();
     expect(error).toHaveBeenCalledOnce();
   });
 
@@ -126,17 +131,18 @@ describe('the boot', () => {
     // A deploy that replaces the hashed assets mid-boot rejects the dynamic import outright; the
     // alternative to this screen is a blank page and an unhandled rejection.
     respondWith(completeDocument());
-    vi.doMock('./AppRoot', () => {
+    vi.doMock('./AppFrame', () => {
       throw new Error('chunk gone');
     });
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const PortalBoot = await freshBoot();
 
-    render(<PortalBoot />);
+    render(<PortalBoot>{PAGE}</PortalBoot>);
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('the page')).not.toBeInTheDocument();
     expect(String(error.mock.calls[0][0])).toContain('(bootstrap)');
-    vi.doUnmock('./AppRoot');
+    vi.doUnmock('./AppFrame');
   });
 
   it('names the reason and the missing KEYS in the console, and no value', async () => {
@@ -147,7 +153,7 @@ describe('the boot', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const PortalBoot = await freshBoot();
 
-    render(<PortalBoot />);
+    render(<PortalBoot>{PAGE}</PortalBoot>);
     await vi.waitFor(() => expect(error).toHaveBeenCalled());
 
     const line = String(error.mock.calls[0][0]);
@@ -167,9 +173,9 @@ describe('the boot module graph', () => {
   )[0] as string;
 
   /**
-   * The whole point of the boundary. Re-adding `import {App} from './App.tsx'`, or any provider
-   * beside it, evaluates the application graph before the document is fetched, which is a boot
-   * failure in production and INVISIBLE under the test fallback, which answers every read.
+   * The whole point of the boundary. Adding a static import of `./AppFrame`, or of any provider,
+   * evaluates the application graph before the document is fetched, which is a boot failure in
+   * production and INVISIBLE under the test fallback, which answers every read.
    */
   const ALLOWED_STATIC_IMPORTS = ['react', './lib/amplify', './lib/runtimeConfig', './components/BootFailure'];
 
@@ -178,8 +184,10 @@ describe('the boot module graph', () => {
   });
 
   it('statically imports exactly the four modules that cannot wait', () => {
-    // `export … from` evaluates its module exactly as an import does, so it counts as one.
-    const imported = [...BOOT.matchAll(/^(?:import|export)\s[^'"]*['"]([^'"]+)['"]/gm)].map(
+    // `export … from` evaluates its module exactly as an import does, so it counts as one. A
+    // statement may span lines, but never runs through `(`, `=` or `;` before its specifier: an
+    // `export function` or `export const` would otherwise read on to its first string literal.
+    const imported = [...BOOT.matchAll(/^(?:import|export)\s[^'"(=;]*['"]([^'"]+)['"]/gm)].map(
       ([, specifier]) => specifier
     );
 
@@ -187,8 +195,8 @@ describe('the boot module graph', () => {
   });
 
   it('reaches the application graph only through a dynamic import', () => {
-    expect(BOOT).toMatch(/await import\(['"]\.\/AppRoot['"]\)/);
-    expect(BOOT).not.toMatch(/^import .*['"]\.\/AppRoot['"]/m);
+    expect(BOOT).toMatch(/await import\(['"]\.\/AppFrame['"]\)/);
+    expect(BOOT).not.toMatch(/^import .*['"]\.\/AppFrame['"]/m);
   });
 
   it('carries no bare side-effect import of Amplify', () => {
@@ -197,34 +205,5 @@ describe('the boot module graph', () => {
     // the boot exists to remove. Ordering is expressed by `await`, which no reorder can break.
     expect(BOOT).not.toMatch(/^import\s+['"]\.\/lib\/amplify['"]/m);
     expect(BOOT).toContain('configureAmplify()');
-  });
-});
-
-describe('the catch-all route', () => {
-  // Globbed one level down and filtered, because the folder's brackets are glob syntax; the route's
-  // own tests are not part of the route.
-  const ROUTE = Object.fromEntries(
-    Object.entries(
-      import.meta.glob('./app/*/*.tsx', {query: '?raw', import: 'default', eager: true}) as Record<string, string>
-    ).filter(([file]) => file.startsWith('./app/[[...slug]]/') && !file.includes('.test.'))
-  );
-
-  it('reads both of its files', () => {
-    expect(Object.keys(ROUTE).sort()).toEqual(['./app/[[...slug]]/PortalMount.tsx', './app/[[...slug]]/page.tsx']);
-  });
-
-  it('reaches the application only through the client-only dynamic import', () => {
-    // A static import of the app here would evaluate it on the server, where the boot's
-    // configuration and the browser's storage do not exist; `ssr: false` is what keeps it off.
-    for (const [file, source] of Object.entries(ROUTE)) {
-      const imported = [...source.matchAll(/^import\s[^'"]*['"]([^'"]+)['"]/gm)].map(([, specifier]) => specifier);
-      expect(imported.length, `${file} imports nothing`).toBeGreaterThan(0);
-      for (const specifier of imported) {
-        expect(['react', 'next/dynamic', './PortalMount'], `${file} imports ${specifier}`).toContain(specifier);
-      }
-    }
-    const mount = ROUTE['./app/[[...slug]]/PortalMount.tsx'];
-    expect(mount).toMatch(/import\(['"]\.\.\/\.\.\/PortalBoot['"]\)/);
-    expect(mount).toMatch(/ssr:\s*false/);
   });
 });

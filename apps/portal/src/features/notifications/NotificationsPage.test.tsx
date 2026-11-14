@@ -1,19 +1,16 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter, Route, Routes} from 'react-router';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {TestProviders, renderWithProviders} from '../../test/renderWithProviders';
 import {DataQualityReportPage} from '../data-quality/DataQualityReportPage';
 import {NotificationsPage} from './NotificationsPage';
 import {enqueueNotificationAction, getNotifications} from './notifications.service';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {AuthContext} from '../auth/authContext';
+import {QueryClient} from '@tanstack/react-query';
 import {authValue} from '../../test/authFixtures';
-import {ToastProvider} from '../../components/ToastProvider';
 import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {NotificationsBell} from './NotificationsBell';
 import type {Notification} from './notifications.types';
 import type {ReactElement, ReactNode} from 'react';
-import appSource from '../../App.tsx?raw';
+import {AREAS} from '../../lib/navigation';
 
 // ─── from NotificationsPage.test.tsx ───
 vi.mock('../data-quality/dataQualityReport.service', async (importOriginal) => ({
@@ -192,20 +189,12 @@ describe('NotificationsPage', () => {
         ]
       });
 
-      // The REAL route table, so the link is resolved by the same `<Routes>` the app ships.
-      const {user} = renderWithProviders(
-        <Routes>
-          <Route
-            path="/notifications"
-            element={<NotificationsPage />}
-          />
-          <Route
-            path="/data-quality/:space/:requestId"
-            element={<DataQualityReportPage />}
-          />
-        </Routes>,
-        {route: '/notifications'}
-      );
+      // The report's real pattern, so the link is resolved by the matcher the app ships.
+      const {user} = renderWithProviders(<NotificationsPage />, {
+        route: '/notifications',
+        path: '/notifications',
+        routes: {'/data-quality/:space/:requestId': <DataQualityReportPage />}
+      });
 
       await user.click(await screen.findByRole('link', {name: /Data quality check finished/}));
 
@@ -217,9 +206,9 @@ describe('NotificationsPage', () => {
 
     it('uses the pattern the app actually routes on', () => {
       // GUARDS THE TEST ABOVE, which declares both the link and the route and so would keep
-      // agreeing with itself after a rename. The app's route table is the third party: read it
-      // as data and require the pattern this file exercises to be one App.tsx really declares.
-      expect(appSource).toContain('path="/data-quality/:space/:requestId"');
+      // agreeing with itself after a rename. The area records are the third party: read them
+      // as data and require the pattern this file exercises to be one the app really serves.
+      expect(AREAS.flatMap((record) => record.paths)).toContain('/data-quality/:space/:requestId');
     });
   });
 });
@@ -249,13 +238,12 @@ describe('NotificationsPage.a11y', () => {
   function withProviders(ui: ReactNode): ReactElement {
     const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
     return (
-      <QueryClientProvider client={client}>
-        <AuthContext.Provider value={authValue()}>
-          <MemoryRouter>
-            <ToastProvider>{ui}</ToastProvider>
-          </MemoryRouter>
-        </AuthContext.Provider>
-      </QueryClientProvider>
+      <TestProviders
+        auth={authValue()}
+        queryClient={client}
+        seedFeatureFlags={false}>
+        {ui}
+      </TestProviders>
     );
   }
 

@@ -1,13 +1,9 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen} from '@testing-library/react';
-import {QueryClientProvider} from '@tanstack/react-query';
-import {MemoryRouter} from 'react-router';
-import {AuthContext} from '../features/auth/authContext';
 import {authenticated} from '../test/authFixtures';
-import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
+import {TestProviders, createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../test/axe';
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../features/file-browser';
-import {ToastProvider} from '../components/ToastProvider';
 import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 import * as fileService from '../features/file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
@@ -68,19 +64,16 @@ const tree = (
   // Bespoke tree, kept deliberately (SPEC-154 FR-007): `expectNoA11yViolations` takes a
   // COMPOSED ELEMENT and renders it itself, so there is no `renderWithProviders` result to
   // hand it. The QueryClient is still the harness's, so retry behaviour cannot drift.
-  <QueryClientProvider client={seededClient()}>
-    <AuthContext.Provider value={authenticated('alice')}>
-      <MemoryRouter initialEntries={['/files']}>
-        <ToastProvider>
-          <UploadQueueProvider>
-            <FileOpsInFlightProvider>
-              <FilesPage />
-            </FileOpsInFlightProvider>
-          </UploadQueueProvider>
-        </ToastProvider>
-      </MemoryRouter>
-    </AuthContext.Provider>
-  </QueryClientProvider>
+  <TestProviders
+    route="/files"
+    auth={authenticated('alice')}
+    queryClient={seededClient()}>
+    <UploadQueueProvider>
+      <FileOpsInFlightProvider>
+        <FilesPage />
+      </FileOpsInFlightProvider>
+    </UploadQueueProvider>
+  </TestProviders>
 );
 
 describe('FilesPage accessibility (SPEC-045 FR-003)', () => {

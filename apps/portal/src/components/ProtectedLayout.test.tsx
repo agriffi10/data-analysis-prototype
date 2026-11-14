@@ -1,6 +1,5 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen, cleanup} from '@testing-library/react';
-import {Routes, Route} from 'react-router';
 import {ProtectedLayout} from './ProtectedLayout';
 import {Header} from './Header';
 import {renderWithProviders} from '../test/renderWithProviders';
@@ -41,34 +40,20 @@ const forStatus = (status: AuthStatus): AuthContextValue =>
   status === 'authenticated' ? authenticated('alice') : status === 'loading' ? authLoading() : unauthenticated();
 
 /**
- * Mirrors the App route tree: a public landing marker plus the protected /files child,
- * entered at /files so the guard decides what mounts. The `<Routes>` go INSIDE the harness's
- * router (SPEC-154 FR-007) — route composition being the subject does not call for a
- * hand-rolled provider stack, only for supplying the routes.
+ * A public landing marker plus the gate around a /files page, entered at /files so the guard
+ * decides what mounts. The patterns go through the harness's `path` and `routes` — composition
+ * being the subject does not call for a hand-rolled provider stack, only for supplying the routes.
  *
  * `withHeader` exists because the header changes what the notification assertions can prove;
  * see the two prefetch tests below.
  */
 const renderAtFiles = (auth: AuthContextValue, {withHeader = false} = {}) =>
   renderWithProviders(
-    <Routes>
-      <Route
-        path="/"
-        element={<div>LANDING PAGE</div>}
-      />
-      <Route element={<ProtectedLayout />}>
-        <Route
-          path="/files"
-          element={
-            <>
-              {withHeader && <Header />}
-              <div>PROTECTED CONTENT</div>
-            </>
-          }
-        />
-      </Route>
-    </Routes>,
-    {route: '/files', auth, seedFeatureFlags: false}
+    <ProtectedLayout>
+      {withHeader && <Header />}
+      <div>PROTECTED CONTENT</div>
+    </ProtectedLayout>,
+    {route: '/files', path: '/files', routes: {'/': <div>LANDING PAGE</div>}, auth, seedFeatureFlags: false}
   );
 
 beforeEach(() => {
@@ -102,10 +87,10 @@ describe('ProtectedLayout', () => {
     expect(screen.queryByText('LANDING PAGE')).not.toBeInTheDocument();
   });
 
-  it('when unauthenticated: redirects to / and never mounts protected content', () => {
+  it('when unauthenticated: redirects to / and never mounts protected content', async () => {
     renderAtFiles(forStatus('unauthenticated'));
 
-    expect(screen.getByText('LANDING PAGE')).toBeInTheDocument();
+    expect(await screen.findByText('LANDING PAGE')).toBeInTheDocument();
     expect(screen.queryByText('PROTECTED CONTENT')).not.toBeInTheDocument();
   });
 

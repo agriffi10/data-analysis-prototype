@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
-import {Link, MemoryRouter, Route, Routes} from 'react-router';
-import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {Link} from '../../lib/navigation';
+import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {
   DataQualityReportPage,
@@ -20,10 +20,8 @@ import {
   duplicateSamples,
   parquetReport
 } from './reportFixtures';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient} from '@tanstack/react-query';
 import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
-import {ToastProvider} from '../../components/ToastProvider';
-import {AuthContext} from '../auth/authContext';
 import type {DataQualityReport} from './dataQuality.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 import type {ReactElement, ReactNode} from 'react';
@@ -44,13 +42,6 @@ vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
   readSharedConnectionsCache: vi.fn()
 }));
-// Module scope, not inside the describe: vitest hoists `vi.mock` factories above
-// everything, so a spy the factory closes over has to be reachable from there.
-const navigateSpy = vi.fn();
-vi.mock('react-router', async (importActual) => {
-  const actual = await importActual<typeof import('react-router')>();
-  return {...actual, useNavigate: () => navigateSpy};
-});
 
 describe('DataQualityReportPage', () => {
   // Integration style (react.md §21): the real page, the real useDataQualityReport,
@@ -60,20 +51,20 @@ describe('DataQualityReportPage', () => {
   const mockCache = vi.mocked(sharedSpaces.readSharedConnectionsCache);
   const mockEnqueue = vi.mocked(dqService.enqueueQualityCheck);
 
-  /** Renders the page at a real route so `useParams` resolves as it does in the app. `beside` renders
-   *  next to the route under the same router, standing in for the shell around it — a notification's link. */
+  /** Renders the page at its real pattern so `useParams` resolves as it does in the app. `beside` renders
+   *  next to the page, standing in for the shell around it — a notification's link. */
   function renderReport(path: string, queryClient?: QueryClient, beside?: ReactNode) {
     return renderWithProviders(
       <>
-        <Routes>
-          <Route
-            path="/data-quality/:space/:requestId"
-            element={<DataQualityReportPage />}
-          />
-        </Routes>
+        <DataQualityReportPage />
         {beside}
       </>,
-      {route: path, auth: authenticated('alice'), ...(queryClient && {queryClient})}
+      {
+        route: path,
+        path: '/data-quality/:space/:requestId',
+        auth: authenticated('alice'),
+        ...(queryClient && {queryClient})
+      }
     );
   }
 
@@ -898,7 +889,8 @@ describe('DataQualityReportPage', () => {
 
   describe('DataQualityReportPage — follow-through actions', () => {
     it('re-runs the check without navigating away from the report on screen', async () => {
-      const {user} = renderReport('/data-quality/alice/req-1');
+      const {user, location} = renderReport('/data-quality/alice/req-1');
+      const before = location();
       await user.click(await screen.findByRole('button', {name: 'Re-run check'}));
 
       await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
@@ -906,7 +898,7 @@ describe('DataQualityReportPage', () => {
         space: {kind: 'personal', bucket: 'user-space', prefix: 'alice/'},
         location: 'alice/sales/'
       });
-      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(location()).toBe(before);
       // The report the user was reading is still there.
       expect(screen.getByText('alice/sales/')).toBeInTheDocument();
     });
@@ -941,19 +933,19 @@ describe('DataQualityReportPage', () => {
     });
 
     it('opens the Files browser at the report’s source folder', async () => {
-      const {user} = renderReport('/data-quality/alice/req-1');
+      const {user, location} = renderReport('/data-quality/alice/req-1');
       await user.click(await screen.findByRole('button', {name: 'Open folder'}));
 
       // `?space=` takes the connection id — the literal 'personal', not the username.
-      expect(navigateSpy).toHaveBeenCalledWith('/files?space=personal&prefix=alice%2Fsales%2F');
+      await waitFor(() => expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'}));
     });
 
     it('opens a FILE report at its parent folder, not at the file key', async () => {
       mockReport.mockResolvedValue(ok(csvReport({location: 'alice/sales/jan.csv'})));
-      const {user} = renderReport('/data-quality/alice/req-1');
+      const {user, location} = renderReport('/data-quality/alice/req-1');
       await user.click(await screen.findByRole('button', {name: 'Open folder'}));
 
-      expect(navigateSpy).toHaveBeenCalledWith('/files?space=personal&prefix=alice%2Fsales%2F');
+      await waitFor(() => expect(location()).toMatchObject({pathname: '/files', search: '?space=personal&prefix=alice%2Fsales%2F'}));
     });
 
     it('offers no Convert to Parquet action while the converter is unshipped (SPEC-120)', async () => {
@@ -982,20 +974,14 @@ describe('DataQualityReportPage.a11y', () => {
 
   function withProviders(): ReactElement {
     return (
-      <QueryClientProvider client={client}>
-        <AuthContext.Provider value={authenticated('alice')}>
-          <MemoryRouter initialEntries={['/data-quality/alice/req-1']}>
-            <ToastProvider>
-              <Routes>
-                <Route
-                  path="/data-quality/:space/:requestId"
-                  element={<DataQualityReportPage />}
-                />
-              </Routes>
-            </ToastProvider>
-          </MemoryRouter>
-        </AuthContext.Provider>
-      </QueryClientProvider>
+      <TestProviders
+        route="/data-quality/alice/req-1"
+        path="/data-quality/:space/:requestId"
+        auth={authenticated('alice')}
+        queryClient={client}
+        seedFeatureFlags={false}>
+        <DataQualityReportPage />
+      </TestProviders>
     );
   }
 

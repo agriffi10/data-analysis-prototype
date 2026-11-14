@@ -1,5 +1,6 @@
 import {createRequire} from 'node:module';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {defineConfig} from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
@@ -11,13 +12,23 @@ import react from '@vitejs/plugin-react';
 const SERVER_ONLY_EMPTY = path.join(path.dirname(createRequire(import.meta.url).resolve('server-only')), 'empty.js');
 
 /**
+ * Next's App Router, modelled on jsdom's history. The real `next/navigation` needs the App Router
+ * mounted around it, which no test has; the stand-in models the eight behaviours the navigation
+ * seam rests on, each with a test of its own. Exact match only, so nothing else under `next/` moves.
+ */
+const NEXT_NAVIGATION_STAND_IN = fileURLToPath(new URL('./src/test/nextNavigation.ts', import.meta.url));
+
+/**
  * Vitest's configuration, and nothing else: Next.js builds and serves the portal. Vite remains
  * because Vitest runs on it, so this file carries no build plugin and no build-time definition.
  */
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {'server-only': SERVER_ONLY_EMPTY}
+    alias: [
+      {find: /^server-only$/, replacement: SERVER_ONLY_EMPTY},
+      {find: /^next\/navigation$/, replacement: NEXT_NAVIGATION_STAND_IN}
+    ]
   },
   test: {
     environment: 'jsdom',
@@ -47,7 +58,7 @@ export default defineConfig({
         // root layout and catch-all page Next renders around it. Their ORDER and REACH are what
         // matters, and `src/bootstrap.test.tsx` and the image's behaviour matrix assert those
         // directly; the boot itself is covered.
-        'src/AppRoot.tsx',
+        'src/AppFrame.tsx',
         'src/app/layout.tsx',
         'src/app/\\[\\[...slug\\]\\]/page.tsx',
         // Emitted from the Python contract, so it is that declaration's coverage to earn,

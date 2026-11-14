@@ -1,6 +1,6 @@
 import {type ReactNode, useEffect} from 'react';
-import {Navigate, Outlet, useLocation} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
+import {Navigate, useLocation} from '../lib/navigation';
 import {useAuth} from '../features/auth';
 import {useExplorationEviction} from '../features/data-explorer';
 import {useFeatureSet} from '../features/feature-flags';
@@ -8,6 +8,7 @@ import {useCatalogCatchUp} from '../features/table-builder';
 import {
   FileOpsInFlightProvider,
   InFlightOperations,
+  UnloadGuard,
   UploadQueueProvider,
   UploadsAtRiskNotice
 } from '../features/file-browser';
@@ -40,9 +41,15 @@ import {LoadingState} from './LoadingState';
 // boundary still catches what this one cannot — a throw from the shell itself, or from this
 // layout's own hooks. The shell's panel also says what a reload would cancel: its one button
 // reloads, and the uploads the boundary kept alive would go with the page.
+//
+// The one thing that still ends the shell mid-upload without the user choosing it is the document
+// itself going: a reload, a closed tab, or a navigation to or from an App Router page that Next
+// turns into a document load because the server is down or a new build is deployed. So while an
+// upload is unfinished, the guard asks the browser to confirm first.
 function AppShell({children, resetKey, username}: {children: ReactNode; resetKey: string; username: string}) {
   return (
     <UploadQueueProvider>
+      <UnloadGuard />
       <FileOpsInFlightProvider>
         <QueryRunsProvider username={username}>
           <div className="flex flex-1">
@@ -60,17 +67,19 @@ function AppShell({children, resetKey, username}: {children: ReactNode; resetKey
 }
 
 /**
- * Auth gate for protected routes. Nested inside RootLayout, so the shared
- * Header is already rendered — this sub-layout only decides whether the
- * protected page content mounts. It is a UX gate, not a security boundary;
- * IAM enforces real access via scoped credentials.
+ * Auth gate for a signed-in page. Inside RootLayout, so the shared Header is
+ * already rendered — this only decides whether the page mounts, and holds the
+ * signed-in shell around it. `AppChrome` renders it for every path an area
+ * claims, whichever router serves that path. It is a UX gate, not a security
+ * boundary; IAM enforces real access via scoped credentials.
+ *
+ * @param props.children - The signed-in page.
+ * @returns The loading state, the redirect to `/`, or the shell around the page.
  *
  * @example
- * <Route element={<ProtectedLayout />}>
- *   <Route path="/files" element={<FilesPage />} />
- * </Route>
+ * <ProtectedLayout><FilesView /></ProtectedLayout>
  */
-export function ProtectedLayout() {
+export function ProtectedLayout({children}: {children: ReactNode}) {
   const {status, user} = useAuth();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -111,7 +120,7 @@ export function ProtectedLayout() {
   // to the compiled-in all-on defaults.
   useFeatureSet();
 
-  // While auth resolves, render a loading indicator instead of the Outlet, so
+  // While auth resolves, render a loading indicator instead of the page, so
   // the file browser never flashes and fires no S3 requests.
   if (status === 'loading') {
     return <LoadingState />;
@@ -133,7 +142,7 @@ export function ProtectedLayout() {
     <AppShell
       resetKey={location.pathname + location.search}
       username={username ?? ''}>
-      <Outlet />
+      {children}
     </AppShell>
   );
 }

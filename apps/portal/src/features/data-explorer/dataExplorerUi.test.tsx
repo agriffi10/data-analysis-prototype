@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import type {QueryClient} from '@tanstack/react-query';
 import type {ReactNode} from 'react';
 import {createTestQueryClient, renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';

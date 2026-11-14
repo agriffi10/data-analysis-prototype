@@ -1,5 +1,5 @@
 import {useMemo} from 'react';
-import {useLocation, useSearchParams} from 'react-router';
+import {useLocation, useSearchParams} from '../../lib/navigation';
 import {useConnections} from '../connections/useConnections';
 import {useSpaceLinkPending} from '../connections/useSpaceLinkPending';
 import {resolveExploreParams} from './exploreSources';

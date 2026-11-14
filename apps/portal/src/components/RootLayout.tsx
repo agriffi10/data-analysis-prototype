@@ -1,21 +1,23 @@
-import {Outlet, useLocation} from 'react-router';
+import type {ReactNode} from 'react';
+import {useLocation} from '../lib/navigation';
 import {Header} from './Header';
 import {NavRailProvider} from './NavRailProvider';
 import {ErrorBoundary} from './ErrorBoundary';
 
 /**
- * Layout shared by every page: the persistent auth-aware Header plus the
- * routed page content. The auth gate is a nested sub-layout (ProtectedLayout),
- * so the Header renders on public and protected routes alike. Exception: the
- * landing route ('/') renders its own self-contained nav, so the app Header is
- * suppressed there and the Outlet fills the full viewport.
+ * Layout shared by every page: the persistent auth-aware Header plus the page.
+ * The auth gate (ProtectedLayout) sits inside it for a signed-in page, so the
+ * Header renders on public and signed-in pages alike. Exception: the landing
+ * page ('/') renders its own self-contained nav, so the app Header is suppressed
+ * there and the page fills the full viewport.
+ *
+ * @param props.children - The page, or the gate around a signed-in one.
+ * @returns The layout.
  *
  * @example
- * <Route element={<RootLayout />}>
- *   <Route path="/" element={<LandingPage />} />
- * </Route>
+ * <RootLayout><LandingPage /></RootLayout>
  */
-export function RootLayout() {
+export function RootLayout({children}: {children: ReactNode}) {
   const location = useLocation();
   const isLanding = location.pathname === '/';
 
@@ -32,8 +34,8 @@ export function RootLayout() {
         {!isLanding && <Header />}
         {/* Scoped BELOW the Header on purpose: a page that throws leaves the user
             with working navigation to somewhere else, rather than a bare panel.
-            This is a LAYOUT route, so the boundary instance outlives child-route
-            changes — without a reset, one throwing page would keep showing the
+            This layout lives in the root layout, so the boundary instance outlives every
+            page change — without a reset, one throwing page would keep showing the
             fallback after the user navigated away, leaving the nav visible but inert.
 
             `resetKey`, NEVER a React `key`. A key remounts everything beneath it on
@@ -45,7 +47,7 @@ export function RootLayout() {
             shell itself. */}
         <div className="flex flex-1 flex-col">
           <ErrorBoundary resetKey={location.pathname + location.search}>
-            <Outlet />
+            {children}
           </ErrorBoundary>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import {Link} from 'react-router';
+import {Link} from '../../lib/navigation';
 import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';

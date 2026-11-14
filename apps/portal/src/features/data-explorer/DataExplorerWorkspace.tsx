@@ -1,5 +1,5 @@
 import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
-import {useLocation, useNavigate} from 'react-router';
+import {useLocation, useNavigate} from '../../lib/navigation';
 import {useQueryClient} from '@tanstack/react-query';
 import {LoadingState} from '../../components/LoadingState';
 import {useToast} from '../../components/toastContext';
