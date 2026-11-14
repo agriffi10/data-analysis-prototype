@@ -8,6 +8,16 @@ output "user_pool_client_id" {
   value       = aws_cognito_user_pool_client.spa.id
 }
 
+output "server_client_id" {
+  description = "The portal server's confidential app client ID. Its secret is never an output; it reaches the task through the SSM parameter."
+  value       = aws_cognito_user_pool_client.server.id
+}
+
+output "server_session_max_age_seconds" {
+  description = "The server client's refresh-token lifetime in seconds, which is the session's ceiling (SESSION_MAX_AGE_SECONDS)."
+  value       = local.server_token_validity.refresh_days * 86400
+}
+
 output "user_pool_domain" {
   description = "Fully-qualified Hosted UI domain."
   value       = "${aws_cognito_user_pool_domain.portal.domain}.auth.${var.aws_region}.amazoncognito.com"

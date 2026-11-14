@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)"
-description: "**The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and that leftover is how the next import arrives."
+description: "**The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and that leftover is how the next import arrives. **Narrowed by 257 to one exception:** `src/server/` may import `@aws-sdk/client-dynamodb` and nothing else, by a clause declared LAST so it replaces the `src/**` one; the manifest names exactly that package; and `check:bundle` fails on `DynamoDB_20120810` in any static chunk, because a lint rule reads import paths, not what shipped."
 ---
 
 Six specs each deleted a browser-side AWS client. What none of them could see is that **a dependency
@@ -29,7 +29,25 @@ inside a week, and a deleted guard is indistinguishable from a passing one in CI
 guard-the-guard — the manifest must still name `aws-amplify` — because a parse that read nothing
 agrees with an empty manifest.
 
+**One exception, on the server only** (rewritten 2026-11-13 for SPEC-257). The portal's Next.js
+server keeps its session store in DynamoDB, so `src/server/` may import `@aws-sdk/client-dynamodb`.
+Three mechanisms hold the line around it, each catching what the others miss. A clause for
+`src/server/**`, declared **last** in the flat config so that it replaces the `src/**` clause for
+those files rather than being replaced by it, bans every other `@aws-sdk` package there. The
+manifest sweep now requires `@aws-sdk/*` entries to be exactly `@aws-sdk/client-dynamodb`, so a
+second client arriving as a dependency fails before anyone imports it. And `npm run check:bundle`
+fails naming the chunk when any file under `.next/static/` carries `DynamoDB_20120810`, the target
+every DynamoDB request names. The lint rules fence `src/server/` off from the browser's layers by
+import path, and `server-only` stops only a module that remembered to import it; the bundle check
+reads what actually shipped. Every `.ts` file under
+`src/server/` beginning with `import 'server-only'` is itself asserted by a test.
+
 ## History
+
+### 2026-11-13
+
+- **Changed:** SPEC-257 admitted `@aws-sdk/client-dynamodb` under `src/server/` only, narrowed the
+  manifest sweep to exactly that package, and added the bundle check.
 
 ### 2026-09-02
 

@@ -139,6 +139,78 @@ resource "aws_cognito_user_pool_client" "spa" {
   ]
 }
 
+# ── User Pool Client (the portal server) ──────────────────────────────────────
+# Confidential: the Next.js server runs the authorization-code flow and holds the tokens, so it can
+# keep a secret and the browser never sees one. It MIRRORS the SPA client's sign-in settings and
+# differs only where a server client must: the secret, its one callback and sign-out URL, and the
+# settings it declares rather than leaving to defaults. NO read_attributes list on either: a list
+# that omits a custom:shared_space_k attribute drops that claim from the ID token, and a missing
+# membership claim presents as the documented propagation delay rather than as a fault. README.md.
+locals {
+  # One source for the server client's token lifetimes and the session's ceiling, so a session can
+  # never outlive the refresh token that keeps it alive.
+  server_token_validity = {
+    id_minutes     = 60
+    access_minutes = 60
+    refresh_days   = 30
+  }
+}
+
+resource "aws_cognito_user_pool_client" "server" {
+  name         = "${var.project_name}-${var.environment}-server-client"
+  user_pool_id = aws_cognito_user_pool.portal.id
+
+  generate_secret = true
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  callback_urls = ["${var.spa_origin}/auth/callback"]
+  logout_urls   = [var.spa_origin]
+
+  supported_identity_providers = ["COGNITO"]
+
+  prevent_user_existence_errors = "ENABLED"
+
+  explicit_auth_flows = [
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  # Revocation is what the server's sign-out revokes the refresh token through, and what makes
+  # Cognito emit jti. Rotation is OFF: with it on, a refresh whose process dies between Cognito's
+  # answer and the store's write leaves a refresh token Cognito revokes after its grace period,
+  # which signs the user out for no reason they can see. The refresh token never leaves the server.
+  enable_token_revocation = true
+
+  refresh_token_rotation {
+    feature = "DISABLED"
+  }
+
+  id_token_validity      = local.server_token_validity.id_minutes
+  access_token_validity  = local.server_token_validity.access_minutes
+  refresh_token_validity = local.server_token_validity.refresh_days
+
+  token_validity_units {
+    id_token      = "minutes"
+    access_token  = "minutes"
+    refresh_token = "days"
+  }
+}
+
+# The server client's secret, delivered to the container by ECS from here. OUTSIDE the web tier's
+# switch with the client it belongs to. A SecureString under the AWS-managed key: ECS's execution
+# role reads it with ssm:GetParameters alone. The secret is in Terraform state either way, because
+# the client's own client_secret attribute already is.
+resource "aws_ssm_parameter" "server_client_secret" {
+  name  = var.client_secret_parameter_name
+  type  = "SecureString"
+  value = aws_cognito_user_pool_client.server.client_secret
+
+  tags = { Name = "${var.project_name}-${var.environment}-oidc-client-secret" }
+}
+
 # ── Hosted UI Domain (Managed Login v2) ───────────────────────────────────────
 # Version 2, NOT the classic Hosted UI: the classic one did not reliably complete the OAuth
 # redirect after a self-service signup confirmation, leaving the user confirmed-but-not-

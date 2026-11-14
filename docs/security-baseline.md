@@ -240,6 +240,8 @@ Grouped by rule; the count is the number of resources.
 | N | Check | Rule | Disposition |
 |---|---|---|---|
 | 36 | CKV_AWS_338 | Log group retention ≥ 1 year | **accept** — CloudWatch is the operational tail. The durable narrative store is `logs/` in S3, retained forever (SPEC-129). Paying to duplicate it in CloudWatch buys nothing. |
+| 1 | CKV_AWS_28 | DynamoDB point-in-time recovery | **accept** — the one table is the portal server's session store, which holds refresh tokens. A backup would keep them past the sessions they belong to, and a restored session store is nothing anyone needs: a lost session is a sign-in. |
+| 1 | CKV_AWS_337 | SSM parameter encrypted by a customer-managed key | **accept** — the one parameter is the portal server's client secret, a SecureString under the AWS-managed key so that ECS's execution role reads it with `ssm:GetParameters` alone. A customer-managed key would add a key policy and a `kms:Decrypt` grant to that role, and protect nothing more: the secret is already in Terraform state, because the Cognito client's own `client_secret` attribute is. |
 | 36 | CKV_AWS_158 | Log group encrypted by KMS | **defer** — encrypted at rest under the AWS-managed key today; a CMK is a cost and key-management decision. |
 | 32 | CKV_AWS_117 | Lambda inside a VPC | **accept — and the reason CHANGED on 2026-08-26, when a VPC arrived.** It used to read "there are no VPC resources". There are now, and the API function is deliberately outside them: attaching it would need an interface endpoint per service it later calls, would put ENI attachment on the cold-start path, and — after the arc's provider swap — would leave a token-verification host with no AWS endpoint at all unreachable, with no code change to blame. The control-plane functions talk to AWS APIs only; a VPC would add cost and no isolation. |
 | 32 | CKV_AWS_116 | Lambda dead-letter queue | **accept — wrong shape.** The check looks for the Lambda's own `dead_letter_config`, which covers async invoke. This fleet is SQS/Step-Functions driven and *does* have per-request DLQs with a drain (SPEC-126). |
@@ -473,6 +475,16 @@ four standalone functions (`control_plane_dlq_drain`, `observability_sweep`, `us
 `shared_space_transfer_reader`). It joins the list, which holds 68 IDs, and `checkov-enforced.sh`
 exits 0 over them. `CKV_AWS_115`, `CKV_AWS_117` and `CKV_AWS_319` also pass and stay unenforced for
 the reasons their own section gives.
+
+### Enforce-list addition — two IDs, with the session store (2026-11-13)
+
+The portal server's session store brought a DynamoDB table and its customer-managed KMS key, the
+first of either in `infra/`. Measured with checkov 3.3.9 before either joined: `CKV_AWS_119` (the
+table encrypted under a customer-managed key) and `CKV_AWS_7` (that key's rotation) each pass on
+their one resource. Both join the list, which now holds 70 IDs. `CKV_AWS_28` (point-in-time
+recovery) fails on the table by decision and is accepted in the table above: a backup would keep
+refresh tokens past the sessions they belong to. `CKV_AWS_337` fails on the server client's secret,
+an SSM SecureString under the AWS-managed key, and is accepted there too.
 
 ### Enforce-list addition — ten IDs, with the static portal (2026-11-02)
 

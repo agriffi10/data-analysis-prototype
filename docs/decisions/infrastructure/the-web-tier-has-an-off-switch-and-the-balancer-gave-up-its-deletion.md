@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The web tier has an off switch, and the balancer gave up its deletion protection for it"
-description: "**The web tier has an OFF SWITCH** (`web_tier_enabled`, a string held to exactly `true` or `false`): `network` and `spa` go whole, so **nothing outside them may read their outputs or sit in the VPC**. The registry lives outside in `spa-image` so its images survive, and the ALB carries **no deletion protection**, which is what lets one apply take the tier down. `infra/info/web-tier.md`."
+description: "**The web tier has an OFF SWITCH** (`web_tier_enabled`, a string held to exactly `true` or `false`): `network` and `spa` go whole, so **nothing outside them may read their outputs or sit in the VPC**. The registry lives outside in `spa-image` so its images survive, and the session store, the server's Cognito client and its secret live outside so a switch-off neither drops every session nor schedules the key for deletion; the NAT gateway rides the switch, and the ALB carries **no deletion protection**, which is what lets one apply take the tier down. `infra/info/web-tier.md`."
 ---
 
 With no users, the web tier was nearly the whole bill: the VPC's interface endpoints, the load
@@ -17,6 +17,14 @@ it had. Procedure: `infra/info/web-tier.md`.
 with it set the images would go and switching back on would start a service naming a tag that no
 longer exists. Its two resource-level `moved` blocks were more specific than the module move and
 won over it.
+
+**What the switch holds, and what sits outside it on purpose** (SPEC-257). The NAT gateway and its
+Elastic IP, the `ssm` interface endpoint and the DynamoDB gateway endpoint are in `network`, so they
+bill only while the tier is on. The session store (its table and its customer-managed key), the
+confidential Cognito client and the SSM parameter holding its secret sit outside: a switch-off that
+took the table would sign everyone out, one that took the key would schedule it for deletion, and
+one that took the client would hand the next switch-on a new secret. None of them reads a `network`
+or `spa` output, which the rule below requires.
 
 **The load balancer's deletion protection is off, and `CKV_AWS_150` left the enforced list.** AWS
 refuses `DeleteLoadBalancer` while it is on, and Terraform cannot turn it off and delete in one
@@ -59,6 +67,8 @@ The switch is the `web_tier_enabled` variable.
 
 ### 2026-11-13
 
+- **Changed:** SPEC-257 put the NAT gateway, its Elastic IP and two endpoints on the switch, and the
+  session store, the server's Cognito client and its secret outside it.
 - **Changed:** Marked for SPEC-255: `static-portal` is gone, so the certificate is outside the switch with nothing using it while the tier is off, and renews only while the tier is on; and the ZAP baseline skips again while the tier is off.
 
 ### 2026-09-30

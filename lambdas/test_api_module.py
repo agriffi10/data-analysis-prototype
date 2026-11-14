@@ -131,7 +131,7 @@ OIDC_KEYS = (
 
 _VALID_PROVIDER_BLOCK = {
     "OIDC_ISSUER": "https://provider.example/tenant",
-    "OIDC_AUDIENCE": "a-client-id",
+    "OIDC_AUDIENCE": '["a-client-id", "another-client-id"]',
     "OIDC_JWKS_URI": "https://provider.example/keys",
     "OIDC_USERNAME_CLAIM": "preferred_username",
     "OIDC_REQUIRED_CLAIMS": '{"token_use":"id"}',
@@ -696,8 +696,15 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
         "the username claim is not cognito:username — every request would be attributed to "
         "whatever this names instead"
     )
-    assert re.search(r"oidc_audience\s*=\s*module\.auth\.user_pool_client_id", root_call), (
-        "the audience must be the app client the SPA's ID token is issued to, not the pool"
+    assert re.search(
+        r"oidc_audience\s*=\s*\[\s*module\.auth\.user_pool_client_id\s*,\s*"
+        r"module\.auth\.server_client_id\s*\]",
+        root_call,
+    ), (
+        "the audience must be both app clients, the SPA's and the portal server's, never the pool"
+    )
+    assert environment["OIDC_AUDIENCE"] == 'join(",", var.oidc_audience)', (
+        "the list must reach the function comma-joined, which is the one form the verifier parses"
     )
     assert "OIDC_" not in (INFRA.parent / "apps" / "portal" / ".env.example").read_text(), (
         "these five are server-side; a copy in the SPA's dev fallback is a second, unchecked home"
@@ -722,11 +729,20 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
         f"the issuer is built at {len(issuer_sites)} sites in root — a provider swap must have one"
     )
 
-    refused_empty = _plan_provider_variables(dict.fromkeys(OIDC_KEYS, ""))
+    # One variable empty per plan: a list variable that cannot parse stops OpenTofu before it
+    # reports any other, so a single all-empty plan would name only the first.
     for key in OIDC_KEYS:
+        refused_empty = _plan_provider_variables({**_VALID_PROVIDER_BLOCK, key: ""})
         assert key.lower() in refused_empty, (
             f"{key.lower()} accepted an empty value — an unset repo variable reaches the "
             "function as an empty string and fails far from its cause"
+        )
+    for value in ("[]", '[""]', '["a,b"]', '["a", " "]'):
+        assert "oidc_audience" in _plan_provider_variables(
+            {**_VALID_PROVIDER_BLOCK, "OIDC_AUDIENCE": value}
+        ), (
+            f"oidc_audience accepted {value!r} — an empty set refuses every token, and an empty "
+            "or comma-holding id renders a list the verifier refuses as a server fault"
         )
     for value in ("null", '"id"', "[]"):
         assert "oidc_required_claims" in _plan_provider_variables(

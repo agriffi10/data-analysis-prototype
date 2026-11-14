@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
 import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
+import {SESSION_VARIABLES} from './session/config';
 import {
   connectSource,
   refuseToStartWithoutConfiguration,
@@ -28,6 +29,17 @@ describe('the runtime document', () => {
     const expected: Record<string, unknown> = {version: 1, environment: 'prod'};
     for (const key of REQUIRED_CONFIG) expected[key] = `value-of-${key}`;
     expect(document).toEqual(expected);
+  });
+
+  it("publishes none of the session routes' server-only settings", () => {
+    const env = completeEnvironment();
+    for (const name of SESSION_VARIABLES) env[name] = `server-only-${name}`;
+
+    const document = renderRuntimeDocument(env);
+
+    expect(SESSION_VARIABLES.filter((name) => name.startsWith('CONFIG_'))).toEqual([]);
+    expect(Object.keys(document).filter((key) => (SESSION_VARIABLES as readonly string[]).includes(key))).toEqual([]);
+    expect(JSON.stringify(document)).not.toContain('server-only-');
   });
 
   it('round-trips a value carrying a quote and a backslash byte for byte', () => {

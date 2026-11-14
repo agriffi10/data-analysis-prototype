@@ -1904,6 +1904,10 @@ per (side × operation), enumerated against the real constants, and read that fi
 > serves a placeholder through an ALB, and a Fargate task **pulled from ECR with no NAT gateway** —
 > the arc's central claim, verified beside a route-table read rather than on its own.
 >
+> **Superseded in part by SPEC-257 (2026-11-13):** the web tier now has one NAT gateway on its
+> switch, for the portal server's calls to Cognito's token endpoint and the API's custom domain.
+> Task start still uses only endpoints, so the pull this records is still endpoint-only.
+>
 > **Four traps, none of them predicted, each costing an apply:**
 >
 > 1. **ELB calls `ec2:GetSecurityGroupsForVpc` on the caller's behalf** inside `CreateLoadBalancer`,

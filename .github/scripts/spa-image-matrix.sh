@@ -60,6 +60,24 @@ OPTIONAL_ENV=(
   -e CONFIG_maxUploadBytes=1048576
   -e CONFIG_sharedSpaceBucket=fixture-shared-space
 )
+# The portal server's session settings, which the task definition supplies beside the document's.
+# Fixture values: nothing in the matrix reaches the provider, the table or the API, because every
+# row below is answered before a session is read.
+SESSION_ORIGIN=https://portal.fixture.test
+SESSION_ENV=(
+  -e PORTAL_ORIGIN="$SESSION_ORIGIN"
+  -e API_ORIGIN=https://api.fixture.test
+  -e OIDC_ISSUER=https://issuer.fixture.test/pool
+  -e OIDC_CLIENT_ID=fixtureserverclient
+  -e OIDC_CLIENT_SECRET=fixture-not-a-secret
+  -e OIDC_AUTHORIZE_URL=https://auth.fixture.test/oauth2/authorize
+  -e OIDC_TOKEN_URL=https://auth.fixture.test/oauth2/token
+  -e OIDC_REVOKE_URL=https://auth.fixture.test/oauth2/revoke
+  -e OIDC_LOGOUT_URL=https://auth.fixture.test/logout
+  -e SESSION_TABLE_NAME=fixture-sessions
+  -e SESSION_MAX_AGE_SECONDS=2592000
+  -e AWS_REGION=us-east-1
+)
 # The mount ECS creates, owned by the container's user: a task volume arrives empty and root-owned,
 # which a non-root container cannot write.
 RUNTIME_FLAGS=(
@@ -197,7 +215,7 @@ done
 start_container() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQUIRED_ENV[@]}" "${OPTIONAL_ENV[@]}" \
-    -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC" "$@" -p "${PORT}:8080" "$IMAGE" >/dev/null
+    "${SESSION_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC" "$@" -p "${PORT}:8080" "$IMAGE" >/dev/null
   for _ in $(seq 1 30); do
     curl -fsS -o /dev/null "${BASE}/healthz" 2>/dev/null && return 0
     sleep 1
@@ -401,10 +419,55 @@ bodied() {
   check_eq "$label: CORP" "$(header cross-origin-resource-policy)" "same-origin"
 }
 
-for path in / /files /config.json /healthz "/_next/static/chunks/missing-$RANDOM.js"; do
+for path in / /files /config.json /healthz "/_next/static/chunks/missing-$RANDOM.js" /api/v1/x /auth/refresh; do
   bodied "a 1 GB declaration to $path" "$path" length
 done
 bodied "a chunked body that never ends, to /" "/" chunked
+
+# ── The session routes and the API pass-through ───────────────────────────────
+section "The session routes answer before reading a body or a session"
+
+# The same raw socket, with an Origin header when given, and a ONE-second bound: the session routes
+# refuse a forged or oversized request from its headers alone, so they have nothing to wait for.
+session_bodied() {
+  local label="$1" path="$2" origin="$3" expected="$4" line first=""
+  exec 3<>"/dev/tcp/127.0.0.1/${PORT}" || { fail "$label" "could not connect"; return 0; }
+  printf 'POST %s HTTP/1.1\r\nHost: localhost\r\n%bContent-Length: 1073741824\r\n\r\nx' \
+    "$path" "${origin:+Origin: ${origin}\r\n}" >&3
+  IFS= read -r -t 1 first <&3
+  exec 3<&- 3>&-
+  check_contains "$label" "${first%$'\r'}" " ${expected} "
+}
+
+session_bodied "a 1 GB POST to /api/v1/x with no Origin is refused within a second" /api/v1/x "" 403
+session_bodied "a 1 GB POST to /auth/refresh with no Origin is refused within a second" /auth/refresh "" 403
+session_bodied "a 1 GB POST to /api/v1/x from the API's origin is refused within a second" /api/v1/x https://api.fixture.test 403
+session_bodied "a 1 GB POST to /api/v1/x from the portal is too large within a second" /api/v1/x "$SESSION_ORIGIN" 413
+
+for path in /api/v1/x /auth/session; do
+  fetch "$path"
+  check_eq "GET $path with no session is the API's 401" "$(status)" "401"
+  check_contains "GET $path is JSON, not the portal's page" "$(header content-type)" "application/json"
+  check_eq "GET $path carries the API's challenge" "$(header www-authenticate)" "Bearer"
+  check_contains "GET $path, bodiless, carries the proxy's nonce policy" "$(header content-security-policy)" "'nonce-"
+done
+fetch /auth/login
+check_eq "GET /auth/login redirects" "$(status)" "302"
+check_contains "…to the provider, built from configuration" "$(header location)" "https://auth.fixture.test/oauth2/authorize?"
+check_contains "…setting the sign-in cookie" "$(header set-cookie)" "__Host-dq_signin="
+
+section "The server starts without its session settings"
+# The session routes read their settings when they run, never at start, so a task missing one still
+# serves every page; only the session routes answer 503.
+docker rm -f "$NAME" >/dev/null 2>&1
+docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQUIRED_ENV[@]}" \
+  -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC" -p "${PORT}:8080" "$IMAGE" >/dev/null
+for _ in $(seq 1 30); do curl -fsS -o /dev/null "${BASE}/healthz" 2>/dev/null && break; sleep 1; done
+fetch "/"
+check_eq "/ still answers with no session settings" "$(status)" "200"
+fetch /auth/session
+check_eq "/auth/session answers 503 with no session settings" "$(status)" "503"
+start_container || { echo "the matrix container would not restart" >&2; exit 1; }
 
 # ── The refusals, and the renders that must differ ────────────────────────────
 section "Refusals"

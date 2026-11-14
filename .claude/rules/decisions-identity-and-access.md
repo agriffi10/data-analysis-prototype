@@ -10,6 +10,8 @@ paths:
   - "infra/functions/user-directory/**"
   - "infra/modules/verification/**"
   - "apps/portal/src/features/auth/**"
+  - "apps/portal/src/server/session/**"
+  - "infra/modules/session-store/**"
   - "apps/portal/src/features/feature-flags/**"
   - "apps/portal/src/features/user-directory/**"
 ---

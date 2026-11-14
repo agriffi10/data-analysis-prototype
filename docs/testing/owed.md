@@ -1251,7 +1251,7 @@ matches nothing here.
 
 | Settled | Evidence |
 |---|---|
-| **A Fargate task pulls from ECR with NO NAT gateway** | `runningCount == 1`, no `CannotPullContainerError`, read beside `describe-route-tables` showing local + `pl-63a5400a` and **no `0.0.0.0/0`** |
+| **A Fargate task pulls from ECR with NO NAT gateway** | `runningCount == 1`, no `CannotPullContainerError`, read beside `describe-route-tables` showing local + `pl-63a5400a` and **no `0.0.0.0/0`**. *(Superseded in part 2026-11-13: SPEC-257 added one NAT gateway on the web tier's switch, so the private tables now carry `0.0.0.0/0`; task start still uses only endpoints.)* |
 | The gateway endpoint's association set | `RouteTableIds` **equals** the private route tables |
 | `/healthz` through the load balancer | `HTTP/2 200`, body `ok`; target health `healthy` |
 | The HTTP→HTTPS redirect | `301`, `Server: awselb/2.0` — **curl only**, `.app` is HSTS-preloaded |

@@ -82,12 +82,19 @@ variable "oidc_issuer" {
 }
 
 variable "oidc_audience" {
-  description = "Exact `aud` the API requires — the app client the SPA's ID token is issued to."
-  type        = string
+  description = "The app clients a token's `aud` may be one of: the SPA's and, while sign-in moves to it, the portal server's. Rendered comma-separated into OIDC_AUDIENCE, which the verifier parses back into a set."
+  type        = list(string)
 
   validation {
     condition     = length(var.oidc_audience) > 0
-    error_message = "oidc_audience must be the app client id. Empty means it was never computed."
+    error_message = "oidc_audience must name at least one app client. Empty means it was never computed, and an empty set refuses every token."
+  }
+
+  validation {
+    condition = alltrue([
+      for client in var.oidc_audience : length(trimspace(client)) > 0 && !strcontains(client, ",")
+    ])
+    error_message = "Every client id in oidc_audience must be non-empty and hold no comma, which the rendering joins on."
   }
 }
 

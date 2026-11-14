@@ -18,6 +18,11 @@ output "cognito_user_pool_client_id" {
   value       = module.auth.user_pool_client_id
 }
 
+output "cognito_server_client_id" {
+  description = "The portal server's confidential app client ID. The deploy ensures its Managed Login branding beside the SPA client's."
+  value       = module.auth.server_client_id
+}
+
 output "cognito_domain" {
   description = "Cognito Hosted UI domain. Set VITE_COGNITO_DOMAIN to this value."
   value       = module.auth.user_pool_domain
