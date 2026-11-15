@@ -22,26 +22,33 @@ register.
 ## The system at a glance
 
 ```
-  Cognito Hosted UI ──▶ ┌──────────────────────────────────────────────┐
-  (Managed Login v2)    │  the browser — React 19 on Next.js, strict   │
+                        ┌──────────────────────────────────────────────┐
+                        │  the browser — React 19 on Next.js, strict   │
                         │  TypeScript, TanStack Query; configuration   │
-                        │  read at runtime from /config.json           │
-                        └───┬─────────────┬──────────────┬─────────────┘
-                            │             │              │
-                   presigned bytes   bearer token
-                 (signed server-side)      │              │
-                            │              ▼              ▼
-                            │       API Gateway    FIFO request queue
-                            │        HTTP API             │
-                            │             │               ▼
-                            │      Lambda router    EventBridge Pipe
-                            │      (verifies, then        │
-                            │       assumes the           ▼
-                            │       same role)       Step Functions
-                            │             │               │
-                            │             │               ▼
-                            │             │         verb Lambdas ──▶ notifications
-                            ▼             ▼               │              inbox
+                        │  read at runtime from /config.json; no token │
+                        └───┬─────────────┬────────────────────────────┘
+                            │             │  /auth/* and /api/, same origin
+                            │             ▼
+                            │   ┌───────────────────────┐
+                            │   │ the portal server:    │ ◀──▶ Cognito
+                            │   │ the session, refresh  │      Managed Login v2
+                            │   └─────────┬─────────────┘
+                   presigned bytes        │  bearer token
+                 (signed server-side)     ▼
+                            │       API Gateway
+                            │        HTTP API
+                            │             │
+                            │      Lambda router ───▶ FIFO request queue
+                            │      (verifies, then            │
+                            │       assumes the               ▼
+                            │       same role)         EventBridge Pipe
+                            │             │                   │
+                            │             │                   ▼
+                            │             │             Step Functions
+                            │             │                   │
+                            │             │                   ▼
+                            │             │             verb Lambdas ──▶ notifications
+                            ▼             ▼                   │              inbox
                      ┌──────────────────────────────────────────┐
                      │   S3 · Glue · Athena · Lake Formation    │
                      └──────────────────────────────────────────┘
@@ -60,9 +67,12 @@ is unchanged, and the browser now holds no AWS credentials at all.
 database name, which is why it is constrained at signup to `^[a-z][a-z0-9_]{2,62}$` and is
 catalog-safe by construction.
 
-The SPA reaches AWS by three routes at once, and which one a feature uses is a deliberate choice per
-feature: **directly** with scoped credentials (most reads), **through the API** (the routes ported so
-far), or **by enqueuing onto a control plane** (anything privileged, cross-user or multi-step).
+The browser reaches AWS in two ways: **presigned bytes** straight to S3, and everything else
+**through the API**, by way of the portal server on its own origin. A route either answers directly
+or **enqueues onto a control plane** (anything privileged, cross-user or multi-step), and which one a
+feature uses is a deliberate choice per feature. *(Marked 2026-11-15: this read "three routes at
+once", the first being direct calls with scoped credentials, until SPEC-197 to SPEC-202 moved every
+call behind the API; since SPEC-262 the browser reaches the API only through the portal server.)*
 
 ---
 
@@ -134,8 +144,9 @@ integration onto a single Lambda, reached through a regional custom domain. The 
 the function's code; a per-route integration would put it in two places.
 
 The browser reaches it through `lib/apiClient.ts`, which takes a **route id from the generated
-contract** rather than a URL, attaches a bearer token, and returns the same `ServiceResult` shape as
-every other service. **The wire is declared in Python and the TypeScript is generated from it**, so a
+contract** rather than a URL, calls the portal server's `/api/` on its own origin naming the tab's
+user, and returns the same `ServiceResult` shape as every other service; the server attaches the
+bearer token (until SPEC-262 the browser attached its own). **The wire is declared in Python and the TypeScript is generated from it**, so a
 contract change fails the build at every call site rather than at runtime.
 
 Today it serves `/healthz`, the username directory, the feature-flag document and the whole **object
@@ -453,13 +464,13 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 
 | # | Decision | Context | Notes |
 |---|---|---|---|
-| 1 | [Cognito User Pool plus Identity Pool, no custom auth](decisions/identity-and-access/auth.md) | A greenfield app with no existing identity estate; the managed pair vends AWS credentials directly, so the browser needs no token-exchange code of ours. | The Hosted UI is [Managed Login v2](decisions/identity-and-access/hosted-ui-managed-login-v2.md) — the classic UI broke the post-signup redirect. Tokens are held per tab, not per browser. **Superseded in part by row 49 (SPEC-202):** the Identity Pool is retired and the browser holds no AWS credentials. The User Pool, the Hosted UI and the token are unchanged — the pair is now a User Pool and the API. |
+| 1 | [Cognito User Pool plus Identity Pool, no custom auth](decisions/identity-and-access/auth.md) | A greenfield app with no existing identity estate; the managed pair vends AWS credentials directly, so the browser needs no token-exchange code of ours. | The Hosted UI is [Managed Login v2](decisions/identity-and-access/hosted-ui-managed-login-v2.md) — the classic UI broke the post-signup redirect. Tokens are held per tab, not per browser. **Superseded in part by row 58 (SPEC-262):** the portal server holds the session, so one sign-in covers the browser and the browser holds no token. **Superseded in part by row 49 (SPEC-202):** the Identity Pool is retired and the browser holds no AWS credentials. The User Pool, the Hosted UI and the token are unchanged — the pair is now a User Pool and the API. |
 | 2 | [One shared IAM role, isolation by principal tag](decisions/identity-and-access/auth.md) | Per-user roles need a provisioning step per user and hit account limits; the Identity Pool can stamp a verified claim as a session tag, which scopes one policy to every user. | The tag is stamped server-side, so it cannot be spoofed. A session without the tag matches nothing — the default is an implicit deny. **Amended by row 49 (SPEC-202):** the API stamps the tag now, from the same claim of the same token; the model and every policy are unchanged. |
 | 3 | [The username is also the prefix, the tag and the database name](decisions/identity-and-access/usernames.md) | One identifier means one thing to keep consistent; three would need a mapping table nobody could see. | Constrained at signup to `^[a-z][a-z0-9_]{2,62}$` so it is catalog-safe. The client-environment transition re-keys exactly this. |
 | 4 | [A user may belong to ten shared spaces](decisions/identity-and-access/bucket-2-shared-space.md) | The Identity Pool maps a claim to exactly one single-valued tag and IAM cannot iterate a list inside an ARN, so a per-user list of memberships is not expressible — ten fixed slots are. | **The bound is per user, not per space** — a space's member count is unlimited. Raising it enlarges the portal-role policy by a statement-pair. Unbounded membership would need a token-vending Lambda, which replaces the whole credential path — recorded, not built. **Amended by row 49 (SPEC-202):** the constraint is the session tag's single value, not the pool's mapping — the API stamps one tag per claim for the same reason, so the ten slots stay. |
 | 5 | [The username directory is built from S3, not Cognito](decisions/identity-and-access/the-username-directory-is-built-from-s3-not-cognito.md) | Today Cognito is the complete list and S3 is not; the directory is still built from S3 because that is what the client transition inverts. | Readable by every authenticated user, accepted deliberately: usernames only, never emails. |
 | 6 | [A feature flag is presentation, never authorization](decisions/identity-and-access/a-feature-flag-is-presentation-never-authorization-and-it-lives-beside.md) | A flag decides what is offered; IAM decides what is permitted, and conflating them puts an access decision in the browser. | The flag document lives in the **user-space** bucket beside the directory — the admin bucket's grant would not have worked. |
-| 7 | [The API is a verifier, not an OIDC client](decisions/identity-and-access/the-api-is-a-verifier-not-an-oidc-client.md) | Sign-in already works in the browser; the API only needs to decide a bearer is genuine. Building a client here duplicates the flow in the one place a mistake fails closed and silently. | Five config fields, no cookie so no CSRF surface, CORS still required. A key-retrieval fault is 5xx, never 401. |
+| 7 | [The API is a verifier, not an OIDC client](decisions/identity-and-access/the-api-is-a-verifier-not-an-oidc-client.md) | Sign-in already works in the browser; the API only needs to decide a bearer is genuine. Building a client here duplicates the flow in the one place a mistake fails closed and silently. | Five config fields, no cookie so no CSRF surface, CORS still required. A key-retrieval fault is 5xx, never 401. **Superseded in part by row 58 (SPEC-262):** sign-in moved to the portal server and the browser no longer calls the API, so the API has no CORS. |
 | 8 | [The API assumes the same role with the same tags from the same claims](decisions/identity-and-access/the-api-reads-the-same-claims-and-assumes-the-same-role-with-the-same.md) | One computation over one input means no policy is rewritten and the bucket-policy allowlist stays correct as routes port over. | Role chaining caps `DurationSeconds` at 3600 both ways: shorter caps every presigned link, longer is refused. |
 | 9 | [Two credential planes, declared on the route](decisions/identity-and-access/two-credential-planes-declared-per-route-defaulting-to-the-user-plane.md) | A route either acts as the user or as the service. A central registry mapping route to plane was the alternative and is what this replaced: it puts the declaration somewhere other than the thing it describes, and its set-equality guard passes while a route is wrong. A required field on the route cannot be forgotten. | **This failure fails open** — a wrong client succeeds against the wrong identity. Hence one construction site, an AST sweep, and a raise on any third value. |
 | 10 | [The credential cache is keyed on the whole tag set](decisions/identity-and-access/the-credential-cache-is-keyed-on-the-whole-tag-set.md) | Keying on the username freezes membership until the next cold start; keying on nothing serves one user another's session. | Its margin is the life of one request. It retries on a **new** client, because boto3 binds credentials at construction. |
@@ -474,7 +485,8 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 14 | [The shared layers may not import from `features/`](decisions/browser/components-may-not-import-from-features.md) | Without the rule the dependency graph inverts quietly, and a shared component starts depending on a feature it is used by. | Lint-enforced with two named exemptions. Extract a leaf feature **before** its second consumer, not after. |
 | 15 | [Mobile-first, two compiled breakpoints, one tree](decisions/browser/responsive.md) | Tailwind compiles every breakpoint you declare whether or not you use it, and each one is a state every surface can be wrong in. Two is what the layouts actually need. | Only `tablet:` (≥900) and `desktop:` (≥1300) exist — an unprefixed class is mobile. Reaching for a third means the tree is doing something a reflow cannot, which is worth stopping on. |
 | 16 | [The wire is declared in Python and the TypeScript is generated](decisions/identity-and-access/the-contract-is-declared-in-python-and-the-typescript-is-generated.md) | Two hand-written halves of one contract drift, and the drift surfaces at runtime in the browser. Python is the declaring half because the server is what actually enforces the shape — generating the other way would make the browser's belief authoritative over the thing validating it. | CI refuses a regeneration diff in both directions. The type vocabulary is closed and **never falls back** — a fallback type agrees with everything. |
-| 17 | [`apiRequest` retries nothing, except one forced refresh on 401](decisions/identity-and-access/apirequest-retries-nothing-and-idempotency-is-declared-per-route.md) | A blanket retry replays non-idempotent writes; idempotency is a property of the route, never of the HTTP method. | That single 401 retry is the browser's only refresh path — deleting it signs everyone out at the hour mark with a green suite. |
+| 17 | [`apiRequest` retries nothing, except one forced refresh on 401](decisions/identity-and-access/apirequest-retries-nothing-and-idempotency-is-declared-per-route.md) | A blanket retry replays non-idempotent writes; idempotency is a property of the route, never of the HTTP method. | That single 401 retry is the browser's only refresh path — deleting it signs everyone out at the hour mark with a green suite. **Superseded in part by row 58 (SPEC-262):** the browser retries nothing, because the portal server refreshes the token before it forwards; a 401 re-reads the session once. |
+| 58 | [One session covers the browser, and the browser holds no token](decisions/identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md) | Row 57 put the session on the portal server, but nothing the browser called used it: the browser still signed in through Amplify and a public client, and called the API cross-origin with its own token, which is why the API needed CORS. | The browser signs in through `/auth/*` and reaches the API only through its own origin's `/api/`, naming the tab's user in `x-dq-user`, which the server checks before it forwards. Amplify, the public client and the API's CORS are gone, and local development signs in through its own confidential client. It landed as [two merges](decisions/infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md), and only the second ended the rollback. Supersedes rows 1, 7 and 17 in part. |
 
 ### Storage and data
 

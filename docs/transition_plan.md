@@ -355,8 +355,8 @@ before proposing an alternative.
    is UX, not enforcement, and a check written in the API would make the API the thing that masks
    — which is point 4. *This point used to read "there is no trusted server in the query path; the
    browser holds real AWS credentials and calls AWS directly". That was true until Arc B; since
-   SPEC-202 the API holds every credential and the browser holds none, and SPEC-262, still being
-   built, takes the browser's last token away as well. A trusted server existing does not reopen the chain: it only makes point 4
+   SPEC-202 the API holds every credential and the browser holds none, and since SPEC-262 the
+   browser holds no token either. A trusted server existing does not reopen the chain: it only makes point 4
    the alternative to beat, and point 4 still loses.*
 2. **Lake Formation has no ABAC.** Grants target a principal ARN; you cannot condition a Lake
    Formation grant on a session or principal tag. The `username`-principal-tag trick that
@@ -2142,7 +2142,7 @@ capability. The scope is granted per application, so enabling it on one does not
 ### 5.3 What Path A costs
 
 - **~~The backend moves into the file path.~~** *No longer a cost that separates the paths: since
-  Arc B every file operation runs through the API, and once SPEC-262 lands through the Next.js server
+  Arc B every file operation runs through the API, and since SPEC-262 through the Next.js server
   as well, so both components are in the file path whichever path is chosen.* It read: credential
   minting for everything would run through a component you own, and if it is down nobody browses
   files.

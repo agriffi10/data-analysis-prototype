@@ -273,8 +273,8 @@ Three more reasons it does not compose here, each independent of the first:
 - **~~It protects the wrong origin.~~ Weakened 2026-11-15, and no longer a reason on its own.** It
   read: ALB authentication applies per listener rule on that ALB, the API is API Gateway, a separate
   origin (§4.6), so it would still need its own verification. Since SPEC-257 the session lives on
-  the ALB's own origin, and once SPEC-262 lands the browser reaches the API only through that
-  server, so the origin becomes the right one. What survives is the duplication: the ALB would run a second OIDC
+  the ALB's own origin, and since SPEC-262 the browser reaches the API only through that
+  server, so the origin is the right one. What survives is the duplication: the ALB would run a second OIDC
   client beside the server's, with a second session, a second logout path and another clock.
 - **It is a second reader of the same identity, able to disagree.** SPEC-193 premise 5 declined an
   API Gateway authorizer for exactly this reason, one layer down. The Next.js server is one OIDC

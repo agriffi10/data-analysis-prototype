@@ -3602,6 +3602,8 @@ headers takes them from there; the nonce-carrying policy is `src/server/contentS
 imported by the proxy alone. The API's CORS never admitted `localhost:5173`, so `npm run dev` signs
 in but cannot call the API until 257's `/api/` pass-through. *(Marked 2026-11-14: 257 built the
 pass-through, and `npm run dev` still cannot call the API until SPEC-262 points the browser at it.)*
+*(Marked 2026-11-15: since SPEC-262 `npm run dev` signs in through its own dev client and calls the
+API through the local server's `/api/`, and the API has no CORS at all.)*
 
 **2026-11-14, SPEC-257 refines the refresh rule and the cookie read, and is complete.** A losing
 refresh uses the stored token unless it was forced and that token's `iat` is earlier; the spec's
@@ -3636,3 +3638,13 @@ It also stops a malformed percent-escape in a path from answering 500, which eve
 guard the image starts ahead of Next's standalone server answers them 400 with the headers and a log
 line; it reads no body, so it holds nothing, and the proxy cannot do it, since a request with a body
 must skip the proxy.
+
+**2026-11-15, SPEC-262 is complete: the browser holds no token.** Sign-in, sign-out and every API
+call go through the portal server, in two merges: the first moved the browser and kept the image
+before it as a rollback, rehearsed live through Amplify; the second destroyed the public client,
+left the API's audience at the server and dev clients, removed the API's CORS and the router's
+preflight branch, and narrowed `connect-src` to `'self'` and the buckets. Local development signs in
+through a dev client whose sessions only a dev server will load. The public client's Managed Login
+style had to go by hand first, because the deploy role cannot delete a style and AWS documents
+neither a cascade nor a refusal. The decisions are `identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md`
+and `infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md`.
