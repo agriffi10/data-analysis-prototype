@@ -1737,7 +1737,7 @@ specs:
   - id: "SPEC-259"
     title: "Query Moves Onto the App Router"
     description: "Serves the Query workspace from an App Router page instead of the react-router catch-all, with its editor, its runs and its hand-offs unchanged."
-    spec_status: "In Progress"
+    spec_status: "Completed"
     depends_on: ["SPEC-256"]
     arc: "nextjs"
     path: "docs/specs/SPEC-259-query-moves-onto-the-app-router.md"

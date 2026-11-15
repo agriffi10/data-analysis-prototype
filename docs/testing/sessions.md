@@ -43,6 +43,35 @@ were left in `spec-256-live-uploads/`.
 off: Deploy Infrastructure dispatch 43668180729, *"0 added, 0 changed, 55 destroyed"*, 32 destroys
 under `module.network[0]` and 23 under `module.spa[0]`, and no create or modify anywhere.
 
+## Live-check session — 2026-11-15, small hours UTC (SPEC-259, Query on the App Router)
+
+**What was under test.** Query served by its App Router page, on image `a80c9b28` (#987, which
+contains #986's move) in task-definition revision 279, registered by Deploy SPA image run
+43618548920 at 17:01Z on the 14th and rolled out by 17:04Z. That was the newest Deploy SPA image run before and after these
+checks, which ran 02:20Z to 02:28Z, so no rollout crossed them. The tier was already on, held by
+SPEC-260 and SPEC-261, and stayed on through the checks, held by SPEC-261; SPEC-261's
+dispatch (Deploy Infrastructure run 43668180729, 02:31Z) switched it off afterwards.
+
+**Browser.** Andrew's Chrome through the Claude extension, `agriffith`, signed in by Andrew at the
+Hosted UI; a 1512×788 viewport. Instruments: page-context JavaScript reading `location`, `history.state`, `performance`
+navigation and resource entries, Monaco's token spans and a `securitypolicyviolation` listener, plus
+a window marker that only a document load clears; the extension's Back and Forward; and a generated
+file set on the upload input.
+
+| Check | Result |
+|---|---|
+| Signed out, `/query` | The landing page; after sign-in, back at `/query` (the saved return path), titled **Query — Data Quarry**. |
+| The editor highlights SQL, a statement runs, under the policy | Comment, keyword and number in distinct `mtk` classes and colours; `SELECT 1;` succeeded, 1 row, 0 B scanned. The `securitypolicyviolation` listener went in after the editor had opened, so it covers the run and the navigations after it, and recorded nothing; the editor's own load is covered by the reload below. No positive violation was raised as a control. |
+| A running query across Query to Files and back | A 53-second cross join running at 24.7 s on return; left again, its status polls went on from Files and stopped when it settled; back on Query, **Succeeded** with its row and still one `POST /v1/queries` for it; one navigation entry throughout. |
+| *Open in Query* from the Explorer, Back, Forward, reload | One new selected tab holding the generated SQL, unrun; Back showed the Explorer, Forward Query with the same two tabs and no dialog; the reload (navigation type `reload`) showed the workspace with the same two tabs and no console message at all, where Chrome reports each load the policy blocks; console capture ran through the reload, and a probe `console.error` afterwards showed it working. |
+| The skip link, Files, then Back, from Query | `/query#main` (the entry stamped with Next's state and no seam key), Files, then Query at `#main`, titled **Query — Data Quarry**, no document load. |
+| View source files from Query's rail, then Back | `spec_256_check`'s **Options → View source files** opened Files at `?space=personal&prefix=agriffith%2Fspec%20256%20table%2F` listing `rows.csv`; Back returned to Query, no document load. |
+| A change of query only on Query | `/query?refreshTable=agriffith.spec_256_check&removed=legacy_col` opened its dialog; **Cancel** left `/query` with no new resource request at all and no document load. |
+| An upload across Files to Query and back | A generated 1 GB file at 6%; the drawer closed (it is modal, so the header is inert while it is open), Query by its tab, Files by its tab: the drawer listed it uploading at 58%, then 64%, and it finished; no document load. |
+
+**Left behind.** In `agriffith`'s `spec-256-live-uploads/`: `spec-259-live-check.bin` (300 MB, which
+finished while the open drawer kept the header inert) and `spec-259-live-check-1g.bin` (1 GB).
+
 ## Switch-off check — 2026-11-14 (SPEC-257's owed row, discharged)
 
 **What was under test.** SPEC-257 FR-001's owed row: a switch-off of the web tier destroys only the
