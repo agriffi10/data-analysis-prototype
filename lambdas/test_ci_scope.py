@@ -1313,33 +1313,57 @@ else:
     sys.exit(2)
 """
 
-#: The stub `gh`, answering the one question the scope step asks it: the runs of the apply
-#: workflow for this commit. Each call takes the next answer from ``FAKE_RUNS`` and the last one
-#: repeats, and the answer is put through the step's own ``--jq`` expression by the real ``jq``,
-#: so the expression is exercised rather than assumed. The first COMPLETED answer is what moves
-#: the family's newest revision. A question about any other commit or workflow is answered the way
-#: GitHub would answer it about a past push — finished and green — without moving anything, so a
-#: step that asked the wrong question is told it can go on, and reads the family too early.
+#: The stub `gh`, answering the two questions the scope step asks it about the apply workflow's
+#: push runs: the run for THIS commit, and the runs on main that are unfinished. Each question
+#: keeps its own count of calls and takes its next answer from ``FAKE_RUNS`` or
+#: ``FAKE_UNFINISHED``, the last one repeating, and the answer is put through the step's own
+#: ``--jq`` expression by the real ``jq``, so the expression is exercised rather than assumed. An
+#: unfinished-runs answer names each run's commit by a key of ``FAKE_SHAS``, or by ``None`` for a
+#: run GitHub lists with no commit. The first COMPLETED answer about this commit, or the first
+#: unfinished-runs answer listing nothing unfinished after one that listed something, is what
+#: moves the family's newest revision. A question about any other commit or workflow is answered
+#: the way GitHub would answer it about a past push — finished and green — without moving
+#: anything, so a step that asked the wrong question is told it can go on, and reads the family
+#: too early.
 FAKE_GH = """#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, urllib.parse
 
 state = pathlib.Path(os.environ["FAKE_STATE"])
-with (state / "gh-calls").open("a", encoding="utf-8") as log:
-    log.write(" ".join(sys.argv[1:]) + "\\n")
-polls = len((state / "gh-calls").read_text(encoding="utf-8").splitlines())
 argv = sys.argv[1:]
-if argv[:1] != ["api"] or os.environ["FAKE_RUNS_CALL"] == "fails":
-    sys.exit(1)
-endpoint = urllib.parse.urlsplit(argv[1])
+endpoint = urllib.parse.urlsplit(argv[1] if len(argv) > 1 else "")
+query = urllib.parse.parse_qs(endpoint.query)
 wanted = "repos/{}/actions/workflows/{}/runs".format(
     os.environ["GITHUB_REPOSITORY"], os.environ["APPLY_WORKFLOW"]
 )
-query = urllib.parse.parse_qs(endpoint.query)
-if endpoint.path == wanted and query.get("head_sha") == [os.environ["GITHUB_SHA"]]:
+question = "other"
+if argv[:1] == ["api"] and endpoint.path == wanted and query.get("event") == ["push"]:
+    if query.get("head_sha") == [os.environ["GITHUB_SHA"]]:
+        question = "own"
+    elif "head_sha" not in query and query.get("branch") == ["main"]:
+        question = "unfinished"
+calls = state / "gh-{}-calls".format(question)
+with calls.open("a", encoding="utf-8") as log:
+    log.write(" ".join(argv) + "\\n")
+asked = len(calls.read_text(encoding="utf-8").splitlines())
+if argv[:1] != ["api"] or os.environ["FAKE_RUNS_CALL"] == "fails":
+    sys.exit(1)
+if question == "own":
     answers = json.loads(os.environ["FAKE_RUNS"])
-    runs = answers[min(polls, len(answers)) - 1]
+    runs = answers[min(asked, len(answers)) - 1]
     if runs and runs[0]["status"] == "completed":
         (state / "applied").touch()
+elif question == "unfinished":
+    answers = json.loads(os.environ["FAKE_UNFINISHED"])
+    shas = json.loads(os.environ["FAKE_SHAS"])
+    def unfinished(answer):
+        return any(run["status"] != "completed" for run in answer)
+    answer = answers[min(asked, len(answers)) - 1]
+    if asked > 1 and not unfinished(answer) and unfinished(answers[min(asked - 1, len(answers)) - 1]):
+        (state / "applied").touch()
+    runs = [
+        {"status": run["status"], **({"head_sha": shas[run["at"]]} if run["at"] else {})}
+        for run in answer
+    ]
 else:
     runs = [{"status": "completed", "conclusion": "success"}]
 body = json.dumps({"total_count": len(runs), "workflow_runs": runs})
@@ -1358,6 +1382,29 @@ APPLY_RUNNING = ({"status": "in_progress", "conclusion": None},)
 APPLY_SUCCEEDED = ({"status": "completed", "conclusion": "success"},)
 APPLY_FAILED = ({"status": "completed", "conclusion": "failure"},)
 APPLY_CANCELLED = ({"status": "completed", "conclusion": "cancelled"},)
+
+#: What the lookup of unfinished push runs can answer, one poll at a time. GitHub lists finished
+#: runs beside unfinished ones, so the answer when nothing is in flight still lists one — at the
+#: commit before this one, finished — and the step's own filter is what has to drop it.
+NOTHING_UNFINISHED = ({"status": "completed", "at": "PARENT"},)
+
+
+def _unfinished_at(at: str | None, status: str = "in_progress") -> tuple[dict, ...]:
+    """Return one answer of the unfinished-runs lookup: a run still going at the commit named.
+
+    Args:
+        at: A key of the harness's commit map — ``HEAD``, ``PARENT``, ``LATER`` for a commit this
+            clone does not hold, ``DESCENDANT`` for one it holds that comes after this one — or
+            ``None`` for a run GitHub lists with no commit.
+        status: The run's status, any of GitHub's unfinished ones.
+
+    Returns:
+        tuple[dict, ...]: The answer, with a finished earlier run beside it as GitHub would list.
+
+    Raises:
+        None.
+    """
+    return ({"status": status, "at": at}, *NOTHING_UNFINISHED)
 
 #: The shortest wait for an apply the scope step may give up after. It must outlast the slowest
 #: apply a push actually gets, QUEUE INCLUDED, because giving up early reddens main on a push whose
@@ -1386,6 +1433,7 @@ def _run_scope(
     ecr_call: str = "ok",
     apply_runs: tuple[tuple[dict, ...], ...] = (APPLY_RUNNING, APPLY_SUCCEEDED),
     apply_registers: bool = False,
+    unfinished: tuple[tuple[dict, ...], ...] = (NOTHING_UNFINISHED,),
     runs_call: str = "ok",
 ) -> dict[str, str | int]:
     """Run the workflow's real scope script over a throwaway repository and stubbed AWS.
@@ -1393,7 +1441,8 @@ def _run_scope(
     Args:
         changed: Repository-relative paths the commit under test touches.
         intermediate: Paths touched by a commit BETWEEN the deployed one and the one under test —
-            a merge that was already deployed, or one whose run only re-pointed.
+            a merge that was already deployed, one whose run only re-pointed, one whose run this
+            one replaced before it started, or an earlier commit of the same push.
         deployed: What the service is running — ``baseline`` for the previous commit, ``absent``
             for no service at all, ``placeholder`` for the pre-first-deploy image, or
             ``unreachable`` for a sha this clone does not hold.
@@ -1401,9 +1450,11 @@ def _run_scope(
             before this run began.
         apply_runs: What each successive lookup of this commit's apply run answers, the last
             repeating. The default is still running on the first poll and finished on the second.
-        apply_registers: True when this commit's apply registers a revision as it finishes, so
+        apply_registers: True when the apply waited on registers a revision as it finishes, so
             the family's newest revision moves only once the apply is over.
-        runs_call: ``fails`` to make every lookup of the apply run error.
+        unfinished: What each successive lookup of unfinished push runs answers, the last
+            repeating. The default lists nothing unfinished.
+        runs_call: ``fails`` to make every lookup of the apply runs error.
         existing_tags: Tags the registry already holds, which is how a re-run is described. The
             literal ``HEAD`` stands for this commit's sha, which the caller cannot know in advance.
         dispatched: True to exercise the manual recovery lever.
@@ -1423,8 +1474,9 @@ def _run_scope(
 
     Returns:
         dict[str, str | int]: The step's ``$GITHUB_OUTPUT`` — ``tag``, ``build`` and ``deploy``
-            — with ``polls``, how many times it asked after the apply, and ``slept``, the seconds
-            it asked to wait in all.
+            — with ``polls``, how many times it asked after this commit's own apply run,
+            ``asked_unfinished``, how many times it asked after unfinished push runs, and
+            ``slept``, the seconds it asked to wait in all.
 
     Raises:
         AssertionError: If the script exits non-zero, with its output attached.
@@ -1458,13 +1510,24 @@ def _run_scope(
         if intermediate:
             commit(intermediate, "already deployed")
         commit(changed, "under test")
-        head = subprocess.run(  # noqa: S603
-            [*git, "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            env=clean,
-        ).stdout.strip()
+        def git_out(*arguments: str) -> str:
+            return subprocess.run(  # noqa: S603
+                [*git, *arguments],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=clean,
+            ).stdout.strip()
+
+        head = git_out("rev-parse", "HEAD")
+        shas = {
+            "HEAD": head,
+            "PARENT": git_out("rev-parse", "HEAD^"),
+            "LATER": "e" * 40,
+            "DESCENDANT": git_out(
+                "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "pushed later"
+            ),
+        }
 
         image = {
             "baseline": f"registry/dat-prod-spa:{baseline}",
@@ -1518,6 +1581,8 @@ def _run_scope(
             "GITHUB_REPOSITORY": "owner/repo",
             "FAKE_STATE": str(state),
             "FAKE_RUNS": json.dumps(apply_runs),
+            "FAKE_UNFINISHED": json.dumps(unfinished),
+            "FAKE_SHAS": json.dumps(shas),
             "FAKE_RUNS_CALL": runs_call,
             "FAKE_SERVICE_JSON": service,
             "FAKE_SERVICE_CALL": service_call,
@@ -1549,11 +1614,16 @@ def _run_scope(
             capture_output=True,
             text=True,
         )
-        calls, slept = state / "gh-calls", state / "slept"
+        def asked(question: str) -> int:
+            calls = state / f"gh-{question}-calls"
+            if not calls.exists():
+                return 0
+            return len(calls.read_text(encoding="utf-8").splitlines())
+
+        slept = state / "slept"
         waited = {
-            "polls": len(calls.read_text(encoding="utf-8").splitlines())
-            if calls.exists()
-            else 0,
+            "polls": asked("own"),
+            "asked_unfinished": asked("unfinished"),
             "slept": sum(
                 int(line) for line in slept.read_text(encoding="utf-8").split()
             )
@@ -1762,13 +1832,30 @@ def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it(
         AssertionError: If the step goes on without the apply, gives up inside the window, or
             refuses without saying why.
     """
-    for label, fixture in (
-        ("an apply still running", {"apply_runs": (APPLY_RUNNING,)}),
-        ("a lookup that errors", {"runs_call": "fails"}),
+    own, earlier = "this push has an apply", "at this commit or before it"
+    for label, changed, fixture, says in (
+        ("an apply still running", "infra/main.tf", {"apply_runs": (APPLY_RUNNING,)}, own),
+        ("a lookup that errors", "infra/main.tf", {"runs_call": "fails"}, own),
+        (
+            "an earlier push's apply still running",
+            "docs/architecture.md",
+            {"unfinished": (_unfinished_at("PARENT"),)},
+            earlier,
+        ),
+        (
+            "a lookup of unfinished runs that errors",
+            "docs/architecture.md",
+            {"runs_call": "fails"},
+            earlier,
+        ),
     ):
-        answers = _run_scope(("infra/main.tf",), expect_failure=True, **fixture)
+        answers = _run_scope((changed,), expect_failure=True, **fixture)
         assert "::error title=Apply not finished::" in answers["stdout"], (
             f"{label}: the step refused, but not with the message that names the apply"
+        )
+        refusal = answers["stdout"].split("::error title=Apply not finished::", 1)[1]
+        assert says in refusal.splitlines()[0], (
+            f"{label}: the refusal does not say which apply it waited for"
         )
         assert answers["slept"] >= MINIMUM_APPLY_WAIT_SECONDS, (
             f"{label}: the step gave up after {answers['slept']} seconds, which a routine apply "
@@ -1808,8 +1895,12 @@ def test_a_failed_apply_is_reported_and_the_run_decides_from_what_it_can_read():
         )
 
 
-def test_nothing_but_a_push_with_an_apply_waits():
-    """The wait is paid by the pushes it protects, and the recovery lever never pays it.
+def test_nothing_waits_with_no_apply_unfinished_and_a_dispatch_never_asks():
+    """The wait is paid only while an apply is unfinished, and the recovery lever never pays it.
+
+    A push that fires no apply still asks once whether an earlier one is unfinished, because it
+    may be the only run left to read the family after it; with none unfinished it goes straight
+    on. A dispatch asks nothing at all.
 
     Args:
         None.
@@ -1818,14 +1909,123 @@ def test_nothing_but_a_push_with_an_apply_waits():
         None.
 
     Raises:
-        AssertionError: If an ordinary push or a dispatch asks after the apply.
+        AssertionError: If an ordinary push waits with nothing unfinished, asks after an apply of
+            its own it does not have, or a dispatch asks after any apply.
     """
-    assert _run_scope(("apps/portal/src/App.tsx",))["polls"] == 0, (
-        "a push that fires no apply waited for one"
+    ordinary = _run_scope(("apps/portal/src/App.tsx",))
+    assert ordinary["polls"] == 0, "a push that fires no apply asked after one of its own"
+    assert (ordinary["asked_unfinished"], ordinary["slept"]) == (1, 0), (
+        "a push with no apply unfinished did not ask once and go straight on"
     )
-    assert _run_scope(("infra/main.tf",), dispatched=True)["polls"] == 0, (
+    dispatch = _run_scope(("infra/main.tf",), dispatched=True)
+    assert (dispatch["polls"], dispatch["asked_unfinished"]) == (0, 0), (
         "a dispatch waited for an apply; the recovery lever does what it is told"
     )
+
+
+def test_a_run_that_replaced_an_earlier_pushs_run_waits_for_that_pushs_apply():
+    """GitHub evicts a pending run, which can leave this run the only one to read after an apply.
+
+    The concurrency group keeps one pending run of this workflow, and a newer push replaces it.
+    When the replaced run was an earlier push's that fired an apply, and this push fires none,
+    asking only after this commit's own apply waits for nothing: the run reads the family while
+    the earlier apply has still to register, skips, and the revision it registers is pointed at
+    by nothing until some later run reads the family.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the run reads the family before the earlier push's apply finished.
+    """
+    answers = _run_scope(
+        ("docs/architecture.md",),
+        intermediate=("infra/main.tf",),
+        unfinished=(_unfinished_at("PARENT"), NOTHING_UNFINISHED),
+        apply_registers=True,
+    )
+    assert (answers["build"], answers["deploy"]) == ("skip", "run"), (
+        "the run read the family before the earlier push's apply finished, so the revision that "
+        "apply registered was left unpointed"
+    )
+    assert answers["tag"] == answers["baseline"], (
+        "re-pointing must reuse the running image, not build a new one"
+    )
+    assert (answers["polls"], answers["asked_unfinished"]) == (0, 2), (
+        "this push fires no apply, so the wait must come from asking after unfinished runs"
+    )
+
+
+def test_a_push_of_several_commits_waits_for_an_apply_its_tip_did_not_fire():
+    """The apply list is tested against the tip, and GitHub fires the apply on the whole push.
+
+    A push carrying several commits whose apply-firing change is not the tip matches nothing in
+    the tip's own diff, but GitHub's path filter sees the whole push and runs the apply at the
+    tip. That run is this commit's, unfinished, and this run has to wait for it.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the run reads the family before the push's own apply finished.
+    """
+    answers = _run_scope(
+        ("docs/architecture.md",),
+        intermediate=("infra/variables.tf",),
+        unfinished=(_unfinished_at("HEAD", "queued"), NOTHING_UNFINISHED),
+        apply_registers=True,
+    )
+    assert (answers["build"], answers["deploy"]) == ("skip", "run"), (
+        "a push whose apply-firing change was not its tip read the family before that apply "
+        "finished, so the revision it registered was left unpointed"
+    )
+    assert answers["slept"] == 15, "the run did not wait for its own push's apply"
+
+
+def test_only_a_run_at_this_commit_or_before_it_holds_this_one():
+    """A later push's apply has a run of this workflow behind this one, which waits for it.
+
+    Waiting for it here as well holds this run for an apply that cannot concern it, and a few
+    applies in a row then outlast the window and redden main. A commit this full clone does not
+    hold, and one it holds that comes after this one, are both later. A run whose commit cannot be
+    read is waited for, because reading past it may read past this push's own apply.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a later push's apply holds this run, or a run with no readable commit
+            does not.
+    """
+    for label, at in (
+        ("a later push this clone does not hold", "LATER"),
+        ("a later push this clone holds", "DESCENDANT"),
+    ):
+        answers = _run_scope(
+            ("docs/architecture.md",),
+            unfinished=(_unfinished_at(at), NOTHING_UNFINISHED),
+        )
+        assert answers["slept"] == 0, f"{label} held this run for its apply"
+        assert (answers["build"], answers["deploy"]) == ("skip", "skip")
+
+    unplaced = _run_scope(
+        ("docs/architecture.md",),
+        unfinished=(_unfinished_at(None, "pending"), NOTHING_UNFINISHED),
+        apply_registers=True,
+    )
+    assert unplaced["slept"] == 15, (
+        "a run GitHub listed with no commit was read as a later push's rather than waited for"
+    )
+    assert (unplaced["build"], unplaced["deploy"]) == ("skip", "run")
 
 
 def test_the_scope_step_holds_a_token_that_may_read_the_apply_runs():
