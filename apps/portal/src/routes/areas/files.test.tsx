@@ -300,7 +300,9 @@ describe('a signed-in page that throws', () => {
   // files, because three run at once: the fourth is still queued, and a reload loses it too.
   it('is caught inside the shell, keeps the uploads going, and says a reload would cancel them', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => consoleError.mockRestore());
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => consoleWarn.mockRestore());
     const aborted = holdUploadsOpen();
     const {user} = renderFiles('/files');
     await startUploads(user, ['a.txt', 'b.txt', 'c.txt', 'd.txt']);
@@ -315,15 +317,15 @@ describe('a signed-in page that throws', () => {
     // this line changes each time an upload finishes.
     expect(panel).not.toContainElement(notice);
     expect(aborted()).toEqual([false, false, false]);
-    consoleError.mockRestore();
-    consoleWarn.mockRestore();
   });
 
   // The path is the same, so a reset keyed on the path alone would never fire, and the page's own
   // tab — the first thing a user clicks — would leave the fallback where it was.
   it('recovers when its own tab drops the query string that broke it', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => consoleError.mockRestore());
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => consoleWarn.mockRestore());
     standIn.throwsAt = (search) => search.includes('broken');
     const {user} = renderFiles('/data-quality?broken=1');
     await screen.findByRole('alert');
@@ -334,8 +336,6 @@ describe('a signed-in page that throws', () => {
 
     expect(await screen.findByText('Data quality stand-in')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    consoleError.mockRestore();
-    consoleWarn.mockRestore();
   });
 });
 
@@ -380,6 +380,7 @@ describe('an unfinished upload asks before the document goes', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       if (this.href.startsWith('https://user-space.')) asked.push(unloadIsCancelled());
     });
+    onTestFinished(() => click.mockRestore());
     const {user} = renderFiles('/files');
     await startUploads(user);
 
@@ -387,16 +388,15 @@ describe('an unfinished upload asks before the document goes', () => {
 
     await waitFor(() => expect(asked).toEqual([false]));
     expect(unloadIsCancelled()).toBe(true);
-    click.mockRestore();
   });
 
   it('registers no unload listener on a page without the shell', async () => {
     const added = vi.spyOn(window, 'addEventListener');
+    onTestFinished(() => added.mockRestore());
     renderFiles('/nope');
     await screen.findByRole('heading', {name: 'Page not found'});
 
     expect(added.mock.calls.filter(([type]) => type === 'beforeunload')).toEqual([]);
-    added.mockRestore();
   });
 
   // Signing out is deliberate and asks nothing, as it always has. The sign-out moves the document to

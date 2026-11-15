@@ -171,11 +171,7 @@ describe('DataQualityDialog.a11y', () => {
 
     it('has no axe violations for a file target on a narrow viewport', async () => {
       Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
-      try {
-        await expectNoA11yViolations(dialog('file', 'sales.csv'), COMPONENT_AXE_OPTIONS);
-      } finally {
-        Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
-      }
+      await expectNoA11yViolations(dialog('file', 'sales.csv'), COMPONENT_AXE_OPTIONS);
     });
   });
 });

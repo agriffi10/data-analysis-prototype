@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE, QUERY_TABS_MAX, SAVE_RESULTS_STATEMENT_REFUSAL} from './query.constants';
 import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
@@ -224,20 +224,17 @@ describe('QueryWorkspace', () => {
       ) {
         anchors.push(this);
       });
-      try {
-        const {user} = renderWorkspace();
-        await screen.findByLabelText('SQL editor');
-        await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-        await user.click(await screen.findByRole('button', {name: 'Open saved query Revenue'}));
-        await screen.findByRole('tab', {name: /Revenue/});
+      onTestFinished(() => click.mockRestore());
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: 'Open saved query Revenue'}));
+      await screen.findByRole('tab', {name: /Revenue/});
 
-        await user.click(screen.getByRole('button', {name: 'Download query'}));
+      await user.click(screen.getByRole('button', {name: 'Download query'}));
 
-        expect(anchors.map((a) => [a.download, a.getAttribute('href')])).toEqual([['Revenue.sql', 'blob:query']]);
-        expect(await blobs[0].text()).toBe('SELECT region\nFROM alice.sales;');
-      } finally {
-        click.mockRestore();
-      }
+      expect(anchors.map((a) => [a.download, a.getAttribute('href')])).toEqual([['Revenue.sql', 'blob:query']]);
+      expect(await blobs[0].text()).toBe('SELECT region\nFROM alice.sales;');
     });
 
     it('copies the whole of the active tab’s SQL from the toolbar', async () => {

@@ -1028,11 +1028,7 @@ describe('DataQualityReportPage.a11y', () => {
 
     it('has no axe violations at a phone width', async () => {
       Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
-      try {
-        await renderThenAxe();
-      } finally {
-        Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
-      }
+      await renderThenAxe();
     });
 
     it('exposes exactly one h1 and one main landmark', async () => {

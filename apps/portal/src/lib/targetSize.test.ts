@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, onTestFinished} from 'vitest';
 import {configureAxe} from 'vitest-axe';
 import type {RunOptions} from 'axe-core';
 import * as axeConfig from '../test/axe';
@@ -624,21 +624,18 @@ describe('axe cannot decide target size in jsdom, and says otherwise', () => {
     host.innerHTML =
       '<button style="width:10px;height:10px">a</button><button style="width:10px;height:10px">b</button>';
     document.body.appendChild(host);
-    try {
-      // The cause, asserted first so a failure below is readable: jsdom lays nothing out, so the
-      // rects axe reads are all zero.
-      const rect = host.firstElementChild?.getBoundingClientRect();
-      expect([rect?.width, rect?.height]).toEqual([0, 0]);
+    onTestFinished(() => host.remove());
+    // The cause, asserted first so a failure below is readable: jsdom lays nothing out, so the
+    // rects axe reads are all zero.
+    const rect = host.firstElementChild?.getBoundingClientRect();
+    expect([rect?.width, rect?.height]).toEqual([0, 0]);
 
-      const results = (await runTargetSize(host)) as {violations: unknown[]; passes: unknown[]};
-      expect(
-        results.violations,
-        'jsdom now lays out — re-enable `target-size` in test/axe.ts and delete this tripwire'
-      ).toEqual([]);
-      expect(results.passes.length).toBeGreaterThan(0);
-    } finally {
-      host.remove();
-    }
+    const results = (await runTargetSize(host)) as {violations: unknown[]; passes: unknown[]};
+    expect(
+      results.violations,
+      'jsdom now lays out — re-enable `target-size` in test/axe.ts and delete this tripwire'
+    ).toEqual([]);
+    expect(results.passes.length).toBeGreaterThan(0);
   });
 
   it('keeps both undecidable rules off, in the constant and in every options bag', () => {

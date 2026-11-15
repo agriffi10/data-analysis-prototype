@@ -1,5 +1,5 @@
 import {renderHook, waitFor, act} from '@testing-library/react';
-import {describe, it, expect, vi, beforeEach} from 'vitest';
+import {describe, it, expect, vi, beforeEach, onTestFinished} from 'vitest';
 import {createElement, type ReactNode} from 'react';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {createTestQueryClient} from '../../test/renderWithProviders';
@@ -348,6 +348,9 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
     // upload, which is what this asserts through the real one.
     ImmediateXhr.opened = [];
     vi.stubGlobal('XMLHttpRequest', ImmediateXhr);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     const minted: string[] = [];
     vi.mocked(apiRequest).mockImplementation((async (route: string, options?: {body?: {key?: string}}) => {
       minted.push(`${route}:${options?.body?.key}`);
@@ -376,14 +379,15 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
     ]);
     // And each mint was redeemed by the file it was signed for.
     expect(ImmediateXhr.opened).toEqual(minted.map((entry) => `https://signed/${entry.split(':')[1]}`));
-
-    vi.unstubAllGlobals();
   });
 
   it('starts at most UPLOAD_CONCURRENCY mints at a time, so no URL ages in a queue', async () => {
     // The other half of "per file": three in flight means three minted, not five.
     ImmediateXhr.opened = [];
     vi.stubGlobal('XMLHttpRequest', ImmediateXhr);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     let mints = 0;
     const held: (() => void)[] = [];
     vi.mocked(apiRequest).mockImplementation(
@@ -414,7 +418,5 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
     }
     await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(5));
     expect(mints).toBe(5);
-
-    vi.unstubAllGlobals();
   });
 });

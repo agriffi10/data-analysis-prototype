@@ -348,11 +348,7 @@ describe('UsernameChipsField.a11y', () => {
 
     it('has no violations at a phone width', async () => {
       Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
-      try {
-        await renderThenAxe(<Harness initial={['alice', 'bob']} />, 2);
-      } finally {
-        Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
-      }
+      await renderThenAxe(<Harness initial={['alice', 'bob']} />, 2);
     });
   });
 });

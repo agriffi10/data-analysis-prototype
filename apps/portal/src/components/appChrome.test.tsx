@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {cleanup, fireEvent, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {renderWithProviders} from '../test/renderWithProviders';
@@ -331,6 +331,7 @@ describe('RootLayout', () => {
 
       it('recovers on the next route, rather than pinning the fallback until a reload', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => consoleError.mockRestore());
         const {user} = renderBoomAt('/files');
         expect(screen.getByRole('alert')).toBeInTheDocument();
 
@@ -338,7 +339,6 @@ describe('RootLayout', () => {
 
         expect(screen.getByText('HELP CONTENT')).toBeInTheDocument();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-        consoleError.mockRestore();
       });
 
       // The route change that renders a broken page is also a change of reset key. Resetting on
@@ -346,15 +346,15 @@ describe('RootLayout', () => {
       // shows either way, so the only thing that tells the two apart is how often it caught.
       it('catches a page it navigates INTO once, and keeps the fallback', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => consoleError.mockRestore());
         const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        onTestFinished(() => consoleWarn.mockRestore());
         const {user} = renderBoomAt('/help');
 
         await user.click(screen.getByRole('button', {name: 'go to /files'}));
 
         expect(screen.getByRole('alert')).toBeInTheDocument();
         expect(catches(consoleWarn)).toHaveLength(1);
-        consoleError.mockRestore();
-        consoleWarn.mockRestore();
       });
 
       // A reset that renders ANOTHER broken page never commits, so the catch after it still finds
@@ -362,7 +362,9 @@ describe('RootLayout', () => {
       // that the boundary resets into the throw until React gives up and the error escapes it.
       it('catches a second broken page once, rather than resetting back into it', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => consoleError.mockRestore());
         const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        onTestFinished(() => consoleWarn.mockRestore());
         const {user} = renderBoomAt('/files');
 
         await user.click(screen.getByRole('button', {name: 'go to /query'}));
@@ -370,8 +372,6 @@ describe('RootLayout', () => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
         // One for the page it opened on, one for the page it went to.
         expect(catches(consoleWarn)).toHaveLength(2);
-        consoleError.mockRestore();
-        consoleWarn.mockRestore();
       });
     });
   });

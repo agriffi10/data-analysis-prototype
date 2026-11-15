@@ -88,8 +88,28 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * The viewport width every test starts at: jsdom's default, read before any test can change it.
+ *
+ * Captured per FILE, which is safe only because `isolate` is on and each file loads this module
+ * in a fresh environment.
+ */
+const defaultViewportWidth = window.innerWidth;
+
+/**
+ * Start every test from the two inputs the `matchMedia` stand-in reads: the OS colour scheme and
+ * the viewport width.
+ *
+ * A test that sets a phone width cannot reliably put it back itself. When Vitest times a test out
+ * it abandons the body, so a restore at its end, even in a `finally`, has not run when the next
+ * test starts, and every later test in the file that sets no width of its own renders as a phone.
+ * Resetting here covers every test that sets a width, so none needs its own restore. A file's own
+ * `beforeEach` runs after this one, so a width it sets for its tests still holds; a width set in
+ * `beforeAll` does not survive past this reset.
+ */
 beforeEach(() => {
   resetColorScheme();
+  Object.defineProperty(window, 'innerWidth', {value: defaultViewportWidth, writable: true, configurable: true});
   try {
     globalThis.localStorage?.clear();
   } catch {
