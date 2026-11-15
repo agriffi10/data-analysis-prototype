@@ -1,8 +1,8 @@
 # Completed Spec — SPEC-261: Data Quality and Its Report Route Move Onto the App Router
 
 The build landed as one PR, #984 (`90618bbb`), on 2026-11-14, after SPEC-256's completion (#983).
-The live checks ran the same day on that image, with the web tier switched on through CI
-(`docs/testing/sessions.md`). Nothing changes for a user: the runs page and the report look and behave
+The live checks ran the same day on that image, with the web tier switched on through CI and off
+again afterwards (`docs/testing/sessions.md`). Nothing changes for a user: the runs page and the report look and behave
 as before, now served by App Router pages.
 
 ## What was completed?
@@ -57,3 +57,6 @@ as before, now served by App Router pages.
 - **Live, on the deployed image**: all of FR-003, plus an upload kept in the shell's queue across Files,
   then Data quality, then Files, all in one document. The upload was 9 MB and started at 0 B; Data
   quality rendered 1.06 s later, so whether it was still in flight then is not proved.
+- **The tier**: switched on for the checks (Deploy Infrastructure dispatch 43613021039), then off
+  again through the repository variable once no other session held it (dispatch 43668180729:
+  *"0 added, 0 changed, 55 destroyed"*, every destroy under `module.network[0]` or `module.spa[0]`).

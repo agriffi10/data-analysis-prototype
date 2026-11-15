@@ -39,6 +39,10 @@ out, and a second **Sign in** went straight through; it is reported for SPEC-262
 sign-in. A Files listing answered 503 once (the account's Lambda concurrency). Two 9 MB fixture files
 were left in `spec-256-live-uploads/`.
 
+**Afterwards.** With no other session holding the tier and nothing running on `main`, it was switched
+off: Deploy Infrastructure dispatch 43668180729, *"0 added, 0 changed, 55 destroyed"*, 32 destroys
+under `module.network[0]` and 23 under `module.spa[0]`, and no create or modify anywhere.
+
 ## Switch-off check — 2026-11-14 (SPEC-257's owed row, discharged)
 
 **What was under test.** SPEC-257 FR-001's owed row: a switch-off of the web tier destroys only the

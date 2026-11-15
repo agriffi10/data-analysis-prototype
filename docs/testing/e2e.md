@@ -831,7 +831,7 @@ console first: a marker that survives means no document load.
 | On Notifications, follow a *"Data quality check on … finished"* link, then Back | The report for that check, then Notifications. |
 | Paste a report's address into a new tab | Until SPEC-262 the new tab has no session of its own: the landing page, then **Sign in**, then the report from the saved return path. |
 | On a report, focus **Skip to main content**, press Enter, open **Data quality** by its tab, then Back | The address ends `#main`, then `/data-quality`, then the report again with `#main`, the report on screen and titled as a report. |
-| Start a large upload on Files, open **Data quality** by its tab, come back by the Files tab | The Upload panel still lists the upload, further along or Uploaded, and the document never reloaded. |
+| Start an upload on Files large enough to still be running a few seconds later, open **Data quality** by its tab, come back by the Files tab | The Upload panel still lists the upload, further along or Uploaded, and the document never reloaded. A small file finishes before the hop and proves only that the list survived. |
 
 ### 4.7 Saved queries
 
