@@ -8,7 +8,6 @@ import type {
   RequestOf,
   ResponseOf
 } from '../types/apiContract.generated';
-import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
 /**
@@ -27,70 +26,57 @@ import type {ServiceResult} from '../types/service.types';
 export type ApiClientCode = 'RequestTimeout' | 'NetworkUnavailable' | 'UnsendableParameter';
 
 /**
- * The API function's own timeout. Mirrored from `cpcommon.jwks`, and pinned to it by a test that
- * reads the Python rather than trusting this copy.
- */
-export const API_FUNCTION_TIMEOUT_SECONDS = 29;
-
-/**
- * AWS's hard ceiling on an HTTP API integration. Not raisable, which is what makes the ordering
- * below a property rather than a preference.
- */
-export const API_GATEWAY_INTEGRATION_CEILING_SECONDS = 30;
-
-/**
- * How long this client waits, and it is deliberately ABOVE the function's own timeout.
+ * How long this client waits, and it is deliberately ABOVE the server's worst path.
  *
  * The order is the whole point: the *server* gives up first, so an abort here always means a
- * genuinely dead connection rather than a request the server is still completing. A shorter
- * client timeout aborts work the server then finishes — which for a write is a mutation the user
- * has been told failed.
+ * genuinely dead connection rather than a request the server is still completing. A shorter client
+ * timeout aborts work the server then finishes, which for a write is a mutation the user has been
+ * told failed. The portal server's `/api/` route sits between this client and the API, and before it
+ * forwards it may read the session, lose a refresh's write and read it again (three store calls), and
+ * call the token endpoint once; then it waits for the API. A test sums those bounds from the server's
+ * own constants and holds this above them.
  */
-export const TIMEOUT_MS = API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000;
+export const TIMEOUT_MS = 50_000;
 
-/** How many times a 401 is retried. Exactly one, and it is the only retry in this app. */
-const MAX_AUTH_RETRIES = 1;
+/** The header naming the user this tab believes is signed in; the server refuses a request it does not match. */
+const TAB_USER_HEADER = 'x-dq-user';
 
-type TokenProvider = (forceRefresh: boolean) => Promise<string | null>;
-
-let tokenProvider: TokenProvider | undefined;
 let unauthenticatedHandler: (() => void) | undefined;
+let signedInUser: string | null = null;
 
 /**
- * Register where the bearer comes from. Called once, by the composition root.
+ * Record which user this tab holds, or that it holds none.
  *
- * Injected rather than imported so this module has no opinion about how a session is obtained —
- * the auth feature owns that, including the forced refresh — and so a test can drive the
- * no-session arm without a Cognito stub.
+ * One cookie serves every tab, so a tab whose user signed out while someone else signed in elsewhere
+ * would otherwise act as the newcomer. Every request names this user, and the server refuses one that
+ * names someone else; with none recorded, nothing is sent at all. The auth provider calls this before it
+ * publishes a change of user, so a query the change starts already sees it.
  *
- * The provider takes `forceRefresh` because the 401 path needs a *forced* refresh, which is the
- * browser's only token-refresh path. A no-argument provider cannot express it, and reaching
- * around the seam to force it would make the seam decorative.
- *
- * @param provider - Returns a bearer, or `null` when there is no usable session.
+ * @param username - The signed-in user's `cognito:username`, or null when the tab is signed out.
  * @returns None.
  */
-export function setAuthTokenProvider(provider: TokenProvider): void {
-  tokenProvider = provider;
+export function setSignedInUser(username: string | null): void {
+  signedInUser = username;
 }
 
 /**
- * Register what happens when a 401 SURVIVES the single refresh-and-retry.
+ * Register what happens when the server answers 401, which means the session is gone or belongs to
+ * someone else: the server refreshes tokens itself, so nothing the browser could retry would help.
  *
  * `apiRequest` itself never navigates. A service that navigates makes every test touching a 401 a
  * navigation test, and makes a background refetch able to throw a user out of a half-filled form.
  *
- * @param handler - Called once per genuinely-dead session.
+ * @param handler - Called once per 401, or undefined to stop calling anything.
  * @returns None.
  */
-export function setUnauthenticatedHandler(handler: () => void): void {
+export function setUnauthenticatedHandler(handler: (() => void) | undefined): void {
   unauthenticatedHandler = handler;
 }
 
-/** Test seam: forget both registrations, so a suite starts from the unregistered state. */
+/** Test seam: forget the handler and the held user, so a suite starts from the unregistered state. */
 export function resetApiClientForTests(): void {
-  tokenProvider = undefined;
   unauthenticatedHandler = undefined;
+  signedInUser = null;
 }
 
 /**
@@ -161,51 +147,25 @@ export async function apiRequest<R extends ApiRouteId>(
   ...args: ApiRequestArgs<R>
 ): Promise<ServiceResult<ResponseOf<R>>> {
   const options: ApiRequestOptions<R> = args[0] ?? {};
-  const origin = apiOrigin();
-  // Legitimately absent on a laptop and in the test suite; in production the app refuses to boot
-  // without it, so this arm cannot reach a user.
-  if (origin === undefined) return failure('ApiUnavailable');
+  // No user, no request: a tab that has not learnt who is signed in, or has just learnt that nobody
+  // is, has no name to send, and the server would refuse the request anyway.
+  if (signedInUser === null) return failure('SessionExpired');
 
   const {method, path} = API_ROUTES[route];
   const filled = substitute(path, options.params as Record<string, string> | undefined);
   // A value the path cannot carry never goes on the wire — see `substitute`. Refused rather than
   // sent, because what it would reach is a different route answering 200.
   if (filled === undefined) return failure('UnsendableParameter');
-  const url = `${origin}${filled}${queryString(options.query as Record<string, string> | undefined)}`;
+  // Relative, so it resolves on the page's own origin, where the portal server's `/api/` route
+  // attaches the session's token.
+  const url = `/api${filled}${queryString(options.query as Record<string, string> | undefined)}`;
 
-  for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
-    if (!tokenProvider) return failure('SessionExpired');
-    // Forced on the retry only: a forced refresh on every first attempt spends a network round
-    // trip per call and defeats the provider's own caching.
-    const token = await tokenProvider(attempt > 0);
-    if (!token) {
-      // A FORCED refresh returning nothing is the same condition as a 401 surviving the retry —
-      // the session is gone — so it takes the same exit. On the first attempt it is not: that is
-      // an ordinary not-signed-in-yet call, and firing the handler there would act on every
-      // mount before sign-in completes.
-      if (attempt > 0) unauthenticatedHandler?.();
-      return failure('SessionExpired');
-    }
-
-    const outcome = await send(url, method, token, options);
-    if (outcome.status !== 401) return outcome.result;
-  }
-
-  // Both attempts 401'd, so the refresh did not help and the session is genuinely gone. There is
-  // no third request, which is what stops a dead refresh token spinning.
+  const outcome = await send(url, method, signedInUser, options);
+  if (outcome.status !== 401) return outcome.result;
+  // The server refreshes the token before it forwards, so a 401 means the session is gone, or the
+  // browser's cookie now belongs to another user. One request, and no retry.
   unauthenticatedHandler?.();
   return failure('SessionExpired');
-}
-
-/** Read at CALL time, never captured at module load: the document is not in hand until boot. */
-function apiOrigin(): string | undefined {
-  try {
-    // No trailing slash — the infrastructure builds it that way and every path is joined
-    // directly, so it is written down here rather than left as luck between two repositories.
-    return configValue('apiBaseUrl');
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -256,7 +216,7 @@ function queryString(query: Record<string, string> | undefined): string {
 async function send<R extends ApiRouteId>(
   url: string,
   method: string,
-  token: string,
+  username: string,
   options: ApiRequestOptions<R>
 ): Promise<{status: number; result: ServiceResult<ResponseOf<R>>}> {
   const controller = new AbortController();
@@ -264,31 +224,29 @@ async function send<R extends ApiRouteId>(
   // The caller's signal and the deadline both abort this request, and neither cancels the other:
   // an unmounted component and a dead connection are different reasons for the same stop.
   const onCallerAbort = () => controller.abort();
-  // Checked as well as listened for: the token is awaited before this runs, so a caller that
-  // aborts in that window has already fired its event and no listener would ever see it.
+  // Checked as well as listened for: a caller that aborted before this ran has already fired its
+  // event, and no listener would ever see it.
   if (options.signal?.aborted) controller.abort();
   options.signal?.addEventListener('abort', onCallerAbort);
 
   try {
     const response = await fetch(url, {
       method,
-      // Explicit, so a cookie that appears on this domain for any reason is never sent. There is
-      // no ambient credential in this design, and therefore no CSRF surface to go with one.
-      credentials: 'omit',
+      // The session cookie is the credential, and only this origin's server ever sees it. Its
+      // unsafe methods are refused unless `Origin` names the portal, and every request must name the
+      // tab's user, which a cross-site page cannot do.
+      credentials: 'same-origin',
       signal: controller.signal,
       headers: {
-        authorization: `Bearer ${token}`,
         'x-request-id': requestId(),
+        [TAB_USER_HEADER]: encodeURIComponent(username),
         ...(options.body === undefined ? {} : {'content-type': 'application/json'})
       },
       ...(options.body === undefined ? {} : {body: JSON.stringify(options.body)})
     });
     return {status: response.status, result: await interpret<R>(response)};
   } catch (err) {
-    // A CORS failure is INDISTINGUISHABLE from a network failure here — the browser hands `fetch`
-    // an opaque TypeError either way — so a mis-set allowed origin presents to a user as "the API
-    // is down". That is why the origin list is asserted against a real preflight, not inferred
-    // from the app working.
+    // The browser hands `fetch` an opaque TypeError for any failure to reach this origin's server.
     const aborted = (err as {name?: string})?.name === 'AbortError';
     return {status: 0, result: failure(aborted ? 'RequestTimeout' : 'NetworkUnavailable')};
   } finally {

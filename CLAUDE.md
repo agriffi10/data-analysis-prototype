@@ -29,8 +29,8 @@ govern, in each tree's `info/` folder. Three you will reach for beside this file
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
 Auth is a Cognito **User Pool**; the browser holds no AWS credentials. The object surface, the
 catalog and the control-plane queues sit behind one API (`api.dataquarry.app`). The portal is Next.js
-on a Node server behind an ALB, the only front door, off when idle; the browser still calls
-**presigned S3 bytes** and Cognito (Amplify) directly. Status: greenfield, no production users yet.
+on a Node server behind an ALB, the only front door, off when idle; the browser holds no token and
+reaches AWS only for **presigned S3 bytes**. Status: greenfield, no production users yet.
 
 ## Monorepo (npm workspaces)
 
@@ -45,7 +45,7 @@ on a Node server behind an ALB, the only front door, off when idle; the browser 
 |---|---|
 | Frontend | React 19 on Next.js 16 (standalone server), TypeScript (strict), TailwindCSS (`@tailwindcss/postcss`); `server-only`; `focus-trap-react` |
 | TypeScript | **Two copies on purpose: `npm ls typescript` reporting 6.x is not a bug.** `tsc -b` runs 7.x from `apps/portal/node_modules`; typescript-eslint pins `<6.1.0` (TS 7 ships no API before 7.1) so npm hoists 6.x to the root for it. `npm ci` reproduces it; `npm install` only if `typescript` goes LAST — named beside `typescript-eslint` it fails ERESOLVE, and `--force`/`--legacy-peer-deps` "fixes" that by breaking lint. Check versions with `npx tsc --version` **from `apps/portal/`** |
-| AWS | Browser: `aws-amplify` v6 for Cognito only. Server (`src/server/`): `@aws-sdk/client-dynamodb` for the session store only. An ESLint `no-restricted-imports` clause and a `package.json` test hold both; objects, bytes, the catalog and the queues go through the API |
+| AWS | Browser: none (`check:bundle` fails on an AWS client). Server (`src/server/`): `@aws-sdk/client-dynamodb` for the session store only. An ESLint `no-restricted-imports` clause and a `package.json` test hold both; objects, bytes, the catalog and the queues go through the API |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | Next.js App Router; features navigate through `src/lib/navigation/` only (`react-router` is its matcher, lint-held). TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest (Vite's only use) + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |

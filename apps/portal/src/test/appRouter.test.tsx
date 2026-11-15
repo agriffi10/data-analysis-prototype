@@ -1,13 +1,9 @@
 import {screen} from '@testing-library/react';
-import {describe, expect, it, vi} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AREAS} from '../lib/navigation';
 import {pagesFor, renderApp} from './appRouter';
 import {authenticated} from './authFixtures';
 import {patternOf, selectPage} from './pageSelection';
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 /** A file map with every segment kind the app uses, so precedence has something to decide. */
 const FILES = [

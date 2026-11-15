@@ -1,33 +1,47 @@
 ---
 type: Decision
-title: "Cognito tokens are held per TAB, not per browser (2026-08-27)"
-description: "Cognito tokens live in the tab-scoped store, installed after `Amplify.configure` and never before, so there is no stay-signed-in and a second tab or a link opened in a new tab signs in again."
+title: "One session covers the browser, and the browser holds no token (rewritten 2026-11-15)"
+description: "The portal server holds the session, so one sign-in covers every tab and a sign-out in one ends the others at their next request. **A tab never acts as another user**: every API request names the tab's user in `x-dq-user`, and the server refuses one that names nobody or someone else. A 401 under a page re-reads the session and signs the tab out in LOCAL state only — never a logout, because the cookie may already be someone else's."
 ---
 
-Amplify's default token store is `localStorage`, so an ID token survived a browser restart and was
-readable by anything running on the origin. `configureAmplify` now hands the provider the
-tab-scoped store instead.
+**The browser holds no token at all.** It signs in by visiting the portal server's `/auth/login`,
+learns who is signed in from `/auth/session`, and calls the API through its own origin's `/api/`,
+where the server attaches the session's ID token. The session lives in the server's store, keyed by
+an opaque `HttpOnly` cookie, so a second tab, or a link opened in a new tab, is signed in already,
+and a sign-out in one tab signs the others out at their next request.
 
-**The cost is deliberate and user-visible**, which is why it is a decision rather than a tidy-up:
-there is no "stay signed in" any more, a second tab signs in again rather than inheriting the
-first one's session, and a link opened in a new tab lands on the Hosted UI first. Nothing in
-`helpContent.ts` promised otherwise, so no guide became untrue — but a later spec adding one must
-know this is the behaviour.
+**One cookie serves every tab, so a tab could act as someone else.** If Alice signs out in one tab
+and Bob signs in there, Alice's other tab would send Bob's cookie on its next window-focus refetch or
+poll. So `apiRequest` sends the username the tab holds as `x-dq-user` (percent-encoded), and sends
+nothing at all when it holds none; the `/api/` route answers 401 before forwarding when the header
+is absent or names anyone but the session's `cognito:username`. A missing header is refused rather
+than waved through, because that gap is exactly when a request is most likely to be stale, and a
+required custom header also refuses a cross-site navigation into `/api/`, which `SameSite=Lax`
+admits.
 
-**Set AFTER `Amplify.configure`, never before**: the provider resolves the pool it was configured
-with, and a store installed on an unconfigured provider is discarded. Both halves are guarded, and
-both guards were verified by planting the mistake.
+**What a 401 under a page does** (Andrew, 2026-11-13). The auth provider re-reads `/auth/session`,
+once however many 401s arrive. A 401 there moves the tab to signed-out **in local state only** — no
+`/auth/logout` and no logout navigation, because by then the cookie may belong to whoever signed in
+in another tab, and a logout sent on it would end their session; the auth gate has recorded the page,
+so the landing page's sign-in returns to it. A 200 naming another user disarms the leave guard and
+reloads the document, so one person's page never acts as another's and an upload's prompt cannot
+hold the stale page open. A 200 naming the same user leaves the tab signed in.
 
-**It touches sign-in, which a warm session cannot exercise.** The offline tests assert which store
-the provider is given; they cannot drive a real authorization-code round trip, and Amplify keeps
-the OAuth `state` and PKCE verifier in its own store — so the two now live in different stores.
-Expected to be fine, not observed. Recorded in `owed.md`, along with the SPEC-192 fresh-sign-in
-check this **re-invalidates**.
+**A session serves only the client that created it.** A dev server and the deployed portal share the
+session table, and a dev server's cookie is unprefixed and not `Secure`, so a session whose ID token
+names another client is treated as absent and left alone.
 
-Requested by Andrew alongside SPEC-197 and shipped as its own commit, so it can be reverted without
-the port.
+The superseded design held Amplify's tokens in a tab-scoped store: no stay-signed-in, and a second
+tab signed in again. Nothing in `helpContent.ts` promised it, and the *Move between pages* guide now
+says one sign-in covers every tab.
 
 ## History
+
+### 2026-11-15
+
+- **Reversed:** SPEC-262 moved sign-in to the portal server. One session per browser replaces the
+  per-tab token store, with `x-dq-user` and the local-only sign-out keeping a tab from acting as
+  another user.
 
 ### 2026-08-27
 

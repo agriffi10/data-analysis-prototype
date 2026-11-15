@@ -335,6 +335,11 @@ locals {
   session_table_arn            = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.session_table_name}"
   client_secret_parameter_name = "/${var.project_name}-${var.environment}/portal/oidc-client-secret"
   client_secret_parameter_arn  = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.client_secret_parameter_name}"
+  dev_session_parameter_name   = "/${var.project_name}-${var.environment}/portal/dev-session-env"
+
+  # The origin `npm run dev` serves on, and the only place it is named: the dev client's callback and
+  # sign-out URL, and the local server's PORTAL_ORIGIN, are built from it.
+  dev_origin = "http://localhost:5173"
 
   # The OIDC client's endpoints, as FIELDS rather than derived inside the server from a domain:
   # the concatenation happens once, here, as the verifier's JWKS URI's does.
@@ -355,6 +360,17 @@ locals {
     SESSION_MAX_AGE_SECONDS = tostring(module.auth.server_session_max_age_seconds)
     AWS_REGION              = var.aws_region
   }
+
+  # What a local server reads, from the SAME locals as the task definition's environment: the
+  # document's CONFIG_ keys, the CSP's connect-src and the session settings, with the dev origin in
+  # place of the deployed one. The auth module adds the dev client's own id and secret. Nothing here is
+  # written as a literal, so the two environments cannot drift.
+  dev_session_environment = merge(
+    { for key, value in local.spa_runtime_config : "CONFIG_${key}" => value },
+    { PORTAL_CSP_CONNECT_SRC = local.csp_connect_src },
+    { for key, value in local.session_environment : key => value if key != "OIDC_CLIENT_ID" },
+    { PORTAL_ORIGIN = local.dev_origin },
+  )
 
   # The load balancer's access-log prefix in the admin bucket. At ROOT because two modules must
   # agree on it: the one that points the balancer at it and writes the bucket policy, and the one
@@ -471,6 +487,12 @@ module "auth" {
 
   # Named at root, where the execution role's grant builds its ARN from the same string.
   client_secret_parameter_name = local.client_secret_parameter_name
+
+  # The local-development client and everything a laptop's server needs, outside the web tier's switch
+  # with the client itself, so a laptop signs in whether or not the tier is on.
+  dev_origin                 = local.dev_origin
+  dev_session_parameter_name = local.dev_session_parameter_name
+  dev_session_environment    = local.dev_session_environment
 
   # Post-confirmation Lambda inputs. account_id/region scope the exec
   # role's Glue ARNs; portal_role_arn (constructed, cycle-free) is the LF grant
@@ -837,7 +859,7 @@ module "api" {
   max_shared_memberships = var.max_shared_memberships
 
   oidc_issuer          = local.cognito_issuer
-  oidc_audience        = [module.auth.user_pool_client_id, module.auth.server_client_id]
+  oidc_audience        = [module.auth.user_pool_client_id, module.auth.server_client_id, module.auth.dev_client_id]
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"
   oidc_username_claim  = "cognito:username"
   oidc_required_claims = jsonencode({ token_use = "id" })

@@ -20,12 +20,23 @@ afterEach(() => {
 
 const TRANSACTION = {state: 's'.repeat(43), codeVerifier: 'v'.repeat(43), nonce: 'n'.repeat(43)};
 
-/** A request to the portal, with the given cookies and headers. */
+/**
+ * A request to the portal, with the given cookies and headers. A request to `/api/` names the tab's
+ * user as alice, the stored session's user, unless the test names another or, with null, none.
+ */
 function request(
   path: string,
-  init: {method?: string; cookies?: Record<string, string>; headers?: Record<string, string>; body?: BodyInit} = {}
+  init: {
+    method?: string;
+    cookies?: Record<string, string>;
+    headers?: Record<string, string>;
+    body?: BodyInit;
+    tabUser?: string | null;
+  } = {}
 ) {
   const headers = new Headers(init.headers);
+  const tabUser = init.tabUser === undefined ? (path.startsWith('/api/') ? 'alice' : null) : init.tabUser;
+  if (tabUser !== null) headers.set('x-dq-user', tabUser);
   const cookies = Object.entries(init.cookies ?? {}).map(([name, value]) => `${name}=${value}`);
   if (cookies.length) headers.set('cookie', cookies.join('; '));
   return new Request(`${PORTAL}${path}`, {method: init.method ?? 'GET', headers, body: init.body});
@@ -337,6 +348,29 @@ describe('/api/<rest>', () => {
     expect((await api(request('/api/v1/x'), deps)).status).toBe(401);
   });
 
+  it('refuses a tab that names no user before reading the store, and one naming another user before forwarding', async () => {
+    const deps = await signedIn(storedSession({idToken: idToken({'cognito:username': 'ana maría'})}).item);
+    const get = vi.spyOn(deps.store, 'get');
+    const fetch = vi.fn(async () => json(200, {}));
+    vi.stubGlobal('fetch', fetch);
+
+    const unnamed = await api(request('/api/v1/x', {cookies, tabUser: null}), deps);
+    expect([unnamed.status, (await unnamed.json()).error.code, get.mock.calls.length]).toEqual([
+      401,
+      'SessionExpired',
+      0
+    ]);
+    for (const other of ['alice', 'ana mar%C3%ADa ', 'ana%20mar%C3%ADa%20']) {
+      expect((await api(request('/api/v1/x', {cookies, tabUser: other}), deps)).status).toBe(401);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+
+    const named = await api(request('/api/v1/x', {cookies, tabUser: encodeURIComponent('ana maría')}), deps);
+    expect(named.status).toBe(200);
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new Headers(init.headers).has('x-dq-user')).toBe(false);
+  });
+
   it.each([
     '/api//evil.example/x',
     '/api/%2F%2Fevil.example/x',
@@ -380,7 +414,7 @@ describe('/api/<rest>', () => {
     const big = new Uint8Array(10 * 1024 * 1024 + 1);
     const chunked = new Request(`${PORTAL}/api/v1/x`, {
       method: 'POST',
-      headers: {origin: PORTAL, cookie: `${SESSION_COOKIE}=${cookies[SESSION_COOKIE]}`},
+      headers: {origin: PORTAL, cookie: `${SESSION_COOKIE}=${cookies[SESSION_COOKIE]}`, 'x-dq-user': 'alice'},
       body: new ReadableStream({start: (c) => (c.enqueue(big), c.close())}),
       duplex: 'half'
     } as RequestInit);

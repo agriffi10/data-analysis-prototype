@@ -95,11 +95,12 @@ The API's **verifier** configuration — issuer, audience, JWKS URI, username cl
 and is not part of the browser's document at all
 ([`infra/modules/api/README.md`](../../../infra/modules/api/README.md)).
 
-**The exclusion cuts one way only.** The browser's four Cognito values belong to Amplify, they are
+**The exclusion cuts one way only.** The browser's four Cognito values belonged to Amplify, they were
 legitimately browser-side, and a rule written to forbid "anything that smells of identity" would
 delete them and break sign-in — `cognitoUserPoolClientId` survives an exact-match rule and dies under
-a substring one. `cognitoDomain` is not a verifier field either: Amplify POSTs the code exchange to
-it. The forbidden set is about *the API's trust anchors*, not about the word Cognito.
+a substring one. `cognitoDomain` is not a verifier field either: Amplify POSTed the code exchange to
+it. *(Marked 2026-11-15: since SPEC-262 only the rollback image reads them; the merge that retires the
+public client removes them from the document.)* The forbidden set is about *the API's trust anchors*, not about the word Cognito.
 
 ## The feature-flag document, and why its guards are worth their weight
 

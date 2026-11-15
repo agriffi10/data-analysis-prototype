@@ -60,7 +60,7 @@ it('keeps every credential out of every log line and every response body', async
   const signin = signinCookie(transaction).split(';')[0].split('=')[1];
   const cookie = `${SESSION_COOKIE}=${COOKIE}; ${SIGNIN_COOKIE}=${signin}`;
   const req = (path: string, method = 'GET') =>
-    new Request(`${PORTAL}${path}`, {method, headers: {cookie, origin: PORTAL}});
+    new Request(`${PORTAL}${path}`, {method, headers: {cookie, origin: PORTAL, 'x-dq-user': 'alice'}});
   const bodies: string[] = [];
   const run = async (response: Promise<Response>) => bodies.push(await (await response).text());
 

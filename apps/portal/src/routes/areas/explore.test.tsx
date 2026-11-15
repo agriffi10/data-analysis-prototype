@@ -21,10 +21,6 @@ import type {SharedConnectionsCache} from '../../features/shared-spaces/sharedSp
 import {Link} from '../../lib/navigation';
 import {QueryView} from './query';
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
-
 // Below this line, what the App Router's Explorer page is proved with. Every service either page
 // reaches is mocked at its boundary, so nothing here leans on the Amplify mock above.
 vi.mock('../../features/query/SqlEditor', () => import('../../test/sqlEditorStub'));

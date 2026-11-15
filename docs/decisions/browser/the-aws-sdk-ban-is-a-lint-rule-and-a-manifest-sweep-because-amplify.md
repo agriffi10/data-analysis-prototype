@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)"
-description: "**The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and that leftover is how the next import arrives. **Narrowed by 257 to one exception:** `src/server/` may import `@aws-sdk/client-dynamodb` and nothing else, by a clause declared LAST so it replaces the `src/**` one; the manifest names exactly that package; and `check:bundle` fails on `DynamoDB_20120810` in any static chunk, because a lint rule reads import paths, not what shipped."
+description: "**The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep reads the **manifest, never `node_modules`** — a dependency may vendor the SDK, as Amplify did, so a tree assertion fails for what nobody imports and gets deleted. A dependency nobody imports is invisible to an import rule, and that leftover is how the next import arrives. **Narrowed by 257 to one exception:** `src/server/` may import `@aws-sdk/client-dynamodb` and nothing else, by a clause declared LAST so it replaces the `src/**` one; the manifest names exactly that package; and `check:bundle` fails on `DynamoDB_20120810` in any static chunk, because a lint rule reads import paths, not what shipped. **Amplify is gone (262)**: `check:bundle` also fails on `AWSCognitoIdentityProviderService`, and the manifest guard-the-guard is anchored on `next`."
 ---
 
 Six specs each deleted a browser-side AWS client. What none of them could see is that **a dependency
@@ -23,11 +23,11 @@ exactly that shape declare the rule without the group while an `@aws-sdk` import
 linted clean. Tests are **in** scope: a test mocking `@aws-sdk/client-s3` is a test of a call the
 app no longer makes.
 
-**The sweep reads `package.json`, never `node_modules`.** `aws-amplify` vendors `@aws-sdk/*`
-packages transitively, so an assertion over the installed tree would fail permanently, be deleted
-inside a week, and a deleted guard is indistinguishable from a passing one in CI. It carries a
-guard-the-guard — the manifest must still name `aws-amplify` — because a parse that read nothing
-agrees with an empty manifest.
+**The sweep reads `package.json`, never `node_modules`.** `aws-amplify` vendored `@aws-sdk/*`
+packages transitively, and any dependency may, so an assertion over the installed tree fails for what
+nobody imports, is deleted inside a week, and a deleted guard is indistinguishable from a passing one
+in CI. It carries a guard-the-guard — the manifest must name `next` (it named `aws-amplify` until
+SPEC-262 removed it) — because a parse that read nothing agrees with an empty manifest.
 
 **One exception, on the server only** (rewritten 2026-11-13 for SPEC-257). The portal's Next.js
 server keeps its session store in DynamoDB, so `src/server/` may import `@aws-sdk/client-dynamodb`.
@@ -42,7 +42,19 @@ import path, and `server-only` stops only a module that remembered to import it;
 reads what actually shipped. Every `.ts` file under
 `src/server/` beginning with `import 'server-only'` is itself asserted by a test.
 
+**Amplify left with SPEC-262**, when the browser began signing in through the portal server. A sweep
+holds every source and test file under `src/`, and the manifest, free of the package's name, and
+`check:bundle` fails naming the chunk when any file under `.next/static/` carries
+`AWSCognitoIdentityProviderService`, the protocol target every Cognito user-pool request names. That
+marker was measured in a built bundle while Amplify was still in it, so its absence is positive proof.
+
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 removed Amplify: the manifest guard-the-guard moved to `next`, a sweep keeps
+  the package's name out of `src/` and the manifest, and `check:bundle` gained Amplify's Cognito
+  marker.
 
 ### 2026-11-13
 

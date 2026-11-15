@@ -5,7 +5,8 @@ description: "The Cognito Identity Pool is deleted while the User Pool, Managed 
 ---
 
 **The conflation this entry exists to prevent.** The Cognito **User Pool** authenticates people:
-Managed Login v2, the Hosted UI round trip, Amplify in the tab, the ID token. The Cognito **Identity
+Managed Login v2, the Hosted UI round trip, Amplify in the tab (the portal server's own routes since
+SPEC-262), the ID token. The Cognito **Identity
 Pool** did something else entirely — it exchanged that ID token for temporary AWS credentials so the
 browser could call AWS. SPEC-202 deleted the second and touched the first not at all. A reader who
 reads "Cognito is retired" into this will go looking for a sign-in change that does not exist.

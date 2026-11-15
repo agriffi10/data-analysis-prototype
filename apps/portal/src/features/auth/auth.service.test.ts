@@ -1,128 +1,74 @@
-import {describe, it, expect, vi, beforeEach, type MockedFunction} from 'vitest';
-import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {getCurrentAuthUser, startSignIn, startSignOut, startSignUp} from './auth.service';
+import {assignDocument} from '../../lib/documentNavigation';
+import {setReturnPathIfAbsent} from '../../lib/returnPath';
 
-vi.mock('aws-amplify/auth', () => ({
-  getCurrentUser: vi.fn(),
-  fetchAuthSession: vi.fn(),
-  signInWithRedirect: vi.fn(),
-  signOut: vi.fn()
-}));
+vi.mock('../../lib/documentNavigation', () => ({assignDocument: vi.fn(), reloadDocument: vi.fn()}));
+vi.mock('../../lib/returnPath', () => ({setReturnPathIfAbsent: vi.fn()}));
 
-import {getCurrentUser, fetchAuthSession, signInWithRedirect, signOut} from 'aws-amplify/auth';
+/** A fetch double answering each request with the next of these, in order. */
+function answering(...answers: (Response | Error)[]) {
+  const fetch = vi.fn(async () => {
+    const next = answers.shift();
+    if (next instanceof Error) throw next;
+    return next ?? new Response(null, {status: 500});
+  });
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
 
-const mockGetCurrentUser = getCurrentUser as unknown as MockedFunction<() => Promise<unknown>>;
-const mockFetchAuthSession = fetchAuthSession as unknown as MockedFunction<() => Promise<unknown>>;
+const json = (status: number, body: unknown) => new Response(JSON.stringify(body), {status});
+const unavailable = {success: false, error: {message: '', code: 'ApiUnavailable'}};
 
-// Build a fetchAuthSession result whose ID token carries the given email claim.
-const sessionWithEmail = (email?: string) => ({
-  tokens: {idToken: {payload: email ? {email} : {}}}
-});
-const mockSignInWithRedirect = signInWithRedirect as unknown as MockedFunction<() => Promise<void>>;
-const mockSignOut = signOut as unknown as MockedFunction<() => Promise<void>>;
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.unstubAllGlobals());
 
 describe('getCurrentAuthUser', () => {
-  it('returns the username and email from the ID token claim when signed in', async () => {
-    mockGetCurrentUser.mockResolvedValueOnce({username: 'alice'});
-    mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail('alice@example.com'));
+  it('reads the user from /auth/session, and a 401 as signed out with the session code', async () => {
+    const fetch = answering(json(200, {username: 'alice', email: 'alice@example.test'}), json(401, {}));
 
-    const result = await getCurrentAuthUser();
+    expect(await getCurrentAuthUser()).toEqual({success: true, data: {username: 'alice', email: 'alice@example.test'}});
+    expect(await getCurrentAuthUser()).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
 
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data).toEqual({username: 'alice', email: 'alice@example.com'});
+    expect(fetch).toHaveBeenCalledWith('/auth/session', {credentials: 'same-origin', cache: 'no-store'});
   });
 
-  it('returns the user without email when the ID token has no email claim', async () => {
-    mockGetCurrentUser.mockResolvedValueOnce({username: 'bob'});
-    mockFetchAuthSession.mockResolvedValueOnce(sessionWithEmail(undefined));
+  it('answers ApiUnavailable for a 503, a network failure and a body that names no user', async () => {
+    answering(json(503, {}), new TypeError('offline'), json(200, {username: ''}));
 
-    const result = await getCurrentAuthUser();
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data).toEqual({username: 'bob', email: undefined});
-  });
-
-  it('returns success: false when there is no session (getCurrentUser throws)', async () => {
-    const err = Object.assign(new Error('No current user'), {
-      name: 'UserUnAuthenticatedException'
-    });
-    mockGetCurrentUser.mockRejectedValueOnce(err);
-
-    const result = await getCurrentAuthUser();
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.message).toBe('No current user');
-    expect(result.error.code).toBe('UserUnAuthenticatedException');
-    expect(mockFetchAuthSession).not.toHaveBeenCalled();
+    for (let call = 0; call < 3; call += 1) expect(await getCurrentAuthUser()).toEqual(unavailable);
   });
 });
 
-describe('startSignIn', () => {
-  it('invokes signInWithRedirect and returns success', async () => {
-    mockSignInWithRedirect.mockResolvedValueOnce(undefined);
+describe('starting a sign-in or a sign-up', () => {
+  it('records the default landing without replacing a recorded one, then moves to /auth/login', async () => {
+    for (const start of [startSignIn, startSignUp]) {
+      vi.clearAllMocks();
 
-    const result = await startSignIn();
+      expect(await start()).toEqual({success: true, data: undefined});
 
-    expect(result.success).toBe(true);
-    expect(mockSignInWithRedirect).toHaveBeenCalledOnce();
-  });
-
-  it('returns success: false without throwing when redirect fails', async () => {
-    mockSignInWithRedirect.mockRejectedValueOnce(Object.assign(new Error('redirect blocked'), {name: 'RedirectError'}));
-
-    const result = await startSignIn();
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.message).toBe('redirect blocked');
-    expect(result.error.code).toBe('RedirectError');
-  });
-});
-
-describe('startSignUp', () => {
-  it('delegates to the Amplify Hosted UI redirect', async () => {
-    mockSignInWithRedirect.mockResolvedValueOnce(undefined);
-
-    const result = await startSignUp();
-
-    expect(result.success).toBe(true);
-    expect(mockSignInWithRedirect).toHaveBeenCalledOnce();
-  });
-
-  it('returns success: false without throwing when the redirect fails', async () => {
-    mockSignInWithRedirect.mockRejectedValueOnce(Object.assign(new Error('redirect blocked'), {name: 'RedirectError'}));
-
-    const result = await startSignUp();
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.message).toBe('redirect blocked');
+      expect(setReturnPathIfAbsent).toHaveBeenCalledExactlyOnceWith('/files');
+      expect(assignDocument).toHaveBeenCalledExactlyOnceWith('/auth/login');
+    }
   });
 });
 
 describe('startSignOut', () => {
-  it('invokes signOut and returns success', async () => {
-    mockSignOut.mockResolvedValueOnce(undefined);
+  it('posts /auth/logout and moves to the logout page the server answers', async () => {
+    const logoutUrl = 'https://auth.example.test/logout?client_id=c&logout_uri=https%3A%2F%2Fportal.example.test';
+    const fetch = answering(json(200, {logoutUrl}));
 
-    const result = await startSignOut();
+    expect(await startSignOut()).toEqual({success: true, data: undefined});
 
-    expect(result.success).toBe(true);
-    expect(mockSignOut).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/auth/logout', {method: 'POST', credentials: 'same-origin'});
+    expect(assignDocument).toHaveBeenCalledExactlyOnceWith(logoutUrl);
   });
 
-  it('returns success: false without throwing when signOut fails', async () => {
-    mockSignOut.mockRejectedValueOnce(new Error('network down'));
+  it('moves nowhere on a 503, a network failure or a logout page that is not HTTPS', async () => {
+    answering(json(503, {}), new TypeError('offline'), json(200, {logoutUrl: 'javascript:alert(1)'}));
 
-    const result = await startSignOut();
+    for (let call = 0; call < 3; call += 1) expect(await startSignOut()).toEqual(unavailable);
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.message).toBe('network down');
+    expect(assignDocument).not.toHaveBeenCalled();
   });
 });

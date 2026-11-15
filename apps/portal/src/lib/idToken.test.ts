@@ -1,35 +1,35 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fetchAuthSession} from 'aws-amplify/auth';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {getIdToken} from './idToken';
 
-vi.mock('aws-amplify/auth', () => ({fetchAuthSession: vi.fn()}));
+afterEach(() => vi.unstubAllGlobals());
+
+/** A fetch double answering every request with this status. */
+function answering(status: number) {
+  const fetch = vi.fn(async () => new Response(null, {status}));
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
 
 describe('getIdToken', () => {
-  const mockSession = vi.mocked(fetchAuthSession);
+  it('posts /auth/refresh with no body when forced, and succeeds on 204', async () => {
+    const fetch = answering(204);
 
-  beforeEach(() => vi.clearAllMocks());
+    expect(await getIdToken(true)).toEqual({success: true, data: undefined});
 
-  it('returns the ID token string on success', async () => {
-    mockSession.mockResolvedValue({tokens: {idToken: {toString: () => 'jwt-abc'}}} as never);
-    const result = await getIdToken();
-    expect(result).toEqual({success: true, data: 'jwt-abc'});
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/auth/refresh', {method: 'POST', credentials: 'same-origin'});
   });
 
-  it('fails when no ID token is present', async () => {
-    mockSession.mockResolvedValue({tokens: {}} as never);
-    const result = await getIdToken();
-    expect(result).toEqual({success: false, error: expect.objectContaining({code: 'NotAuthenticated'})});
+  it('fails with the session code when the server answers 401', async () => {
+    answering(401);
+
+    expect(await getIdToken(true)).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
   });
 
-  it('maps a thrown error to a ServiceResult with its name as code', async () => {
-    mockSession.mockRejectedValue(Object.assign(new Error('network down'), {name: 'NetworkError'}));
-    const result = await getIdToken();
-    expect(result).toEqual({success: false, error: {message: 'network down', code: 'NetworkError'}});
-  });
+  it('makes no request when not forced, because the server keeps the token fresh itself', async () => {
+    const fetch = answering(204);
 
-  it('passes forceRefresh through to Amplify — the one path that re-mints a claim', async () => {
-    mockSession.mockResolvedValue({tokens: {idToken: {toString: () => 'jwt-abc'}}} as never);
-    await getIdToken(true);
-    expect(mockSession).toHaveBeenCalledWith({forceRefresh: true});
+    expect(await getIdToken()).toEqual({success: true, data: undefined});
+
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

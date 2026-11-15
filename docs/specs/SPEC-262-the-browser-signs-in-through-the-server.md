@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-262
 title: "The Browser Signs In Through the Server"
 description: "The browser stops holding tokens: it signs in, signs out and calls the API through the Next.js server's session routes and /api/ pass-through, Amplify and the public Cognito client retire, local development signs in through its own client, and every allowlist that served the old path narrows in a second merge."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-256, SPEC-257, SPEC-258, SPEC-259, SPEC-260, SPEC-261]
 arc: nextjs
 arc_order: 8
@@ -100,7 +100,7 @@ the call that failed reports `SessionExpired`.
 **A tab never acts as another user.** One cookie serves the whole browser, so if Alice signs out in
 one tab and Bob signs in there, Alice's other tab would send Bob's cookie on its next request: a
 window-focus refetch or a poll would act as Bob under Alice's name. So `apiRequest` sends the
-username the tab holds as `x-dq-user`, and refuses to send at all (`SessionExpired`, no request)
+username the tab holds as `x-dq-user`, percent-encoded so any username is a valid header value, and refuses to send at all (`SessionExpired`, no request)
 when the tab holds none. The `/api/` route handler (SPEC-257 FR-005) answers 401 `SessionExpired`,
 before forwarding, when the header is **absent** or differs from the session's `cognito:username`.
 A missing header is refused rather than waved through because the gap is exactly when a request is
@@ -112,8 +112,11 @@ admits. The header is consumed there and is not on the forwarded allowlist.
 the session table, and under `next dev` the cookie is unprefixed and not `Secure` (FR-003), so a
 dev cookie could travel to any localhost server and be replayed against the portal as
 `__Host-dq_session`. So every session load (SPEC-257's `loadSession`) answers 401 and leaves the
-item alone when the stored ID token's `aud` is not the server's own `OIDC_CLIENT_ID`. A dev session
-then works only on a dev server, and a production session only in production.
+item alone when the stored ID token's `aud` is not the server's own `OIDC_CLIENT_ID`, before any
+refresh, because refreshing it with the wrong secret would be refused and the refusal would delete it.
+A sign-out on such a cookie leaves the item alone as well (amended during the build: otherwise a
+replayed dev cookie could end the dev session through production's sign-out). A dev session then works
+only on a dev server, and a production session only in production.
 
 One session now covers the browser: a second tab, or a link opened in a new tab, is signed in
 already, and a sign-out in one tab signs the others out at their next request.
@@ -212,9 +215,11 @@ sign-out URL is `http://localhost:5173`. Its own secret means a laptop can be cu
 touching production, and the production client's lists never name localhost. The verifier's list
 gains its id (FR-005 keeps it).
 
-Terraform renders every session variable a local server needs, the dev client's secret included,
-into one SSM `SecureString` parameter, `/<project>-<environment>/portal/dev-session-env`, from the
-same locals that render the task definition's, so the two cannot drift. `npm run dev:session-env`
+Terraform renders every variable a local server needs into one SSM `SecureString` parameter,
+`/<project>-<environment>/portal/dev-session-env`, from the same locals that render the task
+definition's, so the two cannot drift: the session variables with the dev origin and the dev
+client's id and secret, and also the document's `CONFIG_` keys and `PORTAL_CSP_CONNECT_SRC`
+(amended during the build, so one script gives a developer everything the start check requires). `npm run dev:session-env`
 reads it with the developer's AWS credentials and writes the variables into `apps/portal/.env.local`
 between two marker lines. It replaces only that block, keeps every other line, and prints only
 variable names. `.env.local` is already ignored by `*.local`. The local server then uses the real
@@ -443,7 +448,9 @@ apiRequest<R extends ApiRouteId>(route: R, ...args: ApiRequestArgs<R>): Promise<
 **Written into `apps/portal/.env.local` by `npm run dev:session-env`** (SPEC-257's server variables,
 for the dev client): `PORTAL_ORIGIN=http://localhost:5173`, `API_ORIGIN`, `OIDC_ISSUER`,
 `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, the four `OIDC_*_URL` fields, `SESSION_TABLE_NAME`,
-`SESSION_MAX_AGE_SECONDS` and `AWS_REGION`.
+`SESSION_MAX_AGE_SECONDS` and `AWS_REGION`; and, amended during the build, every `CONFIG_` key the
+task definition carries and `PORTAL_CSP_CONNECT_SRC`, with the deployed values. The script's options
+are `--parameter`, `--region` and `--out` (not `--env-file`, which Node takes as its own flag).
 
 ## File & Folder Structure
 
@@ -452,7 +459,7 @@ apps/portal/
 ├── package.json                         # - aws-amplify; + dev:session-env
 ├── .env.example                         # + a pointer to dev:session-env; - the six CONFIG_ keys (merge 2)
 ├── scripts/dev-session-env.mjs          # new (FR-003)
-├── scripts/assert-bundle-*.mjs          # + the Amplify marker (FR-004)
+├── scripts/assert-bundle-has-no-aws-clients.mjs  # renamed from …-no-server-sdk; + the Amplify marker (FR-004)
 └── src/
     ├── PortalBoot.tsx                   # no Amplify configuration
     ├── instrumentation.ts               # + the session variables

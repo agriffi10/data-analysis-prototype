@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {loadSession, sessionKey} from './session';
+import {endSession, loadSession, sessionKey} from './session';
 import {NOW, idToken, json, storedSession, testConfig, testDeps} from './testSupport';
 
 afterEach(() => {
@@ -53,6 +53,25 @@ describe('a session is read', () => {
     expect(proactive.status === 'active' && proactive.idToken).toBe(item.idToken);
     expect(forced).toEqual({status: 'unavailable'});
     expect(dynamo.table.get(item.pk)?.idToken).toEqual({S: item.idToken});
+  });
+});
+
+describe('a session serves only the client that created it', () => {
+  it.each([
+    ['a dev-client session, on a server configured as the production client', 'dev-client', 'server-client'],
+    ['a production session, on a server configured as the dev client', 'server-client', 'dev-client']
+  ])('treats %s as absent, and neither refreshes nor deletes it', async (_label, createdBy, servedBy) => {
+    const {config, store} = testDeps(testConfig({clientId: servedBy}));
+    // Near expiry, so a session this server owned would be refreshed on this read.
+    const {cookie, item} = storedSession({idToken: idToken({aud: createdBy}), tokenExpiresAt: NOW + 10});
+    await store.put(item);
+    const fetch = provider();
+
+    expect(await loadSession(store, config, cookie, {forceRefresh: true}, NOW)).toEqual({status: 'absent'});
+    expect(await endSession(store, config, cookie)).toBe(true);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await store.get(item.pk)).toEqual(item);
   });
 });
 

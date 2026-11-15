@@ -234,8 +234,8 @@ flowchart TB
   them — Amplify `signInWithRedirect()` and `lib/returnPath.ts`. Since SPEC-257 the server has its
   own `/auth/login`, which holds `state`, the PKCE verifier and the nonce in a `__Host-` sign-in
   cookie and 302s to the provider, and its own `/auth/callback`, the registered redirect URI, which
-  exchanges the code, stores the tokens, sets the opaque cookie and 302s to the return path; SPEC-262
-  moves the browser onto them. **There is no BFF Lambda and no authorizer/worker split**: this page
+  exchanges the code, stores the tokens, sets the opaque cookie and 302s to the return path; since
+  SPEC-262 the browser signs in through them. **There is no BFF Lambda and no authorizer/worker split**: this page
   drew one, under "the target splits this", while the API was going to be the session's home, and
   the 2026-11-15 revision of `transition_plan.md` §4.7 retired it. The API stays a verifier the
   router calls.

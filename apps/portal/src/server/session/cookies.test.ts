@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {SESSION_COOKIE, SIGNIN_COOKIE, readCookie} from './cookies';
 
 /** A request carrying exactly this `Cookie` header. */
@@ -15,5 +15,35 @@ describe('reading a cookie', () => {
       expect(readCookie(carrying(`${name}\u00a0=planted`), name)).toBeUndefined();
       expect(readCookie(carrying(`\u00a0${name}=planted; ${name}=real`), name)).toBe('real');
     }
+  });
+});
+
+describe('the cookie names and attributes, by build', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  /** The cookie module as a server built with this `NODE_ENV` loads it. */
+  const loadedUnder = async (nodeEnv: string) => {
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    vi.resetModules();
+    return import('./cookies');
+  };
+
+  it('names both cookies with the __Host- prefix and sets Secure in a built server', async () => {
+    const cookies = await loadedUnder('production');
+
+    expect([cookies.SESSION_COOKIE, cookies.SIGNIN_COOKIE]).toEqual(['__Host-dq_session', '__Host-dq_signin']);
+    expect(cookies.sessionCookie('id')).toBe('__Host-dq_session=id; Path=/; Secure; HttpOnly; SameSite=Lax');
+    expect(cookies.clearedCookie(cookies.SIGNIN_COOKIE)).toContain('; Secure;');
+  });
+
+  it('names both cookies without the prefix and without Secure under next dev', async () => {
+    const cookies = await loadedUnder('development');
+
+    expect([cookies.SESSION_COOKIE, cookies.SIGNIN_COOKIE]).toEqual(['dq_session', 'dq_signin']);
+    expect(cookies.sessionCookie('id')).toBe('dq_session=id; Path=/; HttpOnly; SameSite=Lax');
+    expect(cookies.clearedCookie(cookies.SESSION_COOKIE)).not.toContain('Secure');
   });
 });

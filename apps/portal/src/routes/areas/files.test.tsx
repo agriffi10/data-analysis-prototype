@@ -29,25 +29,8 @@ import {FilesView} from './files';
  * destination before asserting, so a click that failed to change the page cannot pass for one that
  * did. Only the service boundary is mocked. Files is the subject, so the shell's survival lives here.
  */
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
-// The real auth provider, for the one test whose subject is what IT does on sign-out; every other
-// test injects a fixed auth value and never reaches these.
-const hub = vi.hoisted(() => ({listeners: [] as ((message: {payload: {event: string}}) => void)[]}));
-vi.mock('aws-amplify/utils', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('aws-amplify/utils')>()),
-  Hub: {
-    listen: (_channel: string, listener: (message: {payload: {event: string}}) => void) => {
-      hub.listeners.push(listener);
-      return () => hub.listeners.splice(hub.listeners.indexOf(listener), 1);
-    }
-  }
-}));
-vi.mock('../../lib/amplify', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../lib/amplify')>()),
-  isAmplifyConfigured: () => true
-}));
+// The real auth provider, for the tests whose subject is what IT does on sign-out; every other test
+// injects a fixed auth value and never reaches the service.
 vi.mock('../../features/auth/auth.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../features/auth/auth.service')>()),
   getCurrentAuthUser: vi.fn(),
@@ -192,8 +175,9 @@ async function roundTripThroughNotifications(user: User) {
 /**
  * The auth state, flipped to signed-out by the Sign out control.
  *
- * The real provider flips on an Amplify Hub event this suite has no Amplify to raise. What is
- * under test is what the shell does when the status flips, so the flip is supplied directly.
+ * The real provider's sign-out moves the document away, which jsdom cannot do, so it never flips the
+ * status here. What is under test is what the shell does when the status flips, so the flip is
+ * supplied directly.
  */
 function SignOutable({children}: {children: ReactNode}) {
   const [signedIn, setSignedIn] = useState(true);
@@ -415,16 +399,16 @@ describe('an unfinished upload asks before the document goes', () => {
     added.mockRestore();
   });
 
-  // Signing out is deliberate and asks nothing, as it always has. The provider's sign-out moves the
-  // document before React unmounts the shell, so the guard would still be armed when the browser
-  // asks; the provider disarms it first, in the same task.
-  it('lets a sign-out go without asking, and the sign-out aborts the upload', async () => {
-    const aborted = holdUploadsOpen();
+  // Signing out is deliberate and asks nothing, as it always has. The sign-out moves the document to
+  // the provider's logout page while the shell is still mounted, so the guard would still be armed
+  // when the browser asks; the provider disarms it first, in the same task.
+  it('lets a sign-out go without asking while an upload runs', async () => {
+    holdUploadsOpen();
     vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
     const asked: boolean[] = [];
+    // Where the real service moves the document: what the browser would ask is read at that moment.
     vi.mocked(startSignOut).mockImplementation(async () => {
       asked.push(unloadIsCancelled());
-      for (const listener of [...hub.listeners]) listener({payload: {event: 'signedOut'}});
       return {success: true, data: undefined};
     });
     const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
@@ -433,8 +417,7 @@ describe('an unfinished upload asks before the document goes', () => {
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
     await user.click(await screen.findByRole('menuitem', {name: 'Sign out'}));
 
-    await waitFor(() => expect(aborted()).toEqual([true]));
-    expect(asked).toEqual([false]);
+    await waitFor(() => expect(asked).toEqual([false]));
   });
 
   it('asks again once a sign-out fails and the uploads carry on', async () => {

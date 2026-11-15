@@ -161,11 +161,24 @@ export const refresh: Handler = async (request, {config, store}) => {
 };
 
 /**
+ * The header naming the user a tab believes is signed in, percent-encoded so any username is a valid
+ * header value. It is consumed here and never forwarded.
+ */
+export const TAB_USER_HEADER = 'x-dq-user';
+
+/**
  * `/api/<rest>`: the API's same-origin pass-through.
  *
- * For an unsafe method the order is `Origin`, then the declared length, then the session, then the
- * body, so neither a forged request nor an oversized one costs a store read, and no body is read
- * for a caller who may not send one.
+ * For an unsafe method the order is `Origin`, then the declared length, then the tab's user, then the
+ * session, then the body, so neither a forged request nor an oversized one costs a store read, and no
+ * body is read for a caller who may not send one.
+ *
+ * One cookie serves the whole browser, so a tab whose user signed out while another signed in would
+ * otherwise act as the newcomer under the old name. The tab names its user, and a request naming
+ * nobody or someone else is refused before it reaches the API. A missing name is refused rather than
+ * waved through, because a tab sends none exactly while its user is being cleared or not yet known, and
+ * a required custom header also refuses a cross-site navigation into `/api/`, which `SameSite=Lax`
+ * admits.
  */
 export const api: Handler = async (request, {config, store}) => {
   const target = apiTarget(config.apiOrigin, request.url);
@@ -173,10 +186,13 @@ export const api: Handler = async (request, {config, store}) => {
   const unsafe = !isSafeMethod(request.method);
   if (unsafe && !fromThePortal(request, config.portalOrigin)) return refusal('AccessDenied', requestIdOf(request));
   if (declaresTooMuch(request)) return refusal('PayloadTooLarge', requestIdOf(request));
+  const tabUser = request.headers.get(TAB_USER_HEADER);
+  if (!tabUser) return refusal('SessionExpired', requestIdOf(request));
 
   const loaded = await loadSession(store, config, readCookie(request, SESSION_COOKIE), {forceRefresh: false});
   if (loaded.status === 'absent') return refusal('SessionExpired', requestIdOf(request));
   if (loaded.status === 'unavailable') return refusal('ApiUnavailable', requestIdOf(request));
+  if (tabUser !== encodeURIComponent(loaded.user.username)) return refusal('SessionExpired', requestIdOf(request));
 
   let body: Uint8Array<ArrayBuffer> | undefined;
   if (request.method !== 'GET' && request.method !== 'HEAD') {

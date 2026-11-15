@@ -23,6 +23,11 @@ output "cognito_server_client_id" {
   value       = module.auth.server_client_id
 }
 
+output "cognito_dev_client_id" {
+  description = "The local-development app client ID. The deploy ensures its Managed Login branding beside the other clients'."
+  value       = module.auth.dev_client_id
+}
+
 output "cognito_domain" {
   description = "Cognito Hosted UI domain. Set VITE_COGNITO_DOMAIN to this value."
   value       = module.auth.user_pool_domain

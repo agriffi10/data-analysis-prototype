@@ -3,17 +3,11 @@ import {
   apiRequest,
   apiRetryPolicy,
   resetApiClientForTests,
-  setAuthTokenProvider,
-  setUnauthenticatedHandler,
-  API_FUNCTION_TIMEOUT_SECONDS,
-  API_GATEWAY_INTEGRATION_CEILING_SECONDS,
-  TIMEOUT_MS
+  setSignedInUser,
+  setUnauthenticatedHandler
 } from './apiClient';
 import {API_ROUTES} from '../types/apiContract.generated';
 import {toUserText} from './errorMessages';
-import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
-
-const ORIGIN = 'https://api.example.test';
 
 const fetchMock = vi.fn();
 
@@ -39,14 +33,12 @@ function opaque(status: number): Response {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
-  seedRuntimeConfig({apiBaseUrl: ORIGIN});
-  setAuthTokenProvider(async () => 'a-token');
+  setSignedInUser('ana maría');
 });
 
 afterEach(() => {
   fetchMock.mockReset();
   resetApiClientForTests();
-  clearRuntimeConfig();
   vi.unstubAllGlobals();
 });
 
@@ -58,20 +50,21 @@ describe('apiRequest — the call it makes', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${ORIGIN}${API_ROUTES['userDirectory.get'].path}`);
+    expect(url).toBe(`/api${API_ROUTES['userDirectory.get'].path}`);
     expect(init.method).toBe('GET');
   });
 
-  it('sends the bearer, a request id, and no cookie', async () => {
+  it("sends this origin's cookie, the tab's user and a request id, and no bearer", async () => {
     fetchMock.mockResolvedValue(json(200, {}));
 
     await apiRequest('userDirectory.get');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0][1];
-    expect(init.headers.authorization).toBe('Bearer a-token');
+    expect(init.credentials).toBe('same-origin');
+    expect(init.headers['x-dq-user']).toBe('ana%20mar%C3%ADa');
     expect(init.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
-    expect(init.credentials).toBe('omit');
+    expect(init.headers).not.toHaveProperty('authorization');
   });
 
   it('sends no content-type when there is no body', async () => {
@@ -85,68 +78,43 @@ describe('apiRequest — the call it makes', () => {
   });
 });
 
-describe('apiRequest — no session', () => {
-  it('returns SessionExpired and issues ZERO requests with no provider registered', async () => {
-    resetApiClientForTests();
+describe('apiRequest — no user held', () => {
+  it('returns SessionExpired and issues ZERO requests, and calls no handler', async () => {
+    const handler = vi.fn();
+    setUnauthenticatedHandler(handler);
+    setSignedInUser(null);
 
     const result = await apiRequest('userDirectory.get');
 
     expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 });
 
 describe('apiRequest — the 401 path', () => {
-  it('refreshes once and retries once: a 401 then a 200 is exactly TWO requests', async () => {
-    // Typed rather than bare: the arity is what the assertion below reads, and an inferred
-    // zero-argument mock makes `calls[0][0]` a type error rather than a `false`.
-    const provider = vi.fn(async (forceRefresh: boolean) => (forceRefresh ? 'a-token' : 'a-token'));
-    setAuthTokenProvider(provider);
-    fetchMock
-      .mockResolvedValueOnce(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}))
-      .mockResolvedValueOnce(json(200, {usernames: ['alice'], generatedAt: null}));
-
-    const result = await apiRequest('userDirectory.get');
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(provider.mock.calls.map(([forced]) => forced)).toEqual([false, true]);
-    expect(result).toMatchObject({success: true});
-  });
-
-  it('a 401 that SURVIVES the retry is exactly two requests, never a third', async () => {
-    // A refresh loop against a dead refresh token is invisible in a passing test and obvious in
-    // a network panel, so the count is the assertion.
-    fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
-
-    const result = await apiRequest('userDirectory.get');
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
-  });
-
-  it('invokes the unauthenticated handler ONLY after the retry has failed', async () => {
+  it('is ONE request, one call of the handler, and SessionExpired, because the server already refreshed', async () => {
     const handler = vi.fn();
     setUnauthenticatedHandler(handler);
-    fetchMock
-      .mockResolvedValueOnce(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}))
-      .mockResolvedValueOnce(json(200, {}));
-
-    await apiRequest('userDirectory.get');
-    expect(handler).not.toHaveBeenCalled();
-
     fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
-    await apiRequest('userDirectory.get');
+
+    const result = await apiRequest('userDirectory.get');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
   });
 });
 
 describe('apiRequest — the retry rule', () => {
   it.each([
-    ['a 429', json(429, {error: {code: 'RateLimited', requestId: 'r'}})],
-    ['a 503', json(503, {error: {code: 'ApiUnavailable', requestId: 'r'}})],
-    ['a 500', json(500, {error: {code: 'InternalError', requestId: 'r'}})]
-  ])('issues exactly one request for %s', async (_label, response) => {
-    fetchMock.mockResolvedValue(response);
+    ['a 429', () => fetchMock.mockResolvedValue(json(429, {error: {code: 'RateLimited', requestId: 'r'}}))],
+    ['a 503', () => fetchMock.mockResolvedValue(json(503, {error: {code: 'ApiUnavailable', requestId: 'r'}}))],
+    ['a 500', () => fetchMock.mockResolvedValue(json(500, {error: {code: 'InternalError', requestId: 'r'}}))],
+    ['a timeout', () => fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}))],
+    ['a network failure', () => fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))]
+  ])('issues exactly one request for %s', async (_label, respond) => {
+    respond();
 
     await apiRequest('userDirectory.get');
 
@@ -234,15 +202,6 @@ describe('apiRequest — the wording boundary', () => {
 });
 
 describe('the timeout', () => {
-  it('sits above the FUNCTION timeout, so the server always gives up first', () => {
-    // Pinned against the constants rather than against a number: a client that aborts first
-    // cancels requests the server then completes, which for a write is a mutation the user
-    // believes failed.
-    expect(API_FUNCTION_TIMEOUT_SECONDS).toBeLessThan(API_GATEWAY_INTEGRATION_CEILING_SECONDS);
-    expect(TIMEOUT_MS).toBeGreaterThan(API_FUNCTION_TIMEOUT_SECONDS * 1000);
-    expect(TIMEOUT_MS).toBe(API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000);
-  });
-
   it('produces RequestTimeout when the request is aborted', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
 
@@ -255,7 +214,7 @@ describe('the timeout', () => {
     const controller = new AbortController();
     // Modelled on the real thing: `fetch` rejects IMMEDIATELY for a signal that is already
     // aborted, and only listens otherwise. A mock that merely listened would hang here — which
-    // is exactly the window the client has to handle, since the token is awaited first.
+    // is a window the client has to handle, for a signal aborted before the request starts.
     fetchMock.mockImplementation((_url: string, init: RequestInit) => {
       const abortError = () => Object.assign(new Error('aborted'), {name: 'AbortError'});
       if (init.signal?.aborted) return Promise.reject(abortError());
@@ -278,7 +237,7 @@ describe('apiRequest — path parameters', () => {
     await apiRequest('athena.stop', {params: {queryExecutionId: 'abc-123'}});
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/abc-123/stop`);
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/v1/queries/abc-123/stop`);
   });
 
   it('encodes each segment, because the gateway hands the server a DECODED path', async () => {
@@ -290,7 +249,7 @@ describe('apiRequest — path parameters', () => {
     await apiRequest('athena.stop', {params: {queryExecutionId: 'a b%c'}});
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/a%20b%25c/stop`);
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/v1/queries/a%20b%25c/stop`);
   });
 
   it.each([
@@ -347,7 +306,7 @@ describe('apiRequest — path parameters', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const url = new URL(fetchMock.mock.calls[0][0]);
+    const url = new URL(fetchMock.mock.calls[0][0], window.location.origin);
     expect(url.searchParams.get('nextToken')).toBe(awkward);
     expect(url.search).toContain('a%2Bb%2Fc%3D%3D');
   });

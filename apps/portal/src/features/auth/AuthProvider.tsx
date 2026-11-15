@@ -1,119 +1,119 @@
-import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
-import {Hub} from 'aws-amplify/utils';
+import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {AuthContext} from './authContext';
-import {ALREADY_AUTHENTICATED, getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
-import {isAmplifyConfigured} from '../../lib/amplify';
+import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
+import {setSignedInUser, setUnauthenticatedHandler} from '../../lib/apiClient';
+import {reloadDocument} from '../../lib/documentNavigation';
 import {armLeaveGuard, disarmLeaveGuard} from '../../lib/leaveGuard';
 import {toUserText} from '../../lib/errorMessages';
-import {setReturnPathIfAbsent} from '../../lib/returnPath';
 import type {AuthStatus, AuthUser} from './auth.types';
+import type {ServiceResult} from '../../types/service.types';
+
+/** The parameter the server's callback adds to the landing page when a sign-in did not complete. */
+const SIGNIN_PARAM = 'signin';
+
+/** What the landing page says when it does. */
+const SIGNIN_FAILED = 'Sign-in failed or was cancelled.';
 
 /**
- * Provides auth state (status/user/error) and the sign-in/up/out actions via
- * AuthContext, deriving state from the Amplify session and Hub auth events.
+ * The landing page's address without the sign-in report, when it carries one.
+ *
+ * @returns The address to replace it with, or undefined when there is no report to show.
+ */
+function withoutSigninFailure(): string | undefined {
+  const url = new URL(window.location.href);
+  if (url.pathname !== '/' || url.searchParams.get(SIGNIN_PARAM) !== 'failed') return undefined;
+  url.searchParams.delete(SIGNIN_PARAM);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+/**
+ * Provides auth state (status/user/error) and the sign-in/up/out actions via AuthContext, from the
+ * portal server's session.
+ *
+ * One session covers the browser, so this provider also decides what a tab does when the server
+ * answers 401 under a page: the session is gone, or the browser's cookie now belongs to someone who
+ * signed in in another tab.
  */
 export function AuthProvider({children}: {children: ReactNode}) {
-  // Read ONCE per mount, not per render: the answer cannot change while the app is
-  // running (the runtime document resolves before the first render), and the two
-  // useState initialisers plus the effect below must agree on one value.
-  const [configured] = useState(() => isAmplifyConfigured());
-  // Initial state is derived from config rather than set in an effect: when Cognito
-  // isn't configured we start unauthenticated with a non-blocking error; the file
-  // browser stays usable.
-  const [status, setStatus] = useState<AuthStatus>(configured ? 'loading' : 'unauthenticated');
+  const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [error, setError] = useState<string | null>(configured ? null : toUserText({code: 'RuntimeConfigUnavailable'}));
+  // A sign-in the server's callback reported as failed shows from the first render.
+  const [error, setError] = useState<string | null>(() =>
+    withoutSigninFailure() === undefined ? null : SIGNIN_FAILED
+  );
+  // The user this tab holds, read by the 401 handler, which outlives any one render.
+  const held = useRef<string | null>(null);
 
-  // Derive auth state from the current Amplify session.
-  const refresh = useCallback(async () => {
-    const result = await getCurrentAuthUser();
-    if (result.success) {
-      setUser(result.data);
-      setStatus('authenticated');
-    } else {
-      setUser(null);
-      setStatus('unauthenticated');
-    }
+  /** Publish a user, or none, telling the API client FIRST so a query the change starts sees it. */
+  const publish = useCallback((next: AuthUser | null) => {
+    held.current = next?.username ?? null;
+    setSignedInUser(held.current);
+    setUser(next);
+    setStatus(next ? 'authenticated' : 'unauthenticated');
   }, []);
 
   useEffect(() => {
-    // Initial not-configured state is set above; nothing to subscribe to.
-    if (!configured) return;
-
-    // Restore session on load (also handles the post-redirect callback once
-    // Amplify has exchanged the auth code and emitted `signedIn`). Wrapped in an
-    // async IIFE: state updates happen after the await, not synchronously.
+    let current = true;
+    // The report leaves the address with a replace, so a reload does not show it again. The history
+    // entry's state is kept, because the navigation seam keys its entries there.
+    const cleaned = withoutSigninFailure();
+    if (cleaned !== undefined) window.history.replaceState(window.history.state, '', cleaned);
     void (async () => {
-      await refresh();
-    })();
-
-    const unsubscribe = Hub.listen('auth', ({payload}) => {
-      switch (payload.event) {
-        // `signedIn` covers SRP/programmatic sign-in. `signInWithRedirect` fires
-        // once Amplify v6 finishes the Hosted-UI OAuth code exchange — the mount
-        // refresh runs before the exchange completes, so without handling it the
-        // user appears signed out until a second sign-in.
-        case 'signedIn':
-        case 'signInWithRedirect':
-          setError(null);
-          void refresh();
-          break;
-        case 'signedOut':
-          setUser(null);
-          setStatus('unauthenticated');
-          break;
-        case 'signInWithRedirect_failure':
-          setUser(null);
-          setStatus('unauthenticated');
-          setError('Sign-in failed or was cancelled.');
-          break;
-      }
-    });
-
-    return unsubscribe;
-  }, [configured, refresh]);
-
-  // A Sign-in control is only rendered while we believe the user is signed out, but
-  // that belief can disagree with Amplify — a transient `getCurrentUser()` failure
-  // leaves `status` unauthenticated over a live session. Amplify then refuses to
-  // redirect and throws `UserAlreadyAuthenticatedException`, so the click produced a
-  // swallowed error and no visible effect: setting an error would put a failure banner
-  // over what is really a live session. Treat it as what it is —
-  // already signed in — and re-derive state, which flips the UI to its authenticated
-  // form and lets the pending return path route the user on.
-  const recoverIfAlreadySignedIn = useCallback(
-    async (result: Awaited<ReturnType<typeof startSignIn>>) => {
-      if (result.success) return;
-      if (result.error.code === ALREADY_AUTHENTICATED) {
-        await refresh();
+      const result = await getCurrentAuthUser();
+      if (!current) return;
+      if (result.success) {
+        publish(result.data);
         return;
       }
-      // Map to friendly text here (the code is in scope) so the Header banner
-      // never shows the raw Cognito message.
-      setError(toUserText(result.error));
-    },
-    [refresh]
-  );
+      publish(null);
+      if (result.error.code === 'ApiUnavailable') setError(toUserText(result.error));
+    })();
+    return () => {
+      current = false;
+    };
+  }, [publish]);
 
-  const signIn = useCallback(async () => {
-    setError(null);
-    // Default the post-auth landing to /files without clobbering a specific
-    // protected path the auth gate may have captured.
-    setReturnPathIfAbsent('/files');
-    await recoverIfAlreadySignedIn(await startSignIn());
-  }, [recoverIfAlreadySignedIn]);
+  useEffect(() => {
+    // One re-read at a time, however many 401s arrive while it runs.
+    let rereading: Promise<void> | undefined;
+    const reread = async () => {
+      const result = await getCurrentAuthUser();
+      if (!result.success) {
+        // Signed out in local state only. No sign-out request and no logout navigation: by now the
+        // cookie may belong to someone who signed in in another tab, and a logout sent on it would
+        // end their session. The auth gate records this page, so the landing page's sign-in returns
+        // here. A fault is not a sign-out, so it changes nothing.
+        if (result.error.code === 'SessionExpired') publish(null);
+        return;
+      }
+      if (result.data.username === held.current) return;
+      // Another user signed in on this browser. Drop this page outright, so one person's page never
+      // acts as another's, and so an upload's leave prompt cannot hold the stale page open.
+      disarmLeaveGuard();
+      reloadDocument();
+    };
+    setUnauthenticatedHandler(() => {
+      rereading ??= reread().finally(() => {
+        rereading = undefined;
+      });
+    });
+    return () => setUnauthenticatedHandler(undefined);
+  }, [publish]);
 
-  const signUp = useCallback(async () => {
+  /** Begin a sign-in or a sign-up, showing why it could not start. */
+  const begin = useCallback(async (start: () => Promise<ServiceResult<void>>) => {
     setError(null);
-    setReturnPathIfAbsent('/files');
-    await recoverIfAlreadySignedIn(await startSignUp());
-  }, [recoverIfAlreadySignedIn]);
+    const result = await start();
+    if (!result.success) setError(toUserText(result.error));
+  }, []);
+
+  const signIn = useCallback(() => begin(startSignIn), [begin]);
+  const signUp = useCallback(() => begin(startSignUp), [begin]);
 
   const signOut = useCallback(async () => {
     setError(null);
-    // Synchronously, before the provider's sign-out starts: it moves the document to the logout
-    // page in the same task that announces the signed-out status, before the shell unmounts, and a
-    // deliberate sign-out asks nothing.
+    // Synchronously, before the sign-out starts: it moves the document to the provider's logout page,
+    // and a deliberate sign-out asks nothing.
     disarmLeaveGuard();
     const result = await startSignOut();
     if (!result.success) {

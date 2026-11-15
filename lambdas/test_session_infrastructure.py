@@ -86,14 +86,20 @@ def test_the_key_names_only_the_account_and_the_table_is_encrypted_with_it() -> 
     assert _argument(table, "deletion_protection_enabled") == "true"
 
 
-def test_the_server_client_mirrors_the_spa_client_and_differs_only_where_it_must() -> None:
-    """A setting the server client does not share changes what its tokens carry or allow."""
-    clients = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")
-    spa, server = clients["spa"], clients["server"]
+def test_the_server_and_dev_clients_mirror_the_spa_client_and_differ_only_where_they_must() -> None:
+    """A setting a client does not share changes what its tokens carry or allow.
 
-    for setting in MIRRORED:
-        assert _argument(server, setting) == _argument(spa, setting), f"{setting} differs"
-    for client in (spa, server):
+    The dev client is the server client with a localhost callback: a laptop signs in through the same
+    routes, so any other difference is a sign-in that works in one place and not the other.
+    """
+    clients = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")
+    assert set(clients) == {"spa", "server", "dev"}, f"the clients are {sorted(clients)}"
+    spa, server, dev = clients["spa"], clients["server"], clients["dev"]
+
+    for confidential in (server, dev):
+        for setting in MIRRORED:
+            assert _argument(confidential, setting) == _argument(spa, setting), f"{setting} differs"
+    for client in (spa, server, dev):
         assert "read_attributes" not in client and "write_attributes" not in client, (
             "an attribute list that omits a custom:shared_space_k slot drops that claim"
         )
@@ -103,6 +109,58 @@ def test_the_server_client_mirrors_the_spa_client_and_differs_only_where_it_must
     assert _argument(server, "logout_urls") == "[var.spa_origin]"
     assert _argument(server, "enable_token_revocation") == "true"
     assert re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', server)
+
+    def without_urls(body: str) -> str:
+        code = re.sub(r"^\s*#.*$", "", body, flags=re.MULTILINE)
+        return " ".join(re.sub(r"^\s*(name|callback_urls|logout_urls)\s*=.*$", "", code, flags=re.MULTILINE).split())
+
+    assert without_urls(dev) == without_urls(server), "the dev client differs from the server client beyond its URLs"
+    assert _argument(dev, "callback_urls") == '["${var.dev_origin}/auth/callback"]'
+    assert _argument(dev, "logout_urls") == "[var.dev_origin]"
+    assert "localhost" not in server, "the server client names localhost"
+    assert '"http://localhost:5173"' in AUTH.read_text().split("callback_urls = distinct(")[1].split(")")[0], (
+        "the public client loses localhost only when the merge that retires it lands"
+    )
+    assert re.search(r'^\s*dev_origin\s*=\s*"http://localhost:5173"\s*$', ROOT_MAIN.read_text(), re.MULTILINE)
+
+
+def test_the_dev_parameter_is_the_task_environment_with_the_dev_client() -> None:
+    """A local server rendered from other values than the task's works on a laptop and nowhere else.
+
+    Both sides must be built from the same locals, so a literal on either side fails here: the root
+    local that becomes the parameter, and the spa module call that becomes the task definition.
+    """
+    root = ROOT_MAIN.read_text()
+    local = re.search(r"^\s*dev_session_environment = merge\((.*?)^\s*\)$", root, re.MULTILINE | re.DOTALL)
+    assert local, "root no longer builds dev_session_environment with merge()"
+    body = local.group(1)
+    for source in ("local.spa_runtime_config", "local.csp_connect_src", "local.session_environment", "local.dev_origin"):
+        assert source in body, f"the dev environment is not built from {source}"
+    assert re.findall(r'"[^"]*"', body) == ['"CONFIG_${key}"', '"OIDC_CLIENT_ID"'], (
+        "the dev environment names a literal value"
+    )
+    assert re.search(r'"CONFIG_\$\{key\}"', (SPA / "ecs.tf").read_text()), "the task renders CONFIG_ keys some other way"
+
+    spa_call = module_calls(root)["spa"]
+    for argument, source in (
+        ("runtime_config", "local.spa_runtime_config"),
+        ("csp_connect_src", "local.csp_connect_src"),
+        ("session_environment", "local.session_environment"),
+    ):
+        assert re.search(rf"^\s*{argument}\s*=\s*{re.escape(source)}\s*$", spa_call, re.MULTILINE), (
+            f"the task definition's {argument} is not {source}"
+        )
+
+    parameter = blocks(AUTH.read_text(), "aws_ssm_parameter")["dev_session_environment"]
+    assert _argument(parameter, "type") == '"SecureString"'
+    assert " ".join(parameter.split()).count("jsonencode(merge(var.dev_session_environment, {") == 1
+    added = re.findall(r"^\s*([A-Z_]+)\s*=\s*(\S+)$", parameter, re.MULTILINE)
+    assert added == [
+        ("OIDC_CLIENT_ID", "aws_cognito_user_pool_client.dev.id"),
+        ("OIDC_CLIENT_SECRET", "aws_cognito_user_pool_client.dev.client_secret"),
+    ]
+    for path in (AUTH_OUTPUTS, ROOT_OUTPUTS):
+        assert "dev_session_environment" not in path.read_text(), f"{path.name} exposes the dev parameter"
 
 
 def test_every_rotation_block_states_its_grace_period() -> None:
@@ -182,8 +240,9 @@ def test_the_deploy_brands_every_app_client() -> None:
 
     declared = set(output_blocks(ROOT_OUTPUTS.read_text()))
     clients = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")
-    assert named == ["cognito_user_pool_client_id", "cognito_server_client_id"]
-    assert set(named) <= declared, f"the step reads outputs that do not exist: {set(named) - declared}"
+    assert named == ["cognito_user_pool_client_id", "cognito_server_client_id", "cognito_dev_client_id"]
+    read = set(re.findall(r"tofu output -raw ([a-z_]+)", branding["run"])) | set(named)
+    assert read <= declared, f"the step reads outputs that do not exist: {read - declared}"
     assert len(named) == len(clients), f"{len(clients)} clients exist and {len(named)} are branded"
 
 
@@ -205,12 +264,14 @@ def test_the_names_root_builds_are_the_names_the_deploy_grant_admits() -> None:
 
     table = local("session_table_name")
     parameter = local("client_secret_parameter_name")
+    dev_parameter = local("dev_session_parameter_name")
     alias = resolve(re.search(r'key_alias\s*=\s*"([^"]+)"', (INFRA / "modules" / "session-store" / "names.tf").read_text()).group(1))
     patterns = [resolve(p) for p in re.findall(r'"(arn:aws:[^"]+)"', grant)]
 
     for arn in (
         f"arn:aws:dynamodb:us-east-1:111122223333:table/{table}",
         f"arn:aws:ssm:us-east-1:111122223333:parameter{parameter}",
+        f"arn:aws:ssm:us-east-1:111122223333:parameter{dev_parameter}",
         f"arn:aws:kms:us-east-1:111122223333:{alias}",
     ):
         assert any(fnmatch.fnmatchcase(arn, pattern) for pattern in patterns), f"no deploy grant admits {arn}"

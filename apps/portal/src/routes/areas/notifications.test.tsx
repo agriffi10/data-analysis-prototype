@@ -11,9 +11,6 @@ vi.mock('../../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn(),
   enqueueNotificationAction: vi.fn()
 }));
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 // The report, standing in for the page a notification links to: it shows the params it was
 // reached with, which is what the link decides. Its services are not this file's subject.
 vi.mock('../DataQualityReportPage', async () => {

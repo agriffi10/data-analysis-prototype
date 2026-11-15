@@ -1,13 +1,9 @@
 import {screen} from '@testing-library/react';
-import {describe, expect, it, vi} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {useLocation, useNavigate} from '../lib/navigation';
 import {renderApp} from './appRouter';
 import {authenticated} from './authFixtures';
 import {renderWithProviders} from './renderWithProviders';
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 /** A component that navigates with the seam, and says where it is. */
 function GoesToHelp() {

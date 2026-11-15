@@ -19,7 +19,7 @@ const AWS_SDK_IMPORTS = {
   group: ['@aws-sdk/*', '@aws-sdk/**'],
   message:
     'The browser makes no AWS calls. Go through the API — lib/apiClient.ts — or, for bytes, a ' +
-    'presigned URL the API minted. aws-amplify is unaffected.'
+    'presigned URL the API minted.'
 };
 
 // The server's one AWS client, and the only exception to the ban. The session store lives on the

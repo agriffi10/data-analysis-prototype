@@ -31,10 +31,15 @@
 #
 # USAGE
 #   1. Sign in to the portal in a browser as the account you want to act as.
-#   2. Copy its ID token out of local storage into /tmp/idtoken (no trailing newline):
-#        JSON.parse(Object.entries(localStorage).find(([k]) => k.endsWith('.idToken'))[1])
-#      or, if Amplify stores it under a keyed entry:
-#        localStorage.getItem(Object.keys(localStorage).find(k => k.includes('idToken')))
+#   2. Copy its ID token into /tmp/idtoken (no trailing newline). Since SPEC-262 the browser holds no
+#      token: the portal server keeps it in the session store. Load any portal page first, so the
+#      server refreshes a token near expiry, copy the __Host-dq_session cookie's value from the
+#      browser's developer tools, and read the item it names:
+#        COOKIE='<the cookie value>'
+#        PK="session#$(printf %s "$COOKIE" | shasum -a 256 | cut -d' ' -f1)"
+#        aws dynamodb get-item --table-name dat-prod-sessions --consistent-read \
+#          --key "{\"pk\":{\"S\":\"$PK\"}}" --projection-expression idToken \
+#          --query Item.idToken.S --output text | tr -d '\n' > /tmp/idtoken
 #   3. USERNAME=alice ./file-ops-plane.sh
 #
 # The token is read, never minted: the plane verifies it offline against the pool's JWKS, and a

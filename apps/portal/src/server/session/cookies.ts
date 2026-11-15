@@ -1,11 +1,19 @@
 import 'server-only';
 import type {SignInTransaction} from './session.types';
 
+/**
+ * Whether this is `next dev`, which serves plain `http://localhost`. A `__Host-` cookie needs `Secure`,
+ * which a browser honours over plain http only through its own localhost exception, so the dev server
+ * names its cookies without the prefix and sets them without `Secure`. A built server always runs with
+ * `NODE_ENV` set to `production`, and the test runner with `test`, so both take the prefixed names.
+ */
+const DEVELOPMENT = process.env.NODE_ENV === 'development';
+
 /** The session cookie: an opaque id, for the life of the browser session. */
-export const SESSION_COOKIE = '__Host-dq_session';
+export const SESSION_COOKIE = DEVELOPMENT ? 'dq_session' : '__Host-dq_session';
 
 /** The sign-in transaction, from `/auth/login` to `/auth/callback`. */
-export const SIGNIN_COOKIE = '__Host-dq_signin';
+export const SIGNIN_COOKIE = DEVELOPMENT ? 'dq_signin' : '__Host-dq_signin';
 
 /**
  * An hour, because a sign-up or a password reset in Managed Login waits on an emailed code, and a
@@ -15,9 +23,10 @@ export const SIGNIN_MAX_AGE_SECONDS = 3600;
 
 /**
  * The attributes both cookies share. `__Host-` requires `Secure` and `Path=/` and forbids `Domain`,
- * which is what stops a sibling subdomain or the network planting either cookie.
+ * which is what stops a sibling subdomain or the network planting either cookie. The dev server's
+ * unprefixed cookies drop `Secure` and nothing else.
  */
-const ATTRIBUTES = 'Path=/; Secure; HttpOnly; SameSite=Lax';
+const ATTRIBUTES = DEVELOPMENT ? 'Path=/; HttpOnly; SameSite=Lax' : 'Path=/; Secure; HttpOnly; SameSite=Lax';
 
 /**
  * The session cookie's `Set-Cookie` value. No `Max-Age`: one sign-in covers the browser session, and

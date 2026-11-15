@@ -80,3 +80,23 @@ variable "client_secret_parameter_name" {
   description = "The SSM parameter the server client's secret is written to. Named at root, which also builds its ARN for the task's execution role from the same string, so the two cannot disagree."
   type        = string
 }
+
+variable "dev_origin" {
+  description = "The origin `npm run dev` serves on. The dev client's one callback and one sign-out URL are built from it, and no other client names it."
+  type        = string
+}
+
+variable "dev_session_parameter_name" {
+  description = "The SSM parameter holding every variable a local portal server needs, the dev client's secret included. Named at root beside the server secret's, under the path the deploy role's grant admits."
+  type        = string
+}
+
+variable "dev_session_environment" {
+  description = "What a local server reads, built at root from the same locals as the task definition's environment, with the dev origin as PORTAL_ORIGIN. The dev client's id and secret are added here, where the client is; no other value may be."
+  type        = map(string)
+
+  validation {
+    condition     = !contains(keys(var.dev_session_environment), "OIDC_CLIENT_ID") && !contains(keys(var.dev_session_environment), "OIDC_CLIENT_SECRET")
+    error_message = "dev_session_environment may not name the client; the module adds the dev client's own id and secret."
+  }
+}

@@ -24,9 +24,6 @@ import type {AreaName, AreaRouter} from './areas';
  * seam told it on each commit, so a scenario reads the same whichever router serves the page.
  */
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 vi.mock('../../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})

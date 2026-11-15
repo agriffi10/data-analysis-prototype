@@ -1,5 +1,4 @@
 import {useEffect, useState, type ComponentType, type ReactNode} from 'react';
-import {configureAmplify} from './lib/amplify';
 import {loadRuntimeConfig} from './lib/runtimeConfig';
 import {BootFailure} from './components/BootFailure';
 
@@ -16,13 +15,13 @@ type Booted = {kind: 'frame'; Frame: ComponentType<{children: ReactNode}>} | {ki
  * The one boot in flight, shared by every mount.
  *
  * React's development build runs an effect twice on mount; a second load would fetch the document
- * and configure Amplify again. Keyed to the module, so a remount in the same page reuses the result
+ * again. Keyed to the module, so a remount in the same page reuses the result
  * instead of booting twice.
  */
 let booting: Promise<Booted> | undefined;
 
 /**
- * Load the configuration, configure Amplify, then import the frame: in that order, once.
+ * Load the configuration, then import the frame: in that order, once.
  *
  * Never rejects: every failure resolves to the boot-failure screen, after one console line naming
  * the reason and, for missing keys, their NAMES and never a value. An operator staring at a failed
@@ -38,9 +37,6 @@ async function boot(): Promise<Booted> {
     return {kind: 'failure'};
   }
   try {
-    // Before the first render, not after: a sign-in that begins against an unconfigured Amplify
-    // fails in a way a warm session never reproduces.
-    configureAmplify();
     const {AppFrame} = await import('./AppFrame');
     return {kind: 'frame', Frame: AppFrame};
   } catch (error) {

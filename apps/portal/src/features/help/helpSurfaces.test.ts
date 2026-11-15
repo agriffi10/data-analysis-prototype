@@ -64,3 +64,14 @@ describe('HELP_SURFACES', () => {
     expect(rows.filter((row) => /help panel|contextual help/i.test(row.name))).toEqual([]);
   });
 });
+
+describe('the Move between pages guide', () => {
+  it('says one sign-in covers every tab, beside the account menu that signs out', () => {
+    const guide = HELP_SECTIONS.flatMap((section) => section.guides).find(({id}) => id === 'move-between-pages');
+    const step = guide?.steps.find((text) => text.includes('<b>Sign out</b>'));
+
+    expect(step).toContain(
+      'Signing in once covers every Data Quarry tab in this browser, and <b>Sign out</b> signs out all of them.'
+    );
+  });
+});

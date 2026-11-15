@@ -13,7 +13,7 @@ export type AuthContextValue = {
   /** Last auth error, surfaced non-blockingly. */
   error: string | null;
   signIn: () => Promise<void>;
-  /** Hosted UI redirect (Amplify-managed), same flow as signIn. */
+  /** The same sign-in, whose Managed Login page links to sign-up. */
   signUp: () => Promise<void>;
   signOut: () => Promise<void>;
 };

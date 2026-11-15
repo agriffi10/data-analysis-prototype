@@ -1,16 +1,19 @@
 ---
 type: Decision
 title: "`apiRequest` retries nothing, and idempotency is declared per route (SPEC-197)"
-description: "**Browser-side, `apiRequest` retries NOTHING**, with one exception: a 401 takes one forced refresh and one retry — the browser's only refresh path, so deleting it signs everyone out at the hour mark with a green suite. Idempotency is declared **per route**, never derived from the method, and a path parameter that is not **one segment** is **refused in the browser** — either spelling would otherwise reach a **sibling route answering 200 with the wrong shape**."
+description: "**Browser-side, `apiRequest` retries NOTHING, under any status**: a 401 is one request, one call of the unauthenticated handler and `SessionExpired`, because the portal server's `/api/` route refreshes the token before it forwards. Idempotency is declared **per route**, never derived from the method, and a path parameter that is not **one segment** is **refused in the browser**. **The client's 50-second timeout sits above the server's worst path**, held by a test that sums the server's own constants."
 ---
 
-Zero retries under every condition — a timeout, a 429, a 503, a network failure — asserted as a
-`fetch` call count of exactly one. Retrying a 429 amplifies the condition that caused it.
+Zero retries under every condition — a 401, a timeout, a 429, a 503, a network failure — asserted as
+a `fetch` call count of exactly one. Retrying a 429 amplifies the condition that caused it.
 
-**Exactly one exception, and deleting it signs every user out at the hour mark with a green suite:**
-a 401 triggers one forced token refresh and one retry, and no more. That refresh is the browser's
-only token-refresh path. The test that says so is a count — a 401-then-200 sequence issues exactly
-two requests, and a 401-then-401 sequence issues exactly two as well.
+**A 401 is not retried either, since 2026-11-15.** The browser holds no token: the portal server's
+`/api/` route attaches the session's ID token and refreshes it first when it is within five minutes
+of expiry. So a 401 that reaches the browser means the session is gone or the browser's cookie now
+belongs to another user, and nothing the browser could retry would help. `apiRequest` calls the
+unauthenticated handler once and returns `SessionExpired`; what the handler does is
+`identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser`. The superseded rule gave a 401
+one forced refresh and one retry, which was then the browser's only refresh path.
 
 Whether a call may be retried *above* the client is a property of the **route**, declared in the
 contract and never derived from the method: a `POST` that resolves a free name is a read, and a `PUT`
@@ -20,13 +23,22 @@ without the test being edited. The reason it is a rule rather than a habit: a fa
 Data Explorer once issued **two** `StartQueryExecution` calls 1.1 s apart, because `retry: 1` had been
 set on something that looked like a read and was a billed, stateful action.
 
-**The client's timeout sits ABOVE the function's**, so the server always gives up first and a client
-abort always means a genuinely dead connection. A shorter client timeout aborts requests the server
-then completes, which for a write is a mutation the user believes failed. The ordering is created by
-the function's 29 s against the integration's 30 s ceiling — not, as the spec's constant name
-suggested, by a 29-second gateway timeout that does not exist.
+**The client's timeout sits ABOVE the server's worst path**, so the server always gives up first and
+a client abort always means a genuinely dead connection. A shorter client timeout aborts requests the
+server then completes, which for a write is a mutation the user believes failed. Before it forwards,
+the `/api/` route may make three store calls (the read, a refresh's compare-and-set write, and the
+re-read after losing it) and one token-endpoint call, each bounded, and then it waits 35 seconds for
+the API, which itself answers inside API Gateway's 30-second ceiling: 46 seconds in all. So
+`TIMEOUT_MS` is 50 seconds, and a test under `src/server/session/` imports the server's constants and
+fails if the client's timeout is not above their sum.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 put the browser's calls through the portal server's `/api/` route. The 401
+  retry is gone with the browser's tokens, and the timeout moved from the API's ceiling to above the
+  server's worst path.
 
 ### 2026-08-18
 

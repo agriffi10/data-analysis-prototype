@@ -8,10 +8,15 @@ import {
   startupProblems
 } from './runtimeDocument';
 
-/** Every required variable set, plus a valid source list: a server that may start. */
+/** Every required variable set, a valid source list and usable session settings: a server that may start. */
 function completeEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {PORTAL_CSP_CONNECT_SRC: "'self' https://api.portal.test"};
   for (const key of REQUIRED_CONFIG) env[`CONFIG_${key}`] = `value-of-${key}`;
+  for (const name of SESSION_VARIABLES) env[name] = `value-of-${name}`;
+  env.API_ORIGIN = 'https://api.portal.test';
+  env.OIDC_TOKEN_URL = 'https://auth.portal.test/oauth2/token';
+  env.OIDC_REVOKE_URL = 'https://auth.portal.test/oauth2/revoke';
+  env.SESSION_MAX_AGE_SECONDS = '2592000';
   return env;
 }
 
@@ -112,6 +117,32 @@ describe('the start-time refusal', () => {
     expect(lines).toContain('PORTAL_CSP_CONNECT_SRC');
     expect(lines).not.toContain('secret-looking-value');
     error.mockRestore();
+  });
+
+  it.each(SESSION_VARIABLES.map((name) => [name]))('exits 1 naming %s when that session setting is unset', (name) => {
+    const env = completeEnvironment();
+    delete env[name];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const exit = vi.fn() as unknown as (code: number) => never;
+
+    refuseToStartWithoutConfiguration(env, exit);
+
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+      `portal: refusing to start. ${name} is unset or empty.`
+    ]);
+    error.mockRestore();
+  });
+
+  it('names a session setting the routes could not use, and not its value', () => {
+    const env = completeEnvironment();
+    env.API_ORIGIN = 'http://api.portal.test';
+    env.SESSION_MAX_AGE_SECONDS = 'thirty days';
+
+    expect(startupProblems(env)).toEqual([
+      {variable: 'API_ORIGIN', reason: 'unusable'},
+      {variable: 'SESSION_MAX_AGE_SECONDS', reason: 'unusable'}
+    ]);
   });
 
   it('does not exit when the environment is complete', () => {

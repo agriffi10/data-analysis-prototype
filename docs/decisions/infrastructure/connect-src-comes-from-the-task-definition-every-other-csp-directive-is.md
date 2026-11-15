@@ -42,6 +42,8 @@ that stopped. An allowlist cannot be outflanked by a character nobody thought of
 one entry at a time as the porting specs landed and reached its end state at SPEC-202 — `'self'`,
 `cognito-idp`, the Hosted UI host, both buckets, the API — and **it did not lose the Cognito hosts**:
 Amplify runs in the browser, so the User Pool endpoint and the Hosted UI domain are still fetched from.
+*(Marked 2026-11-15: since SPEC-262 the current portal fetches neither, and only the rollback image's
+Amplify does; the merge that retires the public client narrows the list and rewrites this entry.)*
 That is the highest-consequence mistake available here, and the reason
 `lambdas/test_csp_policy.py` names those two entries separately from any set comparison: a reader
 holding the arc's end state in mind deletes them on purpose, and would then update a whole-list
