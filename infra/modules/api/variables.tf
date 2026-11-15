@@ -77,7 +77,7 @@ variable "oidc_issuer" {
 }
 
 variable "oidc_audience" {
-  description = "The app clients a token's `aud` may be one of: the SPA's and, while sign-in moves to it, the portal server's. Rendered comma-separated into OIDC_AUDIENCE, which the verifier parses back into a set."
+  description = "The app clients a token's `aud` may be one of: the portal server's and the local-development client's. Rendered comma-separated into OIDC_AUDIENCE, which the verifier parses back into a set."
   type        = list(string)
 
   validation {

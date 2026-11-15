@@ -74,8 +74,8 @@ locals {
 
   # Hosted UI domain, computed cycle-free like the names above (the auth module
   # creates the domain; mirroring its default here avoids an app->auth reference).
-  # The CSP's connect-src must allow it: Amplify's authorization-code exchange
-  # POSTs to https://<this>/oauth2/token, so without it sign-in cannot complete.
+  # The portal server sends sign-in and sign-out here and exchanges codes here; the
+  # browser only navigates to it, so it never belongs in connect-src.
   cognito_domain_prefix    = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"
   cognito_hosted_ui_domain = "${local.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
 

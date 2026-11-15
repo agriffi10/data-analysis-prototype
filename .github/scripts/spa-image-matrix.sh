@@ -23,7 +23,7 @@ BASE="http://localhost:${PORT}"
 NAME="spa-matrix"
 
 # Fixture values, chosen so a value that leaks somewhere it should not is recognisable on sight.
-CONNECT_SRC="'self' https://cognito-idp.us-east-1.amazonaws.com https://auth.fixture.test https://api.fixture.test"
+CONNECT_SRC="'self' https://fixture-user-space.s3.us-east-1.amazonaws.com https://fixture-shared-space.s3.us-east-1.amazonaws.com"
 CONNECT_SRC_ALT="'self' https://alternate.fixture.test"
 # A host that is not this deployment's, for the rows asking whether a redirect can leave the site.
 FOREIGN_HOST=elsewhere.fixture.test

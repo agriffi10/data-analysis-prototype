@@ -7,8 +7,8 @@ resource "aws_apigatewayv2_api" "api" {
   name          = local.function_name
   protocol_type = "HTTP"
 
-  # Left enabled, the API answers on execute-api.* too — a second front door outside the CSP
-  # and the alias record, making a preflight check ambiguous about what it proved.
+  # Left enabled, the API answers on execute-api.* too: a second front door outside the alias
+  # record, which a check against the alias would not cover.
   disable_execute_api_endpoint = true
 }
 
