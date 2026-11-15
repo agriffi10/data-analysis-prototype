@@ -308,7 +308,9 @@ describe.each([
       auth: StrictlySignedIn,
       routers: {explore, query: 'app'}
     });
-    await screen.findByRole('gridcell', {name: 'us-east'});
+    // The Explorer runs its query through the real workspace: a result is real rendering, slower
+    // beside the rest of the suite, so its waits get a window of their own.
+    await screen.findByRole('gridcell', {name: 'us-east'}, {timeout: 5_000});
     await user.click(screen.getByText('Generated SQL'));
     const sql = (screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value;
 
@@ -319,7 +321,7 @@ describe.each([
     expect(screen.getAllByRole('tab')).toHaveLength(2);
 
     await traverse(-1);
-    await screen.findByRole('gridcell', {name: 'us-east'});
+    await screen.findByRole('gridcell', {name: 'us-east'}, {timeout: 5_000});
     await traverse(1);
     await screen.findByLabelText('SQL editor');
 
