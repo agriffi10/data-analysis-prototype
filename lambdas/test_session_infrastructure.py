@@ -60,6 +60,26 @@ def _argument(body: str, name: str) -> str | None:
     return " ".join(match.group(1).split()) if match else None
 
 
+def _session_environment_keys() -> list[str]:
+    """Reads the variable names root's ``session_environment`` local renders into the task.
+
+    The block is read to its own closing line, not to the first ``}``: values interpolate with
+    ``${...}``, and a parse that stopped at the first brace read five of the eleven names.
+
+    Args:
+      None.
+
+    Returns:
+      The names, in the order written.
+
+    Raises:
+      AssertionError: If the local is no longer written as a block this can read.
+    """
+    block = re.search(r"^  session_environment = \{\n(.*?)^  \}$", ROOT_MAIN.read_text(), re.MULTILINE | re.DOTALL)
+    assert block, "root no longer writes session_environment as a block"
+    return re.findall(r"^\s{4}([A-Z_]+)\s*=", block.group(1), re.MULTILINE)
+
+
 def test_the_session_store_sits_outside_the_switch_and_reads_nothing_inside_it() -> None:
     """Switching the tier off must neither schedule the key for deletion nor drop every session."""
     call = module_calls(ROOT_MAIN.read_text())["session_store"]
@@ -122,6 +142,26 @@ def test_the_server_and_dev_clients_mirror_the_spa_client_and_differ_only_where_
         "the public client loses localhost only when the merge that retires it lands"
     )
     assert re.search(r'^\s*dev_origin\s*=\s*"http://localhost:5173"\s*$', ROOT_MAIN.read_text(), re.MULTILINE)
+
+
+def test_every_variable_the_server_requires_is_one_the_infrastructure_renders() -> None:
+    """A variable the start check requires and the task does not carry stops every container.
+
+    The portal refuses to start without any session variable, so a name added to the server's list and
+    not to the task definition passes every offline gate and takes the deployed portal down.
+    """
+    config = (INFRA.parent / "apps" / "portal" / "src" / "server" / "session" / "config.ts").read_text()
+    listed = re.search(r"export const SESSION_VARIABLES = \[(.*?)\] as const;", config, re.DOTALL)
+    assert listed, "the server no longer lists SESSION_VARIABLES in the form this test reads"
+    required = set(re.findall(r"'([A-Z_]+)'", listed.group(1)))
+    assert len(required) > 10, f"read only {sorted(required)}"
+
+    rendered = set(_session_environment_keys())
+    assert re.search(r'name\s*=\s*"OIDC_CLIENT_SECRET"', (SPA / "ecs.tf").read_text()), "the task no longer injects the secret"
+    assert required == rendered | {"OIDC_CLIENT_SECRET"}, (
+        f"the server requires {sorted(required - rendered - {'OIDC_CLIENT_SECRET'})} that the task does not carry, "
+        f"and the task carries {sorted(rendered - required)} that the server does not read"
+    )
 
 
 def test_the_dev_parameter_is_the_task_environment_with_the_dev_client() -> None:
@@ -206,8 +246,8 @@ def test_the_secret_reaches_the_task_only_through_ssm_and_the_execution_role() -
     assert 'strcontains(upper(key), "SECRET")' in variables and '!startswith(key, "CONFIG_")' in variables, (
         "the session environment's validation no longer refuses a secret or a CONFIG_ key"
     )
-    session_keys = re.findall(r"^\s{4}([A-Z_]+)\s*=", ROOT_MAIN.read_text().split("session_environment = {")[1].split("}")[0], re.MULTILINE)
-    assert session_keys and not [key for key in session_keys if "SECRET" in key or key.startswith("CONFIG_")]
+    session_keys = _session_environment_keys()
+    assert len(session_keys) > 10 and not [key for key in session_keys if "SECRET" in key or key.startswith("CONFIG_")]
 
     execution = json.loads((SPA / "policies" / "task-execution-policy.json.tftpl").read_text())
     def actions(statement: dict[str, object]) -> list[str]:

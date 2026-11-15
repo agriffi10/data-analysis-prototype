@@ -13,7 +13,7 @@ import {apiTarget, declaresTooMuch, forward, readBoundedBody} from './forward';
 import {authorizeUrl, exchangeCode, logoutUrl, newTransaction} from './oidc';
 import {fromThePortal, isSafeMethod} from './origin';
 import {refusal} from './refusal';
-import {createSession, endSession, isSessionId, loadSession, nowSeconds, sessionKey} from './session';
+import {createSession, discardSession, endSession, loadSession, nowSeconds} from './session';
 import type {SessionStore} from './session.types';
 import {boundedSend, dynamoSessionStore} from './store';
 
@@ -123,12 +123,9 @@ export const callback: Handler = async (request, {config, store}) => {
     console.error('session: the store did not take a new session');
     return failed(true);
   }
-  const previous = readCookie(request, SESSION_COOKIE);
-  if (isSessionId(previous)) {
-    await store
-      .delete(sessionKey(previous))
-      .catch(() => console.error('session: a replaced session could not be deleted'));
-  }
+  await discardSession(store, config, readCookie(request, SESSION_COOKIE)).catch(() =>
+    console.error('session: a replaced session could not be deleted')
+  );
   return redirect(`${config.portalOrigin}/`, [sessionCookie(sessionId), clearedCookie(SIGNIN_COOKIE)]);
 };
 

@@ -108,12 +108,14 @@ function variables(text) {
 /** The file with its block replaced, or appended when it has none. */
 function withBlock(existing, entries) {
   const block = [BEGIN, ...entries.map(([name, value]) => `${name}="${value}"`), END].join('\n');
-  const lines = existing.split('\n');
+  // Either line ending, so an editor that turned the file to CRLF does not hide the block and leave
+  // its old secret behind a second one. The file is written back with LF.
+  const lines = existing.split(/\r?\n/);
   const begins = lines.filter((line) => line === BEGIN).length;
   const ends = lines.filter((line) => line === END).length;
   if (begins !== ends || begins > 1) fail('.env.local holds a damaged generated block; delete it and run this again');
   if (begins === 0) {
-    const kept = existing.replace(/\n*$/, '');
+    const kept = lines.join('\n').replace(/\n*$/, '');
     return `${kept}${kept ? '\n\n' : ''}${block}\n`;
   }
   const from = lines.indexOf(BEGIN);

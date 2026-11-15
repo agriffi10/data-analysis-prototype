@@ -189,6 +189,30 @@ function issuedAtOf(idToken: string): number {
 }
 
 /**
+ * Delete the session a cookie names when a new sign-in replaces it, if this server created it.
+ *
+ * Its refresh token is not revoked: the sign-in that replaces it may be the same user's, in which case
+ * revoking would gain nothing. A session another client created is left alone, as a load and a sign-out
+ * leave it, so a replayed dev cookie cannot end the dev session through a production sign-in.
+ *
+ * @param store - The session store.
+ * @param config - The session configuration.
+ * @param cookieValue - The replaced session cookie's value, if any.
+ * @returns Nothing.
+ * @throws When the store does not answer; the caller logs it and carries on.
+ */
+export async function discardSession(
+  store: SessionStore,
+  config: SessionConfig,
+  cookieValue: string | undefined
+): Promise<void> {
+  if (!isSessionId(cookieValue)) return;
+  const pk = sessionKey(cookieValue);
+  const item = await store.get(pk);
+  if (item !== null && createdHere(item, config)) await store.delete(pk);
+}
+
+/**
  * End the session a cookie names: delete it, then revoke its refresh token.
  *
  * The delete comes first, so the session is over even when the revocation fails; a failed

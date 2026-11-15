@@ -73,7 +73,10 @@ describe('npm run dev:session-env', () => {
   it('writes one marked block a local server can start from, keeps other lines, and prints no value', () => {
     writeFileSync(join(dir, '.env.local'), 'KEEP_ME=kept\n', {mode: 0o644});
 
-    const runs = [run(JSON.stringify(rendered())), run(JSON.stringify(rendered()))];
+    const first = run(JSON.stringify(rendered()));
+    // An editor that turned the file to CRLF must not hide the block from the next run.
+    writeFileSync(join(dir, '.env.local'), readFileSync(join(dir, '.env.local'), 'utf8').replace(/\n/g, '\r\n'));
+    const runs = [first, run(JSON.stringify(rendered()))];
 
     for (const {status, output} of runs) {
       expect(status).toBe(0);

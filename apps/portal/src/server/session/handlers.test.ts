@@ -164,6 +164,26 @@ describe('GET /auth/callback', () => {
     expect(deps.dynamo.table.has(previous.item.pk)).toBe(false);
   });
 
+  it('leaves a replaced session in place when another client created it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => json(200, {id_token: idToken({nonce: TRANSACTION.nonce}), refresh_token: 'r'}))
+    );
+    const deps = testDeps();
+    const foreign = storedSession({idToken: idToken({aud: 'dev-client'})});
+    await deps.store.put(foreign.item);
+
+    const response = await callback(
+      request(`/auth/callback?code=c&state=${TRANSACTION.state}`, {
+        cookies: {[SIGNIN_COOKIE]: signinValue(), [SESSION_COOKIE]: foreign.cookie}
+      }),
+      deps
+    );
+
+    expect(response.headers.get('location')).toBe(`${PORTAL}/`);
+    expect(await deps.store.get(foreign.item.pk)).toEqual(foreign.item);
+  });
+
   it('builds every redirect and redirect_uri from the portal origin, whatever host the request names', async () => {
     const forged = (path: string, cookies: Record<string, string> = {}) =>
       new Request(`https://evil.example${path}`, {

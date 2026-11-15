@@ -144,6 +144,17 @@ describe('a 401 under a page', () => {
     await waitFor(() => expect(calls).toEqual(['disarm', 'reload']));
   });
 
+  it('stays signed in, and moves nowhere, when the re-read itself cannot be answered', async () => {
+    await signedInAsAlice(fail('ApiUnavailable'));
+    apiAnswers401();
+
+    await act(async () => void (await apiRequest('featureFlags.get')));
+
+    await waitFor(() => expect(mockGetUser).toHaveBeenCalledTimes(2));
+    expect(status()).toBe('authenticated');
+    expect(calls).toEqual([]);
+  });
+
   it('stays signed in when the session still names this user, and reads it once for three 401s', async () => {
     await signedInAsAlice(ok({username: 'alice'}));
     apiAnswers401();
