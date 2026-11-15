@@ -9,6 +9,10 @@ on:
   # lambdas/test_config_workflows.py fails when a run block names a file this list omits; a
   # file only a script reaches is kept here by hand: lambdas/tf_blocks.py, and
   # checkov-enforced.sh and checkov-tf-population.sh, which the Checkov corpus runs.
+  #
+  # The PUSH list is mirrored as APPLY_PATTERNS in deploy-spa-image.yml, whose run waits for this
+  # one on every push this list fires, because any apply can register a task-definition revision.
+  # lambdas/test_ci_scope.py holds the two equal; change both or neither.
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',

@@ -14,8 +14,8 @@ name: Deploy SPA image
 # it is the last commit that changed an input to the image. "Which commit is in production" is
 # still answered exactly — by the tag the service runs, which is still a commit sha and still an
 # image in the registry — it is just no longer the same answer as "the tip of main". Replayed over
-# the 40 merges before this change, running both path tests exactly as the step does: 15 would have
-# built, 4 would have waited for their apply without building, and 21 would have done neither.
+# the 40 merges before this change, 15 would have built, and the other 25 would at most have
+# re-pointed the service without building.
 #
 # THE BASELINE IS THE DEPLOYED COMMIT, never HEAD~1. A run that skips, and a run that fails, both
 # leave the next one comparing against what is still actually running — so a missed deploy heals on
@@ -25,14 +25,14 @@ name: Deploy SPA image
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
 # Terraform registers task-definition revisions of its own — the service carries
-# `ignore_changes = [task_definition]` precisely so CI owns which revision runs. A push editing
-# `infra/main.tf` or the SPA module waits for its own apply and lands on that push, bar the
-# bounds the scope step states, but a value that reaches Terraform any other way — a repository
-# variable applied by a dispatched Deploy Infrastructure, a module output, a default in
-# `variables.tf` — produces a revision nobody points the service at, and the running container
-# keeps the old value until the next push to main. And if this pipeline lands broken, the
-# registry is IMMUTABLE: the failing sha cannot be re-pushed, and no local identity may write to
-# production. A dispatch with an existing tag re-points without rebuilding.
+# `ignore_changes = [task_definition]` precisely so CI owns which revision runs. A push that
+# fires Deploy Infrastructure waits for that apply and lands on that push, bar the bounds the
+# scope step states, but a value that reaches Terraform with no push at all — a repository
+# variable applied by a dispatched Deploy Infrastructure — produces a revision nobody points the
+# service at, and the running container keeps the old value until the next push to main. And if
+# this pipeline lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed, and
+# no local identity may write to production. A dispatch with an existing tag re-points without
+# rebuilding.
 #
 # A RE-POINT AT AN OLDER TAG DOES NOT OUTLAST THE NEXT PUSH TO MAIN if anything the image reads
 # changed since that tag. That run reads the tag back as its baseline, so the commit rolled back
@@ -75,8 +75,8 @@ jobs:
     if: vars.TF_VAR_web_tier_enabled != 'false'
     runs-on: ubuntu-latest
     # The build is ~3 minutes, the matrix ~2, and `wait services-stable` caps itself at 10; a push
-    # that changed the task definition first waits up to 15 for its own apply. Forty bounds a hung
-    # run clear of that without sitting against GitHub's six-hour default.
+    # that fires an apply first waits up to 15 for it. Forty bounds a hung run clear of that
+    # without sitting against GitHub's six-hour default.
     timeout-minutes: 40
     permissions:
       id-token: write
@@ -161,18 +161,30 @@ jobs:
       # left an image unproven and main built it anyway; a miss here leaves production running the
       # old bundle behind a green deploy. Add a path to both lists or to neither.
       #
-      # THE TASK LIST DECIDES WHEN TO READ, NOT WHAT TO DO. Terraform registers task-definition
-      # revisions of its own out of `infra/main.tf` (the runtime-configuration map and the CSP) and
-      # `infra/modules/spa/` (the definition itself), and the service carries
-      # `ignore_changes = [task_definition]` precisely so nothing but this workflow points at one.
-      # Deploy Infrastructure fires on the same push with no ordering between the two, and this job
-      # reaches the family first: its first AWS read comes seconds in, while the apply starts only
-      # after the Lambda image lands. So a push touching either path waits for its own apply to
-      # FINISH, then decides from live state like any other push — the revision comparison at the
-      # end points the service at whatever the apply registered, and does nothing if it registered
-      # nothing. Re-pointing without waiting, which is what this list used to do, cloned the
-      # revision the apply was about to supersede; the register step counts keys and compares no
-      # value, so that deploy went green serving the old one.
+      # THE APPLY LIST DECIDES WHEN TO READ, NOT WHAT TO DO. Terraform registers task-definition
+      # revisions of its own, and the service carries `ignore_changes = [task_definition]`
+      # precisely so nothing but this workflow points at one. Deploy Infrastructure fires on the
+      # same push with no ordering between the two, and this job reaches the family first: its
+      # first AWS read comes seconds in, while the apply starts only after the Lambda image lands.
+      # So a push that fires an apply waits for it to FINISH, then decides from live state like
+      # any other push — the revision comparison at the end points the service at whatever the
+      # apply registered, and does nothing if it registered nothing. Re-pointing without waiting,
+      # which is what this list used to do, cloned the revision the apply was about to supersede;
+      # the register step counts keys and compares no value, so that deploy went green serving
+      # the old one.
+      #
+      # EVERY PUSH THAT FIRES AN APPLY, which is the apply workflow's own push `paths:`, and not
+      # the files that look like the definition's inputs. Any apply can register a revision: the
+      # definition renders values other modules decide — the auth module's server client id and
+      # session lifetime among them — defaults from `variables.tf`, and repository variables the
+      # apply reads whenever it runs, including one changed since the last apply. So "can this push
+      # change the definition" has no answer in the change set, and "does this push have an apply"
+      # does. A list naming only the SPA module and `infra/main.tf` let a push whose only
+      # infrastructure change was the auth module read the family before its apply, skip, and
+      # leave the revision that apply registered unpointed until a dispatch. The price is a wait of about one apply on every push
+      # that has one, most of which register nothing. A path in the apply workflow's list and not
+      # here is that miss again; a path here and not there waits the full window for a run that is
+      # never created. `lambdas/test_ci_scope.py` holds the two equal; change both or neither.
       - name: Work out whether this commit can change what is running
         id: scope
         env:
@@ -193,9 +205,24 @@ jobs:
             ^\.github/scripts/spa-image-matrix\.sh$
             ^\.github/workflows/spa-image\.yml$
             ^\.github/workflows/deploy-spa-image\.yml$
-          TASK_PATTERNS: |
-            ^infra/main\.tf$
-            ^infra/modules/spa/
+          APPLY_PATTERNS: |
+            ^infra/
+            ^\.github/workflows/deploy-infra\.yml$
+            ^\.github/scripts/checkov-scan\.sh$
+            ^\.github/scripts/checkov-scan-test\.sh$
+            ^\.github/scripts/lambda_plan_guard\.py$
+            ^\.github/scripts/tf_var_guard\.py$
+            ^\.github/scripts/summary-section\.sh$
+            ^\.github/scripts/checkov-plan-iam\.sh$
+            ^\.github/checkov-plan-accepted\.txt$
+            ^\.github/scripts/apply-gate\.sh$
+            ^\.github/scripts/checkov-enforced\.sh$
+            ^\.github/scripts/checkov-tf-population\.sh$
+            ^\.github/scripts/frozen_fleet_guard\.py$
+            ^\.github/scripts/checkov_scrub\.py$
+            ^lambdas/fixtures/pre_cutover_plan\.json$
+            ^lambdas/fleet\.py$
+            ^lambdas/tf_blocks\.py$
         run: |
           set -euo pipefail
 
@@ -285,10 +312,10 @@ jobs:
             return "$status"
           }
 
-          # THE WAIT IS A PROPERTY OF THIS PUSH, so the task-definition list is tested against this
-          # push's own change set rather than against the image's. That one is measured from the
-          # image the service runs and does NOT advance when a run only re-points, so one merge
-          # touching `infra/main.tf` would go on matching for every merge after it until the next
+          # THE WAIT IS A PROPERTY OF THIS PUSH, so the apply list is tested against this push's
+          # own change set rather than against the image's. That one is measured from the image
+          # the service runs and does NOT advance when a run only re-points, so one merge
+          # touching `infra/` would go on matching for every merge after it until the next
           # commit that builds, each holding the deploy for an apply that cannot concern it.
           # Measured when the list still re-pointed: 11 of 15 re-points were that.
           #
@@ -306,12 +333,11 @@ jobs:
           fi
           PUSHED=$(git diff -z --name-only --no-renames "$parent" HEAD | tr '\0' '\n')
 
-          # THIS PUSH'S APPLY FINISHES BEFORE ANYTHING BELOW READS AWS, when the push changed an
-          # input to the task definition; the comment above this step says why. Asked of GitHub
-          # rather than read off the family: a revision registered after this commit proves nothing,
-          # because most pushes touching these paths change nothing the definition renders, so the
-          # apply registers none, and a queued run of THIS workflow may have registered one of its
-          # own since the merge.
+          # THIS PUSH'S APPLY FINISHES BEFORE ANYTHING BELOW READS AWS, when the push has one; the
+          # comment above this step says why. Asked of GitHub rather than read off the family: a
+          # revision registered after this commit proves nothing, because most pushes touching
+          # these paths change nothing the definition renders, so the apply registers none, and a
+          # queued run of THIS workflow may have registered one of its own since the merge.
           #
           # FINISHED, NOT SUCCEEDED. A failed apply is already a red main in its own workflow, and
           # failing the wait as well would hold back an image that may not depend on it. So the wait
@@ -319,8 +345,10 @@ jobs:
           # refuses a revision missing a key. A run GitHub CANCELLED is finished too: it keeps one
           # pending run per concurrency group and cancels the older when a newer queues, in either
           # workflow, so a newer push's apply carries this change and it lands a push late — the
-          # same bound as a push of several commits, and the same when it is this workflow's own
-          # pending run that is replaced, since the wait keys on the newer push's diff. What does
+          # same bound as a push of several commits. When it is this workflow's own pending run
+          # that is replaced, the wait keys on the newer push's diff, so the change lands on the
+          # first later run that reads the family after this apply finished: the newer push's own
+          # run if that push has an apply too, and otherwise possibly a later one. What does
           # stop the run is an apply that never finishes inside the window — a dropped push event,
           # a hung apply, an answer GitHub will not give — because reading past it would deploy a
           # revision that may predate this commit behind a green check. The window is far past a
@@ -334,7 +362,7 @@ jobs:
                 || answer='unreadable'
               case "$answer" in
                 'completed success')
-                  echo "::notice title=Applied::this commit changes an input to the task definition and its $APPLY_WORKFLOW run has finished; deciding from the revision it left."
+                  echo "::notice title=Applied::this push has an apply and its $APPLY_WORKFLOW run has finished; deciding from the revision it left."
                   return 0
                   ;;
                 completed\ *)
@@ -342,13 +370,13 @@ jobs:
                   return 0
                   ;;
               esac
-              echo "this commit changes an input to the task definition; its $APPLY_WORKFLOW run is [$answer], poll $attempt of $polls"
+              echo "this push has an apply; its $APPLY_WORKFLOW run is [$answer], poll $attempt of $polls"
               sleep "$interval"
             done
-            echo "::error title=Apply not finished::this commit changes an input to the task definition, and its $APPLY_WORKFLOW run had not finished after $((polls * interval / 60)) minutes (last answer: [$answer]). Reading the family now could clone a revision the apply is about to supersede. If no run exists, GitHub dropped the push event: dispatch $APPLY_WORKFLOW, and once it has finished dispatch this workflow, which does not wait. Re-running this job instead asks the same question and gets the same answer, because a dispatched run is not a push run."
+            echo "::error title=Apply not finished::this push has an apply, and its $APPLY_WORKFLOW run had not finished after $((polls * interval / 60)) minutes (last answer: [$answer]). Reading the family now could clone a revision the apply is about to supersede. If no run exists, GitHub dropped the push event: dispatch $APPLY_WORKFLOW, and once it has finished dispatch this workflow, which does not wait. Re-running this job instead asks the same question and gets the same answer, because a dispatched run is not a push run."
             exit 1
           }
-          if matches "$TASK_PATTERNS" "$PUSHED"; then
+          if matches "$APPLY_PATTERNS" "$PUSHED"; then
             wait_for_the_apply
           fi
 
@@ -430,7 +458,7 @@ jobs:
           # THE REVISION TERRAFORM ALREADY REGISTERED. `describe-task-definition` on the FAMILY
           # answers with its newest ACTIVE revision, so a disagreement with what the service runs
           # is a revision nobody has pointed at — the state the dispatch lever used to be the only
-          # cure for. After a push that changed the task definition this is where the apply's
+          # cure for. After a push that fired an apply this is where the apply's
           # revision is picked up, because the wait above let it land first.
           # FAILS THE WAY THE OTHER TWO READS DO. Left bare this was the only AWS call in the
           # step that could kill it, and it did so with no annotation at all — so a throttle on the
@@ -575,8 +603,8 @@ jobs:
           fi
 
           # WAITS RATHER THAN FAILING ON THE FIRST READ, as the backstop to the scope step's wait.
-          # That step holds a push touching the task definition until its own apply has finished,
-          # so on that path the first read here is already after the apply. This loop covers the
+          # That step holds a push that fires an apply until that apply has finished, so on that
+          # path the first read here is already after the apply. This loop covers the
           # paths it does not hold — a dispatch made while an apply is in flight, a push of several
           # commits whose key change is not the tip — where a revision predating a key change is
           # short a key and main would go red on exactly the commits that change configuration. It

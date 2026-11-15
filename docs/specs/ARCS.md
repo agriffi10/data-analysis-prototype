@@ -2512,7 +2512,9 @@ reason it matters is measured: CachingOptimized applies its **1 s MinTTL even ag
 > container origin until SPEC-198 — expected, not a defect. Terraform registers task-definition
 > revisions the service is never pointed at (`ignore_changes = [task_definition]`), so a change to
 > the runtime-configuration map or the CSP reaches the running container only on the next push to
-> `main`, or through the deploy workflow's `workflow_dispatch`.
+> `main`, or through the deploy workflow's `workflow_dispatch`. *(Superseded 2026-11-14: a push
+> that fires Deploy Infrastructure now holds its SPA deploy until that apply has finished and lands
+> on that push; only a dispatched apply still waits for the next push.)*
 >
 > **Two traps worth carrying forward.** nginx has **no escaping mechanism**, so anything
 > interpolated into its configuration must be allowlist-validated — a quote truncated the policy
