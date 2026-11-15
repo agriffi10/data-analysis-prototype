@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /**
  * The Files view, loaded in the browser only. A page's static imports run at hydration, before
@@ -15,5 +16,6 @@ const FilesView = dynamic(() => import('../../../routes/areas/files').then((modu
  * @returns The Files view.
  */
 export default function FilesPage() {
+  usePageTitleOnMount('Files');
   return <FilesView />;
 }

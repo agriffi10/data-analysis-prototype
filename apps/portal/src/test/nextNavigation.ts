@@ -1,13 +1,23 @@
-import {useInsertionEffect, useMemo, useSyncExternalStore, type ReactNode} from 'react';
+import {
+  Fragment,
+  createElement,
+  useEffect,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode
+} from 'react';
 import {flushSync} from 'react-dom';
 import {act} from '@testing-library/react';
+import {formatPageTitle} from '../lib/formatPageTitle';
 
 /**
  * Vitest's `next/navigation`: Next's App Router modelled on jsdom's own history, so the navigation
  * seam runs in tests against the same behaviours it rests on in the browser.
  *
  * Aliased in `vite.config.ts`, so nothing imports this file by its path except the harness. Each of
- * the eight behaviours below was measured on Next 16.4.6 and has a test of its own in
+ * the nine behaviours below was measured on Next 16.4.6 and has a test of its own in
  * `nextNavigation.test.tsx`:
  *
  * 1. A router push or replace renders before it writes the address (the write is an insertion
@@ -30,6 +40,14 @@ import {act} from '@testing-library/react';
  * recorded in `external()` and changes nothing here.
  * 8. `useParams` returns the selected page's params percent-encoded, from the page the router last
  *    navigated to, not from the address.
+ * 9. The route announcer reads `document.title` in a passive effect of the commit that changes the
+ *    tree, rendered after the page so the page's own passive effects have run, and announces it when
+ *    it differs from its last reading (Next falls back to the first `h1` when the title is empty,
+ *    which no page here leaves it). Its first reading, never announced, is taken as the document
+ *    hydrates, before the boot mounts any page, so it is the root layout's own `<title>`.
+ *    `announcements()` lists what it said. A router navigation, a traversal and an external write
+ *    are each a new tree, the last because Next restores the page it shows, so a title the page
+ *    changed in place is announced at the next of them.
  */
 
 /** The page selection: the href the router last navigated to. A native navigation does not move it. */
@@ -53,6 +71,7 @@ type StandIn = {
   holding: boolean;
   parked: Navigation | null;
   resolver: PageResolver | null;
+  announcements: string[];
   originalPush: History['pushState'];
   originalReplace: History['replaceState'];
 };
@@ -92,6 +111,7 @@ function install(): StandIn {
     holding: false,
     parked: null,
     resolver: null,
+    announcements: [],
     originalPush: window.history.pushState.bind(window.history),
     originalReplace: window.history.replaceState.bind(window.history)
   };
@@ -110,12 +130,12 @@ function install(): StandIn {
       for (const field of NEXT_FIELDS) if (current?.[field]) copied[field] = current[field];
       if (url != null) {
         // Next drops a navigation still in flight when the address moves under it, and restores the
-        // tree it already shows at the new address.
+        // tree it already shows at the new address, as a new tree of the same page.
         instance.parked = null;
         const moved = urlOf(String(url));
         setState(instance, {
           url: moved.url,
-          tree: instance.state.tree,
+          tree: {...instance.state.tree},
           write: {kind: 'preserve', href: moved.url + moved.hash}
         });
       }
@@ -254,7 +274,27 @@ export function NextStandInRoot({children}: {children: ReactNode}) {
       instance.originalReplace({...(window.history.state ?? {}), ...next}, '', write.href);
     else instance.originalReplace(next, '', write.href);
   }, [state]);
-  return children;
+  return createElement(Fragment, null, children, createElement(RouteAnnouncer, {tree: state.tree}));
+}
+
+/** The root layout's `<title>`, which the document carries until the boot mounts a page. */
+const ROOT_TITLE = formatPageTitle();
+
+/**
+ * Next's route announcer (behaviour 9), after the page as Next renders it, so its effect runs once
+ * the page's own have.
+ *
+ * @param props.tree - The tree the router last navigated to; the announcer reads on each new one.
+ * @returns Nothing: what it would say is recorded in `announcements()`.
+ */
+function RouteAnnouncer({tree}: {tree: Tree}) {
+  const previous = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = previous.current === undefined ? ROOT_TITLE : document.title;
+    if (previous.current !== undefined && previous.current !== current) standIn().announcements.push(current);
+    previous.current = current;
+  }, [tree]);
+  return null;
 }
 
 /**
@@ -273,6 +313,7 @@ export function resetStandIn(resolver: PageResolver | null = null): void {
   instance.holding = false;
   instance.parked = null;
   instance.resolver = resolver;
+  instance.announcements = [];
   instance.state = {url, tree: {href: url}, write: null};
   instance.originalReplace(
     {...(window.history.state ?? {}), __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: instance.state.tree},
@@ -299,6 +340,16 @@ export function external(): readonly string[] {
 /** How many popstates Next would have answered by reloading the document. */
 export function reloads(): number {
   return standIn().reloads;
+}
+
+/** Next's router, for a test whose subject is what a router navigation commits rather than how the user asked for it. */
+export function standInRouter(): typeof ROUTER {
+  return ROUTER;
+}
+
+/** What the route announcer has said since the reset, oldest first (behaviour 9). */
+export function announcements(): readonly string[] {
+  return [...standIn().announcements];
 }
 
 /** Park the next router navigation uncommitted, as a slow fetch leaves it (behaviour 7). */

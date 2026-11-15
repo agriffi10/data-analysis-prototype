@@ -385,6 +385,7 @@ section below, under an **On the App Router** paragraph.
 | Start a large upload on Files, open Query by its tab, come back by the Files tab | The upload is still running and further along; the drawer still lists it. |
 | With an upload running, reload the page | The browser asks before reloading; on Cancel the upload carries on. |
 | With an upload running, sign out | No prompt; the sign-out completes and the upload ends with the page. |
+| In a fresh tab on Files, open for the first time each page whose tab or header control is shown (Help through the help panel's **Open the full guide**), then in a fresh tab on Help open Files, and in a fresh tab on Files run `next.router.push('/nope')`; after each, read `document.querySelector('next-route-announcer').shadowRoot.textContent` | Each reads the page just opened, and `/nope` reads **Not Found — Data Quarry** — never the page left. Notifications reads its name alone, without any unread count. A page reached by typing its address is a document load, which the announcer never announces. |
 
 ### 4.2 Files
 

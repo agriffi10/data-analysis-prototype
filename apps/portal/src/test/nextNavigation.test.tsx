@@ -3,6 +3,7 @@ import {act, render} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
   NextStandInRoot,
+  announcements,
   hold,
   release,
   reloads,
@@ -192,4 +193,34 @@ describe('the next/navigation stand-in', () => {
     act(() => window.history.pushState({}, '', '/data-quality/other/r2'));
     expect(last().params).toEqual({space: 'a%40b%20c', requestId: 'r1'});
   });
+
+  it('9: announces the title once the page’s own effects have set it, when it changed since the last tree', async () => {
+    writeAddressRaw(null, '/a');
+    resetStandIn();
+    document.title = 'Before';
+    render(
+      <NextStandInRoot>
+        <Probe />
+        <TitledPage />
+      </NextStandInRoot>
+    );
+    expect(announcements()).toEqual([]);
+
+    act(() => router().push('/b'));
+    act(() => window.history.pushState({}, '', '/b?c'));
+    document.title = 'Changed in place';
+    act(() => window.history.pushState({}, '', '/b?d'));
+    await traverse(-3);
+
+    expect(announcements()).toEqual(['Page /b', 'Changed in place', 'Page /a']);
+  });
 });
+
+/** A page that titles itself in a passive effect, from the tree the router selected. */
+function TitledPage() {
+  const tree = useStandInTree();
+  useEffect(() => {
+    document.title = `Page ${tree}`;
+  }, [tree]);
+  return null;
+}

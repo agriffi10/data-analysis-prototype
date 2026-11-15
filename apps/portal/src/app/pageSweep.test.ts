@@ -32,6 +32,14 @@ function resolve(file: string, specifier: string): string {
   return new URL(specifier, `https://portal.invalid${file}`).pathname;
 }
 
+/**
+ * Whether a page, or a file beside it, may import a resolved specifier statically: a package, a file
+ * in its own directory, or `src/lib/` and `src/hooks/`, which lint keeps off the application graph.
+ */
+function importable(target: string, directory: string): boolean {
+  return !target.startsWith('/') || target.startsWith(directory) || /^\/src\/(?:lib|hooks)\//.test(target);
+}
+
 /** Every `dynamic(…)` call's argument text. */
 function dynamicCalls(source: string): string[] {
   const calls: string[] = [];
@@ -48,22 +56,21 @@ function dynamicCalls(source: string): string[] {
 }
 
 /**
- * The rules for a page and the files in its directory: no static import of the application graph,
- * every view reached through `dynamic(…, {ssr: false})`, and no `params` or `searchParams` prop,
- * which a native navigation leaves stale.
+ * The rules for a page and the files in its directory: nothing of `src/` imported statically but
+ * each other, `src/lib/` and `src/hooks/`, every view reached through `dynamic(…, {ssr: false})`, and
+ * no `params` or `searchParams` prop, which a native navigation leaves stale.
  *
  * @param files - The page's directory, by file (`/src/app/…/page.tsx` and its neighbours).
  * @returns A finding per broken rule, naming the file and what broke it.
  */
 export function pageFindings(files: Record<string, string>): string[] {
   const findings: string[] = [];
+  const page = Object.keys(files).find((file) => file.endsWith('/page.tsx')) ?? Object.keys(files)[0];
+  const directory = page.slice(0, page.lastIndexOf('/') + 1);
   let reachesAView = false;
   for (const [file, source] of Object.entries(files)) {
     for (const specifier of staticImports(source)) {
-      const target = resolve(file, specifier);
-      if (APP_GRAPH.some((root) => target.startsWith(root)) || /\/AppFrame(\.tsx)?$/.test(target)) {
-        findings.push(`${file} imports ${specifier} statically`);
-      }
+      if (!importable(resolve(file, specifier), directory)) findings.push(`${file} imports ${specifier} statically`);
     }
     for (const call of dynamicCalls(source)) {
       if (!/ssr:\s*false/.test(call)) {
@@ -182,6 +189,20 @@ describe('the page rules, against fixtures', () => {
     expect(
       pageFindings({[PAGE]: CONFORMING.replace("'../../../routes/areas/files'", "'../../../routes/areas/loading'")})
     ).toEqual([]);
+  });
+
+  // A page's static imports are evaluated at hydration, before the boot: it may import a package,
+  // a file beside it, and lib/ or hooks/, which lint keeps off the application graph, and nothing else.
+  it('name a static import of src/ outside lib/ and hooks/, and pass a hook and a helper', () => {
+    const importing = (specifier: string) => `import {thing} from '${specifier}';\n${CONFORMING}`;
+    expect(pageFindings({[PAGE]: importing('../../../AppFrame')})).toEqual([
+      `${PAGE} imports ../../../AppFrame statically`
+    ]);
+    expect(pageFindings({[PAGE]: importing('../../../server/runtimeDocument')})).toEqual([
+      `${PAGE} imports ../../../server/runtimeDocument statically`
+    ]);
+    expect(pageFindings({[PAGE]: importing('../../../hooks/usePageTitle')})).toEqual([]);
+    expect(pageFindings({[PAGE]: importing('../../../lib/navigation')})).toEqual([]);
   });
 
   it('name a declared parameter', () => {

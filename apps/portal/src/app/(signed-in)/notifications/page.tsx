@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /**
  * The Notifications view, loaded in the browser only. A page's static imports run at hydration, before
@@ -18,5 +19,6 @@ const NotificationsView = dynamic(
  * @returns The Notifications view.
  */
 export default function NotificationsPage() {
+  usePageTitleOnMount('Notifications');
   return <NotificationsView />;
 }
