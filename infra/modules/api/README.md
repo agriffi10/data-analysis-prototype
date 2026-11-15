@@ -18,35 +18,22 @@ Code: `lambdas/api/`.
 ## `disable_execute_api_endpoint` is on
 
 Left enabled, the API also answers on `https://{api-id}.execute-api.{region}.amazonaws.com` — a
-second front door **outside the CSP, outside the alias record**, and one that makes a CORS preflight
-check ambiguous about which host it actually proved.
+second front door **outside the alias record**, which any check of the API's behaviour would have to
+cover twice.
 
-## CORS belongs to the API alone
+## No CORS: no browser calls this API
 
-AWS **ignores CORS headers returned by the integration**, so a header emitted in the handler would
-not reach the browser at all. But the rule stands on its own ground: two places able to answer the
-same question is how they come to disagree, and the one that wins here is not the one a reader is
-looking at.
+Since SPEC-262 the browser calls the API through the portal server's same-origin `/api/` route, and
+the server sends the session's ID token as the bearer. A server-to-server call is not subject to CORS,
+so the API carries no `cors_configuration`, and the router answers no preflight: an `OPTIONS` takes the
+ordinary unauthenticated refusal, byte-identical to a request with no token. Do not add CORS back for a
+development origin either; `npm run dev` calls the API through its own `/api/` route as well.
 
-- **Exact origins, never `*`.** One entry now — `spa_origin`, compacted so an unset value drops out
-  rather than reaching the gateway as an empty string. It was two through the cutover, because **a
-  list naming one origin leaves the other an app that loads and can do nothing**, which is what kept
-  CloudFront a rollback anyone could exercise; the second entry went with the distribution.
-- **`x-request-id` must be in `allow_headers`.** The browser's API client mints it on every call, and
-  **a header the preflight does not admit fails the preflight** — so the request never reaches the
-  API and the browser reports a generic network error, indistinguishable from the API being down.
-  This list is asserted against the client's headers rather than inferred from the app working.
-- **`allow_credentials = false`, and not merely unset.** The arc sends the ID token as an
-  `Authorization` bearer, which is not a credential in the CORS sense, so `true` would grant a
-  capability nothing uses while making the exact-origin echo load-bearing for a browser rule that no
-  longer applies. It is also the half of the credentials/`*` pairing that every browser rejects
-  **while applying green**.
-- **`max_age = 600`.** Every request carries `Authorization`, so **every request is preflighted** —
-  the cache duration is a latency decision rather than a nicety.
-
-**`$default` matches `OPTIONS`.** API Gateway's own CORS responder therefore never sees a preflight,
-and the router must answer one **before authentication**. Only a browser enforces CORS, so `curl`
-cannot see this failing.
+The configuration it had, for the record: exact origins, never `*`; `x-request-id` and
+`authorization` admitted, because a header the preflight did not admit failed the request as an opaque
+network error; `allow_credentials = false`; and a `max_age`, because every bearer-carrying request was
+preflighted. AWS ignores CORS headers returned by an integration, which is why the router never
+emitted any and still does not.
 
 ## Two timeouts, and the order is the point
 

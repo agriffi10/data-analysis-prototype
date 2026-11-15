@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "`connect-src` comes from the task definition; every other CSP directive is a property of the bundle (SPEC-194, SPEC-255)"
-description: "**CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches, not the AWS services it uses; the omitted Hosted UI domain broke fresh sign-in for a day. **Prove enforcement with a POSITIVE `securitypolicyviolation`** (`effectiveDirective: \"connect-src\"`, `disposition: \"enforce\"`) plus a same-origin negative control. It reaches the server as `PORTAL_CSP_CONNECT_SRC`, built at root as `csp_connect_src`; every other directive is `src/server/contentSecurityPolicy.ts`, and each page's policy carries a fresh nonce. **The server allowlists the source list at start and exits 1 naming the variable**: a quote or `;` in it would end or add directives on a server that still answers."
+description: "**CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches, not the AWS services it uses; the omitted Hosted UI domain broke fresh sign-in for a day. **Since SPEC-262 it is exactly `'self'` and the two buckets**: the browser signs in and calls the API through its own origin. **Prove enforcement with a POSITIVE `securitypolicyviolation`** (`effectiveDirective: \"connect-src\"`, `disposition: \"enforce\"`) plus a same-origin negative control. It reaches the server as `PORTAL_CSP_CONNECT_SRC`, built at root as `csp_connect_src`; every other directive is `src/server/contentSecurityPolicy.ts`, and each page's policy carries a fresh nonce. **The server allowlists the source list at start and exits 1 naming the variable**: a quote or `;` in it would end or add directives on a server that still answers."
 ---
 
 **The seam.** `connect-src` **is** the app's network surface and the only environment-shaped
@@ -42,8 +42,11 @@ that stopped. An allowlist cannot be outflanked by a character nobody thought of
 one entry at a time as the porting specs landed and reached its end state at SPEC-202 — `'self'`,
 `cognito-idp`, the Hosted UI host, both buckets, the API — and **it did not lose the Cognito hosts**:
 Amplify runs in the browser, so the User Pool endpoint and the Hosted UI domain are still fetched from.
-*(Marked 2026-11-15: since SPEC-262 the current portal fetches neither, and only the rollback image's
-Amplify does; the merge that retires the public client narrows the list and rewrites this entry.)*
+**Since SPEC-262 neither Cognito host nor the API is in the list.** The portal server signs in and
+calls the API, so the browser reaches Cognito only by navigation, which `connect-src` does not govern,
+and fetches its own origin and presigned bytes. `lambdas/test_csp_policy.py` now refuses the two
+Cognito hosts and the API's origin by name, inverted from the test that once required them, so a reader
+restoring them on the old reasoning fails a test rather than widening the surface.
 That is the highest-consequence mistake available here, and the reason
 `lambdas/test_csp_policy.py` names those two entries separately from any set comparison: a reader
 holding the arc's end state in mind deletes them on purpose, and would then update a whole-list
@@ -52,6 +55,11 @@ authorization-code exchange is the only fetch to the Hosted UI host, a warm tab 
 portal looks perfect to whoever is testing while every new sign-in sits signed out over a live session.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 narrowed `connect-src` to `'self'` and the two buckets, and inverted the test
+  that named the Cognito hosts.
 
 ### 2026-11-13
 

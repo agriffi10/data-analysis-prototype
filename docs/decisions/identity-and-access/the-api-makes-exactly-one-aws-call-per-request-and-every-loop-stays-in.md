@@ -45,7 +45,7 @@ sequential probes for one gesture — does not generalise to a 1.5-second poll. 
 this reads code, not prose: no `time.sleep`, no botocore waiter, no paginator, no `while` over a
 continuation token, plant-verified in both directions.
 
-**`$default` matches OPTIONS**, so the router answers a preflight **before authentication** and only a browser can see that fail. The API's remaining fences live beside it, in `lambdas/info/planes/api.md`.
+**`$default` matches OPTIONS**, and since SPEC-262 an `OPTIONS` is refused like any unauthenticated request: no browser calls the API, so there is no preflight to answer before authentication (the router answered one until then). The API's remaining fences live beside it, in `lambdas/info/planes/api.md`.
 
 ## History
 

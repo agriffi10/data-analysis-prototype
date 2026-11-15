@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The origins are admitted additively, and narrowed only at the cutover (SPEC-193)"
-description: "A new origin is admitted beside the old one on every allowlist and narrowed only at the cutover. Cognito's callback and logout lists, the API's CORS and both buckets' CORS now name one deployed origin each; `localhost:5173` on the callback list and bucket CORS is dev, kept under Next.js by pinning `next dev` to that port. The API's CORS has never admitted it, so `npm run dev` cannot call the API: do NOT widen the production API's CORS for it."
+description: "A new origin is admitted beside the old one on every allowlist and narrowed only at the cutover. Since SPEC-262 each app client names exactly one origin — the server client the deployed one, the dev client `localhost:5173` — and both buckets' CORS name the deployed origin and `localhost:5173`; the API has **no CORS at all**, because no browser calls it. Do NOT add CORS to the API for a dev origin: `npm run dev` calls it through its own `/api/`."
 ---
 
 The Cognito app client's callback and logout lists, CloudFront's `connect-src`, and the API's CORS
@@ -28,9 +28,21 @@ in and then cannot call the API: the file listing shows a network error. Do not 
 production API's CORS to fix that. SPEC-257's same-origin `/api/` pass-through removes the
 cross-origin call, and with it the gap.
 
+**Since SPEC-262 the API has no CORS configuration, and each app client one origin.** The browser
+calls the API through the portal server's same-origin `/api/` route, so the API's `allow_origins`
+served nothing and went in the merge that destroyed the public client, the second of the cutover's
+two merges. The server client's lists name only the deployed origin and the dev client's only
+`http://localhost:5173`, so no client admits an origin it does not serve. Both buckets' CORS still
+name the deployed origin and `localhost:5173`, because the browser redeems presigned URLs from either.
+
 Detail: `spec-delivery/SPEC-193`.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 retired the public client with its callback list and removed the API's CORS;
+  the dev client holds the localhost callback.
 
 ### 2026-11-13
 
