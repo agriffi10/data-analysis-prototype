@@ -5,7 +5,7 @@ description: "**Every way a change-detection gate goes wrong answers \"nothing c
 ---
 
 Two workflows skip expensive steps when a change set touches nothing they read: `ci.yml`'s scope
-step, which gates the install, the build and the bundle check on a pull request, and
+step, which gates the install, the build and the checks on its output on a pull request, and
 `deploy-spa-image.yml`'s, which gates the image build. Both decide by matching `git`'s path list
 against an anchored pattern list. Every way that decision can go wrong answers "nothing changed"
 — the **cheap** direction, behind a green check, with the same reassuring annotation an honest

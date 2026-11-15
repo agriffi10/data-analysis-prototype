@@ -44,7 +44,7 @@ Resolve by **keeping both changes**; never resolve a conflict by discarding a pe
 right resolution is not obvious, stop and escalate rather than guess.
 
 **Your gates come first, and the queue is last.** In order: the formatter, both linters, both suites,
-mypy and `npm run build` green locally, plus `python3 scripts/validate_docs.py` and whatever `ci.yml`
+mypy and `npm run build -- --analyze` green locally, plus `python3 scripts/validate_docs.py` and whatever `ci.yml`
 runs on the branch — that list is a floor, not the set; then the fresh-context diff reviews
 (`docs/reviewer-contract.md`); *then* get in line. The queue serialises the remote — it is not a
 review, and it does not replace one.

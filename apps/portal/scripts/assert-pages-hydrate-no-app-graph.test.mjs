@@ -346,7 +346,7 @@ describe('the page gate', () => {
   it('refuses an analysis older than the build, one it cannot read, and a build with none', () => {
     const stale = run(built({analysedAt: '2026-11-15T11:59:59.000Z'}), () => analysis()).findings;
     expect(stale).toEqual([
-      "the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` first."
+      "the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` in apps/portal first."
     ]);
     expect(
       run(built(), () => {
@@ -355,19 +355,19 @@ describe('the page gate', () => {
     ).toEqual(['the bundle analysis could not be read: next analyze export exited 1: Analyzer snapshot not found']);
     const bare = built({history: false});
     expect(run(bare, () => analysis()).findings).toEqual([
-      `no bundle analysis to check: ${join(bare, '.next/diagnostics/analyze/history/history.json')} is unreadable — run \`npm run build -- --analyze\` first.`
+      `no bundle analysis to check: ${join(bare, '.next/diagnostics/analyze/history/history.json')} is unreadable — run \`npm run build -- --analyze\` in apps/portal first.`
     ]);
     const unbuilt = built({stats: null});
     expect(run(unbuilt, () => analysis()).findings).toEqual([
-      `no build to check: ${join(unbuilt, '.next/diagnostics/route-bundle-stats.json')} is unreadable — run \`npm run build -- --analyze\` first.`
+      `no build to check: ${join(unbuilt, '.next/diagnostics/route-bundle-stats.json')} is unreadable — run \`npm run build -- --analyze\` in apps/portal first.`
     ]);
     const renamed = analysis().map((record) => (record.type === 'meta' ? {...record, snapshot_name: 'other'} : record));
     expect(run(built(), () => renamed).findings).toEqual([
-      "the bundle analysis is not this build's (analysed other, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` first."
+      "the bundle analysis is not this build's (analysed other, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` in apps/portal first."
     ]);
     for (const data of [{dataAt: new Date('2026-11-15T12:00:05.000Z')}, {dataAt: null}, {dataFiles: []}]) {
       expect(run(built(data), () => analysis()).findings).toEqual([
-        "the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` first."
+        "the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` in apps/portal first."
       ]);
     }
     expect(run(built({stats: []}), () => analysis()).findings).toEqual([
@@ -394,8 +394,8 @@ describe('the page gate', () => {
   it('exits 1 naming each finding, and 0 with a count of what it read', () => {
     // The suite runs from apps/portal, as every file-reading test here assumes.
     const cli = join(process.cwd(), 'scripts/assert-pages-hydrate-no-app-graph.mjs');
-    const portal = (records) => {
-      const dir = built();
+    const portal = (records, options) => {
+      const dir = built(options);
       mkdirSync(join(dir, 'node_modules/next/dist/bin'), {recursive: true});
       writeFileSync(join(dir, 'package.json'), '{}');
       writeFileSync(join(dir, 'records.jsonl'), records.map((record) => JSON.stringify(record)).join('\n'));
@@ -411,6 +411,15 @@ describe('the page gate', () => {
     });
     expect(failing.status).toBe(1);
     expect(failing.stderr).toContain(`[pages] ${ROUTE} hydrates src/AppFrame.tsx, in a chunk loaded with ${PAGE}\n`);
+    expect(failing.stderr).toContain('[pages] A page reaches its view only through next/dynamic');
+    const stale = spawnSync(process.execPath, [cli], {
+      cwd: portal(analysis(), {analysedAt: '2026-11-15T11:59:59.000Z'}),
+      encoding: 'utf8'
+    });
+    expect([stale.status, stale.stderr]).toEqual([
+      1,
+      "[pages] the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` in apps/portal first.\n"
+    ]);
     const passing = spawnSync(process.execPath, [cli], {cwd: portal(analysis()), encoding: 'utf8'});
     expect([passing.status, passing.stdout]).toEqual([
       0,

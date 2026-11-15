@@ -43,7 +43,7 @@ async function attributeMessages(file: string, source: string): Promise<string[]
 }
 
 describe('no import under src/ carries an attribute, which would pass for next/dynamic’s', () => {
-  const refused = `no-restricted-syntax: No import attributes under src/: Turbopack reads one as next/dynamic's mark, which hides an eager import from the page check. Reach a view through next/dynamic itself.`;
+  const refused = `no-restricted-syntax: No import attributes under src/: Turbopack reads a turbopack-transition attribute as next/dynamic's mark, which hides an eager import from the page check, and no source here needs any. Reach a view through next/dynamic itself.`;
 
   it.each([
     [

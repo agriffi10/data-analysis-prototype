@@ -28,12 +28,14 @@ import {run} from './page-hydration.mjs';
 const {findings, routes, chunks} = run(process.cwd());
 if (findings.length > 0) {
   for (const finding of findings) console.error(`[pages] ${finding}`);
-  console.error(
-    '[pages] A page reaches its view only through next/dynamic with ssr: false; what it imports statically'
-  );
-  console.error(
-    '[pages] may reach src/app/, src/lib/, src/hooks/, src/types/ and src/assets/, and nothing else of src/.'
-  );
+  if (findings.some((finding) => / hydrates /.test(finding))) {
+    console.error(
+      '[pages] A page reaches its view only through next/dynamic with ssr: false; what it imports statically'
+    );
+    console.error(
+      '[pages] may reach src/app/, src/lib/, src/hooks/, src/types/ and src/assets/, and nothing else of src/.'
+    );
+  }
   process.exit(1);
 }
 console.log(`[pages] ${routes} route(s), ${chunks} hydration chunk(s) checked: none carries the application graph.`);

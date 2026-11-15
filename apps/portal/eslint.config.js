@@ -95,7 +95,7 @@ const IMPORT_ATTRIBUTES = [
 ].map((selector) => ({
   selector,
   message:
-    "No import attributes under src/: Turbopack reads one as next/dynamic's mark, which hides an eager import from the page check. Reach a view through next/dynamic itself."
+    "No import attributes under src/: Turbopack reads a turbopack-transition attribute as next/dynamic's mark, which hides an eager import from the page check, and no source here needs any. Reach a view through next/dynamic itself."
 }));
 
 export default defineConfig([

@@ -16,7 +16,7 @@ export const WORKSPACE = '[project]/apps/portal/';
 export const HYDRATION_ROOTS = ['src/app/', 'src/lib/', 'src/hooks/', 'src/types/', 'src/assets/'];
 
 /** How to make the analysis this check reads. */
-const REBUILD = 'run `npm run build -- --analyze` first';
+const REBUILD = 'run `npm run build -- --analyze` in apps/portal first';
 
 /**
  * Whether a source file is the portal's own and outside what a page may hydrate.

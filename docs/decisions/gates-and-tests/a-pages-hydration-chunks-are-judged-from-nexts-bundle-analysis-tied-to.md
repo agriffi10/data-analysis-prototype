@@ -34,9 +34,10 @@ allowed by definition; the rule is a directory rule, and that is its edge.
 modules in the chunk holding the navigation seam, and its parts named 29 source files, among them
 `src/lib/navigation/address.ts` and `NavigationProvider.tsx`. The shipped chunk registers one
 factory under nine ids, and `address.ts`'s code is in it. A check reading the module list alone
-would pass an application module merged the same way. The parts are not whole either: measured, a
-sixth of the listed modules had no part in their chunk, Next's externals among them. So the check
-reads both, and its corpus has a case for each.
+would pass an application module merged the same way. The parts are not whole in general either:
+across all of a route's outputs, Next's server externals are listed with no part, though every module
+in the hydration outputs had one when measured. Reading both costs nothing, and its corpus has a
+case for each.
 
 **The analysis is tied to the build in two ways.** Next's build cleans `.next` but keeps
 `diagnostics`, so a plain build after an analysed one leaves the old analysis in place, and

@@ -68,7 +68,7 @@ jobs:
 
       # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
       # pull request touching none of the app's inputs skips the install, the build and the
-      # bundle check.
+      # checks on its output.
       #
       # Every number this step was sized against — one billed minute instead of seven, 29 of the
       # last 60 merges skipping, the Test step alone 294 of the job's 366 seconds — was measured
@@ -156,7 +156,7 @@ jobs:
           # THE CANARY, AND WHY IT IS A CANARY RATHER THAN A LIST OF FAILURE MODES.
           #
           # Every way this pattern list can stop working reads as `app=false` — "nothing
-          # changed" — which skips the install, the build and the bundle check while printing
+          # changed" — which skips the install, the build and the checks on its output while printing
           # the same reassuring notice a genuine skip prints. Self-concealing, too:
           # `^\.github/workflows/ci\.yml$` is itself in the list, so the pull request that
           # breaks it skips its OWN build, merges green, and every later one skips as well.
@@ -209,7 +209,7 @@ jobs:
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
-            echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
+            echo "::notice title=Scope::no app input changed; install, build and the checks on its output are skipped"
             # The verdict with the evidence under it. A wrong `app=false` is the failure this
             # step keeps having, and without the change set in the log there is nothing to
             # diagnose one from — the notice alone cannot distinguish an honest skip from a
