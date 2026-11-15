@@ -130,7 +130,8 @@ export async function loadSession(
     await store.delete(pk).catch(() => console.error('session: an expired session could not be deleted'));
     return {status: 'absent'};
   }
-  if (!options.forceRefresh && item.tokenExpiresAt - now > REFRESH_MARGIN_SECONDS) return active(config, item, item.idToken);
+  if (!options.forceRefresh && item.tokenExpiresAt - now > REFRESH_MARGIN_SECONDS)
+    return active(config, item, item.idToken);
 
   const refreshed = await refreshTokens(config, item.refreshToken, now);
   if (!refreshed.ok) {
@@ -151,7 +152,8 @@ export async function loadSession(
       if (await store.replaceTokens(pk, expectedVersion, next)) return active(config, item, next.idToken);
       const stored = await store.get(pk);
       if (stored === null) return {status: 'absent'};
-      if (!options.forceRefresh || issuedAtOf(stored.idToken) >= issuedAt) return active(config, stored, stored.idToken);
+      if (!options.forceRefresh || issuedAtOf(stored.idToken) >= issuedAt)
+        return active(config, stored, stored.idToken);
       expectedVersion = stored.version;
     }
   } catch {
