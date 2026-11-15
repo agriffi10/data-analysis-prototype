@@ -1324,7 +1324,9 @@ else:
 #: nothing unfinished after one that listed something, is what moves the family's newest revision. A question about any other commit or workflow is answered
 #: the way GitHub would answer it about a past push — finished and green — without moving
 #: anything, so a step that asked the wrong question is told it can go on, and reads the family
-#: too early.
+#: too early. A query parameter the stub does not model makes the question a wrong one, because
+#: GitHub would answer it differently — a ``status`` filter drops queued and pending runs — and
+#: ``per_page`` is honoured.
 FAKE_GH = """#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, urllib.parse
 
@@ -1341,6 +1343,9 @@ if argv[:1] == ["api"] and endpoint.path == wanted and query.get("event") == ["p
         question = "own"
     elif "head_sha" not in query and query.get("branch") == ["main"]:
         question = "unfinished"
+modelled = {"own": {"head_sha", "event", "per_page"}, "unfinished": {"branch", "event", "per_page"}}
+if question != "other" and set(query) - modelled[question]:
+    question = "other"
 calls = state / "gh-{}-calls".format(question)
 with calls.open("a", encoding="utf-8") as log:
     log.write(" ".join(argv) + "\\n")
@@ -1366,6 +1371,7 @@ elif question == "unfinished":
     ]
 else:
     runs = [{"status": "completed", "conclusion": "success"}]
+runs = runs[: int(query.get("per_page", ["30"])[0])]
 body = json.dumps({"total_count": len(runs), "workflow_runs": runs})
 expression = argv[argv.index("--jq") + 1]
 sys.exit(subprocess.run(["jq", "-r", expression], input=body, text=True).returncode)
@@ -1835,7 +1841,8 @@ def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it(
 
     So the wait ends in a refusal, not a guess — after a window long enough that a routine apply
     queued behind another cannot trip it. An answer GitHub will not give is waited out the same
-    way rather than read as finished.
+    way rather than read as finished, and so is a run GitHub never created for this push, which
+    only the question about this commit's own run can wait for.
 
     Args:
         None.
@@ -1851,6 +1858,7 @@ def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it(
     for label, changed, fixture, says in (
         ("an apply still running", "infra/main.tf", {"apply_runs": (APPLY_RUNNING,)}, own),
         ("a lookup that errors", "infra/main.tf", {"runs_call": "fails"}, own),
+        ("a push event GitHub dropped", "infra/main.tf", {"apply_runs": ((),)}, own),
         (
             "an earlier push's apply still running",
             "docs/architecture.md",

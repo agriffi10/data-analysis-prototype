@@ -27,7 +27,7 @@ name: Deploy SPA image
 # Terraform registers task-definition revisions of its own — the service carries
 # `ignore_changes = [task_definition]` precisely so CI owns which revision runs. Every push waits
 # for the applies at its commit and before it, so a revision an apply registers lands on that
-# push or on the one whose run replaced it. But a value that reaches Terraform with no push at
+# push or on the later push whose run replaced its own. But a value that reaches Terraform with no push at
 # all — a repository variable applied by a dispatched Deploy Infrastructure — produces a revision
 # nobody points the service at, and the running container keeps the old value until the next
 # push to main. And if this pipeline lands broken, the registry is IMMUTABLE: the failing sha
@@ -344,9 +344,9 @@ jobs:
           # THIS workflow may have registered one of its own since the merge.
           #
           # TWO QUESTIONS, ONE WINDOW. The first is asked only when this push fires an apply: has
-          # THIS commit's run finished? Only that question can tell a run GitHub has not created
-          # from one it never will, so it is what turns a dropped push event into a refusal, and
-          # the only one that can say this commit's own apply failed. The second is asked of every
+          # THIS commit's run finished? Only that question waits for a run GitHub has not created
+          # yet, so it is what turns a dropped push event into a refusal, and the only one that
+          # can say this commit's own apply failed. The second is asked of every
           # push: is any push run at this commit or before it unfinished? GitHub keeps one pending
           # run per concurrency group and cancels the older when a newer queues, so the run of an
           # earlier push that fired an apply can be replaced by this one, whose own diff fires
