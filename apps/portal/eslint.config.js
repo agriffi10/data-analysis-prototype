@@ -71,7 +71,9 @@ const LAYERING_IMPORTS = {
 /**
  * What an App Router page may import statically is lib/ and hooks/, and a page's static imports are
  * evaluated at hydration, before the boot: so those two never reach the application graph either.
- * A type-only import is erased, so it is allowed.
+ * A type-only import is erased, so it is allowed. This names the import in the editor; it is not
+ * the fence, since a top-level file between them passes it. `npm run check:pages` holds what a
+ * page hydrates on the build.
  */
 const PAGE_REACHABLE_IMPORTS = {
   group: ['**/components/*', '**/components/**', '**/routes/*', '**/routes/**'],
@@ -80,18 +82,35 @@ const PAGE_REACHABLE_IMPORTS = {
     "lib/ and hooks/ are what an App Router page may import statically, and a page's static imports run at hydration, before the boot, so they must not import components/ or routes/. Move the piece into lib/ or hooks/, or reach it from the page through next/dynamic."
 };
 
+/**
+ * An import attribute, which no source here needs. `next/dynamic` marks its import with the
+ * `turbopack-transition` attribute, so a hand-written one passes an eager import of the application
+ * graph through `npm run check:pages` as a `next/dynamic` load; the build cannot tell them apart.
+ */
+const IMPORT_ATTRIBUTES = [
+  'ImportExpression[options]',
+  'ImportDeclaration[attributes.length>0]',
+  'ExportNamedDeclaration[attributes.length>0]',
+  'ExportAllDeclaration[attributes.length>0]'
+].map((selector) => ({
+  selector,
+  message:
+    "No import attributes under src/: Turbopack reads a turbopack-transition attribute as next/dynamic's mark, which hides an eager import from the page check, and no source here needs any. Reach a view through next/dynamic itself."
+}));
+
 export default defineConfig([
   {
     // Every file under src/, tests included. The three clauses below re-state
     // AWS_SDK_IMPORTS because each of them replaces this one for the files it matches.
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
     rules: {
-      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, REACT_ROUTER_IMPORTS]}]
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS, REACT_ROUTER_IMPORTS]}],
+      'no-restricted-syntax': ['error', ...IMPORT_ATTRIBUTES]
     }
   },
   globalIgnores(['dist', 'coverage', '.next', 'next-env.d.ts', 'src/types/apiContract.generated.ts']),
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['**/*.{ts,tsx,mts,cts}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,

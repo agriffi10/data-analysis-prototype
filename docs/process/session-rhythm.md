@@ -52,8 +52,9 @@ a question already answered.
   commits, and the review becomes commentary on what already happened. Rotating the frame
   (`docs/reviewer-contract.md`) happens in the same window. A push is the point of no return for
   the review, the same way the merge is for CI.
-- Before pushing, run the **formatter, both linters, both suites, mypy and `npm run build`**
-  locally, green by **exit code**. **CI runs the build and the validators, nothing else**, so this
+- Before pushing, run the **formatter, both linters, both suites, mypy and `npm run build -- --analyze`**
+  locally, green by **exit code**. **CI runs the build, the checks on its output and the validators,
+  nothing else**, so this
   is the ONLY place the rest run: skip one and it reaches `main` behind a green PR. **That list is a
   floor, not the set: also run whatever `ci.yml` runs on the branch** — the contract, doc, flag and
   path validators and the hook corpus — including after a rebase, when a job can newly go red on

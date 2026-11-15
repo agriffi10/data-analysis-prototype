@@ -78,20 +78,29 @@ page's own.
 **Do NOT make `usePageTitle` a layout effect.** In a commit holding both, a child's layout effect runs
 before its parent's, so the page's mount title would overwrite the view's count.
 
-**A page now imports a hook statically, so what it may import is fenced one layer further.** What a
-page imports is evaluated at hydration, before the boot. `src/app/pageSweep.test.ts` allows a page
-and the files beside it only packages, each other, `src/lib/` and `src/hooks/`; lint keeps `src/lib/`
-and `src/hooks/` off `components/` and `routes/` as well as `features/`, type-only imports aside
-(`src/lib/eslintPageFence.test.ts`). That holds every shape a reviewer planted against those three
-roots. It does NOT hold the whole graph, and a reviewer built each of these into a page's hydration
-chunk through both gates: a hook or lib file importing a top-level composition file (`AppFrame`,
-`AppChrome`, `PortalBoot`), a file in a folder under the page's directory, and a comment inside an
-import list, which the sweep's regex reads past. Nested layouts, root special files, `.mts` files,
-directory barrels and a dynamic `import()` inside lib/ or hooks/ are not held either. Most of these
-predate the hook; the check that holds them all reads the built page's entry chunks rather than the
-source. Do NOT answer them with more patterns: a hand-written walk over each page's imports was tried
-first and missed a trailing slash, a `.js` specifier and a `'.'` import of an index, and refused a
-type-only import, each a resolution rule the bundler already owns.
+**A page now imports a hook statically, so what it may import is fenced one layer further, and the
+fence is the build.** What a page imports is evaluated at hydration, before the boot.
+`npm run check:pages` reads each route's hydration chunks in the production build and fails when they carry
+the portal's own source outside `src/app/`, `src/lib/`, `src/hooks/`, `src/types/` and `src/assets/`,
+or a lazy load of such source that is not `next/dynamic`, naming the route and the module; how it
+reads the build, the traps in doing so, and the one forgery only lint can refuse, are `docs/decisions/gates-and-tests/a-pages-hydration-chunks-are-judged-from-nexts-bundle-analysis-tied-to.md`.
+Planted into the real tree and built, it failed every shape a reviewer had carried into the Files
+page's hydration chunk through the source checks: a hook importing `AppFrame`, a file in a folder
+under the page's directory, and a comment inside an import list. It failed the shapes those checks
+never held as well: a client layout nested under the root, a root `not-found.tsx`, an `.mts` file, a
+directory barrel, a package self-reference, a top-level file nobody had written before, and a raw
+`import()` in the page or in a hook it calls. A type-only import of a feature, and a page importing
+lib or an image, stayed silent.
+
+**The source checks stay, as early warnings.** `src/app/pageSweep.test.ts` allows a page and the files
+beside it only packages, each other, `src/lib/` and `src/hooks/`, and lint keeps `src/lib/` and
+`src/hooks/` off `components/`, `routes/` and `features/`, type-only imports aside
+(`src/lib/eslintPageFence.test.ts`). They fail in the editor and the test loop, before any build, and
+name the line that imports; the build check fails only after a build, and names a module. Neither
+is the fence, because each passes shapes the build check refuses. Do NOT answer an escape with more
+patterns: a hand-written walk over each page's imports was tried first and missed a trailing slash,
+a `.js` specifier and a `'.'` import of an index, and refused a type-only import, each a resolution
+rule the bundler already owns.
 
 **Where it is held.** The Vitest stand-in (`src/test/nextNavigation.ts`, behaviour 9) models the
 announcer: rendered after the page, reading in a passive effect on each new tree, and never on the
@@ -110,6 +119,9 @@ its name, and the announcement tests' page list widens to take it in.
 
 - **Settled:** Andrew accepted that a first visit announces the page's name, not the title its view
   derives from state; neither fix offered was built.
+- **Refined:** what a page may import is held on the production build's hydration chunks by
+  `npm run check:pages`, which failed every escape a reviewer had built through the source checks;
+  the page sweep's allow-list and the lint fence stay as early warnings.
 
 ### 2026-11-14
 

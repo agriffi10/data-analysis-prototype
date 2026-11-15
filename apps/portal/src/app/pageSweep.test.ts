@@ -35,6 +35,10 @@ function resolve(file: string, specifier: string): string {
 /**
  * Whether a page, or a file beside it, may import a resolved specifier statically: a package, a file
  * in its own directory, or `src/lib/` and `src/hooks/`, which lint keeps off the application graph.
+ *
+ * An early warning, read from the import as written: a comment in an import list, a private folder
+ * or a resolution rule passes it. What a page hydrates is held on the build, where none of those
+ * hide a module, by `npm run check:pages`.
  */
 function importable(target: string, directory: string): boolean {
   return !target.startsWith('/') || target.startsWith(directory) || /^\/src\/(?:lib|hooks)\//.test(target);

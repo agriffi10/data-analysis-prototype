@@ -58,7 +58,8 @@ layout is rendered on the server where no runtime document was loaded; Vitest st
 fallback answers. And a module a page file imports statically is evaluated in the browser at
 hydration, before `/config.json` arrives. So every provider renders client-only behind the boot, the
 query client is made per mount, and a page reaches its view only through `next/dynamic` with
-`ssr: false` and reads no `params` or `searchParams` prop, all held by the page sweep.
+`ssr: false` and reads no `params` or `searchParams` prop, all held by the page sweep, and what a
+page hydrates is held on the build by `npm run check:pages`.
 
 **A document load is now a way to lose the shell, so the shell asks first.** A navigation to or from
 an App Router page fetches that page, and Next turns it into a document load when the server cannot

@@ -25,7 +25,8 @@ name: CI
 #
 # What this costs, stated rather than left to be discovered. A green check on this workflow
 # is NO evidence that lint, the suites or either typecheck ran -- only that the app builds,
-# carries no VITE_ names, and that the contract, docs and feature-flag documents are valid.
+# carries no VITE_ names, hydrates no page with the application graph, and that the contract,
+# docs and feature-flag documents are valid.
 # The eslint pass carried two things nothing else covers: the `@aws-sdk/*` import ban, and
 # `eslint-plugin-security` + `no-unsanitized`, which `security.yml` and `eslint.config.js`
 # both described as the blocking half of SPEC-138. Those are now enforced by the pre-push
@@ -67,7 +68,7 @@ jobs:
 
       # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
       # pull request touching none of the app's inputs skips the install, the build and the
-      # bundle check.
+      # checks on its output.
       #
       # Every number this step was sized against — one billed minute instead of seven, 29 of the
       # last 60 merges skipping, the Test step alone 294 of the job's 366 seconds — was measured
@@ -155,7 +156,7 @@ jobs:
           # THE CANARY, AND WHY IT IS A CANARY RATHER THAN A LIST OF FAILURE MODES.
           #
           # Every way this pattern list can stop working reads as `app=false` — "nothing
-          # changed" — which skips the install, the build and the bundle check while printing
+          # changed" — which skips the install, the build and the checks on its output while printing
           # the same reassuring notice a genuine skip prints. Self-concealing, too:
           # `^\.github/workflows/ci\.yml$` is itself in the list, so the pull request that
           # breaks it skips its OWN build, merges green, and every later one skips as well.
@@ -208,7 +209,7 @@ jobs:
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
-            echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
+            echo "::notice title=Scope::no app input changed; install, build and the checks on its output are skipped"
             # The verdict with the evidence under it. A wrong `app=false` is the failure this
             # step keeps having, and without the change set in the log there is nothing to
             # diagnose one from — the notice alone cannot distinguish an honest skip from a
@@ -245,10 +246,14 @@ jobs:
       # ordering buys nothing and this is simply the first real step. No VITE_* env is passed
       # — every one of them is a runtime value the container serves from /config.json,
       # and this job discards the bundle. What is being gated is `tsc -b`.
+      #
+      # `--analyze` is the one difference, and it changes no shipped byte: measured, every file
+      # under .next/static matched a plain build's but the build-id folder's name. It adds the
+      # module-per-chunk analysis the page check below reads, which the image does not need.
       - name: Build (typecheck + bundle)
         if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
-        run: npm run build
+        run: npm run build -- --analyze
 
       # The build's own assertion, and it can only run against a built bundle — so it
       # rides here rather than in the suite, where a missing dist/ would have to be a
@@ -258,6 +263,15 @@ jobs:
         if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run check:bundle
+
+      # A page's static imports run at hydration, before the boot, so what its hydration chunks
+      # carry of src/ is held here, on the build, where no import spelling can hide a module. It
+      # reads the analysis the build step's `--analyze` wrote, and refuses one that is missing or
+      # is not this build's rather than passing it.
+      - name: Assert no page hydrates the application graph
+        if: steps.scope.outputs.app == 'true'
+        working-directory: apps/portal
+        run: npm run check:pages
 
       # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Test
