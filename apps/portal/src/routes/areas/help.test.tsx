@@ -28,7 +28,7 @@ vi.mock('../../features/notifications/notifications.service', () => ({
 
 describe('App routing', () => {
   it('renders a protected route through the layout for an authenticated user', async () => {
-    renderApp('/help', {auth: authenticated('alice')});
+    renderApp('/help', {auth: authenticated('alice'), routers: {help: 'app'}});
     expect(await screen.findByRole('main')).toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
   });

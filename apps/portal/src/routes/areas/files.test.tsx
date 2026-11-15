@@ -115,7 +115,8 @@ const page: FileListPage = {
   isTruncated: false
 };
 
-const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice')});
+/** Files on the App Router, as it is served now; every area the test does not name is the catch-all's. */
+const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice'), routers: {files: 'app'}});
 
 type User = ReturnType<typeof renderFiles>['user'];
 
@@ -293,7 +294,7 @@ describe('the signed-in shell outlives the page', () => {
   // the auth gate would pass every test above, and leave a signed-out tab uploading.
   it('ends with the session: signing out aborts the upload and drops the operations', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', {auth: SignOutable});
+    const {user} = renderApp('/files', {auth: SignOutable, routers: {files: 'app'}});
     await startUploads(user);
     await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
@@ -426,7 +427,7 @@ describe('an unfinished upload asks before the document goes', () => {
       for (const listener of [...hub.listeners]) listener({payload: {event: 'signedOut'}});
       return {success: true, data: undefined};
     });
-    const {user} = renderApp('/files', {auth: AuthProvider});
+    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
@@ -440,7 +441,7 @@ describe('an unfinished upload asks before the document goes', () => {
     const aborted = holdUploadsOpen();
     vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
     vi.mocked(startSignOut).mockResolvedValue({success: false, error: {message: 'offline', code: 'NetworkError'}});
-    const {user} = renderApp('/files', {auth: AuthProvider});
+    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));

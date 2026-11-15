@@ -63,7 +63,7 @@ describe('NotificationsPage', () => {
 describe('the notifications area', () => {
   it('serves /notifications inside the shell', async () => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
-    renderApp('/notifications', {auth: authenticated('alice')});
+    renderApp('/notifications', {auth: authenticated('alice'), routers: {notifications: 'app'}});
 
     expect(await screen.findByText('You’re all caught up')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Files'})).toBeInTheDocument();
