@@ -104,8 +104,10 @@ parsing (which refuses the padding that would spoof the `__Host-` prefix), run o
 `headers().get('cookie')`, never Next's `cookies()` parser: `readCookie` is split so its loop takes a
 header string. It gets its store and configuration from `environmentDeps()`, and reads the session
 with a new `peekSession` in `session.ts`: one store `get`, the same `createdHere` and session-expiry
-checks `loadSession` makes, and no refresh, no delete and no write. A peek that finds no session, an
-expired one or a fault answers no session. So the time a document load spends here is bounded by one
+checks `loadSession` makes, and no refresh, no delete and no write. Because it never refreshes, it also
+answers no session when the stored ID token has expired or names no user (`userOf`), which is how a
+user the provider has revoked stops getting flags without a Cognito call. A peek that finds no
+session, an expired one or a fault answers no session. So the time a document load spends here is bounded by one
 store read and its existing 2-second cap, and never a Cognito call. **It never rejects:** anything
 that throws, `environmentDeps()`'s `SessionConfigError` included, becomes `undefined` after one log
 line, because a throw in the root layout answers 500 on every page. A request with no session gets
@@ -129,6 +131,12 @@ to FR-001's resolver for the server's environment (`CONFIG_environment`, the val
 runtime document carries). Only one refresh is in flight per process: a request arriving during one
 starts no other.
 
+**What lives in module scope** is the held set, the time of the last failure and a boolean saying a
+refresh is in flight, and nothing else. The token is a local of the refresh function, never captured
+by a module-scope promise or closure. None of these is session state: the set is the same document
+for every user, which is why the session decision's "nothing about a session lives in module scope"
+still holds (FR-005 says so).
+
 A refresh that fails keeps the held set as it was, logs one line naming the reason and never the
 token or the body, and no new refresh starts until 60 seconds after the failure. Failing means no
 answer, a non-2xx, a redirect, an envelope it refuses, or a body the resolver refuses. A 404, the
@@ -140,8 +148,9 @@ pauses refreshes for every user on that task for a minute, which costs only fres
 **`heldFeatureFlags()`, for the area layouts.** Synchronous, no I/O: the held set if it is younger
 than one hour, `undefined` otherwise. It starts no refresh, having no token to start one with.
 
-Nothing on the API pass-through may consult the flags: no module under `src/server/session/` imports
-this one, because a flag gating a request would be authorization.
+Nothing on the API pass-through may consult the flags: no route handler, the request proxy or any
+module under `src/server/session/` imports this one, because a flag gating a request would be
+authorization.
 
 #### Acceptance Criteria:
 
@@ -151,7 +160,8 @@ this one, because a flag gating a request would be authorization.
 - [ ] A cookie padded with U+00A0 before `__Host-` is not read as the session cookie (the case
       `cookies.test.ts` already asserts for `readCookie`, run through the header-string path).
 - [ ] `peekSession` on a session whose token expires within 300 seconds returns it as found and makes
-      no Cognito call and no store write (both counted).
+      no Cognito call and no store write (both counted). It answers `none` for a stored token that has
+      expired, for a token that names no user, and for a session another client created.
 - [ ] With a session and no held set, the first call returns `undefined` and starts exactly one API
       request with `Authorization: Bearer <that session's ID token>` and `cache: 'no-store'`; once it
       answers `{body, etag}`, the next call returns the set resolved from `body`.
@@ -164,11 +174,15 @@ this one, because a flag gating a request would be authorization.
       After each, a call 59 seconds after the failure starts no request and one 61 seconds after it
       starts one; for the timeout, the 60 seconds count from the deadline.
 - [ ] With the API stubbed never to answer, `serverFeatureFlags()` settles without waiting on it.
+- [ ] After a successful refresh, `serverFeatureFlags()` returns a value equal (`toEqual`) to
+      `{flags, readAt}` and nothing more, and its `JSON.stringify` does not contain the refreshing
+      session's ID token.
 - [ ] `heldFeatureFlags()` returns a 30-minute-old set, returns `undefined` for a 61-minute-old one,
       and makes no request and no store read in either case.
-- [ ] No file under `src/server/session/` imports `src/server/featureFlags.ts`, asserted by a test
-      over their sources; the module begins with `import 'server-only'`, which
-      `serverOnly.test.ts` already enforces.
+- [ ] No file a request to the API passes through imports `src/server/featureFlags.ts`: every
+      `route.ts` under `src/app/`, `src/proxy.ts`, and everything under `src/server/session/`, asserted
+      by a test over their sources whose fixture corpus includes a `route.ts` that imports it and must
+      fail. The module begins with `import 'server-only'`, which `serverOnly.test.ts` already enforces.
 
 ### FR-003: The page carries the flags and the boot seeds them
 
@@ -235,7 +249,9 @@ or `unavailable`.
 
 The layouts read no session. A signed-out visitor never sees the "not available" page, because the
 shell's sign-in gate wraps every signed-in path and sends them to `/`, but the response that carries
-it names one flag that is off and its fallback. That is accepted: a flag is presentation, the document
+it names one flag that is off and its fallback, which is the first enabled key in flag order and so
+also says every key before it is off. Across the five area paths a signed-out visitor can piece
+together every gated flag. That is accepted: a flag is presentation, the document
 is not secret from any signed-in user, and reading a session per area navigation would put a store
 read on a path that does no server I/O today.
 
@@ -261,7 +277,10 @@ below names it as its one exemption, with this reason.
 - [ ] Called with the flag on, or with no held set, each layout returns the `children` it was given,
       the same element with no wrapper and no `key` (`toBe`), so the shell above it is untouched; each
       area's existing view tests pass unchanged.
-- [ ] With `heldFeatureFlags` mocked to throw, `serverRouteGate` answers `open`.
+- [ ] With the registry module it imports (`gatedSurfaces.ts`) mocked so the route-row lookup throws,
+      `serverRouteGate` answers `open`; with its catch removed, the same test fails (run once during
+      the build, then reverted). A same-module mock cannot reach the call, which is why the throw comes
+      through the import.
 - [ ] A test walks every `route` row of `GATED_SURFACES`. For each, except the one exemption named by
       its row name, a layout exists whose path covers the row's path and answers `unavailable` given a
       held set with the row's flag off and `open` with it on. A new `route` row with no server gate
@@ -278,7 +297,7 @@ below names it as its one exemption, with this reason.
 
 #### Description:
 
-Three records state as fact what this spec changes, so they are rewritten in place with a dated
+Four records state as fact what this spec changes, so they are rewritten in place with a dated
 History entry, not appended to.
 
 - `docs/decisions/identity-and-access/a-feature-flag-is-presentation-never-authorization-and-it-lives-beside.md`:
@@ -289,6 +308,9 @@ History entry, not appended to.
 - `docs/specs/ARCS.md`, the Next.js arc's charter: "server components are used for layout shells only"
   and "no server rendering of data" gain a dated note that SPEC-264 lets server layouts read one
   document, the flags, after the arc closed, and nothing else.
+- `docs/decisions/identity-and-access/the-portal-server-holds-the-session-and-only-the-provider-or-the-clock-ends-it.md`:
+  its "nothing about a session lives in module scope" gains the one exception that is not session
+  state, the held flag set, and the rule that no token is captured in module scope.
 - `docs/decisions/browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md`:
   the signed-in areas now have server layouts below the shell. They carry no `key`, and they never
   throw, because there is no `error.tsx` between them and the root, so a throw in one would answer 500.
@@ -299,6 +321,8 @@ History entry, not appended to.
 
 - [ ] The flag decision's fence names both the server-first resolution and the rule that the API
       pass-through never consults the flags, and its History has a dated entry citing this spec.
+- [ ] The session decision's module-scope rule names the held set as not session state and forbids a
+      token in module scope, with a dated History entry.
 - [ ] The layout-boundary decision names the area layouts, their no-`key` and never-throw rules, and
       has a dated History entry.
 - [ ] Every other place that states that the browser resolves the flags is marked superseded in
