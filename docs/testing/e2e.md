@@ -821,6 +821,23 @@ own workspace element is new on each visit; that is not the shell.
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 | Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 
+**On the App Router (SPEC-261).** Both pages are App Router pages and every other area may not be,
+so these cross the two routers. Use real clicks in a signed-in tab, never the AppleScript Chrome tools
+(their clicks carry no user activation; see the SPEC-255 checks). Set `window.__m = 1` in the console
+first. After each row, `window.__m` must still read 1 and `performance.getEntriesByType('navigation').length`
+must read 1; either one changing means a document load. Rows 1 and 2 need a finished check on the
+account: check any folder or file holding a CSV from Files (**Check data quality**) and wait for its
+notification. The `e2e_1113` `dq_agree/` and `dq_disagree/` fixtures no longer hold their CSVs, so
+re-seed them or check something else.
+
+| Do | Expect |
+|---|---|
+| From Files or Notifications, open **Data quality** by its tab, click a run's row (the row is the report link), then Back | The runs list, then the report (tab titled *Data quality report — Data Quarry*), then the runs list (*Data quality — Data Quarry*), all in one document. |
+| On Notifications, click the text of a *"Data quality check on … finished"* link, then Back | The report for that check, then Notifications. The link wraps onto two lines, so a tool that clicks an element's centre can land between them and click nothing. |
+| Paste a report's address into a new tab of the same signed-in browser | Until SPEC-262 the new tab has no session of its own: the landing page, then **Sign in**, then the report from the saved return path. |
+| On a report, focus **Skip to main content**, press Enter, open **Data quality** by its tab, then Back | The address ends `#main`, then `/data-quality`, then the report again with `#main`, the report on screen and titled as a report. |
+| Upload a file big enough that the Upload panel still shows it in progress when you click **Data quality** by its tab (tens of MB; 9 MB finished too soon to prove it), then come back by the Files tab | The panel still lists it, further along or Uploaded, and the marker held. A file that finishes before the click proves only that the list survived. |
+
 ### 4.7 Saved queries
 
 | Do | Expect |

@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-261
 title: "Data Quality and Its Report Route Move Onto the App Router"
 description: "Serves the data-quality runs page and the report route from App Router pages instead of the react-router catch-all, with the report still gated before it reads anything and its space link still waiting for a fresh read."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 7
