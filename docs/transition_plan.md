@@ -2253,7 +2253,7 @@ Before SPEC-201 five places read the claim independently. The API now verifies t
 the edge, derives the actor from it, and every control plane reads a field it cannot forge — so
 what remains is **one configured claim name in one verifier** (`oidc_username_claim` in
 `infra/main.tf`), plus the browser's own username, which **fans out to roughly twenty call sites
-building S3 prefixes and Glue database names**. Once SPEC-262 lands the browser takes that username
+building S3 prefixes and Glue database names**. Since SPEC-262's first merge the browser takes that username
 from the Next.js server's `/auth/session`, whose `userOf` reads **`cognito:username` as a literal** in
 `apps/portal/src/server/session/oidc.ts` — so under [B] the server is the second reader, and it has
 to read the same configured claim the verifier does, or every federated user's prefixes are built
@@ -2266,7 +2266,7 @@ prefix and Glue database, and a user who can write `email` can map their token t
 Identity Center user (§3.3). This section used to say the app client must not have write permission
 on that attribute. **That is impossible under federation**: AWS's attribute-mapping page requires
 every attribute mapped from the IdP to be **writable** by the app client, because Cognito rewrites
-mapped attributes at each federated sign-in. Measured on 2026-11-15, neither client in
+mapped attributes at each federated sign-in. Measured on 2026-11-15, none of the three clients in
 `infra/modules/auth/cognito.tf` sets `read_attributes` or `write_attributes`, so by the
 `CreateUserPoolClient` reference the clients may write the **standard** attributes — a custom
 attribute must be listed in `write_attributes` explicitly, and a mapped one that is not writable is
@@ -2275,10 +2275,10 @@ attributes is that they never hold a token that may:** `UpdateUserAttributes` ta
 carrying the `aws.cognito.signin.user.admin` scope. So the guardrail is two rules on **every** app
 client in the pool — the server's, the driver path's (§3.10), any added later:
 
-- **No client allows the `aws.cognito.signin.user.admin` scope.** Both clients allow only `openid`,
+- **No client allows the `aws.cognito.signin.user.admin` scope.** All three clients — the SPA's, the server's and the local-development client SPEC-262 added — allow only `openid`,
   `email` and `profile` today, and the server never hands its access token to the browser.
 - **No client allows an API sign-in flow.** AWS documents that a token from API sign-in carries only
-  that admin scope, and both clients allow `ALLOW_USER_SRP_AUTH` today. Federated users have no
+  that admin scope, and all three clients allow `ALLOW_USER_SRP_AUTH` today. Federated users have no
   password, so in the successor account's pool the flow serves no one and is left out —
   `ALLOW_REFRESH_TOKEN_AUTH` alone. (The current environment keeps its local users until cutover,
   §2 item 14.)
@@ -2303,7 +2303,7 @@ that omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SR
 `ALLOW_CUSTOM_AUTH` by default, so the test requires the attribute to be present and exactly
 `["ALLOW_REFRESH_TOKEN_AUTH"]`, and `allowed_oauth_scopes` to be present. The same test holds what
 makes "no local identities" true rather than intended: every client's `supported_identity_providers`
-is exactly the Entra provider (both carry `["COGNITO"]` today), the pool has that one identity
+is exactly the Entra provider (all three carry `["COGNITO"]` today), the pool has that one identity
 provider and no other — a second could assert any email — `allow_admin_create_user_only` is true,
 the pool has no pre-sign-up trigger (an imported "established pattern" can carry one that links
 users by email).
@@ -2703,7 +2703,8 @@ and that is fine.
 - **Every app client obeys §6.1's rules**, with the test over the IaC that holds them: no
   `aws.cognito.signin.user.admin` scope, no API sign-in flow (`ALLOW_REFRESH_TOKEN_AUTH` alone),
   and the Entra provider as the only supported identity provider. The pool has one identity provider, admin-only user creation and no pre-sign-up
-  trigger. **No public SPA client** in this pool, and the API's verifier names the server's client
+  trigger. **No public SPA client and no local-development client** in this pool — the API accepts
+  all three audiences today — and the API's verifier names the server's client
   alone.
 - **The federated subject is Entra's object id** (§6.1): a persistent SAML `NameID` from `objectid`,
   or the OIDC `sub`. Never the UPN or mail, which Entra can reassign to a new hire.
