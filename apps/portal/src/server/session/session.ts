@@ -75,12 +75,13 @@ export async function createSession(
 /**
  * The active session an item describes.
  *
+ * @param config - The session configuration, for the username claim.
  * @param item - The stored item.
  * @param idToken - The ID token to forward, which may be newer than the item's.
  * @returns The session, or absent when the token names no user.
  */
-function active(item: SessionItem, idToken: string): LoadedSession {
-  const user = userOf(idToken);
+function active(config: SessionConfig, item: SessionItem, idToken: string): LoadedSession {
+  const user = userOf(config, idToken);
   return user ? {status: 'active', pk: item.pk, idToken, user} : {status: 'absent'};
 }
 
@@ -129,7 +130,7 @@ export async function loadSession(
     await store.delete(pk).catch(() => console.error('session: an expired session could not be deleted'));
     return {status: 'absent'};
   }
-  if (!options.forceRefresh && item.tokenExpiresAt - now > REFRESH_MARGIN_SECONDS) return active(item, item.idToken);
+  if (!options.forceRefresh && item.tokenExpiresAt - now > REFRESH_MARGIN_SECONDS) return active(config, item, item.idToken);
 
   const refreshed = await refreshTokens(config, item.refreshToken, now);
   if (!refreshed.ok) {
@@ -139,7 +140,7 @@ export async function loadSession(
     }
     console.error(`session: a refresh failed (${refreshed.failure})`);
     const stillValid = !options.forceRefresh && item.tokenExpiresAt > now;
-    return stillValid ? active(item, item.idToken) : {status: 'unavailable'};
+    return stillValid ? active(config, item, item.idToken) : {status: 'unavailable'};
   }
 
   const next = {idToken: refreshed.tokens.idToken, tokenExpiresAt: refreshed.tokens.tokenExpiresAt};
@@ -147,10 +148,10 @@ export async function loadSession(
   let expectedVersion = item.version;
   try {
     for (let attempt = 0; attempt < REFRESH_WRITE_ATTEMPTS; attempt += 1) {
-      if (await store.replaceTokens(pk, expectedVersion, next)) return active(item, next.idToken);
+      if (await store.replaceTokens(pk, expectedVersion, next)) return active(config, item, next.idToken);
       const stored = await store.get(pk);
       if (stored === null) return {status: 'absent'};
-      if (!options.forceRefresh || issuedAtOf(stored.idToken) >= issuedAt) return active(stored, stored.idToken);
+      if (!options.forceRefresh || issuedAtOf(stored.idToken) >= issuedAt) return active(config, stored, stored.idToken);
       expectedVersion = stored.version;
     }
   } catch {

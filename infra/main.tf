@@ -345,6 +345,12 @@ locals {
   # the concatenation happens once, here, as the verifier's JWKS URI's does.
   cognito_domain_origin = "https://${local.cognito_hosted_ui_domain}"
 
+  # The ID-token claim that carries the username, read by BOTH the API's verifier and the portal
+  # server, which hands it to the browser to build S3 prefixes and Glue database names. One value, so
+  # a provider change cannot move one reader and leave the other attributing requests to a different
+  # name. Federated users get a synthetic cognito:username, so the transition changes this line.
+  oidc_username_claim = "cognito:username"
+
   # What the server reads, named exactly as it reads it. Server-only: none is a CONFIG_ key, and
   # the secret is not here (the task definition's `secrets` carries it).
   session_environment = {
@@ -356,6 +362,7 @@ locals {
     OIDC_TOKEN_URL          = "${local.cognito_domain_origin}/oauth2/token"
     OIDC_REVOKE_URL         = "${local.cognito_domain_origin}/oauth2/revoke"
     OIDC_LOGOUT_URL         = "${local.cognito_domain_origin}/logout"
+    OIDC_USERNAME_CLAIM     = local.oidc_username_claim
     SESSION_TABLE_NAME      = local.session_table_name
     SESSION_MAX_AGE_SECONDS = tostring(module.auth.server_session_max_age_seconds)
     AWS_REGION              = var.aws_region
@@ -861,7 +868,7 @@ module "api" {
   oidc_issuer          = local.cognito_issuer
   oidc_audience        = [module.auth.user_pool_client_id, module.auth.server_client_id, module.auth.dev_client_id]
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"
-  oidc_username_claim  = "cognito:username"
+  oidc_username_claim  = local.oidc_username_claim
   oidc_required_claims = jsonencode({ token_use = "id" })
 
   # base grants the deploy role the apigateway, function, role and log-group permissions

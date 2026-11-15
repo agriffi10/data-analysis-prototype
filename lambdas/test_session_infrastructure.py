@@ -155,13 +155,40 @@ def test_every_variable_the_server_requires_is_one_the_infrastructure_renders() 
     assert listed, "the server no longer lists SESSION_VARIABLES in the form this test reads"
     required = set(re.findall(r"'([A-Z_]+)'", listed.group(1)))
     assert len(required) > 10, f"read only {sorted(required)}"
+    optional_list = re.search(r"export const OPTIONAL_SESSION_VARIABLES = \[(.*?)\] as const;", config, re.DOTALL)
+    assert optional_list, "the server no longer lists OPTIONAL_SESSION_VARIABLES in the form this test reads"
+    optional = set(re.findall(r"'([A-Z_]+)'", optional_list.group(1)))
+    assert optional and not optional & required, f"optional {sorted(optional)} overlaps the required list"
 
     rendered = set(_session_environment_keys())
     assert re.search(r'name\s*=\s*"OIDC_CLIENT_SECRET"', (SPA / "ecs.tf").read_text()), "the task no longer injects the secret"
-    assert required == rendered | {"OIDC_CLIENT_SECRET"}, (
-        f"the server requires {sorted(required - rendered - {'OIDC_CLIENT_SECRET'})} that the task does not carry, "
-        f"and the task carries {sorted(rendered - required)} that the server does not read"
+    assert required <= rendered | {"OIDC_CLIENT_SECRET"}, (
+        f"the server requires {sorted(required - rendered - {'OIDC_CLIENT_SECRET'})} that the task does not carry"
     )
+    assert rendered <= required | optional, f"the task carries {sorted(rendered - required - optional)} that the server does not read"
+
+
+def test_the_server_and_the_api_read_the_username_from_one_claim() -> None:
+    """The browser builds prefixes from the server's username and the API attributes requests by its own.
+
+    Two readers of one claim, so one value: a copy in each would let a provider change move one reader
+    and leave the other naming a different user — every prefix built from one name and every request
+    attributed to another.
+    """
+    root = ROOT_MAIN.read_text()
+    local = re.search(r'^\s*oidc_username_claim\s*=\s*"([^"]+)"', root, re.MULTILINE)
+    assert local, "root no longer decides the username claim in one local"
+    block = re.search(r"^  session_environment = \{\n(.*?)^  \}$", root, re.MULTILINE | re.DOTALL)
+    assert block, "root no longer writes session_environment as a block"
+    assert _argument(block.group(1), "OIDC_USERNAME_CLAIM") == "local.oidc_username_claim", (
+        "the portal server must read the username claim from the local the API reads"
+    )
+    api_call = re.search(r'^module "api" \{\n(.*?)^\}$', root, re.MULTILINE | re.DOTALL)
+    assert api_call, "root no longer calls the api module"
+    assert _argument(api_call.group(1), "oidc_username_claim") == "local.oidc_username_claim", (
+        "the API must read the username claim from the local the portal server reads"
+    )
+    assert len(re.findall(r'"cognito:username"', root)) == 1, "the claim is written as a literal more than once"
 
 
 def test_the_dev_parameter_is_the_task_environment_with_the_dev_client() -> None:

@@ -60,7 +60,7 @@ export function redirectUri(config: SessionConfig): string {
  */
 export function authorizeUrl(config: SessionConfig, transaction: SignInTransaction): string {
   const url = new URL(config.authorizeUrl);
-  url.search = new URLSearchParams({
+  const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.clientId,
     redirect_uri: redirectUri(config),
@@ -69,7 +69,9 @@ export function authorizeUrl(config: SessionConfig, transaction: SignInTransacti
     nonce: transaction.nonce,
     code_challenge: codeChallenge(transaction.codeVerifier),
     code_challenge_method: 'S256'
-  }).toString();
+  });
+  if (config.identityProvider !== undefined) params.set('identity_provider', config.identityProvider);
+  url.search = params.toString();
   return url.toString();
 }
 
@@ -134,12 +136,16 @@ export function checkIdToken(
 /**
  * The user a stored ID token names, in the browser's existing shape.
  *
+ * The username comes from the configured claim, the one the API's verifier also reads, so the
+ * prefixes the browser builds and the identity the API attributes a request to are the same name.
+ *
+ * @param config - The session configuration, for the username claim.
  * @param idToken - The ID token.
  * @returns The user, or undefined when the token carries no username.
  */
-export function userOf(idToken: string): SessionUser | undefined {
+export function userOf(config: SessionConfig, idToken: string): SessionUser | undefined {
   const claims = claimsOf(idToken);
-  const username = claims?.['cognito:username'];
+  const username = claims?.[config.usernameClaim];
   if (typeof username !== 'string' || username === '') return undefined;
   const email = claims?.email;
   return typeof email === 'string' ? {username, email} : {username};

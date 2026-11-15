@@ -16,6 +16,20 @@ export const SESSION_VARIABLES = [
   'AWS_REGION'
 ] as const;
 
+/**
+ * The variables the session routes read when they are set and do without when they are not.
+ *
+ * They are optional so a new image never refuses to start on a task definition that predates them.
+ * `OIDC_USERNAME_CLAIM` names the ID-token claim that carries the username, which Terraform renders
+ * from the same value as the API verifier's, so the two readers of the username cannot disagree.
+ * `OIDC_IDENTITY_PROVIDER` names the provider the sign-in redirect sends the user straight to; unset,
+ * the provider shows its own sign-in page.
+ */
+export const OPTIONAL_SESSION_VARIABLES = ['OIDC_USERNAME_CLAIM', 'OIDC_IDENTITY_PROVIDER'] as const;
+
+/** The username claim when `OIDC_USERNAME_CLAIM` is unset: Cognito's, which is today's provider. */
+export const DEFAULT_USERNAME_CLAIM = 'cognito:username';
+
 /** The session routes' configuration, read when a route runs. */
 export type SessionConfig = {
   portalOrigin: string;
@@ -30,6 +44,8 @@ export type SessionConfig = {
   tableName: string;
   maxAgeSeconds: number;
   region: string;
+  usernameClaim: string;
+  identityProvider?: string;
 };
 
 /** A session setting is missing or unusable. Its message names the variable and never a value. */
@@ -107,9 +123,10 @@ export function sessionProblems(env: NodeJS.ProcessEnv = process.env): SessionPr
 /**
  * Read the session configuration from the server's environment.
  *
- * Called by each route as it runs. The start-time check refuses to start a server missing any of these,
- * so a route reaches the refusal only in a process that skipped that check, and answers 503 rather than
- * throwing.
+ * Called by each route as it runs. The start-time check refuses to start a server missing any of the
+ * required variables, so a route reaches the refusal only in a process that skipped that check, and
+ * answers 503 rather than throwing. An optional variable that is unset or blank reads as absent, the
+ * same rule the runtime document applies to an empty value.
  *
  * @param env - The environment to read; the process's own by default.
  * @returns The configuration.
@@ -119,7 +136,14 @@ export function sessionConfig(env: NodeJS.ProcessEnv = process.env): SessionConf
   const [first] = sessionProblems(env);
   if (first) throw new SessionConfigError(first.variable);
   const value = (name: SessionVariable): string => env[name] as string;
+  const optional = (name: (typeof OPTIONAL_SESSION_VARIABLES)[number]): string | undefined => {
+    const set = env[name];
+    return set === undefined || set.trim() === '' ? undefined : set;
+  };
+  const identityProvider = optional('OIDC_IDENTITY_PROVIDER');
   return {
+    usernameClaim: optional('OIDC_USERNAME_CLAIM') ?? DEFAULT_USERNAME_CLAIM,
+    ...(identityProvider === undefined ? {} : {identityProvider}),
     portalOrigin: value('PORTAL_ORIGIN'),
     apiOrigin: value('API_ORIGIN'),
     issuer: value('OIDC_ISSUER'),
