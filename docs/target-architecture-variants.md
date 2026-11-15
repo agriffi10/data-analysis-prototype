@@ -3,7 +3,7 @@
 **Status:** Companion to `docs/transition_plan.md`, which stays the single source of truth. This
 file adds **pictures and one rejected fork**; where it and the plan disagree, the plan wins.
 **Last updated:** 2026-11-15, when the BFF box became the Next.js server and the API Lambda
-(`transition_plan.md` §4.7). Validated against live AWS and Microsoft documentation on 2026-08-19 —
+(`transition_plan.md` §4.7), and later that day when **Variant B was chosen** (§3.3). Validated against live AWS and Microsoft documentation on 2026-08-19 —
 see *What was checked against the live docs* at the end.
 
 **What these are.** The successor-account architecture at the end of **Phase 5**, drawn once for each
@@ -13,8 +13,11 @@ no AWS credential at any point — the last of those being the property **gate G
 
 Everything below the JWT is identical in both variants. What changes is the door the JWT comes
 through, which is why the transition is one plan and not two — and why **Variant B is drawn as its
-identity plane alone**: repeating sixty near-identical lines to change four would make you hunt
-the difference instead of being shown it.
+identity plane alone**: repeating sixty near-identical lines to change a handful would make you hunt
+the difference instead of being shown it. **Variant B is the one being built** (chosen 2026-11-15,
+on the client's established pattern of Cognito federated to Entra). Variant A's drawing stays,
+because it is the full picture of everything below the JWT; read its identity plane as the
+alternative not taken.
 
 **What they are not.** Today's architecture, or the **Phase 1 interim plane** (the API assuming
 the shared portal role with a `username` session tag, `${aws:PrincipalTag/username}` still scoping
@@ -32,7 +35,7 @@ The diagrams use project shorthand. Enough to read them:
 |---|---|
 | **Phase 5** | The last build phase of the client-environment transition (`transition_plan.md` §7): Identity Center identities in Lake Formation, the carrier role, S3 Access Grants. The drawings are the picture at the *end* of it. |
 | **Phase 1 interim plane** | The way station before that: the API assumes the shared portal role with a `username` session tag, and `${aws:PrincipalTag/username}` still scopes every policy. It retires in Phase 5. |
-| **The two variants** | Which product issues the JWT — Entra directly **[A]** or a Cognito bridge **[B]**. Decided by gate G8, in Phase 0. Not yet decided. |
+| **The two variants** | Which product issues the JWT — Entra directly **[A]** or a Cognito bridge **[B]**. **[B] was chosen on 2026-11-15**, on the client's established pattern; [A] is drawn as the alternative not taken. |
 | **Gate G7** | *Unproven.* Can a plain `StartQueryExecution`, from our own code on an identity-enhanced session, run on an IdC-enabled workgroup? The plan calls it a blocker. |
 | **Gate G9** | *Unproven.* Can the API presign an S3 URL from Access-Grants-vended credentials, and can a browser redeem it? The "no credentials in the tab" property rests on this. |
 | **Levels** | A user's entitlement to a core dataset — `normal` (masked columns/rows) or `sensitive` (all of them). Implemented as Lake Formation data cell filters, one per level per dataset. |
@@ -40,8 +43,8 @@ The diagrams use project shorthand. Enough to read them:
 | **Verb Lambdas** | The single-task functions each control plane's state machine invokes. Ordinary IAM roles. |
 
 Two things the drawings deliberately do **not** answer, because nothing has settled them: **which Entra
-claim carries the catalog-safe username** under [A] (you cannot write to Entra, so it must be found or
-derived — `transition_plan.md` §6.1), and **what a user sees when Identity Center has no matching
+claim carries the catalog-safe username** through the Cognito bridge (`transition_plan.md` §6.1:
+reuse the established pattern's, map one, or derive it), and **what a user sees when Identity Center has no matching
 record** for them, since there is no just-in-time provisioning and their exchange simply fails.
 
 ## How to read them
@@ -79,9 +82,10 @@ never applied to them.
 the identity-enhanced session is *established and carried*, the rest of lane B sitting inside the box
 that names it; **red** is what the allow-list denies. Everything else is unstyled.
 
-## Variant A — the baseline
+## Variant A — not taken (the full drawing below the JWT)
 
-Entra issues the OIDC JWT itself and is the Identity Center trusted token issuer. No User Pool, no
+*Was the baseline until 2026-11-15.* Entra issues the OIDC JWT itself and is the Identity Center
+trusted token issuer. No User Pool, no
 Identity Pool, no Managed Login, no custom attributes, and nothing to lock down against a
 self-asserted email.
 
@@ -151,35 +155,38 @@ flowchart TB
   class DENY deny
 ```
 
-## Variant B — the fallback
+## Variant B — chosen 2026-11-15
 
-Used only if the Entra tenant is hard SAML-only. Trusted identity propagation needs an OAuth 2.0
-JWT and does not accept SAML, so something must convert a SAML-authenticated session into an OIDC
-token. That is Cognito's entire job here.
+The client already runs Cognito federated to Entra, and building on that pattern is simpler than
+registering the portal with Entra directly. Trusted identity propagation needs an OAuth 2.0 JWT,
+and Cognito issues it from the federated sign-in. That is Cognito's entire job here. *(It used to
+be the fallback, used only if the tenant turned out to be hard SAML-only.)*
 
 **Only the identity plane is drawn, because only the identity plane changes.** Against Variant A,
-exactly four things move:
+exactly five things move:
 
 | | Variant A | Variant B |
 |---|---|---|
-| Sign-in hop | Browser → Entra | Browser → **Cognito** → SAML → Entra |
+| Sign-in hop | Browser → Entra | Browser → **Cognito** → Entra, over SAML or OIDC per the established pattern |
 | Trusted token issuer | Entra | **Cognito** |
 | Assertion exchanged | The Entra ID token | The **Cognito** ID token |
-| Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible |
+| Bearer the server forwards to the API | An Entra access token for the portal's own scope | The **Cognito** ID token, as today |
+| Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible, the federated subject Entra's object id, and neither a client allowing the attribute-write scope or an API sign-in flow nor a portal role able to write the pool (`transition_plan.md` §6.1) |
 
 Everything else in the drawing — the Next.js server, API Gateway and the API Lambda, DynamoDB, both
 lanes, the allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A
-diagram unchanged.
+diagram unchanged, **except the bearer on the server-to-API edge**, which under [B] is the Cognito
+ID token (the table's fourth row).
 
 ```mermaid
 flowchart TB
-  BR["Browser · SPA<br/>holds no AWS credentials"]
+  BR["Browser<br/>holds an opaque cookie<br/>no token, no AWS credential"]
 
-  subgraph IDPLANE["IDENTITY PLANE · VARIANT B — Cognito is a SAML-to-OIDC bridge and nothing else"]
-    COG["Cognito user pool<br/>SAML to OIDC bridge<br/>TRUSTED TOKEN ISSUER<br/>self-signup OFF, local identities impossible"]
-    ENTRA["Microsoft Entra ID<br/>SAML 2.0 only<br/>authenticates the human"]
+  subgraph IDPLANE["IDENTITY PLANE · VARIANT B, CHOSEN — Cognito is a bridge to Entra and nothing else"]
+    COG["Cognito user pool<br/>bridge to Entra<br/>TRUSTED TOKEN ISSUER<br/>self-signup OFF, local identities impossible"]
+    ENTRA["Microsoft Entra ID<br/>authenticates the human<br/>Conditional Access and MFA at federation"]
     IDC["IAM Identity Center<br/>identity store · propagation<br/>no just-in-time provisioning"]
-    COG -->|"SAML"| ENTRA
+    COG -->|"federation · SAML or OIDC"| ENTRA
     ENTRA -->|"SCIM · users + groups"| IDC
   end
 
