@@ -8,6 +8,11 @@ function Page({children}: {children?: ReactNode}) {
   return <>{children}</>;
 }
 
+function Unnamed() {
+  usePageTitleOnMount(null);
+  return null;
+}
+
 function View({title}: {title: string}) {
   usePageTitle(title);
   return null;
@@ -18,7 +23,11 @@ beforeEach(() => {
 });
 
 describe('usePageTitleOnMount', () => {
-  it('sets the page’s title as it mounts', () => {
+  it('sets the page’s title as it mounts, and leaves it to the view when given none', () => {
+    const {unmount} = render(<Unnamed />);
+    expect(document.title).toBe('Files — Data Quarry');
+    unmount();
+
     render(<Page />);
 
     expect(document.title).toBe('Notifications — Data Quarry');

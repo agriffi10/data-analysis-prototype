@@ -62,6 +62,9 @@ describe('an App Router page’s first visit', () => {
     await waitFor(() => expect(writes.length).toBeGreaterThan(committed), LOADING);
 
     expect(document.title).not.toBe(left);
-    expect(announcements()).toEqual([document.title]);
+    expect(
+      announcements(),
+      'a page passes usePageTitleOnMount the name its view settles on with no data and every flag on'
+    ).toEqual([document.title]);
   });
 });

@@ -21,21 +21,23 @@ export function usePageTitle(page?: string): void {
 
 /**
  * Sets the title in the commit that mounts an App Router page, once, for its
- * page file to call with the name its view titles itself by.
+ * page file to call with the name its view titles itself by; `null` leaves the
+ * title to the view.
  *
  * Next's route announcer reads document.title in a passive effect of the
  * commit that changes the router's tree. On a first visit that commit holds
  * the page but not its view, which `next/dynamic` is still loading, so a
  * title set only by the view is read a commit late and the user hears the
- * page they left. A layout effect runs before every passive effect: it is in
- * place for the announcer, and before the view's {@link usePageTitle} in a
- * commit holding both. It writes once per mount, because a boundary above
- * that hides the page and shows it again re-runs its layout effects but not
- * the view's passive one.
+ * page they left. The page's own effect runs before the announcer's, which
+ * Next renders after the page. It is a layout effect for the view's sake: in
+ * a commit holding both it runs before the view's passive {@link usePageTitle},
+ * so the view's title wins. It writes once per mount, because a boundary above
+ * that hides the page and shows it again re-runs its layout effects but not the
+ * view's passive one.
  *
- * What a first visit announces is this name, so a view whose title depends
- * on state (an unread count, a flag that is off) is announced by its page's
- * name until the next navigation reads its own.
+ * A first visit announces this name, so a view whose title depends on state
+ * (an unread count, a flag that is off) is announced by its page's name, and
+ * its own title is read when the page is shown again.
  *
  * @param page - The page's name, as its view passes it to `usePageTitle`.
  * @returns Nothing.
@@ -43,10 +45,10 @@ export function usePageTitle(page?: string): void {
  * @example
  * usePageTitleOnMount('Files');
  */
-export function usePageTitleOnMount(page: string): void {
-  const written = useRef<string | null>(null);
+export function usePageTitleOnMount(page: string | null): void {
+  const written = useRef<string | null | undefined>(undefined);
   useLayoutEffect(() => {
-    if (written.current === page) return;
+    if (page === null || written.current === page) return;
     written.current = page;
     document.title = formatPageTitle(page);
   }, [page]);

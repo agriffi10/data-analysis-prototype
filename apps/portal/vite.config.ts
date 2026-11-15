@@ -14,7 +14,7 @@ const SERVER_ONLY_EMPTY = path.join(path.dirname(createRequire(import.meta.url).
 /**
  * Next's App Router, modelled on jsdom's history. The real `next/navigation` needs the App Router
  * mounted around it, which no test has; the stand-in models the nine behaviours the navigation
- * seam rests on, each with a test of its own. Exact match only, so nothing else under `next/` moves.
+ * seam and the pages rest on, each with a test of its own. Exact match only, so nothing else under `next/` moves.
  */
 const NEXT_NAVIGATION_STAND_IN = fileURLToPath(new URL('./src/test/nextNavigation.ts', import.meta.url));
 

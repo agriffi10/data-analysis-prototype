@@ -24,8 +24,8 @@ const UNREAD = [0, 1, 2].map((i) => ({
 }));
 
 // What a first visit announces is the page's name, because the commit that mounts the page comes
-// before its view: a title the view derives from state is read at the next navigation, never the
-// page left. Each page is visited once in this file, so its view's chunk is still loading.
+// before its view: a title the view derives from state is read when the page is shown again, and
+// never the page left. Each page is visited once in this file, so its view's chunk is still loading.
 describe('a first visit to a page whose view’s title depends on state', () => {
   it('announces Notifications by its name while the bell already counts three unread', async () => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: UNREAD});
