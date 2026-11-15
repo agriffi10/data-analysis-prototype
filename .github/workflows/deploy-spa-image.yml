@@ -360,9 +360,9 @@ jobs:
           # FINISHED, NOT SUCCEEDED. A failed apply is already a red main in its own workflow, and
           # failing the wait as well would hold back an image that may not depend on it. So the wait
           # says so and goes on from what the family holds; the register step's key count still
-          # refuses a revision missing a key. A run GitHub CANCELLED is finished too: when it is
-          # the apply that was replaced, a newer push's apply carries this change, and that push's
-          # run waits for it. What does stop the run is an apply that never finishes inside the
+          # refuses a revision missing a key. A run GitHub CANCELLED is finished too: it registered
+          # nothing, so there is nothing to wait for, and its change lands with whichever apply
+          # runs next. What does stop the run is an apply that never finishes inside the
           # window — a dropped push event, a hung apply, an answer GitHub will not give — because
           # reading past it would deploy a revision that may predate this commit behind a green
           # check. The window is far past a routine apply, queue included; re-measure against that

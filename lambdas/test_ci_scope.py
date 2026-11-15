@@ -1319,9 +1319,9 @@ else:
 #: ``FAKE_UNFINISHED``, the last one repeating, and the answer is put through the step's own
 #: ``--jq`` expression by the real ``jq``, so the expression is exercised rather than assumed. An
 #: unfinished-runs answer names each run's commit by a key of ``FAKE_SHAS``, or by ``None`` for a
-#: run GitHub lists with no commit. The first COMPLETED answer about this commit, or the first
-#: unfinished-runs answer listing nothing unfinished after one that listed something, is what
-#: moves the family's newest revision. A question about any other commit or workflow is answered
+#: run GitHub lists with no commit. The first COMPLETED answer about this commit that was not
+#: cancelled, since a cancelled apply registers nothing, or the first unfinished-runs answer listing
+#: nothing unfinished after one that listed something, is what moves the family's newest revision. A question about any other commit or workflow is answered
 #: the way GitHub would answer it about a past push — finished and green — without moving
 #: anything, so a step that asked the wrong question is told it can go on, and reads the family
 #: too early.
@@ -1350,7 +1350,7 @@ if argv[:1] != ["api"] or os.environ["FAKE_RUNS_CALL"] == "fails":
 if question == "own":
     answers = json.loads(os.environ["FAKE_RUNS"])
     runs = answers[min(asked, len(answers)) - 1]
-    if runs and runs[0]["status"] == "completed":
+    if runs and runs[0]["status"] == "completed" and runs[0]["conclusion"] != "cancelled":
         (state / "applied").touch()
 elif question == "unfinished":
     answers = json.loads(os.environ["FAKE_UNFINISHED"])
@@ -1394,8 +1394,9 @@ def _unfinished_at(at: str | None, status: str = "in_progress") -> tuple[dict, .
 
     Args:
         at: A key of the harness's commit map — ``HEAD``, ``PARENT``, ``LATER`` for a commit this
-            clone does not hold, ``DESCENDANT`` for one it holds that comes after this one — or
-            ``None`` for a run GitHub lists with no commit.
+            clone does not hold, ``DESCENDANT`` for one it holds that comes after this one,
+            ``UNWALKABLE`` for one it holds whose history it cannot walk — or ``None`` for a run
+            GitHub lists with no commit.
         status: The run's status, any of GitHub's unfinished ones.
 
     Returns:
@@ -1528,6 +1529,20 @@ def _run_scope(
                 "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "pushed later"
             ),
         }
+        # A commit this clone holds whose parent it does not, so `merge-base` cannot answer.
+        shas["UNWALKABLE"] = subprocess.run(  # noqa: S603
+            [*git, "hash-object", "-t", "commit", "-w", "--stdin"],
+            input=(
+                f"tree {git_out('rev-parse', 'HEAD^{tree}')}\n"
+                f"parent {'d' * 40}\n"
+                "author a <a@example.com> 0 +0000\n"
+                "committer a <a@example.com> 0 +0000\n\nunwalkable\n"
+            ),
+            check=True,
+            capture_output=True,
+            text=True,
+            env=clean,
+        ).stdout.strip()
 
         image = {
             "baseline": f"registry/dat-prod-spa:{baseline}",
@@ -1994,7 +2009,8 @@ def test_only_a_run_at_this_commit_or_before_it_holds_this_one():
     Waiting for it here as well holds this run for an apply that cannot concern it, and a few
     applies in a row then outlast the window and redden main. A commit this full clone does not
     hold, and one it holds that comes after this one, are both later. A run whose commit cannot be
-    read is waited for, because reading past it may read past this push's own apply.
+    read, or placed against this one, is waited for, because reading past it may read past this
+    push's own apply.
 
     Args:
         None.
@@ -2003,7 +2019,7 @@ def test_only_a_run_at_this_commit_or_before_it_holds_this_one():
         None.
 
     Raises:
-        AssertionError: If a later push's apply holds this run, or a run with no readable commit
+        AssertionError: If a later push's apply holds this run, or a run this step cannot place
             does not.
     """
     for label, at in (
@@ -2017,15 +2033,50 @@ def test_only_a_run_at_this_commit_or_before_it_holds_this_one():
         assert answers["slept"] == 0, f"{label} held this run for its apply"
         assert (answers["build"], answers["deploy"]) == ("skip", "skip")
 
-    unplaced = _run_scope(
-        ("docs/architecture.md",),
-        unfinished=(_unfinished_at(None, "pending"), NOTHING_UNFINISHED),
+    for label, at in (
+        ("a run GitHub listed with no commit", None),
+        ("a run whose commit's history this clone cannot walk", "UNWALKABLE"),
+    ):
+        unplaced = _run_scope(
+            ("docs/architecture.md",),
+            unfinished=(_unfinished_at(at, "pending"), NOTHING_UNFINISHED),
+            apply_registers=True,
+        )
+        assert unplaced["slept"] == 15, (
+            f"{label} was read as a later push's rather than waited for"
+        )
+        assert (unplaced["build"], unplaced["deploy"]) == ("skip", "run")
+
+
+def test_a_push_whose_own_apply_finished_still_waits_for_an_earlier_one():
+    """This push's own run finishing says nothing about an earlier push's.
+
+    When this push's apply was cancelled — replaced in its concurrency group — it registered
+    nothing and finished at once, while an earlier push's apply, whose run of this workflow this one
+    replaced, can still be running. Stopping at the first question then reads the family before the
+    earlier apply has registered.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the run stops asking once its own apply has finished.
+    """
+    answers = _run_scope(
+        ("infra/main.tf",),
+        intermediate=("infra/variables.tf",),
+        apply_runs=(APPLY_CANCELLED,),
+        unfinished=(_unfinished_at("PARENT"), NOTHING_UNFINISHED),
         apply_registers=True,
     )
-    assert unplaced["slept"] == 15, (
-        "a run GitHub listed with no commit was read as a later push's rather than waited for"
+    assert (answers["build"], answers["deploy"]) == ("skip", "run"), (
+        "the run read the family once its own cancelled apply had finished, before the earlier "
+        "push's apply registered"
     )
-    assert (unplaced["build"], unplaced["deploy"]) == ("skip", "run")
+    assert (answers["polls"], answers["asked_unfinished"], answers["slept"]) == (1, 2, 15)
 
 
 def test_the_scope_step_holds_a_token_that_may_read_the_apply_runs():
