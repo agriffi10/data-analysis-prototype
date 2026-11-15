@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {USER_EVENT_OPTIONS, renderWithProviders} from '../test/renderWithProviders';
 import {AppNavDrawer} from './AppNavDrawer';
@@ -139,6 +139,7 @@ describe('CollapsibleRail', () => {
       localStorage.setItem(RAIL_COLLAPSED_STORAGE_KEY, 'true');
       renderRail();
       const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+      onTestFinished(() => focus.mockRestore());
 
       await user.click(screen.getByRole('button', {name: /show sidebar/i}));
 
@@ -147,7 +148,6 @@ describe('CollapsibleRail', () => {
       // Nor may that focus scroll: the rail's box is still easing open from zero width, and
       // scrolling Collapse into view there anchors the content to the right (measured in Chromium).
       expect(focus).toHaveBeenLastCalledWith({preventScroll: true});
-      focus.mockRestore();
       // jsdom runs no transitions, so this is the only fence it has on the real-browser half: a
       // panel whose visibility transitions IN is still hidden when that focus lands, and Chrome
       // refuses it. Measured: a 200ms visibility transition left focus on <body>, 0ms on the button.

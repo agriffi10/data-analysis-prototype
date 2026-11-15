@@ -255,18 +255,14 @@ describe('AddMembersDialog.a11y', () => {
     // matches what a phone would render. Real 400px layout is owed as a live browser pass.
     it('has no violations with many chips committed', async () => {
       Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
-      try {
-        const {container} = render(dialog());
-        const user = userEvent.setup();
-        await user.click(screen.getByRole('combobox'));
-        await user.keyboard('bob, cara, dave, erin{Enter}');
-        await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(4));
+      const {container} = render(dialog());
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('combobox'));
+      await user.keyboard('bob, cara, dave, erin{Enter}');
+      await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(4));
 
-        await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-        cleanup();
-      } finally {
-        Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
-      }
+      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+      cleanup();
     });
   });
 });
