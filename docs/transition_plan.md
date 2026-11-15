@@ -2228,9 +2228,10 @@ configured on the pool** — so with the bridge pointed at Entra it is not liter
 must be keyed on something that never changes and is never reused.** Microsoft's claims-validation
 guidance says never to authorize on `email`, `preferred_username` or `unique_name`, because they are
 not unique, and that a UPN "often changes over the lifetime" of a user. That reaches past the
-username to the Cognito user itself: for SAML, Cognito derives the user, and so its `sub`, from
-Entra's `NameID`, whose default is the UPN, and AWS's mapping page says to map `NameId` from an
-attribute "that has values that don't change". **The attack is a reassignment:** Entra gives a
+username to the Cognito user itself: AWS's attribute-mapping page lists `NameID` as the source of
+a SAML-federated user's username (and `sub` for OIDC), so the Cognito user, and its `sub`, are
+keyed on whatever Entra sends there — and Entra's default `NameID` for a SAML application is the
+UPN. **The attack is a reassignment:** Entra gives a
 leaver's UPN or mail to a new hire, who then federates into the leaver's Cognito user — same `sub`,
 same username, the leaver's prefix and Glue database — and nothing in Phases 1 to 4 checks
 otherwise. So two rules, both Phase 0 confirmations and Phase 1 build items:
