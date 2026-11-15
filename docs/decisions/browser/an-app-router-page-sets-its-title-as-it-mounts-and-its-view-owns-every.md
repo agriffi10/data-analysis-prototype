@@ -65,6 +65,10 @@ Quarry" and settled on "Query unavailable — Data Quarry". The view's own title
 is shown again, by a return to it or a navigation in place. `src/app/routeAnnouncement.state.test.tsx`
 holds both, so a change to either is a decision, not a drift.
 
+**Accepted, not pending (Andrew, 2026-11-15):** a first visit announces the page's name without its
+unread count or "unavailable". Neither fix offered for it was built: a title the shell resolves from
+state before the view loads, or holding the navigation until the view's chunk has loaded.
+
 **Do NOT give a page a `metadata` title instead.** Measured with a server `layout.tsx` beside Help
 exporting one: the first visit still announced the page left, and the document gained a second
 `<title>` beside the root layout's. The page sweep already refuses a `metadata` export, for the reason
@@ -101,6 +105,11 @@ write. A page that replaces the catch-all, the landing page or the not-found pag
 its name, and the announcement tests' page list widens to take it in.
 
 ## History
+
+### 2026-11-15
+
+- **Settled:** Andrew accepted that a first visit announces the page's name, not the title its view
+  derives from state; neither fix offered was built.
 
 ### 2026-11-14
 
