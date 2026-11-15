@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -11,7 +12,7 @@ import {
   reachFindings,
   run,
   shapeFindings
-} from './assert-pages-hydrate-no-app-graph.mjs';
+} from './page-hydration.mjs';
 
 /**
  * The page gate's corpus: each check against an analysis shaped like the Files page's, each finding
@@ -169,7 +170,8 @@ describe('the page gate’s analysis checks', () => {
       'src/app/(signed-in)/files/_parts/Shell.tsx',
       'src/lib/navigation/address.ts',
       'src/hooks/usePageTitle.ts',
-      'src/types/runtimeConfig.types.ts'
+      'src/types/runtimeConfig.types.ts',
+      'src/assets/hero.png'
     ]) {
       expect(judged(inPageParts(path))).toEqual([]);
     }
@@ -200,6 +202,8 @@ describe('the page gate’s analysis checks', () => {
       `${ROUTE} hydrates a lazy load of src/features/notifications/index.ts [app-client] (ecmascript) that is not next/dynamic`
     ]);
     expect(judged(analysis({files: {'page.js': {loaders: [lazy(src('src/routes/areas/help.tsx'))]}}}))).toEqual([]);
+    const harmless = [ident(src('src/lib/cx.ts')), ident('[project]/node_modules/focus-trap-react/dist/index.js')];
+    expect(judged(analysis({files: {'page.js': {loaders: harmless}}}))).toEqual([]);
   });
 
   it('refuse a route it cannot read: a file without a module list, and code none of which is the App Router’s', () => {
@@ -263,6 +267,8 @@ describe('the page gate', () => {
    *
    * @param {object} [options] - What to date, list or leave out.
    * @param {string} [options.analysedAt] - The analysis snapshot's creation time.
+   * @param {Date | null} [options.dataAt] - The analysis data's modification time; `null` leaves it out.
+   * @param {string[]} [options.dataFiles] - The data files beside the snapshot's `metadata.json`.
    * @param {Date} [options.builtAt] - The route statistics' modification time.
    * @param {object[] | null} [options.stats] - The route statistics; `null` leaves the file out.
    * @param {boolean} [options.history] - Whether the analysis history exists.
@@ -271,6 +277,8 @@ describe('the page gate', () => {
    */
   function built({
     analysedAt = '2026-11-15T12:00:10.000Z',
+    dataAt = new Date('2026-11-15T11:59:50.000Z'),
+    dataFiles = ['modules.data', 'files/analyze.data'],
     builtAt = new Date('2026-11-15T12:00:00.000Z'),
     stats = [{route: ROUTE, firstLoadChunkPaths: CHUNKS}],
     history = true,
@@ -293,6 +301,15 @@ describe('the page gate', () => {
     if (stats) {
       writeFileSync(file, JSON.stringify(stats));
       utimesSync(file, builtAt, builtAt);
+    }
+    if (dataAt) {
+      mkdirSync(join(dir, '.next/diagnostics/analyze/data/files'), {recursive: true});
+      for (const data of [...dataFiles, 'metadata.json']) {
+        const path = join(dir, '.next/diagnostics/analyze/data', data);
+        writeFileSync(path, '');
+        const at = data.endsWith('.json') ? new Date(analysedAt) : dataAt;
+        utimesSync(path, at, at);
+      }
     }
     if (history) {
       writeFileSync(
@@ -348,6 +365,11 @@ describe('the page gate', () => {
     expect(run(built(), () => renamed).findings).toEqual([
       "the bundle analysis is not this build's (analysed other, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` first."
     ]);
+    for (const data of [{dataAt: new Date('2026-11-15T12:00:05.000Z')}, {dataAt: null}, {dataFiles: []}]) {
+      expect(run(built(data), () => analysis()).findings).toEqual([
+        "the bundle analysis is not this build's (analysed snap, built 2026-11-15T12:00:00.000Z) — run `npm run build -- --analyze` first."
+      ]);
+    }
     expect(run(built({stats: []}), () => analysis()).findings).toEqual([
       'the build lists no routes, so there is nothing to judge.'
     ]);
@@ -367,5 +389,32 @@ describe('the page gate', () => {
     expect(exportAnalysis(stub(lines))).toEqual([{type: 'meta', argv: 'analyze export'}, {type: 'route'}]);
     const partial = `${lines} process.stderr.write('Error: Invalid analyzer header\\n'); process.exitCode = 1;`;
     expect(() => exportAnalysis(stub(partial))).toThrow('next analyze export exited 1: Error: Invalid analyzer header');
+  });
+
+  it('exits 1 naming each finding, and 0 with a count of what it read', () => {
+    // The suite runs from apps/portal, as every file-reading test here assumes.
+    const cli = join(process.cwd(), 'scripts/assert-pages-hydrate-no-app-graph.mjs');
+    const portal = (records) => {
+      const dir = built();
+      mkdirSync(join(dir, 'node_modules/next/dist/bin'), {recursive: true});
+      writeFileSync(join(dir, 'package.json'), '{}');
+      writeFileSync(join(dir, 'records.jsonl'), records.map((record) => JSON.stringify(record)).join('\n'));
+      writeFileSync(
+        join(dir, 'node_modules/next/dist/bin/next.js'),
+        "process.stdout.write(require('fs').readFileSync(require('path').join(process.cwd(), 'records.jsonl'), 'utf8'));"
+      );
+      return dir;
+    };
+    const failing = spawnSync(process.execPath, [cli], {
+      cwd: portal(inPageParts('src/AppFrame.tsx')),
+      encoding: 'utf8'
+    });
+    expect(failing.status).toBe(1);
+    expect(failing.stderr).toContain(`[pages] ${ROUTE} hydrates src/AppFrame.tsx, in a chunk loaded with ${PAGE}\n`);
+    const passing = spawnSync(process.execPath, [cli], {cwd: portal(analysis()), encoding: 'utf8'});
+    expect([passing.status, passing.stdout]).toEqual([
+      0,
+      '[pages] 1 route(s), 4 hydration chunk(s) checked: none carries the application graph.\n'
+    ]);
   });
 });

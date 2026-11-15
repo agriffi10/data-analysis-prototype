@@ -35,3 +35,29 @@ describe('lib/ and hooks/ stay off what a page reaches only client-only', () => 
     expect(await fenceMessages('src/hooks/probe.test.ts', "import {x} from '../components/LoadingState';")).toEqual([]);
   });
 });
+
+/** The rule's messages for one planted source file, linted as if it lived at `file`. */
+async function attributeMessages(file: string, source: string): Promise<string[]> {
+  const [result] = await eslint.lintText(source, {filePath: `${PORTAL}${file}`});
+  return result.messages.map((m) => `${m.ruleId}: ${m.message}`);
+}
+
+describe('no import under src/ carries an attribute, which would pass for next/dynamic’s', () => {
+  const refused = `no-restricted-syntax: No import attributes under src/: Turbopack reads one as next/dynamic's mark, which hides an eager import from the page check. Reach a view through next/dynamic itself.`;
+
+  it.each([
+    [
+      'src/app/(signed-in)/files/page.tsx',
+      "void import('../../../features/x', {with: {'turbopack-transition': 'next-dynamic'}});\nexport {};"
+    ],
+    ['src/hooks/probe.ts', "import x from '../lib/x.json' with {type: 'json'};\nexport {x};"],
+    ['src/lib/probe.mts', "export * from '../features/x' with {type: 'json'};\nexport const y: number = 1;"],
+    ['src/lib/probe.mjs', "export {x} from '../features/x' with {type: 'json'};"]
+  ])('refuses the attribute in %s', async (file, source) => {
+    expect(await attributeMessages(file, source)).toEqual([refused]);
+  });
+
+  it('lets a plain lazy import through', async () => {
+    expect(await attributeMessages('src/hooks/probe.ts', "void import('../lib/cx');\nexport {};")).toEqual([]);
+  });
+});

@@ -81,16 +81,16 @@ before its parent's, so the page's mount title would overwrite the view's count.
 **A page now imports a hook statically, so what it may import is fenced one layer further, and the
 fence is the build.** What a page imports is evaluated at hydration, before the boot.
 `npm run check:pages` reads each route's hydration chunks in the production build and fails when they carry
-the portal's own source outside `src/app/`, `src/lib/`, `src/hooks/` and `src/types/`, or a lazy load
-that is not `next/dynamic`, naming the route and the module; how it reads the build, and the traps in
-doing so, are `docs/decisions/gates-and-tests/a-pages-hydration-chunks-are-judged-from-nexts-bundle-analysis-tied-to.md`.
+the portal's own source outside `src/app/`, `src/lib/`, `src/hooks/`, `src/types/` and `src/assets/`,
+or a lazy load of such source that is not `next/dynamic`, naming the route and the module; how it
+reads the build, the traps in doing so, and the one forgery only lint can refuse, are `docs/decisions/gates-and-tests/a-pages-hydration-chunks-are-judged-from-nexts-bundle-analysis-tied-to.md`.
 Planted into the real tree and built, it failed every shape a reviewer had carried into the Files
 page's hydration chunk through the source checks: a hook importing `AppFrame`, a file in a folder
 under the page's directory, and a comment inside an import list. It failed the shapes those checks
 never held as well: a client layout nested under the root, a root `not-found.tsx`, an `.mts` file, a
 directory barrel, a package self-reference, a top-level file nobody had written before, and a raw
 `import()` in the page or in a hook it calls. A type-only import of a feature, and a page importing
-lib, stayed silent.
+lib or an image, stayed silent.
 
 **The source checks stay, as early warnings.** `src/app/pageSweep.test.ts` allows a page and the files
 beside it only packages, each other, `src/lib/` and `src/hooks/`, and lint keeps `src/lib/` and
