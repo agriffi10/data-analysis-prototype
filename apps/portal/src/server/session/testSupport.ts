@@ -1,5 +1,5 @@
 import 'server-only';
-import type {SessionConfig} from './config';
+import {DEFAULT_USERNAME_CLAIM, type SessionConfig} from './config';
 import {fakeDynamo} from './fakeDynamo';
 import type {SessionDeps} from './handlers';
 import {sessionKey} from './session';
@@ -31,6 +31,7 @@ export function testConfig(overrides: Partial<SessionConfig> = {}): SessionConfi
     tableName: 'test-sessions',
     maxAgeSeconds: 30 * 86400,
     region: 'us-east-1',
+    usernameClaim: DEFAULT_USERNAME_CLAIM,
     ...overrides
   };
 }

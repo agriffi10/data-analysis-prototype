@@ -52,7 +52,8 @@ let signedInUser: string | null = null;
  * names someone else; with none recorded, nothing is sent at all. The auth provider calls this before it
  * publishes a change of user, so a query the change starts already sees it.
  *
- * @param username - The signed-in user's `cognito:username`, or null when the tab is signed out.
+ * @param username - The signed-in user's username, from the claim the server and the API are
+ *   configured to read, or null when the tab is signed out.
  * @returns None.
  */
 export function setSignedInUser(username: string | null): void {

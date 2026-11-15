@@ -10,7 +10,7 @@ import {
   signinCookie
 } from './cookies';
 import {apiTarget, declaresTooMuch, forward, readBoundedBody} from './forward';
-import {authorizeUrl, exchangeCode, logoutUrl, newTransaction} from './oidc';
+import {authorizeUrl, exchangeCode, logoutUrl, newTransaction, userOf} from './oidc';
 import {fromThePortal, isSafeMethod} from './origin';
 import {refusal} from './refusal';
 import {createSession, discardSession, endSession, loadSession, nowSeconds} from './session';
@@ -108,6 +108,10 @@ export const callback: Handler = async (request, {config, store}) => {
     console.error(
       `session: a sign-in's code exchange failed (${exchanged.ok ? 'no refresh token' : exchanged.failure})`
     );
+    return failed(true);
+  }
+  if (userOf(config, exchanged.tokens.idToken) === undefined) {
+    console.error(`session: a sign-in's ID token carries no ${config.usernameClaim} claim`);
     return failed(true);
   }
 

@@ -44,7 +44,8 @@ portal with Entra directly, so the portal keeps a Cognito User Pool federated to
 is the Identity Center trusted token issuer. G8 is no longer the variant decider (§5.5 recasts it).
 The Next.js server's sign-in client, built against Cognito, therefore stays right as built in all
 but two respects — the username claim it reads (§6.1), and the provider its sign-in redirect names
-(Phase 1) — and the costs B carries move from contingencies to work: an immutable federated
+(Phase 1) — and both of those became configuration the same day, so Phase 1 sets values rather than
+changing code. The costs B carries move from contingencies to work: an immutable federated
 subject and the username looked up by it (§6.1), the attribute-write guardrail on user tokens and
 portal roles alike, and a session that Entra no longer ends on its own — accepted, because the
 client recovers a leaver's equipment (§4.7).
@@ -247,7 +248,7 @@ Treated as inputs. Do not re-litigate without new information.
    the portal with Entra directly ([A]). Nothing app-level depends on Cognito beyond the claims §6.1
    names: no custom attributes unless §6.1's choice needs one, no `cognito:username` as the
    username, and no Managed Login screen of its own — the sign-in redirect is to name the Entra
-   provider, so no picker appears (Phase 1 [B]; it names none today). §3.3 carries the mechanism. *History: "Cognito survives as a facade" was
+   provider, so no picker appears (Phase 1 [B]: the server's `OIDC_IDENTITY_PROVIDER`, unset until then). §3.3 carries the mechanism. *History: "Cognito survives as a facade" was
    superseded on 2026-08-18 by two variants with no Cognito in the baseline, and the variant was to
    be chosen by gate G8; it was chosen outright instead, on the client's established pattern.* *The old wording — Identity Center as the upstream SAML
    provider on a surviving User Pool — described Variant B with the bridge pointed at Identity
@@ -2254,11 +2255,13 @@ the edge, derives the actor from it, and every control plane reads a field it ca
 what remains is **one configured claim name in one verifier** (`oidc_username_claim` in
 `infra/main.tf`), plus the browser's own username, which **fans out to roughly twenty call sites
 building S3 prefixes and Glue database names**. Since SPEC-262's first merge the browser takes that username
-from the Next.js server's `/auth/session`, whose `userOf` reads **`cognito:username` as a literal** in
-`apps/portal/src/server/session/oidc.ts` — so under [B] the server is the second reader, and it has
-to read the same configured claim the verifier does, or every federated user's prefixes are built
-from the synthetic `{providerName}_<subject>`. A fleet sweep fails if any shipped Lambda module
-writes a provider's claim name as a literal; nothing yet does the same for the server. The full record of what moved and where: `docs/decisions/identity-and-access/`.
+from the Next.js server's `/auth/session` — so the server is the second reader, and under [B] it
+has to read the same claim the verifier does, or every federated user's prefixes are built from the
+synthetic `{providerName}_<subject>`. **Since 2026-11-15 it does:** `userOf` reads the claim named by
+`OIDC_USERNAME_CLAIM`, which root renders from `local.oidc_username_claim`, the one local the
+verifier's `oidc_username_claim` reads too, and `lambdas/test_session_infrastructure.py` fails if
+either reader stops taking it from there. Changing the username claim is that one line. A fleet
+sweep also fails if any shipped Lambda module writes a provider's claim name as a literal. The full record of what moved and where: `docs/decisions/identity-and-access/`.
 
 **The [B] guardrail is a security control, not hygiene — and the app client cannot be what enforces
 it.** A user who can write the attribute that carries their username can take another user's S3
@@ -2712,21 +2715,29 @@ and that is fine.
   test that no portal role can write, link, create or set a password for a user in the bridge pool
   (§6.1). Membership comes from the index in this phase anyway.
 - **Build the username lookup Phase 0 chose (§6.1)** — keyed on the federated subject, not
-  transformed from a mail or UPN — and make the Next.js server read it the way the API's verifier
-  does: one configured claim name, read by both. `userOf` reads `cognito:username`
-  as a literal today, which under federation is the synthetic `{providerName}_<subject>`.
+  transformed from a mail or UPN — and point `local.oidc_username_claim` at the claim it emits. The
+  server and the API's verifier both read that one local, so it is a one-line change; left at
+  `cognito:username`, a federated user's username is the synthetic `{providerName}_<subject>`.
+  **Two steps go before that line changes.** The server's `OIDC_USERNAME_CLAIM` is optional and
+  falls back to `cognito:username`, so a stale environment keeps the old claim silently while the
+  API reads the new one — the browser builds prefixes from one name and the API attributes requests
+  to another. So promote it into the server's required `SESSION_VARIABLES` once a task definition
+  carrying it is live, and have every developer rerun `npm run dev:session-env` after the change.
 - **A custom attribute only if that choice needs one** — never as the key itself (§6.1) — and then listed in every client's
   `write_attributes`, because a mapped attribute the client cannot write is silently not set. Not
   `custom:portal_username` by default, and never `custom:shared_space_*`: membership comes from the
   registry (below), and a Cognito custom attribute can never be renamed or deleted, so an attribute
-  created "just in case" is permanent. The API verifier's claim is pinned at `cognito:username` in
-  `infra/main.tf`, and a test in `lambdas/test_api_module.py` pins that value, so the change moves
-  both.
-- **Name the Entra provider in the sign-in redirect.** `authorizeUrl` sends no `identity_provider`,
-  and AWS's authorize-endpoint page sends such a request to Managed Login instead — a Cognito screen
-  the user should never see. The provider name is configuration on the server, beside the username
-  claim.
-- The Next.js server's sign-in client is otherwise right as built — those two items aside: it was
+  created "just in case" is permanent. `lambdas/test_api_module.py` pins the local at
+  `cognito:username`, so the change moves that assertion too.
+- **Name the Entra provider in the sign-in redirect** by setting the server's
+  `OIDC_IDENTITY_PROVIDER` to the provider's name in the pool. Unset, `authorizeUrl` sends no
+  `identity_provider`, and AWS's authorize-endpoint page sends such a request to Managed Login — a
+  Cognito screen the user should never see. The setting exists since 2026-11-15; Terraform does not
+  render it yet, because no provider exists to name. **Render it in the same apply that adds the
+  provider to every client's `supported_identity_providers`**: Cognito rejects an `identity_provider`
+  the client does not list, and the value reaches the dev client too, through
+  `dev_session_environment`.
+- The Next.js server's sign-in client is otherwise right as built — those two settings aside: it was
   built against Cognito (SPEC-257), and under [B] it never talks to anything else. The API's verifier configuration points
   at the pool's issuer, and the server forwards the Cognito ID token as the bearer, as it does today.
 
@@ -3201,6 +3212,10 @@ The exchange's split, checked 2026-11-15 (§3.5, §4.7):
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
 
+- **2026-11-15, last — the server's two settings.** The username claim the Next.js server reads and
+  the provider its sign-in redirect names became configuration (`OIDC_USERNAME_CLAIM` from the same
+  root local as the API's verifier, and an optional `OIDC_IDENTITY_PROVIDER`), so §6.1 and Phase 1
+  [B] describe values to set rather than code to change.
 - **2026-11-15, later — Variant B chosen.** The client's established pattern of Cognito federated
   to Entra makes [B] the plan and [A] the alternative not taken; G8 becomes the Entra side of that
   federation. **§6.1**'s guardrail is rewritten, because AWS requires mapped attributes to be

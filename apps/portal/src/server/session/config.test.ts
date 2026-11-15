@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {SESSION_VARIABLES, SessionConfigError, sessionConfig} from './config';
+import {SESSION_VARIABLES, SessionConfigError, sessionConfig, sessionProblems} from './config';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -37,5 +37,22 @@ describe('the session configuration', () => {
     expect(sessionConfig()).toMatchObject({apiOrigin: secure.api, tokenUrl: secure.token, revokeUrl: secure.revoke});
     environment({api: 'http://127.0.0.1:9100', token: 'http://localhost:9100/t', revoke: 'http://[::1]:9100/r'});
     expect(sessionConfig().tokenUrl).toBe('http://localhost:9100/t');
+  });
+
+  it('reads the username claim and the identity provider when set, and falls back when unset or blank', () => {
+    const secure = {api: 'https://api.test', token: 'https://auth.test/t', revoke: 'https://auth.test/r'};
+    environment(secure);
+    vi.stubEnv('OIDC_USERNAME_CLAIM', 'custom:portal_username');
+    vi.stubEnv('OIDC_IDENTITY_PROVIDER', 'EntraID');
+    expect(sessionConfig()).toMatchObject({usernameClaim: 'custom:portal_username', identityProvider: 'EntraID'});
+
+    for (const unset of [undefined, '', '  ']) {
+      vi.stubEnv('OIDC_USERNAME_CLAIM', unset);
+      vi.stubEnv('OIDC_IDENTITY_PROVIDER', unset);
+      const config = sessionConfig();
+      expect(config.usernameClaim).toBe('cognito:username');
+      expect('identityProvider' in config).toBe(false);
+    }
+    expect(sessionProblems()).toEqual([]);
   });
 });

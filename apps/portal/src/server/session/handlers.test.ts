@@ -67,6 +67,14 @@ describe('GET /auth/login', () => {
       code_challenge_method: 'S256',
       code_challenge: codeChallenge(transaction?.codeVerifier ?? '')
     });
+    expect(location.searchParams.has('identity_provider')).toBe(false);
+  });
+
+  it('sends the user straight to the configured identity provider', async () => {
+    const response = await login(request('/auth/login'), testDeps(testConfig({identityProvider: 'EntraID'})));
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.getAll('identity_provider')).toEqual(['EntraID']);
   });
 });
 
@@ -94,7 +102,7 @@ describe('GET /auth/callback', () => {
       exchange: 'refused',
       cleared: true
     },
-    ...['aud', 'iss', 'token_use', 'nonce', 'exp'].map((claim) => ({
+    ...['aud', 'iss', 'token_use', 'nonce', 'exp', 'cognito:username'].map((claim) => ({
       label: `a wrong ${claim}`,
       query: `?code=c&state=${TRANSACTION.state}`,
       cookie: true,
@@ -111,7 +119,8 @@ describe('GET /auth/callback', () => {
         iss: 'https://other',
         token_use: 'access',
         nonce: 'other',
-        exp: NOW - 1
+        exp: NOW - 1,
+        'cognito:username': undefined
       };
       const fetch = vi.fn(async () =>
         exchange === 'refused'
@@ -273,6 +282,18 @@ describe('GET /auth/session and POST /auth/refresh', () => {
     expect((await session(request('/auth/session', {cookies: {[SESSION_COOKIE]: 'e'.repeat(43)}}), deps)).status).toBe(
       401
     );
+  });
+
+  it('answers the username from the configured claim, not from cognito:username', async () => {
+    const deps = testDeps(testConfig({usernameClaim: 'custom:portal_username'}));
+    const federated = storedSession({
+      idToken: idToken({'cognito:username': 'entraid_3f2a9c', 'custom:portal_username': 'bob'})
+    });
+    await deps.store.put(federated.item);
+
+    const response = await session(request('/auth/session', {cookies: {[SESSION_COOKIE]: federated.cookie}}), deps);
+
+    expect(await response.json()).toEqual({username: 'bob', email: 'alice@example.test'});
   });
 
   it('refreshes on demand, ends the session on invalid_grant, and answers 503 on a fault', async () => {

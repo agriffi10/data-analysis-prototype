@@ -669,7 +669,10 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
     assert jwks_assignment and not jwks_assignment.group(1).strip().startswith("var."), (
         "root must be the place oidc_jwks_uri is decided, so a provider swap has one site"
     )
-    assert re.search(r'oidc_username_claim\s*=\s*"cognito:username"', root_call), (
+    assert re.search(r"oidc_username_claim\s*=\s*local\.oidc_username_claim\b", root_call), (
+        "the API must read the username claim from the root local the portal server reads too"
+    )
+    assert re.search(r'^\s*oidc_username_claim\s*=\s*"cognito:username"', ROOT_MAIN.read_text(), re.MULTILINE), (
         "the username claim is not cognito:username — every request would be attributed to "
         "whatever this names instead"
     )
