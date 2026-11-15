@@ -40,7 +40,7 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `base` | the GitHub OIDC provider, the **deploy role**, and every grant it holds | [README](../modules/base/README.md) |
 | `network` | the VPC, subnets, route tables, VPC endpoints, security groups, flow logs | [README](../modules/network/README.md) |
 | `data` | the **user-space bucket** (Bucket 1) and the shared **portal role** | [README](../modules/data/README.md) |
-| `auth` | the Cognito User Pool, its SPA client, the Hosted UI domain and both triggers | [README](../modules/auth/README.md) |
+| `auth` | the Cognito User Pool, its server and dev clients, the Hosted UI domain and both triggers | [README](../modules/auth/README.md) |
 | `analytics` | the Athena workgroup, the **admin bucket**, and the **Lake Formation** bootstrap | [README](../modules/analytics/README.md) |
 | `lambda-artifacts` | the bucket CI staged Lambda zips in — **nothing writes to it and nothing reads it**; retiring it is nobody's spec yet | [README](../modules/lambda-artifacts/README.md) |
 | `observability` | the structured-logging queue and its backlog alarm; its sweep is `function-log-sweep.tf`, and this README carries the reasoning for both | [README](../modules/observability/README.md) |

@@ -27,11 +27,12 @@ register.
                         │  TypeScript, TanStack Query; configuration   │
                         │  read at runtime from /config.json; no token │
                         └───┬─────────────┬────────────────────────────┘
-                            │             │  /auth/* and /api/, same origin
+                            │             │  /auth/* and /api/, same origin; sign-in itself
+                            │             │  redirects to Cognito Managed Login v2 and back
                             │             ▼
                             │   ┌───────────────────────┐
-                            │   │ the portal server:    │ ◀──▶ Cognito
-                            │   │ the session, refresh  │      Managed Login v2
+                            │   │ the portal server:    │ ──▶ Cognito's token
+                            │   │ the session, refresh  │     and revoke endpoints
                             │   └─────────┬─────────────┘
                    presigned bytes        │  bearer token
                  (signed server-side)     ▼
@@ -486,7 +487,7 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 15 | [Mobile-first, two compiled breakpoints, one tree](decisions/browser/responsive.md) | Tailwind compiles every breakpoint you declare whether or not you use it, and each one is a state every surface can be wrong in. Two is what the layouts actually need. | Only `tablet:` (≥900) and `desktop:` (≥1300) exist — an unprefixed class is mobile. Reaching for a third means the tree is doing something a reflow cannot, which is worth stopping on. |
 | 16 | [The wire is declared in Python and the TypeScript is generated](decisions/identity-and-access/the-contract-is-declared-in-python-and-the-typescript-is-generated.md) | Two hand-written halves of one contract drift, and the drift surfaces at runtime in the browser. Python is the declaring half because the server is what actually enforces the shape — generating the other way would make the browser's belief authoritative over the thing validating it. | CI refuses a regeneration diff in both directions. The type vocabulary is closed and **never falls back** — a fallback type agrees with everything. |
 | 17 | [`apiRequest` retries nothing, except one forced refresh on 401](decisions/identity-and-access/apirequest-retries-nothing-and-idempotency-is-declared-per-route.md) | A blanket retry replays non-idempotent writes; idempotency is a property of the route, never of the HTTP method. | That single 401 retry is the browser's only refresh path — deleting it signs everyone out at the hour mark with a green suite. **Superseded in part by row 58 (SPEC-262):** the browser retries nothing, because the portal server refreshes the token before it forwards; a 401 re-reads the session once. |
-| 58 | [One session covers the browser, and the browser holds no token](decisions/identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md) | Row 57 put the session on the portal server, but nothing the browser called used it: the browser still signed in through Amplify and a public client, and called the API cross-origin with its own token, which is why the API needed CORS. | The browser signs in through `/auth/*` and reaches the API only through its own origin's `/api/`, naming the tab's user in `x-dq-user`, which the server checks before it forwards. Amplify, the public client and the API's CORS are gone, and local development signs in through its own confidential client. It landed as [two merges](decisions/infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md), and only the second ended the rollback. Supersedes rows 1, 7 and 17 in part. |
+| 58 | [One session covers the browser, and the browser holds no token](decisions/identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md) | Row 57 put the session on the portal server, but nothing the browser called used it: the browser still signed in through Amplify and a public client, and called the API cross-origin with its own token, which is why the API needed CORS. | The browser signs in through `/auth/*` and reaches the API only through its own origin's `/api/`, naming the tab's user in `x-dq-user`, which the server checks before it forwards. Amplify, the public client and the API's CORS are gone, and local development signs in through its own confidential client. It landed as [two merges](decisions/infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md), and only the second ended the rollback and [narrowed the origins](decisions/infrastructure/the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover.md). Supersedes rows 1, 7 and 17 in part. |
 
 ### Storage and data
 

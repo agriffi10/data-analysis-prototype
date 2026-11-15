@@ -3647,4 +3647,5 @@ preflight branch, and narrowed `connect-src` to `'self'` and the buckets. Local 
 through a dev client whose sessions only a dev server will load. The public client's Managed Login
 style had to go by hand first, because the deploy role cannot delete a style and AWS documents
 neither a cascade nor a refusal. The decisions are `identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md`
-and `infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md`.
+and `infrastructure/the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover.md`; the two
+merges follow `infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md`.

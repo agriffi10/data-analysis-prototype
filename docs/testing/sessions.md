@@ -20,6 +20,8 @@ holders from merge 1 to the end. The images and windows, all UTC, from the Deplo
   to 16:46:41) was rolling out across the first cold sign-in, the second tab and the cross-tab
   sign-out, so either task may have answered them; both images carry merge 1.
 - 18:26 to 18:27, local: `npm run dev` on `localhost:5173` against the deployed API.
+- 18:30 on `65d60b36` (run 43744035659, done 18:05:41), where the session the rehearsal carried
+  was created.
 - 18:41 to 18:50, the rehearsal: run 43748210628 put the service on `c0bbacb1` (task definition
   299), and run 43748720587 put it back on `4fa75b6e` (task definition 300).
 - 19:05 to 19:08 on `4fa75b6e`, task definition 300; no deploy crossed it.
@@ -44,7 +46,7 @@ entered his password at Managed Login each time. Instruments:
 | Sign-out in one tab, then act in the other | The first tab came back to `/`. The second tab's folder listing got a 401, it read `/auth/session` once, and it moved to the signed-out home page with no retry. |
 | The refused callback | `/auth/callback?error=access_denied` landed on `/` showing the failure message. |
 | Local sign-in through the dev client | After `npm run dev:session-env`, a password sign-in on `localhost:5173` created a session at 18:26:07 and landed on `/files`; the list came through the local server's `/api/`; `spec262-dev-upload.txt` (58 B) appears in the API's listing at 18:27:06. |
-| The rollback rehearsal | On `c0bbacb1` Sign in went through the retired public client, the tab's `sessionStorage` held that client's tokens, and Resource Timing showed `/oauth2/token` then direct calls to `api.dataquarry.app`. A server session created at 18:30:44 survived the round trip. |
+| The rollback rehearsal | On `c0bbacb1` Sign in went through the public client, which merge 2 later retired, the tab's `sessionStorage` held that client's tokens, and Resource Timing showed `/oauth2/token` then direct calls to `api.dataquarry.app`. A server session created at 18:30:44 survived the round trip. |
 | Merge 2's removals, read off the deployed tier | `describe-user-pool-client` for the retired client: `ResourceNotFoundException`. `get-api`: no `CorsConfiguration`, the execute-api endpoint still disabled. An `OPTIONS` from the portal origin: 401, no `access-control-*` header. `OIDC_AUDIENCE`: the server and dev clients only. Task definition 302: four `CONFIG_` keys. `/config.json`: those four and `version`. `connect-src`: `'self'` and the two buckets' endpoints. The 19:07 session was still signed in afterwards, with no CSP violation. |
 | After merge 2, a fresh sign-in and an upload | Signed out, Managed Login asking for a password, from `/files`: a session created at 22:01:38 landed on `/files`. `spec262-after-merge2.txt` (60 B) went through `/api/v1/objects/upload` (200) and the presigned PUT (200), and appears in the API's listing at 22:02:51. |
 
@@ -52,10 +54,11 @@ entered his password at Managed Login each time. Instruments:
 the pane cannot open one. Each ran in the pane's own profile, signed out with no session cookie and
 Managed Login cold. After the last one the portal's origin held one `localStorage` key
 (`portal-theme`) and no readable cookie, Cache Storage, IndexedDB or service worker; the HTTP cache
-was not cleared. Not run: Safari, and a literal new profile.
+was not cleared, which is the one difference the server and Cognito cannot see. Andrew accepted this
+run as meeting the criterion. Not run: Safari, and a literal new profile.
 
 **Expected on the way.** Each signed-out load logged a 401 from `/auth/session`, and each Files load
-a 409 from `PUT /v1/objects/content`: the folder marker is written only if absent, and an existing
+a 409 from `PUT /api/v1/objects/content`: the folder marker is written only if absent, and an existing
 one answers `Conflict`, which the page treats as success.
 
 **Left behind.** `agriffith/spec262-dev-upload.txt` and `agriffith/spec262-after-merge2.txt`; the

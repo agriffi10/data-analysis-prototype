@@ -14,7 +14,8 @@ service ran before #1003 (`c0bbacb1`) was rehearsed live. `main` was green on bo
   re-reads the session once. `getIdToken` asks the server to refresh (`POST /auth/refresh`).
   `lib/documentNavigation.ts` is the seam for leaving the app, because jsdom cannot observe
   `location.assign` or `reload`.
-- **The server.** `/api/` refuses a request naming no user or another user before any store read. A
+- **The server.** `/api/` refuses a request naming no user before any store read, and one naming
+  another user before it forwards. A
   session load, a sign-out and a callback's replacement leave alone a session whose ID token another
   client created, so a dev cookie replayed against production does nothing. Under `next dev` the
   cookies drop `__Host-` and `Secure`, and the dev server listens on localhost only.
@@ -28,7 +29,7 @@ service ran before #1003 (`c0bbacb1`) was rehearsed live. `main` was green on bo
 - **The register.** Merge 1 rewrote twelve decisions in place, among them
   `cognito-tokens-are-held-per-tab-not-per-browser` (one session per browser now), the API
   verifier's, the provider block's and the SDK ban's; merge 2 rewrote six for the narrowing, among
-  them the cutover decision, `no-backend`, the runtime document's and the CSP's. The Help guide's
+  them the origins decision, `no-backend`, the runtime document's and the CSP's. The Help guide's
   session sentence changed.
 
 ### Deliberate deviations
@@ -62,5 +63,5 @@ desktop app's browser pane: three cold sign-ins, each landing on its deep link; 
 cross-tab sign-out; the refused callback; a local sign-in and upload through the dev client; the
 rollback rehearsal through Amplify; after merge 2 the positive proofs of every removal, and a fresh
 sign-in and upload. The fresh sign-ins ran in the pane's own profile, signed out and with Managed
-Login cold, not in a new browser profile, which the pane cannot open. `docs/testing/sessions.md` has
-the record.
+Login cold, not in a new browser profile, which the pane cannot open; Andrew accepted that as meeting
+the criterion. `docs/testing/sessions.md` has the record.

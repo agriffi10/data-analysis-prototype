@@ -7,9 +7,9 @@ making AWS calls, and the API now assumes the portal role from the same verified
 
 | File | Holds |
 |---|---|
-| `cognito.tf` | the User Pool, its schema and password policy, the SPA client, the Hosted UI domain |
+| `cognito.tf` | the User Pool, its schema and password policy, the portal server's client and the local dev client (each with its SSM parameter), the Hosted UI domain |
 | `lambda.tf` | `pre-signup` and `post-confirmation`, their roles, log groups and invoke grants |
-| `outputs.tf` | the three ids the SPA needs, plus the two function names |
+| `outputs.tf` | the pool and client ids, the server session's lifetime, the Hosted UI domain, and the triggers' names and role |
 | `variables.tf` | the module interface |
 | `policies/` | trust and permission templates for both triggers |
 

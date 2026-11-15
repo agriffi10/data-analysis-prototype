@@ -137,7 +137,7 @@ HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)
 
 ```js
 performance.getEntriesByType('resource')
-  .filter(e => e.name.includes('api.dataquarry.app'))
+  .filter(e => e.name.includes('/api/v1/'))
   .map(e => ({t: Math.round(e.startTime), p: e.name.replace(/^https?:\/\/[^/]+/, '').split('?')[0], st: e.responseStatus}));
 ```
 
@@ -324,7 +324,7 @@ recorder before them and read the totals after. Its `curl` rows stand alone and 
 
 ### 4.1 Sign-in and the shell
 
-Run **signed out, in a clean profile**. An existing session refreshes via `cognito-idp` and stays
+Run **signed out, in a clean profile**. An existing session refreshes on the portal server and stays
 healthy even when fresh sign-in is completely broken.
 
 **First run only — signup.** Needs a real inbox you control (the default Cognito sender allows
@@ -345,6 +345,9 @@ username becomes the S3 prefix, the principal tag **and** the Glue database name
 | Reload | Still signed in — the session survives a refresh. |
 | Sign out, then open `/query` directly | Redirected to sign-in; after signing in you land on **`/query`**, not `/files` (the return path). |
 | Sign in again | The topbar carries every tab whose flag is on. |
+| Open a second tab on `$APP_URL/files` | Signed in with no prompt, the list loaded through `/api/`: one session covers the browser. |
+| Sign out in one tab, then open a folder in the other | That listing answers 401; the tab reads `/auth/session` once and moves to the signed-out home page, with no retry and no loop. |
+| Open `$APP_URL/auth/callback?error=access_denied` | Lands on `/` showing the sign-in failure message. Managed Login has no cancel control that returns an error, so the error is supplied directly. |
 
 **Any change to the response-headers policy counts as an auth change.** Since SPEC-262 the browser
 fetches neither Cognito host nor the API, so `connect-src` is exactly `'self'` and the two buckets'
@@ -354,11 +357,11 @@ endpoints; a Cognito host or `https://api.dataquarry.app` in it is a fail:
 curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 ```
 
-**The server-held session (SPEC-257).** Until SPEC-262 the browser does not use these routes, so
-they are driven from the portal's own tab: a same-origin `fetch` carries the `HttpOnly` cookie
+**The server-held session (SPEC-257).** The browser signs in through these routes; this drives them
+directly from the portal's own tab: a same-origin `fetch` carries the `HttpOnly` cookie
 without reading it, and the browser sets `Origin` on every `POST`. Sign in by navigating the tab to
-`$APP_URL/auth/login`; a warm Managed Login cookie completes it without a password. From SPEC-262 an
-`/api/` fetch must also send the signed-in username as `x-dq-user`, or it answers 401.
+`$APP_URL/auth/login`; a warm Managed Login cookie completes it without a password. An `/api/` fetch
+must also send the signed-in username as `x-dq-user`, or it answers 401.
 
 | Do | Expect |
 |---|---|
@@ -464,7 +467,7 @@ async-off half of §4.14 (`{"asyncFileOperations": false}`, publish, hard-reload
 copy, move, rename, delete and download are unaffected. A **folder**, or any selection of more than
 one item, is **refused at the control**: Copy, Move and Delete are `aria-disabled` with the reason
 §4.14 step 3 quotes, so nothing is attempted — no file beside the folder goes through, no card
-appears, and no `POST $API_ORIGIN/v1/enqueue/file-ops` fires. Restore the flag in the same sitting.
+appears, and no `POST $APP_URL/api/v1/enqueue/file-ops` fires. Restore the flag in the same sitting.
 
 **The API surface, and the isolation proof (SPEC-198).** Start **signed out** — a signed-in pass
 never tests the token path.
@@ -853,7 +856,7 @@ re-seed them or check something else.
 |---|---|
 | From Files or Notifications, open **Data quality** by its tab, click a run's row (the row is the report link), then Back | The runs list, then the report (tab titled *Data quality report — Data Quarry*), then the runs list (*Data quality — Data Quarry*), all in one document. |
 | On Notifications, click the text of a *"Data quality check on … finished"* link, then Back | The report for that check, then Notifications. The link wraps onto two lines, so a tool that clicks an element's centre can land between them and click nothing. |
-| Paste a report's address into a new tab of the same signed-in browser | Until SPEC-262 the new tab has no session of its own: the landing page, then **Sign in**, then the report from the saved return path. |
+| Paste a report's address into a new tab of the same signed-in browser | The report, signed in with no prompt: the session covers the browser. *(Until SPEC-262 the new tab had no session of its own and went through **Sign in**.)* |
 | On a report, focus **Skip to main content**, press Enter, open **Data quality** by its tab, then Back | The address ends `#main`, then `/data-quality`, then the report again with `#main`, the report on screen and titled as a report. |
 | Upload a file big enough that the Upload panel still shows it in progress when you click **Data quality** by its tab (tens of MB; 9 MB finished too soon to prove it), then come back by the Files tab | The panel still lists it, further along or Uploaded, and the marker held. A file that finishes before the click proves only that the list survived. |
 
@@ -1258,7 +1261,7 @@ is not a pass.
 
 **The read is real** (all flags on):
 
-1. Hard-reload signed in. In the network panel, find `GET $API_ORIGIN/v1/feature-flags` → **200**.
+1. Hard-reload signed in. In the network panel, find `GET $APP_URL/api/v1/feature-flags` → **200**.
    That status is the assertion. `ProtectedLayout` mounts the hook and discards the result precisely
    so this request exists to be observed. A **404** carrying `"code": "NotFound"` means nothing has
    ever been published to this bucket — a deploy defect, and the app renders all-on over it.
@@ -1313,9 +1316,9 @@ it is checked against:
    Copy, Move and Delete are `aria-disabled="true"` with `disabled === false`, and each carries the
    reason as its tooltip: *"Folders and multi-item actions are handled by the file operations
    service, which is not available."* — the same for any selection of more than one item. No
-   `POST $API_ORIGIN/v1/enqueue/file-ops` fires and no in-progress card appears: the switch turns
+   `POST $APP_URL/api/v1/enqueue/file-ops` fires and no in-progress card appears: the switch turns
    the capability off, and the browser has no recursive copy to fall back to. A single file still
-   moves, through `POST $API_ORIGIN/v1/objects/move`, exactly as it does with the switch on.
+   moves, through `POST $APP_URL/api/v1/objects/move`, exactly as it does with the switch on.
 4. Set it back to `{}`, publish, hard-reload, and confirm §4.2's async rows behave again.
 
 **`resultsConversion` is the seventh key and the third kind** — neither an area nor a kill switch
@@ -1567,9 +1570,10 @@ Object.entries(window.__hosts).map(([h,ms])=>[h,ms.length]).sort((a,b)=>b[1]-a[1
 
 | Host | Expect |
 |---|---|
-| `$API_ORIGIN`'s host | **> 20** over a window this wide |
+| `$APP_URL`'s host | **> 20** over a window this wide, the API's calls among them under `/api/` |
+| `$API_ORIGIN`'s host | **0** — the browser reaches the API only through the portal server |
 | `$USER_BUCKET.s3.$REGION.amazonaws.com` | **≥ 2, at least one `GET` and one `PUT`** — the presigned bytes, and only those |
-| `cognito-idp.$REGION.amazonaws.com`, `$HOSTED_UI` | any — sign-in and refresh are not failures |
+| `cognito-idp.$REGION.amazonaws.com`, `$HOSTED_UI` | **0** — the portal server exchanges and refreshes tokens, and the browser reaches Managed Login only by navigating to it |
 | `athena.`, `glue.`, `sqs.`, `cognito-identity.` | **0** each |
 | **anything else ending `amazonaws.com`** | **0** — the catch-all, and the only row that can catch a host nobody listed |
 
@@ -1580,7 +1584,7 @@ window with no enqueue and no download in it produces the same zeros as a perfec
 catch-all as one line — a `-`-prefixed term is an exclusion:
 
 ```
-amazonaws.com -cognito-idp.$REGION.amazonaws.com -$USER_BUCKET.s3.$REGION.amazonaws.com -$SHARED_BUCKET.s3.$REGION.amazonaws.com
+amazonaws.com -$USER_BUCKET.s3.$REGION.amazonaws.com -$SHARED_BUCKET.s3.$REGION.amazonaws.com
 ```
 
 The Hosted UI host is deliberately **not** excluded: it is `*.auth.$REGION.amazoncognito.com` and
