@@ -25,7 +25,8 @@ name: CI
 #
 # What this costs, stated rather than left to be discovered. A green check on this workflow
 # is NO evidence that lint, the suites or either typecheck ran -- only that the app builds,
-# carries no VITE_ names, and that the contract, docs and feature-flag documents are valid.
+# carries no VITE_ names, hydrates no page with the application graph, and that the contract,
+# docs and feature-flag documents are valid.
 # The eslint pass carried two things nothing else covers: the `@aws-sdk/*` import ban, and
 # `eslint-plugin-security` + `no-unsanitized`, which `security.yml` and `eslint.config.js`
 # both described as the blocking half of SPEC-138. Those are now enforced by the pre-push
@@ -245,10 +246,14 @@ jobs:
       # ordering buys nothing and this is simply the first real step. No VITE_* env is passed
       # — every one of them is a runtime value the container serves from /config.json,
       # and this job discards the bundle. What is being gated is `tsc -b`.
+      #
+      # `--analyze` is the one difference, and it changes no shipped byte: measured, every file
+      # under .next/static matched a plain build's but the build-id folder's name. It adds the
+      # module-per-chunk analysis the page check below reads, which the image does not need.
       - name: Build (typecheck + bundle)
         if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
-        run: npm run build
+        run: npm run build -- --analyze
 
       # The build's own assertion, and it can only run against a built bundle — so it
       # rides here rather than in the suite, where a missing dist/ would have to be a
@@ -258,6 +263,15 @@ jobs:
         if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run check:bundle
+
+      # A page's static imports run at hydration, before the boot, so what its hydration chunks
+      # carry of src/ is held here, on the build, where no import spelling can hide a module. It
+      # reads the analysis the build step's `--analyze` wrote, and refuses one that is missing or
+      # is not this build's rather than passing it.
+      - name: Assert no page hydrates the application graph
+        if: steps.scope.outputs.app == 'true'
+        working-directory: apps/portal
+        run: npm run check:pages
 
       # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Test

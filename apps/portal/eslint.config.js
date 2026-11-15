@@ -71,7 +71,9 @@ const LAYERING_IMPORTS = {
 /**
  * What an App Router page may import statically is lib/ and hooks/, and a page's static imports are
  * evaluated at hydration, before the boot: so those two never reach the application graph either.
- * A type-only import is erased, so it is allowed.
+ * A type-only import is erased, so it is allowed. This names the import in the editor; it is not
+ * the fence, since a top-level file between them passes it. `npm run check:pages` holds what a
+ * page hydrates on the build.
  */
 const PAGE_REACHABLE_IMPORTS = {
   group: ['**/components/*', '**/components/**', '**/routes/*', '**/routes/**'],
