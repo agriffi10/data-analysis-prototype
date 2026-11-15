@@ -10,7 +10,7 @@ from a user's.
 
 ---
 
-## Live-check session — 2026-11-14, afternoon (SPEC-261, data quality on the App Router)
+## Live-check session — 2026-11-14, evening US Eastern (SPEC-261, data quality on the App Router)
 
 **What was under test.** SPEC-261 FR-003 and SPEC-256's cross-router scenarios on the two data-quality
 App Router pages. The image was `90618bbb` (#984), and the tier was switched on through CI for this
