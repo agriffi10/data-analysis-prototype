@@ -42,7 +42,7 @@ until then the Cognito hosts stayed, and the test named them so nobody deleted t
 `connect-src` was every host the response-headers policy enumerated **plus the API host**. It shrank
 one entry at a time as the porting specs landed and reached its end state at SPEC-202 — `'self'`,
 `cognito-idp`, the Hosted UI host, both buckets, the API — and **it did not lose the Cognito hosts**:
-Amplify runs in the browser, so the User Pool endpoint and the Hosted UI domain are still fetched from.
+Amplify ran in the browser, so the User Pool endpoint and the Hosted UI domain were still fetched from.
 **Since SPEC-262 neither Cognito host nor the API is in the list.** The portal server signs in and
 calls the API, so the browser reaches Cognito only by navigation, which `connect-src` does not govern,
 and fetches its own origin and presigned bytes. `lambdas/test_csp_policy.py` now refuses the two

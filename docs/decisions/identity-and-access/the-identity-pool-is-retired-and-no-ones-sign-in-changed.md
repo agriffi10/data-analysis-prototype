@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The Identity Pool is retired, and no one's sign-in changed (SPEC-202)"
-description: "The Cognito Identity Pool is deleted while the User Pool, Managed Login v2 and sign-in are untouched; the browser holds an ID token through `lib/idToken.ts` and no AWS credentials."
+description: "The Cognito Identity Pool is deleted while the User Pool, Managed Login v2 and sign-in are untouched; the browser holds no AWS credentials, and since SPEC-262 no token either."
 ---
 
 **The conflation this entry exists to prevent.** The Cognito **User Pool** authenticates people:
@@ -44,6 +44,11 @@ an unpaired `implicitDeny` presented as a pass is exactly what the rest of that 
 avoid.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** the fence no longer says the browser holds an ID token; since SPEC-262 the portal
+  server holds it.
 
 ### 2026-09-02
 

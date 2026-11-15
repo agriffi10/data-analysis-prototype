@@ -25,7 +25,7 @@ holders from merge 1 to the end. The images and windows, all UTC, from the Deplo
 - 18:41 to 18:50, the rehearsal: run 43748210628 put the service on `c0bbacb1` (task definition
   299), and run 43748720587 put it back on `4fa75b6e` (task definition 300).
 - 19:05 to 19:08 on `4fa75b6e`, task definition 300; no deploy crossed it.
-- 19:39 to 22:03 on `72740d1d`, task definition 302 (run 43752926460, done 19:38:52). The next run,
+- 19:39 to 22:29 on `72740d1d`, task definition 302 (run 43752926460, done 19:38:52). The next run,
   for `a6cf0efb`, left the task definition unchanged.
 
 **Browser.** The Claude desktop app's built-in browser pane, user `agriffith`, desktop width. Andrew
@@ -37,14 +37,15 @@ entered his password at Managed Login each time. Instruments:
 - a generated text file set on the upload input;
 - the session table read with a `sessionExpiresAt` projection only, a session's creation time being
   that value less 30 days;
-- `aws` reads and `curl` for the proofs after merge 2.
+- `aws` reads and `curl` for the proofs after merge 2, and `curl` with a cookie jar for the
+  callback's error branch.
 
 | Check | Result |
 |---|---|
 | Cold sign-in, three times | Signed out, Managed Login asking for a password each time. Sessions created at 16:43:53, 19:05:53 and 19:07:10; each tab landed on its deep link (`/notifications`, `/notifications`, `/files`). |
 | A second tab | Opened on `/files` signed in with no prompt, and listed files through same-origin `/api/`. |
 | Sign-out in one tab, then act in the other | The first tab came back to `/`. The second tab's folder listing got a 401, it read `/auth/session` once, and it moved to the signed-out home page with no retry. |
-| The refused callback | `/auth/callback?error=access_denied` landed on `/` showing the failure message. |
+| The refused callback | `/auth/callback?error=access_denied` landed on `/` showing the failure message. With no `state` that proves only the landing, so at 22:29 curl drove the error branch itself: after `/auth/login`, the callback with the error and the sign-in's own `state` answered 302 to `/?signin=failed` and cleared `__Host-dq_signin` (`Max-Age=0`); the same callback without `state` answered the same redirect and cleared nothing. |
 | Local sign-in through the dev client | After `npm run dev:session-env`, a password sign-in on `localhost:5173` created a session at 18:26:07 and landed on `/files`; the list came through the local server's `/api/`; `spec262-dev-upload.txt` (58 B) appears in the API's listing at 18:27:06. |
 | The rollback rehearsal | On `c0bbacb1` Sign in went through the public client, which merge 2 later retired, the tab's `sessionStorage` held that client's tokens, and Resource Timing showed `/oauth2/token` then direct calls to `api.dataquarry.app`. A server session created at 18:30:44 survived the round trip. |
 | Merge 2's removals, read off the deployed tier | `describe-user-pool-client` for the retired client: `ResourceNotFoundException`. `get-api`: no `CorsConfiguration`, the execute-api endpoint still disabled. An `OPTIONS` from the portal origin: 401, no `access-control-*` header. `OIDC_AUDIENCE`: the server and dev clients only. Task definition 302: four `CONFIG_` keys. `/config.json`: those four and `version`. `connect-src`: `'self'` and the two buckets' endpoints. The 19:07 session was still signed in afterwards, with no CSP violation. |

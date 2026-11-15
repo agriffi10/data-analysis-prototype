@@ -74,9 +74,9 @@ done
 ```
 
 **Check the emptiness, do not assume it.** An uninitialised backend makes `tofu output -raw` yield
-the empty string through `$( )`, and §4.18's exclusion filter then reads
-`amazonaws.com -cognito-idp..amazonaws.com …`, which excludes more than intended and reports **0** —
-a wrong conclusion rather than an error. Names are worth reading off `infra/outputs.tf` rather than
+the empty string through `$( )`, and so does a guessed output name. With `USER_BUCKET` alone empty,
+§4.18's exclusion filter reads `amazonaws.com -.s3.$REGION.amazonaws.com …`, which hides every bucket
+in the region and reports **0** — a wrong conclusion rather than an error. Names are worth reading off `infra/outputs.tf` rather than
 guessing: the user-space bucket's is `s3_user_space_bucket_name`, unlike its siblings.
 
 Install the page instruments after **every full page load**. Client-side nav (nav-tab clicks) preserves them; a
@@ -149,7 +149,7 @@ It is a weaker instrument and the difference matters: it carries **no method, no
 endpoint they replaced. Count with instrument 2 rather than by eye anyway: a poll fires every 1.5 s
 and the panel fills fast. No SQS or Athena request carries `x-amz-target` any more — the enqueues
 moved behind the API as well, so a control-plane enqueue is a `POST /v1/enqueue/…` like any other
-route — and the only targets left are Cognito's. §4.18 is where the browser's whole network
+route — and since SPEC-262 no target is left at all. §4.18 is where the browser's whole network
 surface is settled.
 
 Read a downloaded file back **inside the page**; never pull a presigned URL into your context:
@@ -346,8 +346,21 @@ username becomes the S3 prefix, the principal tag **and** the Glue database name
 | Sign out, then open `/query` directly | Redirected to sign-in; after signing in you land on **`/query`**, not `/files` (the return path). |
 | Sign in again | The topbar carries every tab whose flag is on. |
 | Open a second tab on `$APP_URL/files` | Signed in with no prompt, the list loaded through `/api/`: one session covers the browser. |
-| Sign out in one tab, then open a folder in the other | That listing answers 401; the tab reads `/auth/session` once and moves to the signed-out home page, with no retry and no loop. |
-| Open `$APP_URL/auth/callback?error=access_denied` | Lands on `/` showing the sign-in failure message. Managed Login has no cancel control that returns an error, so the error is supplied directly. |
+| Sign out in one tab, then switch to the other | The other tab's focus refetches (the listing and the inbox) answer 401; it reads `/auth/session` once however many arrive and moves to the signed-out home page, with no `/api/` path repeated. |
+| Open `$APP_URL/auth/callback?error=access_denied` | Lands on `/` showing the sign-in failure message. Managed Login has no cancel control that returns an error, so the error is supplied directly. This proves only the landing: with no `state` the callback fails at the state check, before it reads the error. |
+
+**The callback's error branch** needs the sign-in's own `state`, so drive it with curl, which needs no
+password and shows the cookie headers a browser hides. Both requests land on `/?signin=failed`; only
+the first, whose `state` matches, clears `__Host-dq_signin` (`Max-Age=0`), which proves the error was
+read rather than the state refused:
+
+```bash
+LOC=$(curl -s -c jar -o /dev/null -w '%{redirect_url}' "$APP_URL/auth/login")
+STATE=$(python3 -c 'import sys,urllib.parse as u; print(u.parse_qs(u.urlparse(sys.argv[1]).query)["state"][0])' "$LOC")
+curl -s -b jar -o /dev/null -D - "$APP_URL/auth/callback?error=access_denied&state=$STATE" | grep -iE '^location|^set-cookie'
+curl -s -b jar -o /dev/null -D - "$APP_URL/auth/callback?error=access_denied" | grep -iE '^location|^set-cookie'
+rm -f jar
+```
 
 **Any change to the response-headers policy counts as an auth change.** Since SPEC-262 the browser
 fetches neither Cognito host nor the API, so `connect-src` is exactly `'self'` and the two buckets'
@@ -367,7 +380,8 @@ must also send the signed-in username as `x-dq-user`, or it answers 401.
 |---|---|
 | Open `$APP_URL/auth/login` | Managed Login's sign-in page for the confidential client, skipped when a Managed Login session is already warm, then back to `$APP_URL/` (never `/?signin=failed`). |
 | In that tab, 20 concurrent `fetch('/auth/refresh', {method: 'POST'})` beside 20 concurrent `fetch('/auth/session')` | Every refresh 204 and every read 200, and a read afterwards 200. |
-| Five concurrent `fetch('/api/v1/feature-flags')`, never more: each is an API Lambda invocation, and the account's concurrency is small | 200 with the API's own JSON body. |
+| Five concurrent `fetch('/api/v1/feature-flags', {headers: {'x-dq-user': '<username>'}})`, never more: each is an API Lambda invocation, and the account's concurrency is small | 200 with the API's own JSON body. |
+| One `fetch('/api/v1/feature-flags')` with no `x-dq-user` | 401, before any session read. |
 | `fetch('/auth/logout', {method: 'POST'})`, then a read and a refresh | 200 with a Cognito `logoutUrl` whose `logout_uri` is `$APP_URL`; then 401 and 401. |
 
 ```bash
