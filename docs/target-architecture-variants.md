@@ -171,7 +171,7 @@ exactly five things move:
 | Trusted token issuer | Entra | **Cognito** |
 | Assertion exchanged | The Entra ID token | The **Cognito** ID token |
 | Bearer the server forwards to the API | An Entra access token for the portal's own scope | The **Cognito** ID token, as today |
-| Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible, and no client allowing the attribute-write scope or an API sign-in flow (`transition_plan.md` §6.1) |
+| Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible, the federated subject Entra's object id, and neither a client allowing the attribute-write scope or an API sign-in flow nor a portal role able to write the pool (`transition_plan.md` §6.1) |
 
 Everything else in the drawing — the Next.js server, API Gateway and the API Lambda, DynamoDB, both
 lanes, the allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A

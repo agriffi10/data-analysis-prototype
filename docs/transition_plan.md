@@ -44,8 +44,9 @@ portal with Entra directly, so the portal keeps a Cognito User Pool federated to
 is the Identity Center trusted token issuer. G8 is no longer the variant decider (§5.5 recasts it).
 The Next.js server's sign-in client, built against Cognito, therefore stays right as built in all
 but two respects — the username claim it reads (§6.1), and the provider its sign-in redirect names
-(Phase 1) — and the costs B carries move from contingencies to work: the username claim, the
-attribute-write guardrail, and a session that Entra no longer ends on its own (§4.7).
+(Phase 1) — and the costs B carries move from contingencies to work: an immutable federated
+subject and the username looked up by it (§6.1), the attribute-write guardrail on user tokens and
+portal roles alike, and a session that Entra no longer ends on its own (§4.7).
 
 ## Two variants of the identity plane — and B is the one being built
 
@@ -438,9 +439,10 @@ weaker than it looks and the Entra-facing shape is preferred:
 **Guardrail, and it is load-bearing:** Cognito **must not permit a self-asserted identity**, in two
 ways. Authentication must delegate to Entra: self-signup off and no local users, because a user who
 can sign up locally and assert an arbitrary email obtains a token that maps to another person's
-Identity Center user, and with it that person's Lake Formation grants and Access Grants. And no
-user may rewrite a federated attribute afterwards — §6.1 says why the app client cannot be what
-prevents that. The pool auto-creates users on successful federation; the user must already exist
+Identity Center user, and with it that person's Lake Formation grants and Access Grants. No user
+and no portal role may rewrite a federated attribute afterwards — §6.1 says why the app client
+cannot be what prevents that. And the federated subject must be Entra's object id, never a UPN or
+mail Entra can reassign to someone else (§6.1). The pool auto-creates users on successful federation; the user must already exist
 in Identity Center for the exchange to succeed.
 
 **Variant B's other cost is §6.1's trap**, which Variant A would have deleted — see there.
@@ -2020,14 +2022,20 @@ session item — Identity Center tokens included — goes when Cognito refuses a
 refresh does not consult Entra: AWS's refresh-token page describes none, and nothing else in its
 documentation has one, so Phase 0 confirms it rather than this page assuming more. **So a user Entra
 disables keeps a portal session until Cognito's refresh token runs out** — 30 days as SPEC-257 set
-it — with full access through Phases 1 to 4. From Phase 5, SCIM removing the user from Identity
-Center makes the next step 1r fail, which cuts data access within a context's lifetime, but nothing
-else does. Conditional Access and MFA likewise apply only at federation. Two cheap controls, both
+it — with full access through Phases 1 to 4. From Phase 5 SCIM should also cut data access, but
+less certainly than it looks: Entra first *deactivates* a user, in its regular incremental cycle,
+and deletes later, and whether Identity Center refuses a refresh or an exchange for a deactivated
+user is undocumented — G10 measures it with a deactivated user, not a deleted one. Conditional Access and MFA likewise apply only at federation. Two cheap controls, both
 Phase 1 decisions:
 
-- **Shorten the server's refresh-token validity to the leaver window the client accepts** —
-  recommended: one working day. SPEC-257 ties the session's ceiling to it, so the session follows,
-  and a re-federation while the user's Entra session is alive is a few redirects, not a password.
+- **Cap every app client's refresh-token validity at the leaver window the client accepts** —
+  recommended: one working day. The window is per client, not per pool, so the server's setting
+  bounds only the server's sessions: the public SPA client SPEC-262 destroys (it would carry
+  Cognito's 30-day default and a `localhost` callback, and the API accepts its audience at
+  `origin/main`) is never created in the successor pool, the API's verifier names the server's
+  client alone, and the driver path's client (§3.10) takes the same cap. SPEC-257 ties the server
+  session's ceiling to its client's validity, so the session follows, and a re-federation while the
+  user's Entra session is alive is a few redirects, not a password.
 - **Give de-provisioning a Cognito step** (§3.12 leaves its owner open): sign the user out of the
   bridge pool with `AdminUserGlobalSignOut`, which AWS documents as invalidating the identity,
   access and refresh tokens Cognito issued them, and disable them there. The cut lands at the next
@@ -2188,7 +2196,7 @@ from the spike; it was added on 2026-11-15 with §4.7's split.)
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
 | **G8** | **The Entra side of the Cognito federation for this application** — on the client's established pattern: the Entra application the bridge pool federates to (SAML or OIDC), and the claims it releases, **email** for the Identity Center claim mapping and whatever can carry the username (§6.1) | **No longer the variant decider: [B] was chosen on 2026-11-15** on the client's established pattern. Without it nobody signs in, and under [B] the **desktop fleet** authenticates through the same bridge (§3.10), so ask it with the drivers in the question. A conversation with the tenant owner, in **Phase 0**, with a long lead time. *It used to ask whether Entra could issue OIDC for the portal on the default signing key: pass meant [A], fail meant [B]* |
-| **G10** | **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
+| **G10** | **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience), and whether Identity Center refuses a refresh or an exchange for a user Entra's SCIM has **deactivated** but not yet deleted (§4.7) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9) | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 ---
@@ -2216,17 +2224,27 @@ federation: it sets a synthetic `{providerName}_<subject>` value, prefixed with 
 configured on the pool** — so with the bridge pointed at Entra it is not literally
 `identitycenter_<subject>`, and nothing may pattern-match the prefix.
 
-**So under [B] the catalog-safe username needs a claim the pool does not natively carry.** Four
-candidates, and Phase 0 chooses between them rather than this page. **First ask what the client's
-established Cognito-and-Entra pattern already does** — it may carry a username claim this plan can
-reuse, which is the cheapest answer and the reason [B] was chosen. Failing that: a mapping from an
-Entra claim onto a **standard** attribute such as `preferred_username`; a **custom attribute** fed
-the same way, which Phase 1's **[B]** items used to forbid outright and now allow only if this
-choice needs one, because it can never be renamed or deleted; a claim injected by a
-**Pre-Token-Generation V2 trigger**, which is a Lambda with everything a fleet function owes; or
-**deriving** the username server-side, which §3.12 item 2 already contemplates. **Whichever is chosen
-is a Phase 1 [B] build item** (Phase 1 now lists it), and it must be read the same way by **both**
-readers below.
+**So under [B] the catalog-safe username needs a claim the pool does not natively carry — and it
+must be keyed on something that never changes and is never reused.** Microsoft's claims-validation
+guidance says never to authorize on `email`, `preferred_username` or `unique_name`, because they are
+not unique, and that a UPN "often changes over the lifetime" of a user. That reaches past the
+username to the Cognito user itself: for SAML, Cognito derives the user, and so its `sub`, from
+Entra's `NameID`, whose default is the UPN, and AWS's mapping page says to map `NameId` from an
+attribute "that has values that don't change". **The attack is a reassignment:** Entra gives a
+leaver's UPN or mail to a new hire, who then federates into the leaver's Cognito user — same `sub`,
+same username, the leaver's prefix and Glue database — and nothing in Phases 1 to 4 checks
+otherwise. So two rules, both Phase 0 confirmations and Phase 1 build items:
+
+- **The federated subject is Entra's object id**: a persistent SAML `NameID` sourced from
+  `objectid`, or the OIDC `sub`, whichever protocol the established pattern uses.
+- **The username is looked up by that subject, never transformed from a mail or UPN.** §3.12's
+  username list carries the object id beside each catalog-safe username, and a transform collides
+  anyway (two mail domains with one local part). The lookup is emitted as a claim by a
+  **Pre-Token-Generation V2 trigger** reading the federated identity, or done by the server and the
+  API from the same list — a mapped attribute, standard or custom, is not the key, because every
+  mapped attribute is writable (below). **First ask what the client's established pattern already
+  does**; reuse it if it meets both rules. **Whichever is chosen is a Phase 1 [B] build item**, and
+  it must be read the same way by **both** readers below.
 
 The reason the attribute route is closed is also the reason to get the pool right first time: **a
 Cognito custom attribute can never be renamed or deleted**, so fixing a schema mistake means a new
@@ -2267,17 +2285,36 @@ client in the pool — the server's, the driver path's (§3.10), any added later
   `ALLOW_REFRESH_TOKEN_AUTH` alone. (The current environment keeps its local users until cutover,
   §2 item 14.)
 
+**And no role writes the pool either — the guardrail above looks only at user tokens.** At
+`origin/main` the shared-spaces plane's execution role holds `cognito-idp:AdminUpdateUserAttributes`
+on `userpool/*` (`infra/planes/shared-spaces/execution.json.tftpl`, Sid
+`CognitoMembershipAttributes`), to write the `custom:shared_space_k` slots. Phase 1 applies the
+portal's IaC into the successor account, so that grant would arrive with it, and from Phase 5 a
+defect or a compromise in that plane could rewrite a user's `email` and take over another person's
+Identity Center user. Membership comes from the index from Phase 1, so **the successor account
+drops the grant**, and an IAM test asserts that no portal role holds `AdminUpdateUserAttributes`,
+`AdminLinkProviderForUser`, `AdminCreateUser` or `AdminSetUserPassword` on the bridge pool —
+`AdminLinkProviderForUser` because AWS warns it must only be used with IdPs and attributes "that you
+trust" and can target a federated user. Cognito's re-mapping at sign-in does not close the window:
+it updates mapped attributes only when their values change at the IdP, and a refresh never
+re-federates.
+
 A test over the IaC holding both rules for every client is cheap, and it is the only thing that
 would catch a third client added carelessly. **It must assert presence, not absence:** a client
 that omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SRP_AUTH` and
 `ALLOW_CUSTOM_AUTH` by default, so the test requires the attribute to be present and exactly
-`["ALLOW_REFRESH_TOKEN_AUTH"]`, and `allowed_oauth_scopes` to be present. **One gap stays open for
-Phase 0:** `ALLOW_REFRESH_TOKEN_AUTH` also enables a refresh through `InitiateAuth`, and AWS does not
+`["ALLOW_REFRESH_TOKEN_AUTH"]`, and `allowed_oauth_scopes` to be present. The same test holds what
+makes "no local identities" true rather than intended: every client's `supported_identity_providers`
+is exactly the Entra provider (both carry `["COGNITO"]` today), the pool has that one identity
+provider and no other — a second could assert any email — `allow_admin_create_user_only` is true,
+the pool has no pre-sign-up trigger (an imported "established pattern" can carry one that links
+users by email), and every client's refresh-token validity is at most the leaver window (§4.7).
+**One gap stays open for Phase 0:** `ALLOW_REFRESH_TOKEN_AUTH` also enables a refresh through `InitiateAuth`, and AWS does not
 say which scope an access token refreshed that way carries. The server's refresh token never leaves
 the server, but the driver path's public client hands one to a desktop user (§3.10). Phase 0
-refreshes through `InitiateAuth` and decodes the `scope` claim; if it is the admin scope, the
-username must come from something no user can write — a Pre-Token-Generation trigger reading the
-federated identity, or server-side derivation — rather than from a mapped attribute.
+refreshes through `InitiateAuth` and decodes the `scope` claim. If it is the admin scope, a desktop
+user can write their own mapped attributes, so neither the username nor the Identity Center key
+may rest on one — both come from the federated subject, as above and in Phase 5.
 
 ### 6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)
 
@@ -2480,8 +2517,10 @@ they already were.
   **driver fleet** in the question (§3.10): under [B] the desktops authenticate through the same
   bridge. It gates Phase 1's whole auth configuration and has a long lead time, so start it on day
   one of the phase.
-- **Choose the username claim (§6.1)**, starting from what the established pattern already
-  carries, and confirm it is stable for the life of a user and that no user can write it. It keys the S3 prefix and the Glue database name, so it is chosen before the first real
+- **Choose the username lookup (§6.1)**, starting from what the established pattern already
+  does: keyed on Entra's object id as the federated subject, never transformed from a mail or UPN,
+  and read from a claim no user or portal role can write. Confirm in the same conversation that
+  Entra's SCIM sets Identity Center's `externalId` from the object id (Phase 5 maps on it). It keys the S3 prefix and the Glue database name, so it is chosen before the first real
   sign-in (the order of work, ordering 4).
 - **Confirm a Cognito refresh does not go back to Entra**, by disabling a test user in Entra and
   refreshing their session, so §4.7's leaver window rests on a measurement rather than on the
@@ -2665,14 +2704,22 @@ and that is fine.
   (§5.5).
 - **Self-signup off, and local identities impossible** — this is the §3.3 guardrail, not hygiene: a
   self-asserted email is another person's grants.
-- **Every app client obeys §6.1's two rules**: no `aws.cognito.signin.user.admin` scope and no API
-  sign-in flow (`ALLOW_REFRESH_TOKEN_AUTH` alone), with a test over the IaC that holds them for every
-  client in the pool, because the app client cannot stop a user writing a mapped attribute and only
-  the token can.
-- **Build the username claim Phase 0 chose (§6.1)**, and make the Next.js server read it the way the
-  API's verifier does — one configured claim name, read by both. `userOf` reads `cognito:username`
+- **Every app client obeys §6.1's rules**, with the test over the IaC that holds them: no
+  `aws.cognito.signin.user.admin` scope, no API sign-in flow (`ALLOW_REFRESH_TOKEN_AUTH` alone),
+  the Entra provider as the only supported identity provider, and a refresh validity within the
+  leaver window. The pool has one identity provider, admin-only user creation and no pre-sign-up
+  trigger. **No public SPA client** in this pool, and the API's verifier names the server's client
+  alone.
+- **The federated subject is Entra's object id** (§6.1): a persistent SAML `NameID` from `objectid`,
+  or the OIDC `sub`. Never the UPN or mail, which Entra can reassign to a new hire.
+- **Drop the shared-spaces plane's Cognito grant** (`CognitoMembershipAttributes`), and add the IAM
+  test that no portal role can write, link, create or set a password for a user in the bridge pool
+  (§6.1). Membership comes from the index in this phase anyway.
+- **Build the username lookup Phase 0 chose (§6.1)** — keyed on the federated subject, not
+  transformed from a mail or UPN — and make the Next.js server read it the way the API's verifier
+  does: one configured claim name, read by both. `userOf` reads `cognito:username`
   as a literal today, which under federation is the synthetic `{providerName}_<subject>`.
-- **A custom attribute only if that choice needs one**, and then listed in every client's
+- **A custom attribute only if that choice needs one** — never as the key itself (§6.1) — and then listed in every client's
   `write_attributes`, because a mapped attribute the client cannot write is silently not set. Not
   `custom:portal_username` by default, and never `custom:shared_space_*`: membership comes from the
   registry (below), and a Cognito custom attribute can never be renamed or deleted, so an attribute
@@ -2683,7 +2730,7 @@ and that is fine.
   and AWS's authorize-endpoint page sends such a request to Managed Login instead — a Cognito screen
   the user should never see. The provider name is configuration on the server, beside the username
   claim.
-- **Set the server client's refresh-token validity to the leaver window** (§4.7 — recommended: one
+- **Set every client's refresh-token validity to the leaver window** (§4.7 — recommended: one
   working day), since a Cognito refresh does not go back to Entra and that validity is the longest a
   disabled Entra user keeps a session in Phases 1 to 4.
 - The Next.js server's sign-in client is otherwise right as built — those two items aside: it was
@@ -2790,8 +2837,11 @@ on any IAM role. The design is §3; the work items are here.
 
 - Register the trusted token issuer in Identity Center — the bridge User Pool
   (`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`), [B] being chosen. Confirm the `aud`
-  configuration and which claim maps uniquely to the Identity Center user (`email` is the usual
-  choice, which is why §6.1 keeps it out of any user's reach). Identity Center accepts up to ten
+  configuration and which claim maps uniquely to the Identity Center user. **Map on `externalId`,
+  not `email`**: Microsoft says email is not a unique identifier, and every mapped Cognito attribute
+  is writable (§6.1). Phase 0 confirms that Entra's SCIM sets the Identity Center `externalId` from
+  the object id, and the claim is emitted from the federated identity by the same
+  Pre-Token-Generation trigger as the username, not from a mapped attribute. Identity Center accepts up to ten
   trusted token issuers, which is what would let the driver path trust Entra directly (§3.10).
 - Create the customer-managed application — **requires the management account or a delegated
   administrator** (§4.5). Register a second, separate application if the broader
@@ -2897,8 +2947,10 @@ freeze. This is the whole reason the old account survives the quiet period.
 - **Which claim carries the catalog-safe username (§6.1)**, starting from what the client's
   established Cognito-and-Entra pattern already carries?
 - **How long may a leaver keep a session (§4.7)?** A Cognito refresh does not go back to Entra, so
-  the server client's refresh-token validity is the window in Phases 1 to 4; the recommendation is
-  one working day.
+  every client's refresh-token validity is the window in Phases 1 to 4; the recommendation is one
+  working day.
+- **Is the federated subject Entra's object id** (§6.1) — a persistent `NameID` from `objectid`, or
+  the OIDC `sub` — and does Entra's SCIM set Identity Center's `externalId` from the same object id?
 - **Is SCIM provisioning from Entra into Identity Center live** (§2 item 12), and who operates it?
 - ~~What do the client's Excel, Access and Power BI users connect with today?~~ **ANSWERED
   2026-08-24 — they are on the SAML path and must be migrated** (§2 item 15, §3.10's migration
@@ -3165,7 +3217,11 @@ exists so the chronology is recoverable, not so anyone works from it.
   an API sign-in flow. **§4.7** makes Cognito the master clock, since a refresh does not go back to
   Entra, and recommends a one-working-day refresh validity plus a de-provisioning sign-out. Phase 1
   [B] gains its build items; the first revision's eight Entra-shaped breaks shrink to one, the
-  username claim the server reads, beside a provider name its redirect never carried. §1, §2 item 1, §3.3, §3.5, §3.10, §8, §9, the order of work and
+  username claim the server reads, beside a provider name its redirect never carried. At review:
+  the federated subject must be Entra's object id and the username a lookup by it, because a UPN or
+  mail can be reassigned to a new hire; a portal role (the shared-spaces plane's) can write pool
+  attributes today, so the grant goes and an IAM test holds it; the leaver window is per client;
+  and Phase 5 maps Identity Center on `externalId`, not `email`. §1, §2 item 1, §3.3, §3.5, §3.10, §8, §9, the order of work and
   the companion's headings are corrected in place.
 - **2026-11-15 — the end-state split.** There is no BFF Lambda: **§4.7** settles that the Next.js
   server exchanges and the API Lambda assumes, with the alternatives it beat and the fallback.
