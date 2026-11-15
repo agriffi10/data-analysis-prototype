@@ -34,8 +34,9 @@
 #   2. Copy its ID token into /tmp/idtoken (no trailing newline). Since SPEC-262 the browser holds no
 #      token: the portal server keeps it in the session store. Load any portal page first, so the
 #      server refreshes a token near expiry, copy the __Host-dq_session cookie's value from the
-#      browser's developer tools, and read the item it names:
-#        COOKIE='<the cookie value>'
+#      browser's developer tools, and read the item it names. The cookie is a 30-day credential, so
+#      read it without echo or history, and sign out of the portal once the check is done:
+#        read -rs COOKIE
 #        PK="session#$(printf %s "$COOKIE" | shasum -a 256 | cut -d' ' -f1)"
 #        aws dynamodb get-item --table-name dat-prod-sessions --consistent-read \
 #          --key "{\"pk\":{\"S\":\"$PK\"}}" --projection-expression idToken \

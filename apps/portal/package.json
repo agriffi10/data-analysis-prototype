@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --port 5173",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --hostname localhost --port 5173",
     "dev:session-env": "node scripts/dev-session-env.mjs",
     "build": "tsc -b && NEXT_TELEMETRY_DISABLED=1 next build",
     "lint": "eslint . --max-warnings 0",

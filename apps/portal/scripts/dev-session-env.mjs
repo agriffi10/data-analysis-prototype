@@ -16,7 +16,7 @@
 //
 // Usage: npm run dev:session-env [-- --parameter <name>] [--region <region>] [--out <path>]
 import {execFileSync} from 'node:child_process';
-import {chmodSync, existsSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -129,10 +129,15 @@ const entries = variables(readParameter(chosen).trim());
 const target = chosen.out;
 const existing = existsSync(target) ? readFileSync(target, 'utf8') : '';
 // Written beside the target and renamed over it, so a failure part-way never leaves half a file, and
-// owner-only from the first byte.
-const staged = `${target}.${process.pid}.tmp`;
-writeFileSync(staged, withBlock(existing, entries), {mode: 0o600});
-renameSync(staged, target);
+// owner-only from the first byte. The staged name ends in `.local`, which git ignores, and it is removed
+// if the rename does not happen, because it holds the secret.
+const staged = `${target}.${process.pid}.tmp.local`;
+try {
+  writeFileSync(staged, withBlock(existing, entries), {mode: 0o600});
+  renameSync(staged, target);
+} finally {
+  rmSync(staged, {force: true});
+}
 chmodSync(target, 0o600);
 
 const shown = relative(process.cwd(), target) || target;
