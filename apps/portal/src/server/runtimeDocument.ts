@@ -1,6 +1,7 @@
 import 'server-only';
 import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {RuntimeConfigDocument, RuntimeConfigKey} from '../types/runtimeConfig.types';
+import {sessionProblems} from './session/config';
 
 /** The document version the browser's loader accepts; it refuses any other whole. */
 const DOCUMENT_VERSION = 1;
@@ -20,7 +21,7 @@ const SOURCE_LIST = /^[A-Za-z0-9':/. _*-]+$/;
 /** One reason the server will not start, named by variable and never by value. */
 export type StartupProblem = {
   variable: string;
-  reason: 'unset-or-empty' | 'invalid-characters';
+  reason: 'unset-or-empty' | 'invalid-characters' | 'unusable';
 };
 
 /**
@@ -72,7 +73,8 @@ export function renderRuntimeDocument(env: NodeJS.ProcessEnv = process.env): Run
  *
  * Unset, empty and whitespace-only are the same failure: an unset repository variable and an unset
  * task variable both arrive as the empty string, and a server that starts with an empty required value serves a
- * portal that fails every call it makes.
+ * portal that fails every call it makes. The session variables are required too, because every page signs
+ * in through the session routes: a server without them would serve pages nobody can sign in to.
  *
  * @param env - The environment to read; the process's own by default.
  * @returns The problems, empty when the server may start.
@@ -88,6 +90,7 @@ export function startupProblems(env: NodeJS.ProcessEnv = process.env): StartupPr
   } else if (!SOURCE_LIST.test(connectSrc)) {
     problems.push({variable: CONNECT_SRC_VARIABLE, reason: 'invalid-characters'});
   }
+  problems.push(...sessionProblems(env));
   return problems;
 }
 
@@ -103,6 +106,14 @@ export function connectSource(env: NodeJS.ProcessEnv = process.env): string {
   const value = env[CONNECT_SRC_VARIABLE];
   return isSet(value) && SOURCE_LIST.test(value) ? value : "'self'";
 }
+
+/** How each reason reads on stderr, after the variable's name. */
+const REASON_TEXT: Record<StartupProblem['reason'], string> = {
+  'unset-or-empty': 'unset or empty',
+  'invalid-characters': 'not a valid CSP source list',
+  unusable:
+    'not usable (a credential URL must be HTTPS, or HTTP to a loopback host, and the session ceiling a whole number of seconds)'
+};
 
 /**
  * Stop the process when any startup problem exists, naming each variable on stderr.
@@ -122,9 +133,7 @@ export function refuseToStartWithoutConfiguration(
   const problems = startupProblems(env);
   if (problems.length === 0) return;
   for (const {variable, reason} of problems) {
-    console.error(
-      `portal: refusing to start. ${variable} is ${reason === 'unset-or-empty' ? 'unset or empty' : 'not a valid CSP source list'}.`
-    );
+    console.error(`portal: refusing to start. ${variable} is ${REASON_TEXT[reason]}.`);
   }
   exit(1);
 }

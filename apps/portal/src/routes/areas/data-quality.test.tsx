@@ -19,10 +19,6 @@ import type {SharedConnectionsCache} from '../../features/shared-spaces/sharedSp
 import type {ServiceResult} from '../../types/service.types';
 import {NotificationsView} from './notifications';
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
-
 /** Whether the two pages render as stand-ins; the App Router tests below switch them off for the real views. */
 const standIns = vi.hoisted(() => ({on: true}));
 vi.mock('../DataQualityPage', async (importOriginal) => {

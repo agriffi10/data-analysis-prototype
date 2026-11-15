@@ -13,6 +13,11 @@ output "server_client_id" {
   value       = aws_cognito_user_pool_client.server.id
 }
 
+output "dev_client_id" {
+  description = "The local-development app client ID. Its secret is never an output; it reaches a laptop through the dev-session parameter."
+  value       = aws_cognito_user_pool_client.dev.id
+}
+
 output "server_session_max_age_seconds" {
   description = "The server client's refresh-token lifetime in seconds, which is the session's ceiling (SESSION_MAX_AGE_SECONDS)."
   value       = local.server_token_validity.refresh_days * 86400

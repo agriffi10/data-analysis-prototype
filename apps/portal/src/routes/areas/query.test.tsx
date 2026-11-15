@@ -34,9 +34,6 @@ import {requests, traverse} from '../../test/nextNavigation';
  * test that wraps the workspace in its own provider passes wherever the app puts it. Every
  * navigation is a click on a link the header renders, and each waits for its destination.
  */
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 vi.mock('../../features/query/SqlEditor', () => import('../../test/sqlEditorStub'));
 vi.mock('../../features/catalog/athena.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../features/catalog/athena.service')>()),

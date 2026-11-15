@@ -12,10 +12,6 @@ vi.mock('../../features/shared-spaces/sharedSpaces.service', async (importOrigin
   ...(await importOriginal<typeof import('../../features/shared-spaces/sharedSpaces.service')>()),
   readSharedConnectionsCache: vi.fn()
 }));
-vi.mock('../../lib/idToken', () => ({getIdToken: vi.fn().mockResolvedValue({success: true, data: {}})}));
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 // Below this line, what the App Router's Connections page is proved with. The shell's one other
 // call is mocked at its boundary, so nothing here leans on the Amplify or token mocks above.

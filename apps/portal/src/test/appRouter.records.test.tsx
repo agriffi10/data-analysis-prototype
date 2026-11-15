@@ -5,10 +5,6 @@ import {renderApp} from './appRouter';
 import {authenticated} from './authFixtures';
 import {renderWithProviders} from './renderWithProviders';
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
-
 // Help's production record says the App Router serves it, as it will once its move lands, so each
 // test below shows whether the harness followed that record or its fixture.
 vi.mock('../lib/navigation/areas/help', () => ({

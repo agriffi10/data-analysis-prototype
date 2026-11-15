@@ -64,7 +64,8 @@ OPTIONAL_ENV=(
 )
 # The portal server's session settings, which the task definition supplies beside the document's.
 # Fixture values: nothing in the matrix reaches the provider, the table or the API, because every
-# row below is answered before a session is read.
+# row below is answered before a session is read. The server refuses to start without any of them,
+# because every page signs in through the session routes, so every container below is given them.
 SESSION_ORIGIN=https://portal.fixture.test
 SESSION_ENV=(
   -e PORTAL_ORIGIN="$SESSION_ORIGIN"
@@ -483,19 +484,6 @@ check_eq "GET /auth/login redirects" "$(status)" "302"
 check_contains "…to the provider, built from configuration" "$(header location)" "https://auth.fixture.test/oauth2/authorize?"
 check_contains "…setting the sign-in cookie" "$(header set-cookie)" "__Host-dq_signin="
 
-section "The server starts without its session settings"
-# The session routes read their settings when they run, never at start, so a task missing one still
-# serves every page; only the session routes answer 503.
-docker rm -f "$NAME" >/dev/null 2>&1
-docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQUIRED_ENV[@]}" \
-  -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC" -p "${PORT}:8080" "$IMAGE" >/dev/null
-for _ in $(seq 1 30); do curl -fsS -o /dev/null "${BASE}/healthz" 2>/dev/null && break; sleep 1; done
-fetch "/"
-check_eq "/ still answers with no session settings" "$(status)" "200"
-fetch /auth/session
-check_eq "/auth/session answers 503 with no session settings" "$(status)" "503"
-start_container || { echo "the matrix container would not restart" >&2; exit 1; }
-
 # ── The refusals, and the renders that must differ ────────────────────────────
 section "Refusals"
 
@@ -546,31 +534,54 @@ for held_out in "${REQUIRED_ENV[@]}"; do
     without+=(-e "$entry")
   done
 
-  refusal "$key UNSET" "$key" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
-  refusal "$key EMPTY" "$key" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key UNSET" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key EMPTY" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 done
 
-refusal "connect-src EMPTY" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC=
+# EVERY session setting, one at a time, unset and then empty, and a credential URL the server would
+# send its secret to over plain HTTP off this machine.
+for held_out in "${SESSION_ENV[@]}"; do
+  case "$held_out" in -e) continue ;; esac
+  key="${held_out%%=*}"
+
+  without=()
+  for entry in "${SESSION_ENV[@]}"; do
+    case "$entry" in -e) continue ;; "$held_out") continue ;; esac
+    without+=(-e "$entry")
+  done
+
+  refusal "$key UNSET" "$key" "${REQUIRED_ENV[@]}" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key EMPTY" "$key" "${REQUIRED_ENV[@]}" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+done
+without_api_origin=()
+for entry in "${SESSION_ENV[@]}"; do
+  case "$entry" in -e|API_ORIGIN=*) continue ;; esac
+  without_api_origin+=(-e "$entry")
+done
+refusal "API_ORIGIN as plain HTTP off this machine" API_ORIGIN "${REQUIRED_ENV[@]}" "${without_api_origin[@]}" \
+  -e API_ORIGIN=http://api.fixture.test -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+
+refusal "connect-src EMPTY" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC=
 # Whitespace passed an allowlist that admits a space, and served `connect-src  ;` — a policy that
 # blocks every fetch, the document's included — from a server the balancer read as healthy.
-refusal "connect-src only whitespace" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" -e "PORTAL_CSP_CONNECT_SRC=   "
+refusal "connect-src only whitespace" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" -e "PORTAL_CSP_CONNECT_SRC=   "
 without_api=()
 for entry in "${REQUIRED_ENV[@]}"; do
   case "$entry" in -e|CONFIG_apiBaseUrl=*) continue ;; esac
   without_api+=(-e "$entry")
 done
-refusal "CONFIG_apiBaseUrl only whitespace" CONFIG_apiBaseUrl "${without_api[@]}" -e "CONFIG_apiBaseUrl=  " \
+refusal "CONFIG_apiBaseUrl only whitespace" CONFIG_apiBaseUrl "${SESSION_ENV[@]}" "${without_api[@]}" -e "CONFIG_apiBaseUrl=  " \
   -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
-refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}"
+refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}"
 # A `;` would append a directive of the sender's choosing to every page's policy.
-refusal "connect-src carrying a quote and a semicolon" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" \
+refusal "connect-src carrying a quote and a semicolon" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" \
   -e PORTAL_CSP_CONNECT_SRC="'self\"; script-src *"
-refusal "connect-src carrying a newline" PORTAL_CSP_CONNECT_SRC "${REQUIRED_ENV[@]}" \
+refusal "connect-src carrying a newline" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" \
   -e "PORTAL_CSP_CONNECT_SRC=$(printf "'self'\nX-Injected: yes")"
 
 section "One image, two environments"
 docker rm -f "$NAME" >/dev/null 2>&1
-docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQUIRED_ENV[@]}" \
+docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQUIRED_ENV[@]}" "${SESSION_ENV[@]}" \
   -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC_ALT" -p "${PORT}:8080" "$IMAGE" >/dev/null
 for _ in $(seq 1 30); do curl -fsS -o /dev/null "${BASE}/healthz" 2>/dev/null && break; sleep 1; done
 fetch "/"

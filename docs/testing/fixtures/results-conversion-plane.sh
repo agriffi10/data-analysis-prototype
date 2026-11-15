@@ -2,9 +2,8 @@
 # Live checks for the results-conversion control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
 # NOT RUNNABLE AS WRITTEN (found 2026-09-10, banner added 2026-09-22 after a session followed
-# USAGE step 2 into nothing). Tokens are tab-scoped in sessionStorage now, so step 2's localStorage
-# read finds a stale set or nothing at all. Either read the token from sessionStorage as step 2 now
-# says, or send each section's body from the signed-in page, which is how the SPEC-239 section ran
+# USAGE step 2 into nothing). Since SPEC-262 the browser holds no token at all. Either read the token
+# from the session store as step 2 now says, or send each section's body from the signed-in page, which is how the SPEC-239 section ran
 # on 2026-09-22 (see docs/testing/sessions.md). Every section's EXPECT text still holds.
 #
 # Named for the plane for the reason file-ops-plane.sh states at length: four specs build this
@@ -28,9 +27,16 @@
 #
 # USAGE
 #   1. Sign in to the portal as the account you want to act as.
-#   2. Copy its ID token out of SESSION storage into /tmp/idtoken (no trailing newline) — it is
-#      tab-scoped, so read it in the same tab you signed in, and localStorage's copy is stale:
-#        Object.entries(sessionStorage).find(([k]) => k.endsWith('.idToken'))[1]
+#   2. Copy its ID token into /tmp/idtoken (no trailing newline). Since SPEC-262 the browser holds no
+#      token: the portal server keeps it in the session store. Load any portal page first, so the
+#      server refreshes a token near expiry, copy the __Host-dq_session cookie's value from the
+#      browser's developer tools, and read the item it names. The cookie is a 30-day credential, so
+#      read it without echo or history, and sign out of the portal once the check is done:
+#        read -rs COOKIE
+#        PK="session#$(printf %s "$COOKIE" | shasum -a 256 | cut -d' ' -f1)"
+#        aws dynamodb get-item --table-name dat-prod-sessions --consistent-read \
+#          --key "{\"pk\":{\"S\":\"$PK\"}}" --projection-expression idToken \
+#          --query Item.idToken.S --output text | tr -d '\n' > /tmp/idtoken
 #   3. Run a query in the Query workspace that returns a few thousand rows of mixed types and
 #      copy its execution id.
 #   4. USERNAME=alice EXECUTION_ID=<id> ./results-conversion-plane.sh

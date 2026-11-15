@@ -215,6 +215,66 @@ resource "aws_ssm_parameter" "server_client_secret" {
   tags = { Name = "${var.project_name}-${var.environment}-oidc-client-secret" }
 }
 
+# ── User Pool Client (local development) ──────────────────────────────────────
+# A third client, so a laptop signs in through the portal server's own routes under `next dev` with a
+# secret of its own: a laptop can be cut off without touching production, and the server client's
+# lists never name localhost. It MIRRORS the server client in every setting and differs only in its
+# one callback and one sign-out URL.
+resource "aws_cognito_user_pool_client" "dev" {
+  name         = "${var.project_name}-${var.environment}-dev-client"
+  user_pool_id = aws_cognito_user_pool.portal.id
+
+  generate_secret = true
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  callback_urls = ["${var.dev_origin}/auth/callback"]
+  logout_urls   = [var.dev_origin]
+
+  supported_identity_providers = ["COGNITO"]
+
+  prevent_user_existence_errors = "ENABLED"
+
+  explicit_auth_flows = [
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  enable_token_revocation = true
+
+  refresh_token_rotation {
+    feature                    = "DISABLED"
+    retry_grace_period_seconds = 0
+  }
+
+  id_token_validity      = local.server_token_validity.id_minutes
+  access_token_validity  = local.server_token_validity.access_minutes
+  refresh_token_validity = local.server_token_validity.refresh_days
+
+  token_validity_units {
+    id_token      = "minutes"
+    access_token  = "minutes"
+    refresh_token = "days"
+  }
+}
+
+# Everything a local server needs, as one JSON object `npm run dev:session-env` writes into
+# `apps/portal/.env.local`. Root builds every value from the locals the task definition's
+# environment comes from, so the two cannot drift; only the dev client's own id and secret are added
+# here. A SecureString under the AWS-managed key, like the server's secret, and never an output.
+resource "aws_ssm_parameter" "dev_session_environment" {
+  name = var.dev_session_parameter_name
+  type = "SecureString"
+  value = jsonencode(merge(var.dev_session_environment, {
+    OIDC_CLIENT_ID     = aws_cognito_user_pool_client.dev.id
+    OIDC_CLIENT_SECRET = aws_cognito_user_pool_client.dev.client_secret
+  }))
+
+  tags = { Name = "${var.project_name}-${var.environment}-dev-session-env" }
+}
+
 # ── Hosted UI Domain (Managed Login v2) ───────────────────────────────────────
 # Version 2, NOT the classic Hosted UI: the classic one did not reliably complete the OAuth
 # redirect after a self-service signup confirmation, leaving the user confirmed-but-not-

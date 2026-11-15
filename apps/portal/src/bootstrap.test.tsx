@@ -3,7 +3,7 @@ import {render, screen} from '@testing-library/react';
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 /**
- * The boot: load the configuration, configure Amplify, then render the frame around the page.
+ * The boot: load the configuration, then render the frame around the page.
  *
  * Every assertion here is about ORDER and REACH, which is what the production build turns into a
  * boot failure when it is wrong, and which no other test in the suite can see, because Vitest's
@@ -29,11 +29,6 @@ vi.mock('./AppFrame', () => {
 /** The page the root layout hands the boot, which must render only inside the frame. */
 const PAGE = <p>the page</p>;
 
-vi.mock('./lib/amplify', () => ({
-  configureAmplify: () => state.order.push('configure'),
-  isAmplifyConfigured: () => true
-}));
-
 /** A complete document, so the load succeeds unless a test says otherwise. */
 function completeDocument(): Record<string, unknown> {
   return {
@@ -49,7 +44,10 @@ function completeDocument(): Record<string, unknown> {
 }
 
 function respondWith(body: unknown): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn().mockResolvedValue({ok: true, status: 200, json: async () => body});
+  const fetchMock = vi.fn(async () => {
+    state.order.push('fetch');
+    return {ok: true, status: 200, json: async () => body};
+  });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -75,22 +73,21 @@ afterEach(() => {
 });
 
 describe('the boot', () => {
-  it('configures Amplify BEFORE the first render', async () => {
-    // Asserted by call order rather than by reading the file: a boot that configures Amplify
-    // after the first render produces a SOMETIMES-working sign-in, and a warm session never
-    // exercises it, because the browser arrives already authenticated.
+  it('loads the document BEFORE the first render', async () => {
+    // Asserted by call order rather than by reading the file: a frame rendered before the document
+    // arrived would render views whose first configuration read throws in a production build.
     respondWith(completeDocument());
     const PortalBoot = await freshBoot();
 
     render(<PortalBoot>{PAGE}</PortalBoot>);
 
     expect(await screen.findByTestId('app-frame')).toHaveTextContent('the page');
-    expect(state.order).toEqual(['configure', 'render']);
+    expect(state.order).toEqual(['fetch', 'render']);
   });
 
   it('fetches the document exactly once, even when React mounts it twice', async () => {
     // StrictMode replays every effect on mount, which is what a development build does to the
-    // real page; a boot keyed to the effect would fetch and configure twice.
+    // real page; a boot keyed to the effect would fetch twice.
     const fetchMock = respondWith(completeDocument());
     const PortalBoot = await freshBoot();
 
@@ -102,7 +99,6 @@ describe('the boot', () => {
 
     expect(await screen.findByTestId('app-frame')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(state.order.filter((step) => step === 'configure')).toHaveLength(1);
   });
 
   it('renders the boot failure without importing AppFrame, and evaluates no config read on the way', async () => {
@@ -122,7 +118,6 @@ describe('the boot', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(state.frameEvaluated).toBe(false);
-    expect(state.order).not.toContain('configure');
     expect(screen.queryByText('the page')).not.toBeInTheDocument();
     expect(error).toHaveBeenCalledOnce();
   });
@@ -177,13 +172,13 @@ describe('the boot module graph', () => {
    * evaluates the application graph before the document is fetched, which is a boot failure in
    * production and INVISIBLE under the test fallback, which answers every read.
    */
-  const ALLOWED_STATIC_IMPORTS = ['react', './lib/amplify', './lib/runtimeConfig', './components/BootFailure'];
+  const ALLOWED_STATIC_IMPORTS = ['react', './lib/runtimeConfig', './components/BootFailure'];
 
   it('reads its own source', () => {
     expect(BOOT).toContain('loadRuntimeConfig');
   });
 
-  it('statically imports exactly the four modules that cannot wait', () => {
+  it('statically imports exactly the three modules that cannot wait', () => {
     // `export … from` evaluates its module exactly as an import does, so it counts as one. A
     // statement may span lines, but never runs through `(`, `=` or `;` before its specifier: an
     // `export function` or `export const` would otherwise read on to its first string literal.
@@ -199,11 +194,15 @@ describe('the boot module graph', () => {
     expect(BOOT).not.toMatch(/^import .*['"]\.\/AppFrame['"]/m);
   });
 
-  it('carries no bare side-effect import of Amplify', () => {
-    // The set assertion above cannot catch this: `./lib/amplify` is a permitted member, so
-    // `import './lib/amplify'` passes it while restoring the configure-at-import-time coupling
-    // the boot exists to remove. Ordering is expressed by `await`, which no reorder can break.
-    expect(BOOT).not.toMatch(/^import\s+['"]\.\/lib\/amplify['"]/m);
-    expect(BOOT).toContain('configureAmplify()');
+  it('configures no sign-in provider on any boot path', () => {
+    // The browser signs in through the server's session routes and holds no token, so nothing on the
+    // way to the first render configures a provider. The frame the boot imports is read too, because
+    // the boot's own import set cannot see what that module does when it is evaluated.
+    const FRAME = Object.values(
+      import.meta.glob('./AppFrame.tsx', {query: '?raw', import: 'default', eager: true})
+    )[0] as string;
+
+    expect(FRAME).toContain('AuthProvider');
+    for (const source of [BOOT, FRAME]) expect(source).not.toMatch(/configureAmplify|setAuthTokenProvider/);
   });
 });

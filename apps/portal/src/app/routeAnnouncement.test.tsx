@@ -1,15 +1,11 @@
 import {act, waitFor} from '@testing-library/react';
-import {describe, expect, it, vi} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {renderApp} from '../test/appRouter';
 import {authenticated} from '../test/authFixtures';
 import {announcements, standInRouter} from '../test/nextNavigation';
 import {patternOf} from '../test/pageSelection';
 import {recordTitleWrites} from '../test/titleWrites';
 import {areaOf} from '../lib/navigation';
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 /** Every signed-in page file, with an address it serves and the area it belongs to. */
 const PAGES = Object.keys(import.meta.glob('./**/page.tsx'))

@@ -676,7 +676,7 @@ jobs:
           USER_POOL_ID=$(tofu output -raw cognito_user_pool_id)
           # EVERY app client: Managed Login's pages fail to render for one with no style, and a
           # client missing from this list is one whose sign-in page is broken.
-          for OUTPUT in cognito_user_pool_client_id cognito_server_client_id; do
+          for OUTPUT in cognito_user_pool_client_id cognito_server_client_id cognito_dev_client_id; do
             CLIENT_ID=$(tofu output -raw "$OUTPUT")
             if aws cognito-idp create-managed-login-branding \
                  --user-pool-id "$USER_POOL_ID" \

@@ -1,14 +1,10 @@
-import {describe, it, expect, vi} from 'vitest';
+import {describe, it, expect} from 'vitest';
 import {screen, waitFor} from '@testing-library/react';
 import {renderApp} from '../test/appRouter';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {AREAS, AreaRecordsContext} from '../lib/navigation';
 import {RouteTable} from './table';
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 /** Every area view module's source, keyed by its file. */
 const VIEW_SOURCES = Object.fromEntries(

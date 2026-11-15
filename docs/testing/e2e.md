@@ -90,9 +90,10 @@ Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
 window.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
-// 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record only
-// AWSCognitoIdentityProviderService.* (Amplify's token refresh, or a sign-out's RevokeToken);
-// any other target is a direct AWS call, and a regression.
+// 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record nothing:
+// since SPEC-262 the browser makes no Cognito call (Amplify's token refresh and a sign-out's
+// RevokeToken were the only ones), so any target is a direct AWS call, and a regression. The API
+// arm reads the path after the browser's own /api prefix.
 // The API arm was added when the catalog ported (SPEC-199) and has NOT been exercised live yet.
 window.__ath=[];const of=window.fetch;
 window.fetch=async function(...a){
@@ -101,7 +102,7 @@ window.fetch=async function(...a){
     const t=r.headers.get('x-amz-target')||'', m=(r.method||'GET').toUpperCase();
     const u=new URL(r.url);
     if(t){let b='';try{b=await r.clone().text()}catch(e){} window.__ath.push({t,body:b,ts:Date.now()})}
-    else if(u.pathname.startsWith('/v1/')){let b='';try{b=await r.clone().text()}catch(e){}
+    else if(u.pathname.replace(/^\/api/,'').startsWith('/v1/')){let b='';try{b=await r.clone().text()}catch(e){}
       window.__ath.push({t:'API:'+m+' '+u.pathname,body:b,ts:Date.now()})}
     else if(m!=='GET'){window.__ath.push({t:'S3:'+m,u:u.pathname,ts:Date.now()})}
   }catch(e){}
@@ -345,8 +346,10 @@ username becomes the S3 prefix, the principal tag **and** the Glue database name
 | Sign out, then open `/query` directly | Redirected to sign-in; after signing in you land on **`/query`**, not `/files` (the return path). |
 | Sign in again | The topbar carries every tab whose flag is on. |
 
-**Any change to the response-headers policy counts as an auth change.** The CSP's `connect-src`
-must list the Hosted UI domain — Amplify's code exchange is a `fetch`, not a navigation:
+**Any change to the response-headers policy counts as an auth change.** Until the merge that retires
+the public client, the CSP's `connect-src` must list the Hosted UI domain, because the rollback image's
+Amplify makes its code exchange as a `fetch`, not a navigation (the current portal signs in through
+the server since SPEC-262 and fetches neither Cognito host):
 
 ```bash
 curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"

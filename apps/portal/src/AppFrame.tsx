@@ -5,24 +5,6 @@ import {AuthProvider} from './features/auth';
 import {ToastProvider} from './components/ToastProvider';
 import {NavigationProvider} from './lib/navigation';
 import {createQueryClient} from './lib/queryClient';
-import {getIdToken} from './lib/idToken';
-import {setAuthTokenProvider} from './lib/apiClient';
-
-// WHERE THE API CLIENT LEARNS ABOUT SESSIONS, and it is one call rather than an import inside
-// the client because the client must not know how a session is obtained — the day the provider
-// changes, nothing under `lib/` moves.
-//
-// Registered HERE: `PortalBoot`'s static-import set is asserted by equality, and everything it
-// imports is evaluated before the runtime document is fetched. This module is already behind the
-// dynamic import that waits for it.
-//
-// The failure collapses to `null` rather than propagating: the client's contract is that no
-// session means `SessionExpired` with zero network requests, and a provider that threw or
-// returned a service error would leak provider wording into a layer that authors none.
-setAuthTokenProvider(async (forceRefresh) => {
-  const token = await getIdToken(forceRefresh);
-  return token.success ? token.data : null;
-});
 
 /**
  * The providers, around the chrome, around the page: what the boot renders once the runtime

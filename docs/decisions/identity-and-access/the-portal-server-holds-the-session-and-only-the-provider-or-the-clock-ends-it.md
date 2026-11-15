@@ -8,7 +8,8 @@ The client environment requires a Next.js server, and the arc puts the session t
 will hold only an opaque cookie, and the server holds the tokens. So the portal's server became a
 confidential OIDC client with its own Cognito app client and secret. It keeps each session in a
 DynamoDB table and hands the browser only an opaque cookie. Until SPEC-262 nothing the browser calls
-uses it, so it stands beside Amplify, tested but idle.
+used it, so it stood beside Amplify, tested but idle. *(Marked 2026-11-15: since SPEC-262 every
+sign-in and every API call goes through it; see `cognito-tokens-are-held-per-tab-not-per-browser`.)*
 
 **The cookie names the session, and the table never holds a usable cookie.** The cookie is 32 random
 bytes, base64url, set `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, with no `Max-Age`. The store's

@@ -76,8 +76,8 @@ before its first statement runs, so a static import of the app would evaluate th
 graph before the document is fetched, and any module-scope read in it would throw before the app
 could render its own failure — in production only, because the test runner's fallback answers. The
 root layout's `PortalMount` loads `src/PortalBoot.tsx` through `next/dynamic` with `ssr: false`,
-so no module of the app is evaluated on the server; the boot fetches the document, configures Amplify,
-and only then reaches the app through `await import('./AppFrame')`, the providers and the chrome
+so no module of the app is evaluated on the server; the boot fetches the document (and configured
+Amplify too, until SPEC-262), and only then reaches the app through `await import('./AppFrame')`, the providers and the chrome
 around every page (SPEC-256), and a sweep fails if its static
 imports **grow**. A **deadline** on the fetch ships with it, because nothing renders until the load
 settles, and an origin that accepts the connection and never answers would otherwise be a blank page

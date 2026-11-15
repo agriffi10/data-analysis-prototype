@@ -1,5 +1,5 @@
 import {act, waitFor} from '@testing-library/react';
-import {describe, expect, it, vi} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {renderApp} from '../test/appRouter';
 import {authenticated} from '../test/authFixtures';
 import {announcements, standInRouter} from '../test/nextNavigation';
@@ -8,10 +8,6 @@ import {AREAS} from '../lib/navigation';
 import {formatPageTitle} from '../lib/formatPageTitle';
 import {recordTitleWrites} from '../test/titleWrites';
 import {catchAllPageName} from './[[...slug]]/catchAllPageName';
-
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 
 /** A view's first chunk is transformed on demand, which outlasts `waitFor`'s default on a cold cache. */
 const LOADING = {timeout: 10_000};

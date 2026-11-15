@@ -2,7 +2,6 @@ import {readFileSync} from 'node:fs';
 import {describe, it, expect, vi, afterEach} from 'vitest';
 import {configValue, isPortalConfigured, loadRuntimeConfig} from './runtimeConfig';
 import {VITE_NAME} from './env';
-import {isAmplifyConfigured} from './amplify';
 import {maxUploadBytes} from '../features/file-browser/uploadLimits';
 import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
 import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
@@ -240,11 +239,33 @@ describe('runtimeConfig — the accessor is the only door', () => {
     expect(readers.sort()).toEqual([...ALLOWED].sort());
   });
 
+  it('leaves no production module reading a key that retires with the public sign-in client', () => {
+    // The browser signs in through the server and calls the API on its own origin, so nothing reads
+    // these any more. They stay classified, served and wired until the merge that retires the public
+    // client removes them from every site at once; a reader added meanwhile would break on that day.
+    const retiring = [
+      'apiBaseUrl',
+      'appUrl',
+      'awsRegion',
+      'cognitoUserPoolId',
+      'cognitoUserPoolClientId',
+      'cognitoDomain'
+    ];
+    const call = new RegExp(`configValue\\(\\s*['"\`](${retiring.join('|')})['"\`]`);
+    const readers = Object.entries(SOURCES)
+      .filter(([path]) => !path.includes('.test.') && !path.includes('/test/'))
+      .filter(([, source]) => call.test(source))
+      .map(([path]) => path);
+
+    expect(retiring.every((key) => (REQUIRED_CONFIG as readonly string[]).includes(key))).toBe(true);
+    expect(call.test("configValue('apiBaseUrl')")).toBe(true);
+    expect(readers).toEqual([]);
+  });
+
   it('exports the converted reads as functions, not captured values', () => {
     // Each was a module-scope const. As a const the value is captured before the document
     // is in hand — a throw in production, and in a test the deployed name rather than the
     // stubbed one. A later re-collapse is a failing test here rather than a boot failure.
-    expect(typeof isAmplifyConfigured).toBe('function');
     expect(typeof maxUploadBytes).toBe('function');
   });
 });

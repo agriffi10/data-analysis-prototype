@@ -124,7 +124,7 @@ export async function loadSession(
     console.error('session: the store did not answer a read');
     return {status: 'unavailable'};
   }
-  if (item === null) return {status: 'absent'};
+  if (item === null || !createdHere(item, config)) return {status: 'absent'};
   if (now >= item.sessionExpiresAt) {
     await store.delete(pk).catch(() => console.error('session: an expired session could not be deleted'));
     return {status: 'absent'};
@@ -162,6 +162,22 @@ export async function loadSession(
 }
 
 /**
+ * Whether a stored session was signed in through this server's own client.
+ *
+ * A dev server and the deployed portal share the session table, and the dev server's cookie is neither
+ * prefixed nor `Secure`, so a dev cookie could reach any localhost server and be replayed against the
+ * portal. A session another client created is treated as absent and left alone: refreshing it would send
+ * its refresh token with the wrong secret, Cognito would refuse it, and the refusal would delete it.
+ *
+ * @param item - The stored session.
+ * @param config - The session configuration.
+ * @returns True when the stored ID token's `aud` is this server's client id.
+ */
+function createdHere(item: SessionItem, config: SessionConfig): boolean {
+  return claimsOf(item.idToken)?.aud === config.clientId;
+}
+
+/**
  * When the provider issued an ID token, which orders two refreshes' tokens.
  *
  * @param idToken - The ID token.
@@ -173,10 +189,35 @@ function issuedAtOf(idToken: string): number {
 }
 
 /**
+ * Delete the session a cookie names when a new sign-in replaces it, if this server created it.
+ *
+ * Its refresh token is not revoked: the sign-in that replaces it may be the same user's, in which case
+ * revoking would gain nothing. A session another client created is left alone, as a load and a sign-out
+ * leave it, so a replayed dev cookie cannot end the dev session through a production sign-in.
+ *
+ * @param store - The session store.
+ * @param config - The session configuration.
+ * @param cookieValue - The replaced session cookie's value, if any.
+ * @returns Nothing.
+ * @throws When the store does not answer; the caller logs it and carries on.
+ */
+export async function discardSession(
+  store: SessionStore,
+  config: SessionConfig,
+  cookieValue: string | undefined
+): Promise<void> {
+  if (!isSessionId(cookieValue)) return;
+  const pk = sessionKey(cookieValue);
+  const item = await store.get(pk);
+  if (item !== null && createdHere(item, config)) await store.delete(pk);
+}
+
+/**
  * End the session a cookie names: delete it, then revoke its refresh token.
  *
  * The delete comes first, so the session is over even when the revocation fails; a failed
- * revocation is logged by its outcome and nothing else.
+ * revocation is logged by its outcome and nothing else. A session another client created is not this
+ * server's to end, so it is left in place, as a session load leaves it.
  *
  * @param store - The session store.
  * @param config - The session configuration.
@@ -193,6 +234,7 @@ export async function endSession(
   let item: SessionItem | null;
   try {
     item = await store.get(pk);
+    if (item !== null && !createdHere(item, config)) return true;
     if (item !== null) await store.delete(pk);
   } catch {
     console.error('session: the store did not answer a sign-out');

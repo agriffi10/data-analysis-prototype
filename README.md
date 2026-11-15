@@ -77,7 +77,7 @@ This is an **npm workspaces monorepo**.
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
 | AWS SDK | **None** — no `@aws-sdk/*` package may be added (an ESLint rule and a `package.json` test forbid it): objects, the catalog and the queues go through the API, and file bytes through presigned URLs |
-| Auth | AWS Cognito + Amplify v6 (`aws-amplify`) |
+| Auth | AWS Cognito (Managed Login), signed in by the portal server's own routes |
 | Testing | Vitest + React Testing Library |
 | Linting | ESLint + Prettier |
 | IaC | OpenTofu (`~1.8`), AWS provider, S3 remote state + DynamoDB lock |
@@ -118,11 +118,23 @@ npm run format     # Prettier
 
 ### Running it locally
 
-`apps/portal/.env.example` documents every variable. Copy it to `apps/portal/.env.local` and point
-its `CONFIG_*` variables and `PORTAL_CSP_CONNECT_SRC` at a deployed environment's `tofu output`
-values, then sign in normally: the dev server renders `/config.json` from them exactly as the
-deployed container does, and refuses to start, naming each one, when a required one is missing. Uploads and downloads redeem presigned
-URLs from `http://localhost:5173`, which both buckets' CORS allowlists name.
+`npm run dev` serves the portal on `http://localhost:5173` and signs in through the portal server's
+own session routes, exactly as the deployed portal does, with an app client of its own for local
+development. Everything that server needs, that client's secret included, comes from one SSM
+parameter the infrastructure renders from the deployed task's own values. With AWS credentials that
+can read it and the session table (an administrator's can):
+
+```bash
+npm run dev:session-env -w apps/portal   # writes a marked block into apps/portal/.env.local
+npm run dev -w apps/portal
+```
+
+The script prints variable names, never values, keeps every other line of `.env.local`, and replaces
+only its own block when run again. A line written after the block overrides it. The dev server
+refuses to start, naming each variable, when one is missing; that is the sign to run the script. The
+API, the session table and the buckets are the deployed ones, so a local sign-in reaches real data.
+Uploads and downloads redeem presigned URLs from `http://localhost:5173`, which both buckets' CORS
+allowlists name.
 
 There used to be a second mode — an unauthenticated one that browsed a public test bucket with
 anonymous S3 requests, needing no AWS account. It worked by having the browser call S3 directly,

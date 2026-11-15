@@ -3020,8 +3020,8 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
   **DONE (SPEC-202, 2026-08-31).** Retired before the move rather than at cutover, and never
   recreated in the successor account in either variant (Phase 1).
 - **[A] — all of Cognito.** `infra/modules/auth` in full: the User Pool, Managed Login v2 and its
-  branding re-ensure step in CI, the app client, the hosted-UI domain, `lib/amplify.ts` and the
-  `aws-amplify` dependency, and every runtime-configuration key naming a pool. **[B]** keeps the
+  branding re-ensure step in CI, the app clients, the hosted-UI domain, and every runtime-configuration
+  key naming a pool (`lib/amplify.ts` and the `aws-amplify` dependency already left with SPEC-262). **[B]** keeps the
   pool as a bridge and deletes the same list when the tenant gains OIDC — which is the whole reason
   §3.3 keeps the bridge thin.
 - **The `custom:shared_space_*` attribute schema** and `var.max_shared_memberships` — membership is

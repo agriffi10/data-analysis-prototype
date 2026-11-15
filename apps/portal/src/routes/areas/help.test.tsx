@@ -5,9 +5,6 @@ import {authenticated} from '../../test/authFixtures';
 import {requests, traverse} from '../../test/nextNavigation';
 import {getNotifications} from '../../features/notifications/notifications.service';
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 // The services the pages a contextual link starts from reach: Files and Notifications.
 vi.mock('../../features/file-browser/fileBrowser.service', async (importActual) => ({
   ...(await importActual<typeof import('../../features/file-browser/fileBrowser.service')>()),

@@ -67,7 +67,7 @@ INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 API = INFRA / "modules" / "api"
 ROOT_MAIN = INFRA / "main.tf"
 AUTH_COGNITO = INFRA / "modules" / "auth" / "cognito.tf"
-API_CLIENT = INFRA.parent / "apps" / "portal" / "src" / "lib" / "apiClient.ts"
+SESSION_FORWARD = INFRA.parent / "apps" / "portal" / "src" / "server" / "session" / "forward.ts"
 
 CSP_CONNECT_SRC_TERMS = (
     "'self'",
@@ -543,11 +543,11 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
 
     Raises:
       AssertionError: If a header, method, origin or connect-src term the browser needs is
-        not admitted, or the client's timeout copies have drifted.
+        not admitted, or the portal server's forward deadline no longer outlasts the gateway.
     """
     source = _api_source()
     gateway = (API / "apigateway.tf").read_text()
-    client = API_CLIENT.read_text()
+    forward = SESSION_FORWARD.read_text()
 
     assert re.search(r"allow_origins\s*=\s*compact\(\[var\.spa_origin\]\)", source), (
         "allow_origins must be the one exact origin, compacted so an unset spa_origin drops out "
@@ -560,27 +560,10 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
     )
     assert re.search(r"max_age\s*=\s*[1-9]", source), "max_age must be non-zero"
 
-    admitted_headers = {
-        value.strip().strip('"').lower()
-        for value in re.search(r"allow_headers\s*=\s*\[([^\]]*)\]", gateway).group(1).split(",")
-        if value.strip()
-    }
-    sent_headers = {
-        match.group(1).lower()
-        for match in re.finditer(
-            r"^\s*'?([a-zA-Z-]+)'?:\s*(?:`Bearer|requestId\(\)|'application/json')",
-            client,
-            re.MULTILINE,
-        )
-    }
-    assert {"x-request-id", "authorization"} <= sent_headers, (
-        "the client no longer sends the headers this admits — the scan went trivial"
-    )
-    assert sent_headers <= admitted_headers, (
-        f"the browser sends {sorted(sent_headers - admitted_headers)}, which the preflight does "
-        "not admit — the request never reaches the API and the browser reports a generic network "
-        "error, indistinguishable from the API being down"
-    )
+    # The headers the preflight admits are no longer checked against the browser's client: the browser
+    # calls the API through its own origin's /api/ route, so its requests are same-origin and the
+    # portal server's call to the API is not a browser request. The configuration above stays only
+    # for the image that is the rollback, until the merge that retires the public client removes it.
 
     import sys
 
@@ -598,18 +581,12 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
     )
     assert "OPTIONS" in allowed_methods, "the preflight's own method must be allowed"
 
-    copies = {
-        name: int(value)
-        for name, value in re.findall(
-            r"export const (API_FUNCTION_TIMEOUT_SECONDS|API_GATEWAY_INTEGRATION_CEILING_SECONDS)"
-            r"\s*=\s*(\d+);",
-            client,
-        )
-    }
-    assert copies == {
-        "API_FUNCTION_TIMEOUT_SECONDS": API_FUNCTION_TIMEOUT_SECONDS,
-        "API_GATEWAY_INTEGRATION_CEILING_SECONDS": API_GATEWAY_INTEGRATION_CEILING_SECONDS,
-    }, f"the browser's copies drifted from cpcommon.jwks: {copies}"
+    forward_deadline = re.search(r"export const FORWARD_TIMEOUT_MS\s*=\s*([\d_]+);", forward)
+    assert forward_deadline, "the portal server's /api/ route no longer states its forward deadline"
+    assert int(forward_deadline.group(1).replace("_", "")) > API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000, (
+        "the portal server must wait longer than the gateway, so the API's own answer, its 503 included, "
+        "arrives before the server gives up on a request the API may still complete"
+    )
 
     found_terms = set(_connect_src_terms())
     assert found_terms == set(CSP_CONNECT_SRC_TERMS), (
@@ -698,10 +675,11 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
     )
     assert re.search(
         r"oidc_audience\s*=\s*\[\s*module\.auth\.user_pool_client_id\s*,\s*"
-        r"module\.auth\.server_client_id\s*\]",
+        r"module\.auth\.server_client_id\s*,\s*module\.auth\.dev_client_id\s*\]",
         root_call,
     ), (
-        "the audience must be both app clients, the SPA's and the portal server's, never the pool"
+        "the audience must be every app client, the SPA's, the portal server's and local "
+        "development's, never the pool"
     )
     assert environment["OIDC_AUDIENCE"] == 'join(",", var.oidc_audience)', (
         "the list must reach the function comma-joined, which is the one form the verifier parses"

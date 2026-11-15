@@ -147,7 +147,7 @@ so the transfer is between the browser and S3 and compute never touches it. It a
 Athena start, status, results and stop, and Glue get-database and list-tables — and the **eleven
 enqueue routes** over the nine control-plane queues, so **no `@aws-sdk/*` package is left in the browser at
 all**. The browser still reaches AWS without one: a presigned
-`PUT`/`GET` goes straight to S3, and Amplify talks to Cognito throughout. The rule that keeps the two from drifting is **no new
+`PUT`/`GET` goes straight to S3. *(Marked 2026-11-15: until SPEC-262 Amplify also talked to Cognito from the browser; the portal server signs in now, and the browser holds no token.)* The rule that keeps the two from drifting is **no new
 browser-side AWS SDK call on a path an API route already serves**, and **no second API**.
 
 A document that belongs to no user — `_directory/usernames.json`, `_config/feature-flags.json` — gets
@@ -166,18 +166,19 @@ authenticates people and issues JWTs, and that is all it does — nothing in the
 into AWS credentials.
 
 ```
-Amplify checks the session
-  → no session redirects to the Hosted UI
-  → Cognito issues JWTs
-  → the browser sends the ID token to the API as a bearer, and holds nothing else
+The browser asks the portal server's /auth/session
+  → no session: the landing page's Sign in visits /auth/login, which redirects to Managed Login
+  → Cognito issues JWTs to the portal server, which keeps them in its session store
+  → the browser calls /api/ on its own origin, and the server sends the ID token to the API as a bearer
   → the API verifies it, reads { cognito:username, custom:shared_space_1..10 } from the claims
   → and assumes the portal role with those as session tags, for that request
 ```
 
-**The browser makes no AWS call except presigned S3 bytes**, which the API mints for it. `getIdToken`
-(`lib/idToken.ts`) is the whole of what used to be a credential layer; the expired-credential retry
-that wrapped every AWS call is a server-side re-assume. Tokens are held **per tab**, not for the
-whole browser.
+**The browser makes no AWS call except presigned S3 bytes**, which the API mints for it, and it
+holds no token: the expired-credential retry that wrapped every AWS call is a server-side re-assume,
+and the token refresh is the portal server's. **One session covers the whole browser**, and every
+API request names the tab's user so that a tab never acts as someone who signed in elsewhere
+(rewritten 2026-11-15 for SPEC-262; until then tokens were held per tab).
 
 A **Cognito Identity Pool** did this exchange in the browser from SPEC-011 until SPEC-202 retired it
 on 2026-08-31, stamping the same tag from the same claim. Two of its constraints survive it: the tag
@@ -195,8 +196,8 @@ through `cpcommon.actor` instead, because who may write their queues is enumerat
 the shared-space queue an operator reader admitted by `SenderId` (rows 43 and 46). Nothing re-derives a username, and nothing anywhere reads a username the caller stated.
 
 - **It is a verifier, not an OIDC client.** No code exchange, no PKCE, no client secret, no redirect
-  URI — those belong to Amplify, in the browser. *(Since SPEC-257 the portal's Next.js server is a
-  confidential OIDC client too, with its own secret; the API is still only a verifier.)* Provider-agnosticism is five server-side config
+  URI — those belong to the portal's Next.js server, a confidential OIDC client with its own secret,
+  which signs the browser in since SPEC-262 (Amplify did, in the browser, until then). The API is only a verifier. Provider-agnosticism is five server-side config
   fields ([`infra/modules/api/README.md`](../infra/modules/api/README.md)), so swapping the identity
   provider is a change of values.
 - **It assumes the same role with the same tags from the same claims** the Identity Pool read, which

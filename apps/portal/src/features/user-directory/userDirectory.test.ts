@@ -2,8 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {MAX_INDEXED_USERNAMES, buildIndex, search, searchWithCost} from './usernameTrie';
 import {getUserDirectory} from './userDirectory.service';
 import {API_ROUTES} from '../../types/apiContract.generated';
-import {resetApiClientForTests, setAuthTokenProvider} from '../../lib/apiClient';
-import {clearRuntimeConfig, seedRuntimeConfig} from '../../test/seedRuntimeConfig';
+import {resetApiClientForTests, setSignedInUser} from '../../lib/apiClient';
 
 // ─── from usernameTrie.test.ts ───
 
@@ -133,7 +132,6 @@ describe('usernameTrie', () => {
 //   drops a non-string generatedAt ................................... both
 
 describe('userDirectory.service', () => {
-  const ORIGIN = 'https://api.example.test';
   const fetchMock = vi.fn();
 
   const envelope = (status: number, code: string) =>
@@ -147,14 +145,12 @@ describe('userDirectory.service', () => {
 
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock);
-    seedRuntimeConfig({apiBaseUrl: ORIGIN});
-    setAuthTokenProvider(async () => 'a-token');
+    setSignedInUser('alice');
   });
 
   afterEach(() => {
     fetchMock.mockReset();
     resetApiClientForTests();
-    clearRuntimeConfig();
     vi.unstubAllGlobals();
   });
 
@@ -166,7 +162,7 @@ describe('userDirectory.service', () => {
       const result = await getUserDirectory();
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(String(fetchMock.mock.calls[0][0])).toBe(`${ORIGIN}${API_ROUTES['userDirectory.get'].path}`);
+      expect(String(fetchMock.mock.calls[0][0])).toBe(`/api${API_ROUTES['userDirectory.get'].path}`);
       expect(result).toEqual({
         success: true,
         data: {usernames: ['alice', 'bob_smith'], generatedAt: '2026-08-05T04:00:11Z'}

@@ -43,70 +43,94 @@ export class SessionConfigError extends Error {
   }
 }
 
-/**
- * Read one variable, refusing an unset, empty or whitespace value.
- *
- * @param name - The variable.
- * @returns Its value.
- * @throws SessionConfigError naming the variable.
- */
-function required(name: (typeof SESSION_VARIABLES)[number]): string {
-  const value = process.env[name];
-  if (value === undefined || value.trim() === '') throw new SessionConfigError(name);
-  return value;
-}
+/** One session variable, by name. */
+export type SessionVariable = (typeof SESSION_VARIABLES)[number];
+
+/** Why one session variable cannot be used. Named by variable and never by value. */
+export type SessionProblem = {variable: SessionVariable; reason: 'unset-or-empty' | 'unusable'};
 
 /** Hosts the server may reach over plain HTTP: its own machine, where a local harness runs. */
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
- * Read a URL the server sends credentials to, refusing anything but HTTPS off this machine.
- *
- * The server skips the ID token's signature check because the token comes straight from the token
- * endpoint over TLS (OIDC Core §3.1.3.7), and it sends the client secret and the bearer to these
- * hosts, so a plain `http:` value would expose the secret and admit a forged token.
+ * The URLs the server sends credentials to. The server skips the ID token's signature check because
+ * the token comes straight from the token endpoint over TLS (OIDC Core §3.1.3.7), and it sends the
+ * client secret and the bearer to these hosts, so a plain `http:` value would expose the secret and
+ * admit a forged token.
+ */
+const CREDENTIAL_URLS: ReadonlySet<SessionVariable> = new Set(['API_ORIGIN', 'OIDC_TOKEN_URL', 'OIDC_REVOKE_URL']);
+
+/**
+ * Whether a set value is one the server can use.
  *
  * @param name - The variable.
- * @returns Its value.
- * @throws SessionConfigError naming the variable when it is not HTTPS or loopback HTTP.
+ * @param value - Its value, already known to be non-blank.
+ * @returns False for a credential URL that is not HTTPS or loopback HTTP, and for a session ceiling that
+ *   is not a positive whole number of seconds.
  */
-function secureUrl(name: 'API_ORIGIN' | 'OIDC_TOKEN_URL' | 'OIDC_REVOKE_URL'): string {
-  const value = required(name);
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new SessionConfigError(name);
+function usable(name: SessionVariable, value: string): boolean {
+  if (CREDENTIAL_URLS.has(name)) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    return url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK.has(url.hostname));
   }
-  if (url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK.has(url.hostname))) return value;
-  throw new SessionConfigError(name);
+  if (name === 'SESSION_MAX_AGE_SECONDS') {
+    const seconds = Number(value);
+    return Number.isInteger(seconds) && seconds > 0;
+  }
+  return true;
+}
+
+/**
+ * Every session variable that is unset, blank or unusable, in the order the server reads them.
+ *
+ * The one statement of each rule: the start-time check collects them all so one run names every
+ * problem, and `sessionConfig` refuses on the first.
+ *
+ * @param env - The environment to read; the process's own by default.
+ * @returns The problems, empty when every variable is usable.
+ */
+export function sessionProblems(env: NodeJS.ProcessEnv = process.env): SessionProblem[] {
+  const problems: SessionProblem[] = [];
+  for (const variable of SESSION_VARIABLES) {
+    const value = env[variable];
+    if (value === undefined || value.trim() === '') problems.push({variable, reason: 'unset-or-empty'});
+    else if (!usable(variable, value)) problems.push({variable, reason: 'unusable'});
+  }
+  return problems;
 }
 
 /**
  * Read the session configuration from the server's environment.
  *
- * Called by each route as it runs and never at import or at startup: a server that read these while
- * booting would refuse to start when one is unset, taking every page down with the session routes.
- * No page uses them yet, so the routes answer 503 instead.
+ * Called by each route as it runs. The start-time check refuses to start a server missing any of these,
+ * so a route reaches the refusal only in a process that skipped that check, and answers 503 rather than
+ * throwing.
  *
+ * @param env - The environment to read; the process's own by default.
  * @returns The configuration.
  * @throws SessionConfigError naming the first variable that is unset or unusable.
  */
-export function sessionConfig(): SessionConfig {
-  const maxAge = Number(required('SESSION_MAX_AGE_SECONDS'));
-  if (!Number.isInteger(maxAge) || maxAge <= 0) throw new SessionConfigError('SESSION_MAX_AGE_SECONDS');
+export function sessionConfig(env: NodeJS.ProcessEnv = process.env): SessionConfig {
+  const [first] = sessionProblems(env);
+  if (first) throw new SessionConfigError(first.variable);
+  const value = (name: SessionVariable): string => env[name] as string;
   return {
-    portalOrigin: required('PORTAL_ORIGIN'),
-    apiOrigin: secureUrl('API_ORIGIN'),
-    issuer: required('OIDC_ISSUER'),
-    clientId: required('OIDC_CLIENT_ID'),
-    clientSecret: required('OIDC_CLIENT_SECRET'),
-    authorizeUrl: required('OIDC_AUTHORIZE_URL'),
-    tokenUrl: secureUrl('OIDC_TOKEN_URL'),
-    revokeUrl: secureUrl('OIDC_REVOKE_URL'),
-    logoutUrl: required('OIDC_LOGOUT_URL'),
-    tableName: required('SESSION_TABLE_NAME'),
-    maxAgeSeconds: maxAge,
-    region: required('AWS_REGION')
+    portalOrigin: value('PORTAL_ORIGIN'),
+    apiOrigin: value('API_ORIGIN'),
+    issuer: value('OIDC_ISSUER'),
+    clientId: value('OIDC_CLIENT_ID'),
+    clientSecret: value('OIDC_CLIENT_SECRET'),
+    authorizeUrl: value('OIDC_AUTHORIZE_URL'),
+    tokenUrl: value('OIDC_TOKEN_URL'),
+    revokeUrl: value('OIDC_REVOKE_URL'),
+    logoutUrl: value('OIDC_LOGOUT_URL'),
+    tableName: value('SESSION_TABLE_NAME'),
+    maxAgeSeconds: Number(value('SESSION_MAX_AGE_SECONDS')),
+    region: value('AWS_REGION')
   };
 }

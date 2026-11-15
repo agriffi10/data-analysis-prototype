@@ -87,9 +87,10 @@ describe('the @aws-sdk ban survives every no-restricted-imports clause', () => {
  * entry outlived its last importer, because nothing went red when it stayed. That leftover
  * entry is how the next `@aws-sdk` import arrives — already installed, already resolvable.
  *
- * READS package.json, NEVER node_modules. `aws-amplify` vendors `@aws-sdk/*` packages
- * transitively, so an assertion over the installed tree would fail permanently and be
- * deleted inside a week — and a deleted guard and a passing one look identical in CI.
+ * READS package.json, NEVER node_modules. Any dependency may vendor `@aws-sdk/*` packages
+ * transitively, as the browser's sign-in library once did, so an assertion over the installed tree
+ * fails for something nobody imports, and is deleted inside a week — and a deleted guard and a
+ * passing one look identical in CI.
  */
 describe('the server holds the one exception to the ban', () => {
   const serverClauses = eslintConfig.filter((entry) => entry.files?.includes('src/server/**/*.{ts,tsx}'));
@@ -129,8 +130,33 @@ describe('the manifest names one @aws-sdk package, for the server', () => {
     const declared = [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})];
 
     // Guard-the-guard: a parse that read nothing would agree with an empty manifest.
-    expect(declared).toContain('aws-amplify');
+    expect(declared).toContain('next');
     expect(declared.filter((name) => name.startsWith('@aws-sdk/'))).toEqual(['@aws-sdk/client-dynamodb']);
+  });
+});
+
+describe('the browser signs in through the server, so Amplify is gone', () => {
+  // Built here, so this file does not name what it sweeps for.
+  const RETIRED = ['aws', 'amplify'].join('-');
+  const MANIFEST = Object.values(
+    import.meta.glob('../../package.json', {query: '?raw', import: 'default', eager: true})
+  )[0] as string;
+  const SOURCES = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.d.ts'], {
+    query: '?raw',
+    import: 'default',
+    eager: true
+  }) as Record<string, string>;
+
+  it('names it in no source or test file under src/, and not in the manifest', () => {
+    expect(Object.keys(SOURCES).length).toBeGreaterThan(100);
+    expect(Object.keys(SOURCES)).toContain('./apiClient.ts');
+
+    expect(
+      Object.entries(SOURCES)
+        .filter(([, text]) => text.includes(RETIRED))
+        .map(([path]) => path)
+    ).toEqual([]);
+    expect(MANIFEST).not.toContain(RETIRED);
   });
 });
 

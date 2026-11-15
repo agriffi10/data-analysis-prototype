@@ -897,7 +897,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'In a wider window, the tabs along the top bar take you to each part of Data Quarry.',
           'On a phone or in a narrow window the tabs fold away. Tap <b>☰</b> at the left-hand end of the top bar to open the menu, which also holds <b>Notifications</b> and <b>Help</b>.',
           'Click <b>Help</b> in the top bar for the guides. On most pages it opens a panel over the page you’re on, with the guides for that page, so whatever you had half-done stays as it was; <b>Open the full guide</b> brings you here.',
-          'The account menu at the right-hand end of the top bar — the round badge with the first two letters of your username — holds <b>Give feedback</b> and <b>Sign out</b>.'
+          'The account menu at the right-hand end of the top bar — the round badge with the first two letters of your username — holds <b>Give feedback</b> and <b>Sign out</b>. Signing in once covers every Data Quarry tab in this browser, and <b>Sign out</b> signs out all of them.'
         ]
       },
       {

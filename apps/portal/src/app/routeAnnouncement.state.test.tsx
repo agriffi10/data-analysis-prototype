@@ -5,9 +5,6 @@ import {authenticated} from '../test/authFixtures';
 import {announcements, standInRouter} from '../test/nextNavigation';
 import {getNotifications} from '../features/notifications/notifications.service';
 
-vi.mock('aws-amplify/auth', () => ({
-  fetchAuthSession: vi.fn().mockRejectedValue(new Error('no session in test'))
-}));
 vi.mock('../features/notifications/notifications.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../features/notifications/notifications.service')>()),
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []})

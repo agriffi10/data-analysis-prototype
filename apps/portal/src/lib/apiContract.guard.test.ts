@@ -71,7 +71,17 @@ function code(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
-const FETCH_EXEMPT = ['/runtimeConfig.ts', '/apiClient.ts', './runtimeConfig.ts', './apiClient.ts'];
+// The modules that may call `fetch`. Beside the API client and the configuration loader, the two that
+// talk to the portal server's own session routes under `/auth/`: those are not API routes, have no
+// contract entry, and answer the session rather than data, so `apiRequest` has nothing to say to them.
+const FETCH_EXEMPT = [
+  '/runtimeConfig.ts',
+  '/apiClient.ts',
+  './runtimeConfig.ts',
+  './apiClient.ts',
+  '/features/auth/auth.service.ts',
+  './idToken.ts'
+];
 
 // The modules permitted to name `XMLHttpRequest`. A NAMED list rather than a pattern: the outcome
 // the rule protects is that `XMLHttpRequest` is not an escape hatch from `apiRequest`, and a named
