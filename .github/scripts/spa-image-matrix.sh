@@ -49,13 +49,7 @@ PAGE_CACHE="private, no-cache, no-store, max-age=0, must-revalidate"
 # with no TypeScript, and the classification's agreement with the task definition is asserted by
 # the suites that can read both.
 REQUIRED_ENV=(
-  -e CONFIG_apiBaseUrl=https://api.fixture.test
-  -e CONFIG_appUrl=https://portal.fixture.test
-  -e CONFIG_awsRegion=us-east-1
   -e CONFIG_userSpaceBucket=fixture-user-space
-  -e CONFIG_cognitoUserPoolId=us-east-1_FIXTURE
-  -e CONFIG_cognitoUserPoolClientId=fixtureclientid
-  -e CONFIG_cognitoDomain=auth.fixture.test
 )
 OPTIONAL_ENV=(
   -e "CONFIG_environment=$AWKWARD_VALUE"
@@ -206,9 +200,8 @@ check_probe "no .git, environment file, test file, source tree or next-env.d.ts 
 # ── No environment is baked into the image ────────────────────────────────────
 section "No environment is baked into the image"
 
-# The server's own tree is where a build-time value would land: the browser bundle legitimately
-# carries Amplify's endpoint rules, which name amazonaws.com by the thousand. The server tree names
-# no deployment's host, because every one arrives in the environment at start.
+# The server's own tree is where a build-time value would land. It names no deployment's host,
+# because every one arrives in the environment at start.
 for literal in amazoncognito.com cognito-idp. fixture-user-space api.fixture.test; do
   check_probe "no '$literal' in the server's built tree" \
     "$(probe_image "grep -rl '$literal' /app/apps/portal/.next/server /app/apps/portal/server.js 2>/dev/null | head -3")"
@@ -338,7 +331,7 @@ check_eq "cache class" "$(header cache-control)" "no-store"
 assert_security_headers "config.json" "$(page_csp)"
 check_eq "the document serves exactly version plus every key the environment supplied" \
   "$(jq -r 'keys | join(" ")' /tmp/matrix-body)" \
-  "apiBaseUrl appUrl awsRegion cognitoDomain cognitoUserPoolClientId cognitoUserPoolId environment maxUploadBytes sharedSpaceBucket userSpaceBucket version"
+  "environment maxUploadBytes sharedSpaceBucket userSpaceBucket version"
 check_eq "the document's version is the one the browser accepts" "$(jq -r '.version' /tmp/matrix-body)" "1"
 check_eq "a value carrying a quote, a backslash and a newline round-trips" \
   "$(jq -r '.environment' /tmp/matrix-body)" "$AWKWARD_VALUE"
@@ -565,12 +558,12 @@ refusal "connect-src EMPTY" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIR
 # Whitespace passed an allowlist that admits a space, and served `connect-src  ;` — a policy that
 # blocks every fetch, the document's included — from a server the balancer read as healthy.
 refusal "connect-src only whitespace" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" -e "PORTAL_CSP_CONNECT_SRC=   "
-without_api=()
+without_bucket=()
 for entry in "${REQUIRED_ENV[@]}"; do
-  case "$entry" in -e|CONFIG_apiBaseUrl=*) continue ;; esac
-  without_api+=(-e "$entry")
+  case "$entry" in -e|CONFIG_userSpaceBucket=*) continue ;; esac
+  without_bucket+=(-e "$entry")
 done
-refusal "CONFIG_apiBaseUrl only whitespace" CONFIG_apiBaseUrl "${SESSION_ENV[@]}" "${without_api[@]}" -e "CONFIG_apiBaseUrl=  " \
+refusal "CONFIG_userSpaceBucket only whitespace" CONFIG_userSpaceBucket "${SESSION_ENV[@]}" "${without_bucket[@]}" -e "CONFIG_userSpaceBucket=  " \
   -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}"
 # A `;` would append a directive of the sender's choosing to every page's policy.

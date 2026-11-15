@@ -394,19 +394,13 @@ locals {
   # It lives at root because the container reads it directly and a root-level check cannot read
   # a local declared in a module. Every other directive of the policy describes the bundle and
   # lives in the Next.js server's policy builder (apps/portal/src/server/contentSecurityPolicy.ts).
+  # The browser signs in through the portal server and calls the API through its own origin's /api/,
+  # so it fetches its own origin and presigned bytes, and nothing else. Cognito is reached only by
+  # navigation, which connect-src does not govern.
   csp_connect_src = join(" ", [
     "'self'",
-    "https://cognito-idp.${var.aws_region}.amazonaws.com",
-    # NOT reachable via cognito-idp: Amplify's authorization-code exchange POSTs to
-    # https://<domain>/oauth2/token. Omitting it blocks the exchange, so the returning
-    # `?code=` is never redeemed and the app sits signed-out over a live session.
-    #
-    # That exchange is the ONLY fetch to this host. Both redirects are navigations, which
-    # connect-src does not govern, and refresh plus RevokeToken are cognito-idp calls.
-    "https://${local.cognito_hosted_ui_domain}",
     "https://${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://${local.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    local.api_origin,
   ])
 
 
@@ -419,22 +413,11 @@ locals {
   # wired by adding its value here — there is no second list to keep in step, and no shape in
   # which a portal ships carrying only some of the document.
   #
-  # `appUrl` IS THE CONTAINER'S OWN ORIGIN. Amplify builds redirectSignIn and redirectSignOut
-  # from it, so a container serving any other origin sends a sign-in STARTED here somewhere
-  # else: the container never receives the ?code=, and the user lands signed-out on a live
-  # session. There is one origin now, so the two can no longer disagree — the rule is kept
-  # because the failure it names is invisible in every offline check.
   spa_runtime_config = {
-    apiBaseUrl              = local.api_origin
-    appUrl                  = local.spa_origin
-    awsRegion               = var.aws_region
-    environment             = var.environment
-    maxUploadBytes          = tostring(var.max_upload_bytes)
-    cognitoUserPoolId       = module.auth.user_pool_id
-    cognitoUserPoolClientId = module.auth.user_pool_client_id
-    cognitoDomain           = local.cognito_hosted_ui_domain
-    userSpaceBucket         = local.user_space_bucket_name
-    sharedSpaceBucket       = local.shared_space_bucket_name
+    environment       = var.environment
+    maxUploadBytes    = tostring(var.max_upload_bytes)
+    userSpaceBucket   = local.user_space_bucket_name
+    sharedSpaceBucket = local.shared_space_bucket_name
   }
 }
 
@@ -836,7 +819,6 @@ module "api" {
 
   # Built at root from the domain variables, never derived inside the module.
   api_host        = local.api_host
-  spa_origin      = local.spa_origin
   route53_zone_id = var.route53_zone_id
 
   # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge
@@ -866,7 +848,7 @@ module "api" {
   max_shared_memberships = var.max_shared_memberships
 
   oidc_issuer          = local.cognito_issuer
-  oidc_audience        = [module.auth.user_pool_client_id, module.auth.server_client_id, module.auth.dev_client_id]
+  oidc_audience        = [module.auth.server_client_id, module.auth.dev_client_id]
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"
   oidc_username_claim  = local.oidc_username_claim
   oidc_required_claims = jsonencode({ token_use = "id" })

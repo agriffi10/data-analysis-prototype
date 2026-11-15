@@ -49,9 +49,9 @@ describe('the runtime document', () => {
 
   it('round-trips a value carrying a quote and a backslash byte for byte', () => {
     const awkward = 'a "quoted" \\ value';
-    const document = renderRuntimeDocument({...completeEnvironment(), CONFIG_appUrl: awkward});
+    const document = renderRuntimeDocument({...completeEnvironment(), CONFIG_environment: awkward});
 
-    expect(JSON.parse(JSON.stringify(document)).appUrl).toBe(awkward);
+    expect(JSON.parse(JSON.stringify(document)).environment).toBe(awkward);
   });
 
   it('reads the classification rather than a key list of its own', () => {
@@ -60,7 +60,7 @@ describe('the runtime document', () => {
     const source = Object.values(
       import.meta.glob('./runtimeDocument.ts', {query: '?raw', import: 'default', eager: true})
     )[0] as string;
-    // Bare or with the variable prefix: `CONFIG_appUrl` is the spelling a second list here would use.
+    // Bare or with the variable prefix: `CONFIG_userSpaceBucket` is the spelling a second list here would use.
     const literals = new Set([...source.matchAll(/['"`](?:CONFIG_)?([A-Za-z]+)['"`]/g)].map(([, literal]) => literal));
 
     expect(source).toContain('REQUIRED_CONFIG');
@@ -75,16 +75,16 @@ describe('the start-time refusal', () => {
 
   it('treats unset, empty and whitespace alike, and names every problem in one pass', () => {
     const env = completeEnvironment();
-    delete env.CONFIG_appUrl;
-    env.CONFIG_cognitoDomain = '';
-    env.CONFIG_apiBaseUrl = '  ';
+    env.CONFIG_userSpaceBucket = '  ';
+    delete env.PORTAL_ORIGIN;
+    env.API_ORIGIN = '';
 
     expect(startupProblems(env)).toEqual([
-      {variable: 'CONFIG_apiBaseUrl', reason: 'unset-or-empty'},
-      {variable: 'CONFIG_appUrl', reason: 'unset-or-empty'},
-      {variable: 'CONFIG_cognitoDomain', reason: 'unset-or-empty'}
+      {variable: 'CONFIG_userSpaceBucket', reason: 'unset-or-empty'},
+      {variable: 'PORTAL_ORIGIN', reason: 'unset-or-empty'},
+      {variable: 'API_ORIGIN', reason: 'unset-or-empty'}
     ]);
-    expect(renderRuntimeDocument(env)).not.toHaveProperty('apiBaseUrl');
+    expect(renderRuntimeDocument(env)).not.toHaveProperty('userSpaceBucket');
   });
 
   it.each([

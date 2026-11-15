@@ -22,24 +22,15 @@ as unauthenticated rather than reported as absent. The distinction matters both 
 that defaults to public passes every other test in this module, because every other test declares
 its route; and a 404 to an unauthenticated caller tells them which paths exist.
 
-**A preflight is answered before authentication, and that is not a hole.** ``$default`` matches
-every method including OPTIONS, so API Gateway's own CORS responder — which runs only when no
-route matches — never sees one. A preflight refused as unauthenticated fails the browser's CORS
-check, and every bearer-carrying request then fails as an opaque network error with nothing on the
-wire to explain it. The answer carries no credential, discloses nothing, and is the same for a
-path that exists and one that does not.
-
-**This module emits no CORS header of any kind, and that is a rule rather than an omission.** CORS
-is configured on the API. AWS documents that an HTTP API with a CORS configuration *ignores* CORS
-headers returned by the backend integration, so a header emitted here would not reach the browser
-— but the rule stands on its own ground: two places able to answer the same question is how they
-come to disagree, and the one that would win is not the one a reader is looking at.
+**No browser calls this API, so it answers no preflight.** The portal server calls it on the
+browser's behalf, and an ``OPTIONS`` is an unauthenticated request like any other, refused with the
+ordinary refusal. This module emits no CORS header of any kind, and the API carries no CORS
+configuration either: a CORS answer would admit a browser this API has no reason to serve.
 
 Attributes:
   HEALTH_PATH: The one path with a handler of its own and no credential.
   PUBLIC_ROUTES: Every route reachable without a token. Exactly one, and it returns nothing
     user-identifying — a health check that needed a token could not be used by a load balancer.
-  PREFLIGHT_METHOD: The method answered before authentication, for the reason above.
   HANDLERS: Route id to the function serving it. The only hand-written half of the dispatch;
     everything else about a route is declared in the contract.
   UUID_RE: What a client-supplied request id must look like to be recorded at all. It is a log
@@ -86,7 +77,6 @@ UUID_RE = re.compile(
 )
 
 HEALTH_PATH = "/healthz"
-PREFLIGHT_METHOD = "OPTIONS"
 MAX_ECHOED_CHARS = 128
 
 PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
@@ -148,25 +138,6 @@ def _health() -> dict[str, Any]:
       None.
     """
     return envelope.success({"status": "ok", "version": build_version()})
-
-
-def _preflight() -> dict[str, Any]:
-    """Answers a CORS preflight, before any credential is looked at.
-
-    Empty and identical for every path, so it is not an inventory of which routes exist. The
-    allow-origin, allow-headers and allow-methods headers are the API's to add and are deliberately
-    absent here.
-
-    Args:
-      None.
-
-    Returns:
-      An empty 200. Not a 204: one status, one parse path, no body-less response anywhere.
-
-    Raises:
-      None.
-    """
-    return envelope.success({})
 
 
 def _stamp_correlation(headers: Mapping[str, str], request_id: str) -> None:
@@ -266,7 +237,7 @@ def route(
     container does not give each invocation a fresh context, so a route id left behind by the last
     request is still readable by this one. A handler is not the exposure — the dispatch below sets
     the id unconditionally before one runs — but every path that returns BEFORE dispatch is: the
-    health route, the preflight, an unknown route, and every refusal. Resetting on the way out
+    health route, an unknown route, and every refusal. Resetting on the way out
     alone does not cover them, because those are the paths most likely to skip the cleanup. The
     reset runs before the public-route check, so a request that never dispatches still starts from
     a sentinel that authorizes nothing.
@@ -313,8 +284,6 @@ def route(
     _stamp_correlation(headers or {}, request_id)
 
     asked_for = f"{method[:MAX_ECHOED_CHARS]} {path[:MAX_ECHOED_CHARS]}"
-    if method == PREFLIGHT_METHOD:
-        return _answered(_preflight())
     if (method, path) in PUBLIC_ROUTES:
         return _answered(_health())
 

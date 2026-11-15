@@ -13,7 +13,7 @@ Attributes:
   STORE: The session-store module's resources.
   SPA: The spa module's directory.
   DEPLOY_INFRA: The infrastructure deploy workflow.
-  MIRRORED: The sign-in settings the server client must share with the SPA client.
+  MIRRORED: The sign-in settings the server and dev clients must both declare.
 """
 
 import fnmatch
@@ -106,24 +106,23 @@ def test_the_key_names_only_the_account_and_the_table_is_encrypted_with_it() -> 
     assert _argument(table, "deletion_protection_enabled") == "true"
 
 
-def test_the_server_and_dev_clients_mirror_the_spa_client_and_differ_only_where_they_must() -> None:
-    """A setting a client does not share changes what its tokens carry or allow.
+def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() -> None:
+    """A setting the two clients do not share is a sign-in that works on a laptop and not deployed.
 
     The dev client is the server client with a localhost callback: a laptop signs in through the same
-    routes, so any other difference is a sign-in that works in one place and not the other.
+    routes, so any other difference changes what one client's tokens carry or allow. The public client
+    is gone, so localhost is admitted by the dev client alone.
     """
     clients = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")
-    assert set(clients) == {"spa", "server", "dev"}, f"the clients are {sorted(clients)}"
-    spa, server, dev = clients["spa"], clients["server"], clients["dev"]
+    assert set(clients) == {"server", "dev"}, f"the clients are {sorted(clients)}"
+    server, dev = clients["server"], clients["dev"]
 
-    for confidential in (server, dev):
-        for setting in MIRRORED:
-            assert _argument(confidential, setting) == _argument(spa, setting), f"{setting} differs"
-    for client in (spa, server, dev):
+    for setting in MIRRORED:
+        assert _argument(server, setting) is not None, f"the server client no longer declares {setting}"
+    for client in (server, dev):
         assert "read_attributes" not in client and "write_attributes" not in client, (
             "an attribute list that omits a custom:shared_space_k slot drops that claim"
         )
-    assert _argument(spa, "generate_secret") == "false"
     assert _argument(server, "generate_secret") == "true"
     assert _argument(server, "callback_urls") == '["${var.spa_origin}/auth/callback"]'
     assert _argument(server, "logout_urls") == "[var.spa_origin]"
@@ -137,10 +136,8 @@ def test_the_server_and_dev_clients_mirror_the_spa_client_and_differ_only_where_
     assert without_urls(dev) == without_urls(server), "the dev client differs from the server client beyond its URLs"
     assert _argument(dev, "callback_urls") == '["${var.dev_origin}/auth/callback"]'
     assert _argument(dev, "logout_urls") == "[var.dev_origin]"
-    assert "localhost" not in server, "the server client names localhost"
-    assert '"http://localhost:5173"' in AUTH.read_text().split("callback_urls = distinct(")[1].split(")")[0], (
-        "the public client loses localhost only when the merge that retires it lands"
-    )
+    code = re.sub(r"^\s*#.*$", "", AUTH.read_text(), flags=re.MULTILINE)
+    assert "localhost" not in code, "the auth module names localhost; only root's dev_origin may"
     assert re.search(r'^\s*dev_origin\s*=\s*"http://localhost:5173"\s*$', ROOT_MAIN.read_text(), re.MULTILINE)
 
 
@@ -311,7 +308,7 @@ def test_the_deploy_brands_every_app_client() -> None:
 
     declared = set(output_blocks(ROOT_OUTPUTS.read_text()))
     clients = blocks(AUTH.read_text(), "aws_cognito_user_pool_client")
-    assert named == ["cognito_user_pool_client_id", "cognito_server_client_id", "cognito_dev_client_id"]
+    assert named == ["cognito_server_client_id", "cognito_dev_client_id"]
     read = set(re.findall(r"tofu output -raw ([a-z_]+)", branding["run"])) | set(named)
     assert read <= declared, f"the step reads outputs that do not exist: {read - declared}"
     assert len(named) == len(clients), f"{len(clients)} clients exist and {len(named)} are branded"

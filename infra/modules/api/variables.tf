@@ -28,11 +28,6 @@ variable "route53_zone_id" {
   type        = string
 }
 
-variable "spa_origin" {
-  description = "Origin of the container SPA, admitted by CORS. The container is where ported features are proved."
-  type        = string
-}
-
 variable "logs_queue_url" {
   description = "FIFO queue the structured-logging layer writes spans to."
   type        = string

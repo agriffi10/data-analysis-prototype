@@ -119,11 +119,11 @@ def test_an_absent_output_fails_the_job_naming_both(tmp_path: pathlib.Path) -> N
       AssertionError: If the run succeeds, or the message names neither the key nor the
         output, or reports the wrong branch.
     """
-    completed, _ = _run(tmp_path, _document(cognito_domain=None))
+    completed, _ = _run(tmp_path, _document(shared_space_bucket_name=None))
 
     assert completed.returncode != 0
-    assert "cognitoDomain" in completed.stderr
-    assert "cognito_domain" in completed.stderr
+    assert "sharedSpaceBucket" in completed.stderr
+    assert "shared_space_bucket_name" in completed.stderr
     assert "absent from the state" in completed.stderr
 
 
@@ -190,11 +190,11 @@ def test_it_reports_every_missing_value_at_once(tmp_path: pathlib.Path) -> None:
     Raises:
       AssertionError: If the run stops at the first fault.
     """
-    completed, _ = _run(tmp_path, _document(api_origin=None, cognito_domain=""))
+    completed, _ = _run(tmp_path, _document(s3_user_space_bucket_name=None, shared_space_bucket_name=""))
 
     assert completed.returncode != 0
-    assert "apiBaseUrl" in completed.stderr
-    assert "cognitoDomain" in completed.stderr
+    assert "userSpaceBucket" in completed.stderr
+    assert "sharedSpaceBucket" in completed.stderr
 
 
 def _run_with_mapping(tmp_path: pathlib.Path, mapping_text: str) -> subprocess.CompletedProcess:

@@ -130,7 +130,7 @@ describe('runtimeConfig — a production load that fails', () => {
   });
 
   it('names every missing required key', async () => {
-    respondWith(JSON.stringify({version: 1, ...withoutKeys('userSpaceBucket', 'cognitoDomain')}));
+    respondWith(JSON.stringify({version: 1, ...withoutKeys('userSpaceBucket')}));
     const {loadRuntimeConfig: load, configValue: read} = await productionModule();
 
     const result = await load();
@@ -138,12 +138,12 @@ describe('runtimeConfig — a production load that fails', () => {
     expect(result).toEqual({
       ok: false,
       reason: 'missing-required',
-      missing: ['userSpaceBucket', 'cognitoDomain']
+      missing: ['userSpaceBucket']
     });
     // AND THE KEYS IT DID CARRY ARE NOT SERVED. Left installed, an incomplete document
     // answers `undefined` for the missing ones — the bucket-named-undefined failure, on
     // the one path where the deployment is already known to be misconfigured.
-    expect(() => read('appUrl')).toThrow(/before \/config\.json was loaded/);
+    expect(() => read('environment')).toThrow(/before \/config\.json was loaded/);
   });
 });
 
@@ -239,11 +239,11 @@ describe('runtimeConfig — the accessor is the only door', () => {
     expect(readers.sort()).toEqual([...ALLOWED].sort());
   });
 
-  it('leaves no production module reading a key that retires with the public sign-in client', () => {
-    // The browser signs in through the server and calls the API on its own origin, so nothing reads
-    // these any more. They stay classified, served and wired until the merge that retires the public
-    // client removes them from every site at once; a reader added meanwhile would break on that day.
-    const retiring = [
+  it('classifies none of the keys that retired with the public sign-in client', () => {
+    // The browser signs in through the server and calls the API on its own origin, so it has no API
+    // host, region, Cognito value or app URL to be told. A key coming back would be served to a
+    // browser that has no reader for it, and wired through every site for nothing.
+    const retired = [
       'apiBaseUrl',
       'appUrl',
       'awsRegion',
@@ -251,15 +251,10 @@ describe('runtimeConfig — the accessor is the only door', () => {
       'cognitoUserPoolClientId',
       'cognitoDomain'
     ];
-    const call = new RegExp(`configValue\\(\\s*['"\`](${retiring.join('|')})['"\`]`);
-    const readers = Object.entries(SOURCES)
-      .filter(([path]) => !path.includes('.test.') && !path.includes('/test/'))
-      .filter(([, source]) => call.test(source))
-      .map(([path]) => path);
+    const classified: readonly string[] = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
 
-    expect(retiring.every((key) => (REQUIRED_CONFIG as readonly string[]).includes(key))).toBe(true);
-    expect(call.test("configValue('apiBaseUrl')")).toBe(true);
-    expect(readers).toEqual([]);
+    expect(classified).toContain('userSpaceBucket');
+    expect(retired.filter((key) => classified.includes(key))).toEqual([]);
   });
 
   it('exports the converted reads as functions, not captured values', () => {
@@ -342,19 +337,7 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     // Guard-the-guard: a parse that silently found nothing would agree with an empty
     // classification and pass forever. Named rather than counted — a count has to be
     // revised by every key retirement, and revising it is where the guard gets lost.
-    expect(keys).toContain('apiBaseUrl');
+    expect(keys).toContain('userSpaceBucket');
     expect(keys.slice().sort()).toEqual([...ALL_KEYS].sort());
-  });
-
-  it('gives appUrl the container\u2019s own origin, not the CloudFront one', () => {
-    // The highest-consequence line in the map, and the one that fails ONLY in a browser:
-    // Amplify builds redirectSignIn/redirectSignOut from appUrl, so a container serving
-    // var.app_url sends a sign-in started on the container back to CloudFront. The container
-    // never receives the ?code=, and the user lands signed-out on a live session.
-    const start = ROOT_MAIN.indexOf('spa_runtime_config = {');
-    const body = ROOT_MAIN.slice(start, ROOT_MAIN.indexOf('\n  }', start));
-
-    expect(body).toMatch(/^\s+appUrl\s*=\s*local\.spa_origin$/m);
-    expect(body).not.toMatch(/^\s+appUrl\s*=\s*var\.app_url$/m);
   });
 });

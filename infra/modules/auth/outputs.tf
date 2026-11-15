@@ -3,11 +3,6 @@ output "user_pool_id" {
   value       = aws_cognito_user_pool.portal.id
 }
 
-output "user_pool_client_id" {
-  description = "SPA app client ID."
-  value       = aws_cognito_user_pool_client.spa.id
-}
-
 output "server_client_id" {
   description = "The portal server's confidential app client ID. Its secret is never an output; it reaches the task through the SSM parameter."
   value       = aws_cognito_user_pool_client.server.id

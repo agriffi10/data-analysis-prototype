@@ -103,8 +103,8 @@ def _derived_config_keys() -> set[str]:
     classified = set(_ts_string_array(source, "REQUIRED_CONFIG")) | set(
         _ts_string_array(source, "OPTIONAL_CONFIG")
     )
-    assert "apiBaseUrl" in classified, (
-        "the classification parsed without apiBaseUrl — the parse is broken, not the map"
+    assert "userSpaceBucket" in classified, (
+        "the classification parsed without userSpaceBucket — the parse is broken, not the map"
     )
     return classified - GENUINE_INPUTS
 

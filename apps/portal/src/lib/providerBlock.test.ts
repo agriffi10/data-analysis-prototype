@@ -74,20 +74,4 @@ describe('the provider block never crosses into the browser', () => {
 
     expect(synthetic.filter(isProviderBlockField)).toEqual(synthetic);
   });
-
-  it('flags NONE of the four Cognito values Amplify reads', () => {
-    // THE CRITERION THAT CAN FAIL TODAY, and the one that protects sign-in. Adding
-    // `clientId` to the exact list is the specific mistake: `cognitoUserPoolClientId`
-    // survives an exact-match rule and dies under a substring one.
-    const amplifyReads = ['cognitoUserPoolId', 'cognitoUserPoolClientId', 'cognitoDomain', 'appUrl'];
-
-    expect(amplifyReads.filter(isProviderBlockField)).toEqual([]);
-  });
-
-  it('keeps the Hosted UI host in the browser, because Amplify posts the code exchange to it', () => {
-    // `cognitoDomain` is not a provider-block field. The forbidden set is about the API's
-    // TRUST ANCHORS, not about the word Cognito.
-    expect([...REQUIRED_CONFIG, ...OPTIONAL_CONFIG]).toContain('cognitoDomain');
-    expect(isProviderBlockField('cognitoDomain')).toBe(false);
-  });
 });

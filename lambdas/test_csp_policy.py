@@ -19,16 +19,14 @@ INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 ROOT_MAIN = INFRA / "main.tf"
 
 
-def test_connect_src_still_names_both_cognito_hosts() -> None:
-    """The two entries whose loss a signed-in tester cannot see, asserted by name.
+def test_connect_src_names_neither_cognito_host_nor_the_api() -> None:
+    """The hosts the browser stopped fetching when it stopped holding tokens, refused by name.
 
     Stated on its own, and deliberately not as part of a whole-list comparison —
-    ``test_api_module.py`` owns that list. A reader deletes these two on purpose, reasoning that the
-    Identity Pool is retired — it is — or that the provider changes later, and would then update a
-    list assertion to match the mistake. Neither reaches these hosts. Amplify still runs in the
-    browser: the authorization-code exchange POSTs to the Hosted UI host and token refresh calls
-    cognito-idp, so a policy without them produces a portal that works for everyone already signed
-    in and for nobody else.
+    ``test_api_module.py`` owns that list. These were once asserted present by name, because Amplify
+    in the browser fetched both Cognito hosts and the API. The portal server signs in and calls the
+    API now, so the browser reaches Cognito only by navigation, which ``connect-src`` does not govern.
+    A reader restoring them on the old reasoning would widen the browser's network surface for nothing.
 
     Args:
       None.
@@ -37,7 +35,7 @@ def test_connect_src_still_names_both_cognito_hosts() -> None:
       None.
 
     Raises:
-      AssertionError: When either Cognito host is absent from the source list.
+      AssertionError: When a Cognito host or the API's origin is back in the source list.
     """
     separator, terms = join_list_items(ROOT_MAIN.read_text(), "csp_connect_src")
     assert terms, "connect-src's list parsed empty — the parse went trivial."
@@ -45,16 +43,11 @@ def test_connect_src_still_names_both_cognito_hosts() -> None:
         f"connect-src's terms are joined on {separator!r}. A source list is space-separated; "
         "anything else is one unparseable source expression and a policy that blocks every fetch."
     )
-
-    assert any("cognito-idp." in term for term in terms), (
-        "connect-src lost the cognito-idp host. Amplify refreshes tokens and revokes them there; "
-        "this arc does not retire it."
-    )
-    assert any("cognito_hosted_ui_domain" in term for term in terms), (
-        "connect-src lost the Hosted UI domain. The authorization-code exchange is the only fetch "
-        "to that host, a warm session never makes it, and its absence broke fresh sign-in for a "
-        "day once already."
-    )
+    assert any("user_space_bucket_name" in term for term in terms), "the parse no longer reads the bucket terms"
+    returned = [
+        term for term in terms if "cognito-idp." in term or "cognito_hosted_ui_domain" in term or "api_origin" in term
+    ]
+    assert returned == [], f"connect-src names {returned}; the browser no longer fetches Cognito or the API"
 
 
 def test_the_parser_sees_an_unquoted_element() -> None:
