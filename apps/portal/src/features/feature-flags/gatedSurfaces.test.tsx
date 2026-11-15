@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
+import type {UserEvent} from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {GATED_SURFACES} from './gatedSurfaces';
@@ -227,6 +228,11 @@ type Recipe = {
    * Only needed where the surface itself arrives async; the rest settle inside `render`.
    */
   anchor?: () => Promise<unknown>;
+  /**
+   * Set where `render` waits on a statement run (`runStatement`, or the Data Explorer's execution), so the
+   * case gets the longer limit that wait needs; without it the case's own five seconds would end first.
+   */
+  runsStatement?: true;
 };
 
 const renderHeader = () => {
@@ -619,11 +625,13 @@ const RECIPES: Record<string, Recipe> = {
       // `MenuItem` drops its `onSelect` — so choosing it early would silently do nothing and
       // the row would read as correctly hidden in both states. Re-fetched on each pass rather
       // than held, because `waitFor` outlives the menu's own open state.
-      await waitFor(async () =>
-        expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
+      await waitFor(
+        async () => expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true'),
+        RUN_WAIT
       );
       await chooseExplorationOption(user, 'Save results…');
     },
+    runsStatement: true,
     anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
@@ -643,11 +651,11 @@ const RECIPES: Record<string, Recipe> = {
       renderQueryWorkspace();
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      // The button is offered only for a SUCCEEDED execution with a results location, so
+      // The button is offered only for a displayed result with a results location, so
       // the run is part of reaching it rather than scaffolding around it.
-      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      await user.click(await runStatement(user));
     },
+    runsStatement: true,
     anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
@@ -660,11 +668,13 @@ const RECIPES: Record<string, Recipe> = {
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      await waitFor(async () =>
-        expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true')
+      await waitFor(
+        async () => expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true'),
+        RUN_WAIT
       );
       await chooseExplorationOption(user, 'Save results…');
     },
+    runsStatement: true,
     anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByLabelText('Format')
   },
@@ -682,9 +692,9 @@ const RECIPES: Record<string, Recipe> = {
       renderQueryWorkspace();
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      await user.click(await runStatement(user));
     },
+    runsStatement: true,
     anchor: async () => within(await screen.findByRole('dialog', {name: 'Save results'})).findByLabelText('File name'),
     find: async () => screen.queryByLabelText('Format')
   },
@@ -1009,11 +1019,11 @@ const RECIPES: Record<string, Recipe> = {
       renderQueryWorkspace();
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-      await user.click(await screen.findByRole('button', {name: 'Save results…'}));
+      await user.click(await runStatement(user));
       const dialog = await screen.findByRole('dialog', {name: 'Save results'});
       await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
     },
+    runsStatement: true,
     // The toast itself is not gated — only its way into the file browser is.
     anchor: async () => screen.findByText(/^Saved to /),
     find: byRole('button', 'View in Files')
@@ -1151,6 +1161,21 @@ function renderQueryWorkspace() {
   );
 }
 
+// A statement run is real rendering that outlasts a wait's 1 s under load, and a 5 s wait needs a case above 5 s.
+const RUN_WAIT = {timeout: 5_000};
+const STATEMENT_RUN_CASE = {timeout: 15_000};
+
+/**
+ * Runs the open tab's statement and waits for its results to render.
+ *
+ * @param user - The `userEvent` instance the recipe is driving with.
+ * @returns The results region's **Save results…** button, offered for the displayed result whatever its verdict.
+ */
+async function runStatement(user: UserEvent) {
+  await user.click(await screen.findByRole('button', {name: 'Run statement'}));
+  return screen.findByRole('button', {name: 'Save results…'}, RUN_WAIT);
+}
+
 /** The file browser has finished its first listing — the tree is settled either way. */
 async function filesPageReady() {
   return screen.findByRole('button', {name: 'New folder'});
@@ -1170,8 +1195,9 @@ function exploreResultRecipe(): Recipe {
       );
       renderQueryWorkspace();
       const {default: userEvent} = await import('@testing-library/user-event');
-      await userEvent.setup({delay: null}).click(await screen.findByRole('button', {name: 'Run statement'}));
+      await runStatement(userEvent.setup({delay: null}));
     },
+    runsStatement: true,
     anchor: async () => screen.findByRole('button', {name: 'Save results…'}),
     find: async () => screen.queryByRole('button', {name: 'Explore in Data Explorer'})
   };
@@ -1226,28 +1252,31 @@ describe('every registered surface disappears with its flag off and returns with
     ([flag, surfaces]) => surfaces.map((surface) => ({flag, surface}))
   );
 
-  it.each(rows.map((row) => [row.flag, row.surface.name, row] as const))(
-    '%s off hides "%s"',
-    async (flag, _name, row) => {
-      const recipe = RECIPES[row.surface.name];
+  // A loop rather than `it.each`, whose options are one object for every row: only a row that runs a
+  // statement gets the longer case limit. A row with no recipe reads as no budget, so the guard
+  // below, not a collection error, is what names it.
+  const caseFor = (name: string) => (RECIPES[name]?.runsStatement ? STATEMENT_RUN_CASE : {});
+
+  for (const {flag, surface} of rows) {
+    it(`${flag} off hides "${surface.name}"`, caseFor(surface.name), async () => {
+      const recipe = RECIPES[surface.name];
       withFlags({[flag]: false});
       await recipe.render();
       await settle(recipe);
       // Asserted ONCE, after the tree has settled — never inside `waitFor`, whose first
       // attempt lands while every surface is legitimately absent.
       expect(await recipe.find()).toBeNull();
-    }
-  );
+    });
+  }
 
-  it.each(rows.map((row) => [row.flag, row.surface.name, row] as const))(
-    '%s on shows "%s"',
-    async (_flag, _name, row) => {
-      const recipe = RECIPES[row.surface.name];
+  for (const {flag, surface} of rows) {
+    it(`${flag} on shows "${surface.name}"`, caseFor(surface.name), async () => {
+      const recipe = RECIPES[surface.name];
       withFlags({});
       await recipe.render();
       await waitFor(async () => expect(await recipe.find()).not.toBeNull());
-    }
-  );
+    });
+  }
 });
 
 // ─── Guard the guard (FR-002 AC4) ───────────────────────────────────────────
