@@ -85,10 +85,20 @@ env:
 # change is worst (the refresh-deadlock lever in CLAUDE.md is the recovery for it).
 #
 # `cancel-in-progress: false` is the whole point: queue the second run, never cancel the
-# first. Cancelling an apply mid-flight is the one outcome worse than waiting for it.
+# first. Cancelling an apply mid-flight is the one outcome worse than waiting for it, and
+# cancelling a plan mid-flight can leave the state lock held for the next apply to fail on.
 # This is a correctness fix, not a cost one — a queued run still bills.
+#
+# PLANS QUEUE APART FROM APPLIES. GitHub keeps one PENDING run per group and cancels it when a
+# newer run queues, whatever that run's event, so one group for everything let a pull request
+# opened while an apply was pending cancel that apply, and nothing re-ran it. So a pull request's
+# runs queue in a group of their own, and a push and a dispatch, the two events that apply, share
+# `deploy-infra`. Keep that name: renaming it lets an apply queued under the old name run beside
+# the first apply under the new one. A plan is still never computed beside an apply, because
+# `tofu plan` takes the state lock; that is why both commands below wait for the lock rather
+# than fail on it.
 concurrency:
-  group: deploy-infra
+  group: ${{ github.event_name == 'pull_request' && format('deploy-infra-plan-{0}', github.ref) || 'deploy-infra' }}
   cancel-in-progress: false
 
 jobs:
@@ -200,9 +210,16 @@ jobs:
         # The guard runs HERE rather than as a step of its own because the environment it checks
         # is this step's: a TF_VAR_ variable that is set and not in the block below reads as
         # configuration while Terraform builds from its default. The apply step runs it too.
+        #
+        # -lock-timeout because this run's concurrency group is its own pull request's, so an
+        # apply or another pull request's plan can hold the state lock when this one starts, and
+        # the default of 0s fails the plan on it at once. Fifteen minutes is past every recent
+        # apply and still leaves the plan and the scans inside the job's thirty; an apply that
+        # runs longer, like the teardown the apply job's sixty was raised for, fails this plan
+        # red, and a re-run clears it.
         run: |
           python3 ../.github/scripts/tf_var_guard.py
-          set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
+          set -o pipefail && tofu plan -no-color -lock-timeout=15m -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
           REPO_VARS: ${{ toJSON(vars) }}
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
@@ -623,6 +640,11 @@ jobs:
         #
         # Every use should be followed by an ordinary run to confirm the refresh works
         # again — an apply that skipped refresh has proved nothing about drift.
+        #
+        # -lock-timeout because a pull request's plan runs outside this run's concurrency group
+        # and holds the state lock for its minute or so; with the default of 0s an apply starting
+        # then fails, and the change waits for the next apply. Ten minutes covers a run of plans
+        # and still fails a lock nobody released well inside the job's sixty.
         run: |
           python3 ../.github/scripts/tf_var_guard.py
           REFRESH_FLAG=""
@@ -630,7 +652,7 @@ jobs:
             REFRESH_FLAG="-refresh=false"
             echo "::warning title=Recovery mode::Applying with -refresh=false. State is NOT refreshed; drift will not be detected. Run this workflow again normally afterwards."
           fi
-          tofu apply -auto-approve $REFRESH_FLAG
+          tofu apply -auto-approve -lock-timeout=10m $REFRESH_FLAG
         env:
           # See the plan step: the guard on the first line of `run` checks this block.
           REPO_VARS: ${{ toJSON(vars) }}
