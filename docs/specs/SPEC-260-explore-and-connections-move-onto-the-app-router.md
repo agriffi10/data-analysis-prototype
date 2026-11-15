@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-260
 title: "Explore and Connections Move Onto the App Router"
 description: "Serves the Data Explorer and the Connections page from App Router pages instead of the react-router catch-all, with the Explorer's deep links and hand-offs unchanged."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 6

@@ -3619,7 +3619,9 @@ name its area `'app'` or they never see the moved page), read where a navigation
 `location()`, and drive Back with `traverse`; the stand-in's `hold`, `requests()` and `external()`
 show what Next's router was asked to do. A download is not the document going: both download helpers
 click with the leave guard disarmed. Each move still runs the cross-router scenarios live on its own
-pages, recorded in `docs/testing/e2e.md` §4.1. The decision is
+pages, recorded in `docs/testing/e2e.md` §4.1. *(Marked 2026-11-15: in each area's own section of
+`e2e.md`, as the moves' specs and the completion ritual's step 8 say; SPEC-260 put its rows under
+an **On the App Router** paragraph there.)* The decision is
 `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`.
 
 **2026-11-14, SPEC-263 closes the arc.** The landing page and the 404 become `src/app/page.tsx` and

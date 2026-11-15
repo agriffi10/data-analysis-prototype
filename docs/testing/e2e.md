@@ -374,7 +374,8 @@ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$APP_URL/api/x"       
 root layout, whichever router serves it, and every navigation goes through one seam. Drive these with
 real clicks in a signed-in tab: Chrome shows the leave prompt only after a real gesture, and an
 automation layer that handles page dialogs itself cannot show it at all. Until an area moves onto the
-App Router every page is the catch-all's; each move (SPEC-258 to 261) adds its cross-router rows here.
+App Router every page is the catch-all's; each move adds its cross-router rows to its own area's
+section below, under an **On the App Router** paragraph.
 
 | Do | Expect |
 |---|---|
@@ -784,6 +785,20 @@ statement that begins `SELECT "<column>" AS "value"`.
 | Z | **Options → Order and filter** on a tab with two conditions on one column, built in **Filter rows…** | That column reads "2 conditions — change them in Filter rows". Change another column's sort → **Apply**: **1** execution, both conditions still chips. |
 | AA | On a filtered tab, **Filter rows…** → a condition with **is one of** → **Pick values** | **Zero** listings until the press, then **1**, and its statement has **no** `WHERE` — the builder does not narrow. Tick a value → **Apply**: **1** execution. |
 
+**On the App Router (SPEC-260).** The Explorer is served by its own App Router page, so every way in
+or out of it that changes the path goes through Next's router, from or to a catch-all page alike.
+After the first row's reload, set a property on `window` and on every ancestor of `#main`, and read
+them back after each later step: the window's and the shell's (the `div.flex.flex-1` that holds each
+page) must survive every one, with one `/config.json` fetch, whichever router served the page. Query's
+own workspace element is new on each visit; that is not the shell.
+
+| Do | Expect |
+|---|---|
+| Paste `/explore?space=<you>&db=<you>&table=<a table>` into the address bar, then reload (a real reload) | The table opens in one tab and the address drops to `/explore`; after the reload the same one tab, not a second. |
+| On Query run `SELECT 1 AS n` (it scans nothing), then **Explore in Data Explorer**, then Back, then Forward | One new exploration tab named for the statement; Back shows Query; Forward shows the Explorer with the same tabs, no limit dialog, and the status line saying it was loaded from an earlier run. |
+| From that tab, **Options** → **Open in Query**, then Back, then Forward | One new Query tab holding the wrapped statement; Back shows the Explorer; Forward shows Query with no further tab. |
+| On the Explorer, focus **Skip to main content**, press Enter, open Files by its tab, then Back | `/explore#main`, then `/files`, then the Explorer again with its tabs, not a 404. |
+
 ### 4.6 Data quality
 
 | Do | Expect |
@@ -846,6 +861,12 @@ it is CLI-only — see `owed.md`.
 | Transfer to yourself, or to someone not in the roster | Refused, and the refusal **names the person**. Nothing changes and no notification pair is sent. |
 | Transfer a space, then have the new owner transfer it back | Works, and both of you read `Active` throughout. A member who had never signed in reads `Active` after a round trip — accepted, and pinned by a unit test rather than fixed. |
 | Delete a space, then re-mint credentials and try to open it | **Sign out and back in first, or wait out the Identity Pool TTL.** The principal tag is stamped when credentials are vended, so a session held from before the delete still carries it and can still reach the retained data. The deleter's own browser is the one most likely to be used for this check and the one most likely to mislead. |
+
+**On the App Router (SPEC-260).** The page is served by its own App Router page.
+
+| Do | Expect |
+|---|---|
+| From Files, open **Shared spaces** by its tab | Your spaces with their role and status, the tab titled "Shared spaces — Data Quarry", and no document load: an element marked on Files around `#main` is still the one around this page. |
 
 ### 4.9 Send files
 
