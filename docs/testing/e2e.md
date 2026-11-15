@@ -567,6 +567,17 @@ central claim.
 | **The load-bearing negative**, after exercising this section and §4.5 end to end | **Zero** requests to `athena.*.amazonaws.com` and `glue.*.amazonaws.com`. |
 | The **first** invocation after a deploy | Succeeds. Cold start is where an import that cannot resolve fails, and it is silent everywhere else. The layer-attachment form of that is gone — one image carries every shared package — but the class is not: a module missing from the image, or an environment variable read at import, still surfaces only here. |
 
+**On the App Router (SPEC-259).** Query is served by an App Router page, and since SPEC-258 to 261 so
+is every other signed-in area, so a navigation between Query and another area no longer crosses the
+two routers; only the landing page and the 404 are still the catch-all's, until SPEC-263. These rows
+check Query's own page. Drive them with real clicks in a signed-in tab.
+
+| Do | Expect |
+|---|---|
+| §4.5's *Generated SQL* → **Open in Query**, then the browser's Back, then Forward, then reload `/query` | One new tab, selected and unrun. Back shows the Explorer, Forward shows Query with the same tabs and no limit dialog. The reload, a signed-in document load of an App Router page, shows the workspace with the same tabs and no console error, which is where Chrome reports a load the policy blocks. |
+| Open `/query?refreshTable=<db>.<table>&removed=<column>` for a table with a folder, then **Cancel** its dialog (a change of query only) | The address is `/query` with no parameter; nothing new in the network panel (nothing carrying `_rsc`), and no document load. |
+| Focus **Skip to main content**, press Enter, open Files by its tab, then Back | `/query#main`, then Files, then Query again at `#main`, titled **Query — Data Quarry**, with no document load. |
+
 ~~**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.~~
 **A Chromium pass discharges this section.** The deployment's audience has no Safari (Andrew,
 2026-09-01, recorded in SPEC-202's §9 criterion), so Andrew's own Safari use corroborates and never

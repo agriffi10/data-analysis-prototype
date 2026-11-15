@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-259
 title: "Query Moves Onto the App Router"
 description: "Serves the Query workspace from an App Router page instead of the react-router catch-all, with its editor, its runs and its hand-offs unchanged."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 5
@@ -73,14 +73,14 @@ changes `router` to `'app'`.
 
 #### Acceptance Criteria:
 
-- [ ] The page file exists, the page sweep and the record-and-page guard pass, and the Query record
+- [x] The page file exists, the page sweep and the record-and-page guard pass, and the Query record
       says `'app'`.
-- [ ] A new test renders `/query` through `renderApp` and finds the workspace's editor region; with
+- [x] A new test renders `/query` through `renderApp` and finds the workspace's editor region; with
       the page file deleted it turns red on the catch-all's 404. Because `renderApp` serves every
       area from the catch-all unless a test names it, every `renderApp` call in Query's split file
       names Query's router `'app'`, the runs that outlive the page among them, and they pass; with
       Query's page broken, those runs tests turn red too.
-- [ ] `next build` lists `/query` as a dynamic route, and `next start` answers it with status 200.
+- [x] `next build` lists `/query` as a dynamic route, and `next start` answers it with status 200.
 
 ### FR-002: The links into Query keep their rules
 
@@ -93,11 +93,11 @@ seam writes natively, so the page is neither fetched again nor remounted.
 
 #### Acceptance Criteria:
 
-- [ ] Through `renderApp`, *Open in Query* from Explore opens one tab with the statement, with
+- [x] Through `renderApp`, *Open in Query* from Explore opens one tab with the statement, with
       Explore served by the catch-all and then by the App Router through the `routers` option
       (supplying Explore's page through `pages` while it has none on disk); Back then Forward opens
       nothing.
-- [ ] A `?refreshTable=` link opens the refresh dialog for its table; dismissing it leaves `/query`
+- [x] A `?refreshTable=` link opens the refresh dialog for its table; dismissing it leaves `/query`
       with no parameter, and dropping them calls neither `router.push` nor `router.replace`.
 
 ### FR-003: Checked live, on the tier
@@ -107,17 +107,19 @@ seam writes natively, so the page is neither fetched again nor remounted.
 The build switches the web tier on through the repository variable and CI, runs these checks
 signed in, and switches it off again, saying so in its report. When another area move's live checks
 may overlap, it agrees the window with the arc's orchestrator first, so that one move switching the
-tier off does not end another's checks.
+tier off does not end another's checks. *As built, the tier was already on and held by other moves,
+so the build added a line to the arc's holder list and removed it after the checks, and did not
+switch the tier itself; the delivery doc's Deliberate deviations says so.*
 
 #### Acceptance Criteria:
 
-- [ ] The editor opens and highlights SQL, a statement runs, and the page records no
+- [x] The editor opens and highlights SQL, a statement runs, and the page records no
       `securitypolicyviolation` event while it does.
-- [ ] A running query keeps running across Query to Files and back, and its results are on screen
+- [x] A running query keeps running across Query to Files and back, and its results are on screen
       on return without running again.
-- [ ] *Open in Query* from the Data Explorer opens one tab with the statement; Back and then Forward
+- [x] *Open in Query* from the Data Explorer opens one tab with the statement; Back and then Forward
       opens no second tab.
-- [ ] The skip link, then Files, then Back shows Query, and Query keeps its own tab title.
+- [x] The skip link, then Files, then Back shows Query, and Query keeps its own tab title.
 
 ---
 
