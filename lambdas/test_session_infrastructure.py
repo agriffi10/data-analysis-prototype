@@ -158,7 +158,11 @@ def test_every_variable_the_server_requires_is_one_the_infrastructure_renders() 
     optional_list = re.search(r"export const OPTIONAL_SESSION_VARIABLES = \[(.*?)\] as const;", config, re.DOTALL)
     assert optional_list, "the server no longer lists OPTIONAL_SESSION_VARIABLES in the form this test reads"
     optional = set(re.findall(r"'([A-Z_]+)'", optional_list.group(1)))
-    assert optional and not optional & required, f"optional {sorted(optional)} overlaps the required list"
+    assert optional == {"OIDC_USERNAME_CLAIM", "OIDC_IDENTITY_PROVIDER"}, (
+        f"the optional list is {sorted(optional)}: moving a variable there stops the server refusing to start "
+        "without it, so it is a deliberate edit to this line"
+    )
+    assert not optional & required, f"optional {sorted(optional)} overlaps the required list"
 
     rendered = set(_session_environment_keys())
     assert re.search(r'name\s*=\s*"OIDC_CLIENT_SECRET"', (SPA / "ecs.tf").read_text()), "the task no longer injects the secret"

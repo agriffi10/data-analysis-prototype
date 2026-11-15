@@ -102,7 +102,7 @@ describe('GET /auth/callback', () => {
       exchange: 'refused',
       cleared: true
     },
-    ...['aud', 'iss', 'token_use', 'nonce', 'exp'].map((claim) => ({
+    ...['aud', 'iss', 'token_use', 'nonce', 'exp', 'cognito:username'].map((claim) => ({
       label: `a wrong ${claim}`,
       query: `?code=c&state=${TRANSACTION.state}`,
       cookie: true,
@@ -119,7 +119,8 @@ describe('GET /auth/callback', () => {
         iss: 'https://other',
         token_use: 'access',
         nonce: 'other',
-        exp: NOW - 1
+        exp: NOW - 1,
+        'cognito:username': undefined
       };
       const fetch = vi.fn(async () =>
         exchange === 'refused'
