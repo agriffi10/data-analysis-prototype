@@ -37,10 +37,17 @@ preserved deliberately and pinned by the matrix, which is why a removal is read 
 content type and never from the status code here.
 
 **Responses Next answers before routing reach neither the proxy nor `next.config.ts`.** A trailing
-slash or a `//host` path gets a 308 to a same-origin path, and a malformed escape gets a plain-text
-500, with no policy and no security header. nginx had a server-level floor for its equivalent; Next
-has none, and the class is accepted in `docs/security-baseline.md` because each body is fixed text or
-a same-origin redirect. The matrix pins `/files/` and `/%zz` so a change to it is visible.
+slash gets a 308 to the bare path. A `//host` or a `/\host` path gets a 308 to a same-origin path,
+because Next collapses the slashes to one. An absolute-form request line, `GET http://host/files`,
+gets a 308 to the URL it names, in the client's own scheme and host, which is off-site. A malformed
+escape gets a plain-text 500. None of them carries a policy or a security header. nginx had a
+server-level floor for its equivalent; Next has none. The class is accepted in
+`docs/security-baseline.md` because each body is fixed text, and the off-site redirect is unreachable
+through the load balancer, which turns an absolute-form line into origin form or refuses it, and
+refuses an HTTP/2 `:path` that does not start with `/`. So **the balancer is what holds that redirect
+off**, and anything else put in front of the container, or a change to the balancer's listeners or
+HTTP attributes, has to be measured for it again. The matrix pins every case, the off-site
+`Location` included, so a change to the class is visible.
 
 **The two divergences, each with its cost and its re-open trigger.**
 
@@ -57,6 +64,13 @@ The `Server` banner is no longer a divergence: the Node server sends no `Server`
 `poweredByHeader: false` stops `X-Powered-By`. The matrix asserts both absent.
 
 ## History
+
+### 2026-11-14
+
+- **Corrected:** the before-routing class was misstated as same-origin redirects throughout. Measured
+  with raw request lines: the trailing slash, `//host` and `/\host` are same-origin, but an
+  absolute-form line is redirected off-site, and only the load balancer keeps it from a client. The
+  matrix now pins all four.
 
 ### 2026-11-13
 

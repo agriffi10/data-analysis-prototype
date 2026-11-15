@@ -25,6 +25,8 @@ NAME="spa-matrix"
 # Fixture values, chosen so a value that leaks somewhere it should not is recognisable on sight.
 CONNECT_SRC="'self' https://cognito-idp.us-east-1.amazonaws.com https://auth.fixture.test https://api.fixture.test"
 CONNECT_SRC_ALT="'self' https://alternate.fixture.test"
+# A host that is not this deployment's, for the rows asking whether a redirect can leave the site.
+FOREIGN_HOST=elsewhere.fixture.test
 
 # Deliberately awkward, and carried by a real key rather than a probe of its own: a quote, a
 # backslash and a newline are legal in a configuration value and must reach the document intact.
@@ -366,14 +368,36 @@ check_contains "…as text/html, which is why removals are read from content-typ
 section "Answered before routing, so carrying no policy (an accepted residual)"
 
 # Next normalises some URLs and refuses malformed ones before the proxy or `headers()` ever run, so
-# these responses carry no policy and none of the security headers. Each body is fixed text or a
-# same-origin redirect, and the next response carries the full set, so nothing here can be framed or
-# run (docs/security-baseline.md). PINNED, so a change to this class is visible rather than silent.
+# these responses carry no policy and none of the security headers (docs/security-baseline.md).
+# PINNED, so a change to this class is visible rather than silent. Raw request targets, not URLs:
+# curl would otherwise normalise the very spelling under test.
 fetch "/files/"
 check_eq "a trailing slash is a 308 to the bare path" "$(status)" "308"
 check_eq "…to the same origin's path" "$(header location)" "/files"
+# A doubled slash or a backslash collapses to ONE slash, so the redirect is a path on this origin and
+# never a protocol-relative `//host`.
+fetch "/" --request-target "//${FOREIGN_HOST}/files"
+check_eq "a doubled leading slash is a 308" "$(status)" "308"
+check_eq "…to a same-origin path, the slashes collapsed" "$(header location)" "/${FOREIGN_HOST}/files"
+fetch "/" --request-target "/\\${FOREIGN_HOST}/files"
+check_eq "a backslash after the leading slash is a 308" "$(status)" "308"
+check_eq "…to a same-origin path, the backslash collapsed" "$(header location)" "/${FOREIGN_HOST}/files"
+# THE OFF-SITE ONE: an absolute-form target is redirected to the URL it names, in the client's own
+# scheme and host, `javascript:` included. Only a raw client sends one, and the load balancer never
+# passes it on: HTTP/1.1 reaches the container in origin form, and an HTTP/2 :path not starting with
+# `/` is refused. So the image answers it only without the balancer. Both headers are pinned, so a
+# fix that rewrites one is seen to leave the other.
+fetch "/" --request-target "http://${FOREIGN_HOST}/files"
+check_eq "an absolute-form target is a 308" "$(status)" "308"
+check_eq "…to the target's own authority, off-site" "$(header location)" "http://${FOREIGN_HOST}/files"
+check_eq "…and Refresh names the same destination" "$(header refresh)" "0;url=http://${FOREIGN_HOST}/files"
+# Two malformed escapes, because the balancer answers the first itself and passes the second on:
+# `%` without two hex digits gets the balancer's own 400, while bytes that are not UTF-8 reach Next.
 fetch "/%zz"
 check_eq "a malformed escape is a 500" "$(status)" "500"
+check_absent "…with a plain body, not a page" "$(header content-type)" "text/html"
+fetch "/%E0"
+check_eq "an escape that is not UTF-8 is a 500" "$(status)" "500"
 check_absent "…with a plain body, not a page" "$(header content-type)" "text/html"
 
 # ── A request that carries a body ─────────────────────────────────────────────
