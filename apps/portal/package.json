@@ -17,7 +17,7 @@
     "prelint": "node ../../scripts/check-local-install.mjs",
     "preformat:check": "node ../../scripts/check-local-install.mjs",
     "pretest": "node ../../scripts/check-local-install.mjs",
-    "pretest:coverage": "node ../../scripts/check-local-install.mjs",
+    "pretest:coverage": "node ../../scripts/check-local-install.mjs --coverage",
     "prebuild": "node ../../scripts/check-local-install.mjs && node ../../scripts/check-compiler-major.mjs"
   },
   "dependencies": {
