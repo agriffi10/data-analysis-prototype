@@ -1,36 +1,15 @@
 # ── The HTTP API ──────────────────────────────────────────────────────────────
 # A $default route to one AWS_PROXY integration. The route table lives in the CODE.
-# `$default` matches OPTIONS, so the ROUTER must answer a preflight before auth. README.md.
+# No CORS: no browser calls the API. The portal server calls it on the browser's behalf, and an
+# OPTIONS takes the router's ordinary unauthenticated refusal. README.md.
 
 resource "aws_apigatewayv2_api" "api" {
   name          = local.function_name
   protocol_type = "HTTP"
 
-  # Left enabled, the API answers on execute-api.* too — a second front door outside the CSP
-  # and the alias record, making a preflight check ambiguous about what it proved.
+  # Left enabled, the API answers on execute-api.* too: a second front door outside the alias
+  # record, which a check against the alias would not cover.
   disable_execute_api_endpoint = true
-
-  # CORS is the API's alone — AWS IGNORES CORS headers returned by the integration.
-  cors_configuration {
-    # Exact origins, never "*". This was two entries through the cutover — naming one would
-    # have left the other an app that loads and can do nothing — and it narrows to one with
-    # the origin that needed the second.
-    allow_origins = compact([var.spa_origin])
-
-    allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-
-    # A header the preflight does not admit FAILS the preflight, and the browser reports a
-    # generic network error indistinguishable from the API being down. Asserted against the
-    # client's own header list, never inferred from the app working.
-    allow_headers = ["content-type", "authorization", "x-request-id"]
-
-    # False, and not merely unset: a bearer is not a credential in the CORS sense, and this
-    # is the half of the credentials/"*" pairing browsers reject WHILE APPLYING GREEN.
-    allow_credentials = false
-
-    # Every request carries Authorization, so EVERY request is preflighted.
-    max_age = 600
-  }
 }
 
 resource "aws_apigatewayv2_integration" "api" {

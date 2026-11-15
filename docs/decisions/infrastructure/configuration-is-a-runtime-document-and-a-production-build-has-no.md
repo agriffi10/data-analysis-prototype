@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Configuration is a runtime document, and only the test runner has a fallback (SPEC-192, SPEC-255)"
-description: "**Configuration is a RUNTIME document** (`/config.json`, rendered per request by the Next.js server, `no-store`, refused whole on version) with **no fallback outside the test runner** (`MODE === 'test'`). Its key set is wired in **four** places, asserted across all, and the server **exits 1 at start** naming a required variable unset or empty: it exits rather than throws, because a throw leaves a server answering 500 to every path. **The deploy READS the values from Terraform state** through `.github/config-outputs.json`, refusing an absent *or empty* output by name; only a genuine **input** is a repository variable, so retiring an origin means **re-pointing that map**. The API's **verifier** config is server-side, never in the browser's document — and the exclusion cuts one way: a rule forbidding \"anything identity-shaped\" takes Amplify's own Cognito keys with it."
+description: "**Configuration is a RUNTIME document** (`/config.json`, rendered per request by the Next.js server, `no-store`, refused whole on version) with **no fallback outside the test runner** (`MODE === 'test'`). Its key set is wired in **four** places, asserted across all, and the server **exits 1 at start** naming a required variable unset or empty: it exits rather than throws, because a throw leaves a server answering 500 to every path. **The deploy READS the values from Terraform state** through `.github/config-outputs.json`, refusing an absent *or empty* output by name; only a genuine **input** is a repository variable, so retiring an origin means **re-pointing that map**. The API's **verifier** config is server-side, never in the browser's document. **Since SPEC-262 the document is four keys** (the two buckets, the flag environment and the upload ceiling): the API origin, region, app URL and three Cognito keys left every wiring site in one merge."
 ---
 
 The browser reads `/config.json` at startup instead of the `VITE_*` values Vite inlined at build
@@ -86,6 +86,14 @@ with an empty console.
 Detail: `spec-delivery/SPEC-192` and `spec-delivery/SPEC-255`.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 removed `apiBaseUrl`, `appUrl`, `awsRegion`, `cognitoUserPoolId`,
+  `cognitoUserPoolClientId` and `cognitoDomain` from the classification, the test fallback,
+  `.env.example`, Terraform's runtime map, `.github/config-outputs.json` and the image matrix at once.
+  The outputs that other tools read (`api_origin`, `spa_origin`, `aws_region`, `cognito_domain`,
+  `cognito_user_pool_id`) stay; only the retired client's id output went.
 
 ### 2026-11-13
 

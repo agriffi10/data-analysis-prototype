@@ -1,10 +1,4 @@
 {
-  "api_origin": "apiBaseUrl",
-  "spa_origin": "appUrl",
-  "aws_region": "awsRegion",
-  "cognito_user_pool_id": "cognitoUserPoolId",
-  "cognito_user_pool_client_id": "cognitoUserPoolClientId",
-  "cognito_domain": "cognitoDomain",
   "s3_user_space_bucket_name": "userSpaceBucket",
   "shared_space_bucket_name": "sharedSpaceBucket"
 }

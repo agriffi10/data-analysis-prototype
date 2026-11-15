@@ -89,18 +89,19 @@ def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(mo
 
 
 def test_every_client_in_the_audience_list_is_admitted_and_no_other(monkeypatch, stub_directory):
-    """Two clients sign in while sign-in moves from the browser to the server; a third does not.
+    """The portal server's client and the dev client sign in; the retired public client does not.
 
-    The refusal of the third is held byte-identical to the no-token refusal, so admitting a list
-    opened no way to tell an unknown client from a missing token.
+    The list as the infrastructure now renders it: the browser's public client retired with its
+    tokens. Its refusal is held byte-identical to the no-token refusal, so a token minted for the
+    retired client tells a caller nothing a missing token would not.
     """
-    monkeypatch.setenv("OIDC_AUDIENCE", "test-app-client,server-client")
+    monkeypatch.setenv("OIDC_AUDIENCE", "server-client,dev-client")
 
-    for admitted in ("test-app-client", "server-client"):
+    for admitted in ("server-client", "dev-client"):
         response = router.route("GET", "/v1/user-directory", bearer(aud=admitted))
         assert response["statusCode"] == 200, f"{admitted} was not admitted"
 
-    refused = router.route("GET", "/v1/user-directory", bearer(aud="third-client"))
+    refused = router.route("GET", "/v1/user-directory", bearer(aud="retired-public-client"))
     no_token = router.route("GET", "/v1/user-directory", {})
     assert refused["statusCode"] == 401
     assert json.dumps(refused, sort_keys=True) == json.dumps(no_token, sort_keys=True)

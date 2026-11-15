@@ -341,15 +341,14 @@ username becomes the S3 prefix, the principal tag **and** the Glue database name
 
 | Do | Expect |
 |---|---|
-| Sign in through the Hosted UI | Lands on **`$APP_URL`**`/files`, Managed Login v2 branding. A `redirect_mismatch` page instead means `appUrl` and the app client's `callback_urls` disagree — that is the distinguishing symptom, not a blank page. In the network panel, the `POST` to `https://$HOSTED_UI/oauth2/token` returned **200**: the code exchange is a `fetch`, which is what `connect-src` governs. |
+| Sign in through the Hosted UI | Lands on **`$APP_URL`**`/files`, Managed Login v2 branding. A `redirect_mismatch` page instead means the server client's `callback_urls` do not name `$APP_URL/auth/callback` — that is the distinguishing symptom, not a blank page. The code exchange is the portal server's, so the network panel shows the navigation to `/auth/callback` and its redirect, and **no** request to `https://$HOSTED_UI/oauth2/token`. |
 | Reload | Still signed in — the session survives a refresh. |
 | Sign out, then open `/query` directly | Redirected to sign-in; after signing in you land on **`/query`**, not `/files` (the return path). |
 | Sign in again | The topbar carries every tab whose flag is on. |
 
-**Any change to the response-headers policy counts as an auth change.** Until the merge that retires
-the public client, the CSP's `connect-src` must list the Hosted UI domain, because the rollback image's
-Amplify makes its code exchange as a `fetch`, not a navigation (the current portal signs in through
-the server since SPEC-262 and fetches neither Cognito host):
+**Any change to the response-headers policy counts as an auth change.** Since SPEC-262 the browser
+fetches neither Cognito host nor the API, so `connect-src` is exactly `'self'` and the two buckets'
+endpoints; a Cognito host or `https://api.dataquarry.app` in it is a fail:
 
 ```bash
 curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
@@ -486,7 +485,7 @@ never tests the token path.
 | `curl` a `PUT /v1/objects/content` for `{root}system_settings/athenaresults/x/`, and a `POST /v1/objects/copy` whose `destinationKey` is under that folder | **403 `AccessDenied`**, `detail` *"the query results folder is not writable"* — a refusal of a write IAM PERMITS, because IAM denies the delete there. Its **control** is a copy with `sourceKey` under the folder and an ordinary `destinationKey`, expecting **200**: that is Save Results, and it must keep working. |
 | `curl` a `PUT /v1/objects/content` for `{root}_data-quality-reports/{requestId}/manifest.json` with `overwrite: true`, and a `POST /v1/objects/upload` for the same key | **403 `AccessDenied`**, `detail` *"the data-quality reports folder is not writable"*, and no URL minted. Its **control** is opening a finished report from its notification, which reads `report.json` through the same folder and must keep working. |
 | `curl` a `PUT /v1/objects/content` under `{root}archive/` | **200.** The depth-one name is an ordinary user folder since the narrowing — the receipts moved under `system_settings/` and the Deny that named this path came out with them. It is kept as a row rather than deleted because the refusal above is only meaningful against a path that is NOT refused, and this is the nearest one. |
-| `curl -X OPTIONS` the presign path from a foreign `Origin`, and from `$APP_URL` | No `access-control-allow-origin` for the foreign one; allowed for `$APP_URL`. `allow_origins` is **one deployed origin** since SPEC-202 narrowed it — the CloudFront entry that used to be the second is gone with the distribution. `allow_methods` carries `GET, POST, PUT, PATCH, DELETE, OPTIONS` and **not** `HEAD`. |
+| `curl -X OPTIONS` the presign path from a foreign `Origin`, and from `$APP_URL` | **401**, identical apart from `requestId` to a request with no token, and **no** `access-control-allow-origin` for either: since SPEC-262 no browser calls the API, so it has no CORS configuration and the router answers no preflight. An `access-control-*` header on either answer is a fail. |
 | Read one record in `logs/service=api/` | Present: `env`, a real build sha, `route_id`, `actor`. **Absent:** any bearer substring, any email, any object body, and any presigned-URL signature — sweep for **all six** of `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `AWSAccessKeyId`, `x-amz-security-token` and `Signature=`. **Name both families, always.** This sweep has already been unfailable once in each direction: it searched only for `X-Amz-Signature` against a deployment minting SigV2 (measured 2026-08-31), and was then narrowed to the SigV2 spelling, which the SigV4 pin of 2026-09-01 made the dead half. A sweep naming only the family currently deployed goes unfailable on a one-keyword change in a different tree. `Signature=` matches inside `X-Amz-Signature=` and is the backstop for a family nobody has thought of. A **hit is not automatically a leak**: `error.stack` carries source lines, and `botocore/auth.py` contains every one of these tokens as a string literal, so an exception raised inside signing puts them in a traceback with no credential present. Read the record before concluding. |
 
 **Multipart uploads (SPEC-216).** Everything above a threshold the browser never sees is cut into
@@ -1517,9 +1516,9 @@ record is **unaffected**. Leaving one unclassified is how a discharged check sil
   `-Report-Only`), HSTS `max-age=31536000; includeSubDomains` (**no** `preload`), `X-Frame-Options:
   DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP and CORP, with **no**
   `Server` or `X-Powered-By` header. `script-src` is `'self' 'nonce-…'`, the nonce fresh on every
-  page and on every `<script>` in it; `style-src` carries none. `connect-src` must name `'self'`, `cognito-idp`, **the Hosted UI host**,
-  both S3 buckets and `https://api.dataquarry.app`, and must **not** name `cognito-identity.`,
-  `athena.`, `glue.` or `sqs.`. A header *name* is not evidence a policy is enforced — that is the
+  page and on every `<script>` in it; `style-src` carries none. `connect-src` is exactly `'self'` and
+  both S3 buckets' endpoints, and must **not** name `cognito-idp`, the Hosted UI host,
+  `https://api.dataquarry.app`, `cognito-identity.`, `athena.`, `glue.` or `sqs.`. A header *name* is not evidence a policy is enforced — that is the
   next check.
 - `curl -sS --http1.1 -o /dev/null -D - --request-target 'http://elsewhere.test/files/' "$APP_URL/"`
   answers `308` with `location: /files`. That proves the balancer turned the absolute-form line into
@@ -1626,13 +1625,13 @@ the boot, the catch-all, the request proxy or the image.
   reload: `<html data-theme="dark">`, `color-scheme: dark`, and `theme-init.js` is a blocking
   `<script>` in `<head>` carrying the page's nonce. `document.fonts` reports Inter loaded. The first
   painted frame cannot be captured; the blocking, nonced head script is the evidence.
-- **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the ten keys,
-  and nothing else.
-- **`npm run dev` signs in.** With `apps/portal/.env.local` filled from the deployed document
-  (double-quote `PORTAL_CSP_CONNECT_SRC`), sign in at `http://localhost:5173`: the Hosted UI returns
-  there and the token exchange answers 200. **The file listing then fails with a network error**,
-  because the API's CORS does not admit `localhost:5173`; that is expected until SPEC-262 points the
-  browser at SPEC-257's same-origin `/api/` pass-through, not a defect to fix by widening the API's CORS.
+- **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the four keys
+  (`userSpaceBucket`, `sharedSpaceBucket`, `maxUploadBytes`, `environment`), and nothing else.
+- **`npm run dev` signs in.** Run `npm run dev:session-env`, which writes the dev client's session
+  settings and the document's keys into `apps/portal/.env.local` and prints only names, then
+  `npm run dev`, and sign in at `http://localhost:5173`: Managed Login returns to
+  `http://localhost:5173/auth/callback`, the file listing loads through the local server's `/api/`, and
+  an upload succeeds. The API has no CORS since SPEC-262, and a dev origin is never a reason to add it.
 
 **What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
 read beside a route table, superseded in part since SPEC-257 added a NAT gateway, the redirect, target health), the container under real concurrency, and

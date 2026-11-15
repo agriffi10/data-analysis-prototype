@@ -32,13 +32,7 @@ import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
  * them either.
  */
 export const VITE_NAME = {
-  appUrl: 'VITE_APP_URL',
-  awsRegion: 'VITE_AWS_REGION',
   userSpaceBucket: 'VITE_S3_USER_SPACE_BUCKET',
-  cognitoUserPoolId: 'VITE_COGNITO_USER_POOL_ID',
-  cognitoUserPoolClientId: 'VITE_COGNITO_USER_POOL_CLIENT_ID',
-  cognitoDomain: 'VITE_COGNITO_DOMAIN',
-  apiBaseUrl: 'VITE_API_BASE_URL',
   environment: 'VITE_ENVIRONMENT',
   maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
   sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET'
@@ -64,12 +58,6 @@ export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
  */
 function readEnv(): Record<PortalEnvVar, string | undefined> {
   return {
-    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL as string | undefined,
-    VITE_AWS_REGION: import.meta.env.VITE_AWS_REGION as string | undefined,
-    VITE_COGNITO_USER_POOL_ID: import.meta.env.VITE_COGNITO_USER_POOL_ID as string | undefined,
-    VITE_COGNITO_USER_POOL_CLIENT_ID: import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID as string | undefined,
-    VITE_COGNITO_DOMAIN: import.meta.env.VITE_COGNITO_DOMAIN as string | undefined,
-    VITE_APP_URL: import.meta.env.VITE_APP_URL as string | undefined,
     VITE_S3_USER_SPACE_BUCKET: import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
     VITE_ENVIRONMENT: import.meta.env.VITE_ENVIRONMENT as string | undefined,
     VITE_S3_SHARED_SPACE_BUCKET: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined,

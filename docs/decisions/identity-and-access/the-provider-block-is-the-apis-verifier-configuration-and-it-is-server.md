@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The provider block is the API's verifier configuration, and it is server-side (SPEC-192)"
-description: "The `OIDC_*` verifier configuration is API Lambda environment variables and never appears in the browser's document; `OIDC_JWKS_URI` is a field, not derived from the issuer, and the exclusion must not catch the Cognito values the browser's document still serves. **`OIDC_AUDIENCE` is a set** (257): a comma-separated list of app client ids, a token's `aud` must be one of them, and an empty element is refused at both ends, because an empty set refuses every token and the join is on commas."
+description: "The `OIDC_*` verifier configuration is API Lambda environment variables and never appears in the browser's document; `OIDC_JWKS_URI` is a field, not derived from the issuer, and since SPEC-262 the document carries no Cognito value at all. **`OIDC_AUDIENCE` is a set** (257): a comma-separated list of app client ids, a token's `aud` must be one of them, and an empty element is refused at both ends, because an empty set refuses every token and the join is on commas."
 ---
 
 `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, `OIDC_USERNAME_CLAIM` — API Lambda environment
@@ -41,9 +41,9 @@ Cognito values the document serves must **not** be. That third case can fail tod
 exact-match rule and dies under a substring one — and the visible result is not a failing test but a
 Hosted UI round trip that never completes. `cognitoDomain` is likewise **not** a provider-block field:
 Amplify POSTed the code exchange to it. The forbidden set is about *the API's trust anchors*, not about
-the word Cognito. *(Marked 2026-11-15: since SPEC-262 nothing in the current portal reads these
-Cognito keys; the rollback image's Amplify does, until the merge that retires the public client
-removes them from the document.)*
+the word Cognito. *(Marked 2026-11-15: SPEC-262 removed the four Cognito values from the document,
+so the case that guarded them is gone with them; the synthetic case, which proves the checker flags
+anything, stands.)*
 
 Detail: `spec-delivery/SPEC-192`.
 

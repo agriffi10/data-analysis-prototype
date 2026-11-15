@@ -341,8 +341,12 @@ The second merge:
   asserts that neither they nor the API origin appear;
 - removes the six retiring keys (FR-004) from every wiring site at once: the classification, their
   dev-fallback entries in `lib/env.ts`, `.env.example`, Terraform's runtime map and so the task
-  definition, their Terraform outputs, `.github/config-outputs.json`, and the image matrix's pinned
-  key list. The equality guards and the matrix's own refusal rows for those keys change with them.
+  definition, `.github/config-outputs.json`, and the image matrix's pinned key list. The equality
+  guards and the matrix's own refusal rows for those keys change with them. (Amended during the
+  build: of their Terraform outputs only `cognito_user_pool_client_id` goes, with the client. The
+  other five are read elsewhere — `api_origin`, `spa_origin`, `aws_region` and `cognito_domain` by
+  `docs/testing/e2e.md` and the ZAP workflow, `cognito_user_pool_id` by the branding step — so they
+  stay as outputs and leave only the browser's document.)
 
 The fresh sign-in is the check this merge needs and a signed-in session cannot see, so it runs after
 the merge from a new browser profile, and is not waived. Every removed thing is proved gone

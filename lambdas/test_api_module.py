@@ -71,11 +71,8 @@ SESSION_FORWARD = INFRA.parent / "apps" / "portal" / "src" / "server" / "session
 
 CSP_CONNECT_SRC_TERMS = (
     "'self'",
-    "https://cognito-idp.${var.aws_region}.amazonaws.com",
-    "https://${local.cognito_hosted_ui_domain}",
     "https://${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://${local.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    "local.api_origin",
 )
 
 # Gone, and asserted gone by the set equality this tuple feeds: athena, glue and sqs left with
@@ -532,8 +529,8 @@ def test_the_membership_index_grant_is_narrow() -> None:
         )
 
 
-def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None:
-    """The three allowlists a request crosses, each of which fails only in a real browser.
+def test_the_browser_reaches_only_its_own_origin_and_presigned_bytes() -> None:
+    """The browser calls the API through the portal server, so the API admits no browser at all.
 
     Args:
       None.
@@ -542,44 +539,16 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
       None.
 
     Raises:
-      AssertionError: If a header, method, origin or connect-src term the browser needs is
-        not admitted, or the portal server's forward deadline no longer outlasts the gateway.
+      AssertionError: If the API carries a CORS configuration again, connect-src names any host but
+        the portal's own and the two buckets, the portal server's forward deadline no longer
+        outlasts the gateway, or a client's callback list admits an origin nothing serves.
     """
     source = _api_source()
-    gateway = (API / "apigateway.tf").read_text()
     forward = SESSION_FORWARD.read_text()
 
-    assert re.search(r"allow_origins\s*=\s*compact\(\[var\.spa_origin\]\)", source), (
-        "allow_origins must be the one exact origin, compacted so an unset spa_origin drops out "
-        "rather than reaching the gateway as an empty string. It was two through the cutover; "
-        "the second was CloudFront's and went with the distribution"
+    assert "cors_configuration" not in strip_noise(source), (
+        "the API answers CORS again; no browser calls it, and a CORS rule would admit one"
     )
-    assert '"*"' not in source.split("cors_configuration")[1].split("}")[0]
-    assert re.search(r"allow_credentials\s*=\s*false", source), (
-        "allow_credentials must be explicitly false, not merely absent"
-    )
-    assert re.search(r"max_age\s*=\s*[1-9]", source), "max_age must be non-zero"
-
-    # The headers the preflight admits are no longer checked against the browser's client: the browser
-    # calls the API through its own origin's /api/ route, so its requests are same-origin and the
-    # portal server's call to the API is not a browser request. The configuration above stays only
-    # for the image that is the rollback, until the merge that retires the public client removes it.
-
-    import sys
-
-    sys.path.insert(0, str(INFRA.parent / "lambdas" / "api"))
-    from apicommon import contract
-
-    allowed_methods = {
-        value.strip().strip('"').upper()
-        for value in re.search(r"allow_methods\s*=\s*\[([^\]]*)\]", gateway).group(1).split(",")
-        if value.strip()
-    }
-    declared_methods = {route.method for route in contract.ROUTES}
-    assert declared_methods <= allowed_methods, (
-        f"the contract declares {sorted(declared_methods - allowed_methods)}"
-    )
-    assert "OPTIONS" in allowed_methods, "the preflight's own method must be allowed"
 
     forward_deadline = re.search(r"export const FORWARD_TIMEOUT_MS\s*=\s*([\d_]+);", forward)
     assert forward_deadline, "the portal server's /api/ route no longer states its forward deadline"
@@ -588,11 +557,13 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
         "arrives before the server gives up on a request the API may still complete"
     )
 
-    found_terms = set(_connect_src_terms())
-    assert found_terms == set(CSP_CONNECT_SRC_TERMS), (
-        f"root's connect-src is {sorted(found_terms)}; expected {sorted(CSP_CONNECT_SRC_TERMS)}. "
-        "A term dropped here breaks one feature, only in a browser, and nothing offline sees it"
+    found_terms = list(_connect_src_terms())
+    assert found_terms == list(CSP_CONNECT_SRC_TERMS), (
+        f"root's connect-src is {found_terms}; expected {list(CSP_CONNECT_SRC_TERMS)}. EQUALITY: the "
+        "Cognito hosts and the API left with the browser's tokens, and one coming back is a host the "
+        "browser has no reason to reach"
     )
+
     # Terraform computes connect-src and nothing else of the policy: every other directive is
     # the Next.js server's, held against a recorded literal in its own test. So no Terraform file
     # may assemble a whole policy again — checked across the whole tree rather than against a
@@ -608,20 +579,15 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
         "compares and nothing serves"
     )
 
-    callbacks = re.search(
-        r"callback_urls\s*=\s*distinct\(compact\(\[([^\]]*)\]\)\)", AUTH_COGNITO.read_text()
-    )
-    assert callbacks, (
-        "the callback list must be distinct(compact([...])) — compact so an unset origin drops "
-        "out rather than reaching Cognito as an empty string, distinct because Cognito rejects "
-        "a duplicated URL rather than deduplicating it"
-    )
-    entries = [entry.strip() for entry in callbacks.group(1).split(",") if entry.strip()]
-    assert entries == ['"http://localhost:5173"', "var.spa_origin"], (
-        f"the callback list is {entries}. EQUALITY, not containment: the CloudFront entry was "
-        "removed with the distribution, and a list that merely CONTAINS the two right entries "
-        "would still pass while admitting an origin nothing serves"
-    )
+    # Read raw: strip_noise blanks quoted strings, which is what the lists are. A comment line starts
+    # with `#` and cannot match.
+    callbacks = re.findall(r"^\s*(callback_urls|logout_urls)\s*=\s*(.+)$", AUTH_COGNITO.read_text(), re.MULTILINE)
+    assert sorted(callbacks) == sorted([
+        ("callback_urls", '["${var.spa_origin}/auth/callback"]'),
+        ("logout_urls", "[var.spa_origin]"),
+        ("callback_urls", '["${var.dev_origin}/auth/callback"]'),
+        ("logout_urls", "[var.dev_origin]"),
+    ]), f"the clients' lists are {callbacks}; EQUALITY, so a list that merely contains the right entries cannot pass"
 
 
 def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> None:
@@ -677,12 +643,11 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
         "whatever this names instead"
     )
     assert re.search(
-        r"oidc_audience\s*=\s*\[\s*module\.auth\.user_pool_client_id\s*,\s*"
-        r"module\.auth\.server_client_id\s*,\s*module\.auth\.dev_client_id\s*\]",
+        r"oidc_audience\s*=\s*\[\s*module\.auth\.server_client_id\s*,\s*module\.auth\.dev_client_id\s*\]",
         root_call,
     ), (
-        "the audience must be every app client, the SPA's, the portal server's and local "
-        "development's, never the pool"
+        "the audience must be exactly the two app clients, the portal server's and local development's, "
+        "never the pool and never the retired public client"
     )
     assert environment["OIDC_AUDIENCE"] == 'join(",", var.oidc_audience)', (
         "the list must reach the function comma-joined, which is the one form the verifier parses"

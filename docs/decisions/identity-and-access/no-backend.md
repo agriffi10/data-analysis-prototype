@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "No backend"
-description: "The browser holds no AWS credentials and reaches only presigned S3 bytes and Cognito without the API; the live rules are no second API and no new browser-side AWS SDK call on a path an API route serves."
+description: "The browser holds no AWS credentials and no token, and fetches presigned S3 bytes and its own origin, nothing else; Cognito is reached only by navigation, through the portal server's `/auth/` routes. The live rules are no second API and no new browser-side AWS SDK call on a path an API route serves."
 ---
 
 Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config, not an API).
@@ -23,6 +23,11 @@ Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config,
 > `docs/architecture.md` → *The control planes* and *The API layer*.
 
 ## History
+
+### 2026-11-15
+
+- **Changed:** SPEC-262 moved sign-in to the portal server, so the browser no longer fetches Cognito,
+  and its `connect-src` is its own origin and the two buckets.
 
 ### 2026-09-02
 

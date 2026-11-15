@@ -68,13 +68,11 @@ def test_a_failure_body_is_the_only_wrapped_shape_and_its_keys_are_the_DECLARED_
     assert required <= set(body["error"]) <= declared_keys
 
 
-def test_a_preflight_is_answered_before_authentication_and_discloses_nothing() -> None:
-    """``$default`` matches OPTIONS, so the gateway's own CORS responder never sees one.
+def test_an_options_request_takes_the_ordinary_unauthenticated_refusal() -> None:
+    """No browser calls this API, so an ``OPTIONS`` is not a preflight to answer before authentication.
 
-    A preflight refused as unauthenticated fails the browser's CORS check, and every
-    bearer-carrying request then fails as an opaque network error with nothing on the wire to
-    explain it. Driven for a path that exists and one that does not, because an answer that
-    differed between them would be an inventory.
+    Driven for a path that exists and one that does not, and compared byte for byte with a ``GET``
+    carrying no token, because an answer that differed would be a second door or an inventory.
 
     Args:
       None.
@@ -83,15 +81,15 @@ def test_a_preflight_is_answered_before_authentication_and_discloses_nothing() -
       None.
 
     Raises:
-      AssertionError: If a preflight is refused, or if it distinguishes the two.
+      AssertionError: If an ``OPTIONS`` is answered, or if its refusal differs from the no-token one.
     """
     existing = router.route("OPTIONS", "/v1/user-directory", {})
     absent = router.route("OPTIONS", "/v1/no-such-thing", {})
+    no_token = router.route("GET", "/v1/user-directory", {})
 
-    assert existing["statusCode"] == 200
-    assert absent["statusCode"] == 200
-    assert existing == absent, "a preflight that varies by path is an inventory of the routes"
-    assert json.loads(existing["body"]) == {}
+    assert existing["statusCode"] == 401
+    assert existing["body"] == absent["body"] == no_token["body"]
+    assert not [name for name in existing.get("headers", {}) if name.lower().startswith("access-control-")]
 
 
 @pytest.mark.parametrize(

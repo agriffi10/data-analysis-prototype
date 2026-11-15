@@ -61,7 +61,7 @@ variable "logs_queue_url" {
 }
 
 variable "spa_origin" {
-  description = "Origin of the SPA, on either side of the web tier's switch, and the only deployed entry in the app client's callback and logout lists. Built at root from the domain variables. Empty is tolerated because the list compacts, but under normal operation it is always set — an empty value leaves localhost as the only callback and no deployed sign-in can complete."
+  description = "The portal's deployed origin: the server client's one callback is its /auth/callback and its one sign-out URL is the origin itself. Built at root from the domain variables."
   type        = string
   default     = ""
 }

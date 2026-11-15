@@ -23,7 +23,7 @@ BASE="http://localhost:${PORT}"
 NAME="spa-matrix"
 
 # Fixture values, chosen so a value that leaks somewhere it should not is recognisable on sight.
-CONNECT_SRC="'self' https://cognito-idp.us-east-1.amazonaws.com https://auth.fixture.test https://api.fixture.test"
+CONNECT_SRC="'self' https://fixture-user-space.s3.us-east-1.amazonaws.com https://fixture-shared-space.s3.us-east-1.amazonaws.com"
 CONNECT_SRC_ALT="'self' https://alternate.fixture.test"
 # A host that is not this deployment's, for the rows asking whether a redirect can leave the site.
 FOREIGN_HOST=elsewhere.fixture.test
@@ -49,13 +49,7 @@ PAGE_CACHE="private, no-cache, no-store, max-age=0, must-revalidate"
 # with no TypeScript, and the classification's agreement with the task definition is asserted by
 # the suites that can read both.
 REQUIRED_ENV=(
-  -e CONFIG_apiBaseUrl=https://api.fixture.test
-  -e CONFIG_appUrl=https://portal.fixture.test
-  -e CONFIG_awsRegion=us-east-1
   -e CONFIG_userSpaceBucket=fixture-user-space
-  -e CONFIG_cognitoUserPoolId=us-east-1_FIXTURE
-  -e CONFIG_cognitoUserPoolClientId=fixtureclientid
-  -e CONFIG_cognitoDomain=auth.fixture.test
 )
 OPTIONAL_ENV=(
   -e "CONFIG_environment=$AWKWARD_VALUE"
@@ -206,9 +200,8 @@ check_probe "no .git, environment file, test file, source tree or next-env.d.ts 
 # ── No environment is baked into the image ────────────────────────────────────
 section "No environment is baked into the image"
 
-# The server's own tree is where a build-time value would land: the browser bundle legitimately
-# carries Amplify's endpoint rules, which name amazonaws.com by the thousand. The server tree names
-# no deployment's host, because every one arrives in the environment at start.
+# The server's own tree is where a build-time value would land. It names no deployment's host,
+# because every one arrives in the environment at start.
 for literal in amazoncognito.com cognito-idp. fixture-user-space api.fixture.test; do
   check_probe "no '$literal' in the server's built tree" \
     "$(probe_image "grep -rl '$literal' /app/apps/portal/.next/server /app/apps/portal/server.js 2>/dev/null | head -3")"
@@ -338,7 +331,7 @@ check_eq "cache class" "$(header cache-control)" "no-store"
 assert_security_headers "config.json" "$(page_csp)"
 check_eq "the document serves exactly version plus every key the environment supplied" \
   "$(jq -r 'keys | join(" ")' /tmp/matrix-body)" \
-  "apiBaseUrl appUrl awsRegion cognitoDomain cognitoUserPoolClientId cognitoUserPoolId environment maxUploadBytes sharedSpaceBucket userSpaceBucket version"
+  "environment maxUploadBytes sharedSpaceBucket userSpaceBucket version"
 check_eq "the document's version is the one the browser accepts" "$(jq -r '.version' /tmp/matrix-body)" "1"
 check_eq "a value carrying a quote, a backslash and a newline round-trips" \
   "$(jq -r '.environment' /tmp/matrix-body)" "$AWKWARD_VALUE"
@@ -524,6 +517,8 @@ refusal() {
 
 # EVERY required key, one at a time, unset and then empty: an unset repository variable and an
 # unset task variable both arrive as the empty string.
+# With one required key the remainder is empty, and bash 3.2 (macOS's) reads an empty array as
+# unset under `set -u`, so the remainders below expand through `${x[@]+...}`.
 for held_out in "${REQUIRED_ENV[@]}"; do
   case "$held_out" in -e) continue ;; esac
   key="${held_out%%=*}"
@@ -534,8 +529,8 @@ for held_out in "${REQUIRED_ENV[@]}"; do
     without+=(-e "$entry")
   done
 
-  refusal "$key UNSET" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
-  refusal "$key EMPTY" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key UNSET" "$key" "${SESSION_ENV[@]}" ${without[@]+"${without[@]}"} -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key EMPTY" "$key" "${SESSION_ENV[@]}" ${without[@]+"${without[@]}"} -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 done
 
 # EVERY session setting, one at a time, unset and then empty, and a credential URL the server would
@@ -565,12 +560,12 @@ refusal "connect-src EMPTY" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIR
 # Whitespace passed an allowlist that admits a space, and served `connect-src  ;` — a policy that
 # blocks every fetch, the document's included — from a server the balancer read as healthy.
 refusal "connect-src only whitespace" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}" -e "PORTAL_CSP_CONNECT_SRC=   "
-without_api=()
+without_bucket=()
 for entry in "${REQUIRED_ENV[@]}"; do
-  case "$entry" in -e|CONFIG_apiBaseUrl=*) continue ;; esac
-  without_api+=(-e "$entry")
+  case "$entry" in -e|CONFIG_userSpaceBucket=*) continue ;; esac
+  without_bucket+=(-e "$entry")
 done
-refusal "CONFIG_apiBaseUrl only whitespace" CONFIG_apiBaseUrl "${SESSION_ENV[@]}" "${without_api[@]}" -e "CONFIG_apiBaseUrl=  " \
+refusal "CONFIG_userSpaceBucket only whitespace" CONFIG_userSpaceBucket "${SESSION_ENV[@]}" ${without_bucket[@]+"${without_bucket[@]}"} -e "CONFIG_userSpaceBucket=  " \
   -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}"
 # A `;` would append a directive of the sender's choosing to every page's policy.

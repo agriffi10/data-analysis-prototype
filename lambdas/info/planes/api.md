@@ -58,7 +58,7 @@ between the browser and S3.
 | Path | Holds |
 |---|---|
 | `handler.py` | the entry point — one span per request, and a name on the wire for every fault |
-| `router.py` | matching, authentication, and the preflight answer |
+| `router.py` | matching and authentication |
 | `routes/` | one module per route |
 | `apicommon/` | the API's own shared modules — contract, envelope, errors, identity, memberships, planes, principal, context, config. It ships INSIDE the function directory, so it never reaches `/opt/python` and no other function can import it |
 
@@ -116,16 +116,11 @@ between the browser and S3.
   client-side from the code; an unrecognised code resolves to the generic sentence.
 - **The wire is declared in Python and the TypeScript is GENERATED.** CI refuses a regeneration
   diff, and the type vocabulary is **closed and never falls back**.
-- **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
-  router must answer one **before authentication**. Only a browser enforces CORS, so `curl` cannot
-  see this failing. The gateway then overlays its configured CORS headers onto the integration's own
-  `OPTIONS` 200 — the router itself emits none (`envelope._headers` returns `content-type` and
-  `cache-control` only), so the `access-control-*` headers on a live preflight can only be the
-  gateway's. **No offline test asserts that overlay**; it is read from AWS's documentation and
-  confirmed only by a live browser run — `testing/sessions.md`, in Chromium, with Safari still owed.
-  If it ever stops holding, the failure is **silent on this side**: the router keeps answering 200,
-  no preflight carries CORS headers, and every cross-origin request fails the way they all did on
-  2026-08-27.
+- **No browser calls this API, so it answers no preflight** (SPEC-262). The portal server calls it
+  on the browser's behalf through its same-origin `/api/` route; the API has no CORS configuration,
+  and an `OPTIONS` takes the ordinary unauthenticated refusal, held byte-identical to a no-token
+  request by a test. The router emits no `access-control-*` header (`envelope._headers` returns
+  `content-type` and `cache-control` only), and a test asserts an `OPTIONS` answer carries none.
 - **`@traced` is outermost everywhere EXCEPT here**: one decorator sits outside it, to turn an
   unpredicted fault into a declared code. A catch *inside* the span ends every failed request
   successfully and records the fault nowhere.

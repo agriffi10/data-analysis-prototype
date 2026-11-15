@@ -65,17 +65,17 @@ replacement — but they can never be modified or removed afterwards. **Raise
 `max_shared_memberships`, never lower it.** Only the privileged orchestrator role writes these, via
 `AdminUpdateUserAttributes`.
 
-## Callback URLs name one deployed origin, and did not always
+## Callback URLs: one per client, and they did not always
 
-The list carried the container and CloudFront together through the cutover, because **an app client
-naming only one of them makes the other an origin that cannot complete a sign-in** — which is what
-made the rollback exercisable. The cutover narrowed it to the container, and the entry that remains
-beside `localhost` is `app_url`.
+Two clients remain, each with exactly one callback and one sign-out URL: the portal server's,
+built from the deployed origin, and local development's, built from `dev_origin`
+(`http://localhost:5173`). The public SPA client and its list retired with SPEC-262, when the browser
+stopped holding tokens.
 
-`distinct()` is still load-bearing, and this is why it was: the cutover re-pointed `app_url` **at**
-the container origin before it removed the other entry, and between those two steps the same URL
-appeared twice — **which Cognito rejects outright rather than deduplicating**. Any future re-point
-has the same shape.
+The public client's list once carried the container and CloudFront together through a cutover,
+because **an app client naming only one of them makes the other an origin that cannot complete a
+sign-in**, and it used `distinct()` because Cognito **rejects** a duplicated URL rather than
+deduplicating it. A future client with more than one entry has the same two traps.
 
 ## Managed Login v2, and the branding CI has to add
 

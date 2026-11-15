@@ -99,51 +99,14 @@ resource "aws_cognito_user_pool" "portal" {
 # used to hold was replaced on every infra merge. README.md.
 
 locals {
-  # ONE deployed origin. It was two through the cutover, because naming one made the other
-  # unable to complete a sign-in — that is what made CloudFront a rollback rather than a URL.
-  # The distribution is gone, so a second entry would now admit an origin nothing serves.
-  #
-  # distinct() and compact() both stay: Cognito REJECTS a duplicate rather than deduplicating,
-  # and an unset spa_origin must drop out rather than reach Cognito as an empty string.
-  callback_urls = distinct(compact(["http://localhost:5173", var.spa_origin]))
-
   # Hosted UI domain prefix must be globally unique across all AWS accounts.
   domain_prefix = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"
 }
 
-# ── User Pool Client (SPA) ────────────────────────────────────────────────────
-# Public client, authorization-code flow. SPAs cannot keep a secret, so none is generated.
-
-resource "aws_cognito_user_pool_client" "spa" {
-  name         = "${var.project_name}-${var.environment}-spa-client"
-  user_pool_id = aws_cognito_user_pool.portal.id
-
-  generate_secret = false
-
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows                  = ["code"]
-  allowed_oauth_scopes                 = ["openid", "email", "profile"]
-
-  callback_urls = local.callback_urls
-  logout_urls   = local.callback_urls
-
-  supported_identity_providers = ["COGNITO"]
-
-  # Identical generic error for "user not found" and "wrong password", so sign-in cannot
-  # enumerate accounts. Free — it does NOT require Advanced Security Features.
-  prevent_user_existence_errors = "ENABLED"
-
-  explicit_auth_flows = [
-    "ALLOW_USER_SRP_AUTH",
-    "ALLOW_REFRESH_TOKEN_AUTH",
-  ]
-}
-
 # ── User Pool Client (the portal server) ──────────────────────────────────────
 # Confidential: the Next.js server runs the authorization-code flow and holds the tokens, so it can
-# keep a secret and the browser never sees one. It MIRRORS the SPA client's sign-in settings and
-# differs only where a server client must: the secret, its one callback and sign-out URL, and the
-# settings it declares rather than leaving to defaults. NO read_attributes list on either: a list
+# keep a secret and the browser never sees one. It and the dev client below share every sign-in
+# setting and differ only in their one callback and sign-out URL. NO read_attributes list on either: a list
 # that omits a custom:shared_space_k attribute drops that claim from the ID token, and a missing
 # membership claim presents as the documented propagation delay rather than as a fault. README.md.
 locals {
