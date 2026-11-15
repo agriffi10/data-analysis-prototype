@@ -322,6 +322,7 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
   — TanStack's one-second backoff[^tanstack-retries] is exactly `waitFor`'s window[^rtl-async].
 - ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
 - ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
+- ✅ **Wait for the value you assert, and budget real work where it is.** A value an effect writes after the render that shows it (a stored tab, a persisted draft) is read inside `waitFor`, asserting the value itself. A wait that covers real slow work (a lazy editor, a statement run through the real workspace) gets its own `{timeout}`, or its case or `describe` a longer limit, with a one-line why. 🔴 Never raise the suite-wide `testTimeout` or cap the workers to quiet a flake: measured, neither helped (`docs/decisions/gates-and-tests/vitests-default-workers-and-test-timeout-stay-and-a-slow-file-budgets-its-own.md`).
 
 **Assert the REASON, never that something failed.** A test that asserts a call rejected, or that
 a banner appeared, passes against the neighbouring failure just as happily as against the one it

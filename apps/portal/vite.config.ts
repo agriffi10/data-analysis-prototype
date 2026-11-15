@@ -39,6 +39,12 @@ export default defineConfig({
     // the module registry between files in a worker, and 122 of ours fail immediately
     // because one file's `vi.mock` then leaks into the next.
     pool: 'threads',
+    // Vitest's own default, declared rather than inherited. Measured under parallel load, a longer
+    // timeout bought nothing and would only make a hang fail later; a case whose waits cover
+    // slow real work gets its own budget, and says why. `maxWorkers` is left to scale with the
+    // machine's cores: the uncapped runs held under the same load, and a cap only slowed its run.
+    testTimeout: 5_000,
+
     // Off, and a test refuses a run that resolved it on. The cache skips a module whose source holds
     // the literal `import.meta.glob(`, but caches one spelled any other way Vite accepts, such as with
     // a type argument, with the glob's file list frozen in: `renderApp` went on serving a deleted and
