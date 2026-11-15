@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
 import {focusManager, onlineManager} from '@tanstack/react-query';
 import {createTestQueryClient, renderHookWithProviders} from '../../test/renderWithProviders';
@@ -15,6 +15,13 @@ import type {QueryResultPage, QueryRowCount, QueryStatus} from './catalog.types'
 vi.mock('./athena.service', async (importActual) => {
   const actual = await importActual<typeof import('./athena.service')>();
   return {...actual, getQueryStatus: vi.fn(), getQueryResults: vi.fn(), getQueryRowCount: vi.fn()};
+});
+
+// A test that times out may not reach its own `finally` before the next test starts, and a window
+// it left hidden pauses the later tests' polling. The clock is restored for every file in
+// `test-setup.ts`.
+afterEach(() => {
+  focusManager.setFocused(undefined);
 });
 
 // ─── from useQueryExecution.test.ts ───
