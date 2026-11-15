@@ -821,6 +821,18 @@ own workspace element is new on each visit; that is not the shell.
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 | Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 
+**On the App Router (SPEC-261).** Both pages are App Router pages and every other area may not be,
+so these cross the two routers. Use real clicks in a signed-in tab, with a window marker set in the
+console first: a marker that survives means no document load.
+
+| Do | Expect |
+|---|---|
+| From Files or Notifications, open **Data quality** by its tab, open a run's row, then Back | The runs list, then the report (tab titled *Data quality report — Data Quarry*), then the runs list (*Data quality — Data Quarry*), all in one document. |
+| On Notifications, follow a *"Data quality check on … finished"* link, then Back | The report for that check, then Notifications. |
+| Paste a report's address into a new tab | Until SPEC-262 the new tab has no session of its own: the landing page, then **Sign in**, then the report from the saved return path. |
+| On a report, focus **Skip to main content**, press Enter, open **Data quality** by its tab, then Back | The address ends `#main`, then `/data-quality`, then the report again with `#main`, the report on screen and titled as a report. |
+| Start a large upload on Files, open **Data quality** by its tab, come back by the Files tab | The Upload panel still lists the upload, further along or Uploaded, and the document never reloaded. |
+
 ### 4.7 Saved queries
 
 | Do | Expect |

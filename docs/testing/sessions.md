@@ -10,6 +10,35 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-14, afternoon (SPEC-261, data quality on the App Router)
+
+**What was under test.** SPEC-261 FR-003 and SPEC-256's cross-router scenarios on the two data-quality
+App Router pages. The image was `90618bbb` (#984), and the tier was switched on through CI for this
+session: Deploy Infrastructure dispatch 43613021039 (*"55 added, 0 changed, 0 destroyed"*), then
+Deploy SPA image dispatch 43613500469.
+
+**Browser.** Andrew's Chrome through the Claude extension, user `agriffith`, desktop width. Andrew
+clicked the first sign-in on the hosted page, and later sign-ins went through the warm Hosted UI
+session. Instruments: page-context JavaScript reading `location`, `document.title`,
+`performance.getEntriesByType('navigation')` and a `window` marker, an override of
+`visibilityState` to visible, and the extension's own Back and file upload.
+
+| Check | Result |
+|---|---|
+| Runs list | `/data-quality` listed two runs; the tab was titled *Data quality — Data Quarry*. |
+| A run's report from its row, then Back | The report, titled *Data quality report — Data Quarry*, then the runs list; the marker survived and one navigation entry. |
+| From its completion notification, then Back | A fresh check of `agriffith/query-results-20261106-1149.csv` notified *"… finished — open the report for details"*. Its link opened that report from the Notifications page (a catch-all page), and Back returned to Notifications, all in one document. |
+| A deep link in a second tab | The new tab landed on `/` with the return path saved; one **Sign in**, then the `dq_disagree` report. |
+| Skip link, runs page, Back | The address went to `…#main` on the report, then `/data-quality`, then back to the report at `#main`, with the report on screen and its own title at each step. |
+| An upload across the routers | `spec261-shell-survival-2.bin` (9 MB) started at 0 B in `spec-256-live-uploads/`. Data quality by its tab rendered 1.06 s later, then Files by its tab. The Upload panel listed it Uploaded beside the earlier one, the file is in the folder, and there was one navigation entry throughout. Whether the upload was still in flight at the hop is not proved. |
+
+**Found on the way, none of it this spec's.** Both `e2e_1113` fixture folders (`dq_agree/`,
+`dq_disagree/`) no longer hold their CSVs: a re-run of each was refused with *"no supported data files
+were found there"*. The first sign-in in a fresh tab returned to `/?code=…&state=…` and stayed signed
+out, and a second **Sign in** went straight through; it is reported for SPEC-262, which replaces this
+sign-in. A Files listing answered 503 once (the account's Lambda concurrency). Two 9 MB fixture files
+were left in `spec-256-live-uploads/`.
+
 ## Switch-off check — 2026-11-14 (SPEC-257's owed row, discharged)
 
 **What was under test.** SPEC-257 FR-001's owed row: a switch-off of the web tier destroys only the
