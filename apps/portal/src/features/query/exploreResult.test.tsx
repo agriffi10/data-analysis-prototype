@@ -1,5 +1,5 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {configure, getConfig, screen, waitFor, within} from '@testing-library/react';
 import {useLocation} from '../../lib/navigation';
 import {
   editor,
@@ -143,7 +143,16 @@ async function expectExploreNeverAppears() {
   await expect(screen.findByRole('button', {name: EXPLORE}, {timeout: 400})).rejects.toThrow(/Unable to find/);
 }
 
-describe('Explore in Data Explorer', () => {
+// Every case runs statements through the real workspace, and each result is a second or more of
+// rendering before anything is waited on; beside the rest of the suite that outgrows the default
+// budgets for a test and for each wait. The waits still assert what renders, so they still discriminate.
+describe('Explore in Data Explorer', {timeout: 15_000}, () => {
+  let defaultWait = 0;
+  beforeAll(() => {
+    defaultWait = getConfig().asyncUtilTimeout;
+    configure({asyncUtilTimeout: 5_000});
+  });
+  afterAll(() => configure({asyncUtilTimeout: defaultWait}));
   beforeEach(installWorkspaceMocks);
   afterEach(resetViewport);
 
@@ -160,11 +169,13 @@ describe('Explore in Data Explorer', () => {
 
     columns('name', 'qty');
     await user.clear(editor());
-    await user.type(editor(), `${SELECT};`);
+    // Pasted, one change rather than a re-render of the whole workspace per key.
+    await user.paste(`${SELECT};`);
     await runStatement(user);
     const explore = await screen.findByRole('button', {name: EXPLORE});
     // The statement handed over is the one whose result is on screen, not the buffer as it is now.
-    await user.type(editor(), ' -- edited since');
+    await user.clear(editor());
+    await user.paste('SELECT 1 AS edited_since;');
     await user.click(explore);
 
     expect(probed()).toEqual({

@@ -92,8 +92,9 @@ describe('a view reopened from the personal folder', () => {
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
     expect(vi.mocked(runQuery).mock.calls[0][0].sql).toBe(renderedSql(exploration));
+    // The tab is stored by an effect after the render that shows it, so the read waits for the write.
+    await waitFor(() => expect(storedTab()?.exploration.query).toEqual(exploration.query));
     const tab = storedTab();
-    expect(tab?.exploration.query).toEqual(exploration.query);
     expect(tab?.exploration.presentation).toEqual(exploration.presentation);
     expect(tab?.savedQuery).toEqual({
       spaceId: 'personal',
@@ -149,8 +150,14 @@ describe('a view reopened from a shared space’s folder', () => {
     await user.click(screen.getByText('Generated SQL'));
     expect(screen.getByLabelText('Generated SQL')).toHaveValue(renderedSql(exploration));
     expect(runQuery).not.toHaveBeenCalled();
+    // The tab is stored by an effect after the render that shows it, so the read waits for the write.
+    await waitFor(() =>
+      expect(Object.keys(storedTab()?.exploration.presentation.formatting.transformers ?? {})).toEqual([
+        'amount',
+        'payload'
+      ])
+    );
     const formatting = storedTab()?.exploration.presentation.formatting;
-    expect(Object.keys(formatting?.transformers ?? {})).toEqual(['amount', 'payload']);
     expect(formatting?.rules.map((rule) => rule.id)).toEqual(['r3']);
     expect(storedTab()?.savedQuery).toBeUndefined();
 
@@ -168,7 +175,9 @@ describe('a view reopened from a shared space’s folder', () => {
     await openFromDrawer(user, 'Your data', 'teamspace');
 
     expect(await screen.findByRole('button', {name: 'Run'})).toBeInTheDocument();
-    expect(storedTab()?.exploration.source).toMatchObject({spaceId: 'personal', database: 'alice'});
+    await waitFor(() =>
+      expect(storedTab()?.exploration.source).toMatchObject({spaceId: 'personal', database: 'alice'})
+    );
     expect(runQuery).not.toHaveBeenCalled();
   });
 });
