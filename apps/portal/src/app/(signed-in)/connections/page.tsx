@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /**
  * The shared-spaces view, loaded in the browser only. A page file's static imports are evaluated at
@@ -18,5 +19,6 @@ const ConnectionsView = dynamic(
  * @returns The shared-spaces view.
  */
 export default function ConnectionsPage() {
+  usePageTitleOnMount('Shared spaces');
   return <ConnectionsView />;
 }

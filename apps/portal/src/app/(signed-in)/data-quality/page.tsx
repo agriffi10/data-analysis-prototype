@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /** The runs view, reached client-only so the application graph is evaluated after the boot. */
 const DataQualityView = dynamic(
@@ -13,5 +14,6 @@ const DataQualityView = dynamic(
  * @returns The runs view behind its flag.
  */
 export default function DataQualityRunsPage() {
+  usePageTitleOnMount('Data quality');
   return <DataQualityView />;
 }

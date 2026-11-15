@@ -385,6 +385,7 @@ section below, under an **On the App Router** paragraph.
 | Start a large upload on Files, open Query by its tab, come back by the Files tab | The upload is still running and further along; the drawer still lists it. |
 | With an upload running, reload the page | The browser asks before reloading; on Cancel the upload carries on. |
 | With an upload running, sign out | No prompt; the sign-out completes and the upload ends with the page. |
+| In a fresh tab on Files, open each other page for the first time (Help through the help panel's **Open the full guide**), reading after each `document.querySelector('next-route-announcer').shadowRoot.textContent` | Each reads the page just opened, as `document.title` does — never the page left. |
 
 ### 4.2 Files
 

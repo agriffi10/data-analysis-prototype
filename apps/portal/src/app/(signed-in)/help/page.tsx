@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /**
  * The Help view, loaded in the browser only. A page's static imports run at hydration, before
@@ -15,5 +16,6 @@ const HelpView = dynamic(() => import('../../../routes/areas/help').then((module
  * @returns The Help view.
  */
 export default function HelpPage() {
+  usePageTitleOnMount('Help & guides');
   return <HelpView />;
 }

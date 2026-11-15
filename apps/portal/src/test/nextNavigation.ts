@@ -1,4 +1,13 @@
-import {useInsertionEffect, useMemo, useSyncExternalStore, type ReactNode} from 'react';
+import {
+  Fragment,
+  createElement,
+  useEffect,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode
+} from 'react';
 import {flushSync} from 'react-dom';
 import {act} from '@testing-library/react';
 
@@ -7,7 +16,7 @@ import {act} from '@testing-library/react';
  * seam runs in tests against the same behaviours it rests on in the browser.
  *
  * Aliased in `vite.config.ts`, so nothing imports this file by its path except the harness. Each of
- * the eight behaviours below was measured on Next 16.4.6 and has a test of its own in
+ * the nine behaviours below was measured on Next 16.4.6 and has a test of its own in
  * `nextNavigation.test.tsx`:
  *
  * 1. A router push or replace renders before it writes the address (the write is an insertion
@@ -30,6 +39,11 @@ import {act} from '@testing-library/react';
  * recorded in `external()` and changes nothing here.
  * 8. `useParams` returns the selected page's params percent-encoded, from the page the router last
  *    navigated to, not from the address.
+ * 9. The route announcer reads `document.title` (the first `h1` when it is empty) in a passive effect
+ *    of the commit that changes the tree, rendered after the page so the page's own passive effects
+ *    have run, and announces it when it differs from its last reading, never on the first load;
+ *    `announcements()` lists what it said. Here a router navigation and a traversal are the new
+ *    trees; behaviour 3's external write keeps the tree, so it announces nothing.
  */
 
 /** The page selection: the href the router last navigated to. A native navigation does not move it. */
@@ -53,6 +67,7 @@ type StandIn = {
   holding: boolean;
   parked: Navigation | null;
   resolver: PageResolver | null;
+  announcements: string[];
   originalPush: History['pushState'];
   originalReplace: History['replaceState'];
 };
@@ -92,6 +107,7 @@ function install(): StandIn {
     holding: false,
     parked: null,
     resolver: null,
+    announcements: [],
     originalPush: window.history.pushState.bind(window.history),
     originalReplace: window.history.replaceState.bind(window.history)
   };
@@ -254,7 +270,24 @@ export function NextStandInRoot({children}: {children: ReactNode}) {
       instance.originalReplace({...(window.history.state ?? {}), ...next}, '', write.href);
     else instance.originalReplace(next, '', write.href);
   }, [state]);
-  return children;
+  return createElement(Fragment, null, children, createElement(RouteAnnouncer, {tree: state.tree}));
+}
+
+/**
+ * Next's route announcer (behaviour 9), after the page as Next renders it, so its effect runs once
+ * the page's own have.
+ *
+ * @param props.tree - The tree the router last navigated to; the announcer reads on each new one.
+ * @returns Nothing: what it would say is recorded in `announcements()`.
+ */
+function RouteAnnouncer({tree}: {tree: Tree}) {
+  const previous = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = document.title || (document.querySelector('h1')?.textContent ?? '');
+    if (previous.current !== undefined && previous.current !== current) standIn().announcements.push(current);
+    previous.current = current;
+  }, [tree]);
+  return null;
 }
 
 /**
@@ -273,6 +306,7 @@ export function resetStandIn(resolver: PageResolver | null = null): void {
   instance.holding = false;
   instance.parked = null;
   instance.resolver = resolver;
+  instance.announcements = [];
   instance.state = {url, tree: {href: url}, write: null};
   instance.originalReplace(
     {...(window.history.state ?? {}), __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: instance.state.tree},
@@ -299,6 +333,16 @@ export function external(): readonly string[] {
 /** How many popstates Next would have answered by reloading the document. */
 export function reloads(): number {
   return standIn().reloads;
+}
+
+/** Next's router, for a test whose subject is what a router navigation commits rather than how the user asked for it. */
+export function standInRouter(): typeof ROUTER {
+  return ROUTER;
+}
+
+/** What the route announcer has said since the reset, oldest first (behaviour 9). */
+export function announcements(): readonly string[] {
+  return [...standIn().announcements];
 }
 
 /** Park the next router navigation uncommitted, as a slow fetch leaves it (behaviour 7). */

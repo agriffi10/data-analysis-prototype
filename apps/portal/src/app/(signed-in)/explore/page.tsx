@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 /**
  * The Data Explorer's view, loaded in the browser only. A page file's static imports are evaluated
@@ -18,5 +19,6 @@ const ExploreView = dynamic(() => import('../../../routes/areas/explore').then((
  * @returns The Explorer's view.
  */
 export default function ExplorePage() {
+  usePageTitleOnMount('Data Explorer');
   return <ExploreView />;
 }

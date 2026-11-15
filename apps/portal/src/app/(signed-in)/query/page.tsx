@@ -1,5 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../../../hooks/usePageTitle';
 
 const QueryView = dynamic(() => import('../../../routes/areas/query').then((m) => m.QueryView), {ssr: false});
 
@@ -16,5 +17,6 @@ const QueryView = dynamic(() => import('../../../routes/areas/query').then((m) =
  * @returns The Query view.
  */
 export default function QueryPage() {
+  usePageTitleOnMount('Query');
   return <QueryView />;
 }
