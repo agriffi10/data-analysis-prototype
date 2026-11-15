@@ -33,13 +33,7 @@ const PAGE = <p>the page</p>;
 function completeDocument(): Record<string, unknown> {
   return {
     version: 1,
-    apiBaseUrl: 'https://api.portal.test',
-    appUrl: 'https://portal.test',
-    awsRegion: 'us-east-1',
-    userSpaceBucket: 'user-space',
-    cognitoUserPoolId: 'pool',
-    cognitoUserPoolClientId: 'client',
-    cognitoDomain: 'auth.test'
+    userSpaceBucket: 'user-space'
   };
 }
 

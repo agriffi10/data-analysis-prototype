@@ -251,12 +251,12 @@ describe('the one door', () => {
     expect(RETIRED.filter((pkg) => declared[pkg] !== undefined)).toEqual([]);
   });
 
-  it('has no module outside apiClient building a URL from the API origin', () => {
+  it('has no module outside apiClient addressing the API pass-through', () => {
     const offenders = Object.entries(appSources)
       .filter(([path]) => !path.endsWith('/apiClient.ts') && path !== './apiClient.ts')
-      // Quote-agnostic: the repo formats to single quotes, but a sweep that a double quote walks
-      // past is one that reports clean for the wrong reason.
-      .filter(([, source]) => /configValue\(\s*['"`]apiBaseUrl['"`]\s*\)/.test(code(source)))
+      // Quote-agnostic, and a template counts: the repo formats to single quotes and the client builds
+      // its URL as a template, so a sweep either walks past reports clean for the wrong reason.
+      .filter(([, source]) => /['"`]\/api(?:\/|\$\{|['"`])/.test(code(source)))
       .map(([path]) => path);
 
     expect(offenders).toEqual([]);

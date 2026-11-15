@@ -149,8 +149,8 @@ Open a PR that changes a file under `infra/`. The `deploy-infra.yml` `plan` job 
 
 Several workflow values are derived rather than stored as separate GitHub variables:
 
-- `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed — and reaches `/config.json` as `awsRegion`.
-- The three Cognito values and the two bucket names reach `/config.json` through the **container
+- `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed. It no longer reaches `/config.json`: since SPEC-262 the browser calls no AWS service directly.
+- The two bucket names reach `/config.json` through the **container
   entrypoint**, from the ECS task definition that root's `local.spa_runtime_config` renders. There is
   nothing to populate. `.github/scripts/resolve-config.sh` still reads the same Terraform outputs for
   `Publish Config`, and still refuses an absent or empty one by name.

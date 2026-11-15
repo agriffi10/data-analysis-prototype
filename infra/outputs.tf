@@ -14,7 +14,7 @@ output "cognito_user_pool_id" {
 }
 
 output "cognito_server_client_id" {
-  description = "The portal server's confidential app client ID. The deploy ensures its Managed Login branding beside the SPA client's."
+  description = "The portal server's confidential app client ID. The deploy ensures its Managed Login branding beside the dev client's."
   value       = module.auth.server_client_id
 }
 

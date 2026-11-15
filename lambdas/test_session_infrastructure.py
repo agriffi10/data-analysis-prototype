@@ -13,7 +13,9 @@ Attributes:
   STORE: The session-store module's resources.
   SPA: The spa module's directory.
   DEPLOY_INFRA: The infrastructure deploy workflow.
-  MIRRORED: The sign-in settings the server and dev clients must both declare.
+  SIGN_IN_SETTINGS: The sign-in settings both clients carry, whitespace and trailing commas removed. A
+    scope or flow beyond these widens what a token allows, and `LEGACY` user-existence errors let a
+    caller enumerate accounts.
 """
 
 import fnmatch
@@ -33,14 +35,14 @@ STORE = INFRA / "modules" / "session-store" / "main.tf"
 SPA = INFRA / "modules" / "spa"
 DEPLOY_INFRA = INFRA.parent / ".github" / "workflows" / "deploy-infra.yml"
 
-MIRRORED = (
-    "allowed_oauth_flows_user_pool_client",
-    "allowed_oauth_flows",
-    "allowed_oauth_scopes",
-    "supported_identity_providers",
-    "prevent_user_existence_errors",
-    "explicit_auth_flows",
-)
+SIGN_IN_SETTINGS = {
+    "allowed_oauth_flows_user_pool_client": "true",
+    "allowed_oauth_flows": '["code"]',
+    "allowed_oauth_scopes": '["openid","email","profile"]',
+    "supported_identity_providers": '["COGNITO"]',
+    "prevent_user_existence_errors": '"ENABLED"',
+    "explicit_auth_flows": '["ALLOW_USER_SRP_AUTH","ALLOW_REFRESH_TOKEN_AUTH"]',
+}
 
 
 def _argument(body: str, name: str) -> str | None:
@@ -117,8 +119,10 @@ def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() 
     assert set(clients) == {"server", "dev"}, f"the clients are {sorted(clients)}"
     server, dev = clients["server"], clients["dev"]
 
-    for setting in MIRRORED:
-        assert _argument(server, setting) is not None, f"the server client no longer declares {setting}"
+    for setting, expected in SIGN_IN_SETTINGS.items():
+        value = _argument(server, setting)
+        assert value is not None, f"the server client no longer declares {setting}"
+        assert "".join(value.split()).replace(",]", "]") == expected, f"the server client's {setting} is {value}"
     for client in (server, dev):
         assert "read_attributes" not in client and "write_attributes" not in client, (
             "an attribute list that omits a custom:shared_space_k slot drops that claim"
