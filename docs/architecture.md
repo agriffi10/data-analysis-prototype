@@ -111,9 +111,9 @@ the address, through the area records, whether a page is public or signed in.
 Node server, run on ECS Fargate behind an internet-facing ALB in a VPC that exists for nothing else,
 and it answers `portal.dataquarry.app`. A Node app has no static fallback, so with
 `web_tier_enabled` off nothing serves the portal; that is accepted, and the tier is switched on
-through CI while someone is working (`infra/info/web-tier.md`). The areas not yet moved onto the App
-Router render inside one optional catch-all route, matched by react-router, and move one spec at a
-time.
+through CI while someone is working (`infra/info/web-tier.md`). Every signed-in area is an App Router page
+since SPEC-258; only the landing page and the 404 still render inside the optional catch-all route,
+matched by react-router, until SPEC-263.
 
 The server does the jobs a static origin did: it renders `/config.json`, refuses to start without
 its configuration, and its request proxy stamps every page with an enforcing CSP carrying a fresh

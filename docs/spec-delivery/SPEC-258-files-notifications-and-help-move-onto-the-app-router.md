@@ -45,9 +45,11 @@ tier on nor off: it was on when the checks began, and SPEC-262 still held it whe
   SPEC-256 said the area moves would. A space switch on Files and a section change on Help remain
   native writes that fetch nothing.
 - **A first visit to an App Router page announced the previous page's title** to screen readers.
-  This spec's diff review found it in the shell and measured it live. Next's announcer read the
-  document title before the lazily loaded view had set its own. It was fixed in the shell, in #998
-  (`923f32c3`), and the second live window confirmed the fix: a first visit to Help read
+  This spec's second diff review predicted it from the code, and it was measured live on the image
+  of `cde0c104`, before the deploy that ended the first attempt.
+  Next's announcer read the document title before the lazily loaded view had set its own. It was
+  fixed in #998 (`923f32c3`), which sets each page's title as the page mounts, this spec's three
+  among them. The second live window confirmed the fix: a first visit to Help read
   "Help & guides — Data Quarry".
 
 ## Verification

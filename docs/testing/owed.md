@@ -125,7 +125,7 @@ settles both specs.
 
 | Check | Why | Recipe |
 |---|---|---|
-| **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
+| **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002, and SPEC-258 FR-003) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
 
 ### Needs a second (or third) account
 

@@ -13,9 +13,9 @@ from a user's.
 ## Live-check session — 2026-11-15 (SPEC-258, Files, Notifications and Help on the App Router)
 
 **What was under test.** SPEC-258 FR-003 on the three App Router pages, after #989 (`cde0c104`)
-merged. The tier was already on, held by other sessions. Deploys of other merges crossed the first
-attempt (three between about 04:00 and 04:40 UTC), so nothing from it is recorded except the
-announcer finding below. The results are from two windows that no deploy crossed:
+merged. The tier was already on, held by other sessions. One deploy crossed the first attempt
+(`900c64f5`, 04:35 to 04:40 UTC; two other Deploy SPA image runs in that hour skipped the build and
+changed nothing), so nothing from it is recorded except the announcer finding below. The results are from two windows that no deploy crossed:
 - 04:41 to 04:42 UTC on the image of `900c64f5` (Deploy SPA image run 43677436115, done 04:40:40;
   the next run was created at 04:49);
 - 12:01 to 12:02 UTC on the image of `923f32c3` (run 43695072587, done 08:38:44).
@@ -41,9 +41,11 @@ clicked Sign in on the hosted page. Instruments:
 
 In both windows every step kept the same shell element and header, with one document load and no 404.
 
-**Found on the way.** On the image of `cde0c104`, a first visit to Help announced
+**Found on the way.** This spec's second diff review predicted it from the code, and the run
+measured it. On the image of `cde0c104`, a first visit to Help announced
 *Files — Data Quarry*, the page left, through Next's route announcer. A later visit with Help's chunk
-loaded announced correctly. It was reported to the arc and fixed in #998. On the image of `923f32c3`, a
+loaded announced correctly. It was reported to the arc and fixed in #998, which
+sets each page's title as the page mounts. On the image of `923f32c3`, a
 first visit to Help announced *Help & guides — Data Quarry*.
 
 **Left behind.** `agriffith/spec258-live-a.bin` and `spec258-live-b.bin` (704 MB each), which finished
