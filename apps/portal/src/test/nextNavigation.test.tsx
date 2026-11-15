@@ -194,7 +194,7 @@ describe('the next/navigation stand-in', () => {
     expect(last().params).toEqual({space: 'a%40b%20c', requestId: 'r1'});
   });
 
-  it('9: announces the title once the page’s own effects have set it, on a new tree only', async () => {
+  it('9: announces the title once the page’s own effects have set it, when it changed since the last tree', async () => {
     writeAddressRaw(null, '/a');
     resetStandIn();
     document.title = 'Before';
@@ -207,10 +207,12 @@ describe('the next/navigation stand-in', () => {
     expect(announcements()).toEqual([]);
 
     act(() => router().push('/b'));
-    act(() => window.history.pushState({}, '', '/c'));
-    await traverse(-2);
+    act(() => window.history.pushState({}, '', '/b?c'));
+    document.title = 'Changed in place';
+    act(() => window.history.pushState({}, '', '/b?d'));
+    await traverse(-3);
 
-    expect(announcements()).toEqual(['Page /b', 'Page /a']);
+    expect(announcements()).toEqual(['Page /b', 'Changed in place', 'Page /a']);
   });
 });
 

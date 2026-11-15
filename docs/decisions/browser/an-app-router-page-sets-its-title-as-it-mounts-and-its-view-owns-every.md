@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "An App Router page sets its title as it mounts, and its view owns every change after (2026-11-14)"
-description: "**Every signed-in App Router page calls `usePageTitleOnMount` with the title its view sets, because Next's route announcer reads `document.title` in a passive effect of the commit that changes the router's tree, and on a first visit that commit holds the page but not its `next/dynamic` view.** Without it a screen reader hears the page the user left, while every test that does not read the stand-in's announcer stays green. The page's write is a layout effect, so the view's `usePageTitle`, a passive effect, still wins any commit holding both (an unread count). A `metadata` title does not fix it (measured) and overwrites the page's own. `src/app/routeAnnouncement.test.tsx` visits every signed-in page once."
+description: "**Every signed-in App Router page calls `usePageTitleOnMount` with the name its view titles itself by, because Next's route announcer reads `document.title` in a passive effect of the commit that changes the router's tree, and on a first visit that commit holds the page but not its `next/dynamic` view.** Without it a screen reader hears the page the user left, while every test that does not read the stand-in's announcer stays green. The page writes once, in a layout effect, so the view's `usePageTitle`, a passive effect, still wins any commit holding both. A first visit announces that name, so a title the view derives from state (an unread count, a flag that is off) is read at the next navigation. A `metadata` title does not fix it (measured) and overwrites the page's own. `src/app/routeAnnouncement.test.tsx` visits every signed-in page once."
 ---
 
 Next's `AppRouterAnnouncer` (`next/dist/client/components/app-router-announcer.js`) is rendered
@@ -20,17 +20,27 @@ loads its view the same way, and the Vitest test visits it. A return to a page w
 announces correctly, because the view mounts in the same commit and its passive effect runs before
 the announcer's.
 
-**What the page does.** It calls `usePageTitleOnMount(<title>)` (`src/hooks/usePageTitle.ts`) with the
-same title its view passes to `usePageTitle`. The hook is a layout effect, so the title is in place
-before any passive effect of the commit, the announcer's among them. With it, the same seven visits
-each announced the page just opened.
+**What the page does.** It calls `usePageTitleOnMount(<name>)` (`src/hooks/usePageTitle.ts`) with the
+name its view passes to `usePageTitle`. The hook is a layout effect, so the title is in place before
+any passive effect of the commit, the announcer's among them, and it writes once per mount, because a
+boundary above that hides the page and shows it again re-runs layout effects but not the view's
+passive one. With it, the same seven visits each announced the page just opened.
 
 **What the view does.** It keeps `usePageTitle`, for two reasons. The catch-all still renders the
 views of any area whose record names it, and there the view is the only thing setting the title. And
 a view that changes its title in place (Notifications' unread count) owns that change: in a commit
 holding both, the page's layout effect runs first and the view's passive effect after, so the page
-never overwrites it. A page and its view naming different titles is the one way the two can disagree,
-and the announcement test fails on it, comparing what was announced with what the view settled on.
+never overwrites it. A page naming a different title from its view's fails the announcement test,
+which compares what was announced with what the view settled on.
+
+**What a first visit announces is the page's name, not a title the view derives from state.** The
+page file cannot compute it: its static imports run before the boot, so it cannot read the flags or
+the unread count. Measured on the production build: Notifications with three unread announced
+"Notifications — Data Quarry" and settled on "Notifications (3) — Data Quarry", and Query with its flag
+off announced "Query — Data Quarry" and settled on "Query unavailable — Data Quarry". Next reads the
+view's own title at the next tree it sees, a return to the page or a navigation in place among them.
+`src/app/routeAnnouncement.state.test.tsx` holds both, so a change to either is a decision, not a
+drift. By the same mechanism `main` announced the page left in both; that was not measured.
 
 **Do NOT give a page a `metadata` title instead.** Measured with a server `layout.tsx` beside Help
 exporting one: the first visit still announced the page left, and the document gained a second
@@ -42,11 +52,12 @@ page's own.
 before its parent's, so the page's mount title would overwrite the view's count.
 
 **Where it is held.** The Vitest stand-in (`src/test/nextNavigation.ts`, behaviour 9) models the
-announcer: rendered after the page, reading in a passive effect on a new tree, never on the first
-load. `src/app/routeAnnouncement.test.tsx` visits every signed-in page once from a page the
+announcer: rendered after the page, reading in a passive effect on each new tree, a router
+navigation, a traversal or an external history write (Next restores the page it shows, as a new
+tree), and never on the first load. `src/app/routeAnnouncement.test.tsx` visits every signed-in page once from a page the
 catch-all serves, so each view's chunk is still loading when the router commits, and asserts the
 announcement is the title the view then sets. `src/hooks/usePageTitle.test.tsx` holds the order
-between the two hooks. A live session reads the announcer itself (`docs/testing/e2e.md` §4.1).
+between the two hooks and the single write. A live session reads the announcer itself (`docs/testing/e2e.md` §4.1).
 
 ## History
 

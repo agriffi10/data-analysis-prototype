@@ -49,8 +49,9 @@ describe('an App Router page’s first visit', () => {
     expect(PAGES.length).toBeGreaterThanOrEqual(8);
   });
 
-  // Each page is visited once in this file, so its view's chunk is always still loading when the
-  // router commits it, as on a user's first visit; a page left from the catch-all titles itself.
+  // Each page is visited once in this file, so its view's chunk is still loading when the router
+  // commits it, as on a user's first visit; a page left from the catch-all titles itself. The wait
+  // for a write after the commit is what shows it: a view already loaded titles itself in the commit.
   it.each(PAGES)('announces the title its view sets: $file', async ({path, area}) => {
     renderApp(area === 'files' ? '/help' : '/files', {auth: authenticated('alice'), routers: {[area]: 'app'}});
     await waitFor(() => expect(writes.length).toBeGreaterThan(0), LOADING);

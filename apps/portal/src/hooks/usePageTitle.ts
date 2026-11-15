@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect} from 'react';
+import {useEffect, useLayoutEffect, useRef} from 'react';
 import {formatPageTitle} from '../lib/formatPageTitle';
 
 /**
@@ -20,17 +20,22 @@ export function usePageTitle(page?: string): void {
 }
 
 /**
- * Sets the title in the commit that mounts an App Router page, for its page
- * file to call with the title its view sets.
+ * Sets the title in the commit that mounts an App Router page, once, for its
+ * page file to call with the name its view titles itself by.
  *
  * Next's route announcer reads document.title in a passive effect of the
  * commit that changes the router's tree. On a first visit that commit holds
  * the page but not its view, which `next/dynamic` is still loading, so a
  * title set only by the view is read a commit late and the user hears the
- * page they left. A layout effect runs before every passive effect: it is
- * in place for the announcer, and it runs before the view's
- * {@link usePageTitle} in any commit holding both, so a title the view
- * changes is never overwritten.
+ * page they left. A layout effect runs before every passive effect: it is in
+ * place for the announcer, and before the view's {@link usePageTitle} in a
+ * commit holding both. It writes once per mount, because a boundary above
+ * that hides the page and shows it again re-runs its layout effects but not
+ * the view's passive one.
+ *
+ * What a first visit announces is this name, so a view whose title depends
+ * on state (an unread count, a flag that is off) is announced by its page's
+ * name until the next navigation reads its own.
  *
  * @param page - The page's name, as its view passes it to `usePageTitle`.
  * @returns Nothing.
@@ -39,7 +44,10 @@ export function usePageTitle(page?: string): void {
  * usePageTitleOnMount('Files');
  */
 export function usePageTitleOnMount(page: string): void {
+  const written = useRef<string | null>(null);
   useLayoutEffect(() => {
+    if (written.current === page) return;
+    written.current = page;
     document.title = formatPageTitle(page);
   }, [page]);
 }

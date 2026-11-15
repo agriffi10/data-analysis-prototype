@@ -42,8 +42,9 @@ import {act} from '@testing-library/react';
  * 9. The route announcer reads `document.title` (the first `h1` when it is empty) in a passive effect
  *    of the commit that changes the tree, rendered after the page so the page's own passive effects
  *    have run, and announces it when it differs from its last reading, never on the first load;
- *    `announcements()` lists what it said. Here a router navigation and a traversal are the new
- *    trees; behaviour 3's external write keeps the tree, so it announces nothing.
+ *    `announcements()` lists what it said. A router navigation, a traversal and an external write
+ *    are each a new tree, the last because Next restores the page it shows, so a title the page
+ *    changed in place is announced at the next of them.
  */
 
 /** The page selection: the href the router last navigated to. A native navigation does not move it. */
@@ -126,12 +127,12 @@ function install(): StandIn {
       for (const field of NEXT_FIELDS) if (current?.[field]) copied[field] = current[field];
       if (url != null) {
         // Next drops a navigation still in flight when the address moves under it, and restores the
-        // tree it already shows at the new address.
+        // tree it already shows at the new address, as a new tree of the same page.
         instance.parked = null;
         const moved = urlOf(String(url));
         setState(instance, {
           url: moved.url,
-          tree: instance.state.tree,
+          tree: {...instance.state.tree},
           write: {kind: 'preserve', href: moved.url + moved.hash}
         });
       }
