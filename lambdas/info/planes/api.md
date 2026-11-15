@@ -64,11 +64,12 @@ between the browser and S3.
 
 ## The fences
 
-- **The API VERIFIES a bearer; it is not an OIDC client.** No cookie means no CSRF surface, but CORS
-  is still required. Provider-agnosticism is five config fields, and the JWKS URL is built once at
+- **The API VERIFIES a bearer; it is not an OIDC client.** No cookie means no CSRF surface, and
+  since SPEC-262 no CORS either (below). Provider-agnosticism is five config fields, and the JWKS URL is built once at
   the **root**.
 - **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical, and **expiry is not
-  disclosed** — the browser refreshes once on any 401.
+  disclosed** — the portal server refreshes before it forwards, and the browser answers a 401 by
+  re-reading its session once.
 - **Where the memberships come from is a COLD-START choice, and there is no fallback.**
   `MEMBERSHIP_SOURCE` is `claims` (the default, and what every environment runs) or `index`, read
   once at import, and an unrecognised value raises there — a typo must be a dead container, not a

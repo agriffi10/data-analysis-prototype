@@ -1758,7 +1758,7 @@ specs:
   - id: "SPEC-262"
     title: "The Browser Signs In Through the Server"
     description: "The browser stops holding tokens: it signs in, signs out and calls the API through the Next.js server's session routes and /api/ pass-through, Amplify and the public Cognito client retire, local development signs in through its own client, and every allowlist that served the old path narrows in a second merge."
-    spec_status: "In Progress"
+    spec_status: "Completed"
     depends_on: ["SPEC-256", "SPEC-257", "SPEC-258", "SPEC-259", "SPEC-260", "SPEC-261"]
     arc: "nextjs"
     path: "docs/specs/SPEC-262-the-browser-signs-in-through-the-server.md"

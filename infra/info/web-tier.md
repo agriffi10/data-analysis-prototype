@@ -28,8 +28,8 @@ with a warning and a job-summary note while off, because there is no host to sca
 | the NAT gateway and its Elastic IP, which bill by the hour | the API at `api.`, every Lambda, queue and state machine, and the SPA image registry |
 | | the session table and its customer-managed key: off must not schedule the key for deletion or drop every session |
 
-**The hostname does not change**, so Cognito's callbacks, the buckets' CORS rules, the API's CORS rule
-and the CSP's `connect-src` are the same whenever the tier is on.
+**The hostname does not change**, so Cognito's callbacks, the buckets' CORS rules and the CSP's
+`connect-src` are the same whenever the tier is on. The API has had no CORS rule since SPEC-262.
 
 ## Turning it on
 

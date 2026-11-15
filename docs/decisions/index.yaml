@@ -1027,7 +1027,7 @@ areas:
         status: "stable"
         path: "docs/decisions/identity-and-access/the-identity-grant-is-the-only-path-to-a-request-queue-no-resource.md"
       - title: "The Identity Pool is retired, and no one's sign-in changed (SPEC-202)"
-        fence: "The Cognito Identity Pool is deleted while the User Pool, Managed Login v2 and sign-in are untouched; the browser holds an ID token through `lib/idToken.ts` and no AWS credentials."
+        fence: "The Cognito Identity Pool is deleted while the User Pool, Managed Login v2 and sign-in are untouched; the browser holds no AWS credentials, and since SPEC-262 no token either."
         status: "stable"
         path: "docs/decisions/identity-and-access/the-identity-pool-is-retired-and-no-ones-sign-in-changed.md"
       - title: "The membership index is an authorization input, where the username directory is not (SPEC-203)"

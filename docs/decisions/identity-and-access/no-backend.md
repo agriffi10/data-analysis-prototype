@@ -17,8 +17,8 @@ Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config,
 > went with SPEC-202, so the browser holds **no AWS credentials and no AWS grant at all** — what it
 > reaches without the API is presigned S3 bytes and Cognito through Amplify, and nothing else. *(Marked
 > 2026-11-15: since SPEC-262 the browser signs in through the portal server and reaches Cognito only by
-> navigation, so it fetches presigned S3 bytes and its own origin, and nothing else; the rewrite lands
-> with the merge that retires the public client.)*) Full
+> navigation, so it fetches presigned S3 bytes and its own origin, and nothing else; the merge that retired the
+> public client rewrote this entry.)*) Full
 > entries: [`docs/decisions/control-planes/`](../control-planes/) and this area's API decisions. Shape:
 > `docs/architecture.md` → *The control planes* and *The API layer*.
 

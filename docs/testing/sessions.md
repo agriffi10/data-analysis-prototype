@@ -10,6 +10,61 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-15 (SPEC-262, the browser signs in through the server)
+
+**What was under test.** SPEC-262's live criteria: FR-001 and FR-003 against merge 1 (#1003,
+`71a659e3`), the rollback rehearsal between the merges, and FR-005 after merge 2 (#1013,
+`72740d1d`). The tier was already on, and this session held a line in the arc's list of the tier's
+holders from merge 1 to the end. The images and windows, all UTC, from the Deploy SPA image runs:
+- 16:43 to 16:49 on images carrying merge 1. The deploy of `03278600` (run 43736826892, 16:40:49
+  to 16:46:41) was rolling out across the first cold sign-in, the second tab and the cross-tab
+  sign-out, so either task may have answered them; both images carry merge 1.
+- 18:26 to 18:27, local: `npm run dev` on `localhost:5173` against the deployed API.
+- 18:30 on `65d60b36` (run 43744035659, done 18:05:41), where the session the rehearsal carried
+  was created.
+- 18:41 to 18:50, the rehearsal: run 43748210628 put the service on `c0bbacb1` (task definition
+  299), and run 43748720587 put it back on `4fa75b6e` (task definition 300).
+- 19:05 to 19:08 on `4fa75b6e`, task definition 300; no deploy crossed it.
+- 19:39 to 22:29 on `72740d1d`, task definition 302 (run 43752926460, done 19:38:52). The next run,
+  for `a6cf0efb`, left the task definition unchanged.
+
+**Browser.** The Claude desktop app's built-in browser pane, user `agriffith`, desktop width. Andrew
+entered his password at Managed Login each time. Instruments:
+- page-context JavaScript reading `location`, `fetch('/auth/session')`, Resource Timing
+  (`performance.getEntriesByType('resource')`, because the pane's network reader does not record
+  cross-origin requests) and the tab's storage;
+- the API's listing fetched from the page through `/api/`;
+- a generated text file set on the upload input;
+- the session table read with a `sessionExpiresAt` projection only, a session's creation time being
+  that value less 30 days;
+- `aws` reads and `curl` for the proofs after merge 2, and `curl` with a cookie jar for the
+  callback's error branch.
+
+| Check | Result |
+|---|---|
+| Cold sign-in, three times | Signed out, Managed Login asking for a password each time. Sessions created at 16:43:53, 19:05:53 and 19:07:10; each tab landed on its deep link (`/notifications`, `/notifications`, `/files`). |
+| A second tab | Opened on `/files` signed in with no prompt, and listed files through same-origin `/api/`. |
+| Sign-out in one tab, then act in the other | The first tab came back to `/`. The second tab's folder listing got a 401, it read `/auth/session` once, and it moved to the signed-out home page with no retry. |
+| The refused callback | `/auth/callback?error=access_denied` landed on `/` showing the failure message. With no `state` that proves only the landing, so at 22:29 curl drove the error branch itself: after `/auth/login`, the callback with the error and the sign-in's own `state` answered 302 to `/?signin=failed` and cleared `__Host-dq_signin` (`Max-Age=0`); the same callback without `state` answered the same redirect and cleared nothing. |
+| Local sign-in through the dev client | After `npm run dev:session-env`, a password sign-in on `localhost:5173` created a session at 18:26:07 and landed on `/files`; the list came through the local server's `/api/`; `spec262-dev-upload.txt` (58 B) appears in the API's listing at 18:27:06. |
+| The rollback rehearsal | On `c0bbacb1` Sign in went through the public client, which merge 2 later retired, the tab's `sessionStorage` held that client's tokens, and Resource Timing showed `/oauth2/token` then direct calls to `api.dataquarry.app`. A server session created at 18:30:44 survived the round trip. |
+| Merge 2's removals, read off the deployed tier | `describe-user-pool-client` for the retired client: `ResourceNotFoundException`. `get-api`: no `CorsConfiguration`, the execute-api endpoint still disabled. An `OPTIONS` from the portal origin: 401, no `access-control-*` header. `OIDC_AUDIENCE`: the server and dev clients only. Task definition 302: four `CONFIG_` keys. `/config.json`: those four and `version`. `connect-src`: `'self'` and the two buckets' endpoints. The 19:07 session was still signed in afterwards, with no CSP violation. |
+| After merge 2, a fresh sign-in and an upload | Signed out, Managed Login asking for a password, from `/files`: a session created at 22:01:38 landed on `/files`. `spec262-after-merge2.txt` (60 B) went through `/api/v1/objects/upload` (200) and the presigned PUT (200), and appears in the API's listing at 22:02:51. |
+
+**Not a new browser profile.** The spec asks for the fresh sign-ins "in a new browser profile", and
+the pane cannot open one. Each ran in the pane's own profile, signed out with no session cookie and
+Managed Login cold. After the last one the portal's origin held one `localStorage` key
+(`portal-theme`) and no readable cookie, Cache Storage, IndexedDB or service worker; the HTTP cache
+was not cleared, which is the one difference the server and Cognito cannot see. Andrew accepted this
+run as meeting the criterion. Not run: Safari, and a literal new profile.
+
+**Expected on the way.** Each signed-out load logged a 401 from `/auth/session`, and each Files load
+a 409 from `PUT /api/v1/objects/content`: the folder marker is written only if absent, and an existing
+one answers `Conflict`, which the page treats as success.
+
+**Left behind.** `agriffith/spec262-dev-upload.txt` and `agriffith/spec262-after-merge2.txt`; the
+18:26 dev session, which expires on its own.
+
 ## Live-check session — 2026-11-15 (SPEC-258, Files, Notifications and Help on the App Router)
 
 **What was under test.** SPEC-258 FR-003 on the three App Router pages, after #989 (`cde0c104`)

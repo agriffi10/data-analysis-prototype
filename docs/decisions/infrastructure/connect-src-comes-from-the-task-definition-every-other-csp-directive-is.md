@@ -17,8 +17,8 @@ document exists to end; supplying the whole policy from the task definition woul
 own properties in the hands of whoever edits an environment map.
 
 **The source list is built at root, and the rest of the policy is the server module's alone.**
-`csp_connect_src` in `infra/main.tf` assembles the list from the region, the two buckets, the Cognito
-hosts and the API origin; the root `content_security_policy` local lost its last consumer with the
+`csp_connect_src` in `infra/main.tf` assembles the list from `'self'` and the two buckets' regional
+endpoints (until SPEC-262 also the Cognito hosts and the API origin); the root `content_security_policy` local lost its last consumer with the
 distribution and was deleted. The move of the other directives into TypeScript was proved to be a
 move: the module's test holds the pre-move directives as a recorded literal, in order and with their
 `"; "` join separator, with `script-src` the one directive allowed to differ, because an expectation
@@ -37,22 +37,20 @@ else. It exits rather than throws: a throw there was measured to leave a server 
 every path, which a load balancer probes as an unhealthy target indefinitely rather than as a task
 that stopped. An allowlist cannot be outflanked by a character nobody thought of.
 
-**The Cognito hosts stay, and a test names them separately.** On the day the container shipped,
+**The Cognito hosts and the API are gone, and a test refuses them by name** (rewritten for SPEC-262;
+until then the Cognito hosts stayed, and the test named them so nobody deleted them). On the day the container shipped,
 `connect-src` was every host the response-headers policy enumerated **plus the API host**. It shrank
 one entry at a time as the porting specs landed and reached its end state at SPEC-202 — `'self'`,
 `cognito-idp`, the Hosted UI host, both buckets, the API — and **it did not lose the Cognito hosts**:
-Amplify runs in the browser, so the User Pool endpoint and the Hosted UI domain are still fetched from.
+Amplify ran in the browser, so the User Pool endpoint and the Hosted UI domain were still fetched from.
 **Since SPEC-262 neither Cognito host nor the API is in the list.** The portal server signs in and
 calls the API, so the browser reaches Cognito only by navigation, which `connect-src` does not govern,
 and fetches its own origin and presigned bytes. `lambdas/test_csp_policy.py` now refuses the two
 Cognito hosts and the API's origin by name, inverted from the test that once required them, so a reader
-restoring them on the old reasoning fails a test rather than widening the surface.
-That is the highest-consequence mistake available here, and the reason
-`lambdas/test_csp_policy.py` names those two entries separately from any set comparison: a reader
-holding the arc's end state in mind deletes them on purpose, and would then update a whole-list
-assertion to match the mistake. The failure is **invisible to an already-signed-in session**: the
-authorization-code exchange is the only fetch to the Hosted UI host, a warm tab never makes it, so the
-portal looks perfect to whoever is testing while every new sign-in sits signed out over a live session.
+restoring them on the old reasoning fails a test rather than widening the surface. Until SPEC-262
+deleting them was the highest-consequence mistake available here, invisible to an already-signed-in
+session, because the authorization-code exchange was the browser's only fetch to the Hosted UI host;
+that exchange is the portal server's now.
 
 ## History
 
@@ -60,6 +58,8 @@ portal looks perfect to whoever is testing while every new sign-in sits signed o
 
 - **Changed:** SPEC-262 narrowed `connect-src` to `'self'` and the two buckets, and inverted the test
   that named the Cognito hosts.
+- **Changed:** the completion pass rewrote the section on the Cognito hosts and the sentence on how
+  the root assembles the list, which merge 2 had left stating the old list.
 
 ### 2026-11-13
 

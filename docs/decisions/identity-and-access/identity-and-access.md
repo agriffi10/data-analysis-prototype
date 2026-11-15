@@ -12,7 +12,8 @@ conflation to head off. The `username` principal tag is stamped **server-side fr
 the verified claim**, so it cannot be spoofed; one shared role, isolation by
 `${aws:PrincipalTag/username}`; a SHARED space adds a per-space role-level LF grant, retired
 **with** the tag scoping or not at all. Hosted UI is **Managed Login v2** — the classic one broke the
-post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
+post-signup redirect. The API verifies the bearer the portal server sends on the browser's behalf,
+and assumes that same role for it.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`) — pre-signup applies the rule, which is what

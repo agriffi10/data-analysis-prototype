@@ -19,8 +19,8 @@ neither: it verifies.
 **`OIDC_AUDIENCE` is a set of app client ids** (rewritten 2026-11-13 for SPEC-257, extended
 2026-11-15 for SPEC-262). The portal server signs in with a confidential client of its own, so its ID
 tokens carry that client's id in `aud`; a laptop's dev server signs in with the local-development
-client; and until the public client retires, the rollback image's browser sends the public client's.
-The API accepts every one of them: the `api` module takes
+client. Until merge 2 of SPEC-262 retired the public client, the rollback image's browser sent the
+public client's as well. The API accepts every one of them: the `api` module takes
 a list and renders it comma-separated, and the verifier splits it back into a set and passes it to
 the JWT library as the accepted audiences. Both ends refuse an empty element. Plan-time validation
 refuses an empty list and an id that is empty or holds a comma, and the verifier's configuration
@@ -51,6 +51,8 @@ Detail: `spec-delivery/SPEC-192`.
 
 ### 2026-11-15
 
+- **Changed:** SPEC-262's second merge removed the public client from `OIDC_AUDIENCE`, leaving the
+  server and local-development clients; the completion pass put the paragraph above in the past tense.
 - **Changed:** SPEC-262 added the local-development client to `OIDC_AUDIENCE` and recorded that the
   browser no longer holds a token; the Cognito keys the exclusion spares are read only by the rollback
   image until they retire.

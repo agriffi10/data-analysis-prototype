@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Live checks for the file-operations control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
-# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Tokens are tab-scoped in sessionStorage now, so
-# USAGE step 2 finds nothing. The plane's front door is the API: a signed-in
-# `POST /v1/enqueue/file-ops` stamps the actor from the bearer and refuses a body that carries
-# `actor` itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
+# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Since SPEC-262 the browser holds no token, so
+# USAGE step 2 finds nothing in the page. The plane's front door is the API: a signed-in
+# `POST /api/v1/enqueue/file-ops` from the portal's own page, naming the signed-in user in
+# `x-dq-user`, stamps the actor from the session's token and refuses a body that carries `actor`
+# itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
 # from the signed-in page — the 2026-09-10 section of docs/testing/sessions.md ran every section it
 # reached that way. The sections' EXPECT / PASS text still holds, and so does their DO text except
 # §6's single send-message-batch, which the route cannot express: two POSTs in one Promise.all
