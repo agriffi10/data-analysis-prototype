@@ -4,13 +4,19 @@ id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
 description: "Closes the access gap where a signup or shared-space name could be claimed as the other's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships."
 spec_status: Draft
-depends_on: [SPEC-012, SPEC-051, SPEC-056]
+depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257]
 ---
 
-**Dependency notes:** SPEC-012, SPEC-051, SPEC-056, and the control-plane data-loss audit
-(`audit/control-planes`, commit `394cfce8`), which was **not on `main`** when this spec was written.
-FR-003 to FR-006 read that commit's database marker, and they do not start until it has merged.
-FR-001 and FR-002 depend on nothing else in this list, and FR-001 lands first.
+**Dependency notes:** SPEC-012, SPEC-051, SPEC-056, and SPEC-257, whose confidential server client
+and whose test over `cognito.tf` FR-001 changes. The control-plane data-loss audit this spec was
+written beside merged on 2026-09-26 (#892), so FR-003 to FR-006 read its database marker from
+`main`. FR-001 and FR-002 depend on nothing else in this list, and FR-001 lands first.
+
+**This spec builds before, between or after SPEC-262's two merges, and neither spec waits for the
+other.** SPEC-262 adds a dev client and then destroys the public one. FR-001 is written against
+every app client the infrastructure declares, whichever those are on the day, and its probe and its
+control say which client they use in each case. A client added after FR-001 lands, the dev client
+included, fails FR-001's test until it declares both lists.
 ## Overview
 
 A username and a shared-space name are both used as the name of a Glue database, and there is only
@@ -35,7 +41,8 @@ This spec closes the access half. It has four parts:
 
 A security spec rests on its premises, so each one is stated with where it was read. None was
 exercised against the deployed account. P6 is measured by FR-001 before anything else is built, and
-P3 by FR-006.
+P3 by FR-006. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
+rewritten for what the audit and that spec changed, and the rest stood.
 
 - **P1. One namespace, two writers.** `post_confirmation._ensure_database(username)` and
   `create_space._ensure_database(name)` are the only `create_database` calls in `lambdas/`, and
@@ -79,15 +86,14 @@ P3 by FR-006.
     that database (its marker says it is the space's), along with every table they made there
     believing it was their own.
 - **P5. The forward door leaves a window even after the audit.**
-  - On `main` the create adopts a user's database and goes active, so the creator and every later
-    member carry a tag naming that user's database, permanently.
-  - The audit commit refuses an unmarked database, but only inside `_ensure_database`. That runs
-    **after** `membership.assign_or_find_slot` has written `custom:shared_space_k = <name>` onto the
+  - The create refuses a database that is not the space's own, but only inside `_ensure_database`.
+    That runs **after** `membership.assign_or_find_slot` has written `custom:shared_space_k = <name>` onto the
     creator, and the rollback, `clear_slot`, is best-effort.
   - Every deployed environment runs the `claims` membership source (`MEMBERSHIP_SOURCE` is set
     nowhere in `infra/` or `.github/`). Under it, the API stamps whatever the ID token carries and
     consults no registry.
-  - The SPA client sets no token lifetime, so an ID token lasts Cognito's default of one hour.
+  - An ID token lasts one hour on either client. The public client sets no lifetime and takes
+    Cognito's default, and the server client declares 60 minutes.
   - So a creator who refreshes their token inside the window keeps that user's catalog for an hour.
     They can reopen the window at will: the owner of a failed, never-active create may run it
     again (`registry._resolve_reserve_collision`).
@@ -95,8 +101,10 @@ P3 by FR-006.
     index is written after the space goes active.
 - **P6. The membership slot is very likely writable by the user it belongs to, and by anyone at
   sign-up.**
-  - **The client does not say.** `aws_cognito_user_pool_client.spa` sets neither
-    `read_attributes` nor `write_attributes`.
+  - **No client says.** The `auth` module declares two app clients, the public `spa` client and the
+    confidential `server` client, and neither sets `read_attributes` or `write_attributes`. A test
+    holds them to that (`lambdas/test_session_infrastructure.py`), for a reason FR-001 keeps: a
+    read list that omits a slot drops that slot's claim from the ID token.
   - **AWS's two documents disagree on what that means.** The developer guide says a new client
     gets "read and write permissions for all standard and custom attributes". The API reference
     says an unset list means standard attributes only.
@@ -104,11 +112,19 @@ P3 by FR-006.
     `custom:shared_space_k`, and Cognito includes a claim only for an attribute the client can
     read. Nothing suggests writes behave differently.
   - **Two paths write, and one needs no account.**
-    - `SignUp` takes attributes, subject to the same write list, and needs only the public client
-      id. Anyone can sign up already carrying `custom:shared_space_1 = <any space>`, confirm, and
-      sign in with that tag.
+    - `SignUp` takes attributes, subject to the same write list, and through the public client it
+      needs only that client's id. Anyone can sign up already carrying
+      `custom:shared_space_1 = <any space>`, confirm, and sign in with that tag.
     - An existing user can call `UpdateUserAttributes` with a token from `ALLOW_USER_SRP_AUTH`,
-      which carries `aws.cognito.signin.user.admin`.
+      which carries `aws.cognito.signin.user.admin`. The public client allows that flow with no
+      secret.
+  - **Destroying the public client narrows this and does not close it.** After SPEC-262's second
+    merge every client has a secret, and an API request to such a client must carry a hash of it
+    (AWS developer guide, *Computing secret hash values*, which lists `SignUp` and `InitiateAuth`).
+    Both paths above then need a secret that the server and anyone who can read the dev client's
+    parameter hold. Sign-up through the managed-login page stays open to everyone, and whether a
+    crafted form can carry a `custom:` attribute through it is not measured. So FR-001 is needed on
+    either side of that merge.
   - **What a written slot reaches.** A slot naming a space gets that space's objects and catalog.
     A slot naming a user gets that user's catalog through `SharedSpaceGlue`.
   - The `cognito.tf` comment "Only the orchestrator role writes these" is a claim that nothing
@@ -134,7 +150,7 @@ P3 by FR-006.
 
 ### In Scope
 
-- FR-001: the SPA client declares which attributes it may read and write, so the membership slots
+- FR-001: every app client declares which attributes it may read and write, so the membership slots
   cannot be written at sign-up or afterwards. Measured live before and after.
 - FR-002: sign-up refuses a username that already names a Glue database.
 - FR-003: provisioning never takes over a space's database, and a user found holding one is
@@ -185,22 +201,50 @@ P3 by FR-006.
 
 #### Description:
 
-`aws_cognito_user_pool_client.spa` declares two lists:
-- `write_attributes = ["email"]`. Email is the one attribute sign-up collects, and it is required.
-- `read_attributes`: `email`, `email_verified`, and every `custom:shared_space_k` for `k` in
-  `1..max_shared_memberships`, built from the same `range` expression the pool schema uses. The
-  API's `claims` source reads those slots from the ID token, and the header reads the email.
+Every `aws_cognito_user_pool_client` under `infra/` declares two lists. Today those clients are
+`spa` and `server`, both in `infra/modules/auth/cognito.tf`, which is where the local below lives;
+a client added later, in any file of that module, declares them too, and the test below fails
+until it does.
+- `write_attributes = ["email"]`, written as that literal on each client. Email is the one
+  attribute sign-up collects, and it is required.
+- `read_attributes = local.client_read_attributes`, one local that every client references:
+  `email`, `email_verified`, and every `custom:shared_space_k` for `k` in
+  `1..max_shared_memberships`. The API's `claims` source reads those slots from the ID token,
+  whichever client issued it, and the header reads the email. The local is exactly this, and its
+  `range` is the one the pool schema's `for_each` uses:
 
-Both lists are set together. Setting only the write list could send the read list back to a default
-that one of AWS's documents says excludes custom attributes, which would remove every space from
-every token.
+```hcl
+client_read_attributes = concat(
+  ["email", "email_verified"],
+  [for k in range(1, var.max_shared_memberships + 1) : "custom:shared_space_${k}"],
+)
+```
 
-Pre-signup also refuses any sign-up whose `request.userAttributes` carries a `custom:` key. This is
-a second layer behind the write list, and it keeps a live sign-up probe from creating an account.
+Both lists are set together, on every client, in one apply. Setting only the write list could send
+the read list back to a default that one of AWS's documents says excludes custom attributes, which
+would remove every space from every token.
+
+**This replaces an assertion and keeps its reason.**
+`test_the_server_client_mirrors_the_spa_client_and_differs_only_where_it_must` asserts that neither
+client carries either list, because a list that omits a slot drops that slot's claim, and a dropped
+claim presents as the documented propagation delay and not as a fault. FR-001's test asserts the
+stronger thing, that both lists are present and the read list covers every slot, so that assertion
+is deleted and the mirror test's other assertions stay.
+
+Pre-signup also refuses any sign-up whose `request.userAttributes` carries a `custom:` key,
+whichever client or page it came through and whatever the trigger source. This is a second layer
+behind the write list, and it keeps a live sign-up probe from creating an account. The check makes
+no AWS call and runs before the Glue read FR-002 adds. It refuses with **"Sign-up could not be
+completed."**, a sentence only someone sending such an attribute ever sees, and records the
+username with reason `custom-attribute`, never the attribute's name or value.
 
 The premise is measured before the change with a **probe that changes nothing**:
-- It is a short Node script using the portal's own `aws-amplify`.
-- It signs in by SRP with a test account. Andrew types the password; the session never handles it.
+- It is a short throwaway Python script that uses `pycognito`, in a virtual environment outside the
+  repository, so it adds no dependency. `pycognito` signs in by SRP and sends the secret hash when
+  it is given a client secret, so one script serves a client with a secret and one without.
+- It signs in with a test account through the public client while that client exists, and through
+  SPEC-262's dev client once it does not. Andrew types the password, and for the dev client
+  supplies its secret from his own shell; the session never handles either.
 - It reads the account's attributes and picks a slot that is already empty.
 - It calls `UpdateUserAttributes` setting that slot to the empty string. `clear_slot` writes that
   same value, and `_from_claims` ignores it.
@@ -209,29 +253,82 @@ The probe has one "not writable" verdict: `NotAuthorizedException` whose message
 an unauthorized attribute. Cognito uses the same code for a missing scope and for a bad token, so
 any other outcome is inconclusive and is treated as writable.
 
+The probe runs against one client, and the others are read. An unset list is the same setting on
+every client, so one client's answer before the apply says what the default means for all of them.
+After the apply the probe shows the list refusing on that client, and
+`describe-user-pool-client` shows it on each: that call returns `WriteAttributes` and
+`ReadAttributes` only for a client whose lists were set (AWS API reference,
+`CreateUserPoolClient`), so a returned list is positive evidence and a missing one is a failure.
+
 #### Acceptance Criteria:
 
-- [ ] Before the apply, Andrew runs the probe against the deployed pool. The outcome is recorded
-  with the error code and message quoted, along with the verdict the rule above gives it.
-- [ ] A test over `infra/modules/auth/cognito.tf` in the lambdas suite fails unless `write_attributes`
-  is exactly `["email"]`. It reads the list's literal elements, so `concat` or a reference to a
-  local cannot hide a `custom:` entry.
-- [ ] The same test fails, naming the missing slot, when `read_attributes` does not cover every
-  `k` in `1..max_shared_memberships`. It checks the `range` bounds rather than a hand-written
-  list.
-- [ ] Three planted defects each turn that test red, and each is reverted:
-  - deleting `write_attributes`;
-  - adding `"custom:shared_space_1"` to it;
-  - changing the read range to `range(1, var.max_shared_memberships)`, one short.
-- [ ] Unit: pre-signup refuses a sign-up carrying any `custom:` attribute, and admits one carrying
-  only `email`.
-- [ ] `tofu plan` shows the client updated in place, and neither the pool nor the client replaced.
+- [ ] Before the apply, Andrew runs the probe against the deployed pool, as a test account he
+  names. The outcome is recorded in the delivery doc with the client it signed in through and the
+  error code and message quoted, along with the verdict the rule above gives it.
+- [ ] A test in `lambdas/test_session_infrastructure.py` visits every `aws_cognito_user_pool_client` block in every `.tf`
+  file under `infra/`, as `test_every_rotation_block_states_its_grace_period` visits its blocks,
+  and fails, naming the client, unless its `write_attributes` is exactly `["email"]`. It reads the
+  list's literal elements, so `concat` or a reference to a local cannot hide a `custom:` entry.
+- [ ] The same test fails, naming the client, unless its `read_attributes` is the reference
+  `local.client_read_attributes`. It fails, naming the local, unless that local with its
+  whitespace collapsed is exactly the expression in the Description, and unless the `range(...)` in
+  it is character for character the one in the pool schema's `for_each`. The whole expression is
+  pinned because the bounds alone prove nothing: a filter on `k`, or a slot name without `custom:`,
+  keeps the bounds and drops claims.
+- [ ] The mirror test no longer asserts that the lists are absent, and its other assertions pass
+  unchanged.
+- [ ] Seven planted defects each turn that test red by its own message, naming the client or the
+  local, and each is reverted. Another test going red beside it does not count.
+  - deleting `write_attributes` from one client;
+  - adding `"custom:shared_space_1"` to one client's;
+  - changing the local's range to `range(1, var.max_shared_memberships)`, one short;
+  - adding `if k != 3` to the local's comprehension;
+  - dropping `custom:` from the local's slot name;
+  - changing the pool schema's `for_each` to `range(1, var.max_shared_memberships + 2)`, which is
+    the one plant the range comparison alone catches;
+  - adding a client block that declares neither list, in a new `.tf` file beside `cognito.tf`.
+- [ ] Unit: pre-signup refuses a sign-up carrying any `custom:` attribute, a slot or not and
+  whatever its value, with "Sign-up could not be completed." and reason `custom-attribute`, for
+  `PreSignUp_SignUp` and `PreSignUp_AdminCreateUser` alike. The record carries the username and
+  neither the attribute's name nor its value. It admits a sign-up carrying only `email`, and the
+  keep-warm payload still passes.
+- [ ] The CI plan shows every client updated in place, and neither the pool nor any client
+  replaced. A replaced client is a new client id, which would end every session held under the old
+  one.
 - [ ] After the apply, the probe returns the "not writable" verdict.
-- [ ] After the apply, a sign-up that submits `custom:shared_space_1` is refused. The record says
-  which layer refused it: Cognito's write list, or pre-signup.
-- [ ] After the apply, as the control, a member signs in fresh, with an ID token whose `iat` is
-  later than the apply. That token carries their slot claim, their shared space opens in the
-  portal, and the header shows their email.
+- [ ] After the apply, `describe-user-pool-client` for every client the module declares returns a
+  `WriteAttributes` of exactly `email` and a `ReadAttributes` naming `email`, `email_verified` and
+  every slot.
+- [ ] After the apply, and before the sign-up check below, the deployed pre-signup function is
+  invoked directly with a sign-up event that carries a `custom:` attribute, and answers "Sign-up
+  could not be completed." A merge does not prove a deploy, and without the refusal deployed a
+  write list that does not guard sign-up would let the check create an account.
+- [ ] After the apply, a `SignUp` request with a fresh, well-formed username that submits
+  `custom:shared_space_1` creates no account. Andrew sends it with `aws cognito-idp sign-up`, to
+  the client the probe used, with a secret hash where that client has a secret, an email address
+  of his and a password from his own shell. The slot's value is `0`, which the catalog rule
+  refuses as a name, so a slot carrying it could never match a space. The refusal is recorded with
+  its code and message, and it is one of two. Any other outcome fails this criterion, and an
+  account it created is deleted.
+  - **Cognito's `NotAuthorizedException` about an attribute the client may not write.** The write
+    list refused at sign-up. This is the expected answer.
+  - **Pre-signup's "Sign-up could not be completed."** Cognito handed the attribute to the
+    trigger, so the write list has not been shown to guard sign-up, and pre-signup is the only
+    layer shown to. Phase 6's fence then names pre-signup, and not the write list, as what closes
+    sign-up, and the delivery doc says the write list is proven for `UpdateUserAttributes` only.
+- [ ] After the apply, as the control, a member signs in fresh, through each client a browser can
+  sign in through on that day, in a sign-in that starts after the apply. The web tier is on for
+  it. Through each one a listing of their shared space's files succeeds, which it cannot without
+  the slot claim, and their email is shown:
+  - the server client, in every state: in the portal once the browser signs in through the
+    server, and before that through `/auth/login`, with the listing sent as the request the portal
+    itself makes for it, `/api` put in front of its path, and the email read from
+    `GET /auth/session`;
+  - the public client, only while the portal signs in through Amplify: in the portal;
+  - the dev client, once it exists: under `next dev`.
+
+  Between SPEC-262's two merges the public client still exists and no browser signs in through it,
+  so `describe-user-pool-client` is its only evidence.
 - [ ] If the probe before the apply had any verdict other than "not writable", FR-006's report runs
   against the deployed account before this spec closes. A slot someone already wrote for
   themselves survives FR-001.
@@ -283,6 +380,8 @@ prefix.
 - [ ] Unit: a throttle and a timeout each refuse with the try-again sentence, and neither admits the
   name.
 - [ ] Unit: `EntityNotFoundException` admits the name and returns the event unchanged.
+- [ ] Unit: a sign-up carrying a `custom:` attribute is refused by FR-001's check with no Glue call
+  made.
 - [ ] Unit: the check runs for `PreSignUp_AdminCreateUser` as well as `PreSignUp_SignUp`.
 - [ ] Unit: the record carries the username and the reason, and does not contain the email address.
 - [ ] The singleton import-safety test still passes, with pre-signup's allowlist unchanged at
@@ -597,7 +696,7 @@ on the managed-login page.
 ```text
 pre-signup, name exists or unreadable:   "That username is not available."
 pre-signup, Glue throttled or timed out: "Sign-up is briefly unavailable. Please try again in a minute."
-pre-signup, a custom: attribute sent:    refused before the Glue read
+pre-signup, a custom: attribute sent:    "Sign-up could not be completed."   reason="custom-attribute"
 create, user, space or foreign db holds it: "name already taken"   (unchanged sentence)
                                            cache entry retryable: false
 post-confirmation, space-marked db:      reason="username-is-a-space", user disabled
@@ -609,13 +708,15 @@ post-confirmation, disable failed twice: reason="collision-uncontained"
 
 ```
 infra/modules/auth/
-├── cognito.tf                                    # FR-001 read/write attributes
+├── cognito.tf                                    # FR-001 read/write attributes on every client
 ├── lambda.tf                                     # FR-002, FR-003 timeouts and memory
 └── policies/
     ├── pre-signup-permissions.json.tftpl         # FR-002 glue:GetDatabase
     └── post-confirmation-permissions.json.tftpl  # FR-003 cognito-idp:AdminDisableUser
-infra/modules/shared-spaces/                      # FR-006 one-shot function; ListLakeFormationOptIns
+infra/plane-shared-spaces.tf                      # FR-006 one-shot function, in the plane's function map
+infra/planes/shared-spaces/execution.json.tftpl   # FR-006 ListLakeFormationOptIns
 lambdas/
+├── test_session_infrastructure.py                # FR-001 the mirror test's absent-lists assertion goes
 ├── control-plane-common/cpcommon/markers.py      # FR-003 marker key, one declaration (new)
 ├── control-plane-common/test_layer_import_safety.py   # FR-003 post-confirmation allowlist
 ├── pre-signup/pre_signup.py                      # FR-001 custom: refusal, FR-002 Glue read
@@ -637,9 +738,15 @@ apps/portal/src/features/
 ### Phase 1: The slot is not writable (FR-001)
 
 - Andrew runs the probe against the deployed pool, and the outcome is recorded.
-- Add both attribute lists to the client and the test over `cognito.tf`, plus pre-signup's refusal
-  of `custom:` attributes.
-- Apply, re-run the probe, run the sign-up check, and run the fresh-sign-in control.
+- Add both attribute lists to every client and the test over `cognito.tf`, delete the mirror test's
+  absent-lists assertion, and add pre-signup's refusal of `custom:` attributes.
+- In the same change, correct the two `cognito.tf` comments the lists make wrong or make true: the
+  one above the server client, which says neither client carries a read list, and the slot
+  comment's "Only the orchestrator role writes these".
+- Apply, re-run the probe, read every client's lists, confirm the deployed pre-signup refuses a
+  `custom:` attribute, and only then run the sign-up check.
+- Switch the web tier on through the repository variable and CI, run the fresh-sign-in control
+  through each client, and switch the tier off the same way.
 - This phase depends on nothing else in the spec and is the most urgent. It lands on its own, first.
 
 ### Phase 2: IAM before the code that needs it
@@ -660,7 +767,6 @@ apps/portal/src/features/
 
 ### Phase 4: The report (FR-006)
 
-- Starts once the audit commit is on `main`.
 - The function, the workflow, and one run against the deployed account.
 - Record the counts, and handle any finding by hand.
 
@@ -680,12 +786,11 @@ apps/portal/src/features/
 - A register entry in `docs/decisions/control-planes/`, and one in
   `docs/decisions/identity-and-access/`.
 - Clauses in the identity fences:
-  - The slot claims are an authorization input only because the client cannot write them.
+  - The slot claims are an authorization input only because no client can write them.
   - A name is a user's or a space's, and pre-signup and create are the two doors.
 - Mark as superseded, in place, `transition_plan.md` §6.1's "this repo's app client sets neither"
   and the sentence in §3.12 item 3 saying no fence exists.
 - Update:
-  - the `cognito.tf` slot comment, which FR-001 makes true;
   - `infra/modules/auth/README.md`;
   - the pre-signup and post-confirmation sizing comments in `lambda.tf`;
   - the `analytics/lakeformation.tf` credential-vending comment, if FR-006's opt-in read
