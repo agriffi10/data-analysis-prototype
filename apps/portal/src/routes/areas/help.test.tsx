@@ -117,6 +117,8 @@ describe('Help on the App Router', () => {
     await waitFor(() => expect(helpRail()).not.toBeNull());
     expect(currentSection()).toMatch(section);
     expect(location().hash).toBe(hash);
+    // The address too: a router push that dropped the hash would leave a reload or a shared link at the first section.
+    expect(window.location.hash).toBe(hash);
     expect(ownContent()).not.toBeInTheDocument();
     expect(requests()).toEqual(['/help']);
   });
