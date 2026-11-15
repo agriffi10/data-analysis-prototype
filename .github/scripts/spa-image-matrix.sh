@@ -517,6 +517,8 @@ refusal() {
 
 # EVERY required key, one at a time, unset and then empty: an unset repository variable and an
 # unset task variable both arrive as the empty string.
+# With one required key the remainder is empty, and bash 3.2 (macOS's) reads an empty array as
+# unset under `set -u`, so the remainders below expand through `${x[@]+...}`.
 for held_out in "${REQUIRED_ENV[@]}"; do
   case "$held_out" in -e) continue ;; esac
   key="${held_out%%=*}"
@@ -527,8 +529,8 @@ for held_out in "${REQUIRED_ENV[@]}"; do
     without+=(-e "$entry")
   done
 
-  refusal "$key UNSET" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
-  refusal "$key EMPTY" "$key" "${SESSION_ENV[@]}" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key UNSET" "$key" "${SESSION_ENV[@]}" ${without[@]+"${without[@]}"} -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key EMPTY" "$key" "${SESSION_ENV[@]}" ${without[@]+"${without[@]}"} -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 done
 
 # EVERY session setting, one at a time, unset and then empty, and a credential URL the server would
@@ -563,7 +565,7 @@ for entry in "${REQUIRED_ENV[@]}"; do
   case "$entry" in -e|CONFIG_userSpaceBucket=*) continue ;; esac
   without_bucket+=(-e "$entry")
 done
-refusal "CONFIG_userSpaceBucket only whitespace" CONFIG_userSpaceBucket "${SESSION_ENV[@]}" "${without_bucket[@]}" -e "CONFIG_userSpaceBucket=  " \
+refusal "CONFIG_userSpaceBucket only whitespace" CONFIG_userSpaceBucket "${SESSION_ENV[@]}" ${without_bucket[@]+"${without_bucket[@]}"} -e "CONFIG_userSpaceBucket=  " \
   -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
 refusal "connect-src UNSET" PORTAL_CSP_CONNECT_SRC "${SESSION_ENV[@]}" "${REQUIRED_ENV[@]}"
 # A `;` would append a directive of the sender's choosing to every page's policy.
