@@ -2718,6 +2718,11 @@ and that is fine.
   transformed from a mail or UPN — and point `local.oidc_username_claim` at the claim it emits. The
   server and the API's verifier both read that one local, so it is a one-line change; left at
   `cognito:username`, a federated user's username is the synthetic `{providerName}_<subject>`.
+  **Two steps go before that line changes.** The server's `OIDC_USERNAME_CLAIM` is optional and
+  falls back to `cognito:username`, so a stale environment keeps the old claim silently while the
+  API reads the new one — the browser builds prefixes from one name and the API attributes requests
+  to another. So promote it into the server's required `SESSION_VARIABLES` once a task definition
+  carrying it is live, and have every developer rerun `npm run dev:session-env` after the change.
 - **A custom attribute only if that choice needs one** — never as the key itself (§6.1) — and then listed in every client's
   `write_attributes`, because a mapped attribute the client cannot write is silently not set. Not
   `custom:portal_username` by default, and never `custom:shared_space_*`: membership comes from the
@@ -2728,7 +2733,10 @@ and that is fine.
   `OIDC_IDENTITY_PROVIDER` to the provider's name in the pool. Unset, `authorizeUrl` sends no
   `identity_provider`, and AWS's authorize-endpoint page sends such a request to Managed Login — a
   Cognito screen the user should never see. The setting exists since 2026-11-15; Terraform does not
-  render it yet, because no provider exists to name.
+  render it yet, because no provider exists to name. **Render it in the same apply that adds the
+  provider to every client's `supported_identity_providers`**: Cognito rejects an `identity_provider`
+  the client does not list, and the value reaches the dev client too, through
+  `dev_session_environment`.
 - The Next.js server's sign-in client is otherwise right as built — those two settings aside: it was
   built against Cognito (SPEC-257), and under [B] it never talks to anything else. The API's verifier configuration points
   at the pool's issuer, and the server forwards the Cognito ID token as the bearer, as it does today.
