@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 // `expect.extend` registers `toHaveNoViolations` at runtime so every test can
 // assert axe results without a per-file import; its TypeScript types are
 // declared in `src/vitest-axe.d.ts`.
-import {afterAll, beforeEach, expect, onTestFinished, vi} from 'vitest';
+import {afterAll, afterEach, beforeEach, expect, onTestFinished, vi} from 'vitest';
 import * as axeMatchers from 'vitest-axe/matchers';
 import {notifyManager} from '@tanstack/query-core';
 import {memoryStorage} from './test/storage';
@@ -66,6 +66,28 @@ try {
   (globalThis as {localStorage: Storage}).localStorage = baselineLocalStorage;
 }
 
+/**
+ * Put the real clock back after every test, whatever the test did with it.
+ *
+ * When Vitest times a test out it abandons the test's promise, so a `finally` that restores the
+ * clock does not run before the next test starts, and may never run. The fake clock left behind
+ * can stall a later test's `waitFor` until another test swaps the clock. A test abandoned inside
+ * an `act()` also leaves that scope open, and every later render queues behind it. Measured with
+ * an `act()` slowed past the test timeout, the scope closed and the file recovered once this
+ * restore was in place, and the file stayed red to its last test without it. An `act()` that
+ * never settles cannot be closed from here, and its file stays red either way.
+ *
+ * Restoring the clock also lets the abandoned body resume during a later test, where its
+ * remaining work and its `finally` still run. A failure just after a timeout can be that work,
+ * not a regression in the test that failed.
+ *
+ * Here rather than in each file because every fake-clock test can leak it. It runs after a file's
+ * own `afterEach` hooks, which still see their clock, and before any `onTestFinished`.
+ */
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
   resetColorScheme();
   try {
@@ -78,8 +100,10 @@ beforeEach(() => {
 /**
  * `setTimeout` as it stood before any test could install a fake clock.
  *
- * The drain below has to be a REAL macrotask. A test that leaves `vi.useFakeTimers()` installed
- * would otherwise park the hook on a clock nothing ever advances, and it would fail on its own
+ * The drain below has to be a REAL macrotask. The `afterEach` above restores the clock before the
+ * drain runs, but a clock can still be installed after it: by another `onTestFinished`, or by a
+ * timed-out test's body that resumes while the drain is yielding. A drain on the ambient
+ * `setTimeout` would then park on a clock nothing ever advances, and it would fail on its own
  * timeout instead of draining. Nothing is lost by stepping around the fake clock: a fake timer
  * still pending when `vi.useRealTimers()` runs is discarded and never fires at all, so it can
  * never reach a torn-down environment either way.
