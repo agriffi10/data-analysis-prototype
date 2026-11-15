@@ -128,7 +128,7 @@ flowchart TB
   BR -->|"pages, /auth/* and /api/* · one origin, httpOnly cookie"| WEB
   WEB <--> DDB
   WEB -->|"1 · CreateTokenWithIAM<br/>jwt-bearer ONCE at sign-in, assertion = the Entra ID token<br/>then the refresh_token grant (1r)"| IDC
-  WEB -->|"/api/ pass-through, server to server, SigV4-signed<br/>the API answers no one else<br/>bearer = an Entra access token for the portal's own scope<br/>+ the identity context"| APIGW
+  WEB -->|"/api/ pass-through, server to server<br/>bearer = an Entra access token for the portal's own scope<br/>+ the identity context, KMS-sealed to the bearer's subject"| APIGW
   APIGW --> API
 
   API -->|"enqueue · the API's own role"| SQS

@@ -35,9 +35,9 @@ performs the Identity Center exchange. The API Lambda stays the resource server:
 caller and, in Phase 5, assumes the carrier role from the identity context the server forwards. Two
 pieces of compute, each doing what it already does, so Phase 5 adds one call to each rather than a
 component (§4.7 carries the split and the alternatives it beat). The work that bridges the gap is
-named where it lands: the provider-agnostic sign-in client in Phase 1, the API answering only the
-server in Phase 5's list (buildable here once SPEC-262 lands), and gate G10 — the exchange split,
-tested — in Phase 0.
+named where it lands: the provider-agnostic sign-in client in Phase 1 (buildable here once
+SPEC-262 lands), gate G10 — the exchange split, tested — in Phase 0, and Phase 5's two exchange
+specs, written after G10.
 
 ## Two variants of the identity plane
 
@@ -272,10 +272,12 @@ Treated as inputs. Do not re-litigate without new information.
     Decided 2026-11-13: the container runs the **Next.js server** on Node rather than nginx serving
     static files, landing in the Next.js arc (SPEC-255).
 11. **The token-exchange backend is the portal's Next.js server, and there is no BFF Lambda —
-    SETTLED 2026-11-15.** The server holds the opaque cookie, the provider's code exchange, the
-    token store and, in Phase 5, `CreateTokenWithIAM`; the API stays a **Lambda behind API Gateway**
-    that verifies the bearer the server's `/api/` pass-through forwards and assumes the role. §4.7
-    carries the split and why it beat the alternatives, and every state rule there stands. *History,
+    SETTLED 2026-11-15.** The server holds the opaque cookie, the provider's code exchange and the
+    token store, and is the only writer of the session; the API stays a **Lambda behind API
+    Gateway** that verifies the bearer the server's `/api/` pass-through forwards and assumes the
+    role. **Which of the two calls `CreateTokenWithIAM` is provisional until gate G10**: the server
+    by default, the API if G10 fails. §4.7 carries the split and why it beat the alternatives, and
+    every state rule there stands. *History,
     kept because each placement had a reason: the backend was first to share the SPA's container;
     Arc B moved it into the API Lambda, because no server sat beside a static SPA; the Next.js arc
     put a server there again on 2026-11-13, and the session went to it.*
@@ -493,7 +495,8 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
 ### 3.5 The token flow, and why the backend holds state
 
 ```
-1. CreateTokenWithIAM              [the Next.js server, SigV4 by its task role, ONCE at sign-in]
+1. CreateTokenWithIAM              [the Next.js server, SigV4 by its task role, ONCE at sign-in;
+                                    the API's role instead if G10 fails — §4.7]
        IAM action = sso-oauth:CreateTokenWithIAM  (the ENDPOINT and CLI are sso-oidc;
                                                    the action prefix is NOT. Verified 2026-08-19)
        grant_type = urn:ietf:params:oauth:grant-type:jwt-bearer
@@ -1840,9 +1843,9 @@ compute that already exist, along the line between the session and the data.**
 | | The Next.js server — the BFF | The API Lambda — the resource server |
 |---|---|---|
 | Owns | The opaque cookie, `/auth/*`, the provider's code exchange and refresh, the session item | Every request-path AWS call: the role assumption, Athena, Glue, Access Grants, presigning, the enqueues |
-| Identity Center | **Step 1** at sign-in and **step 1r** before the context lapses (§3.5); stores the tokens in the session item | **Step 2** per request, from the identity context the server forwards; **step 3** |
-| Its role may | Read and write the session table, use its key, call `sso-oauth:CreateTokenWithIAM` on the portal's application, invoke the API — **no data access at all** | Assume the carrier role with `sts:SetContext` (and, until Phase 5 retires it, the shared portal role with its session tags); its existing enqueue grants |
-| Forwards / receives | The bearer and the identity context, server to server, on the `/api/` pass-through | Answers only the server; verifies the bearer for **who**; hands the context to STS for **what they may reach** |
+| Identity Center | **Step 1** at sign-in and **step 1r** before the context lapses (§3.5), unless G10 moves the call (below); stores the tokens in the session item either way | **Step 2** per request, from the identity context the server forwards; **step 3** |
+| Its role may | Read and write the session table, use its key, call `sso-oauth:CreateTokenWithIAM` on the portal's application, encrypt with the sealing key — **no data access at all** | Assume the carrier role with `sts:SetContext` (and, until Phase 5 retires it, the shared portal role with its session tags); decrypt with the sealing key; its existing enqueue grants |
+| Forwards / receives | The bearer and the context **sealed to the bearer's subject** (below), server to server, on the `/api/` pass-through | Verifies the bearer for **who**; unseals the context with that bearer's subject and hands it to STS for **what they may reach** |
 
 **Why the split falls there.** Step 1's assertion is single-use and its refresh token is session
 state, so the exchange belongs beside the session store, and the server already owns that store, its
@@ -1851,44 +1854,54 @@ minted where they are spent, so they never cross a network hop, and the API alre
 per request from a verified claim (SPEC-196). Each component gains **one call** in Phase 5, and the
 web tier never holds a credential that can read client data.
 
-**The three alternatives it beat:**
+**The alternatives it beat:**
 
-- **The exchange in the API Lambda** — Arc B's placement. The single-use assertion forces state, so
-  the Lambda would need a second session store or write access to the server's: two writers of one
-  item, in two languages, under compare-and-set rules written once.
+- **The exchange and its state in the API Lambda** — Arc B's placement. The single-use assertion
+  forces state, so the Lambda would need a second session store or write access to the server's:
+  two writers of one item, in two languages, under compare-and-set rules written once.
 - **Everything in the Next.js server, and the API retired.** The only option that removes a
   component, and the most expensive: it rewrites the Python API — the object surface, the catalog,
   the eleven enqueue routes and `cpcommon` — in TypeScript, and puts the AWS SDK and the carrier role
   in the web container. Revisit it only if the client environment refuses Lambda.
 - **The server assumes the carrier role and forwards the credentials.** Credentials in a header, and
   the web tier holding a person's whole Lake Formation grant set.
+- **The server invokes the Lambda directly, with no API Gateway.** It removes the public endpoint,
+  but it admits any principal in the account allowed `lambda:InvokeFunction`, touches the "one HTTP
+  API" fence and loses the access log. Considered, not better.
 
-**Nothing binds the forwarded context to the bearer, and the API cannot check it — so only the
-server may reach the API.** STS validates the assertion, so a context cannot be forged. But the API
-cannot read whose it is: AWS calls the context opaque, and documents no key set for the Identity
-Center `idToken` that carries it. Data access follows the **context's** user — Access Grants and
-Lake Formation evaluate it, not the bearer — so a caller holding any valid bearer and someone
-else's context reaches that person's data. The server pairs the two from one session item, and that
-pairing is the binding; it holds only if nothing but the server can present the pair. Once SPEC-262
-lands the browser holds neither, but the API is still a public endpoint, and a context that leaks
-from a log or a stack trace would be presentable by anyone with a bearer. **So the API must answer
-only the portal server** before any request carries a context — for example API Gateway's IAM
-authorization on its one route, with the pass-through signing as the task role, which reads a
-SigV4 signature rather than the bearer and so is not a second reader of the token — and the
-identity context is
-handled as a credential: never logged, never in a response. G10 also asks whether anything an
-identity-enhanced session can call reveals its Identity Center user, which would let the API add a
-binding check of its own. The context is at most 2,048 characters (STS `ProvidedContext`), which
-the HTTP API's header budget has to absorb beside the bearer.
+**The forwarded context is sealed to its bearer, because nothing else binds them.** STS validates
+the assertion, so a context cannot be forged. But the API cannot read whose it is: AWS calls the
+context opaque, and documents no key set for the Identity Center `idToken` that carries it. Data
+access follows the **context's** user — Access Grants and Lake Formation evaluate it, not the
+bearer — so a caller holding any valid bearer and someone else's context would reach that person's
+data. **So the server never forwards the raw context.** It encrypts it under a KMS key with an
+encryption context naming the bearer's subject (`sub`), and only the API's role may decrypt; the
+API decrypts with the subject of the bearer it has just verified, and a context paired with any
+other bearer decrypts to nothing. The binding then holds whoever can reach the API, and a sealed
+context that leaks from a log is useless without its own user's bearer. The cost is one KMS call
+per request on each side, or a cache keyed on the sealed value. *(Reviewed 2026-11-15: an earlier
+draft of this paragraph made the API answer only the server through API Gateway's IAM authorization
+instead. That does not deliver it — an HTTP API has no resource policy, so IAM authorization admits
+any principal in the account allowed `execute-api:Invoke` — and SigV4 would take the
+`Authorization` header the API reads the bearer from.)* The sealed context and the bearer share the
+HTTP API's **10,240-byte** limit on the request line and headers, which cannot be raised: a sealed
+2,048-character context grows by KMS's overhead and base64, so keep group claims out of the portal
+scope's access token.
 
 **One premise is undocumented, and the split rests on it (gate G10).** Every AWS example has one role
 call both `CreateTokenWithIAM` and `AssumeRole`. Nothing documented binds a context to the principal
 that obtained it — its documented bindings are the application, the instance, the identity store and
-the user — but nothing says a second principal may present it either. Phase 0 tests exactly this
-split. **If it fails**, the least-bad fallback is the third alternative above, narrowed: the server
-assumes the carrier role and forwards the session's short-lived credentials to the API, which still
-makes every data call. A forwarded one-hour credential is worse than none and better than moving
-the API into the web tier.
+the user — but nothing says a second principal may present it either. Phase 0 tests exactly this.
+**So which component calls `CreateTokenWithIAM` stays open until G10 runs; the rest of the split
+does not.** The primary is the server. **If G10 fails**, the fallback keeps every property that
+matters: **the API mints and the server stores.** The API's role calls `CreateTokenWithIAM` — the
+JWT-bearer grant at sign-in and the refresh grant after — through two server-only routes, returns
+the results to the server, which stays the only writer of the session item, and then assumes the
+carrier role itself, so one role makes both calls, as every AWS example does. The cost is the
+provider assertion and the Identity Center refresh token crossing one more server-to-server hop,
+and the API becoming an OAuth client of Identity Center where today it is only a verifier. *(The
+first fallback written here forwarded the carrier session's credentials from the server; it lost
+to this one at review, because no data credential then leaves the API.)*
 
 **Everything this section says about STATE is unchanged, and is more load-bearing rather than
 less.**
@@ -1910,24 +1923,47 @@ less.**
   so this is a rule to enforce rather than a property it gets free: it keeps no session in memory
   (SPEC-257 holds it to that, with a test).
 - **The Identity Center tokens join the existing item**, refreshed under the same compare-and-set
-  as the provider's and ended by the same rule: only a refusal of the refresh token, a missing item
-  or the session's expiry ends a session, and an Identity Center fault answers "unavailable".
+  as the provider's. **The provider's refresh token still decides the session's life**: only the
+  provider refusing it, a missing item or the session's expiry ends a session.
+- **Identity Center is a separate failure, and never a sign-out.** The Phase 5 spec carries a table
+  sorting Identity Center's answers into refusals and faults; whichever it is, a sign-in whose
+  exchange fails still creates the session, with the context marked absent, so the user reaches
+  everything the context does not gate and the server retries the exchange later. Without that, an
+  Identity Center outage, throttling in a login storm, or a user SCIM has not yet provisioned —
+  there is no just-in-time provisioning — would block sign-in outright. Routes that need the
+  context answer a code of their own while it is absent.
+- **A lapsed context must not read as a lapsed session.** The pass-through relays the API's 401
+  unchanged, and the browser answers a 401 with one forced refresh and then a sign-out. So the
+  server refreshes the context on the same 300-second margin it uses for the provider's token, a
+  forced refresh renews both, and an STS refusal of a stale context answers a code other than 401.
+- **Ordering invariant:** step 1r runs, and a context is forwarded, only while the provider's token
+  is valid. A context refreshed on its own clock would extend data access past the provider's.
+- **The API's credential cache is keyed on the context, not the claims.** It already caches an
+  assumed session per container, keyed on the tags derived from the bearer. A carrier session keyed
+  the same way would ignore a refreshed context with narrower entitlements for up to an hour, so the
+  key is a digest of the context and an entry never outlives the context.
+- **Sign-out has nothing to revoke at Identity Center.** The OIDC API has no revocation operation,
+  so deleting the session item is the whole revocation, and a context that leaked lives out its
+  own lifetime — which G10 measures.
 
 **Credentials come from the task role**, rotating, with no static secrets and no IAM Roles Anywhere
-trust anchor to stand up. Calling `CreateTokenWithIAM` takes two grants, both documented: the task
-role's own policy allows `sso-oauth:CreateTokenWithIAM` on the application's ARN, and the
-application's `IAM` authentication method (`PutApplicationAuthenticationMethod`) names the task
-role in its actor policy. Scope it narrowly — it is a privileged identity that mints sessions on
+trust anchor to stand up. Calling `CreateTokenWithIAM` takes two grants, both documented: the
+caller's own policy allows `sso-oauth:CreateTokenWithIAM` on the application's ARN, and the
+application's `IAM` authentication method (`PutApplicationAuthenticationMethod`) names the caller
+in its actor policy — the task role, or the API's role if G10 moves the call. Scope it narrowly — it is a privileged identity that mints sessions on
 behalf of users.
 
 **Three clocks govern a session:** the provider session (Cognito **[B]**, Entra **[A]**), the
 Identity Center refresh token, and the session's absolute expiry. Decide deliberately what the user
 experiences when each expires, rather than letting the shortest one produce a confusing failure.
 **One rule makes Entra the master clock, and it is cheap:** keep refreshing the provider's token
-hourly even though Identity Center has its own refresh token, so a user Entra disables or revokes
-loses the whole session item — Identity Center tokens included — at the next refresh, within the
-hour, instead of keeping data access until an Identity Center refresh token of undocumented
-lifetime runs out. The bearer needs that refresh anyway.
+even though Identity Center has its own refresh token, so a user Entra disables or revokes loses the
+whole session item — Identity Center tokens included — at the next refresh, instead of keeping data
+access until an Identity Center refresh token of undocumented lifetime runs out. The bearer needs
+that refresh anyway. **The bound is the access token's lifetime, not an hour:** SPEC-257 refreshes
+lazily, on a request within 300 seconds of expiry, and Entra's default access-token lifetime is a
+random 60 to 90 minutes — and 20 to 28 hours for a client that declares itself capable of
+Continuous Access Evaluation, so the server must not declare that capability.
 
 **A new portal-owned state store.** The DynamoDB table joins the admin bucket as app-owned state.
 Unlike the admin bucket, it holds credentials that grant access to client data, so it needs the
@@ -2077,7 +2113,7 @@ from the spike; it was added on 2026-11-15 with §4.7's split.)
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
 | **G8** | **Can the Entra tenant issue OIDC/OAuth2 JWTs for this application** — an app registration on the **default signing key** (a custom signing key is unsupported for the Entra trusted-token-issuer path), with an audience and an `email`-to-IdC-attribute claim mapping that align? | **This is the variant decider (§3.3), not a blocker.** Pass → **Variant A**, and Cognito is never built. Fail → **Variant B**, and a Cognito bridge is built to be deleted later. Often a per-app-registration or tenant-policy matter rather than a product limitation, so **ask the Entra tenant owner before assuming**. Answer it in **Phase 0**: it decides work in Phase 1 and Phase 5, and building B when A was available is the expensive mistake. **Stakes raised 2026-08-24 (§3.10):** the client's driver users are on SAML and must migrate to an OIDC-based TIP plugin, so a G8 failure points the **whole desktop fleet** at the Cognito bridge as well as the portal — ask G8 with the drivers in the question |
-| **G10** | **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether anything the identity-enhanced session can call reveals its Identity Center user, which would let the API bind the context to the bearer (§4.7) — none of which AWS documents | **Fail on the second principal** → §4.7's narrowed fallback: the server assumes the carrier role and forwards short-lived credentials to the API. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance — under **[A]** with a real Entra assertion, which also answers §3.5's two-exchange replay question |
+| **G10** | **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance — under **[A]** with a real Entra assertion, which also answers §3.5's two-exchange replay question |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9) | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 ---
@@ -2524,7 +2560,7 @@ and that is fine.
   (`/auth/callback`; it was the API's until the 2026-11-13 re-decision in §4.7).
 - The Next.js server performs the code exchange and holds the tokens; the browser gets the
   `httpOnly` session cookie and nothing else (§3.5, §4.7).
-- **The server's sign-in client is Cognito-shaped today, and each of these seven refuses or breaks
+- **The server's sign-in client is Cognito-shaped today, and each of these eight refuses or breaks
   an Entra sign-in.** The API's verifier was built provider-agnostic (SPEC-195: five configuration
   fields); the server's client, built against Cognito in SPEC-257, was not. Measured on 2026-11-15
   against `apps/portal/src/server/session/` and Entra's public discovery document
@@ -2559,12 +2595,17 @@ and that is fine.
     token "only … if `offline_access` scope was requested", so even with the first item fixed every
     **[A]** sign-in is refused at the callback. The scope list has to be configuration, and under
     [A] it also carries the portal's own API scope for the bearer above.
+  - **Only `invalid_grant` ends a session.** Every other refusal from the token endpoint is
+    classified `rejected` and answered as "unavailable". Entra answers `interaction_required` when
+    Conditional Access or an MFA step-up needs the user back, so that user would sit at
+    "unavailable" until the session's maximum age instead of being sent to sign in again. The
+    classification has to send that answer to sign-in.
   **Fix it in this repository before the move, against a local provider shaped like Entra**, so
   Phase 1's [A] auth is configuration, as the API's already is — the API's verifier already takes
   its username claim and a required-claims map from configuration, so the server can read the same
   fields rather than invent a second shape. It is a spec of its own, recommended on 2026-11-15 and
   not yet written; this item is its home until it is. Under **[B]** the bridge pool is Cognito and
-  all seven hold as built, which is one more reason the fix must keep Cognito working rather than
+  all eight hold as built, which is one more reason the fix must keep Cognito working rather than
   replace it.
 - **Do not apply `infra/modules/auth`.** No User Pool, no Identity Pool, no Managed Login, no custom
   attributes, no `supported_identity_providers`, no self-signup to turn off.
@@ -2684,19 +2725,19 @@ on any IAM role. The design is §3; the work items are here.
   identity-brokering capability is being pursued (§5.1).
 - **The server exchanges** (§3.5 steps 1 and 1r, §4.7) — a spec of its own, on the Next.js server:
   `CreateTokenWithIAM` in the callback, the Identity Center tokens in the existing session item
-  under its compare-and-set, the refresh before the context lapses, Identity Center faults answered
-  as "unavailable", and the identity context forwarded on the `/api/` pass-through. Deploy-role IAM
+  under its compare-and-set, the refresh on the provider token's margin and only while that token
+  is valid, a failed exchange leaving a session without a context rather than no session, the
+  table of Identity Center refusals and faults, and the context sealed to the bearer's subject and
+  forwarded on the `/api/` pass-through. Deploy-role IAM
   first, then the task role's `sso-oauth:CreateTokenWithIAM` and the application's actor policy
   naming it.
-- **The API answers only the portal server** (§4.7) — before any request carries an identity
-  context, because nothing else binds a context to its bearer. Buildable in this repository as soon
-  as SPEC-262 has moved the browser off the API; it costs the pass-through a signature, and local
-  development and the live-check fixture scripts a signing path.
 - **The API assumes from the context** (§3.5 steps 2 and 3, §3.6) — a second spec, on the API:
-  the carrier role trusting the API's role with `sts:SetContext`, the route-level choice of the
-  carrier session over the portal role, and the header kept out of every log. It can land before
-  the first, inert while no request carries the header. Both specs are written **after G10**, which
-  may move the line between them.
+  the carrier role trusting the API's role with `sts:SetContext`, the context **unsealed with the
+  verified bearer's subject** (§4.7) and never accepted raw, the route-level choice of the carrier
+  session over the portal role, the credential cache keyed on the context, a stale context answered
+  with a code other than 401, and the header kept out of every log. It can land before the first,
+  inert while no request carries the header. Both specs are written **after G10**, which may move
+  `CreateTokenWithIAM` from the server to the API (§4.7's fallback).
 - Create the catalog carrier role (§3.6).
 - Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
   likely a create, not a join.
@@ -3040,9 +3081,10 @@ exists so the chronology is recoverable, not so anyone works from it.
 - **2026-11-15 — the end-state split.** There is no BFF Lambda: **§4.7** settles that the Next.js
   server exchanges and the API Lambda assumes, with the alternatives it beat and the fallback.
   **§3.5** marks where each step runs and leans to exchange-once-then-refresh on the live docs; new
-  gate **G10** (§5.5, Phase 0) tests the split's undocumented premises. §4.7 also finds that
-  nothing binds a forwarded context to its bearer, so the API must answer only the server before
-  Phase 5. **Phase 1 [A]** gains the seven places the server's sign-in client is Cognito-shaped,
+  gate **G10** (§5.5, Phase 0) tests the split's undocumented premises, and if it fails the API
+  mints while the server stores. §4.7 also finds that nothing binds a forwarded context to its
+  bearer, so the server seals it to the bearer's subject, and adds the state rules a second token
+  family needs. **Phase 1 [A]** gains the eight places the server's sign-in client is Cognito-shaped,
   including the bearer, which must become a portal-scoped access token under Entra. §2 item 11,
   §3.2 point 1, §3.6's trust policy, §4.6's origin variable and caller, §5.3's first cost, Phase 0's
   quota item, Phase 5's exchange items, §8 and the companion's diagrams are corrected in place.
