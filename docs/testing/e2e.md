@@ -1478,7 +1478,7 @@ a URL, a CSP, a browser AWS call or a bucket-CORS behaviour was **invalidated by
 and must be re-run**; anything asserting a Lambda, a state machine, an IAM simulation or a `logs/`
 record is **unaffected**. Leaving one unclassified is how a discharged check silently becomes stale.
 
-**The two cheap CLI checks, worth a glance on every run.**
+**The three cheap CLI checks, worth a glance on every run.**
 
 - `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
   is the commit whose image the function runs. One image carries the whole fleet and CI points
@@ -1497,6 +1497,12 @@ record is **unaffected**. Leaving one unclassified is how a discharged check sil
   both S3 buckets and `https://api.dataquarry.app`, and must **not** name `cognito-identity.`,
   `athena.`, `glue.` or `sqs.`. A header *name* is not evidence a policy is enforced — that is the
   next check.
+- `curl -sS --http1.1 -o /dev/null -D - --request-target 'http://elsewhere.test/files/' "$APP_URL/"`
+  answers `308` with `location: /files`. That proves the balancer turned the absolute-form line into
+  origin form, which is the only thing keeping Next's off-site redirect from a client
+  (`docs/security-baseline.md`, "Responses answered before routing"). `location:
+  http://elsewhere.test/files/` means it no longer does. Keep `--http1.1`, because over HTTP/2 curl
+  rewrites the target itself and the check proves nothing.
 
 **The CSP is enforcing, proved by a positive violation and a negative control.** Paste into the
 console on `$APP_URL`:
