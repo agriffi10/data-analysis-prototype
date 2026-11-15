@@ -35,7 +35,7 @@ The diagrams use project shorthand. Enough to read them:
 |---|---|
 | **Phase 5** | The last build phase of the client-environment transition (`transition_plan.md` §7): Identity Center identities in Lake Formation, the carrier role, S3 Access Grants. The drawings are the picture at the *end* of it. |
 | **Phase 1 interim plane** | The way station before that: the API assumes the shared portal role with a `username` session tag, and `${aws:PrincipalTag/username}` still scopes every policy. It retires in Phase 5. |
-| **The two variants** | Which product issues the JWT — Entra directly **[A]** or a Cognito bridge **[B]**. Decided by gate G8, in Phase 0. Not yet decided. |
+| **The two variants** | Which product issues the JWT — Entra directly **[A]** or a Cognito bridge **[B]**. **[B] was chosen on 2026-11-15**, on the client's established pattern; [A] is drawn as the alternative not taken. |
 | **Gate G7** | *Unproven.* Can a plain `StartQueryExecution`, from our own code on an identity-enhanced session, run on an IdC-enabled workgroup? The plan calls it a blocker. |
 | **Gate G9** | *Unproven.* Can the API presign an S3 URL from Access-Grants-vended credentials, and can a browser redeem it? The "no credentials in the tab" property rests on this. |
 | **Levels** | A user's entitlement to a core dataset — `normal` (masked columns/rows) or `sensitive` (all of them). Implemented as Lake Formation data cell filters, one per level per dataset. |
@@ -43,8 +43,8 @@ The diagrams use project shorthand. Enough to read them:
 | **Verb Lambdas** | The single-task functions each control plane's state machine invokes. Ordinary IAM roles. |
 
 Two things the drawings deliberately do **not** answer, because nothing has settled them: **which Entra
-claim carries the catalog-safe username** under [A] (you cannot write to Entra, so it must be found or
-derived — `transition_plan.md` §6.1), and **what a user sees when Identity Center has no matching
+claim carries the catalog-safe username** through the Cognito bridge (`transition_plan.md` §6.1:
+reuse the established pattern's, map one, or derive it), and **what a user sees when Identity Center has no matching
 record** for them, since there is no just-in-time provisioning and their exchange simply fails.
 
 ## How to read them
@@ -175,7 +175,8 @@ exactly five things move:
 
 Everything else in the drawing — the Next.js server, API Gateway and the API Lambda, DynamoDB, both
 lanes, the allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A
-diagram unchanged.
+diagram unchanged, **except the bearer on the server-to-API edge**, which under [B] is the Cognito
+ID token (the table's fourth row).
 
 ```mermaid
 flowchart TB
