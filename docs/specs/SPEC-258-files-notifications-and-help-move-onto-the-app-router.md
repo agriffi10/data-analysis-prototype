@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-258
 title: "Files, Notifications and Help Move Onto the App Router"
 description: "Serves the Files, Notifications and Help pages from App Router pages instead of the react-router catch-all, with nothing a user does on them changing."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 4
@@ -80,15 +80,15 @@ as signed in.
 
 #### Acceptance Criteria:
 
-- [ ] The three page files exist, the page sweep and the record-and-page guard pass, and the three
+- [x] The three page files exist, the page sweep and the record-and-page guard pass, and the three
       records say `'app'`.
-- [ ] A new test per area renders its page through `renderApp` and asserts something only that area
+- [x] A new test per area renders its page through `renderApp` and asserts something only that area
       shows (the Files listing, the Notifications heading, a Help section's heading); with that
       page file deleted, the test turns red on the catch-all's 404, since the table no longer
       builds the route. It reads the records as they stand (`routers: 'as-recorded'`), because the
       harness serves every area a test does not name from the catch-all. The inherited split tests
       that exercise these areas name their area's router as `'app'`, and pass.
-- [ ] `next build` lists `/files`, `/notifications` and `/help` as dynamic routes beside
+- [x] `next build` lists `/files`, `/notifications` and `/help` as dynamic routes beside
       `/[[...slug]]`, and `next start` answers each with status 200.
 
 ### FR-002: What users do on the three pages behaves as before
@@ -107,16 +107,16 @@ its section.
 
 #### Acceptance Criteria:
 
-- [ ] Through `renderApp`, an upload started on Files survives a round trip to Query and back, with
+- [x] Through `renderApp`, an upload started on Files survives a round trip to Query and back, with
       Files named as the App Router's and Query as the catch-all's through the `routers` option, so
       the result does not depend on whether Query has moved.
-- [ ] With shared workspaces on, switching space from the sidebar calls neither `router.push` nor
+- [x] With shared workspaces on, switching space from the sidebar calls neither `router.push` nor
       `router.replace`, and a pass-through counter on the Files page component records no second
       mount.
-- [ ] A notification's link to a Files folder lands on Files with that folder open, and its link to
+- [x] A notification's link to a Files folder lands on Files with that folder open, and its link to
       a data-quality report lands on the report, with Data quality served by the catch-all and by
       the App Router in turn through the `routers` option.
-- [ ] On Help, choosing a section and then going Back shows the previous section; a contextual help
+- [x] On Help, choosing a section and then going Back shows the previous section; a contextual help
       link from Files opens Help at the linked section.
 
 ### FR-003: Checked live, on the tier
@@ -132,10 +132,12 @@ tier off does not end another's checks.
 
 - [ ] An upload started on Files keeps going across Files to Query and back, a reload during it
       raises the leave confirmation, and each page keeps its own tab title.
-- [ ] On Files, switching space from the sidebar makes no request for the page (Resource Timing),
+      *(The upload and the titles passed live; the browser's own reload prompt is owed to a person's
+      reload, `docs/testing/owed.md`, SPEC-256's leave prompt.)*
+- [x] On Files, switching space from the sidebar makes no request for the page (Resource Timing),
       and the skip link, then Query, then Back shows Files.
-- [ ] A folder whose name holds a space opens from a Query table action, and Back returns to Query.
-- [ ] A notification's link opens its folder; Help's sections and Back behave as in FR-002.
+- [x] A folder whose name holds a space opens from a Query table action, and Back returns to Query.
+- [x] A notification's link opens its folder; Help's sections and Back behave as in FR-002.
 
 ---
 

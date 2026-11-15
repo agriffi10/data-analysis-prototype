@@ -511,6 +511,11 @@ avoid.
 two-lock path and the pagination boundary are not reachable from the UI. They live in
 [`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh), behind the approval gate in §0.
 
+**On the App Router (SPEC-258).** Files is served by its own App Router page. Its cross-router rows
+are §4.1's shell table, which starts on Files: the space switch that fetches no page, the skip link
+then Query then Back, the space-named folder from Query, and the upload that outlives a page change.
+Run them there. With every area moved, only the landing page and the 404 are still the catch-all's.
+
 ### 4.3 Query workspace
 
 | Do | Expect |
@@ -1097,6 +1102,13 @@ archive or restore already running finishes and notifies as usual, and its notif
 | The requests queue deduplicates **per recipient** | From a read-only CLI, `aws sqs get-queue-attributes` on the notifications requests queue with `--attribute-names DeduplicationScope` answers `messageGroup`. Read the named attribute from the JSON output: text output drops columns. |
 | **Following a `/files` link refreshes the folder it lands on** | A cross-producer mechanism since SPEC-223, not a results-conversion behaviour: the send and archive planes' links carry it too. Have the folder open in another tab, run an operation that writes into it, then follow the notification's link — the file is present **on arrival**, without a manual refresh. The `Review conflicts` control on the same row does it as well, since it resolves to the same listing. |
 
+**On the App Router (SPEC-258).** Notifications is served by its own App Router page. Drive it with
+real clicks in a signed-in tab, with the shell marked as §4.5's paragraph says.
+
+| Do | Expect |
+|---|---|
+| Open Notifications by the bell from Files, then follow a row's link to a folder in your own space (a *Copied … to* or *Saved … to* row; page through the list for one) | Notifications titled **Notifications (n) — Data Quarry** while n are unread. The link opens Files at that folder, its breadcrumb naming it, with the same shell element and no document load. |
+
 ### 4.13 Help
 
 - Each section's guide count matches what shipped — the Data Explorer section has **five**.
@@ -1227,6 +1239,14 @@ those two are robustness rather than fixes — the menu trigger was clearing the
 1.75px + half the 21px trigger is 12.25px, which still clears the 12 the exception needs. Only
 `gap-0` would have, and the honest statement is that it was the app's tightest pass, not that a
 named edit would have ended it.
+
+**On the App Router (SPEC-258).** Help is served by its own App Router page, and a section is a hash
+on it.
+
+| Do | Expect |
+|---|---|
+| On Files, open **Help for this page**, then **Open the full guide** | Help at `/help#files` with **Files** current in the rail, titled **Help & guides — Data Quarry**, with the same shell element and no document load. |
+| Choose another section in the rail, then Back, then Forward | The address moves between `#files` and the section's hash, and the heading follows it. Nothing carrying `_rsc` is fetched, and there is no document load. |
 
 ### 4.14 Feature flags
 

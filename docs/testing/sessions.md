@@ -10,6 +10,47 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-15 (SPEC-258, Files, Notifications and Help on the App Router)
+
+**What was under test.** SPEC-258 FR-003 on the three App Router pages, after #989 (`cde0c104`)
+merged. The tier was already on, held by other sessions. One deploy crossed the first attempt
+(`900c64f5`, 04:35 to 04:40 UTC; two other Deploy SPA image runs in that hour skipped the build and
+changed nothing), so nothing from it is recorded except the announcer finding below. The results are from two windows that no deploy crossed:
+- 04:41 to 04:42 UTC on the image of `900c64f5` (Deploy SPA image run 43677436115, done 04:40:40;
+  the next run was created at 04:49);
+- 12:01 to 12:02 UTC on the image of `923f32c3` (run 43695072587, done 08:38:44).
+
+**Browser.** Andrew's Chrome through the Claude extension, user `agriffith`, desktop width. Andrew
+clicked Sign in on the hosted page. Instruments:
+- page-context JavaScript reading `location`, `document.title`, the `<h1>`s, Resource Timing (`_rsc`
+  entries and new requests) and `performance.getEntriesByType('navigation')`;
+- `window` markers holding the shell's element (the parent of `#main`) and the header;
+- `next-route-announcer`'s shadow text;
+- two generated files set on the upload input;
+- the extension's real clicks, a real Enter on the focused skip link, and its Back and Forward.
+
+| Check | Result |
+|---|---|
+| The space switch fetches no page | `/files` to `/files?space=shared_dwb_team` from the sidebar: the only new request was the API's listing (`/v1/objects`), no `_rsc` entry, one document load. |
+| The skip link, Query, then Back | `…?space=shared_dwb_team#main`, then `/query` (titled *Query — Data Quarry*), then Back showed Files in `shared_dwb_team` at `#main`, not Query. |
+| An upload across Files, Query and back, and each page's title | `spec258-live-a.bin` and `-b.bin` (704 MB each) at 7% and 6%; Query by its tab, Files by its tab; the drawer showed both still uploading at 26% and 24%. Titles were *Files — Data Quarry* and *Query — Data Quarry*, and the shell element was the same node throughout. |
+| A reload during it raises the prompt | **Not run.** It was asked for, but no one was at the keyboard before the uploads finished. Owed (`owed.md`, SPEC-256's leave prompt). |
+| A folder whose name holds a space, from Query | `spec_256_check` → **Options** → **View source files** opened Files with `prefix=agriffith%2Fspec%20256%20table%2F` (the breadcrumb named *spec 256 table*, `rows.csv` listed); Back returned to Query. |
+| A notification's link opens its folder | From the bell, *Copied 1 item to "e2e_1113".* opened `/files?prefix=agriffith/e2e_1113/` with the breadcrumb *agriffith › e2e_1113*. |
+| Help's sections | The help panel's **Open the full guide** opened `/help#files`. The rail's Query section went to `#query`, Back to `#files` and Forward to `#query`, each with its heading, no new `_rsc` entry, and one document load. |
+
+In both windows every step kept the same shell element and header, with one document load and no 404.
+
+**Found on the way.** This spec's second diff review predicted it from the code, and the run
+measured it. On the image of `cde0c104`, a first visit to Help announced
+*Files — Data Quarry*, the page left, through Next's route announcer. A later visit with Help's chunk
+loaded announced correctly. It was reported to the arc and fixed in #998, which
+sets each page's title as the page mounts. On the image of `923f32c3`, a
+first visit to Help announced *Help & guides — Data Quarry*.
+
+**Left behind.** `agriffith/spec258-live-a.bin` and `spec258-live-b.bin` (704 MB each), which finished
+uploading while the reload was waiting.
+
 ## Live-check session — 2026-11-14, evening US Eastern (SPEC-261, data quality on the App Router)
 
 **What was under test.** SPEC-261 FR-003 and SPEC-256's cross-router scenarios on the two data-quality

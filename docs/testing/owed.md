@@ -119,10 +119,13 @@ has now run, the last on 2026-09-22.
 The 2026-11-14 run settled everything else live ([`sessions.md`](sessions.md), 2026-11-14). The browser's
 own dialog is what is left: the in-app browser pane handles page dialogs itself, so a reload driven
 there shows nothing, and Andrew chose not to run the manual step that day.
+SPEC-258's FR-003 owes the same step: on 2026-11-15 two uploads ran on Files in Andrew's Chrome while
+the reload was asked for, and no one was at the keyboard before they finished. One real reload
+settles both specs.
 
 | Check | Why | Recipe |
 |---|---|---|
-| **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
+| **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002, and SPEC-258 FR-003) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
 
 ### Needs a second (or third) account
 
