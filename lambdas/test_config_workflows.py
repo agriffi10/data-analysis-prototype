@@ -49,10 +49,12 @@ Attributes:
     that holds them gives the reason for each.
 """
 
+import functools
 import importlib.util
 import pathlib
 import posixpath
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Any
@@ -67,6 +69,23 @@ README = WORKFLOWS / "README.md"
 VARIABLES = ROOT / "infra" / "variables.tf"
 TOFU_RUN = re.compile(r"\btofu\s+(?:-\S+\s+)*(plan|apply)\b")
 GUARD_LINE = re.compile(r"python3 (?:\S+/)?\.github/scripts/tf_var_guard\.py")
+LOCK_OFF_VALUES = frozenset({"0", "f", "F", "false", "FALSE", "False"})
+LOCK_FLAG = re.compile(r"(?<![\w-])--?lock(?:-timeout)?(?![\w-])")
+DURATION_PART = re.compile(r"(\d+(?:\.\d*)?|\.\d+)(ns|us|ms|s|m|h)")
+UNIT_SECONDS = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0, "m": 60.0, "h": 3600.0}
+MIN_LOCK_WAIT_SECONDS = 60
+SHELL_OPERATOR_CHARACTERS = frozenset("();<>|&")
+LOCK_FLAG_NAMES = frozenset({"-lock", "-lock-timeout"})
+SHELL_ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)", re.DOTALL)
+SHELL_EXPANSION = re.compile(r"[$`]")
+SHELL_VARIABLE_WORD = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+CONCURRENCY_KEY = re.compile(
+    r"\$\{\{\s*github\.event_name == '([a-z_]+)' && format\('([^']*)', github\.ref\) \|\| '([^']*)'\s*\}\}"
+)
+CONTEXT_SUBSTITUTION = re.compile(r"\$\{\{\s*github\.(ref|workflow)\s*\}\}")
+INFRA_EVENTS = frozenset({"pull_request", "push", "workflow_dispatch"})
+APPLYING_EVENTS = frozenset({"push", "workflow_dispatch"})
+SAMPLE_REFS = ("refs/heads/main", "refs/heads/elsewhere", "refs/pull/7/merge", "refs/pull/8/merge")
 NAME_KEYS = {"PROJECT": "project_name", "PROJECT_NAME": "project_name", "ENVIRONMENT": "environment"}
 VARIABLE_READ = re.compile(r"vars\.([A-Za-z_][A-Za-z0-9_]*)|vars\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]")
 
@@ -465,6 +484,575 @@ def test_every_plan_and_apply_runs_the_tf_var_guard_first() -> None:
         if continues:
             problems.append(f"{where} continues on error, so a failing guard leaves the job green")
     assert problems == [], problems
+
+
+def _words(line: str) -> list[str]:
+    """One line of shell split into words the way the shell reads them, comments and quotes removed.
+
+    Args:
+      line: One line of a `run` block, its continuations already joined.
+
+    Returns:
+      The words, with each run of shell operators (`&&`, `|`, `>&`, `;`) as a word of its own.
+
+    Raises:
+      ValueError: If the line's quoting is unbalanced.
+    """
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def _seconds(duration: str) -> float | None:
+    """A Go duration such as `15m` or `1m30s` in seconds, as `-lock-timeout` reads it.
+
+    Args:
+      duration: The flag's value.
+
+    Returns:
+      The duration in seconds, or None when it is not a non-negative duration with a unit.
+
+    Raises:
+      None.
+    """
+    unsigned = duration.removeprefix("+")
+    parts = DURATION_PART.findall(unsigned)
+    if not parts or "".join(number + unit for number, unit in parts) != unsigned:
+        return None
+    return sum(float(number) * UNIT_SECONDS[unit] for number, unit in parts)
+
+
+def _tofu_commands(words: list[str]) -> tuple[list[list[str]], list[str]]:
+    """The arguments of each `tofu plan` or `tofu apply` in one line's words, and every other word.
+
+    Args:
+      words: One line, split by `_words`.
+
+    Returns:
+      For each plan or apply, the words after its subcommand up to the next shell operator; and
+      the words that belong to none of them, so a plan or apply the parse did not read stays visible.
+
+    Raises:
+      None.
+    """
+    commands, rest = [], []
+    position = 0
+    while position < len(words):
+        word = words[position]
+        subcommand = position + 1
+        while subcommand < len(words) and words[subcommand].startswith("-"):
+            subcommand += 1
+        is_tofu = word == "tofu" or word.endswith("/tofu")
+        if is_tofu and subcommand < len(words) and words[subcommand] in ("plan", "apply"):
+            end = subcommand + 1
+            while end < len(words) and not set(words[end]) <= SHELL_OPERATOR_CHARACTERS:
+                end += 1
+            commands.append(words[subcommand + 1 : end])
+            position = end
+        else:
+            rest.append(word)
+            position += 1
+    return commands, rest
+
+
+def _flag_problems(arguments: list[str]) -> list[str]:
+    """Why one plan's or apply's literal flags would not wait for the state lock, if they would not.
+
+    Reads the flags as `tofu` does: `--flag` is `-flag`, a non-boolean flag takes `=value` or the
+    next word, a bare `-lock` is true, and the last of a repeated flag wins.
+
+    Args:
+      arguments: The words after `plan` or `apply` that this can read.
+
+    Returns:
+      Each reason, empty when the command waits.
+
+    Raises:
+      None.
+    """
+    lock, timeout = "true", ""
+    position = 0
+    while position < len(arguments):
+        flag = arguments[position]
+        flag = flag[1:] if flag.startswith("--") else flag
+        name, equals, value = flag.partition("=")
+        if name == "-lock":
+            lock = value if equals else "true"
+        elif name == "-lock-timeout":
+            if not equals:
+                position += 1
+                value = arguments[position] if position < len(arguments) else ""
+            timeout = value
+        position += 1
+    problems = []
+    if lock in LOCK_OFF_VALUES:
+        problems.append("it skips the lock, so it reads state an apply may be changing")
+    seconds = _seconds(timeout)
+    if seconds is None or seconds < MIN_LOCK_WAIT_SECONDS:
+        problems.append(
+            "its last -lock-timeout is not a wait of a minute or more, so it fails on a lock it should wait for"
+        )
+    return problems
+
+
+def _argument_problems(arguments: list[str], assignments: dict[str, list[str | None]]) -> list[str]:
+    """Why one plan's or apply's arguments would not wait for the state lock, or cannot be read.
+
+    Lock flags must be written literally on the command. A variable may stand for other flags when
+    every value the step assigns it is literal and names no lock flag; a non-lock flag's value, or
+    a word after a literal prefix, may expand. Anything else that expands is refused unread.
+
+    Args:
+      arguments: The words after `plan` or `apply`.
+      assignments: Each variable the step assigns, mapped to its values, None for one not literal.
+
+    Returns:
+      Each reason, empty when the command waits.
+
+    Raises:
+      None.
+    """
+    readable, problems = [], []
+    for word in arguments:
+        if not SHELL_EXPANSION.search(word):
+            readable.append(word)
+            continue
+        variable = SHELL_VARIABLE_WORD.fullmatch(word)
+        name, equals, _ = (word[1:] if word.startswith("--") else word).partition("=")
+        names_another_flag = bool(equals) and name.startswith("-") and name not in LOCK_FLAG_NAMES
+        if variable:
+            values = assignments.get(variable.group(1) or variable.group(2), [])
+            if not values or None in values:
+                problems.append(f"it passes {word!r}, whose value the step does not assign literally")
+            elif any(LOCK_FLAG.search(value or "") for value in values):
+                problems.append(f"it passes {word!r}, which can carry a lock flag; write lock flags on the command")
+        elif (names_another_flag and not SHELL_EXPANSION.search(name)) or not word.startswith(("$", "`", "-")):
+            readable.append(word)
+        else:
+            problems.append(f"it passes {word!r}, which this cannot read")
+    return problems + _flag_problems(readable)
+
+
+def _lock_problems(run: str) -> list[str]:
+    """Why a `run` block's `tofu plan` or `tofu apply` would not wait for the state lock, if it would not.
+
+    A pull request's plan queues in a concurrency group of its own, so a plan and an apply can start
+    together, and under the default `-lock-timeout` of 0s `tofu` fails whichever reaches the lock
+    second: a lost apply when that is the apply. A skipped lock never blocks an apply, but the plan
+    is then computed while one changes what it refreshes against. A minute is the floor because a
+    plan holds the lock for about that long. It reads a small language and refuses the rest: a plan
+    or apply it cannot parse as a command, such as one inside `$(...)` or `bash -c`, is refused
+    rather than passed, since shell has more spellings than any check can read.
+
+    Args:
+      run: A step's `run` block.
+
+    Returns:
+      Each reason, empty when every plan and apply in the block waits.
+
+    Raises:
+      None.
+    """
+    if "tofu" not in run:
+        return []
+    problems: list[str] = []
+    assignments: dict[str, list[str | None]] = {}
+    lines = []
+    for line in run.replace("\\\n", " ").splitlines():
+        try:
+            words = _words(line)
+        except ValueError:
+            if TOFU_RUN.search(line):
+                problems.append(f"{line.strip()!r} cannot be read as shell")
+            continue
+        lines.append(words)
+        for word in words:
+            assignment = SHELL_ASSIGNMENT.fullmatch(word)
+            if assignment:
+                name, append, value = assignment.groups()
+                literal = not append and not SHELL_EXPANSION.search(value)
+                assignments.setdefault(name, []).append(value if literal else None)
+    for words in lines:
+        commands, rest = _tofu_commands(words)
+        if TOFU_RUN.search(" ".join(rest)):
+            problems.append(f"{' '.join(words)!r} runs a plan or apply this cannot read as a command")
+        for arguments in commands:
+            problems.extend(_argument_problems(arguments, assignments))
+    return list(dict.fromkeys(problems))
+
+
+def _cli_arguments_problems(document: dict[Any, Any]) -> list[str]:
+    """Each place a workflow hands `tofu` flags through `TF_CLI_ARGS` that may change the state lock.
+
+    `TF_CLI_ARGS` and `TF_CLI_ARGS_<command>` add flags to a command from the environment, out of
+    sight of a check that reads the command line. They are read only from an `env` block, where the
+    value is plain: one there naming a lock flag or taking its value from elsewhere is refused, as is
+    an `env` built from an expression and any step that sets one in its `run` block.
+
+    Args:
+      document: The workflow, as `yaml.safe_load` returns it.
+
+    Returns:
+      Each refusal, empty when no such variable can change the lock.
+
+    Raises:
+      None.
+    """
+    jobs = [job for job in (document.get("jobs") or {}).values() if isinstance(job, dict)]
+    steps = [step for job in jobs for step in job.get("steps") or [] if isinstance(step, dict)]
+    problems = []
+    for level in [document, *jobs, *steps]:
+        env = level.get("env")
+        if env is not None and not isinstance(env, dict):
+            problems.append(f"env {env!r} is built from an expression, so a TF_CLI_ARGS in it cannot be read")
+            continue
+        for key, value in (env or {}).items():
+            unreadable = LOCK_FLAG.search(str(value)) or SHELL_EXPANSION.search(str(value))
+            if str(key).startswith("TF_CLI_ARGS") and unreadable:
+                problems.append(f"env {key}: {value!r}")
+    for step in steps:
+        for line in str(step.get("run", "")).replace("\\\n", " ").splitlines():
+            if "TF_CLI_ARGS" not in line:
+                continue
+            try:
+                named = any("TF_CLI_ARGS" in word for word in _words(line))
+            except ValueError:
+                named = True
+            if named:
+                problems.append(f"run: {line.strip()!r} sets TF_CLI_ARGS where this cannot read it; use an env block")
+    return problems
+
+
+APPLY_BLOCK = (
+    'REFRESH_FLAG=""\n'
+    'if [ "${{ inputs.skip_refresh }}" = "true" ]; then\n'
+    '  REFRESH_FLAG="-refresh=false"\n'
+    "fi\n"
+    "tofu apply -auto-approve -lock-timeout=10m $REFRESH_FLAG\n"
+)
+NO_WAIT = "not a wait of a minute"
+NO_LOCK = "skips the lock"
+UNREAD = "cannot read"
+NOT_LITERAL = "does not assign literally"
+CARRIES = "can carry a lock flag"
+NOT_A_COMMAND = "cannot read as a command"
+
+
+@pytest.mark.parametrize(
+    ("run", "expected"),
+    [
+        pytest.param("set -o pipefail && tofu plan -lock-timeout=15m -out=tfplan 2>&1 | tee x", None, id="plan"),
+        pytest.param(APPLY_BLOCK, None, id="apply-with-a-variable-assigned-in-the-step"),
+        pytest.param("tofu plan -lock-timeout 15m", None, id="value-as-the-next-word"),
+        pytest.param("tofu plan --lock-timeout=15m", None, id="double-dash"),
+        pytest.param("tofu plan -lock-timeout=1m30s", None, id="compound-duration"),
+        pytest.param("tofu plan -lock-timeout=+15m", None, id="signed-duration"),
+        pytest.param("tofu plan -lock-timeout=60s", None, id="exactly-a-minute"),
+        pytest.param('tofu plan -lock-timeout="10m"', None, id="quoted-value"),
+        pytest.param("tofu plan -lock=TRUE -lock=1 -lock-timeout=15m", None, id="lock-on-spelled-otherwise"),
+        pytest.param("tofu plan -lock -lock-timeout=15m", None, id="bare-lock-is-on"),
+        pytest.param("tofu plan -lock=false -lock=true -lock-timeout=15m", None, id="last-lock-wins-on"),
+        pytest.param("tofu plan \\\n  -lock-timeout=15m", None, id="timeout-on-a-continuation"),
+        pytest.param("tofu -chdir=infra \\\n  plan -lock-timeout=15m", None, id="global-flag-on-a-continuation"),
+        pytest.param("/usr/local/bin/tofu plan -lock-timeout=15m", None, id="tofu-by-path"),
+        pytest.param('tofu plan -lock-timeout=15m -var "tag=$TAG" -out="$PLAN"', None, id="expanded-non-lock-values"),
+        pytest.param("tofu plan -lock-timeout=15m|tee -lock=false", None, id="an-operator-ends-the-command"),
+        pytest.param("# tofu plan -lock=false\ntofu plan -lock-timeout=15m", None, id="a-comment-is-not-a-command"),
+        pytest.param("tofu init -backend=false\ntofu output -raw name", None, id="no-plan-or-apply"),
+        pytest.param("tofu plan -out=tfplan", NO_WAIT, id="no-timeout"),
+        pytest.param("tofu -chdir=infra plan -out=tfplan", NO_WAIT, id="no-timeout-after-a-global-flag"),
+        pytest.param("tofu apply -lock-timeout=0s", NO_WAIT, id="zero"),
+        pytest.param("tofu apply -lock-timeout=59s", NO_WAIT, id="under-a-minute"),
+        pytest.param("tofu apply -lock-timeout=0", NO_WAIT, id="bare-zero"),
+        pytest.param("tofu apply -lock-timeout=-15m", NO_WAIT, id="negative"),
+        pytest.param("tofu apply -lock-timeout=15minutes", NO_WAIT, id="not-a-duration"),
+        pytest.param("tofu apply -lock-timeout=10m -lock-timeout 0s", NO_WAIT, id="last-flag-zero"),
+        pytest.param("tofu apply -lock-timeout=10m --lock-timeout=0s", NO_WAIT, id="last-flag-zero-double-dash"),
+        pytest.param("tofu apply -auto-approve  # -lock-timeout=10m", NO_WAIT, id="timeout-in-a-comment"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=false", NO_LOCK, id="lock-false"),
+        pytest.param("tofu plan -lock-timeout=15m --lock=false", NO_LOCK, id="lock-false-double-dash"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=0", NO_LOCK, id="lock-zero"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=F", NO_LOCK, id="lock-f"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=False", NO_LOCK, id="lock-capital-false"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=FALSE", NO_LOCK, id="lock-upper-false"),
+        pytest.param("tofu plan -lock-timeout=15m -lock=true -lock=false", NO_LOCK, id="last-lock-wins-off"),
+        pytest.param("tofu apply -lock-timeout=10m \\\n  -lock=false", NO_LOCK, id="lock-off-on-a-continuation"),
+        pytest.param('F="-lock=false"\ntofu apply -lock-timeout=10m $F', CARRIES, id="lock-off-in-a-variable"),
+        pytest.param('F="-x"\nF="-lock=false"\ntofu apply -lock-timeout=10m $F', CARRIES, id="last-assignment"),
+        pytest.param('F="-lock=false"\nF="-x"\ntofu apply -lock-timeout=10m $F', CARRIES, id="first-assignment"),
+        pytest.param("[ -n x ] && T=-lock-timeout=15m\ntofu plan $T", CARRIES, id="timeout-in-a-variable"),
+        pytest.param("tofu apply -lock-timeout=10m $EXTRA", NOT_LITERAL, id="variable-from-elsewhere"),
+        pytest.param('A="${{ inputs.args }}"\ntofu plan -lock-timeout=15m $A', NOT_LITERAL, id="assigned-expression"),
+        pytest.param('A="-x $B"\ntofu plan -lock-timeout=15m $A', NOT_LITERAL, id="assigned-a-variable"),
+        pytest.param("A=$(cat f)\ntofu plan -lock-timeout=15m $A", NOT_LITERAL, id="assigned-a-substitution"),
+        pytest.param('A="-x"\nA+=" -lock=false"\ntofu plan -lock-timeout=15m $A', NOT_LITERAL, id="appended-to"),
+        pytest.param("tofu apply -lock-timeout=$WAIT", UNREAD, id="lock-flag-from-a-variable"),
+        pytest.param("tofu plan -lock-timeout=${{ vars.WAIT }}", UNREAD, id="lock-flag-from-an-expression"),
+        pytest.param("tofu plan -lock-timeout=15m ${{ inputs.args }}", UNREAD, id="an-expression-as-arguments"),
+        pytest.param("tofu plan -lock-timeout=15m $(cat flags)", UNREAD, id="a-substitution-as-arguments"),
+        pytest.param('tofu plan -lock-timeout=15m "$@"', UNREAD, id="the-script-arguments"),
+        pytest.param('PLAN="$(tofu plan -lock=false 2>&1)"', NOT_A_COMMAND, id="captured-in-a-substitution"),
+        pytest.param('echo "$(tofu apply -auto-approve)"', NOT_A_COMMAND, id="echoed-substitution"),
+        pytest.param("X=`tofu plan`", NOT_A_COMMAND, id="backticks"),
+        pytest.param("bash -c 'tofu plan -lock=false'", NOT_A_COMMAND, id="another-shell"),
+        pytest.param("tofu plan -var='{", "cannot be read as shell", id="unbalanced-quote"),
+    ],
+)
+def test_the_lock_check_reads_each_spelling_of_a_wait(run: str, expected: str | None) -> None:
+    """The lock check refuses each spelling that leaves a plan or an apply not waiting or unread, and only those.
+
+    Args:
+      run: A `run` block.
+      expected: A phrase a refusal must carry, or None for a block that waits.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the check misses the block's reason or refuses a block that waits.
+    """
+    problems = _lock_problems(run)
+    if expected is None:
+        assert problems == [], problems
+    else:
+        assert any(expected in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    ("step", "job", "workflow", "refused"),
+    [
+        pytest.param({"run": "tofu plan"}, None, {"env": {"TF_CLI_ARGS_plan": "-lock=false"}}, True, id="workflow-env"),
+        pytest.param(
+            {"run": "tofu plan"}, {"env": {"TF_CLI_ARGS": "${{ vars.FLAGS }}"}}, {},
+            True,
+            id="job-env-elsewhere",
+        ),
+        pytest.param(
+            {"run": "tofu plan", "env": {"TF_CLI_ARGS_plan": "-x\n-lock=0"}}, None, {},
+            True,
+            id="step-env-block",
+        ),
+        pytest.param({"run": "tofu plan"}, {"env": "${{ fromJSON(vars.ENV) }}"}, {}, True, id="env-from-an-expression"),
+        pytest.param(
+            {"run": 'echo "TF_CLI_ARGS_apply=-lock=0" >> "$GITHUB_ENV"'}, None, {},
+            True,
+            id="written-by-a-step",
+        ),
+        pytest.param({"run": "printf 'TF_CLI_ARGS_plan=%s' -lock=false >> f"}, None, {}, True, id="printf-by-a-step"),
+        pytest.param({"run": 'export TF_CLI_ARGS_apply="$FLAGS"'}, None, {}, True, id="exported-from-a-variable"),
+        pytest.param({"run": "echo 'TF_CLI_ARGS_plan=-x"}, None, {}, True, id="unbalanced-quote"),
+        pytest.param(
+            {"run": "tofu plan", "env": {"TF_CLI_ARGS_plan": "-parallelism=20"}}, None, {},
+            False,
+            id="no-lock-flag",
+        ),
+        pytest.param(
+            {"run": "# never set TF_CLI_ARGS: it could pass -lock=false\ntofu plan"}, None, {},
+            False,
+            id="comment",
+        ),
+    ],
+)
+def test_the_environment_check_reads_each_way_tofu_is_handed_a_lock_flag(
+    step: dict[str, Any], job: dict[str, Any] | None, workflow: dict[str, Any], refused: bool
+) -> None:
+    """The environment check refuses a `TF_CLI_ARGS` that may carry a lock flag or cannot be read, and only that.
+
+    Args:
+      step: The one step's keys.
+      job: The job's keys other than its steps.
+      workflow: Top-level keys such as `env`.
+      refused: Whether the check must refuse the workflow.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the check misses the variable or refuses one with no lock flag.
+    """
+    problems = _cli_arguments_problems(_one_step_workflow(step, job, **workflow))
+    assert bool(problems) is refused, problems
+
+
+def test_every_plan_and_apply_waits_for_the_state_lock() -> None:
+    """Every `tofu plan` and `tofu apply` any workflow step runs waits for the state lock, and no environment undoes it.
+
+    Every step is read, not only those a plan or apply regex selects, so a command the selection
+    would miss is still refused.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a plan or apply does not wait or cannot be read, or a workflow hands `tofu`
+        a `TF_CLI_ARGS` that may change the lock.
+    """
+    problems = []
+    planned = 0
+    for path in _workflows():
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job in (document.get("jobs") or {}).values():
+            for step in (job or {}).get("steps") or []:
+                run = str(step.get("run", ""))
+                for line in run.replace("\\\n", " ").splitlines():
+                    if "tofu" in line:
+                        try:
+                            planned += len(_tofu_commands(_words(line))[0])
+                        except ValueError:
+                            pass
+                where = f"{path.name}: {step.get('name', 'unnamed step')}"
+                problems.extend(f"{where}: {problem}" for problem in _lock_problems(run))
+        problems.extend(f"{path.name}: {problem}" for problem in _cli_arguments_problems(document))
+    assert planned >= 2, f"found {planned} plan or apply commands; the read has lost them"
+    assert problems == [], problems
+
+
+def _concurrency_group(expression: str, *, event: str, ref: str, workflow: str) -> str:
+    """The concurrency group one run queues in, evaluated for its event, ref and workflow name.
+
+    Substitutes `github.ref` and `github.workflow` where a group interpolates them, and evaluates
+    the one whole-value expression shape `deploy-infra.yml` uses, `cond && format(...) || 'literal'`,
+    with GitHub's semantics: the `format` value when the event matches and it is not empty, the
+    literal otherwise. GitHub compares group names without case, so the result is lowercased.
+
+    Args:
+      expression: A `concurrency.group` value.
+      event: The run's `github.event_name`.
+      ref: The run's `github.ref`.
+      workflow: The run's `github.workflow`, its workflow's name.
+
+    Returns:
+      The group's name for that run, lowercased.
+
+    Raises:
+      AssertionError: If the group is an expression of another shape, which this cannot evaluate.
+    """
+    contexts = {"ref": ref, "workflow": workflow}
+    text = CONTEXT_SUBSTITUTION.sub(lambda match: contexts[match.group(1)], expression).strip()
+    if "${{" not in text:
+        return text.lower()
+    shape = CONCURRENCY_KEY.fullmatch(text)
+    assert shape, f"_concurrency_group cannot read the group {expression!r}; teach it this shape"
+    matched_event, template, otherwise = shape.groups()
+    chosen = template.replace("{0}", ref)
+    return (chosen if event == matched_event and chosen else otherwise).lower()
+
+
+@functools.cache
+def _workflow_document(path: pathlib.Path) -> dict[Any, Any]:
+    """One workflow file parsed once, since the group checks read each many times over.
+
+    Args:
+      path: The workflow file.
+
+    Returns:
+      The workflow as `yaml.safe_load` returns it; callers must not change it.
+
+    Raises:
+      None.
+    """
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _groups(path: pathlib.Path, *, event: str, ref: str) -> set[str]:
+    """Every concurrency group a run of one workflow can queue in, at workflow and job level.
+
+    Args:
+      path: The workflow file.
+      event: The run's event.
+      ref: The run's ref.
+
+    Returns:
+      The evaluated group names, lowercased.
+
+    Raises:
+      AssertionError: If a group is an expression this cannot evaluate.
+    """
+    document = _workflow_document(path)
+    workflow = document.get("name") or path.relative_to(ROOT).as_posix()
+    jobs = (document.get("jobs") or {}).values()
+    settings = [document.get("concurrency"), *((job or {}).get("concurrency") for job in jobs)]
+    groups = set()
+    for setting in settings:
+        if setting:
+            expression = setting.get("group") if isinstance(setting, dict) else setting
+            groups.add(_concurrency_group(str(expression), event=event, ref=ref, workflow=workflow))
+    return groups
+
+
+def test_no_pull_request_run_queues_in_the_group_an_apply_queues_in() -> None:
+    """A pull request's run never shares a concurrency group with an apply, and every apply shares one.
+
+    GitHub keeps one pending run per group and cancels it when a newer run queues, whatever that
+    run's event, so in a shared group a pull request opened while an apply waited cancelled the
+    apply, and nothing re-ran it. Applies must still share one group, `deploy-infra`, so two never
+    run at once: renaming it lets a run queued under the old name run beside one under the new.
+    A trigger outside the three named here needs its group decided, since an event that does not
+    apply would evict a pending apply from `deploy-infra`, and a job-level group would queue that
+    job beside the workflow-level one. `cancel-in-progress` stays off, since cancelling a running
+    plan can leave the state lock held.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the triggers change, a job declares its own group, a pull request's run
+        shares the apply group or another pull request's group, an applying event queues anywhere
+        but `deploy-infra`, or runs are cancelled in progress.
+    """
+    path = WORKFLOWS / "deploy-infra.yml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert document["concurrency"].get("cancel-in-progress") is False, "a run in progress could be cancelled"
+    events = set(document.get(True, document.get("on")))
+    assert events == INFRA_EVENTS, f"the triggers are {sorted(events)}; decide the group of each new one"
+    nested = sorted(name for name, job in document["jobs"].items() if "concurrency" in (job or {}))
+    assert nested == [], f"jobs {nested} declare their own concurrency group"
+    applying = {
+        group
+        for event in APPLYING_EVENTS
+        for ref in SAMPLE_REFS[:2]
+        for group in _groups(path, event=event, ref=ref)
+    }
+    planning = [_groups(path, event="pull_request", ref=ref) for ref in SAMPLE_REFS[2:]]
+    assert applying == {"deploy-infra"}, f"applying events queue in {sorted(applying)}, not in deploy-infra alone"
+    assert not applying & (planning[0] | planning[1]), f"a pull request queues with the applies, in {planning}"
+    assert not planning[0] & planning[1], f"two pull requests share {planning[0]}, so one evicts the other"
+
+
+def test_no_other_workflow_queues_in_a_group_deploy_infra_uses() -> None:
+    """No other workflow's run can land in a group a plan or an apply queues in.
+
+    GitHub's group names are shared by every workflow in the repository and compared without case,
+    so another workflow's run in `deploy-infra` would evict a pending apply, and one in a pull
+    request's plan group, such as CI's group with `cancel-in-progress` on, could cancel a running
+    plan that holds the state lock.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any other workflow's group, for any sampled event and ref, is one
+        `deploy-infra.yml` uses for the same ref.
+    """
+    infra = WORKFLOWS / "deploy-infra.yml"
+    clashes = []
+    for ref in SAMPLE_REFS:
+        ours = {group for event in INFRA_EVENTS for group in _groups(infra, event=event, ref=ref)}
+        for path in _workflows():
+            if path != infra:
+                for event in INFRA_EVENTS:
+                    theirs = _groups(path, event=event, ref=ref)
+                    clashes.extend(f"{path.name} on {ref}: {group}" for group in theirs & ours)
+    assert clashes == [], clashes
 
 
 def test_workflow_name_literals_are_the_terraform_defaults() -> None:
