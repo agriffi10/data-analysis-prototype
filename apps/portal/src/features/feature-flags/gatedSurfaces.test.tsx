@@ -233,6 +233,11 @@ type Recipe = {
    * case gets the longer limit that wait needs; without it the case's own five seconds would end first.
    */
   runsStatement?: true;
+  /**
+   * Set where `find` selects the section that owns a guide before it looks, so the row's "on" wait spans the
+   * flags applying, an import, a click and a role query; without it that wait and the case's own limit end first.
+   */
+  selectsSection?: true;
 };
 
 const renderHeader = () => {
@@ -350,6 +355,7 @@ const routeRecipe = (flag: FeatureFlagKey): Recipe => ({
 });
 
 const helpRecipe = (helpId: string): Recipe => ({
+  ...(HELP_SECTIONS.some((s) => s.id === helpId) ? {} : {selectsSection: true as const}),
   render: () => {
     renderWithProviders(<HelpPage />, {auth: authenticated('alice'), seedFeatureFlags: false});
   },
@@ -627,7 +633,7 @@ const RECIPES: Record<string, Recipe> = {
       // than held, because `waitFor` outlives the menu's own open state.
       await waitFor(
         async () => expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true'),
-        RUN_WAIT
+        SLOW_WAIT
       );
       await chooseExplorationOption(user, 'Save results…');
     },
@@ -670,7 +676,7 @@ const RECIPES: Record<string, Recipe> = {
       const user = userEvent.setup({delay: null});
       await waitFor(
         async () => expect(await explorationOption(user, 'Save results…')).not.toHaveAttribute('aria-disabled', 'true'),
-        RUN_WAIT
+        SLOW_WAIT
       );
       await chooseExplorationOption(user, 'Save results…');
     },
@@ -1161,9 +1167,10 @@ function renderQueryWorkspace() {
   );
 }
 
-// A statement run is real rendering that outlasts a wait's 1 s under load, and a 5 s wait needs a case above 5 s.
-const RUN_WAIT = {timeout: 5_000};
-const STATEMENT_RUN_CASE = {timeout: 15_000};
+// Real work (a statement run, a Help guide found by selecting its section) outlasts a wait's 1 s under load,
+// and a 5 s wait needs a case above 5 s.
+const SLOW_WAIT = {timeout: 5_000};
+const SLOW_CASE = {timeout: 15_000};
 
 /**
  * Runs the open tab's statement and waits for its results to render.
@@ -1173,7 +1180,7 @@ const STATEMENT_RUN_CASE = {timeout: 15_000};
  */
 async function runStatement(user: UserEvent) {
   await user.click(await screen.findByRole('button', {name: 'Run statement'}));
-  return screen.findByRole('button', {name: 'Save results…'}, RUN_WAIT);
+  return screen.findByRole('button', {name: 'Save results…'}, SLOW_WAIT);
 }
 
 /** The file browser has finished its first listing — the tree is settled either way. */
@@ -1253,9 +1260,10 @@ describe('every registered surface disappears with its flag off and returns with
   );
 
   // A loop rather than `it.each`, whose options are one object for every row: only a row that runs a
-  // statement gets the longer case limit. A row with no recipe reads as no budget, so the guard
-  // below, not a collection error, is what names it.
-  const caseFor = (name: string) => (RECIPES[name]?.runsStatement ? STATEMENT_RUN_CASE : {});
+  // statement, or whose "on" wait selects a section first, gets the longer case limit. A row with no
+  // recipe reads as no budget, so the guard below, not a collection error, is what names it.
+  const caseFor = (name: string) => (RECIPES[name]?.runsStatement ? SLOW_CASE : {});
+  const onCaseFor = (name: string) => (RECIPES[name]?.runsStatement || RECIPES[name]?.selectsSection ? SLOW_CASE : {});
 
   for (const {flag, surface} of rows) {
     it(`${flag} off hides "${surface.name}"`, caseFor(surface.name), async () => {
@@ -1270,11 +1278,14 @@ describe('every registered surface disappears with its flag off and returns with
   }
 
   for (const {flag, surface} of rows) {
-    it(`${flag} on shows "${surface.name}"`, caseFor(surface.name), async () => {
+    it(`${flag} on shows "${surface.name}"`, onCaseFor(surface.name), async () => {
       const recipe = RECIPES[surface.name];
       withFlags({});
       await recipe.render();
-      await waitFor(async () => expect(await recipe.find()).not.toBeNull());
+      await waitFor(
+        async () => expect(await recipe.find()).not.toBeNull(),
+        recipe.selectsSection ? SLOW_WAIT : undefined
+      );
     });
   }
 });
@@ -1470,6 +1481,9 @@ describe('the registry itself', () => {
       if (surface.kind !== 'guide') continue;
       expect(surface.helpId, `${surface.name} has no helpId`).toBeDefined();
       expect(known.has(surface.helpId!), `${surface.helpId} is not a help section or guide`).toBe(true);
+      // A recipe that loses its longer wait passes alone and fails only under load, so it is held here.
+      const insideSection = HELP_SECTIONS.some((s) => s.guides.some((g) => g.id === surface.helpId));
+      expect(Boolean(RECIPES[surface.name]?.selectsSection), `${surface.name} selectsSection`).toBe(insideSection);
     }
   });
 });
