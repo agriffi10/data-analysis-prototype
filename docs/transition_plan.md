@@ -2278,10 +2278,10 @@ attributes is that they never hold a token that may:** `UpdateUserAttributes` ta
 carrying the `aws.cognito.signin.user.admin` scope. So the guardrail is two rules on **every** app
 client in the pool — the server's, the driver path's (§3.10), any added later:
 
-- **No client allows the `aws.cognito.signin.user.admin` scope.** All three clients — the SPA's, the server's and the local-development client SPEC-262 added — allow only `openid`,
+- **No client allows the `aws.cognito.signin.user.admin` scope.** Both clients — the server's and the local-development client SPEC-262 added — allow only `openid`,
   `email` and `profile` today, and the server never hands its access token to the browser.
 - **No client allows an API sign-in flow.** AWS documents that a token from API sign-in carries only
-  that admin scope, and all three clients allow `ALLOW_USER_SRP_AUTH` today. Federated users have no
+  that admin scope, and both clients allow `ALLOW_USER_SRP_AUTH` today. Federated users have no
   password, so in the successor account's pool the flow serves no one and is left out —
   `ALLOW_REFRESH_TOKEN_AUTH` alone. (The current environment keeps its local users until cutover,
   §2 item 14.)
