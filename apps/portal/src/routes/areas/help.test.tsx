@@ -71,8 +71,10 @@ describe('Help on the App Router', () => {
     vi.unstubAllEnvs();
   });
 
+  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
+  // the catch-all no longer builds the route and renders the 404.
   it('is served by its own page, where the catch-all would render the 404', async () => {
-    renderApp('/help', {auth: authenticated('alice'), routers: {help: 'app'}});
+    renderApp('/help', {auth: authenticated('alice'), routers: 'as-recorded'});
 
     await servedByItsPage(helpRail);
   });

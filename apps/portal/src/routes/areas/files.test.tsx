@@ -492,8 +492,10 @@ function CountingFilesPage() {
 }
 
 describe('Files on the App Router', () => {
+  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
+  // the catch-all no longer builds the route and renders the 404.
   it('is served by its own page, where the catch-all would render the 404', async () => {
-    renderApp('/files', {auth: authenticated('alice'), routers: {files: 'app'}});
+    renderApp('/files', {auth: authenticated('alice'), routers: 'as-recorded'});
 
     await servedByItsPage(() => screen.queryByRole('checkbox', {name: 'Select folder docs'}));
   });

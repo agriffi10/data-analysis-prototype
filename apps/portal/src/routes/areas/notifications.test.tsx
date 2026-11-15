@@ -5,7 +5,6 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {enqueueNotificationAction, getNotifications} from '../../features/notifications/notifications.service';
 import {requests} from '../../test/nextNavigation';
-import {DataQualityReportView} from './data-quality';
 import NotificationsPage from '../NotificationsPage';
 
 vi.mock('../../features/notifications/notifications.service', () => ({
@@ -82,23 +81,22 @@ async function servedByItsPage(content: () => HTMLElement | null) {
   expect(content()).toBeInTheDocument();
 }
 
-/** The data-quality report as an App Router page, for a test that serves Data quality from it. */
-const REPORT_PAGE = {'(signed-in)/data-quality/[space]/[requestId]/page.tsx': () => <DataQualityReportView />};
-
 describe('Notifications on the App Router', () => {
   beforeEach(() => {
     vi.mocked(enqueueNotificationAction).mockResolvedValue({success: true, data: undefined});
   });
 
+  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
+  // the catch-all no longer builds the route and renders the 404.
   it('is served by its own page, where the catch-all would render the 404', async () => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
-    renderApp('/notifications', {auth: authenticated('alice'), routers: {notifications: 'app'}});
+    renderApp('/notifications', {auth: authenticated('alice'), routers: 'as-recorded'});
 
     await servedByItsPage(() => screen.queryByRole('heading', {name: 'Notifications', level: 1}));
   });
 
-  // Data quality is pinned to each router in turn, so the link is proved across the two routers
-  // and between two App Router pages, whatever order the area moves land in.
+  // Data quality is named for each router in turn, so the link is proved across the two routers and
+  // between two App Router pages.
   it.each(['catch-all', 'app'] as const)('follows a link to a report the %s serves', async (router) => {
     vi.mocked(getNotifications).mockResolvedValue({
       success: true,
@@ -114,8 +112,7 @@ describe('Notifications on the App Router', () => {
     });
     const {user} = renderApp('/notifications', {
       auth: authenticated('alice'),
-      routers: {notifications: 'app', 'data-quality': router},
-      pages: router === 'app' ? REPORT_PAGE : {}
+      routers: {notifications: 'app', 'data-quality': router}
     });
 
     await user.click(await screen.findByRole('link', {name: 'Your data-quality report is ready'}));
