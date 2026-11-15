@@ -119,6 +119,9 @@ has now run, the last on 2026-09-22.
 The 2026-11-14 run settled everything else live ([`sessions.md`](sessions.md), 2026-11-14). The browser's
 own dialog is what is left: the in-app browser pane handles page dialogs itself, so a reload driven
 there shows nothing, and Andrew chose not to run the manual step that day.
+SPEC-258's FR-003 owes the same step: on 2026-11-15 two uploads ran on Files in Andrew's Chrome while
+the reload was asked for, and no one was at the keyboard before they finished. One real reload
+settles both specs.
 
 | Check | Why | Recipe |
 |---|---|---|
