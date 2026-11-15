@@ -1042,9 +1042,10 @@ SPA_IMAGE_WORKFLOW = ROOT / ".github" / "workflows" / "spa-image.yml"
 #: The shared image-tag check the ``names`` step runs by a path relative to the checkout.
 IMAGE_TAG_CHECK = ROOT / ".github" / "scripts" / "check-image-tag.sh"
 
-#: Paths spanning both lists, the boundaries either could get wrong, and the near misses that
-#: must NOT select — `packages.json` for `^package\.json$`, a nested `package.json` for the root
-#: one, `infra/modules/spa-something/` for `^infra/modules/spa/`.
+#: Paths spanning the lists, the boundaries any could get wrong, and the near misses that must
+#: NOT select — `packages.json` for `^package\.json$`, a nested `package.json` for the root one,
+#: a test beside `lambdas/fleet.py` for the module itself. Every file the apply workflow fires on
+#: has a row, because the apply list's agreement with it is a comparison over this corpus.
 SCOPE_CORPUS = (
     "apps/portal/src/App.tsx",
     "apps/portal/Dockerfile",
@@ -1067,6 +1068,24 @@ SCOPE_CORPUS = (
     "infra/modules/spa/ecs.tf",
     "infra/modules/spa-extras/ecs.tf",
     "infra/modules/lambda-image/ecr.tf",
+    "infra/modules/auth/cognito.tf",
+    ".github/workflows/deploy-infra.yml",
+    ".github/scripts/checkov-scan.sh",
+    ".github/scripts/checkov-scan-test.sh",
+    ".github/scripts/lambda_plan_guard.py",
+    ".github/scripts/tf_var_guard.py",
+    ".github/scripts/summary-section.sh",
+    ".github/scripts/checkov-plan-iam.sh",
+    ".github/checkov-plan-accepted.txt",
+    ".github/scripts/apply-gate.sh",
+    ".github/scripts/checkov-enforced.sh",
+    ".github/scripts/checkov-tf-population.sh",
+    ".github/scripts/frozen_fleet_guard.py",
+    ".github/scripts/checkov_scrub.py",
+    "lambdas/fixtures/pre_cutover_plan.json",
+    "lambdas/fleet.py",
+    "lambdas/test_fleet_derivation.py",
+    "lambdas/tf_blocks.py",
     "docs/architecture.md",
     "lambdas/api/router.py",
     "CLAUDE.md",
@@ -1191,14 +1210,35 @@ def test_the_image_scope_list_and_the_pull_request_gate_select_the_same_paths():
     )
 
 
-def test_the_task_scope_list_selects_what_shapes_the_task_definition():
-    """The narrower list must cover the runtime-configuration map and the SPA module, and no more.
+def _apply_workflow_push_paths() -> list[str]:
+    """Return the push ``paths:`` of the workflow whose run the scope step waits for.
 
-    It decides which pushes hold the run until their own apply has finished, because Terraform
-    registers a revision this workflow would otherwise read the family too early to see. Widening
-    it to `infra/` would hold the SPA deploy on every infrastructure merge — 19 of the 40 measured
-    — for applies that, outside these two paths, can move a configuration value only through a
-    module output or a variable default.
+    Args:
+        None.
+
+    Returns:
+        list[str]: The apply workflow's push trigger, as GitHub reads it.
+
+    Raises:
+        AssertionError: If the workflow the scope step names does not exist.
+    """
+    workflow = ROOT / ".github" / "workflows" / _scope_step()["env"]["APPLY_WORKFLOW"]
+    assert workflow.is_file(), (
+        f"the scope step waits for {workflow.name}, which does not exist"
+    )
+    return yaml.safe_load(workflow.read_text(encoding="utf-8"))[True]["push"]["paths"]
+
+
+def test_the_apply_list_and_the_apply_workflow_select_the_same_pushes():
+    """A push waits for its apply exactly when it has one, so the two lists are one set.
+
+    Any apply can register a revision. The definition renders values other modules decide, defaults
+    from `variables.tf`, and repository variables the apply reads whenever it runs, so the change
+    set cannot say which pushes change it. A path the apply workflow fires on and this list
+    misses is a push that reads the family before its apply and skips, leaving the revision it
+    registered unpointed — which a push whose only infrastructure change was the auth module did,
+    behind a list naming the SPA module and `infra/main.tf`. A path this list waits on and the apply workflow does not
+    fire on waits the full window for a run that is never created, and reddens main.
 
     Args:
         None.
@@ -1207,14 +1247,21 @@ def test_the_task_scope_list_selects_what_shapes_the_task_definition():
         None.
 
     Raises:
-        AssertionError: If the list stops selecting an input to the task definition, or starts
-            selecting infrastructure that cannot change one.
+        AssertionError: If the two lists disagree, or the comparison went vacuous.
     """
-    selected = _selected_by_regexes(_scope_step()["env"]["TASK_PATTERNS"])
-    assert selected == {"infra/main.tf", "infra/modules/spa/ecs.tf"}, (
-        f"the task-definition scope list selects {sorted(selected)}; it must select the runtime "
-        "configuration map and the SPA module, and neither the rest of infra nor a module whose "
-        "name merely starts with `spa`"
+    waited_on = _selected_by_regexes(_scope_step()["env"]["APPLY_PATTERNS"])
+    fired = _selected_by_globs(_apply_workflow_push_paths())
+
+    assert "infra/modules/auth/cognito.tf" in fired, (
+        "the apply workflow fires on nothing in the corpus; the comparison below would be vacuous"
+    )
+    assert waited_on != set(SCOPE_CORPUS), (
+        "the apply list selects every corpus path; it would agree with any trigger that did"
+    )
+    assert waited_on == fired, (
+        "`deploy-spa-image.yml`'s APPLY_PATTERNS and the apply workflow's push `paths:` disagree.\n"
+        f"  fires an apply nobody waits for: {sorted(fired - waited_on)}\n"
+        f"  waits for an apply never fired:  {sorted(waited_on - fired)}"
     )
 
 
@@ -1466,7 +1513,7 @@ def _run_scope(
             "IMAGE_PATTERNS": step["env"]["IMAGE_PATTERNS"]
             if image_patterns is None
             else image_patterns,
-            "TASK_PATTERNS": step["env"]["TASK_PATTERNS"],
+            "APPLY_PATTERNS": step["env"]["APPLY_PATTERNS"],
             "APPLY_WORKFLOW": step["env"]["APPLY_WORKFLOW"],
             "GITHUB_REPOSITORY": "owner/repo",
             "FAKE_STATE": str(state),
@@ -1534,7 +1581,7 @@ def _run_scope(
         return {**answers, **waited}
 
 
-def test_a_commit_touching_nothing_the_image_or_the_task_definition_reads_does_neither():
+def test_a_commit_touching_nothing_the_image_reads_and_firing_no_apply_does_neither():
     """The saving itself: a documentation merge builds nothing and leaves production alone.
 
     Args:
@@ -1546,9 +1593,7 @@ def test_a_commit_touching_nothing_the_image_or_the_task_definition_reads_does_n
     Raises:
         AssertionError: If either half of the run is still scheduled.
     """
-    answers = _run_scope(
-        ("docs/architecture.md", "lambdas/api/router.py", "infra/variables.tf")
-    )
+    answers = _run_scope(("docs/architecture.md", "lambdas/api/router.py"))
     assert (answers["build"], answers["deploy"]) == ("skip", "skip")
     assert answers["tag"] == answers["baseline"], (
         "a skipped run must keep naming the running commit"
@@ -1664,6 +1709,42 @@ def test_a_configuration_push_whose_apply_registered_nothing_leaves_the_service_
     )
 
 
+def test_a_push_whose_apply_registers_a_revision_from_outside_the_spa_module_points_at_it():
+    """Every push that has an apply waits for it, whichever file it changed.
+
+    The definition takes the auth module's server client id and session lifetime through root, a
+    default from `variables.tf`, and repository variables an apply reads on any push that fires
+    one — so each of these pushes can register a revision as its apply finishes, and the fixture
+    has each one do so. Read before then, the family still holds the revision the service runs,
+    the step skips, and the new one is pointed at by nothing until a dispatch.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If any of the pushes reads the family before its apply finished, which
+            leaves the revision that apply registered unpointed.
+    """
+    for changed in (
+        "infra/modules/auth/cognito.tf",
+        "infra/variables.tf",
+        ".github/scripts/apply-gate.sh",
+    ):
+        answers = _run_scope((changed,), apply_registers=True)
+        assert answers["polls"] == 2, (
+            f"a push changing only {changed} read the family without waiting for its apply"
+        )
+        assert (answers["build"], answers["deploy"]) == ("skip", "run"), (
+            f"the revision the apply for {changed} registered was never pointed at"
+        )
+        assert answers["tag"] == answers["baseline"], (
+            "re-pointing must reuse the running image, not build a new one"
+        )
+
+
 def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it():
     """Reading the family while the apply may still register is the defect, arriving late.
 
@@ -1727,7 +1808,7 @@ def test_a_failed_apply_is_reported_and_the_run_decides_from_what_it_can_read():
         )
 
 
-def test_nothing_but_a_push_touching_the_task_definition_waits():
+def test_nothing_but_a_push_with_an_apply_waits():
     """The wait is paid by the pushes it protects, and the recovery lever never pays it.
 
     Args:
@@ -1740,45 +1821,10 @@ def test_nothing_but_a_push_touching_the_task_definition_waits():
         AssertionError: If an ordinary push or a dispatch asks after the apply.
     """
     assert _run_scope(("apps/portal/src/App.tsx",))["polls"] == 0, (
-        "a push touching nothing the task definition reads waited for an apply"
+        "a push that fires no apply waited for one"
     )
     assert _run_scope(("infra/main.tf",), dispatched=True)["polls"] == 0, (
         "a dispatch waited for an apply; the recovery lever does what it is told"
-    )
-
-
-def test_every_path_the_task_list_waits_on_fires_the_apply_it_waits_for():
-    """A push the task list selects waits for a run of the apply workflow, so there must be one.
-
-    A path in the task list that the apply workflow's `paths:` does not cover waits the full
-    window for a run that is never created, and reddens main on every push touching it.
-
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        AssertionError: If the named workflow is missing or does not fire on a path the task
-            list selects.
-    """
-    step = _scope_step()
-    workflow = ROOT / ".github" / "workflows" / step["env"]["APPLY_WORKFLOW"]
-    assert workflow.is_file(), (
-        f"the scope step waits for {workflow.name}, which does not exist"
-    )
-
-    waited_on = _selected_by_regexes(step["env"]["TASK_PATTERNS"])
-    assert waited_on, (
-        "the task list selects nothing; the comparison below would be vacuous"
-    )
-    fired = _selected_by_globs(
-        yaml.safe_load(workflow.read_text(encoding="utf-8"))[True]["push"]["paths"]
-    )
-    assert waited_on <= fired, (
-        f"{workflow.name} does not fire on {sorted(waited_on - fired)}, so a push touching it "
-        "waits for an apply run that is never created"
     )
 
 
@@ -1787,7 +1833,7 @@ def test_the_scope_step_holds_a_token_that_may_read_the_apply_runs():
 
     `gh` refuses to run with no token at all, and the runs endpoint refuses a token without the
     Actions permission in a private repository. Either way every lookup reads as unreadable,
-    and every push touching the task definition waits out the window and reddens main.
+    and every push with an apply waits out the window and reddens main.
 
     Args:
         None.
@@ -2192,7 +2238,7 @@ def test_both_spa_pattern_lists_mean_what_they_look_like():
         AssertionError: If either list is empty, blank-lined, whitespaced or non-POSIX.
     """
     environment = _scope_step()["env"]
-    for name in ("IMAGE_PATTERNS", "TASK_PATTERNS"):
+    for name in ("IMAGE_PATTERNS", "APPLY_PATTERNS"):
         _assert_pattern_list_is_sane(
             [line for line in environment[name].split("\n") if line.strip()], name
         )
@@ -2216,7 +2262,7 @@ def test_every_scope_pattern_and_glob_selects_something_in_the_corpus():
         AssertionError: If any pattern or glob selects no corpus path.
     """
     environment = _scope_step()["env"]
-    for name in ("IMAGE_PATTERNS", "TASK_PATTERNS"):
+    for name in ("IMAGE_PATTERNS", "APPLY_PATTERNS"):
         for pattern in (line for line in environment[name].split("\n") if line.strip()):
             assert _selected_by_regexes(pattern), (
                 f"`{pattern}` in {name} selects nothing in SCOPE_CORPUS, so neither list-agreement "
@@ -2224,11 +2270,15 @@ def test_every_scope_pattern_and_glob_selects_something_in_the_corpus():
             )
 
     gate = yaml.safe_load(SPA_IMAGE_WORKFLOW.read_text(encoding="utf-8"))
-    for glob in gate[True]["pull_request"]["paths"]:
-        assert _selected_by_globs([glob]), (
-            f"`{glob}` in spa-image.yml's `paths:` selects nothing in SCOPE_CORPUS. Add a path it "
-            "selects to the corpus, or the deploy's list can silently stop covering it."
-        )
+    for workflow, globs in (
+        ("spa-image.yml", gate[True]["pull_request"]["paths"]),
+        (_scope_step()["env"]["APPLY_WORKFLOW"], _apply_workflow_push_paths()),
+    ):
+        for glob in globs:
+            assert _selected_by_globs([glob]), (
+                f"`{glob}` in {workflow}'s `paths:` selects nothing in SCOPE_CORPUS. Add a path it "
+                "selects to the corpus, or the deploy's list can silently stop covering it."
+            )
 
 
 def test_a_revision_the_service_never_settled_on_is_re_pointed_rather_than_skipped():
@@ -2330,7 +2380,7 @@ def test_a_pattern_list_grep_cannot_compile_stops_the_run_rather_than_skipping()
 
 
 def test_a_configuration_change_already_deployed_does_not_wait_forever():
-    """The task list is about THIS push; the image change set does not advance when a run re-points.
+    """The apply list is about THIS push; the image change set does not advance on a re-point.
 
     Tested against the image change set, one merge touching `infra/main.tf` goes on matching for
     every merge after it until the next commit that builds — each run waiting on an apply that
@@ -2348,13 +2398,13 @@ def test_a_configuration_change_already_deployed_does_not_wait_forever():
     """
     stale = _run_scope(("docs/architecture.md",), intermediate=("infra/main.tf",))
     assert stale["polls"] == 0, (
-        "a configuration change from an earlier merge still holds this run for an apply; the task "
-        "list is being tested against the image baseline rather than against this push"
+        "a push touching only documentation waited for an apply: either the apply list selects "
+        "it, or the list is being tested against the image baseline rather than this push"
     )
     assert (stale["build"], stale["deploy"]) == ("skip", "skip")
 
     # The control: the same change, in THIS commit, still waits. Without it the assertion above
-    # passes just as well on a task list that matches nothing at all.
+    # passes just as well on an apply list that matches nothing at all.
     fresh = _run_scope(("infra/main.tf",), intermediate=("docs/architecture.md",))
     assert fresh["polls"] == 2
 
