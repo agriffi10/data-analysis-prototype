@@ -20,9 +20,9 @@ export function usePageTitle(page?: string): void {
 }
 
 /**
- * Sets the title in the commit that mounts an App Router page, once, for its
- * page file to call with the name its view titles itself by; `null` leaves the
- * title to the view.
+ * Sets the title in the commit that mounts an App Router page, for its page
+ * file to call with the name its view titles itself by; `null` leaves the title
+ * to the view.
  *
  * Next's route announcer reads document.title in a passive effect of the
  * commit that changes the router's tree. On a first visit that commit holds
@@ -31,9 +31,9 @@ export function usePageTitle(page?: string): void {
  * page they left. The page's own effect runs before the announcer's, which
  * Next renders after the page. It is a layout effect for the view's sake: in
  * a commit holding both it runs before the view's passive {@link usePageTitle},
- * so the view's title wins. It writes once per mount, because a boundary above
- * that hides the page and shows it again re-runs its layout effects but not the
- * view's passive one.
+ * so the view's title wins. It writes only when its name changes, never twice
+ * for the same name, because a boundary above that hides the page and shows it
+ * again re-runs its layout effects but not the view's passive one.
  *
  * A first visit announces this name, so a view whose title depends on state
  * (an unread count, a flag that is off) is announced by its page's name, and

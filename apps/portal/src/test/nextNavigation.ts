@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {flushSync} from 'react-dom';
 import {act} from '@testing-library/react';
+import {formatPageTitle} from '../lib/formatPageTitle';
 
 /**
  * Vitest's `next/navigation`: Next's App Router modelled on jsdom's own history, so the navigation
@@ -40,8 +41,10 @@ import {act} from '@testing-library/react';
  * 8. `useParams` returns the selected page's params percent-encoded, from the page the router last
  *    navigated to, not from the address.
  * 9. The route announcer reads `document.title` in a passive effect of the commit that changes the
- *    tree (Next falls back to the first `h1` when the title is empty, which no page here leaves it), rendered after the page so the page's own passive effects
- *    have run, and announces it when it differs from its last reading, never on the first load;
+ *    tree, rendered after the page so the page's own passive effects have run, and announces it when
+ *    it differs from its last reading (Next falls back to the first `h1` when the title is empty,
+ *    which no page here leaves it). Its first reading, never announced, is taken as the document
+ *    hydrates, before the boot mounts any page, so it is the root layout's own `<title>`.
  *    `announcements()` lists what it said. A router navigation, a traversal and an external write
  *    are each a new tree, the last because Next restores the page it shows, so a title the page
  *    changed in place is announced at the next of them.
@@ -274,6 +277,9 @@ export function NextStandInRoot({children}: {children: ReactNode}) {
   return createElement(Fragment, null, children, createElement(RouteAnnouncer, {tree: state.tree}));
 }
 
+/** The root layout's `<title>`, which the document carries until the boot mounts a page. */
+const ROOT_TITLE = formatPageTitle();
+
 /**
  * Next's route announcer (behaviour 9), after the page as Next renders it, so its effect runs once
  * the page's own have.
@@ -284,7 +290,7 @@ export function NextStandInRoot({children}: {children: ReactNode}) {
 function RouteAnnouncer({tree}: {tree: Tree}) {
   const previous = useRef<string | undefined>(undefined);
   useEffect(() => {
-    const current = document.title;
+    const current = previous.current === undefined ? ROOT_TITLE : document.title;
     if (previous.current !== undefined && previous.current !== current) standIn().announcements.push(current);
     previous.current = current;
   }, [tree]);

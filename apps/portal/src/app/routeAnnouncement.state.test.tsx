@@ -16,6 +16,9 @@ vi.mock('../features/notifications/notifications.service', async (importOriginal
 /** A view's first chunk is transformed on demand, which outlasts `waitFor`'s default on a cold cache. */
 const LOADING = {timeout: 10_000};
 
+/** Two such waits, which the test's own default of five seconds would cut short. */
+const BUDGET = 20_000;
+
 const UNREAD = [0, 1, 2].map((i) => ({
   id: `n${i}`,
   message: `m${i}`,
@@ -27,24 +30,32 @@ const UNREAD = [0, 1, 2].map((i) => ({
 // before its view: a title the view derives from state is read when the page is shown again, and
 // never the page left. Each page is visited once in this file, so its view's chunk is still loading.
 describe('a first visit to a page whose view’s title depends on state', () => {
-  it('announces Notifications by its name while the bell already counts three unread', async () => {
-    vi.mocked(getNotifications).mockResolvedValue({success: true, data: UNREAD});
-    renderApp('/files', {auth: authenticated('alice'), routers: {notifications: 'app'}});
-    await screen.findByRole('link', {name: /3 unread/}, LOADING);
+  it(
+    'announces Notifications by its name while the bell already counts three unread',
+    async () => {
+      vi.mocked(getNotifications).mockResolvedValue({success: true, data: UNREAD});
+      renderApp('/files', {auth: authenticated('alice'), routers: {notifications: 'app'}});
+      await screen.findByRole('link', {name: /3 unread/}, LOADING);
 
-    act(() => standInRouter().push('/notifications'));
-    await waitFor(() => expect(document.title).toBe('Notifications (3) — Data Quarry'), LOADING);
+      act(() => standInRouter().push('/notifications'));
+      await waitFor(() => expect(document.title).toBe('Notifications (3) — Data Quarry'), LOADING);
 
-    expect(announcements()).toEqual(['Notifications — Data Quarry']);
-  });
+      expect(announcements()).toEqual(['Notifications — Data Quarry']);
+    },
+    BUDGET
+  );
 
-  it('announces Query by its name when its flag is off', async () => {
-    renderApp('/files', {auth: authenticated('alice'), routers: {query: 'app'}, featureFlags: {query: false}});
-    await waitFor(() => expect(document.title).toBe('Files — Data Quarry'), LOADING);
+  it(
+    'announces Query by its name when its flag is off',
+    async () => {
+      renderApp('/files', {auth: authenticated('alice'), routers: {query: 'app'}, featureFlags: {query: false}});
+      await waitFor(() => expect(document.title).toBe('Files — Data Quarry'), LOADING);
 
-    act(() => standInRouter().push('/query'));
-    await waitFor(() => expect(document.title).toBe('Query unavailable — Data Quarry'), LOADING);
+      act(() => standInRouter().push('/query'));
+      await waitFor(() => expect(document.title).toBe('Query unavailable — Data Quarry'), LOADING);
 
-    expect(announcements()).toEqual(['Query — Data Quarry']);
-  });
+      expect(announcements()).toEqual(['Query — Data Quarry']);
+    },
+    BUDGET
+  );
 });

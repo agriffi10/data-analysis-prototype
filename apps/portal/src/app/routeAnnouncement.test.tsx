@@ -1,9 +1,10 @@
 import {act, waitFor} from '@testing-library/react';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {renderApp} from '../test/appRouter';
 import {authenticated} from '../test/authFixtures';
 import {announcements, standInRouter} from '../test/nextNavigation';
 import {patternOf} from '../test/pageSelection';
+import {recordTitleWrites} from '../test/titleWrites';
 import {areaOf} from '../lib/navigation';
 
 vi.mock('aws-amplify/auth', () => ({
@@ -24,24 +25,11 @@ const PAGES = Object.keys(import.meta.glob('./**/page.tsx'))
 /** A view's first chunk is transformed on demand, which outlasts `waitFor`'s default on a cold cache. */
 const LOADING = {timeout: 10_000};
 
-/** Every value written to `document.title` in this test, in order. */
-const writes: string[] = [];
-const TITLE = Object.getOwnPropertyDescriptor(Document.prototype, 'title') as PropertyDescriptor;
+/** Two such waits, which the test's own default of five seconds would cut short. */
+const BUDGET = 20_000;
 
-beforeEach(() => {
-  writes.length = 0;
-  Object.defineProperty(document, 'title', {
-    configurable: true,
-    get: () => TITLE.get?.call(document) as string,
-    set: (value: string) => {
-      writes.push(value);
-      TITLE.set?.call(document, value);
-    }
-  });
-});
-afterEach(() => {
-  Reflect.deleteProperty(document, 'title');
-});
+/** Every value written to `document.title` in each test, in order. */
+const writes = recordTitleWrites();
 
 describe('an App Router page’s first visit', () => {
   it('lists every signed-in page', () => {
@@ -52,19 +40,23 @@ describe('an App Router page’s first visit', () => {
   // Each page is visited once in this file, so its view's chunk is still loading when the router
   // commits it, as on a user's first visit; a page left from the catch-all titles itself. The wait
   // for a write after the commit is what shows it: a view already loaded titles itself in the commit.
-  it.each(PAGES)('announces the title its view sets: $file', async ({path, area}) => {
-    renderApp(area === 'files' ? '/help' : '/files', {auth: authenticated('alice'), routers: {[area]: 'app'}});
-    await waitFor(() => expect(writes.length).toBeGreaterThan(0), LOADING);
-    const left = document.title;
+  it.each(PAGES)(
+    'announces the title its view sets: $file',
+    async ({path, area}) => {
+      renderApp(area === 'files' ? '/help' : '/files', {auth: authenticated('alice'), routers: {[area]: 'app'}});
+      await waitFor(() => expect(writes.length).toBeGreaterThan(0), LOADING);
+      const left = document.title;
 
-    act(() => standInRouter().push(path));
-    const committed = writes.length;
-    await waitFor(() => expect(writes.length).toBeGreaterThan(committed), LOADING);
+      act(() => standInRouter().push(path));
+      const committed = writes.length;
+      await waitFor(() => expect(writes.length).toBeGreaterThan(committed), LOADING);
 
-    expect(document.title).not.toBe(left);
-    expect(
-      announcements(),
-      'a page passes usePageTitleOnMount the name its view settles on with no data and every flag on'
-    ).toEqual([document.title]);
-  });
+      expect(document.title).not.toBe(left);
+      expect(
+        announcements(),
+        'a page passes usePageTitleOnMount the name its view settles on with no data and every flag on'
+      ).toEqual([document.title]);
+    },
+    BUDGET
+  );
 });

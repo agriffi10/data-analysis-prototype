@@ -68,6 +68,18 @@ const LAYERING_IMPORTS = {
     'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
 };
 
+/**
+ * What an App Router page may import statically is lib/ and hooks/, and a page's static imports are
+ * evaluated at hydration, before the boot: so those two never reach the application graph either.
+ * A type-only import is erased, so it is allowed.
+ */
+const PAGE_REACHABLE_IMPORTS = {
+  group: ['**/components/*', '**/components/**', '**/routes/*', '**/routes/**'],
+  allowTypeImports: true,
+  message:
+    "lib/ and hooks/ are what an App Router page may import statically, and a page's static imports run at hydration, before the boot, so they must not import components/ or routes/. Move the piece into lib/ or hooks/, or reach it from the page through next/dynamic."
+};
+
 export default defineConfig([
   {
     // Every file under src/, tests included. The three clauses below re-state
@@ -138,6 +150,19 @@ export default defineConfig([
         'error',
         {
           patterns: [LAYERING_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS, REACT_ROUTER_IMPORTS]
+        }
+      ]
+    }
+  },
+  {
+    // lib/ and hooks/ also stay off components/ and routes/, because a page imports them statically.
+    // It replaces the clause above for these two trees, so it re-states every group of it.
+    files: ['src/lib/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [LAYERING_IMPORTS, PAGE_REACHABLE_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS, REACT_ROUTER_IMPORTS]
         }
       ]
     }
@@ -256,7 +281,10 @@ export default defineConfig([
     // only the SDK group let a file in the seam import a feature and lint clean.
     files: ['src/lib/navigation/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': ['error', {patterns: [LAYERING_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS]}]
+      'no-restricted-imports': [
+        'error',
+        {patterns: [LAYERING_IMPORTS, PAGE_REACHABLE_IMPORTS, AWS_SDK_IMPORTS, SERVER_IMPORTS]}
+      ]
     }
   },
   {
