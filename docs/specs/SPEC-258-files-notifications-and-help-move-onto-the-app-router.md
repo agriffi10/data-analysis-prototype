@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-258
 title: "Files, Notifications and Help Move Onto the App Router"
 description: "Serves the Files, Notifications and Help pages from App Router pages instead of the react-router catch-all, with nothing a user does on them changing."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-256]
 arc: nextjs
 arc_order: 4
@@ -85,7 +85,9 @@ as signed in.
 - [ ] A new test per area renders its page through `renderApp` and asserts something only that area
       shows (the Files listing, the Notifications heading, a Help section's heading); with that
       page file deleted, the test turns red on the catch-all's 404, since the table no longer
-      builds the route. The inherited split tests pass unchanged.
+      builds the route. It reads the records as they stand (`routers: 'as-recorded'`), because the
+      harness serves every area a test does not name from the catch-all. The inherited split tests
+      that exercise these areas name their area's router as `'app'`, and pass.
 - [ ] `next build` lists `/files`, `/notifications` and `/help` as dynamic routes beside
       `/[[...slug]]`, and `next start` answers each with status 200.
 
@@ -106,7 +108,8 @@ its section.
 #### Acceptance Criteria:
 
 - [ ] Through `renderApp`, an upload started on Files survives a round trip to Query and back, with
-      Query served by the catch-all through the `routers` option.
+      Files named as the App Router's and Query as the catch-all's through the `routers` option, so
+      the result does not depend on whether Query has moved.
 - [ ] With shared workspaces on, switching space from the sidebar calls neither `router.push` nor
       `router.replace`, and a pass-through counter on the Files page component records no second
       mount.

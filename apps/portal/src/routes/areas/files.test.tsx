@@ -1,5 +1,5 @@
-import {useState, type ReactNode} from 'react';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {useEffect, useState, type ComponentType, type ReactNode} from 'react';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import {renderApp} from '../../test/appRouter';
 import {requests} from '../../test/nextNavigation';
@@ -9,6 +9,8 @@ import {AuthProvider, type AuthContextValue} from '../../features/auth';
 import {getCurrentAuthUser, startSignOut} from '../../features/auth/auth.service';
 import * as fileService from '../../features/file-browser/fileBrowser.service';
 import {submitFileOperation} from '../../features/file-browser/fileOps.service';
+import {readSharedConnectionsCache} from '../../features/shared-spaces/sharedSpaces.service';
+import {getNotifications} from '../../features/notifications/notifications.service';
 import {Link} from '../../lib/navigation';
 import {disarmLeaveGuard} from '../../lib/leaveGuard';
 import type {FileListPage} from '../../types/s3.types';
@@ -96,6 +98,13 @@ vi.mock('../DataQualityPage', async () => {
     }
   };
 });
+// Query, standing in for a page the catch-all serves: Monaco and the catalog clients are not this
+// file's subject, only which router renders the page.
+vi.mock('../QueryPage', () => ({
+  default: function QueryStandIn() {
+    return <h1>Query stand-in</h1>;
+  }
+}));
 
 const mock = vi.mocked(fileService);
 const ok = <T,>(data: T) => ({success: true as const, data});
@@ -106,7 +115,8 @@ const page: FileListPage = {
   isTruncated: false
 };
 
-const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice')});
+/** Files on the App Router, as it is served now; every area the test does not name is the catch-all's. */
+const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice'), routers: {files: 'app'}});
 
 type User = ReturnType<typeof renderFiles>['user'];
 
@@ -284,7 +294,7 @@ describe('the signed-in shell outlives the page', () => {
   // the auth gate would pass every test above, and leave a signed-out tab uploading.
   it('ends with the session: signing out aborts the upload and drops the operations', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', {auth: SignOutable});
+    const {user} = renderApp('/files', {auth: SignOutable, routers: {files: 'app'}});
     await startUploads(user);
     await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
@@ -417,7 +427,7 @@ describe('an unfinished upload asks before the document goes', () => {
       for (const listener of [...hub.listeners]) listener({payload: {event: 'signedOut'}});
       return {success: true, data: undefined};
     });
-    const {user} = renderApp('/files', {auth: AuthProvider});
+    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
@@ -431,7 +441,7 @@ describe('an unfinished upload asks before the document goes', () => {
     const aborted = holdUploadsOpen();
     vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
     vi.mocked(startSignOut).mockResolvedValue({success: false, error: {message: 'offline', code: 'NetworkError'}});
-    const {user} = renderApp('/files', {auth: AuthProvider});
+    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
@@ -450,5 +460,121 @@ describe('an unfinished upload asks before the document goes', () => {
     await startUploads(user);
 
     expect(unloadIsCancelled()).toBe(true);
+  });
+});
+
+/**
+ * Wait until the page settles on the area's own content or on the catch-all's 404, then fail naming
+ * the 404 if that is what rendered: an area page missing from disk falls through to it.
+ */
+async function servedByItsPage(content: () => HTMLElement | null) {
+  const notFound = () => screen.queryByRole('heading', {name: 'Page not found'});
+  await waitFor(() => expect(content() ?? notFound()).not.toBeNull());
+  expect(notFound()).not.toBeInTheDocument();
+  expect(content()).toBeInTheDocument();
+}
+
+/** Mounts of the Files page, counted by the pass-through below. */
+let filesPageMounts = 0;
+
+/**
+ * The page files on disk. The Files page is read from here rather than imported, so that with it
+ * deleted only the test that wraps it fails, and the rest of the file still fails on the 404.
+ */
+const DISK_PAGES = import.meta.glob<{default: ComponentType}>('../../app/**/page.tsx', {eager: true});
+
+/** The Files page as it is on disk, counting each mount. */
+function CountingFilesPage() {
+  useEffect(() => {
+    filesPageMounts += 1;
+  }, []);
+  const FilesPage = DISK_PAGES['../../app/(signed-in)/files/page.tsx'].default;
+  return <FilesPage />;
+}
+
+describe('Files on the App Router', () => {
+  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
+  // the catch-all no longer builds the route and renders the 404.
+  it('is served by its own page, where the catch-all would render the 404', async () => {
+    renderApp('/files', {auth: authenticated('alice'), routers: 'as-recorded'});
+
+    await servedByItsPage(() => screen.queryByRole('checkbox', {name: 'Select folder docs'}));
+  });
+
+  // Query is named as the catch-all's, so the claim holds in whatever order the area moves land.
+  it('keeps an upload running across a round trip to a page the catch-all serves', async () => {
+    const aborted = holdUploadsOpen();
+    const {user} = renderApp('/files', {auth: authenticated('alice'), routers: {files: 'app', query: 'catch-all'}});
+    await startUploads(user);
+
+    await user.click(screen.getByRole('link', {name: 'Query'}));
+    await screen.findByRole('heading', {name: 'Query stand-in'});
+    await backToFiles(user);
+    await user.click(screen.getByRole('button', {name: 'Upload'}));
+
+    expect(requests()).toEqual(['/query', '/files']);
+    expect(aborted()).toEqual([false]);
+    expect(await screen.findByRole('progressbar', {name: 'Uploading up.txt'})).toHaveAttribute('aria-valuenow', '50');
+  });
+
+  it('opens the folder a notification links to', async () => {
+    vi.mocked(getNotifications).mockResolvedValue(
+      ok([
+        {
+          id: 'n1',
+          message: 'Your results are in docs',
+          read: false,
+          timestamp: '2026-11-14T00:00:00Z',
+          link: '/files?prefix=alice/docs/'
+        }
+      ])
+    );
+    onTestFinished(() => {
+      vi.mocked(getNotifications).mockResolvedValue(ok([]));
+    });
+    const {user} = renderApp('/notifications', {
+      auth: authenticated('alice'),
+      routers: {notifications: 'app', files: 'app'}
+    });
+
+    await user.click(await screen.findByRole('link', {name: 'Your results are in docs'}));
+
+    const breadcrumb = within(await screen.findByRole('navigation', {name: 'breadcrumb'}));
+    expect(await breadcrumb.findByText('docs')).toBeInTheDocument();
+    expect(mock.listFiles).toHaveBeenCalledWith('user-space', 'alice/docs/', undefined, expect.anything());
+    expect(requests()).toEqual(['/files?prefix=alice/docs/']);
+  });
+});
+
+describe('a space switch on Files', () => {
+  beforeEach(() => {
+    filesPageMounts = 0;
+    vi.mocked(readSharedConnectionsCache).mockResolvedValue(
+      ok({version: 1, connections: [{name: 'marketing_data', role: 'member', status: 'active'}]})
+    );
+  });
+
+  afterEach(() => {
+    vi.mocked(readSharedConnectionsCache).mockResolvedValue(ok({version: 1, connections: []}));
+  });
+
+  // Only the search changes, so the seam writes the entry itself: Next fetches nothing, and the page
+  // stays mounted while the file browser inside it remounts on the new space, by design.
+  it('goes through neither router call, and does not remount the page', async () => {
+    const {user} = renderApp('/files', {
+      auth: authenticated('alice'),
+      routers: {files: 'app'},
+      pages: {'(signed-in)/files/page.tsx': CountingFilesPage}
+    });
+    await screen.findByRole('checkbox', {name: 'Select folder docs'});
+
+    const spaces = (await screen.findAllByRole('list', {name: 'Spaces'}))[0];
+    await user.click(await within(spaces).findByRole('button', {name: /marketing_data/}));
+
+    await waitFor(() => expect(window.location.search).toBe('?space=marketing_data'));
+    const breadcrumb = within(await screen.findByRole('navigation', {name: 'breadcrumb'}));
+    expect(await breadcrumb.findByText('marketing_data')).toBeInTheDocument();
+    expect(requests()).toEqual([]);
+    expect(filesPageMounts).toBe(1);
   });
 });
