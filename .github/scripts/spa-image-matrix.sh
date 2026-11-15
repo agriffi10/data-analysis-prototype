@@ -229,7 +229,10 @@ start_container() {
 
 start_container || { echo "cannot run the matrix against a container that will not start" >&2; exit 1; }
 
-ASSET=$(docker exec "$NAME" sh -c 'ls /app/apps/portal/.next/static/chunks/*.js | head -1 | xargs basename')
+# The LARGEST chunk, never the first by name: Next's compression middleware leaves a body under its
+# 1 KiB default threshold uncompressed, and which chunk's hash sorts first is luck. Measured: a
+# 548-byte chunk came back with no Content-Encoding, a 1761-byte one gzipped.
+ASSET=$(docker exec "$NAME" sh -c 'ls -S /app/apps/portal/.next/static/chunks/*.js | head -1 | xargs basename')
 [ -n "$ASSET" ] || { echo "no hashed chunk in the image — the build produced nothing" >&2; exit 1; }
 
 # One request, reused by every assertion about it: headers to a file, body to another. Transfer
