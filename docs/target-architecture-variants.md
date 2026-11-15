@@ -2,8 +2,9 @@
 
 **Status:** Companion to `docs/transition_plan.md`, which stays the single source of truth. This
 file adds **pictures and one rejected fork**; where it and the plan disagree, the plan wins.
-**Last updated:** 2026-08-19 (validated against live AWS and Microsoft documentation on that
-date — see *What was checked against the live docs* at the end)
+**Last updated:** 2026-11-15, when the BFF box became the Next.js server and the API Lambda
+(`transition_plan.md` §4.7). Validated against live AWS and Microsoft documentation on 2026-08-19 —
+see *What was checked against the live docs* at the end.
 
 **What these are.** The successor-account architecture at the end of **Phase 5**, drawn once for each
 of the two identity variants: one *user* credential plane — the identity-enhanced session — with Athena and
@@ -86,7 +87,7 @@ self-asserted email.
 
 ```mermaid
 flowchart TB
-  BR["Browser · SPA<br/>holds no AWS credentials"]
+  BR["Browser<br/>holds an opaque cookie<br/>no token, no AWS credential"]
 
   subgraph IDPLANE["IDENTITY PLANE · VARIANT A — Entra issues OIDC directly, no Cognito anywhere"]
     ENTRA["Microsoft Entra ID<br/>OIDC / OAuth2 JWTs<br/>TRUSTED TOKEN ISSUER"]
@@ -95,10 +96,10 @@ flowchart TB
   end
 
   subgraph PORTAL["THE PORTAL"]
-    SPA["ECS Fargate + ALB<br/>Next.js server container<br/>app.example.com"]
+    WEB["Next.js server · THE BFF<br/>ECS Fargate + ALB · portal.example.com<br/>owns /auth/login, /auth/callback, the /api/ pass-through<br/>task role: the session table + CreateTokenWithIAM, no data access"]
+    DDB[("DynamoDB<br/>the session: provider tokens + IdC tokens<br/>CMK · expiry checked on read")]
     APIGW["API Gateway<br/>api.example.com"]
-    BFF["BFF Lambda<br/>owns /auth/login and /auth/callback<br/>every request-path AWS call<br/>(the target splits this: authorizer + worker)"]
-    DDB[("DynamoDB<br/>session + IdC refresh token<br/>CMK · TTL checked on read")]
+    API["API Lambda · the resource server<br/>verifies the bearer, assumes the carrier role<br/>every request-path AWS call"]
   end
 
   subgraph LANEA["LANE A — signed by the API execution role"]
@@ -114,7 +115,7 @@ flowchart TB
     ATHENA["athena:StartQueryExecution<br/>IdC-enabled workgroup · gate G7"]
     LF["Lake Formation<br/>SELECT to the IdC user or group<br/>levels are data cell filters"]
     AG["s3:GetDataAccess<br/>S3 Access Grants instance"]
-    CREDS["Prefix-scoped temporary credentials<br/>the BFF presigns from them · gate G9<br/>lifetime + clamp: SPEC-196, SPEC-198"]
+    CREDS["Prefix-scoped temporary credentials<br/>the API presigns from them · gate G9<br/>lifetime + clamp: SPEC-196, SPEC-198"]
   end
 
   DENY["DENIED BY AWSIAMIdentityCenterAllowListForIdentityContext:<br/>plain GetObject / PutObject / ListObjectsV2,<br/>and SQS and Step Functions too.<br/>That is why lane A exists."]
@@ -122,31 +123,31 @@ flowchart TB
   GLUE[("Glue Data Catalog<br/>core datasets · personal DB · shared-space DBs")]
   S3[("Amazon S3<br/>user-space · shared-space prefixes · results")]
 
-  BR -->|"302 from /auth/login · the SPA never builds this URL"| ENTRA
-  ENTRA -->|"code via browser to /auth/callback, then back-channel exchange"| BFF
-  BR -->|"loads the bundle"| SPA
-  BR -->|"every call and /auth/* · httpOnly cookie"| APIGW
-  APIGW --> BFF
-  BFF <--> DDB
-  BFF -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Entra ID token<br/>IAM action: sso-oauth:CreateTokenWithIAM"| IDC
+  BR -->|"302 from /auth/login · the page never builds this URL"| ENTRA
+  ENTRA -->|"code via browser to /auth/callback, then back-channel exchange"| WEB
+  BR -->|"pages, /auth/* and /api/* · one origin, httpOnly cookie"| WEB
+  WEB <--> DDB
+  WEB -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Entra ID token<br/>at sign-in, and again before it lapses"| IDC
+  WEB -->|"/api/ pass-through, server to server<br/>bearer = an Entra access token for the portal's own scope<br/>+ the identity context"| APIGW
+  APIGW --> API
 
-  BFF -->|"enqueue · the API's own role"| SQS
+  API -->|"enqueue · the API's own role"| SQS
   SQS -->|"seven planes"| PIPE --> VERBS
   SQS -->|"the notifications route"| NOTIFW
   VERBS -->|"direct grants, unchanged"| S3
   VERBS -->|"direct grants, unchanged"| GLUE
   VERBS -->|"planes notify their users — so the API is NOT this queue's only writer"| SQS
 
-  BFF -->|"2 · identity context"| STS --> CARRIER
+  API -->|"2 · AssumeRole with the identity context"| STS --> CARRIER
   CARRIER -.->|"restricted by"| DENY
   CARRIER -->|"3a"| ATHENA -->|"propagates the identity"| LF -->|"resolves and masks"| GLUE
-  CARRIER -->|"3b"| AG -->|"vends scoped credentials"| CREDS -->|"presigned URL"| BFF
+  CARRIER -->|"3b"| AG -->|"vends scoped credentials"| CREDS -->|"presigned URL"| API
 
   classDef variant fill:#F6EADA,stroke:#9B5D18,stroke-width:2px,color:#3A2A12
   classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
   classDef deny fill:#F8E4E6,stroke:#9E2937,stroke-width:2px,color:#5C1A22
   class ENTRA,IDC variant
-  class BFF,STS,CARRIER session
+  class WEB,API,STS,CARRIER session
   class DENY deny
 ```
 
@@ -166,9 +167,9 @@ exactly four things move:
 | Assertion exchanged | The Entra ID token | The **Cognito** ID token |
 | Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible |
 
-Everything else in the drawing — the SPA container, API Gateway, DynamoDB, both lanes, the
-allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A diagram
-unchanged.
+Everything else in the drawing — the Next.js server, API Gateway and the API Lambda, DynamoDB, both
+lanes, the allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A
+diagram unchanged.
 
 ```mermaid
 flowchart TB
@@ -182,18 +183,18 @@ flowchart TB
     ENTRA -->|"SCIM · users + groups"| IDC
   end
 
-  BFF["BFF Lambda<br/>owns /auth/login and /auth/callback<br/>every request-path AWS call<br/>(the target splits this: authorizer + worker)"]
-  SAME["Everything else is IDENTICAL to Variant A —<br/>the SPA container, API Gateway, DynamoDB, lane A and lane B,<br/>the allow-list, Athena, Lake Formation, Access Grants, the stores.<br/>See the Variant A diagram above."]
+  WEB["Next.js server · THE BFF<br/>owns /auth/login, /auth/callback, the /api/ pass-through<br/>task role: the session table + CreateTokenWithIAM"]
+  SAME["Everything else is IDENTICAL to Variant A —<br/>DynamoDB, API Gateway and the API Lambda, lane A and lane B,<br/>the allow-list, Athena, Lake Formation, Access Grants, the stores.<br/>See the Variant A diagram above."]
 
-  BR -->|"302 from /auth/login · the SPA never builds this URL"| COG
-  COG -->|"code via browser to /auth/callback, then back-channel exchange"| BFF
-  BFF -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Cognito ID token<br/>IAM action: sso-oauth:CreateTokenWithIAM"| IDC
-  BFF --> SAME
+  BR -->|"302 from /auth/login · the page never builds this URL"| COG
+  COG -->|"code via browser to /auth/callback, then back-channel exchange"| WEB
+  WEB -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Cognito ID token<br/>IAM action: sso-oauth:CreateTokenWithIAM"| IDC
+  WEB --> SAME
 
   classDef variant fill:#F6EADA,stroke:#9B5D18,stroke-width:2px,color:#3A2A12
   classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
   class COG,ENTRA,IDC variant
-  class BFF session
+  class WEB session
 ```
 
 ## Three readings the drawings exist to prevent
@@ -215,13 +216,13 @@ flowchart TB
 
   ```mermaid
   flowchart LR
-    AG["S3 Access Grants<br/>s3:GetDataAccess"] -->|"prefix-scoped<br/>temporary credentials"| BFF["BFF Lambda"]
-    BFF -->|"presigns locally · SigV4,<br/>no network call"| URL(["Presigned URL"])
-    URL -.->|"returned to the tab —<br/>the URL, never a credential"| BR["Browser"]
+    AG["S3 Access Grants<br/>s3:GetDataAccess"] -->|"prefix-scoped<br/>temporary credentials"| API["API Lambda"]
+    API -->|"presigns locally · SigV4,<br/>no network call"| URL(["Presigned URL"])
+    URL -.->|"returned to the tab through the server —<br/>the URL, never a credential"| BR["Browser"]
     BR -.->|"redeems it directly ·<br/>bytes never touch compute"| S3[("Amazon S3")]
 
     classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
-    class BFF session
+    class API session
   ```
 
   Presigning is a local SigV4 operation the API can
@@ -229,14 +230,15 @@ flowchart TB
   Whether S3 then evaluates the grant's scope correctly at redemption is exactly what **gate G9**
   tests, and it is **unproven**; a presigned URL also cannot outlive the credential that signed it.
   If G9 fails, the fallback is scoped credentials handed to the browser.
-- **The BFF owns both redirects, and only in the target.** Today and through all of Arc B the SPA
-  owns them — Amplify `signInWithRedirect()` and `lib/returnPath.ts`. In the target, an
-  unauthenticated user goes to the API `/auth/login`, which holds the PKCE verifier and `state`
-  server-side and 302s to the IdP; the registered redirect URI is the API `/auth/callback`, which
-  exchanges the code, stores the tokens, sets the opaque cookie and 302s to the return path carried
-  beside `state`. Two things there are still open: **what triggers** the redirect (an SPA route guard
-  or a 401 from the API) is specified nowhere, and the **authorizer/BFF split** has no spec yet, so
-  the drawings show one BFF box where the target will have two.
+- **The BFF is the Next.js server, and it owns both redirects.** Through all of Arc B the SPA owned
+  them — Amplify `signInWithRedirect()` and `lib/returnPath.ts`. Since SPEC-257 the server has its
+  own `/auth/login`, which holds `state`, the PKCE verifier and the nonce in a `__Host-` sign-in
+  cookie and 302s to the provider, and its own `/auth/callback`, the registered redirect URI, which
+  exchanges the code, stores the tokens, sets the opaque cookie and 302s to the return path; SPEC-262
+  moves the browser onto them. **There is no BFF Lambda and no authorizer/worker split**: this page
+  drew one, under "the target splits this", while the API was going to be the session's home, and
+  the 2026-11-15 revision of `transition_plan.md` §4.7 retired it. The API stays a verifier the
+  router calls.
 
 ## Rejected: letting the ALB authenticate before it serves the bundle
 
@@ -261,14 +263,17 @@ depend on settling it.
 
 Three more reasons it does not compose here, each independent of the first:
 
-- **It protects the wrong origin.** ALB authentication applies per listener rule on that ALB. The
-  API is API Gateway, a separate origin (§4.6), so it would still need its own verification — two
-  session mechanisms, two logout paths, and a fourth clock on top of the three §4.7 already names.
+- **~~It protects the wrong origin.~~ Weakened 2026-11-15, and no longer a reason on its own.** It
+  read: ALB authentication applies per listener rule on that ALB, the API is API Gateway, a separate
+  origin (§4.6), so it would still need its own verification. Since the Next.js arc the session
+  lives on the ALB's own origin and the browser reaches the API only through that server, so the
+  origin is now the right one. What survives is the duplication: the ALB would run a second OIDC
+  client beside the server's, with a second session, a second logout path and another clock.
 - **It is a second reader of the same identity, able to disagree.** SPEC-193 premise 5 declined an
-  API Gateway authorizer for exactly this reason, one layer down. Note the distinction that makes the
-  target's *own* planned authorizer split acceptable where this is not: that authorizer calls
-  SPEC-195's verifier module, so it cannot disagree with the worker; an ALB runs an independent OIDC
-  client and can.
+  API Gateway authorizer for exactly this reason, one layer down. The Next.js server is one OIDC
+  client and the API verifies the token that client obtained, so they read one identity; an ALB
+  would run an independent OIDC client and could disagree with both. *(This bullet used to contrast
+  the ALB with a planned authorizer split of the API; that split is retired.)*
 - **Its operating limits bite this app specifically.** Claims plus access token over 11 KB return an
   HTTP 500 to the client and increment the `ELBAuthUserClaimsSizeExceeded` **metric**; a client must
   complete login within a fixed
@@ -285,7 +290,7 @@ redirected to the IdP rather than 401'd (AWS documents `deny` as returning 401 o
 secret** in the listener rule and therefore in Terraform state, plus its own `/oauth2/idpresponse`
 redirect URI on the Entra app registration, landing on the callback-URL coupling §4.6 calls the
 hosting workstream's one hard dependency on the auth phases; and the **15-minute client login timeout** applies here too
-and *"can't be changed or removed"*. It would sit in front of the BFF, not replace it, and add a
+and *"can't be changed or removed"*. It would sit in front of the Next.js server, not replace it, and add a
 second session. Not recommended by default; available if the review asks.
 
 ## What was checked against the live docs
