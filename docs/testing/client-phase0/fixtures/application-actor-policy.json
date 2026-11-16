@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::<MEMBER_ACCOUNT_ID>:role/phase0-exchanger",
+          "arn:aws:iam::<IDC_ADMIN_ACCOUNT_ID>:role/<CONTROL_EXCHANGER_ROLE>"
+        ]
+      },
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "*"
+    }
+  ]
+}

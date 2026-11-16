@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IdentityEnhancedSessions",
+      "Effect": "Allow",
+      "Action": "sts:SetContext",
+      "Resource": "*"
+    },
+    {
+      "Sid": "P2OwnTaggedPrefix",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::<PROBE_BUCKET>/phase0-probe/abac/${aws:PrincipalTag/username}/*"
+    },
+    {
+      "Sid": "P3PlainObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::<PROBE_BUCKET>/phase0-probe/p3/*"
+    },
+    {
+      "Sid": "P3PlainListing",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<PROBE_BUCKET>",
+      "Condition": { "StringLike": { "s3:prefix": "phase0-probe/p3/*" } }
+    },
+    {
+      "Sid": "P1Query",
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "athena:GetWorkGroup",
+        "glue:GetDatabase",
+        "glue:GetTable",
+        "glue:GetPartitions",
+        "lakeformation:GetDataAccess",
+        "s3:ListCallerAccessGrants",
+        "s3:GetDataAccess"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

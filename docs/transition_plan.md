@@ -3013,6 +3013,10 @@ they already were.
   database, a directory entry and, after Phase 5, a live Access Grant.
 - Choose the sync tooling and rehearse one real prefix end-to-end in non-production, including
   re-encryption under a customer-managed key (§6.5).
+- **The organization-instance checks are written as a runnable hand-off** in
+  [`testing/client-phase0/`](testing/client-phase0/README.md): the cross-account exchange, the
+  allow-list re-run, P1 to P3, ending a user's session, and the Entra hop, with fixtures, labels,
+  expected values and a verdict stated as a reason. Not yet run.
 
 **Exit criteria:** every question in §8 has an answer; **G8 has the Entra side of the federation in
 writing** and the username claim is chosen;
