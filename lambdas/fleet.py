@@ -33,7 +33,14 @@ import json
 import pathlib
 import re
 
-from tf_blocks import argument, map_entries, module_calls, span
+from tf_blocks import (
+    argument,
+    argument_names,
+    map_entries,
+    module_calls,
+    span,
+    strip_noise,
+)
 
 MODULE_SOURCE = "docker-lambda"
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
@@ -62,9 +69,10 @@ def _bare_keys(body: str) -> list[str]:
     and refused it. Both forms pass ``tofu fmt`` unchanged, so nothing else would have caught
     either.
 
-    The walk mirrors the quoted-key reader's: depth tracked over braces, strings skipped whole,
-    comments skipped to end of line. A key is an identifier appearing where an entry may START —
-    after the opening brace, a comma or a newline — and followed by a single ``=``.
+    The walk runs over ``strip_noise``, as the quoted-key reader's does, so a comment of any form
+    and a heredoc body are spaces and a string is its two quotes: nothing inside one can read as a
+    key. A key is an identifier appearing where an entry may START — after the opening brace, a
+    comma or a newline — and followed by a single ``=``.
 
     Args:
       body: A map's braced body, outer braces included.
@@ -75,21 +83,11 @@ def _bare_keys(body: str) -> list[str]:
     Raises:
       None.
     """
+    scan = strip_noise(body)
     found: list[str] = []
     depth, index, at_entry_start = 0, 0, False
-    while index < len(body):
-        char = body[index]
-        if char == "#" or body[index : index + 2] == "//":
-            end_of_line = body.find("\n", index)
-            index = len(body) if end_of_line == -1 else end_of_line
-            continue
-        if char == '"':
-            index += 1
-            while index < len(body) and body[index] != '"':
-                index += 2 if body[index] == "\\" else 1
-            index += 1
-            at_entry_start = False
-            continue
+    while index < len(scan):
+        char = scan[index]
         if char in "{}":
             depth += 1 if char == "{" else -1
             at_entry_start = char == "{"
@@ -103,7 +101,7 @@ def _bare_keys(body: str) -> list[str]:
             index += 1
             continue
         if depth == 1 and at_entry_start and (char.isalpha() or char == "_"):
-            match = re.match(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=(?!=)", body[index:])
+            match = re.match(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=(?!=)", scan[index:])
             if match:
                 found.append(match.group(1))
                 index += match.end()
@@ -556,7 +554,7 @@ def function_names(repo: pathlib.Path) -> list[str]:
             bound = _var_bound_calls(target) if target.is_dir() else []
             if not bound:
                 continue
-            args = {key: argument(inner, key) for key in _argument_names(inner)}
+            args = {key: argument(inner, key) for key in argument_names(inner)}
             where = f"{path.name} module.{call}"
             for inner_call, expression in bound:
                 for name in _resolve_bound(target, inner_call, expression, args, root, where):
@@ -588,31 +586,6 @@ def function_names(repo: pathlib.Path) -> list[str]:
             "working, and every comparison against this answer would pass vacuously."
         )
     return sorted(found)
-
-
-def _argument_names(inner: str) -> list[str]:
-    """The names of the top-level arguments of one block body.
-
-    Args:
-      inner: A block's body, braces excluded.
-
-    Returns:
-      Every ``name =`` at the body's top level.
-
-    Raises:
-      None.
-    """
-    names, depth = [], 0
-    for line in inner.splitlines():
-        stripped = re.sub(r'"(?:[^"\\]|\\.)*"', '""', line.strip())
-        stripped = re.split(r"#|//", stripped, maxsplit=1)[0]
-        if depth == 0:
-            match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)", stripped)
-            if match:
-                names.append(match.group(1))
-        depth += stripped.count("{") + stripped.count("[") + stripped.count("(")
-        depth -= stripped.count("}") + stripped.count("]") + stripped.count(")")
-    return names
 
 
 def main() -> int:

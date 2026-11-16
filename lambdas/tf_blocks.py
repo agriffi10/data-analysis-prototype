@@ -156,7 +156,7 @@ def data_sources(text: str) -> dict[str, str]:
 
 
 _BRACES = {"{": 1, "}": -1}
-_HEREDOC_OPENER = re.compile(r"<<-?([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\r?\n")
+_HEREDOC_OPENER = re.compile(r"<<-?([^\W\d][\w-]*)\r?\n")
 
 
 def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]]:
@@ -169,8 +169,9 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
     came to be invisible to all of them at once: a client commented out with ``/* */`` was read as
     deployed, and a header quoted in a variable's heredoc description was read as a resource.
 
-    A heredoc's closing marker is accepted with leading whitespace in both forms, which is what
-    HCL's own scanner does; an unterminated form runs to the end of the text.
+    A heredoc's closing marker is accepted with any whitespace around it in both forms, which is
+    what HCL's own scanner does, and its marker may be any identifier HCL accepts, hyphens and
+    non-ASCII letters included. An unterminated form runs to the end of the text.
 
     Args:
       text: The Terraform source to read.
@@ -205,7 +206,7 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
             yield index, end, index + 1, inner, "string"
         elif opener := _HEREDOC_OPENER.match(text, index):
             marker = opener.group(1)
-            closing = re.compile(rf"(?m)^[ \t]*({re.escape(marker)})[ \t]*\r?$").search(text, opener.end())
+            closing = re.compile(rf"(?m)^[^\S\n]*({re.escape(marker)})[^\S\n]*$").search(text, opener.end())
             inner_end, end = (closing.start(1), closing.end(1)) if closing else (length, length)
             yield index, end, opener.end(1), inner_end, "heredoc"
         else:
@@ -221,8 +222,8 @@ def _blank(out: list[str], start: int, end: int, keep_newlines: bool) -> None:
       out: The text being blanked, one character per element.
       start: The first offset to blank.
       end: The offset just past the last.
-      keep_newlines: Whether line breaks survive, so a line-anchored pattern still sees the
-        lines either side of a multi-line comment.
+      keep_newlines: Whether line breaks survive, so a caller splitting the result into lines
+        gets the original's lines back.
 
     Returns:
       None.
@@ -378,22 +379,25 @@ def strip_noise(text: str) -> str:
 
     Quotes are kept and their contents blanked, so a string remains recognisably a string while
     nothing inside it can match. A heredoc keeps its two markers and loses everything between
-    them, line breaks included: its body is one string value, so a line in it that looks like an
-    assignment or a resource header must not start a line a pattern can anchor to, and
-    ``argument`` then reads the whole heredoc as the value rather than stopping at its opener.
+    them, and a block comment loses all of itself, line breaks included in both. A line inside
+    either that looks like an assignment or a resource header must not start a line a pattern can
+    anchor to, and a value written across one must not end at the break: ``a = 1 /* … */ + 2``
+    spans two lines and is one value, and ``argument`` reads a heredoc whole rather than stopping
+    at its opener.
 
     Args:
       text: The Terraform fragment to blank.
 
     Returns:
-      The fragment, same length, with comment, string and heredoc bodies replaced by spaces.
+      The fragment, same length, with comment, string and heredoc bodies replaced by spaces, line
+      breaks inside them included.
 
     Raises:
       None.
     """
     out = list(text)
-    for _start, _end, inner_start, inner_end, kind in _noise(text):
-        _blank(out, inner_start, inner_end, keep_newlines=kind == "comment")
+    for _start, _end, inner_start, inner_end, _kind in _noise(text):
+        _blank(out, inner_start, inner_end, keep_newlines=False)
     return "".join(out)
 
 
@@ -512,6 +516,29 @@ def argument(body: str, name: str) -> str:
         return body[start : start + len(scan[start:index].rstrip())].strip()
 
     raise ValueError(f"no top-level `{name} = …` in this block")
+
+
+def argument_names(body: str) -> list[str]:
+    """The names assigned at the TOP LEVEL of a block body, in order.
+
+    The counterpart to ``argument`` for a caller that wants every argument rather than one, and it
+    reads the body the same way, over ``strip_noise`` with the same depth count. A second scanner
+    that knew fewer forms disagreed with ``argument`` about what a body assigns: it listed a name
+    found inside a block comment or a heredoc, and the ``argument`` call that followed raised.
+
+    Args:
+      body: A block's body, outer braces excluded — so its own arguments sit at depth zero.
+
+    Returns:
+      Each top-level argument's name, once per assignment.
+
+    Raises:
+      None.
+    """
+    scan = strip_noise(body)
+    depths = _depths(scan)
+    pattern = re.compile(r"(?m)^[ \t]*([A-Za-z_][\w-]*)[ \t]*=(?!=)")
+    return [match.group(1) for match in pattern.finditer(scan) if depths[match.start()] == 0]
 
 
 def lambda_declaration(text: str, name: str) -> str:

@@ -35,6 +35,7 @@ Attributes:
 import pytest
 from tf_blocks import (
     argument,
+    argument_names,
     blocks,
     lambda_declaration,
     lambda_environment,
@@ -162,6 +163,9 @@ def test_an_argument_comes_back_whole_past_a_brace_in_a_comment_and_in_a_string(
         "the value was truncated before the override; a brace in a comment or a string ended it"
     )
     assert value.endswith(")")
+    assert argument_names(body)[-1] == "environment" and "ADMIN_BUCKET" not in argument_names(body), (
+        "a name assigned inside the environment's map was listed as one of the call's own arguments"
+    )
 
 
 def test_a_single_line_argument_stops_at_its_own_end_of_line() -> None:
@@ -303,6 +307,7 @@ def test_a_block_comment_hides_a_retired_client_and_a_commented_out_argument() -
     assert argument(clients["live"], "allowed_oauth_flows") == '["code"]', (
         "a brace inside the block comment ended the block before its last argument"
     )
+    assert argument_names(clients["live"]) == ["name", "allowed_oauth_flows"]
 
 
 def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> None:
@@ -319,6 +324,7 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         argument(clients["real"], "enable_token_revocation")
     assert argument(clients["real"], "allowed_oauth_flows") == '["code"]'
     assert argument(clients["real"], "explanation") == "<<EOT\nenable_token_revocation = true\n}\nEOT"
+    assert argument_names(clients["real"]) == ["name", "explanation", "allowed_oauth_flows"]
 
 
 @pytest.mark.parametrize(
@@ -328,8 +334,15 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         "# scoped to logs/* and never the bucket\n",
         "# an example: description = <<EOT\n",
         'locals {\n  note = <<-EOT\n    a line ending in EOT\n    EOTX\n    a " quote, a /* and a # that do nothing\n  EOT\n}\n',
+        'locals {\r\n  note = <<-END-OF-NOTE\r\n    a " quote\r\n  END-OF-NOTE\r\n}\r\n',
     ],
-    ids=["comment-opener-in-a-string", "comment-opener-in-a-comment", "heredoc-opener-in-a-comment", "noise-in-a-heredoc"],
+    ids=[
+        "comment-opener-in-a-string",
+        "comment-opener-in-a-comment",
+        "heredoc-opener-in-a-comment",
+        "noise-in-a-heredoc",
+        "crlf-heredoc-with-a-hyphenated-marker",
+    ],
 )
 def test_a_lookalike_opener_opens_nothing_and_the_next_client_is_read_whole(lookalike: str) -> None:
     """The silence cases, and the half a new lexer form gets wrong: an opener that is not one.
@@ -343,25 +356,31 @@ def test_a_lookalike_opener_opens_nothing_and_the_next_client_is_read_whole(look
 
     clients = blocks(source, "aws_cognito_user_pool_client")
 
-    assert set(clients) == {"after"}
-    assert argument(clients["after"], "enable_token_revocation") == "true"
+    assert clients == {"after": "\n  enable_token_revocation = true\n"}, (
+        "the client after the lookalike was swallowed, or its body was not cut at its own brace"
+    )
 
 
 def test_the_blankers_keep_length_and_disagree_only_about_strings() -> None:
     """Offsets taken from either blanker must slice the original, and each blanks its own forms.
 
-    `strip_comments` keeps a heredoc body, since a sweep for a literal must still find it there;
-    `strip_noise` keeps only the markers. Both keep a block comment's line breaks, so a pattern
-    anchored to a line still sees the line after the comment as a line.
+    `strip_comments` keeps a heredoc body, since a sweep for a literal must still find it there,
+    and every line break, since its callers split it into lines. `strip_noise` keeps only a
+    heredoc's markers, and blanks a block comment's line breaks with the rest of it, since a value
+    written across a comment is one value. Each is checked against the SOURCE's line breaks, not
+    against the other blanker, which shares the code that would be wrong.
     """
     source = BLOCK_COMMENTED + HEREDOC_SOURCES
+    comment_end = BLOCK_COMMENTED.index("*/") + 2
 
     comments_gone = strip_comments(source)
     noise_gone = strip_noise(source)
 
     assert len(comments_gone) == len(noise_gone) == len(source)
-    assert comments_gone.count("\n") == noise_gone[: len(BLOCK_COMMENTED)].count("\n") + HEREDOC_SOURCES.count("\n")
+    assert comments_gone.count("\n") == source.count("\n"), "strip_comments lost a line break"
+    assert "\n" not in noise_gone[:comment_end], "strip_noise kept a block comment's line break"
     assert "retired" not in comments_gone and "closes a brace" not in comments_gone
+    assert "/*" not in comments_gone and "*/" not in comments_gone
     assert "Structured-logging queue URL" in comments_gone, "strip_comments blanked a heredoc body"
     assert "Structured-logging" not in noise_gone and "quoted" not in noise_gone
     assert "<<-EOT" in noise_gone and "<<EOT" in noise_gone and noise_gone.count("EOT") == 4
@@ -378,3 +397,24 @@ def test_a_quoted_key_in_a_heredoc_or_a_block_comment_is_not_a_map_entry() -> No
 
     assert set(entries) == {"real", "note", "last"}
     assert entries["last"] == "4"
+
+
+def test_a_value_written_across_a_block_comment_is_one_value() -> None:
+    """HCL reads `1 /* … */ + 2` as `1 + 2` when the comment spans a line break; so must `argument`."""
+    body = "  a = 1 /* spans\n  a line */ + 2\n  b = 3\n"
+
+    assert argument(body, "a") == "1 /* spans\n  a line */ + 2"
+    assert argument(body, "b") == "3"
+
+
+@pytest.mark.parametrize(
+    "unterminated",
+    ["/* never closes }\n", "x = <<EOT\nnever closes }\n"],
+    ids=["block-comment", "heredoc"],
+)
+def test_an_unterminated_form_runs_to_the_end_of_the_text(unterminated: str) -> None:
+    """Input `tofu` refuses, read as never closing rather than closing on a brace inside the noise."""
+    source = "{\n  " + unterminated
+
+    assert span(source, 0) == source
+    assert "}" not in strip_noise(source) and "never" not in strip_noise(source)
