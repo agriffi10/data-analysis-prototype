@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["sts:AssumeRole", "sts:SetContext"],
+      "Resource": "arn:aws:iam::<MEMBER_ACCOUNT_ID>:role/phase0-carrier"
+    },
+    {
+      "Sid": "ReadTheAllowList",
+      "Effect": "Allow",
+      "Action": ["iam:GetPolicy", "iam:GetPolicyVersion"],
+      "Resource": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext"
+    }
+  ]
+}

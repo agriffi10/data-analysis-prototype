@@ -1,0 +1,13 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": [
+        "arn:aws:sso::<IDC_ADMIN_ACCOUNT_ID>:application/<SSOINS_ID>/<APL_ID_CATALOG>",
+        "arn:aws:sso::<IDC_ADMIN_ACCOUNT_ID>:application/<SSOINS_ID>/<APL_ID_PORTAL>"
+      ]
+    }
+  ]
+}
