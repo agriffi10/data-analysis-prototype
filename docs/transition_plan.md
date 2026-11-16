@@ -83,8 +83,8 @@ the alternative not taken, because each records why something is or is not neede
 
 - **[A] — not taken (it was the baseline).** Entra issues OIDC/OAuth2 JWTs directly and is
   registered as the Identity Center **trusted token issuer**. There is no Cognito anywhere.
-- **[B] — chosen.** Cognito is a **bridge**: it federates to Entra — over SAML or OIDC, whichever
-  the client's established pattern uses — issues the JWT the exchange consumes, and is the trusted
+- **[B] — chosen.** Cognito is a **bridge**: it federates to Entra — over **SAML**, chosen
+  2026-11-16 (SPEC-265; §6.1 says why OIDC cannot key on the object id) — issues the JWT the exchange consumes, and is the trusted
   token issuer. It is infrastructure, not the app's identity provider — nothing app-level may
   depend on it beyond the claims §6.1 names. *It used to be "the fallback, used only if the Entra
   tenant turns out to be hard SAML-only", built to be deleted; it is now the destination.*
@@ -446,7 +446,7 @@ what Entra *can* issue for this application no longer gates anything.
 | | **[A] — not taken** | **[B] — chosen 2026-11-15** |
 |---|---|---|
 | Why | Was the baseline: no Cognito at all | The client's established pattern; simpler than registering the portal with Entra directly |
-| Sign-in | Browser → **Entra** (OIDC) | Browser → **Cognito** → Entra (SAML or OIDC, per the established pattern) |
+| Sign-in | Browser → **Entra** (OIDC) | Browser → **Cognito** → Entra (SAML, 2026-11-16 — §6.1) |
 | Trusted token issuer in IdC | **Entra** (issuer URL + JWKS) | **Cognito** (`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`) |
 | Assertion exchanged in §3.5 step 1 | The **Entra** ID token | The **Cognito** ID token |
 | Cognito | **Absent entirely** | Present as a bridge to Entra and nothing else |
@@ -2442,7 +2442,7 @@ inherited from the spike; it was added on 2026-11-15 with §4.7's split. Nor is 
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5). **PASSED 2026-11-15** — enforcement shown per grant on one user; measured below the table | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
-| **G8** | **The Entra side of the Cognito federation for this application** — on the client's established pattern: the Entra application the bridge pool federates to (SAML or OIDC), and the claims it releases, **email** for the Identity Center claim mapping and whatever can carry the username (§6.1) | **No longer the variant decider: [B] was chosen on 2026-11-15** on the client's established pattern. Without it nobody signs in, and under [B] the **desktop fleet** authenticates through the same bridge (§3.10), so ask it with the drivers in the question. A conversation with the tenant owner, in **Phase 0**, with a long lead time. *It used to ask whether Entra could issue OIDC for the portal on the default signing key: pass meant [A], fail meant [B]* |
+| **G8** | **The Entra side of the Cognito federation for this application** — on the client's established pattern: the Entra application the bridge pool federates to (**SAML**, with a persistent `NameID` sourced from `user.objectid` — §6.1; *was "SAML or OIDC" until 2026-11-16*), and the claims it releases, **email** for the Identity Center claim mapping and whatever can carry the username (§6.1) | **No longer the variant decider: [B] was chosen on 2026-11-15** on the client's established pattern. Without it nobody signs in, and under [B] the **desktop fleet** authenticates through the same bridge (§3.10), so ask it with the drivers in the question. A conversation with the tenant owner, in **Phase 0**, with a long lead time. *It used to ask whether Entra could issue OIDC for the portal on the default signing key: pass meant [A], fail meant [B]* |
 | **G10** | **PASSED 2026-11-15, both arms — measured below the table.** **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
 | **G11** | **NOT RUN — needs the client's environment.** **The cross-account exchange.** The server's role in our non-production member account (§4.3) calls `CreateTokenWithIAM` on that environment's customer-managed application, which the client's administrators own in the management or delegated-admin account, with the actor policy naming that role and an Entra test user (§4.5; check A of the request list); a second principal in the same account then assumes a carrier role with the returned context and runs G7's query, as in G10. **It passes** when the exchange returns an identity context and the query runs on the assumed session. G10 put both principals and the application in one account, so it never tested the call crossing accounts | **If the exchange cannot cross accounts as drawn,** the exchange itself (§3.5 step 1) reopens, under §4.7's split and its fallback alike, since both put the caller in our account. Nothing designed covers that case and any fix runs through the administrators, so Phase 5's exchange specs wait while the finding goes to the client relationship's owner. **If the workgroup or the Lake Formation configuration cannot be created in the member account**, that is §4.4's unconfirmed service-control-policy question failing, not G11, and it blocks Phase 5's consumers as well |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9). **PASSED 2026-11-15** — measured below the table | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
@@ -2597,7 +2597,12 @@ same username, the leaver's prefix and Glue database — and nothing in Phases 1
 otherwise. So two rules, both Phase 0 confirmations and Phase 1 build items:
 
 - **The federated subject is Entra's object id**: a persistent SAML `NameID` sourced from
-  `objectid`, or the OIDC `sub`, whichever protocol the established pattern uses.
+  `objectid`. ~~or the OIDC `sub`, whichever protocol the established pattern uses~~ — *corrected
+  2026-11-16 (SPEC-265): Entra's OIDC `sub` is a pairwise identifier unique to each application, not
+  the object id (Microsoft's ID-token claims reference), and Cognito takes an OIDC user's identity
+  from `sub` with no documented way to take it from `oid`. Over OIDC the Cognito identity can never
+  be the object id, so the bridge is SAML, and if the client's established pattern is OIDC the
+  client is asked for SAML for this application (G8).*
 - **The username is looked up by that subject, never transformed from a mail or UPN.** §3.12's
   username list carries the object id beside each catalog-safe username, and a transform collides
   anyway (two mail domains with one local part). The lookup is emitted as a claim by a
@@ -2883,7 +2888,7 @@ they already were.
 - **Get the Entra side of the Cognito federation — gate G8 (§5.5), a conversation, not an
   experiment.** [B] was chosen on 2026-11-15, so this no longer decides a variant. Ask the Entra
   tenant owner for the federation on the client's established pattern: the Entra application the
-  bridge pool federates to, SAML or OIDC, and which claims it releases — **email**, which the
+  bridge pool federates to, over **SAML** with a persistent `NameID` sourced from `user.objectid` (§6.1 — *was "SAML or OIDC" until 2026-11-16*), and which claims it releases — **email**, which the
   Identity Center claim mapping needs, and whatever can carry the username (§6.1). Ask with the
   **driver fleet** in the question (§3.10): under [B] the desktops authenticate through the same
   bridge. It gates Phase 1's whole auth configuration and has a long lead time, so start it on day
@@ -3103,8 +3108,8 @@ and that is fine.
 
 **[B] — chosen, Cognito as a bridge to Entra:**
 
-- Create the bridge User Pool and configure **federation to Entra** (§3.3) over SAML or OIDC, as
-  the client's established pattern does, with `supported_identity_providers` set to that provider
+- Create the bridge User Pool and configure **federation to Entra** (§3.3) over **SAML** (§6.1;
+  *was "SAML or OIDC, as the client's established pattern does" until 2026-11-16*), with `supported_identity_providers` set to that provider
   only and the provider named in the sign-in redirect, so no picker appears. The Entra side is G8's
   (§5.5).
 - **Self-signup off, and local identities impossible** — this is the §3.3 guardrail, not hygiene: a
@@ -3115,8 +3120,10 @@ and that is fine.
   trigger. **No public SPA client and no local-development client** in this pool — the API accepts
   all three audiences today — and the API's verifier names the server's client
   alone.
-- **The federated subject is Entra's object id** (§6.1): a persistent SAML `NameID` from `objectid`,
-  or the OIDC `sub`. Never the UPN or mail, which Entra can reassign to a new hire.
+- **The federated subject is Entra's object id** (§6.1): a persistent SAML `NameID` from `objectid`
+  (~~or the OIDC `sub`~~ — pairwise, not the object id, §6.1). Never the UPN or mail, which Entra
+  can reassign to a new hire. **SPEC-265 carries this [B] list as a spec**, with the username lookup
+  as a Pre-Token-Generation trigger reading a per-subject index (§6.1's first shape).
 - **Drop the shared-spaces plane's Cognito grant** (`CognitoMembershipAttributes`), and add the IAM
   test that no portal role can write, link, create or set a password for a user in the bridge pool
   (§6.1). Membership comes from the index in this phase anyway.
@@ -3385,8 +3392,8 @@ freeze. This is the whole reason the old account survives the quiet period.
   established Cognito-and-Entra pattern already carries?
 - ~~How long may a leaver keep a session (§4.7)?~~ **Decided 2026-11-15: not a concern** — the
   client recovers a leaver's equipment; §4.7 records the premise.
-- **Is the federated subject Entra's object id** (§6.1) — a persistent `NameID` from `objectid`, or
-  the OIDC `sub` — and does Entra's SCIM set Identity Center's `externalId` from the same object id?
+- **Is the federated subject Entra's object id** (§6.1) — a persistent SAML `NameID` from `objectid`
+  (*the OIDC `sub` alternative was struck 2026-11-16: it is pairwise*) — and does Entra's SCIM set Identity Center's `externalId` from the same object id?
 - **Is SCIM provisioning from Entra into Identity Center live** (§2 item 12), and who operates it?
 - ~~What do the client's Excel, Access and Power BI users connect with today?~~ **ANSWERED
   2026-08-24 — they are on the SAML path and must be migrated** (§2 item 15, §3.10's migration
@@ -3672,6 +3679,10 @@ The exchange's split, checked 2026-11-15 (§3.5, §4.7):
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
 
+- **2026-11-16, later — the bridge federates over SAML, and SPEC-265 carries Phase 1's [B] list.** Entra's
+  OIDC `sub` is pairwise, so only a SAML `NameID` from `objectid` makes the Cognito identity the
+  object id; the "or the OIDC `sub`" alternative is struck in **§6.1**, **Phase 1 [B]**, **§8** and
+  G8's row, and the username lookup is the Pre-Token-Generation trigger (Andrew's two choices).
 - **2026-11-16 — the client's Identity Center shape.** The client runs ONE organization instance
   under LZA, and its administrators own the instance, the application, the trusted token issuer,
   the grants and scopes and the actor policy. New **§2 item 16**: we build no Identity Center

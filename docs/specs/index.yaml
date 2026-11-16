@@ -1775,6 +1775,12 @@ specs:
     spec_status: "Draft"
     depends_on: ["SPEC-162", "SPEC-163", "SPEC-262", "SPEC-263"]
     path: "docs/specs/SPEC-264-the-server-resolves-the-feature-flags.md"
+  - id: "SPEC-265"
+    title: "The Bridge Pool Signs In Through Entra"
+    description: "Gives the successor account a Cognito User Pool federated to Entra ID over SAML, keyed on Entra's object id, with a pre-token trigger that looks the portal username up by that id, and a tested guardrail that no user token and no portal role can rewrite a federated identity or what keys it."
+    spec_status: "Draft"
+    depends_on: ["SPEC-195", "SPEC-203", "SPEC-262"]
+    path: "docs/specs/SPEC-265-the-bridge-pool-signs-in-through-entra.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
