@@ -1269,7 +1269,7 @@ areas:
         status: "stable"
         path: "docs/decisions/storage/bytes-go-to-s3-presigned-small-text-goes-through-the-api.md"
       - title: "Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the whole arc needs no IaC change (SPEC-173)"
-        fence: "Any object whose last segment is `DO_NOT_DELETE.txt` is hidden at any depth in either bucket, because both bucket policies deny deleting that basename anywhere; that Deny is why the saved-queries arc needs no IaC change, and a live refused delete is still owed."
+        fence: "Any object whose last segment is `DO_NOT_DELETE.txt` is hidden at any depth in either bucket, because the portal role's policy for each bucket denies deleting that basename anywhere; that Deny is why the saved-queries arc needs no IaC change, and a live refused delete is still owed."
         status: "stable"
         path: "docs/decisions/storage/every-do-not-delete-txt-is-hidden-by-basename-and-the-whole-arc-needs.md"
       - title: "File ops = filesystem UX"

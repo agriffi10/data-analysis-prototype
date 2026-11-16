@@ -224,8 +224,8 @@ Attributes:
       ``shared_tables/``         the table-share pipeline owns the layout, and a Glue table
                                  pointing at a deleted location returns nothing rather than
                                  failing.
-  PROTECTED_MARKER_BASENAME: The prefix marker both bucket policies deny ``DeleteObject`` on, at
-    ANY depth (``*`` matches ``/``). A selection containing one is refused for the WHOLE request
+  PROTECTED_MARKER_BASENAME: The prefix marker the execution role is denied ``DeleteObject`` on,
+    at ANY depth (``*`` matches ``/``). A selection containing one is refused for the WHOLE request
     rather than skipped: archiving deletes the source, so an un-deletable object would fail the
     run after some of the data had already moved.
   RESERVED_SOURCE_ROOTS: The space's own portal-managed folders, never an archive source. The

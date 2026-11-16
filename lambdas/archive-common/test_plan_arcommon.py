@@ -335,7 +335,7 @@ def test_a_hidden_or_underscore_folder_is_the_users_own_and_is_archived():
 
 
 def test_a_prefix_marker_is_excluded_from_the_expansion():
-    """Both bucket policies deny DeleteObject on it at any depth, so carrying it into a plan
+    """The execution role is denied DeleteObject on it at any depth, so carrying it into a plan
     whose last step is a delete would fail the run AFTER data had moved. Excluding it also keeps
     a space whose root holds one archivable at all."""
     _install({"alice/reports/DO_NOT_DELETE.txt": 0, "alice/reports/a.csv": 4})

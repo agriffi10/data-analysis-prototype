@@ -64,9 +64,9 @@ _ABSENT_CODES = frozenset({"NoSuchKey", "NotFound", "404"})
 def assert_deletable(keys: list, allowed_prefix: str) -> None:
     """Confirms every key may be deleted, BEFORE the first batch is issued.
 
-    Three rules, and the ordering is the point of the function. Both bucket policies deny
-    ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` at any depth, and the execution role is denied
-    the portal's own folders — so a list carrying one of those does not fail as a whole, it fails
+    Three rules, and the ordering is the point of the function. The execution role's own
+    Deny refuses ``s3:DeleteObject`` on ``*DO_NOT_DELETE.txt`` at any depth and on the portal's
+    own folders — so a list carrying one of those does not fail as a whole, it fails
     PART WAY THROUGH, after some of the user's data has already been deleted. Checking the whole
     list up front turns that into a refusal that has moved nothing.
 

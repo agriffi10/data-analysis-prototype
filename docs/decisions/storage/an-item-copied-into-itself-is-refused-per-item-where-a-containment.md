@@ -51,7 +51,7 @@ refuse copying, moving and deleting a folder the browser shows as the user's own
 **Where the execution role denies a write, the plane refuses it at any depth, in both buckets**
 (2026-09-16). The role's write Deny names `*/user_settings/*` and the two `system_settings` pairs
 with no principal tag to anchor them, so it reaches those folders at any depth; the destination rules
-followed the picker and the bucket policies instead, and a copy into a folder a user had made —
+followed the picker and the portal role's policies instead, and a copy into a folder a user had made —
 `alice/foo/user_settings/`, a nested `system_settings/athenaresults/`, in a personal space a nested
 `system_settings/archive/` — passed validate-authorize and failed at the write. The Denies stay:
 nothing can anchor them without a principal tag, and dropping them removes the only IAM fence over

@@ -53,7 +53,7 @@ export type UseFileBrowserResult = {
  *
  * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket
  * — see `isMarkerName`. There is no caller-supplied key: the basename IS
- * the rule, because that is what the two bucket policies deny deletion on.
+ * the rule, because that is what the portal role's IAM denies deletion on.
  */
 export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserResult {
   const queryClient = useQueryClient();

@@ -888,7 +888,7 @@ class TestMutations:
 class TestTheMarkerRuleIsAboutREMOVAL:
     """FR-009 AC3 — and the half of it that shipped broken.
 
-    Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and **nothing else**.
+    The portal role Denies ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and **no other action on it**.
     A guard that folded the marker into the write rule was stricter than the policy it claims to
     mirror, and it refused the two shipped paths that CREATE one. Driven through the routes rather
     than through ``protected``: the unit rule was right, and the route called the wrong half of it.
@@ -898,7 +898,7 @@ class TestTheMarkerRuleIsAboutREMOVAL:
         """Driven through the ROUTE, not through `protected` — the unit rule was right and the
         route called the wrong half of it.
 
-        Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else.
+        The portal role Denies ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and no other action on it.
         A write guard that also refused creation made `ensurePrefixMarker` and
         `ensureSavedQueriesFolder` answer 403: a brand-new user's prefix would never be created, and
         a saved-queries folder would vanish once emptied. Both are best-effort background writes
@@ -926,7 +926,7 @@ class TestTheMarkerRuleIsAboutREMOVAL:
 
     def test_REPLACING_a_marker_is_refused_which_is_the_half_that_stays(self, s3) -> None:
         """Overwriting a marker leaves the prefix open with a file at a key the listing hides by
-        basename and the bucket policy will not let anyone delete.
+        basename and the portal role cannot delete.
 
         IAM permits it; every surface in this app refuses it, and so does the route.
         """

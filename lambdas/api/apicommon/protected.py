@@ -4,21 +4,21 @@
 an explanation. They live here too because a disabled button is not a permission, and a request
 this API would otherwise perform reaches S3 whether or not a browser would have sent it.
 
-**The two buckets deny different things, and this module mirrors each rather than averaging
-them.** The user-space bucket's Deny is root-anchored — `{root}system_settings/archive/` and
-below. The shared-space bucket's wildcard segment matches `/` too, so a `system_settings/archive`
-pair at *any* depth below the space root is covered. Averaging them either leaves a hole on one
-bucket or refuses work the other permits, and both failures are invisible until someone hits them.
-``test_archive_write_lock_mirrors_iam.py`` is what keeps this paragraph honest: it builds a key
-matcher out of each bucket policy and runs ``is_write_locked`` against it, so the asymmetry is
-asserted rather than described.
+**The portal role's policies for the two buckets deny different things, and this module mirrors
+each rather than averaging them.** The user-space Deny is root-anchored —
+`{root}system_settings/archive/` and below. The shared-space Deny's wildcard segment matches `/`
+too, so a `system_settings/archive` pair at *any* depth below the space root is covered. Averaging
+them either leaves a hole on one bucket or refuses work the other permits, and both failures are
+invisible until someone hits them. ``test_archive_write_lock_mirrors_iam.py`` is what keeps this
+paragraph honest: it builds a key matcher out of each of those policies and runs
+``is_write_locked`` against it, so the asymmetry is asserted rather than described.
 
-**The query results folder is refused too, though IAM permits the write.** Both buckets Deny
-``s3:DeleteObject`` beneath it and nothing else, so an upload or a folder made there can never be
-removed — the marker's reason, applied to a whole folder. Its Deny has the receipt folder's shape,
-so the same test holds this rule against it.
+**The query results folder is refused too, though IAM permits the write.** The portal role
+Denies ``s3:DeleteObject`` beneath it in both buckets and nothing else, so an upload or a folder
+made there can never be removed — the marker's reason, applied to a whole folder. Its Deny has the
+receipt folder's shape, so the same test holds this rule against it.
 
-**So is the data-quality reports folder, which no bucket policy mentions at all.** The plane writes
+**So is the data-quality reports folder, which no portal-role policy mentions at all.** The plane writes
 its manifest, report and runs index there under its own role, and the browser only reads them. The
 manifest key is a pure function of the caller's own request id, so an object route that took a
 write there let a caller replace the file list a running check reads between two of its verbs — and
@@ -211,7 +211,7 @@ def is_in_reports_folder(space: ResolvedSpace, key: str) -> bool:
 
 
 def _is_at_or_below(space: ResolvedSpace, key: str, folder: str) -> bool:
-    """Whether a key is an app-managed folder or inside it, as that bucket's Deny reaches it.
+    """Whether a key is at or below an app-managed folder, as the portal role's Deny reaches it.
 
     Root-anchored for either kind, and a segment scan for the folder's pair in a shared space only.
     The scan drops a file key's last segment, because a file NAMED like the folder is not a file
@@ -239,11 +239,12 @@ def _is_at_or_below(space: ResolvedSpace, key: str, folder: str) -> bool:
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:
-    """Refuses a write into a location the bucket policy write-locks, or one it would never let go.
+    """Refuses a write into a write-locked, undeletable or plane-owned app-managed location.
 
-    **The marker rule is deliberately NOT here, and the split is the whole point.** Both bucket
-    policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else — creating one is
-    permitted, and it is how a space's prefix is held open in the first place. Folding the marker
+    **The marker rule is deliberately NOT here, and the split is the whole point.** The portal
+    role's policy for each bucket Denies ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and no
+    other action on it — creating one is permitted, and it is how a space's prefix is held open in
+    the first place. Folding the marker
     into this check made a route stricter than the policy it claims to mirror and refused
     ``ensurePrefixMarker`` and ``ensureSavedQueriesFolder``: a brand-new user's prefix would never
     be created and a saved-queries folder would vanish once emptied, both failing as a *best-effort*
@@ -285,7 +286,7 @@ def assert_replaceable(space: ResolvedSpace, key: str) -> None:
     (a move deletes it), for a copy or move DESTINATION, and for a write that has asked to
     overwrite. Replacing a marker's bytes with another object is permitted by IAM and refused
     everywhere in this app: the prefix would stay open while the file sat at a key the listing
-    hides by basename and the bucket policy will not let anyone delete.
+    hides by basename and the portal role cannot delete.
 
     Args:
       space: The resolved space.

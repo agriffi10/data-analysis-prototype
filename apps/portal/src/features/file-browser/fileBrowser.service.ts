@@ -147,8 +147,8 @@ export function isPrefixMarkerKey(key: string, username: string): boolean {
 /**
  * Deletes a single object, refusing to delete the prefix marker.
  *
- * The refusal here is the affordance; the route refuses every marker key by basename and both
- * bucket policies deny it outright, so this is the innermost of three.
+ * The refusal here is the affordance; the route refuses every marker key by basename and the
+ * portal role's IAM denies it outright, so this is the innermost of three.
  *
  * @param params.bucket - The bucket holding the object.
  * @param params.key - The object key.

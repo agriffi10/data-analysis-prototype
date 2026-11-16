@@ -121,10 +121,10 @@ def sign_part(context: RequestContext) -> dict[str, Any]:
 
     **It runs the same protected-location check ``create`` runs**, and not because a caller could
     get anywhere without it: minting needs an ``uploadId`` that ``create`` refuses to issue for
-    these keys, and the bucket Denies the write underneath. It runs because the rule is that a
-    presigned URL is minted only after *exactly* the authorization the direct call would have had,
-    and a route that mints where its sibling refuses has already broken that rule whether or not
-    the URL is redeemable.
+    these keys, and for the receipt folder the portal role Denies the write underneath. It runs
+    because the rule is that a presigned URL is minted only after *exactly* the authorization the
+    direct call would have had, and a route that mints where its sibling refuses has already broken
+    that rule whether or not the URL is redeemable.
 
     Args:
       context: The authenticated request.
