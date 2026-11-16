@@ -80,9 +80,12 @@ these statements and no others:
   `UpdateAlias`. No cryptographic action.
 - **Use through DynamoDB, for the deploy role,** named as `Principal`, conditioned on
   `kms:ViaService` = `dynamodb.<region>.amazonaws.com`: `CreateGrant`, `DescribeKey`, `Encrypt`,
-  `Decrypt`, `GenerateDataKey*`, `ReEncrypt*`. These are exactly the actions the deploy role's
-  `SessionKeyUseByTable` identity statement grants today, under which it created and updates the
-  table. The deploy role has no item-level DynamoDB grant on the table, so it cannot read a token
+  `Decrypt`, `GenerateDataKey*`, `ReEncrypt*`. This is AWS's documented minimum for the principal
+  that puts a table under a customer-managed key: the deploy role's `SessionKeyUseByTable` identity
+  statement today, under which it created the table, plus `DescribeKey`, which its identity policy
+  grants unconditioned. A key policy that names a same-account role directly needs no identity grant
+  beside it, so `CancelKeyDeletion` in the administration list works although no identity statement
+  grants it. The deploy role has no item-level DynamoDB grant on the table, so it cannot read a token
   through this.
 - **Use through DynamoDB, for the web task role,** with `Principal: "*"` conditioned on
   `aws:PrincipalArn` equal to the task role's ARN, `kms:CallerAccount` equal to the account,
@@ -108,13 +111,23 @@ attach a table grant to it could read sessions. Among the principals the IaC bui
 is the deploy role's alone (FR-004 holds it). Outside the IaC, an account administrator can create
 roles, but can also rewrite the deploy role's trust policy, so that principal already controls the key.
 
+**Losing the deploy role loses administration of the key, and that is accepted.** KMS stores a named
+role as its unique id, so a deploy role deleted and recreated under the same name is a different
+principal, and no principal could then rewrite the policy short of AWS Support. The account root is
+not given `PutKeyPolicy` as a break-glass, because that would hand the key to every principal an
+identity policy allows `kms:PutKeyPolicy` on `*`, a wider set than those who can rewrite the deploy
+role's trust. The recovery is a new store: a new table and key under new names, which costs every
+user one sign-in, since a session holds nothing that outlives it. The deploy role's name is already
+ForceNew-guarded in `infra/modules/base/iam.tf`, and the sealing key accepts the same risk.
+
 #### Acceptance Criteria:
 
 - [ ] A test renders the deployed key's policy from its template with root's values and asserts, each
   as a set-equality: the principals allowed any cryptographic action are exactly the deploy role and
   the task role; the account root is allowed exactly the four metadata actions; the deploy role's
   administration statement holds exactly the actions listed above; no statement allows `kms:*`; no
-  statement's effect is `Deny`.
+  statement's effect is `Deny`. (Checkov cannot read a `templatefile()` policy, so this test is the
+  only check on the policy's principals.)
 - [ ] The test asserts the task role's conditions exactly, including the table-name encryption
   context on the cryptographic statement and its absence on the `DescribeKey` statement.
 - [ ] A test asserts root's constructed task-role ARN names the role the `spa` module creates, so a
@@ -122,10 +135,10 @@ roles, but can also rewrite the deploy role's trust policy, so that principal al
 - [ ] `session-store` still takes no input from `network` or `spa` (the existing test, unchanged).
 - [ ] Each of the first test's assertions is mutation-tested once (add a `kms:*` root statement; add
   the API's role to the task role's statement; drop the table-name condition; add `kms:Decrypt` to the
-  root's statement), and the delivery doc lists the four reddened runs and their failure messages.
-- [ ] Checkov `CKV_AWS_7`, `CKV_AWS_33` and `CKV_AWS_119` pass on the key and the table (the
-  conditioned `Principal: "*"` statement passes `CKV_AWS_33`, which skips a statement with a
-  `Condition`).
+  root's statement; add `kms:CreateGrant` to the administration statement; add a `Deny` statement),
+  and the delivery doc lists the six reddened runs and their failure messages.
+- [ ] Checkov `CKV_AWS_7` and `CKV_AWS_119` still pass on both keys and tables; each reads an
+  attribute written outside the template.
 
 ### FR-002: Local dev servers keep their sessions in a store of their own
 
@@ -148,8 +161,10 @@ Both names fall inside the deploy role's existing grants (`table/<project>-*-ses
 
 #### Acceptance Criteria:
 
-- [ ] A test asserts the dev store's key policy is the delegating one and the deployed store's is
-  not, by rendering each instance's template.
+- [ ] A test asserts, over root's two module calls, that the deployed store's call sets
+  `named_principals` from root's deploy-role and task-role ARNs and the dev store's call does not set
+  it, and that the module picks `key-named.json.tftpl` exactly when `named_principals` is set. Rendering
+  the two templates alone would pass with the calls swapped.
 - [ ] The existing dev-parameter test asserts that `SESSION_TABLE_NAME` is the dev table's name in
   the dev parameter and the deployed table's in the task environment, and that every other key still
   matches.
@@ -157,6 +172,10 @@ Both names fall inside the deploy role's existing grants (`table/<project>-*-ses
   table and alias names.
 - [ ] The dev store sits outside the switch and reads nothing inside it (the existing test, extended
   to the second call).
+- [ ] The two keys carry different descriptions and `Name` tags, each built from its alias.
+
+The existing tests that read the module's `main.tf` and `names.tf` (the key-policy test and the
+names-the-deploy-grant-admits test) are rewritten for the templates and root's names, not extended.
 
 ### FR-003: The task role's identity policy stops naming the key
 
@@ -174,19 +193,26 @@ statement first would leave the server unable to read sessions until the key pol
 - [ ] No identity policy template under `infra/modules/spa/` names `kms:`, asserted.
 - [ ] The task role's DynamoDB statement is unchanged, asserted as it is today.
 
-### FR-004: Only the deploy role creates roles
+### FR-004: Only the deploy role can become the task role
 
 #### Description:
 
-FR-001 rests on no principal but the deploy role being able to create a role under the task role's
-name. A test holds it: no identity policy template under `infra/` outside the deploy role's own
-templates grants `iam:CreateRole`. If the sealing key's spec has landed this test first, this spec
-reuses it and adds no second copy.
+FR-001 rests on no IaC principal but the deploy role being able to obtain the task role's identity:
+by creating a role under its name (`iam:CreateRole`), by rewriting its trust
+(`iam:UpdateAssumeRolePolicy`), or by passing it to something that runs as it (`iam:PassRole`). A
+test holds it: no policy under `infra/` outside the deploy role's own templates, whether a `.tftpl`
+template or an inline `jsonencode` in a `.tf` file, names an action that matches any of the three,
+wildcards included (`iam:*`, `iam:Create*`, `iam:Pass*`, `*`). A grep on this spec's base finds none.
+If the sealing key's spec has landed a narrower `iam:CreateRole` test first, this spec widens that
+one rather than adding a second.
 
 #### Acceptance Criteria:
 
-- [ ] The test fails naming the template when a policy outside the deploy role's grants
-  `iam:CreateRole`, mutation-tested once by planting the action in a non-deploy template.
+- [ ] The test fails naming the file when a policy outside the deploy role's templates names
+  `iam:CreateRole`, `iam:Pass*` or `iam:*`, mutation-tested once for each of the three, planted once in
+  a template and once in an inline `jsonencode`.
+- [ ] The test passes on the tree as it is, and finds at least one deploy-role template that does
+  grant `iam:CreateRole`, so a matcher that reads nothing fails.
 
 ### FR-005: The narrowing is measured on the deployed account
 
@@ -198,10 +224,13 @@ discriminate.
 
 #### Acceptance Criteria:
 
-- [ ] **Before the apply,** an AdministratorAccess principal's
-  `aws dynamodb scan --table-name <project>-<env>-sessions --limit 1 --projection-expression pk --query Count`
-  succeeds. **After it,** the same command fails with a KMS access-denied error. The projection keeps
-  any token out of the terminal.
+- [ ] **Before the apply,** with at least one signed-in session in the table, an AdministratorAccess
+  principal's
+  `aws dynamodb scan --table-name <project>-<env>-sessions --max-items 1 --projection-expression pk --query 'length(Items)'`
+  prints `1`. **After it,** and more than five minutes after that principal last touched the table
+  (DynamoDB caches a table key per caller for five minutes of inactivity), the same command fails
+  with an error naming KMS. The projection and the query keep every token and key out of the
+  terminal.
 - [ ] After the apply, with the web tier on: a fresh sign-in succeeds; a request made after at least
   six minutes idle (past DynamoDB's five-minute key cache) is still signed in; sign-out ends the
   session.
@@ -249,6 +278,8 @@ infra/modules/session-store/policies/
 - `module.dev_session_store`, and the dev parameter's `SESSION_TABLE_NAME` override.
 - The tests of FR-001, FR-002 and FR-004, with FR-001's mutation runs.
 - Docs: the module README's *The key's policy* section rewritten, `main.tf`'s header comment, the
+  `account_id` variable's description, `docs/security-baseline.md`'s `CKV_AWS_28` note (two tables
+  now fail it by decision, not one), the
   `transition_plan.md` §4.7 sentence that contrasts the sealing key with this one marked superseded in
   place, and SPEC-257's acceptance criterion marked superseded in place.
 - Before the push: FR-005's *before* measurement, recorded in the PR body.
