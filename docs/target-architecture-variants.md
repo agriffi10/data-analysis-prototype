@@ -3,7 +3,8 @@
 **Status:** Companion to `docs/transition_plan.md`, which stays the single source of truth. This
 file adds **pictures and one rejected fork**; where it and the plan disagree, the plan wins.
 **Last updated:** 2026-11-15, when the BFF box became the Next.js server and the API Lambda
-(`transition_plan.md` §4.7), and later that day when **Variant B was chosen** (§3.3). Validated against live AWS and Microsoft documentation on 2026-08-19 —
+(`transition_plan.md` §4.7), and later that day when **Variant B was chosen** (§3.3); marked on
+2026-11-16 for the client's Identity Center shape (§4.5). Validated against live AWS and Microsoft documentation on 2026-08-19 —
 see *What was checked against the live docs* at the end.
 
 **What these are.** The successor-account architecture at the end of **Phase 5**, drawn once for each
@@ -205,6 +206,12 @@ flowchart TB
   class COG,ENTRA,IDC variant
   class WEB session
 ```
+
+*(Read the Identity Center box as the client's, from 2026-11-16: one organization instance for
+every account, managed through LZA, with the application, its trusted token issuer, scopes and actor
+policy all owned by the client's administrators in the management or delegated-admin account. So
+edge 1 crosses from our member account into theirs, which gate G11 tests; G10 ran in one account.
+`transition_plan.md` §4.4 and §4.5.)*
 
 ## Three readings the drawings exist to prevent
 
