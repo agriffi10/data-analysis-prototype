@@ -341,6 +341,10 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         'locals {\n  text = "%{if var.on == "a /* b"}x%{endif}"\n}\n',
         'locals {\n  pick = "x-${merge({ a = 1 }, { b = "/*" })["b"]}"\n}\n',
         'locals {\n  quoted = "a \\" /* b"\n}\n',
+        'locals {\n  a = "x${1 # } " {\n  }"\n}\n',
+        'locals {\n  a = "x${1 /* } " */}"\n}\n',
+        'locals {\n  a = "x${1 // " {\n  }"\n}\n',
+        'locals {\n  a = "x${<<EOT\n}" {\nEOT\n  }"\n}\n',
         'locals {\n  literal = "$${ /* "\n}\n',
     ],
     ids=[
@@ -354,6 +358,10 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         "comment-opener-after-quotes-nested-in-a-directive",
         "comment-opener-after-a-map-nested-in-an-interpolation",
         "comment-opener-after-an-escaped-quote",
+        "hash-comment-inside-an-interpolation",
+        "block-comment-inside-an-interpolation",
+        "slash-comment-inside-an-interpolation",
+        "heredoc-inside-an-interpolation",
         "escaped-template-opener",
     ],
 )
@@ -460,3 +468,16 @@ def test_a_commented_out_environment_block_is_not_the_one_read() -> None:
     environment = lambda_environment(lambda_declaration(resource, "f"))
 
     assert "LIVE" in environment and "GHOST" not in environment
+
+
+def test_an_element_that_nests_a_list_does_not_end_the_joined_list() -> None:
+    """The list ends at its own closing bracket, not the first `])` after it.
+
+    Measured before: `"${join(" ", ["b"])}"` ended the list at its own `])`, and every element after
+    it was dropped with no error, so a term a guard requires could vanish while the guard passed.
+    The brackets are counted over `strip_noise`, so the `]` inside the last element's string is
+    not the one that closes the list.
+    """
+    source = 'locals {\n  csp = join("; ", [\n    "a",\n    "${join(" ", ["b"])}",\n    "c]",\n  ])\n}\n'
+
+    assert join_list_items(source, "csp") == ("; ", ("a", '${join(" ", ["b"])}', "c]"))

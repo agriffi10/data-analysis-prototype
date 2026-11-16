@@ -170,7 +170,9 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
     deployed, and a header quoted in a variable's heredoc description was read as a resource.
 
     A string ends at its own closing quote, not the first one after it: a ``${…}`` or ``%{…}``
-    inside it is followed to its matching brace, strings nested in that included, so the quotes in
+    inside it is followed to its matching brace by ``_close``, the same counter a block uses, so a
+    string, comment or heredoc nested in the expression is skipped as it is anywhere else, and the
+    quotes in
     ``"${format("%s/*", arn)}"`` neither close the string early nor expose its ``/*`` as a block
     comment that would blank the rest of the file. ``$${`` and ``%%{`` are literal text.
 
@@ -240,36 +242,10 @@ def _string_end(text: str, index: int) -> tuple[int, int]:
         elif text.startswith(("$${", "%%{"), index):
             index += 3
         elif text.startswith(("${", "%{"), index):
-            index = _template_end(text, index + 2)
+            index = _close(text, index + 2)
         else:
             index += 1
     return length, length
-
-
-def _template_end(text: str, index: int) -> int:
-    """Finds the brace closing a ``${`` or ``%{`` sequence, skipping the strings nested inside it.
-
-    Args:
-      text: The Terraform source being read.
-      index: The offset just after the sequence's opening brace.
-
-    Returns:
-      The offset just past the closing brace, or the end of the text when it never closes.
-
-    Raises:
-      None.
-    """
-    depth, length = 1, len(text)
-    while index < length:
-        char = text[index]
-        if char == '"':
-            index = _string_end(text, index)[1]
-            continue
-        depth += _BRACES.get(char, 0)
-        index += 1
-        if depth == 0:
-            return index
-    return length
 
 
 def _blank(out: list[str], start: int, end: int, keep_newlines: bool) -> None:
@@ -365,6 +341,9 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
 
     **Read over ``strip_comments``**, so a commented-out copy of the local above the live one, in
     any comment form, is not the one found, and a comment on an element's line is not part of it.
+    The list ends at the bracket that closes it, counted over ``strip_noise``: an element that
+    nests a list, ``"${join(" ", ["b"])}"``, ends a search for the first ``])`` early and drops every
+    element after it without an error.
 
     Args:
       text: The Terraform source to read.
@@ -381,12 +360,18 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
     start = text.find(f"{local_name} = join(")
     if start == -1:
         raise ValueError(f"no `{local_name} = join(...)` local — the parse went trivial")
-    end = text.find("])", start)
-    if end <= start:
+    scan = strip_noise(text)
+    end, depth = scan.find("[", start), 0
+    while 0 <= end < len(scan):
+        depth += {"[": 1, "]": -1}.get(scan[end], 0)
+        if depth == 0:
+            break
+        end += 1
+    else:
         raise ValueError(f"`{local_name}`'s list does not close where expected")
 
     block = text[start:end]
-    opening = block.index("[")
+    opening = scan.index("[", start) - start
     separator = block[block.index("(") + 1 : opening].strip().rstrip(",").strip()
     if not separator.startswith('"'):
         raise ValueError(f"`{local_name}`'s separator is not a literal: {separator!r}")
