@@ -31,9 +31,9 @@ So the rule is stated per (side x operation), enumerated against the real consta
   - as a COPY SOURCE, no FOLDER rule at all. There is deliberately none, and a test says so.
 
 **Two policies are mirrored here, and they differ.** The source rules mirror the PORTAL ROLE's
-policy for each bucket — identity policies on the role every signed-in user's requests run under,
-not bucket policies — whose asymmetry is kept rather than averaged: in the personal bucket the
-prefix IS the principal tag, so the Deny names the caller's own root and
+policy for each bucket — identity policies on the role every signed-in user's object requests run
+under, not bucket policies — whose asymmetry is kept rather than averaged: in the personal bucket
+the prefix IS the principal tag, so the Deny names the caller's own root and
 ``alice/backups/system_settings/archive/x`` is outside it, while the shared bucket's Deny puts a
 wildcard where the space name goes, and an S3 resource wildcard matches ``/`` too, so it reaches
 the folder at ANY depth below the space root. ``test_archive_write_lock_mirrors_iam.py`` builds a
@@ -123,7 +123,7 @@ def _is_under_root_folder(key: str, root: str, name: str) -> bool:
 
 
 def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
-    """Reports whether a key is the named folder or anything inside it, under the bucket's own rule.
+    """Reports whether a key is the named folder or anything inside it, as the portal role rules.
 
     Root-anchored in a personal space and any-depth in a shared one, mirroring the portal role's
     Deny in each bucket rather than averaging the two.
@@ -409,9 +409,9 @@ def marker_refusal(key: str) -> Refusal | None:
     """Refuses an explicitly selected undeletable marker, by basename at any depth.
 
     Two identity policies deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` in both buckets: the
-    portal role's, which every signed-in user's requests run under, and this plane's own execution
-    role's, which every delete and move here runs under. No bucket policy carries it — the
-    user-space bucket's policy is a principal allowlist and nothing more, and the shared-space
+    portal role's, which every signed-in user's object requests run under, and this plane's own
+    execution role's, which every delete and move here runs under. No bucket policy carries it —
+    the user-space bucket's policy is a principal allowlist and nothing more, and the shared-space
     bucket has none. An S3 resource wildcard matches ``/``, so a marker anywhere is undeletable by
     the user and by this plane, and selecting one can only fail.
 
@@ -419,14 +419,15 @@ def marker_refusal(key: str) -> Refusal | None:
     plane a copy is unrestricted, because copying takes nothing away. A marker is the exception:
     those Denies match the basename at any depth, so copying one MINTS A NEW UNDELETABLE OBJECT
     wherever it lands — litter no user can remove, nor this plane, nor the archive plane, whose
-    role denies the same basename. Only an operator's own credentials, or the teardown that deletes
-    a whole shared space, can clear one. The refusal's wording says so rather than talking about
-    deletion, which would be false under the copy prefix.
+    role denies the same basename. Only an operator, the deploy role, or the teardown that deletes a
+    whole shared space can clear one. So the refusal says the marker cannot be copied as well as
+    moved or deleted, rather than talking about deletion alone, which would be false under the copy
+    prefix.
 
     **This is about a SELECTED item only.** A marker discovered inside a folder being expanded is
     excluded from the plan rather than refused — ``saved_queries/`` ships its own marker, and
     failing a whole folder delete on a nested one would refuse everything in the folder for the
-    sake of the one file nobody can remove.
+    sake of the one file the user cannot remove.
 
     Args:
       key: The selected item's key, absolute.
