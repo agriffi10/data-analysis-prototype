@@ -20,7 +20,7 @@ Attributes:
 import pathlib
 import re
 
-from tf_blocks import blocks
+from tf_blocks import blocks, strip_comments
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 SPA = INFRA / "modules" / "spa"
@@ -53,23 +53,24 @@ def _source() -> str:
     return "\n".join(path.read_text() for path in sorted(SPA.glob("*.tf")))
 
 
-def _source_without_comments() -> str:
-    """The module's source with comment lines dropped.
+def _declares_a_task_volume(source: str) -> bool:
+    """Whether the module's source declares a task-level volume, read with its comments blanked.
 
     Naming the thing you forbid is not the same as doing it, and this module explains at length
-    why it does NOT use linuxParameters.tmpfs, the awslogs driver's create-group option or the
-    legacy load-balancer service account — a raw scan reads those sentences as violations.
+    why it uses a tmpfs rather than a task volume, so a raw scan reads those sentences as a
+    violation. Comments go through the shared reader, so a ``//`` or ``/* */`` comment is skipped
+    exactly as a ``#`` one is, while string contents stay searched.
 
     Args:
-      None.
+      source: The module's Terraform.
 
     Returns:
-      The source with every full-line comment removed.
+      True when ``volume {`` appears outside a comment.
 
     Raises:
       None.
     """
-    return "\n".join(line for line in _source().splitlines() if not line.lstrip().startswith("#"))
+    return "volume {" in strip_comments(source)
 
 
 def _container_definition() -> str:
@@ -150,7 +151,7 @@ def test_the_mounted_paths_are_the_images_writable_set() -> None:
     # empty root-owned directory and does not initialise from the image, so a container running
     # as a non-root user cannot write to it. A tmpfs is created owned by the uid its mount
     # options name, and that uid must be the one the container runs as.
-    assert '"aws_ecs_task_definition"' in _source() and "volume {" not in _source_without_comments(), (
+    assert '"aws_ecs_task_definition"' in _source() and not _declares_a_task_volume(_source()), (
         "A task-level volume is back. It cannot give a non-root container a writable path: the "
         "mount arrives owned by root, and the server dies on a permission error that reads as a "
         "container bug."
@@ -189,3 +190,25 @@ def test_the_service_ignores_the_image_and_still_obeys_the_desired_count() -> No
         "the verification step that raises it from 0 to 1 reads as a broken service."
     )
     assert re.search(r"desired_count\s*=\s*var\.desired_count", service), service
+
+
+def test_a_commented_out_task_volume_is_not_a_task_volume() -> None:
+    """A block comment keeping the retired volume for reference does not trip the guard.
+
+    The guard once dropped only ``#`` lines, so a ``/* */`` comment holding the old ``volume {``
+    block failed it for a module that mounts a tmpfs. A live block is still found.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a comment reads as a volume, or a live volume is missed.
+    """
+    commented = 'resource "aws_ecs_task_definition" "spa" {\n  /*\n  volume {\n    name = "tmp"\n  }\n  */\n}\n'
+    live = commented.replace("  /*\n", "").replace("  */\n", "")
+
+    assert not _declares_a_task_volume(commented), "a block comment was read as a task volume"
+    assert _declares_a_task_volume(live), "the fixture's live volume was not found, so the check reads nothing"

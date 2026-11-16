@@ -57,9 +57,11 @@ from cpcommon.jwks import (
 )
 from tf_blocks import (
     argument,
+    join_list_items,
     lambda_declaration,
     lambda_environment,
     lambda_input,
+    strip_comments,
     strip_noise,
 )
 
@@ -135,52 +137,45 @@ _VALID_PROVIDER_BLOCK = {
 }
 
 
-def _api_source(strip_comments: bool = True) -> str:
-    """Concatenates the API module's Terraform.
+def _api_source(directory: pathlib.Path = API) -> str:
+    """Concatenates the API module's Terraform with every comment blanked.
+
+    The module explains at length why it is not in the VPC, and a raw scan reads those sentences
+    as violations. Comments go through the shared reader, so a ``//`` or ``/* */`` comment is
+    skipped exactly as a ``#`` one is, while string contents stay: every caller asserts a name is
+    ABSENT, and a name written inside a string is one the module really uses.
 
     Args:
-      strip_comments: Drop full-line comments. The module explains at length why it is not in
-        the VPC, and a raw scan reads those sentences as violations.
+      directory: The module directory to read; a fixture passes its own.
 
     Returns:
-      The module's source.
+      The module's source, comments blanked and everything else intact.
 
     Raises:
       None.
     """
-    text = "\n".join(path.read_text() for path in sorted(API.glob("*.tf")))
-    if not strip_comments:
-        return text
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
+    return strip_comments("\n".join(path.read_text() for path in sorted(directory.glob("*.tf"))))
 
 
-def _connect_src_terms() -> tuple[str, ...]:
+def _connect_src_terms(path: pathlib.Path = ROOT_MAIN) -> tuple[str, ...]:
     """The connect-src source list, read out of root's Terraform as written.
 
     Interpolations are left unresolved: a caller comparing against a literal wants them intact,
     and a caller resolving them says which ones it resolved. Read once here rather than sliced at
-    each use, so two readers cannot disagree about where the list ends.
+    each use, so two readers cannot disagree about where the list ends, and read by the shared
+    ``join_list_items`` so a commented-out element in any comment form is not a term.
 
     Args:
-      None.
+      path: The Terraform file declaring the local; a fixture passes its own.
 
     Returns:
-      One entry per source, in file order, without quotes, commas or comment lines.
+      One entry per source, in file order, without quotes, commas or comments.
 
     Raises:
       ValueError: If the local is no longer a `join(` over a list literal, which means the shape
         every caller slices for has changed and the silent answer would be an empty list.
     """
-    root = ROOT_MAIN.read_text()
-    start = root.index("csp_connect_src = join(")
-    block = root[start : root.index("\n  ])", start)]
-    return tuple(
-        line.strip().rstrip(",").strip('"')
-        for line in block.splitlines()[1:]
-        if line.strip() and not line.strip().startswith("#")
-    )
+    return join_list_items(path.read_text(), "csp_connect_src")[1]
 
 
 def _root_module_block(name: str) -> str:
@@ -778,3 +773,62 @@ def test_a_presigned_url_names_the_s3_host_the_csp_admits(monkeypatch) -> None:
             "the user as 'Can't reach the server' — while downloads, listings and every "
             "server-side call keep working"
         )
+
+
+def test_the_module_source_blanks_every_comment_form_but_keeps_strings(tmp_path: pathlib.Path) -> None:
+    """A block comment explaining the forbidden VPC attachment is not the module doing it.
+
+    The source was once read with only ``#`` lines dropped, so a ``/* */`` comment naming
+    ``vpc_config`` failed the absence check for a module that attaches nothing, and an absence check
+    over comment-free text must still see a name written inside a string.
+
+    Args:
+      tmp_path: A directory standing in for the module.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a comment survives into the source, or a string does not.
+    """
+    (tmp_path / "lambda.tf").write_text(
+        "/*\n  vpc_config {\n    subnet_ids = []\n  }\n*/\n"
+        'resource "x" "y" { // vpc_config is not set\n'
+        '  note = "aws_security_group"\n}\n'
+    )
+
+    source = _api_source(tmp_path)
+
+    assert "vpc_config" not in source and "subnet_ids" not in source, (
+        f"a commented-out attachment reads as one: {source!r}"
+    )
+    assert "aws_security_group" in source, "the string was blanked, so an absence check cannot see it"
+
+
+def test_the_connect_src_terms_skip_a_block_comment_in_the_list(tmp_path: pathlib.Path) -> None:
+    """A source commented out inside the list is not a host the browser may reach.
+
+    Read with only ``#`` lines dropped, a ``/* */`` line inside the list arrived as a term of its
+    own, and the equality check named a host the policy does not admit.
+
+    Args:
+      tmp_path: A directory holding a stand-in for root's ``main.tf``.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the comment becomes a term, or a real term is lost.
+    """
+    root = tmp_path / "main.tf"
+    root.write_text(
+        "locals {\n"
+        '  csp_connect_src = join(" ", [\n'
+        "    \"'self'\",\n"
+        '    /* "https://retired.example", */\n'
+        '    "https://${local.bucket}.s3.amazonaws.com", // the bucket\n'
+        "  ])\n"
+        "}\n"
+    )
+
+    assert _connect_src_terms(root) == ("'self'", "https://${local.bucket}.s3.amazonaws.com")

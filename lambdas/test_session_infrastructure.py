@@ -28,7 +28,14 @@ import re
 
 import yaml
 from tf_blocks import argument as top_level_argument
-from tf_blocks import blocks, module_calls, output_blocks
+from tf_blocks import (
+    blocks,
+    module_calls,
+    output_blocks,
+    span,
+    strip_comments,
+    strip_noise,
+)
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 ROOT_MAIN = INFRA / "main.tf"
@@ -54,6 +61,9 @@ CLIENT_FLOOR = 2
 def _argument(body: str, name: str) -> str | None:
     """Reads one top-level argument's raw value from a resource body, whitespace collapsed.
 
+    Read with every comment form blanked, so an assignment kept for reference inside a ``/* */``
+    comment is not the one found, and a trailing comment is not part of the value.
+
     Args:
       body: The resource's body.
       name: The argument.
@@ -64,7 +74,7 @@ def _argument(body: str, name: str) -> str | None:
     Raises:
       None.
     """
-    match = re.search(rf"^\s*{name}\s*=\s*(\[[^\]]*\]|[^\n]+)", body, re.MULTILINE)
+    match = re.search(rf"^\s*{name}\s*=\s*(\[[^\]]*\]|[^\n]+)", strip_comments(body), re.MULTILINE)
     return " ".join(match.group(1).split()) if match else None
 
 
@@ -114,6 +124,83 @@ def test_the_key_names_only_the_account_and_the_table_is_encrypted_with_it() -> 
     assert _argument(table, "deletion_protection_enabled") == "true"
 
 
+def _without_urls(body: str) -> str:
+    """A client body with its comments, its name and its two URL lists removed, whitespace collapsed.
+
+    The dev client is the server client with a localhost callback, so what is left must be equal.
+    Comments go through the shared reader, so a ``//`` or ``/* */`` comment on one client is not a
+    difference between them, exactly as a ``#`` one is not.
+
+    Args:
+      body: A ``aws_cognito_user_pool_client`` body.
+
+    Returns:
+      The remaining settings as one whitespace-collapsed string.
+
+    Raises:
+      None.
+    """
+    code = re.sub(r"^\s*(name|callback_urls|logout_urls)\s*=.*$", "", strip_comments(body), flags=re.MULTILINE)
+    return " ".join(code.split())
+
+
+def _names_localhost(text: str) -> bool:
+    """Whether Terraform source names ``localhost`` anywhere but a comment.
+
+    An absence check, so string contents stay searched: a callback URL is a string, and it is the
+    thing this looks for. Comments go through the shared reader, so a ``/* */`` comment explaining
+    the dev origin is skipped exactly as a ``#`` one is.
+
+    Args:
+      text: A Terraform file's source.
+
+    Returns:
+      True when ``localhost`` appears outside a comment.
+
+    Raises:
+      None.
+    """
+    return "localhost" in strip_comments(text)
+
+
+def _rotation_bodies(text: str) -> list[str]:
+    """Every ``refresh_token_rotation`` block's body in one Terraform file, braces excluded.
+
+    Located over ``strip_noise`` so a block kept inside a comment, or the name inside a string, is
+    not a block, and each body is read to its own closing brace by the shared counter rather than
+    to the first ``}``, which a comment or a string inside the block would supply early.
+
+    Args:
+      text: A Terraform file's source.
+
+    Returns:
+      Each block's body, comments blanked, in file order.
+
+    Raises:
+      None.
+    """
+    code = strip_comments(text)
+    return [
+        span(code, match.end() - 1)[1:-1]
+        for match in re.finditer(r"(?<![\w-])refresh_token_rotation\s*\{", strip_noise(text))
+    ]
+
+
+def _states_grace_period(body: str) -> bool:
+    """Whether a rotation block assigns ``retry_grace_period_seconds`` a whole number of seconds.
+
+    Args:
+      body: A ``refresh_token_rotation`` body, comments blanked.
+
+    Returns:
+      True when the argument is assigned a bare integer on its own line.
+
+    Raises:
+      None.
+    """
+    return bool(re.search(r"^[ \t]*retry_grace_period_seconds[ \t]*=[ \t]*\d+[ \t]*$", body, re.MULTILINE))
+
+
 def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() -> None:
     """A setting the two clients do not share is a sign-in that works on a laptop and not deployed.
 
@@ -137,17 +224,12 @@ def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() 
     assert _argument(server, "callback_urls") == '["${var.spa_origin}/auth/callback"]'
     assert _argument(server, "logout_urls") == "[var.spa_origin]"
     assert _argument(server, "enable_token_revocation") == "true"
-    assert re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', server)
+    assert re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', strip_comments(server))
 
-    def without_urls(body: str) -> str:
-        code = re.sub(r"^\s*#.*$", "", body, flags=re.MULTILINE)
-        return " ".join(re.sub(r"^\s*(name|callback_urls|logout_urls)\s*=.*$", "", code, flags=re.MULTILINE).split())
-
-    assert without_urls(dev) == without_urls(server), "the dev client differs from the server client beyond its URLs"
+    assert _without_urls(dev) == _without_urls(server), "the dev client differs from the server client beyond its URLs"
     assert _argument(dev, "callback_urls") == '["${var.dev_origin}/auth/callback"]'
     assert _argument(dev, "logout_urls") == "[var.dev_origin]"
-    code = re.sub(r"^\s*#.*$", "", AUTH.read_text(), flags=re.MULTILINE)
-    assert "localhost" not in code, "the auth module names localhost; only root's dev_origin may"
+    assert not _names_localhost(AUTH.read_text()), "the auth module names localhost; only root's dev_origin may"
     assert re.search(r'^\s*dev_origin\s*=\s*"http://localhost:5173"\s*$', ROOT_MAIN.read_text(), re.MULTILINE)
 
 
@@ -250,16 +332,15 @@ def test_every_rotation_block_states_its_grace_period() -> None:
     """
     files = sorted(INFRA.rglob("*.tf"))
     assert len(files) > 20, f"Swept only {len(files)} .tf files — the glob found the wrong tree."
-    dynamic = [str(path.relative_to(INFRA)) for path in files if re.search(r'dynamic\s+"refresh_token_rotation"', path.read_text())]
-    assert dynamic == [], f"a dynamic refresh_token_rotation block escapes this sweep: {dynamic}"
-    rotations = [
-        (path.relative_to(INFRA), match.group(1))
+    dynamic = [
+        str(path.relative_to(INFRA))
         for path in files
-        for match in re.finditer(r"refresh_token_rotation\s*\{([^}]*)\}", path.read_text())
+        if re.search(r'dynamic\s+"refresh_token_rotation"', strip_comments(path.read_text()))
     ]
+    assert dynamic == [], f"a dynamic refresh_token_rotation block escapes this sweep: {dynamic}"
+    rotations = [(path.relative_to(INFRA), body) for path in files for body in _rotation_bodies(path.read_text())]
     assert rotations, "no refresh_token_rotation block found; the sweep reads nothing"
-    stated = re.compile(r"^[ \t]*retry_grace_period_seconds[ \t]*=[ \t]*\d+[ \t]*$", re.MULTILINE)
-    missing = [str(path) for path, body in rotations if not stated.search(body)]
+    missing = [str(path) for path, body in rotations if not _states_grace_period(body)]
     assert missing == [], f"refresh_token_rotation without a numeric retry_grace_period_seconds in {missing}"
 
 
@@ -385,3 +466,79 @@ def test_the_names_root_builds_are_the_names_the_deploy_grant_admits() -> None:
         f"arn:aws:kms:us-east-1:111122223333:{alias}",
     ):
         assert any(fnmatch.fnmatchcase(arn, pattern) for pattern in patterns), f"no deploy grant admits {arn}"
+
+
+def test_a_block_comment_is_not_a_difference_between_the_clients() -> None:
+    """A ``/* */`` note on one client neither splits it from the other nor hides a real difference.
+
+    The comparison once dropped only ``#`` lines, so a block comment on the dev client reported
+    the two clients as different. The reader blanks it, and a setting that really differs, or an
+    assignment kept only inside a comment, is still seen.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a comment counts as a setting, or a real difference is missed.
+    """
+    server = '  name = "server"\n  generate_secret = true\n  callback_urls = ["a"]\n'
+    dev = '  name = "dev"\n  /* a laptop signs in here,\n     enable_token_revocation = false */\n  generate_secret = true\n  callback_urls = ["b"]\n'
+
+    assert _without_urls(dev) == _without_urls(server), "a block comment made the clients differ"
+    assert _without_urls(dev.replace("generate_secret = true", "generate_secret = false")) != _without_urls(server)
+    assert _argument(dev, "enable_token_revocation") is None, "an assignment inside a block comment was read"
+
+
+def test_localhost_in_a_block_comment_is_not_named_but_in_a_string_is() -> None:
+    """The absence check skips a ``/* */`` comment and still reads a string.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a comment trips the check, or a callback URL slips past it.
+    """
+    assert not _names_localhost("/* dev_origin is http://localhost:5173 */\nx = 1 // localhost\n"), (
+        "a comment explaining the dev origin was read as the module naming localhost"
+    )
+    assert _names_localhost('callback_urls = ["http://localhost:5173/auth/callback"]\n'), (
+        "a localhost callback URL inside a string slipped past the absence check"
+    )
+
+
+def test_the_rotation_sweep_reads_each_block_to_its_own_brace_and_skips_comments() -> None:
+    """A rotation block kept in a comment is not a block, and a ``}`` in a comment or string does not end one.
+
+    Read with a bare ``refresh_token_rotation {[^}]*}``, a commented-out block without a grace
+    period failed the sweep, and a ``}`` inside a comment or an interpolation in a live block cut
+    the body before its grace period, failing a client that states one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a commented block is swept, or a live body is cut short or missed.
+    """
+    text = (
+        "/* refresh_token_rotation {\n  feature = \"ENABLED\"\n} */\n"
+        "refresh_token_rotation {\n"
+        "  feature = \"${local.rotation}\" /* not } yet */\n"
+        "  retry_grace_period_seconds = 0\n"
+        "}\n"
+        'note = "refresh_token_rotation {}"\n'
+    )
+
+    bodies = _rotation_bodies(text)
+
+    assert len(bodies) == 1, f"expected the one live block, found {len(bodies)}: {bodies}"
+    assert _states_grace_period(bodies[0]), f"the live block was cut short: {bodies[0]!r}"
+    assert not _states_grace_period(bodies[0].replace("retry_grace_period_seconds = 0", ""))
