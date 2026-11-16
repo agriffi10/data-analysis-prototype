@@ -24,11 +24,3 @@ export function useSeam(): Seam {
   if (!seam) throw new Error('navigation was used outside the NavigationProvider');
   return seam;
 }
-
-/** True beneath `CatchAllRouter`, where route params come from react-router's match. */
-export const InCatchAllContext = createContext(false);
-
-/** Whether the caller renders inside the catch-all's router. */
-export function useInCatchAll(): boolean {
-  return useContext(InCatchAllContext);
-}

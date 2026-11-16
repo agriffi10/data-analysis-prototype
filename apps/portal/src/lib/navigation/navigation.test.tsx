@@ -3,7 +3,16 @@ import {act, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {renderApp, type RenderAppOptions} from '../../test/appRouter';
 import {authenticated} from '../../test/authFixtures';
-import {external, hold, nextPopstate, release, requests, traverse} from '../../test/nextNavigation';
+import {
+  documentLoads,
+  external,
+  hold,
+  nextPopstate,
+  release,
+  requests,
+  standInRouter,
+  traverse
+} from '../../test/nextNavigation';
 import {
   commits,
   commitsOf,
@@ -16,12 +25,11 @@ import {
 } from '../../test/seamReadout';
 import {useNavigate, useSearchParams} from './hooks';
 import {matchPath} from './matchPath';
-import type {AreaName, AreaRouter} from './areas';
 
 /**
- * The navigation seam, proved through the test App Router: the real chrome, the real route table,
- * and Next's behaviours modelled by the stand-in. Every page here is a readout that records what the
- * seam told it on each commit, so a scenario reads the same whichever router serves the page.
+ * The navigation seam, proved through the test App Router: the real chrome, a readout page per
+ * area, and Next's behaviours modelled by the stand-in. Every page records what the seam told it on
+ * each commit.
  */
 
 vi.mock('../../features/notifications/notifications.service', () => ({
@@ -44,27 +52,14 @@ vi.mock('../../routes/DataQualityReportPage', async () => ({
 
 const READOUT_AREAS = ['files', 'notifications', 'help', 'data-quality'] as const;
 
-/** Options that name each area's router rather than following the records. */
-type Served = Omit<RenderAppOptions, 'routers'> & {routers: Partial<Record<AreaName, AreaRouter>>};
-
-/** Each readout area on one router, its App Router pages supplied when that router is the App Router's. */
-function servedBy(router: AreaRouter, areas: readonly AreaName[] = READOUT_AREAS): Served {
-  const routers: Partial<Record<AreaName, AreaRouter>> = {};
-  const pages: NonNullable<RenderAppOptions['pages']> = {};
-  for (const area of areas) {
-    routers[area] = router;
-    pages[`(signed-in)/${area}/page.tsx`] = readoutPage(area);
+/** Each readout area served by its readout page, signed in. */
+const SERVED: RenderAppOptions = {
+  auth: authenticated('alice'),
+  pages: {
+    ...Object.fromEntries(READOUT_AREAS.map((area) => [`(signed-in)/${area}/page.tsx`, readoutPage(area)])),
+    '(signed-in)/data-quality/[space]/[requestId]/page.tsx': readoutPage('report')
   }
-  pages['(signed-in)/data-quality/[space]/[requestId]/page.tsx'] = readoutPage('report');
-  return {auth: authenticated('alice'), routers, pages};
-}
-
-/** Two option sets merged, their routers and pages together. */
-function both(a: Served, b: Served): Served {
-  return {...a, ...b, routers: {...a.routers, ...b.routers}, pages: {...a.pages, ...b.pages}};
-}
-
-const ROUTERS: AreaRouter[] = ['catch-all', 'app'];
+};
 
 /** Follow a readout link by its label, and wait for the page it names to commit there. */
 async function follow(user: ReturnType<typeof renderApp>['user'], label: string) {
@@ -94,31 +89,28 @@ beforeEach(() => resetReadout(LINKS));
 afterEach(() => vi.restoreAllMocks());
 
 describe('the seam’s location, type and key', () => {
-  it.each(ROUTERS)(
-    'pushes, replaces, and makes a link to the address shown a replace with a new key (%s)',
-    async (router) => {
-      const {user} = renderApp('/files', servedBy(router));
-      await screen.findByRole('heading', {name: 'page files'});
+  it('pushes, replaces, and makes a link to the address shown a replace with a new key', async () => {
+    const {user} = renderApp('/files', SERVED);
+    await screen.findByRole('heading', {name: 'page files'});
 
-      await follow(user, 'To notifications');
-      await screen.findByRole('heading', {name: 'page notifications'});
-      const pushed = lastCommit();
-      await follow(user, 'Replace with help');
-      await screen.findByRole('heading', {name: 'page help'});
-      const replaced = lastCommit();
-      await follow(user, 'To help');
-      await waitFor(() => expect(lastCommit().key).not.toBe(replaced.key));
-      const again = lastCommit();
+    await follow(user, 'To notifications');
+    await screen.findByRole('heading', {name: 'page notifications'});
+    const pushed = lastCommit();
+    await follow(user, 'Replace with help');
+    await screen.findByRole('heading', {name: 'page help'});
+    const replaced = lastCommit();
+    await follow(user, 'To help');
+    await waitFor(() => expect(lastCommit().key).not.toBe(replaced.key));
+    const again = lastCommit();
 
-      expect(pushed).toMatchObject({page: 'notifications', pathname: '/notifications', type: 'PUSH'});
-      expect(replaced).toMatchObject({page: 'help', pathname: '/help', type: 'REPLACE'});
-      expect(again).toMatchObject({page: 'help', pathname: '/help', type: 'REPLACE'});
-      expect(new Set([pushed.key, replaced.key, again.key]).size).toBe(3);
-    }
-  );
+    expect(pushed).toMatchObject({page: 'notifications', pathname: '/notifications', type: 'PUSH'});
+    expect(replaced).toMatchObject({page: 'help', pathname: '/help', type: 'REPLACE'});
+    expect(again).toMatchObject({page: 'help', pathname: '/help', type: 'REPLACE'});
+    expect(new Set([pushed.key, replaced.key, again.key]).size).toBe(3);
+  });
 
-  it.each(ROUTERS)('pushes a hash-only target on the same page, dropping the query (%s)', async (router) => {
-    const {user} = renderApp('/help?topic=x', servedBy(router));
+  it('pushes a hash-only target on the same page, dropping the query', async () => {
+    const {user} = renderApp('/help?topic=x', SERVED);
     await screen.findByRole('heading', {name: 'page help'});
 
     await follow(user, 'To the files section');
@@ -128,8 +120,8 @@ describe('the seam’s location, type and key', () => {
     );
   });
 
-  it.each(ROUTERS)('reads Back to a pushed entry as a POP with that entry’s own key (%s)', async (router) => {
-    const {user} = renderApp('/files', servedBy(router));
+  it('reads Back to a pushed entry as a POP with that entry’s own key', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     await follow(user, 'To notifications');
     await screen.findByRole('heading', {name: 'page notifications'});
@@ -142,8 +134,8 @@ describe('the seam’s location, type and key', () => {
     expect(lastCommit()).toMatchObject({page: 'notifications', type: 'POP', key: entry.key});
   });
 
-  it.each(ROUTERS)('reads an in-page anchor as a POP with the default key (%s)', async (router) => {
-    const {user} = renderApp('/files', servedBy(router));
+  it('reads an in-page anchor as a POP with the default key', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     await follow(user, 'To notifications');
     await screen.findByRole('heading', {name: 'page notifications'});
@@ -157,8 +149,7 @@ describe('the seam’s location, type and key', () => {
   // rendered, the dropped push would call the Back a push, with its key and its state.
   it('reads Back over a router push Next dropped as a POP, with the entry’s own key and no state', async () => {
     resetReadout([...LINKS, {label: 'To data quality with state', to: '/data-quality', state: {dropped: true}}]);
-    const options = both(servedBy('app', ['data-quality']), servedBy('catch-all', ['files']));
-    const {user} = renderApp('/data-quality', options);
+    const {user} = renderApp('/data-quality', SERVED);
     await screen.findByRole('heading', {name: 'page data-quality'});
     const first = lastCommit();
     await follow(user, 'To files');
@@ -177,8 +168,7 @@ describe('the seam’s location, type and key', () => {
   // Two navigations in one event, a native one first: Next renders the native one before the router
   // one, and the router one must still arrive with its own state.
   it('keeps a router navigation’s state when a native navigation renders ahead of it', async () => {
-    const options = both(servedBy('catch-all', ['files']), servedBy('app', ['data-quality']));
-    renderApp('/files', options);
+    renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
@@ -194,8 +184,8 @@ describe('the seam’s location, type and key', () => {
 
   // React renders a traversal inside Next's popstate dispatch, before any listener the app adds,
   // so a seam that classified by its own listener would report a Back as a push for one commit.
-  it.each(ROUTERS)('reports no type but POP on any commit during a traversal (%s)', async (router) => {
-    const {user} = renderApp('/files', servedBy(router));
+  it('reports no type but POP on any commit during a traversal', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     await follow(user, 'To notifications');
     await screen.findByRole('heading', {name: 'page notifications'});
@@ -210,15 +200,9 @@ describe('the seam’s location, type and key', () => {
   });
 });
 
-describe('which router performs a navigation', () => {
-  it.each([
-    ['catch-all', 'catch-all'],
-    ['catch-all', 'app'],
-    ['app', 'catch-all'],
-    ['app', 'app']
-  ] as const)('renders /help#files with its hash on the destination’s first render (%s to %s)', async (from, to) => {
-    const options = both(servedBy(from, ['files']), servedBy(to, ['help']));
-    const {user} = renderApp('/files', options);
+describe('which navigations are native', () => {
+  it('renders /help#files with its hash on the destination’s first render', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     await follow(user, 'To help at files');
@@ -227,19 +211,35 @@ describe('which router performs a navigation', () => {
     expect(commitsOf('help')[0]).toMatchObject({pathname: '/help', hash: '#files'});
   });
 
-  it('moves between two catch-all pages without Next’s router, and the catch-all page stays mounted', async () => {
-    const {user} = renderApp('/files', servedBy('catch-all'));
+  // Asserted on the calls the seam makes: a navigation that keeps the committed path is written
+  // natively, every other one is Next's to render.
+  it('calls router.push for another path, and neither router.push nor router.replace for the same one', async () => {
+    resetReadout([...LINKS, {label: 'Same page, another query', to: '/help?topic=y'}]);
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
+    const push = vi.spyOn(standInRouter(), 'push');
+    const replace = vi.spyOn(standInRouter(), 'replace');
 
-    await follow(user, 'To notifications');
+    await follow(user, 'To help');
+    await screen.findByRole('heading', {name: 'page help'});
+    expect(push.mock.calls).toEqual([['/help']]);
+    push.mockClear();
 
-    await screen.findByRole('heading', {name: 'page notifications'});
-    expect(requests()).toEqual([]);
+    await follow(user, 'Same page, another query');
+    await waitFor(() => expect(lastCommit().search).toBe('?topic=y'));
+    await follow(user, 'To the files section');
+    await waitFor(() => expect(lastCommit().hash).toBe('#files'));
+    act(() => fixture.navigate?.('/help#files'));
+    await waitFor(() => expect(lastCommit().type).toBe('PUSH'));
+
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(mounts).toEqual(['files', 'help']);
   });
 
-  it('changes only the query or the hash on an App Router page without Next’s router, and without a remount', async () => {
+  it('changes only the query or the hash on a page without Next’s router, and without a remount', async () => {
     resetReadout([...LINKS, {label: 'Same page, another query', to: '/help?topic=y'}]);
-    const {user} = renderApp('/help', servedBy('app'));
+    const {user} = renderApp('/help', SERVED);
     await screen.findByRole('heading', {name: 'page help'});
 
     await follow(user, 'Same page, another query');
@@ -251,8 +251,8 @@ describe('which router performs a navigation', () => {
     expect(mounts).toEqual(['help']);
   });
 
-  it('goes through Next’s router to a page the App Router serves at another path', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+  it('goes through Next’s router to a page at another path', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     await follow(user, 'To notifications');
@@ -261,47 +261,55 @@ describe('which router performs a navigation', () => {
     expect(requests()).toEqual(['/notifications']);
   });
 
-  // The source is the committed address, never the seam's own idea of where it is going: from an App
-  // Router page with a push to a catch-all page still in flight, a second click to another catch-all
-  // page must go through Next's router too, or Next shows the App Router page under the new address.
+  // The source is the committed address, never the navigation still pending: with a push to
+  // Notifications in flight, a change of query on Notifications is still a move away from Files, and
+  // written natively it would leave Files on screen under Notifications' address.
   it('decides by the committed address while a router push is still in flight', async () => {
-    const {user} = renderApp(
-      '/files',
-      both(servedBy('app', ['files']), servedBy('catch-all', ['notifications', 'help']))
-    );
+    renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
-    await follow(user, 'To notifications');
-    await follow(user, 'To help');
+    act(() => fixture.navigate?.('/notifications'));
+    act(() => fixture.navigate?.('/notifications?x=1'));
+    release();
 
-    await screen.findByRole('heading', {name: 'page help'});
-    expect(lastCommit()).toMatchObject({page: 'help', pathname: '/help'});
+    await screen.findByRole('heading', {name: 'page notifications'});
+    await waitFor(() => expect(lastCommit()).toMatchObject({page: 'notifications', search: '?x=1'}));
     expect(screen.queryByRole('heading', {name: 'page files'})).not.toBeInTheDocument();
   });
 
-  // react-router inside the catch-all is fed by the seam. A `BrowserRouter` there reads
-  // `window.location` as it mounts, and Next renders a page before it writes the address.
-  it('renders the matching catch-all page on its first render after an App Router page', async () => {
-    const options = both(servedBy('app', ['files']), servedBy('catch-all', ['notifications', 'help']));
-    const {user} = renderApp('/notifications', options);
-    await screen.findByRole('heading', {name: 'page notifications'});
-    await follow(user, 'To files');
+  // Next writes the address before any layout effect runs, and the seam learns of the arrival only
+  // in its own layout effect, after the page's: a page correcting its address as it arrives must be
+  // judged against the address, or its replace would go to Next's router as a move to another path.
+  it('writes natively a correction the arriving page makes in its first layout effect', async () => {
+    const {user} = renderApp('/files', {
+      ...SERVED,
+      pages: {...SERVED.pages, '(signed-in)/help/page.tsx': CorrectsOnArrival}
+    });
     await screen.findByRole('heading', {name: 'page files'});
 
     await follow(user, 'To help');
 
-    await screen.findByRole('heading', {name: 'page help'});
-    expect(commitsOf('help')[0]).toMatchObject({pathname: '/help', type: 'PUSH'});
-    expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toBe('?topic=x'));
+    expect(screen.getByRole('heading', {name: 'help corrected'})).toBeInTheDocument();
+    expect(requests()).toEqual(['/help']);
   });
 });
+
+/** A page that corrects its own address in its first layout effect, before the seam has seen it arrive. */
+function CorrectsOnArrival() {
+  const navigate = useNavigate();
+  useLayoutEffect(() => {
+    navigate('?topic=x', {replace: true});
+  }, [navigate]);
+  return <h1>help corrected</h1>;
+}
 
 describe('a target’s trailing slash', () => {
   // Next's router strips a trailing slash, so handed `/files/` from `/files` it would land where it
   // started, and a navigation that never leaves would leave the page's own writes dropped.
   it('writes a target that differs only by a trailing slash natively, at the bare path', async () => {
-    renderApp('/files', servedBy('app'));
+    renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     act(() => fixture.navigate?.('/files/?x=1', {replace: true}));
@@ -316,7 +324,7 @@ describe('a target’s trailing slash', () => {
 describe('a page that is leaving', () => {
   // Twice, the first spelled as the browser re-encodes it, so the leave must follow the address shown.
   it('corrects its address without losing the click', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
@@ -330,7 +338,7 @@ describe('a page that is leaving', () => {
   });
 
   it('keeps the correction on the entry it left, for Back', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     hold();
     await follow(user, 'To notifications');
@@ -346,7 +354,7 @@ describe('a page that is leaving', () => {
   // The Back lands on an entry with the same address as the one left, so only the entry tells that the
   // leave is over.
   it('corrects its address as usual once a Back has dropped the navigation', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     act(() => fixture.navigate?.('/files'));
     hold();
@@ -362,7 +370,7 @@ describe('a page that is leaving', () => {
   // The page does not re-render with its correction, so a second one must build on the address shown,
   // or it would put back what the first removed.
   it('builds a second correction on the first', async () => {
-    const options = servedBy('app');
+    const options = SERVED;
     const {user} = renderApp('/files', {
       ...options,
       pages: {...options.pages, '(signed-in)/files/page.tsx': FilesWithSearch}
@@ -385,7 +393,7 @@ describe('a page that is leaving', () => {
   // A child's layout effects run before the seam's own, so the destination's first write lands
   // while the seam's entry is still the one left; Next has written the new address by then.
   it('keeps a write the destination makes as it first lays out', async () => {
-    const options = servedBy('app');
+    const options = SERVED;
     const {user, location} = renderApp('/files', {
       ...options,
       pages: {...options.pages, '(signed-in)/notifications/page.tsx': WritesOnArrival}
@@ -408,10 +416,7 @@ describe('the user’s next move during a leave', () => {
     ['a page’s push on the same path', 'push', {page: 'files', pathname: '/files', hash: '#files'}],
     ['a page’s replace to another page', 'replace', {page: 'help', pathname: '/help'}]
   ] as const)('wins over the navigation in flight: %s', async (_kind, move, landed) => {
-    const {user} = renderApp(
-      '/files',
-      both(servedBy('catch-all', ['files', 'help']), servedBy('app', ['data-quality']))
-    );
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
@@ -430,7 +435,7 @@ describe('the user’s next move during a leave', () => {
 // on: the anchor must neither end the leave nor be left without the Next state Back needs.
 describe('an in-page anchor during a leave', () => {
   it('leaves the navigation in flight, and the page’s correction after it does too', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     hold();
@@ -444,7 +449,7 @@ describe('an in-page anchor during a leave', () => {
   });
 
   it('is restorable after a correction, so Back shows the page it belongs to', async () => {
-    const {user} = renderApp('/files', servedBy('app'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     hold();
     await follow(user, 'To notifications');
@@ -483,8 +488,8 @@ function WritesOnArrival() {
 describe('an in-page anchor’s entry', () => {
   // A native anchor makes an entry with no state, and Next ignores a popstate whose state is null,
   // so without the seam stamping it Back would leave the page it came from on screen.
-  it.each(ROUTERS)('is one a later Back restores, as a POP with the default key (%s)', async (router) => {
-    const {user} = renderApp('/files', servedBy(router));
+  it('is one a later Back restores, as a POP with the default key', async () => {
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     await followAnchor(user);
     await follow(user, 'To notifications');
@@ -500,34 +505,25 @@ describe('an in-page anchor’s entry', () => {
 describe('the state a navigation carries', () => {
   // Next re-serializes the search, so the seam compares two addresses only once both are parsed:
   // compared raw, the state would never arrive and Back would be called a push.
-  it.each(ROUTERS)(
-    'arrives on a link whose query holds an encoded space, and Back reads that entry’s key (%s)',
-    async (router) => {
-      resetReadout([...LINKS, {label: 'To My Reports', to: '/files?prefix=My%20Reports%2F', state: {from: 'query'}}]);
-      const {user} = renderApp('/notifications', servedBy(router));
-      await screen.findByRole('heading', {name: 'page notifications'});
+  it('arrives on a link whose query holds an encoded space, and Back reads that entry’s key', async () => {
+    resetReadout([...LINKS, {label: 'To My Reports', to: '/files?prefix=My%20Reports%2F', state: {from: 'query'}}]);
+    const {user} = renderApp('/notifications', SERVED);
+    await screen.findByRole('heading', {name: 'page notifications'});
 
-      await follow(user, 'To My Reports');
-      await screen.findByRole('heading', {name: 'page files'});
-      const arrived = lastCommit();
-      await follow(user, 'To help');
-      await screen.findByRole('heading', {name: 'page help'});
-      await traverse(-1);
+    await follow(user, 'To My Reports');
+    await screen.findByRole('heading', {name: 'page files'});
+    const arrived = lastCommit();
+    await follow(user, 'To help');
+    await screen.findByRole('heading', {name: 'page help'});
+    await traverse(-1);
 
-      expect(arrived).toMatchObject({search: '?prefix=My%20Reports%2F', state: {from: 'query'}, type: 'PUSH'});
-      expect(lastCommit()).toMatchObject({page: 'files', type: 'POP', key: arrived.key});
-    }
-  );
+    expect(arrived).toMatchObject({search: '?prefix=My%20Reports%2F', state: {from: 'query'}, type: 'PUSH'});
+    expect(lastCommit()).toMatchObject({page: 'files', type: 'POP', key: arrived.key});
+  });
 
-  it.each([
-    ['catch-all', 'catch-all'],
-    ['catch-all', 'app'],
-    ['app', 'catch-all'],
-    ['app', 'app']
-  ] as const)('reaches the first render, and is gone after Back, Forward and a reload (%s to %s)', async (from, to) => {
+  it('reaches the first render, and is gone after Back, Forward and a reload', async () => {
     resetReadout([...LINKS, {label: 'To files with state', to: '/files', state: {handOff: 1}}]);
-    const options = both(servedBy(from, ['notifications', 'help']), servedBy(to, ['files']));
-    const view = renderApp('/notifications', options);
+    const view = renderApp('/notifications', SERVED);
     await screen.findByRole('heading', {name: 'page notifications'});
 
     await follow(view.user, 'To files with state');
@@ -543,7 +539,7 @@ describe('the state a navigation carries', () => {
 
     view.unmount();
     resetReadout(LINKS);
-    renderApp(window.location.pathname, options);
+    renderApp(window.location.pathname, SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     expect(lastCommit().state).toBeUndefined();
   });
@@ -563,7 +559,7 @@ describe('targets outside the portal', () => {
   ];
 
   it.each(OFF_SITE)('refuses %j through navigate: no navigation, the address kept, one log line', async (target) => {
-    renderApp('/files', servedBy('app'));
+    renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     const pushState = vi.spyOn(window.history, 'pushState');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -578,32 +574,32 @@ describe('targets outside the portal', () => {
 
   it.each(OFF_SITE)('renders %j through Link as an anchor with no href', async (target) => {
     resetReadout([{label: 'Off site', to: target}]);
-    renderApp('/files', servedBy('catch-all'));
+    renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
 
     expect(screen.getByText('Off site')).not.toHaveAttribute('href');
   });
 
   // A dot segment before a doubled slash is a path as written and protocol-relative once the URL
-  // parser resolves it. Resolved as react-router resolves it, the slashes collapse and it stays here.
+  // parser resolves it. Resolved with its doubled slashes collapsed, it stays here: no page serves
+  // the path, so Next loads this origin's document there.
   it.each(['/.//evil.example/x', '/a/..//evil.example/x', '/%2e//evil.example/x'])(
-    'keeps %j in the portal, resolving it as react-router does',
+    'keeps %j in the portal, collapsing its doubled slashes',
     async (target) => {
       resetReadout([{label: 'Dotted', to: target}]);
-      renderApp('/files', servedBy('app'));
+      renderApp('/files', SERVED);
       await screen.findByRole('heading', {name: 'page files'});
 
       expect(screen.getByText('Dotted')).toHaveAttribute('href', '/evil.example/x');
       act(() => fixture.navigate?.(target));
 
-      await waitFor(() => expect(window.location.pathname).toBe('/evil.example/x'));
-      expect(window.location.origin).toBe('http://localhost:3000');
+      expect(documentLoads()).toEqual(['/evil.example/x']);
       expect(external()).toEqual([]);
     }
   );
 
   it('still navigates to the portal’s own paths', async () => {
-    const {user} = renderApp('/files', servedBy('catch-all'));
+    const {user} = renderApp('/files', SERVED);
     await screen.findByRole('heading', {name: 'page files'});
     expect(screen.getByRole('link', {name: 'To help at files'})).toHaveAttribute('href', '/help#files');
 
@@ -617,38 +613,18 @@ describe('targets outside the portal', () => {
 
 describe('route params', () => {
   // `a%2541` is the one that tells a single decode from a double: twice, it would read `aA`.
-  it.each(ROUTERS.flatMap((router) => [[router, 'a%40b%20c', 'a@b c'] as const, [router, 'a%2541', 'a%41'] as const]))(
-    'decodes a percent-encoded segment exactly once (%s, %s)',
-    async (router, segment, space) => {
-      renderApp(`/data-quality/${segment}/r1`, servedBy(router));
+  it.each([
+    ['a%40b%20c', 'a@b c'],
+    ['a%2541', 'a%41']
+  ] as const)('decodes a percent-encoded segment exactly once (%s)', async (segment, space) => {
+    renderApp(`/data-quality/${segment}/r1`, SERVED);
 
-      await screen.findByRole('heading', {name: 'page report'});
-      expect(lastCommit().params).toMatchObject({space, requestId: 'r1'});
-    }
-  );
+    await screen.findByRole('heading', {name: 'page report'});
+    expect(lastCommit().params).toMatchObject({space, requestId: 'r1'});
+  });
 
   it('matches case-sensitively, as Next routes', () => {
     expect(matchPath('/files', '/Files')).toBeNull();
     expect(matchPath('/files', '/files')).toEqual({params: {}});
-  });
-});
-
-describe('the routers the app renders', () => {
-  // The catch-all's react-router is a `<Router>` the seam feeds; no other may own a history.
-  it('renders no BrowserRouter, MemoryRouter or HashRouter anywhere under src/', () => {
-    const owners = ['Browser', 'Memory', 'Hash'].map((kind) => `${kind}Router`);
-    const sources = import.meta.glob('/src/**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
-      string,
-      string
-    >;
-
-    const found = Object.entries(sources).flatMap(([file, source]) =>
-      owners
-        .filter((owner) => new RegExp(`<${owner}\\b|createElement\\(${owner}\\b|\\b${owner}\\s*[,}]`).test(source))
-        .map((owner) => `${file}: ${owner}`)
-    );
-
-    expect(Object.keys(sources).length).toBeGreaterThan(100);
-    expect(found).toEqual([]);
   });
 });

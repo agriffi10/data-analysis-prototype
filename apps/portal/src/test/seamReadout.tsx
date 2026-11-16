@@ -3,9 +3,7 @@ import {Link, useLocation, useNavigate, useNavigationType, useParams, type To} f
 
 /**
  * Pages for the seam's own tests: each says, on every commit, where it is and how it got there, and
- * offers the links a test lays out. The same component serves as a catch-all page (through a mocked
- * route page) and as an App Router page (through `renderApp`'s `pages`), so a scenario reads the
- * same under either router.
+ * offers the links a test lays out, served as a page through `renderApp`'s `pages`.
  */
 
 /** What a page saw on one commit. */

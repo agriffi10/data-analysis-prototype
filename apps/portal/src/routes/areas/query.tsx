@@ -14,17 +14,15 @@ const QueryPage = lazy(() => import('../QueryPage'));
  * and a lazy chunk that loads before the answer arrives is a page that has already started fetching.
  *
  * The `Suspense` is wrapped because it has no error path: a chunk-load rejection (the accepted
- * rollover race) lands in this boundary rather than the shell's. Each lazy view's boundary carries
- * its own key for the day two routes render one view component: React would reuse one boundary
- * across them, pinning a failed chunk's fallback on the next page. While each route renders its own
- * view component, React remounts the boundary on a route change whatever its key.
+ * rollover race) lands in this boundary rather than the shell's. Each area is its own page, so a
+ * route change mounts a new boundary and a failed chunk's fallback never outlives the page.
  *
  * @returns The workspace behind its flag, its boundary and its loading state.
  */
 export function QueryView() {
   return (
     <FeatureRoute flag="query">
-      <ErrorBoundary key="query">
+      <ErrorBoundary>
         <Suspense fallback={<LoadingState />}>
           <QueryPage />
         </Suspense>

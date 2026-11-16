@@ -60,7 +60,7 @@ describe('NotificationsPage', () => {
 describe('the notifications area', () => {
   it('serves /notifications inside the shell', async () => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
-    renderApp('/notifications', {auth: authenticated('alice'), routers: {notifications: 'app'}});
+    renderApp('/notifications', {auth: authenticated('alice')});
 
     expect(await screen.findByText('You’re all caught up')).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Files'})).toBeInTheDocument();
@@ -68,8 +68,8 @@ describe('the notifications area', () => {
 });
 
 /**
- * Wait until the page settles on the area's own content or on the catch-all's 404, then fail naming
- * the 404 if that is what rendered: an area page missing from disk falls through to it.
+ * Wait until the page settles on the area's own content or on the not-found page, then fail naming
+ * the not-found page if that is what rendered: Next renders it for an area page missing from disk.
  */
 async function servedByItsPage(content: () => HTMLElement | null) {
   const notFound = () => screen.queryByRole('heading', {name: 'Page not found'});
@@ -83,18 +83,15 @@ describe('Notifications on the App Router', () => {
     vi.mocked(enqueueNotificationAction).mockResolvedValue({success: true, data: undefined});
   });
 
-  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
-  // the catch-all no longer builds the route and renders the 404.
-  it('is served by its own page, where the catch-all would render the 404', async () => {
+  // The page as it stands on disk: with it deleted, Next renders the not-found page at its path.
+  it('is served by its own page, where Next would render the not-found page without it', async () => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
-    renderApp('/notifications', {auth: authenticated('alice'), routers: 'as-recorded'});
+    renderApp('/notifications', {auth: authenticated('alice')});
 
     await servedByItsPage(() => screen.queryByRole('heading', {name: 'Notifications', level: 1}));
   });
 
-  // Data quality is named for each router in turn, so the link is proved across the two routers and
-  // between two App Router pages.
-  it.each(['catch-all', 'app'] as const)('follows a link to a report the %s serves', async (router) => {
+  it('follows a link to a report, through Next’s router to the report’s page', async () => {
     vi.mocked(getNotifications).mockResolvedValue({
       success: true,
       data: [
@@ -107,10 +104,7 @@ describe('Notifications on the App Router', () => {
         }
       ]
     });
-    const {user} = renderApp('/notifications', {
-      auth: authenticated('alice'),
-      routers: {notifications: 'app', 'data-quality': router}
-    });
+    const {user} = renderApp('/notifications', {auth: authenticated('alice')});
 
     await user.click(await screen.findByRole('link', {name: 'Your data-quality report is ready'}));
 

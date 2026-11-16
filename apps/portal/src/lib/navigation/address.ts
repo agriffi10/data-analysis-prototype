@@ -98,8 +98,8 @@ export function isRefusedTarget(to: To, from: Address): boolean {
 }
 
 /**
- * A path as react-router matches it: each segment decoded, an encoded slash kept encoded, so the
- * gate claims exactly the paths the route table serves (`/fil%65s` is Files to both).
+ * A path decoded segment by segment, an encoded slash kept encoded, as the gate and `linkFlags`
+ * match it (`/fil%65s` is Files to both).
  *
  * @param pathname - A path, percent-encoded as in the address.
  * @returns The decoded path.

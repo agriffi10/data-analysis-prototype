@@ -55,7 +55,7 @@ describe('ConnectionsPage', () => {
 describe('the connections area', () => {
   it('serves /connections inside the shell', async () => {
     vi.mocked(readSharedConnectionsCache).mockResolvedValue({success: true, data: {version: 1, connections: []}});
-    renderApp('/connections', {auth: authenticated('alice'), routers: {connections: 'app'}});
+    renderApp('/connections', {auth: authenticated('alice')});
 
     expect(await screen.findByRole('heading', {level: 1, name: 'Shared spaces'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Files'})).toBeInTheDocument();
@@ -76,12 +76,12 @@ describe('the Connections page on the App Router', () => {
   });
 
   it('is served by its own page: its tab goes through Next’s router, and the page shows its heading', async () => {
-    // Help pinned to the catch-all, so the request below is the Connections router speaking, not Help's.
-    const {user} = renderApp('/help', {auth: authenticated('alice'), routers: {help: 'catch-all', connections: 'app'}});
+    // Started on Help, which is its own page, so the one request below is the tab's.
+    const {user} = renderApp('/help', {auth: authenticated('alice')});
 
     await user.click(await screen.findByRole('link', {name: 'Shared spaces'}));
 
-    // Its own page or the catch-all's 404 in its place, whichever renders first; only its own passes.
+    // Its own page or the not-found page in its place, whichever renders first; only its own passes.
     const own = () => screen.queryByRole('heading', {level: 1, name: 'Shared spaces'});
     await waitFor(() => expect(own() ?? screen.queryByRole('heading', {name: 'Page not found'})).not.toBeNull());
     expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
@@ -94,7 +94,6 @@ describe('the Connections page on the App Router', () => {
   it('shows the unavailable page with shared workspaces off, and never renders the Connections page', async () => {
     renderApp('/connections', {
       auth: authenticated('alice'),
-      routers: {connections: 'app'},
       featureFlags: {sharedWorkspaces: false}
     });
 

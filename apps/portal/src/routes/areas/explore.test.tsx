@@ -19,7 +19,6 @@ import {AuthContext} from '../../features/auth/authContext';
 import {connectionKeys} from '../../features/connections';
 import type {SharedConnectionsCache} from '../../features/shared-spaces/sharedSpaces.types';
 import {Link} from '../../lib/navigation';
-import {QueryView} from './query';
 
 // Below this line, what the App Router's Explorer page is proved with. Every service either page
 // reaches is mocked at its boundary, so nothing here leans on the Amplify mock above.
@@ -97,7 +96,7 @@ describe('App routing', () => {
   // page's own first surface, so finding it proves the route matched and the view mounted behind
   // Suspense.
   it('renders the Data Explorer at /explore', async () => {
-    renderApp('/explore', {auth: authenticated('alice'), routers: {explore: 'app'}});
+    renderApp('/explore', {auth: authenticated('alice')});
 
     expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
@@ -149,11 +148,6 @@ function StrictAlice({children}: {children: ReactNode}) {
   );
 }
 
-/** Query as an App Router page, for as long as Query has none on disk; it replaces one that lands. */
-function QueryAppRouterPage() {
-  return <QueryView />;
-}
-
 /**
  * A signed-in page linking to a table in a space the cached list lacks, standing in for wherever such
  * a link is followed from. Followed, the link carries a key of its own, which a page loaded at the
@@ -165,11 +159,10 @@ function TeamLinkPage() {
 
 /** The linking page served in the notifications slot, whatever is on disk there, and the Explorer by its own page. */
 const FROM_A_LINKING_PAGE = {
-  routers: {notifications: 'app', explore: 'app'},
   pages: {'(signed-in)/notifications/page.tsx': TeamLinkPage}
 } as const;
 
-/** Wait until the address shows a page, its own or the catch-all's 404 in its place, and require its own. */
+/** Wait until the address shows a page, its own or the not-found page in its place, and require its own. */
 async function expectOwnPage(own: () => HTMLElement | null) {
   await waitFor(() => expect(own() ?? screen.queryByRole('heading', {name: 'Page not found'})).not.toBeNull());
   expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
@@ -197,8 +190,8 @@ afterEach(resetViewport);
 
 describe('the Data Explorer on the App Router', () => {
   it('is served by its own page: its tab goes through Next’s router, and the page shows its picker', async () => {
-    // Help pinned to the catch-all, so the request below is Explore's router speaking, not Help's.
-    const {user} = renderApp('/help', {auth: ALICE, routers: {help: 'catch-all', explore: 'app'}});
+    // Started on Help, which is its own page, so the one request below is the tab's.
+    const {user} = renderApp('/help', {auth: ALICE});
 
     await user.click(await screen.findByRole('link', {name: 'Data Explorer'}));
 
@@ -209,7 +202,7 @@ describe('the Data Explorer on the App Router', () => {
   });
 
   it('shows the unavailable page with the Data Explorer flag off, and never renders the Explorer’s page', async () => {
-    renderApp('/explore', {auth: ALICE, routers: {explore: 'app'}, featureFlags: {dataExplorer: false}});
+    renderApp('/explore', {auth: ALICE, featureFlags: {dataExplorer: false}});
 
     expect(await screen.findByRole('heading', {name: 'Data Explorer isn’t available'})).toBeInTheDocument();
     // The page's module has resolved, so a render the gate let through has happened by now.
@@ -220,10 +213,7 @@ describe('the Data Explorer on the App Router', () => {
 
 describe('the Explorer’s deep links, hand-offs and link waits on the App Router', () => {
   it('opens a linked table, drops the link from the address without Next’s router, and a reload opens it once', async () => {
-    const {location, unmount} = renderApp('/explore?space=personal&db=alice&table=sales', {
-      auth: ALICE,
-      routers: {explore: 'app'}
-    });
+    const {location, unmount} = renderApp('/explore?space=personal&db=alice&table=sales', {auth: ALICE});
 
     expect(await screen.findByRole('tab', {name: 'sales'})).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(window.location.search).toBe(''));
@@ -234,70 +224,50 @@ describe('the Explorer’s deep links, hand-offs and link waits on the App Route
 
     // A reload: a fresh page at the address the drop left, on the same session's storage.
     unmount();
-    renderApp(`${window.location.pathname}${window.location.search}`, {auth: ALICE, routers: {explore: 'app'}});
+    renderApp(`${window.location.pathname}${window.location.search}`, {auth: ALICE});
     expect(await screen.findByRole('tab', {name: 'sales'})).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
 
-  it.each([
-    ['the catch-all', {routers: {query: 'catch-all', explore: 'app'}}],
-    [
-      'the App Router',
-      {routers: {query: 'app', explore: 'app'}, pages: {'(signed-in)/query/page.tsx': QueryAppRouterPage}}
-    ]
-  ] as const)(
-    'opens one tab for a statement handed over from Query on %s, and nothing on Back then Forward',
-    async (_, serving) => {
-      seedSingle('SELECT region FROM alice.sales');
-      const {user} = renderApp('/query', {auth: StrictAlice, queryClient: keepAllClient(), ...serving});
-      await screen.findByLabelText('SQL editor');
-      await user.click(screen.getByRole('button', {name: 'Run statement'}));
-      await screen.findByText('us-east');
+  it('opens one tab for a statement handed over from Query, and nothing on Back then Forward', async () => {
+    seedSingle('SELECT region FROM alice.sales');
+    const {user} = renderApp('/query', {auth: StrictAlice, queryClient: keepAllClient()});
+    await screen.findByLabelText('SQL editor');
+    await user.click(screen.getByRole('button', {name: 'Run statement'}));
+    await screen.findByText('us-east');
 
-      await user.click(screen.getByRole('button', {name: 'Explore in Data Explorer'}));
+    await user.click(screen.getByRole('button', {name: 'Explore in Data Explorer'}));
 
-      // Each of these navigations loads its destination's chunks, which is slow under load.
-      const crossing = {timeout: 5000};
-      const handedOver = {name: /^SELECT region FROM alice\.sales/};
-      expect(await screen.findByRole('tab', handedOver, crossing)).toHaveAttribute('aria-selected', 'true');
-      expect(screen.getAllByRole('tab')).toHaveLength(1);
-      await waitFor(() => expect(wrappedRuns()).toHaveLength(1));
+    // Each of these navigations loads its destination's chunks, which is slow under load.
+    const crossing = {timeout: 5000};
+    const handedOver = {name: /^SELECT region FROM alice\.sales/};
+    expect(await screen.findByRole('tab', handedOver, crossing)).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    await waitFor(() => expect(wrappedRuns()).toHaveLength(1));
 
-      await traverse(-1);
-      await screen.findByLabelText('SQL editor', {}, crossing);
-      await traverse(1);
+    await traverse(-1);
+    await screen.findByLabelText('SQL editor', {}, crossing);
+    await traverse(1);
 
-      expect(await screen.findByRole('tab', handedOver, crossing)).toBeInTheDocument();
-      expect(screen.getAllByRole('tab')).toHaveLength(1);
-      expect(screen.queryByRole('alertdialog', {name: 'Exploration limit reached'})).not.toBeInTheDocument();
-      // A hand-off delivered again re-runs its statement, which the kept cache would otherwise answer.
-      expect(wrappedRuns()).toHaveLength(1);
-    },
-    20_000
-  );
+    expect(await screen.findByRole('tab', handedOver, crossing)).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    expect(screen.queryByRole('alertdialog', {name: 'Exploration limit reached'})).not.toBeInTheDocument();
+    // A hand-off delivered again re-runs its statement, which the kept cache would otherwise answer.
+    expect(wrappedRuns()).toHaveLength(1);
+  }, 20_000);
 
-  it.each([
-    ['the catch-all', {routers: {query: 'catch-all', explore: 'app'}}],
-    [
-      'the App Router',
-      {routers: {query: 'app', explore: 'app'}, pages: {'(signed-in)/query/page.tsx': QueryAppRouterPage}}
-    ]
-  ] as const)(
-    'opens a table from Query’s schema rail on %s, by a link the Explorer drops once it has read it',
-    async (_, serving) => {
-      const {user, location} = renderApp('/query', {auth: ALICE, ...serving});
+  it('opens a table from Query’s schema rail, by a link the Explorer drops once it has read it', async () => {
+    const {user, location} = renderApp('/query', {auth: ALICE});
 
-      await openTableMenu(user, 'sales_2026');
-      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
+    await openTableMenu(user, 'sales_2026');
+    await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
 
-      const crossing = {timeout: 5000};
-      expect(await screen.findByRole('tab', {name: 'sales_2026'}, crossing)).toHaveAttribute('aria-selected', 'true');
-      expect(requests()).toEqual(['/explore?space=alice&db=alice&table=sales_2026']);
-      await waitFor(() => expect(location()).toMatchObject({pathname: '/explore', search: ''}));
-      expect(screen.getAllByRole('tab')).toHaveLength(1);
-    },
-    20_000
-  );
+    const crossing = {timeout: 5000};
+    expect(await screen.findByRole('tab', {name: 'sales_2026'}, crossing)).toHaveAttribute('aria-selected', 'true');
+    expect(requests()).toEqual(['/explore?space=alice&db=alice&table=sales_2026']);
+    await waitFor(() => expect(location()).toMatchObject({pathname: '/explore', search: ''}));
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+  }, 20_000);
 
   it('waits for a read after the link before it opens a space the cached list lacks, and the skip link asks for no other', async () => {
     const client = keepAllClient();

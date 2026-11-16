@@ -1,8 +1,7 @@
 import {useCallback, useMemo} from 'react';
-import {useParams as useRouteParams} from 'react-router';
 import {useParams as useNextParams} from 'next/navigation';
 import {committedAddress} from './address';
-import {useInCatchAll, useSeam} from './seamContext';
+import {useSeam} from './seamContext';
 import type {NavigateOptions, NavigationType, NavLocation, To} from './navigation.types';
 
 /** Where the user is: the address, the state its navigation carried, and the entry's key. */
@@ -48,7 +47,7 @@ export function useSearchParams(): [URLSearchParams, (next: NextSearch, options?
   return [params, setParams];
 }
 
-/** A param as react-router hands it over: decoded, and never thrown on a malformed escape. */
+/** A param decoded once, and never thrown on a malformed escape. */
 function decodeParam(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -58,25 +57,21 @@ function decodeParam(value: string): string {
 }
 
 /**
- * The current route's params, decoded.
+ * The current page's params, decoded once.
  *
- * Inside the catch-all they are react-router's match; on a page the App Router serves they are
- * Next's, which arrive percent-encoded (measured: `a%40b%20c` for `a@b c`) and are decoded here so
- * a page reads the same value under either router. Both hooks are always called.
+ * Next hands them over percent-encoded (measured: `a%40b%20c` for `a@b c`), from the page the router
+ * last rendered rather than the address, so a native navigation leaves them as they were.
  *
  * @returns The params.
  */
 export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T {
-  const inCatchAll = useInCatchAll();
-  const routeParams = useRouteParams();
   const nextParams = useNextParams();
   return useMemo(() => {
-    if (inCatchAll) return routeParams as T;
     const decoded: Record<string, string> = {};
     for (const [name, value] of Object.entries(nextParams ?? {})) {
       if (value === undefined) continue;
       decoded[name] = Array.isArray(value) ? value.map(decodeParam).join('/') : decodeParam(value);
     }
     return decoded as T;
-  }, [inCatchAll, routeParams, nextParams]);
+  }, [nextParams]);
 }

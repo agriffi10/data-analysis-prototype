@@ -7,7 +7,7 @@ import {FeatureRoute} from '../FeatureRoute';
 const ExplorePage = lazy(() => import('../ExplorePage'));
 
 /**
- * The Data Explorer, at `/explore`: the flag, then a keyed boundary, then the loading state, for the
+ * The Data Explorer, at `/explore`: the flag, then a boundary, then the loading state, for the
  * reasons `QueryView` gives.
  *
  * @returns The Explorer behind its flag, its boundary and its loading state.
@@ -15,7 +15,7 @@ const ExplorePage = lazy(() => import('../ExplorePage'));
 export function ExploreView() {
   return (
     <FeatureRoute flag="dataExplorer">
-      <ErrorBoundary key="explore">
+      <ErrorBoundary>
         <Suspense fallback={<LoadingState />}>
           <ExplorePage />
         </Suspense>

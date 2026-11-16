@@ -27,7 +27,7 @@ import type {ExplorationTabsState} from '../../features/data-explorer/dataExplor
 import {requests, traverse} from '../../test/nextNavigation';
 
 /**
- * A Query run outlives the Query page, driven through the REAL chrome and route table.
+ * A Query run outlives the Query page, driven through the REAL chrome and pages.
  *
  * The page unmounts on every nav-tab click, so a run held there lost its results on the way back
  * and its poller on the way out. Only a render of the real shell can tell where the runs live: a
@@ -86,7 +86,7 @@ vi.mock('../../features/notifications/notifications.service', () => ({
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
-const renderApp = () => renderTheApp('/query', {auth: authenticated('alice'), routers: {query: 'app'}});
+const renderApp = () => renderTheApp('/query', {auth: authenticated('alice')});
 
 type User = ReturnType<typeof renderApp>['user'];
 
@@ -264,8 +264,8 @@ function seedExploration() {
 
 describe('the Query page', () => {
   it('serves /query from its App Router page, inside the shell', async () => {
-    renderTheApp('/query', {auth: SIGNED_IN, routers: {query: 'app'}});
-    // Settled on whichever renders, so a missing page fails on the catch-all's 404, not on a wait.
+    renderTheApp('/query', {auth: SIGNED_IN});
+    // Settled on whichever renders, so a missing page fails on the not-found page, not on a wait.
     await waitFor(() =>
       expect(
         screen.queryByLabelText('SQL editor') ?? screen.queryByRole('heading', {name: 'Page not found'})
@@ -277,14 +277,9 @@ describe('the Query page', () => {
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main');
   });
 
-  // The catch-all would serve /query without a request; only the App Router's page is fetched. The
-  // page it leaves is pinned to the catch-all, because leaving an App Router page is a fetch whoever
-  // serves the destination.
-  it('is fetched from the server when the user arrives from a catch-all page', async () => {
-    const {user} = renderTheApp('/notifications', {
-      auth: SIGNED_IN,
-      routers: {notifications: 'catch-all', query: 'app'}
-    });
+  // Another path is Next's to render, so the page is fetched rather than written into the address.
+  it('is fetched from the server when the user arrives from another page', async () => {
+    const {user} = renderTheApp('/notifications', {auth: SIGNED_IN});
     await screen.findByRole('heading', {name: 'Notifications', level: 1});
 
     await user.click(screen.getByRole('link', {name: 'Query'}));
@@ -294,17 +289,10 @@ describe('the Query page', () => {
   });
 });
 
-// The App Router row renders Explore's own page from disk; the catch-all row ignores it.
-describe.each([
-  ['the catch-all', 'catch-all'],
-  ['the App Router', 'app']
-] as const)('Open in Query from the Data Explorer served by %s', (_name, explore) => {
+describe('Open in Query from the Data Explorer', () => {
   it('opens one tab with the statement, and nothing more on Back and then Forward', async () => {
     seedExploration();
-    const {user} = renderTheApp('/explore', {
-      auth: StrictlySignedIn,
-      routers: {explore, query: 'app'}
-    });
+    const {user} = renderTheApp('/explore', {auth: StrictlySignedIn});
     // The Explorer runs its query through the real workspace: a result is real rendering, slower
     // beside the rest of the suite, so its waits get a window of their own.
     await screen.findByRole('gridcell', {name: 'us-east'}, {timeout: 5_000});
@@ -331,10 +319,7 @@ describe.each([
 // so the page element survives one there; the element check catches a remount by any other cause.
 describe('a refresh link on the Query page', () => {
   it('opens the dialog for its table, and dismissing it drops the parameters without fetching or remounting the page', async () => {
-    const {user} = renderTheApp('/query?refreshTable=alice.sales_2026&removed=legacy_id', {
-      auth: SIGNED_IN,
-      routers: {query: 'app'}
-    });
+    const {user} = renderTheApp('/query?refreshTable=alice.sales_2026&removed=legacy_id', {auth: SIGNED_IN});
     const dialog = await screen.findByRole('alertdialog', {name: 'Confirm refresh table alice.sales_2026'});
     const page = screen.getByLabelText('SQL editor');
     const fetched = requests().length;

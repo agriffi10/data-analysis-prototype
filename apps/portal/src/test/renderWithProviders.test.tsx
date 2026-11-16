@@ -1,6 +1,6 @@
 import {screen} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
-import {useLocation, useNavigate} from '../lib/navigation';
+import {useLocation, useNavigate, useParams} from '../lib/navigation';
 import {renderApp} from './appRouter';
 import {authenticated} from './authFixtures';
 import {renderWithProviders} from './renderWithProviders';
@@ -40,15 +40,46 @@ describe('a component that navigates with the seam', () => {
     expect(screen.getByLabelText('where')).toHaveTextContent('/help');
   });
 
-  it('reaches it as a catch-all page through renderApp', async () => {
-    const {user, location} = renderApp('/files', {
+  it('reaches it from one page to another through renderApp', async () => {
+    const {user, location} = renderApp('/', {
       auth: authenticated('alice'),
-      pages: {'[[...slug]]/page.tsx': GoesToHelp}
+      pages: {'page.tsx': GoesToHelp, '(signed-in)/help/page.tsx': () => <h1>Help stand-in</h1>}
     });
 
     await user.click(await screen.findByRole('button', {name: 'Go to help'}));
 
+    expect(await screen.findByRole('heading', {name: 'Help stand-in'})).toBeInTheDocument();
     expect(location().pathname).toBe('/help');
-    expect(await screen.findByLabelText('where')).toHaveTextContent('/help');
+  });
+});
+
+/** Reads the report's params through the seam, as the report page does. */
+function ReportParams() {
+  const {space, requestId} = useParams<{space: string; requestId: string}>();
+  return <output aria-label="params">{JSON.stringify({space, requestId})}</output>;
+}
+
+describe('a pattern and the routes beside it', () => {
+  // Percent-encoded by Next, decoded once by the seam: a second decode would read `50%` and a URIError.
+  it('hands `path`’s params over as Next does, so the seam decodes them once', () => {
+    renderWithProviders(<ReportParams />, {
+      route: '/data-quality/50%2525/r1',
+      path: '/data-quality/:space/:requestId'
+    });
+
+    expect(screen.getByLabelText('params')).toHaveTextContent(JSON.stringify({space: '50%25', requestId: 'r1'}));
+  });
+
+  it('renders the route a navigation reaches', async () => {
+    const {user} = renderWithProviders(<GoesToHelp />, {
+      route: '/files',
+      path: '/files',
+      routes: {'/help': <h1>Help route</h1>}
+    });
+
+    await user.click(screen.getByRole('button', {name: 'Go to help'}));
+
+    expect(await screen.findByRole('heading', {name: 'Help route'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Go to help'})).not.toBeInTheDocument();
   });
 });

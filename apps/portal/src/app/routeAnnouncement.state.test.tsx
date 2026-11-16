@@ -31,7 +31,7 @@ describe('a first visit to a page whose view’s title depends on state', () => 
     'announces Notifications by its name while the bell already counts three unread',
     async () => {
       vi.mocked(getNotifications).mockResolvedValue({success: true, data: UNREAD});
-      renderApp('/files', {auth: authenticated('alice'), routers: {notifications: 'app'}});
+      renderApp('/files', {auth: authenticated('alice')});
       await screen.findByRole('link', {name: /3 unread/}, LOADING);
 
       act(() => standInRouter().push('/notifications'));
@@ -45,7 +45,7 @@ describe('a first visit to a page whose view’s title depends on state', () => 
   it(
     'announces Query by its name when its flag is off',
     async () => {
-      renderApp('/files', {auth: authenticated('alice'), routers: {query: 'app'}, featureFlags: {query: false}});
+      renderApp('/files', {auth: authenticated('alice'), featureFlags: {query: false}});
       await waitFor(() => expect(document.title).toBe('Files — Data Quarry'), LOADING);
 
       act(() => standInRouter().push('/query'));

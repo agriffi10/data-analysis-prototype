@@ -1,10 +1,10 @@
 # The portal image: the Next.js standalone server and the files it serves.
 #
 # The server does the jobs a static origin used to do, and each one fails SILENTLY when it is wrong:
-# a missing route handler falls through to the catch-all, which answers any path with the app shell
-# under a 200, so a broken health probe reads healthy and a missing configuration document reads as
-# markup; a header set in the wrong place overrides a cache class; a policy missing one host breaks
-# one flow days later. The behaviour matrix in CI is what makes each of those able to fail.
+# a missing route handler falls through to the not-found page, so a broken health probe answers HTML
+# and a missing configuration document reads as markup; a header set in the wrong place overrides a
+# cache class; a policy missing one host breaks one flow days later. The behaviour matrix in CI is
+# what makes each of those able to fail.
 #
 # EVERY BASE IS PINNED BY DIGEST, not by tag. A tag is mutable, so a rebuild of an unchanged commit
 # can produce a different image, which makes "the sha identifies what is running" false, and that
@@ -60,6 +60,7 @@ WORKDIR /app
 COPY --from=build /src/apps/portal/.next/standalone/ ./
 COPY --from=build /src/apps/portal/.next/static ./apps/portal/.next/static
 COPY --from=build /src/apps/portal/public ./apps/portal/public
+COPY --from=build /src/apps/portal/server-guard.cjs ./apps/portal/server-guard.cjs
 
 # The node base image's own unprivileged user, the same uid the task definition sets and names in
 # its tmpfs mount option, because a mount owned by anyone else is silently unwritable.
@@ -67,4 +68,7 @@ USER 1000
 
 EXPOSE 8080
 
-CMD ["node", "apps/portal/server.js"]
+# The guard starts Next's standalone server behind it: it answers a path whose percent-escape does
+# not decode, a request target that is not a path, and every WebSocket upgrade with a 400 carrying
+# the security headers, where Next would answer a bare 500, an off-site redirect, or nothing at all.
+CMD ["node", "apps/portal/server-guard.cjs"]

@@ -1,14 +1,13 @@
 import {describe, expect, it} from 'vitest';
 import {patternOf} from '../../../test/pageSelection';
-import {AREAS, areaOf, routerFor, type AreaRecord} from './index';
+import {AREAS, areaOf, type AreaRecord} from './index';
 
 /**
- * The area records and the App Router's pages must agree, because each half is read without the
- * other: the seam sends a navigation to Next's router by the record, and Next renders the page the
- * file system has. A record saying `'app'` with no page sends the push to the optional catch-all,
- * which matches the path and renders the 404, since the table no longer builds it; a page under
- * `(signed-in)/` that no record claims renders outside the sign-in gate, since the chrome treats a
- * path no record claims as public.
+ * The area records and the App Router's signed-in pages must agree, because each half is read
+ * without the other: the chrome decides by the records whether a path is signed in, and Next renders
+ * the page the file system has. A record path with no page renders the not-found page inside the
+ * shell; a page under `(signed-in)/` that no record claims renders outside the sign-in gate, since
+ * the chrome treats a path no record claims as public.
  */
 
 /** Every page file on disk, by its path under `src/app/`. Globbed whole: brackets and parentheses are glob syntax. */
@@ -30,64 +29,48 @@ function recordPageFindings(records: readonly AreaRecord[], pageFiles: readonly 
     if (pattern) served.set(pattern, file);
   }
   const findings: string[] = [];
-  for (const record of records.filter((candidate) => candidate.router === 'app')) {
+  for (const record of records) {
     for (const pattern of record.paths) {
-      if (!served.has(pattern))
-        findings.push(`${record.area} says 'app' but ${pattern} has no page under (signed-in)/`);
+      if (!served.has(pattern)) findings.push(`${record.area} claims ${pattern}, which has no page under (signed-in)/`);
     }
   }
   for (const [pattern, file] of served) {
-    const record = records.find((candidate) => candidate.paths.includes(pattern));
-    if (!record) findings.push(`${file} serves ${pattern}, which no area record claims`);
-    else if (record.router === 'catch-all')
-      findings.push(`${file} serves ${pattern}, but ${record.area} says 'catch-all'`);
+    if (!records.some((record) => record.paths.includes(pattern)))
+      findings.push(`${file} serves ${pattern}, which no area record claims`);
   }
   return findings;
 }
 
-/**
- * The guard's own cases run on a fixed tree, every area on the catch-all and no page but the
- * catch-all's, because an area move flips a production record and adds pages: a case built on the
- * live tree goes red on a move that is correct, or stops finding what it plants once the area it
- * plants in has moved. Only the first case reads the tree as it stands.
- */
+/** The guard's own cases run on a fixed tree, so a change to the real one never moves what they plant. */
 const FIXTURE_RECORDS: readonly AreaRecord[] = [
-  {area: 'files', paths: ['/files'], router: 'catch-all'},
-  {area: 'data-quality', paths: ['/data-quality', '/data-quality/:space/:requestId'], router: 'catch-all'}
+  {area: 'files', paths: ['/files']},
+  {area: 'data-quality', paths: ['/data-quality', '/data-quality/:space/:requestId']}
 ];
-// A public page outside the group, which no record claims and none should: the guard reads only
+// The public pages outside the group, which no record claims and none should: the guard reads only
 // `(signed-in)/`, or it would call the landing page an unclaimed area.
-const FIXTURE_PAGES: readonly string[] = ['[[...slug]]/page.tsx', 'about/page.tsx'];
-
-const flipped = (area: AreaRecord['area']) =>
-  FIXTURE_RECORDS.map((record) => (record.area === area ? {...record, router: 'app' as const} : record));
+const FIXTURE_PAGES: readonly string[] = [
+  'page.tsx',
+  'about/page.tsx',
+  '(signed-in)/files/page.tsx',
+  '(signed-in)/data-quality/page.tsx',
+  '(signed-in)/data-quality/[space]/[requestId]/page.tsx'
+];
 
 describe('the records and the pages', () => {
   it('agree on the tree as it stands', () => {
-    expect(PAGE_FILES).toContain('[[...slug]]/page.tsx');
+    expect(PAGE_FILES).toContain('page.tsx');
+    expect(PAGE_FILES).toContain('(signed-in)/files/page.tsx');
     expect(recordPageFindings(AREAS, PAGE_FILES)).toEqual([]);
   });
 
-  it('agree on the fixture, and once a move adds its pages and flips its record', () => {
-    const pages = [
-      ...FIXTURE_PAGES,
-      '(signed-in)/data-quality/page.tsx',
-      '(signed-in)/data-quality/[space]/[requestId]/page.tsx'
-    ];
+  it('agree on the fixture', () => {
     expect(recordPageFindings(FIXTURE_RECORDS, FIXTURE_PAGES)).toEqual([]);
-    expect(recordPageFindings(flipped('data-quality'), pages)).toEqual([]);
   });
 
-  it('find a record saying app with a path that has no page', () => {
-    const pages = [...FIXTURE_PAGES, '(signed-in)/data-quality/page.tsx'];
-    expect(recordPageFindings(flipped('data-quality'), pages)).toEqual([
-      "data-quality says 'app' but /data-quality/:space/:requestId has no page under (signed-in)/"
-    ]);
-  });
-
-  it('find a page whose record says catch-all', () => {
-    expect(recordPageFindings(FIXTURE_RECORDS, [...FIXTURE_PAGES, '(signed-in)/files/page.tsx'])).toEqual([
-      "(signed-in)/files/page.tsx serves /files, but files says 'catch-all'"
+  it('find a record path that has no page', () => {
+    const pages = FIXTURE_PAGES.filter((page) => !page.includes('[requestId]'));
+    expect(recordPageFindings(FIXTURE_RECORDS, pages)).toEqual([
+      'data-quality claims /data-quality/:space/:requestId, which has no page under (signed-in)/'
     ]);
   });
 
@@ -105,6 +88,6 @@ describe('the records', () => {
     expect(areaOf('/Files')).toBeNull();
     expect(areaOf('/files/extra')).toBeNull();
     expect(areaOf('/data-quality/alice/req-1')?.area).toBe('data-quality');
-    expect(routerFor('/nope')).toBe('catch-all');
+    expect(areaOf('/fil%65s')?.area).toBe('files');
   });
 });
