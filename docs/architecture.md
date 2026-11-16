@@ -109,10 +109,10 @@ the single source of wording; rendering `error.message` is a defect, not a short
 **Mobile-first, one tree.** Two breakpoints are compiled — `tablet:` at 900, `desktop:` at 1300 — and
 the same tree reflows. A `*Mobile`/`*Desktop` twin is a smell.
 
-**Navigation goes through one seam.** Every feature navigates through `src/lib/navigation/`, which
-works under both routers while the areas move onto the App Router: it holds what the App Router lacks
-(a navigation's state, its type and a key per history entry), decides per path which router performs a
-navigation, and feeds react-router inside the catch-all as a matcher. The providers and the signed-in
+**Navigation goes through one seam.** Every feature navigates through `src/lib/navigation/`, on the
+App Router alone since SPEC-263: it holds what the App Router lacks (a navigation's state, its type and
+a key per history entry), writes a navigation that keeps the committed pathname natively and hands
+every other to Next's router, and matches paths with its own `matchPath`. The providers and the signed-in
 shell live in the root layout above every page, behind a client-only boot, and the chrome decides by
 the address, through the area records, whether a page is public or signed in.
 
@@ -122,9 +122,11 @@ the address, through the area records, whether a page is public or signed in.
 Node server, run on ECS Fargate behind an internet-facing ALB in a VPC that exists for nothing else,
 and it answers `portal.dataquarry.app`. A Node app has no static fallback, so with
 `web_tier_enabled` off nothing serves the portal; that is accepted, and the tier is switched on
-through CI while someone is working (`infra/info/web-tier.md`). Every signed-in area is an App Router page
-since SPEC-258; only the landing page and the 404 still render inside the optional catch-all route,
-matched by react-router, until SPEC-263.
+through CI while someone is working (`infra/info/web-tier.md`). Every page is an App Router page since
+SPEC-263, the landing page and the 404 included; an address no page serves answers the not-found page
+under a 404. The image starts a guard ahead of Next's standalone server (`apps/portal/server-guard.cjs`)
+that answers a malformed percent-escape, a request target that is not a path and every WebSocket
+upgrade with 400 and the security headers.
 
 The server does the jobs a static origin did: it renders `/config.json`, refuses to start without
 its configuration, and its request proxy stamps every page with an enforcing CSP carrying a fresh
@@ -425,9 +427,9 @@ something.
 - **Lake Formation is in hybrid mode**, and leaving hybrid mode breaks direct-IAM S3 access.
 - **Usernames are constrained at signup** because the same string is a prefix, a tag and a database
   name. The pool is case-insensitive.
-- **Client-side routing needs the server to answer every app path with the shell**, or a refresh on
-  a deep link returns a raw error. The optional catch-all route does it, which is also why a path
-  nothing matches answers 200 rather than 404.
+- **Every app path is a page the server renders**, so a refresh on a deep link works, and a path no
+  page serves answers the not-found page under a 404. A client navigation to such a path is a
+  document load: Next's fetch of the page answers 404 and it loads the document instead.
 - **`shared-connections.json` is a cache, not the record.** The per-user file only mirrors the S3
   registry; a missing file means empty, not broken.
 - **A membership or flag change lands at the next credential vend**, not immediately.
@@ -541,5 +543,6 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 53 | [CloudFront serves the portal again, because the VPC was the bill](decisions/infrastructure/cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md) | The web tier was nearly the whole bill, and the client environment that required a container is shelved. | Exactly one front door exists: the existing switch picks CloudFront over S3 or the container, at one origin, so nothing naming the origin changes. **Superseded by row 55 (SPEC-255):** a Node app has no static fallback, so the CloudFront path is retired and the tier is always the front door; off means the portal is down. |
 | 54 | [A module is one concept, and the root composes them flat](decisions/infrastructure/iac.md) | The per-feature modules had become eight copies of the control-plane machine, so a fix to the machine was eight edits that had to agree and a new plane started as a copy. | One `control-plane` building block, called once per plane from the root at the plane's existing address, with each plane's distinct configuration beside its call; its inputs are exactly what varies between planes, found by diffing resolved values. Its proof is the PR's plan showing only moves, plus the one deliberate change: shared spaces' state machine gets its own role. Supersedes row 30's module shape. |
 | 55 | [The portal is a Next.js server, and the web tier is the only front door](decisions/infrastructure/cloudfront-serves-the-portal-again-because-the-vpc-was-the-bill.md) | The client environment requires Next.js on a server runtime, and a Node app has no static fallback, so a CloudFront copy of the portal cannot stand in while the tier is off. | One tier, on only while someone is working; with it off the portal is down, which is accepted. The server renders the runtime document, refuses to start without it, and its request proxy stamps each page with a nonce in `script-src`; a request with a body skips the proxy. The certificate renews only while the tier is on. Supersedes row 53, and the nginx half of row 33. |
-| 56 | [The App Router owns the shell, and navigation goes through one seam](decisions/browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md) | The areas move onto the App Router one at a time, so a signed-in page may be served by either router, and the App Router has no history state, navigation type or per-entry key. | The shell lives in the root layout behind a client-only boot, and the chrome decides by the address through the area records; every feature navigates through `lib/navigation/`, which feeds react-router inside the catch-all and decides by the committed address; while an upload is unfinished the shell asks before the document unloads. The layout half is `decisions/browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md`. |
+| 56 | [The App Router owns the shell, and navigation goes through one seam](decisions/browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md) | The areas move onto the App Router one at a time, so a signed-in page may be served by either router, and the App Router has no history state, navigation type or per-entry key. | The shell lives in the root layout behind a client-only boot, and the chrome decides by the address through the area records; every feature navigates through `lib/navigation/`, which fed react-router inside the catch-all and decides by the committed address; while an upload is unfinished the shell asks before the document unloads. The layout half is `decisions/browser/layout-boundaries-reset-by-prop-never-by-key-a-signed-in-pages-sits.md`. Row 59 retired the catch-all and react-router. |
 | 57 | [The portal server holds the session, and only the provider or the clock ends it](decisions/identity-and-access/the-portal-server-holds-the-session-and-only-the-provider-or-the-clock-ends-it.md) | The client environment requires a Next.js server, and the arc moves the session onto it: the browser will hold only an opaque cookie. The server needs Cognito's token endpoint and the API's public domain, which have no VPC endpoint. | A DynamoDB session store outside the web tier's switch, a confidential Cognito client, `/auth/*` routes and an `/api/` pass-through; one NAT gateway on the switch, with AWS services still on endpoints. A refresh is a compare-and-set, expiry is checked on read, and a fault is never a sign-out. Nothing the browser calls uses it until SPEC-262. Supersedes row 34 in part. |
+| 59 | [React Router retires, and a guard fronts the server](decisions/browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md) | With every area on the App Router, the optional catch-all served only the landing page and the 404, under a 200, and Next answered a malformed percent-escape with a bare 500. | The landing page and the 404 are App Router pages, the catch-all and react-router are gone, and the seam runs on Next's router alone; the image starts a guard ahead of Next's standalone server that answers a malformed escape, a target that is not a path and every upgrade with 400 and the headers (`decisions/infrastructure/response-headers-csp.md`). SPEC-263. |

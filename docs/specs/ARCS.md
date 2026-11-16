@@ -3487,7 +3487,8 @@ dated note under this entry.
   App Router provides as such. After 256 a
   feature imports nothing from `react-router` directly, and a lint rule holds that. During the
   coexistence the seam decides per path whether a navigation belongs to react-router or to the App
-  Router.
+  Router. *(Marked 2026-11-16: SPEC-263 retired react-router; the seam writes natively only a
+  navigation that keeps the committed pathname, and a sweep keeps react-router out of `src/`.)*
 - **One module per area** (256). The react-router table is split into
   `src/routes/areas/<area>.tsx`; the record of which router owns an area is
   `src/lib/navigation/areas/<area>.ts`; the cross-area tests are split the same way. An area's App
@@ -3626,7 +3627,8 @@ choice of router and `linkFlags` read the area records against the decoded path,
 matches it, so `/fil%65s` is Files to all of them. A move's tests serve its area from either router
 with `renderApp`'s `routers` and `pages` (every area is on the catch-all unless a test names it, so
 a move's flip changes no test that does not ask about it, and a move's own tests, inherited and new,
-name its area `'app'` or they never see the moved page), read where a navigation went from
+name its area `'app'` or they never see the moved page; *marked 2026-11-16: SPEC-263 removed
+`routers`, and `renderApp` serves every page from disk*), read where a navigation went from
 `location()`, and drive Back with `traverse`; the stand-in's `hold`, `requests()` and `external()`
 show what Next's router was asked to do. A download is not the document going: both download helpers
 click with the leave guard disarmed. Each move still runs the cross-router scenarios live on its own
@@ -3656,3 +3658,17 @@ style had to go by hand first, because the deploy role cannot delete a style and
 neither a cascade nor a refusal. The decisions are `identity-and-access/cognito-tokens-are-held-per-tab-not-per-browser.md`
 and `infrastructure/the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover.md`; the two
 merges follow `infrastructure/a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback.md`.
+
+**2026-11-16, SPEC-263 is complete, and the arc is CLOSED.** The landing page and the 404 are App
+Router pages, the optional catch-all, react-router and the route table are gone, and the seam and the
+test harness run on Next's router alone (#1018). Three things it found are worth carrying past it.
+Next answers a client navigation to a path no page serves with a **document load**, not a render
+(its fetch of the page answers 404), Back onto one included; the test stand-in models it, and the
+not-found page titles itself for that document rather than for the route announcer. A **guard the
+image starts ahead of Next's standalone server** answers a malformed percent-escape, a request target
+that is not a path and every WebSocket upgrade with 400 and the security headers, where Next answered
+a bare 500, an off-site redirect only the balancer kept away, or nothing. And with the catch-all gone,
+an unmatched address answers **404**, so a removed root-level file and the not-found page read from
+the status. Every live check ran on `724c2713`. The decisions are
+`browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, rewritten in place,
+and `infrastructure/the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md`.

@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The Next.js server reproduces CloudFront's jobs, and two are divergences (SPEC-194, SPEC-255)"
-description: "**The portal's server reproduces every job the distribution did bar two DIVERGENCES**: no brotli, no HSTS `preload`. **A header the request proxy sets overrides every other source**, a route handler's `Cache-Control` and Next's `immutable` included, so the proxy sets none. **The optional catch-all answers any unmatched path 200 with the app shell**: a missing `/_next/` chunk needs the `%5Fnext` route's plain-text 404, and `/healthz` must stay a route handler answering `ok`, or a probe reads a broken server as healthy. Assert on **responses**, never config text."
+description: "**The portal's server reproduces every job the distribution did bar two DIVERGENCES**: no brotli, no HSTS `preload`. **A header the request proxy sets overrides every other source**, a route handler's `Cache-Control` and Next's `immutable` included, so the proxy sets none. **An unmatched path answers the not-found page, HTML under a 404**: a missing `/_next/` chunk needs the `%5Fnext` route's plain-text 404, and `/healthz` must stay a route handler whose `ok` body the matrix asserts. **A guard ahead of Next answers a malformed path, a target that is not a path and every upgrade with 400 and the headers.** Assert on **responses**, never config text."
 ---
 
 Producing the image is easy, and **that ease is the trap**: a CDN in front of a bucket was doing
@@ -26,28 +26,32 @@ replaced a route handler's `no-store` and Next's `immutable` on hashed assets al
 no `Cache-Control`, and a change that adds one breaks every cache class at once while each page still
 renders.
 
-**The optional catch-all answers any path nothing else matched with a 200 and the app shell.** That
-is how a deep link works, and it is also three traps. A missing hashed chunk under `/_next/` would get
-the shell as `text/html` too, so `src/app/%5Fnext/[...rest]/route.ts` answers any `/_next/` path that
-matched no built file with a plain-text 404 (the folder name escapes the underscore, because Next
-treats a folder starting with `_` as private and routes nothing to it). `/healthz` is a route handler
-answering `ok` in plain text, and the matrix asserts the body, because a deleted handler would leave
-the catch-all answering the probe with a 200. And a removed root-level file still answers 200 HTML,
-preserved deliberately and pinned by the matrix, which is why a removal is read from the
-content type and never from the status code here.
+**A path no page serves answers the root not-found page under a 404** (since SPEC-263; until then
+the optional catch-all answered it 200 with the app shell). A non-static path under `/_next/` would
+get that page's HTML, so `src/app/%5Fnext/[...rest]/route.ts` answers any `/_next/` path that matched
+no built file with a plain-text 404 (the folder name escapes the underscore, because Next treats a
+folder starting with `_` as private and routes nothing to it); a missing file under `/_next/static/`
+gets Next's own plain 404. `/healthz` is a route handler answering `ok` in plain text, and the matrix
+asserts the body, because a deleted handler would leave the probe reading a page. A removed
+root-level file answers 404, so a removal reads from the status.
 
 **Responses Next answers before routing reach neither the proxy nor `next.config.ts`.** A trailing
 slash gets a 308 to the bare path. A `//host` or a `/\host` path gets a 308 to a same-origin path,
-because Next collapses the slashes to one. An absolute-form request line, `GET http://host/files`,
-gets a 308 to the URL it names, in the client's own scheme and host, which is off-site. A malformed
-escape gets a plain-text 500. None of them carries a policy or a security header. nginx had a
-server-level floor for its equivalent; Next has none. The class is accepted in
-`docs/security-baseline.md` because each body is fixed text, and the off-site redirect is unreachable
-through the load balancer, which turns an absolute-form line into origin form or refuses it, and
-refuses an HTTP/2 `:path` that does not start with `/`. So **the balancer is what holds that redirect
-off**, and anything else put in front of the container, or a change to the balancer's listeners or
-HTTP attributes, has to be measured for it again. The matrix pins every case, the off-site
-`Location` included, so a change to the class is visible.
+because Next collapses the slashes to one. None carries a policy or a security header; nginx had a
+server-level floor for its equivalent, and Next has none. The class is accepted in
+`docs/security-baseline.md` because each body is fixed text and each redirect is same-origin, and the
+matrix pins every case, so a change to the class is visible.
+
+**The rest of that class is answered by a guard ahead of Next (SPEC-263).** The image starts
+`apps/portal/server-guard.cjs`, which starts Next's standalone server behind it. A path whose
+percent-escape does not decode made Next answer a bare 500 with no headers and no log line, and an
+absolute-form target (`GET http://host/files`, `javascript://…`, `*`) got a 308 to the URL it names, in
+the client's own scheme and host. The load balancer never passes an absolute-form target on, so that
+redirect was unreachable, but only because of the balancer. The guard answers both 400 with every
+security header, the lockdown policy and one log line naming the method, so the image no longer
+depends on what fronts it. It also answers every WebSocket upgrade, which the portal does not serve
+and which Next left open with no answer at all on a path it would redirect. The matrix's guard rows
+go red with the image's `CMD` back on `server.js` (observed on #1018's image, 724c27133).
 
 **The two divergences, each with its cost and its re-open trigger.**
 
@@ -64,6 +68,13 @@ The `Server` banner is no longer a divergence: the Node server sends no `Server`
 `poweredByHeader: false` stops `X-Powered-By`. The matrix asserts both absent.
 
 ## History
+
+### 2026-11-15
+
+- **Changed (SPEC-263):** the catch-all retired, so an unmatched path answers the not-found page
+  under a 404 and a removed root-level file is read from its status. A guard ahead of Next answers a
+  malformed escape, a target that is not a path and every upgrade with 400 and the headers, where
+  Next answered a bare 500, an off-site 308 that only the balancer kept away, or nothing.
 
 ### 2026-11-14
 

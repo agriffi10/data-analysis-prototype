@@ -10,6 +10,30 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-16 (SPEC-263, the landing page and the 404 move, react-router retires)
+
+**What was under test.** SPEC-263's FR-006 on `724c2713` (#1018), served after this session switched
+the tier on inside the PR queue lock: Deploy Infrastructure run 43798290531, then Deploy SPA image
+run 43798848159 (done 03:38Z). No deploy ran between that and the last check, at 13:38Z. Username
+`agriffith`. The in-app browser pane, because Claude in Chrome was not connected; at 583 px wide, then
+emulated at 1280 × 800 for the header tour. Andrew clicked **Sign in** and typed his password himself.
+
+| Check | Result |
+|---|---|
+| Signed out, `/` | 200; three **Sign in** controls. |
+| Signed out, `/files?prefix=agriffith/livecheck0929_arch/` | Landed on `/`; `portal.returnPath` held the deep link. |
+| `/auth/callback?error=access_denied`, as a cancel | `/?signin=failed`, then `/` reading *"Sign-in failed or was cancelled."*; the return path kept. |
+| Sign in | Landed on `/files?prefix=agriffith/livecheck0929_arch/` with the breadcrumb `agriffith / livecheck0929_arch`; the return path cleared; one navigation entry. |
+| `/no-such-page`, signed out and signed in | 404 (`curl` and the pane both), **Page not found**, title *Not Found — Data Quarry*; signed in, `main`'s parent was `flex flex-1 flex-col`, not the shell's `flex flex-1`. |
+| `/data-quality/%E0/r1` (`curl`) | 400, `text/plain`, `nosniff`, `content-security-policy: default-src 'none'; …`; one `request: refused a path with a malformed percent-escape (GET)` in `/ecs/dat-prod-spa`. `/%zz` got `Server: awselb/2.0`'s own 400, as expected. |
+| Header: Query, Data Explorer, Shared spaces, Data quality, Notifications, Files; then Help by **Open the full guide** | Each page's own title (*Notifications (23) — …* with the count); `window.__m` kept and one navigation entry throughout. |
+| `history.back()` ×3 then `history.forward()` ×2 | Files, Notifications, Data quality, then Notifications, Files, each titled; `window.__m` kept, one navigation entry. |
+
+**Found while building, under `next start`:** a move onto an address no page serves is a document
+load, Back onto one included; the stand-in now models it.
+
+---
+
 ## Live-check session — 2026-11-15 (SPEC-262, the browser signs in through the server)
 
 **What was under test.** SPEC-262's live criteria: FR-001 and FR-003 against merge 1 (#1003,

@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 /**
  * The root layout: the document every page renders into, in place of the old `index.html`, and the
  * one layout Next never remounts, so the boot, the providers and the signed-in shell sit here,
- * above every page whichever router serves it.
+ * above every page.
  *
  * It reaches all of them through `PortalMount` alone, which loads the boot in the browser only: a
  * provider that reads configuration, rendered here on the server, builds green and then answers 500

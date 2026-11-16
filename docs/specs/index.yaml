@@ -1765,7 +1765,7 @@ specs:
   - id: "SPEC-263"
     title: "The Landing Page and the 404 Move, and React Router Retires"
     description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in a path from answering 500, closing the arc."
-    spec_status: "In Progress"
+    spec_status: "Completed"
     depends_on: ["SPEC-262"]
     arc: "nextjs"
     path: "docs/specs/SPEC-263-the-landing-page-and-the-404-move-and-react-router-retires.md"

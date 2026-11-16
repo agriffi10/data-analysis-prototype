@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Layout boundaries reset by prop, never by `key`; a signed-in page's sits inside the shell (2026-09-10)"
-description: "**The signed-in shell outlives every signed-in page, whichever router renders it, and no ancestor may remount it.** It holds the upload queue, the in-flight file operations and the Query workspace's runs, so it lives in the ROOT layout, under the chrome, which decides by the address through the area records whether a page is signed in. A per-page React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell. While an upload is unfinished the shell asks before the document unloads, and sign-out disarms that first. The proof renders the **real chrome around the page the file system selects** (`renderApp`)."
+description: "**The signed-in shell outlives every signed-in page, and no ancestor may remount it.** It holds the upload queue, the in-flight file operations and the Query workspace's runs, so it lives in the ROOT layout, under the chrome, which decides by the address through the area records whether a page is signed in. A per-page React `key` above it aborts the uploads on a nav-tab click — and passes every test that composes its own layouts. Boundaries reset by **`resetKey`**; a page's throw is caught **inside** the shell. While an upload is unfinished the shell asks before the document unloads, and sign-out disarms that first. The proof renders the **real chrome around the page the file system selects** (`renderApp`)."
 ---
 
 `RootLayout` sits above every page, so the `ErrorBoundary` around the page outlives every page
@@ -39,14 +39,14 @@ the 404 page and a throw from the shell or `ProtectedLayout`'s own hooks. What s
 shell is sign-out, leaving for a public page (the landing page, or any path no area claims, such as
 the 404), and the document itself going.
 
-**The shell lives in the root layout, above both routers (2026-11-13).** With the areas moving onto
-the App Router one at a time, a signed-in page may be a catch-all page or an App Router page, and the
-shell must not notice which. So it sits in the one layout Next never remounts: the root layout
+**The shell lives in the root layout (2026-11-13).** It was put there while the areas moved onto the
+App Router one at a time, so the shell would not notice which router served a page; since SPEC-263
+every page is an App Router page, and the root layout is still the one layout Next never remounts: the root layout
 renders `PortalMount`, which loads the boot client-only; the boot renders `AppFrame` (the providers)
 around `AppChrome`, which is `RootLayout` around either the bare page or `ProtectedLayout` around it.
 **The chrome decides by the address, through the area records** (`lib/navigation/areas/`), never by
-which route matched: the optional catch-all matches public and signed-in paths alike, so where it sits
-says nothing. A path no record claims is public. The decision sits above the gate rather than in it,
+which page matched: the root layout sits above the landing page, the not-found page and every
+signed-in page alike, so where it sits says nothing. A path no record claims is public. The decision sits above the gate rather than in it,
 so the gate's hooks run on signed-in pages only, and the `(signed-in)` route group has no layout of
 its own. Nothing between the root layout and `AppChrome` (`layout.tsx`, `PortalMount`, `PortalBoot`,
 `AppFrame`) may carry a `key`, and the page sweep (`src/app/pageSweep.test.ts`) refuses one, because
@@ -95,24 +95,24 @@ type, so React remounts the boundary on a route change whatever its key; the key
 day two routes render one view component. Measured 2026-11-14 on a cleared Vitest cache: the
 behaviour test went red only with one view type shared AND a key shared, never on either alone, and
 stayed green with Query's own boundary removed, since the shell's page boundary catches the failed
-chunk and resets on the route change. So it was deleted, and the source check below holds the keys.
+chunk and resets on the route change. So it was deleted. **The keys themselves went with SPEC-263**
+(2026-11-15): each area is an App Router page segment of its own, so no two routes render into one
+slot, and the source check that held them distinct went with the route table.
 
 **What the proof has to be.** `routes/areas/files.test.tsx` renders the real chrome through
 `renderApp` (`src/test/appRouter.tsx`): the real `AppChrome` under the harness's providers, around the
-page Next's stand-in selects from the file system, the way Next does, with the real route table
-inside the catch-all page. It starts an upload and a folder operation through the real Files page, and
+page Next's stand-in selects from the file system, the way Next does. It starts an upload and a folder operation through the real Files page, and
 navigates with links the header really renders — the bell, then the Files tab — waiting for each
-destination before asserting; one scenario serves Files from the App Router through `renderApp`'s
-`routers` and `pages` and keeps the upload across a round trip to a catch-all page, and another
-follows a link to `/` and to an unknown path, from either router, and requires the shell gone.
+destination before asserting; one scenario keeps the upload across a round trip to another page
+through Next's router, another follows a link to `/` and requires the shell gone, and a link to an
+unknown path is a document load (Next loads the not-found page's document rather than rendering it),
+which the unload guard asks about first while an upload runs.
 The Help control on `/files` is a panel button and not a link, so it would have "navigated" without
 changing the route. Restoring the key fails the survival tests on their reasons: an aborted signal,
 and the in-progress region gone. Others drive a throwing page mid-upload, the same-path recovery,
 and sign-out — which must still abort the upload, or a fix that hoisted the providers above the auth
 gate would pass the rest. Removing the disarm turns the sign-out-without-asking test red, and so
-does moving the shell's providers above the gate in `AppChrome`. A source check in `routes/table.test.tsx`
-reads every area view module and keeps the lazy views' boundary keys present and distinct, since a
-block copied with its key is the likely way two of them come to share one.
+does moving the shell's providers above the gate in `AppChrome`.
 
 **The Query workspace's runs moved into the shell on 2026-11-06.** They lived in the Query page,
 which unmounts on every nav-tab click, so a run's results were gone on the way back and a running
@@ -132,6 +132,12 @@ instead, as the upload suites do. Removing the shell's provider turns all three 
 keying it on the page turns both survival tests red.
 
 ## History
+
+### 2026-11-15
+
+- **Changed (SPEC-263):** the catch-all and react-router retired, so every page is an App Router page
+  under the same root layout; the lazy views' static keys and the source check that held them went,
+  since each area is its own page segment.
 
 ### 2026-11-14
 

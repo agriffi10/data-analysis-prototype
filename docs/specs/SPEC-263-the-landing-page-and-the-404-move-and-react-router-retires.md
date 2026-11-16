@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-263
 title: "The Landing Page and the 404 Move, and React Router Retires"
 description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in a path from answering 500, closing the arc."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-262]
 arc: nextjs
 arc_order: 9
@@ -108,28 +108,28 @@ same level, so this FR and the catch-all's deletion (FR-002) land in one change.
 
 #### Acceptance Criteria:
 
-- [ ] Through `renderApp`, `/` signed out renders the landing page with its sign-in and sign-up
+- [x] Through `renderApp`, `/` signed out renders the landing page with its sign-in and sign-up
       controls and no shell; 262's failure signal, as 262 left it, shows "Sign-in failed or was
       cancelled." on the new page; an unknown path renders the not-found page with no shell, signed
       in or out.
-- [ ] Through `renderApp`, a signed-in user arriving at `/` with a saved return path of
+- [x] Through `renderApp`, a signed-in user arriving at `/` with a saved return path of
       `/files?space=finance` lands on Files at that address by a `'REPLACE'`, and the saved path is
       cleared; with none saved, the first enabled destination's control navigates to it.
-- [ ] With either page file deleted, its test turns red, and the page sweep covers both files.
-- [ ] The not-found page is titled "Not Found — Data Quarry" before its view has loaded, red with its
+- [x] With either page file deleted, its test turns red, and the page sweep covers both files.
+- [x] The not-found page is titled "Not Found — Data Quarry" before its view has loaded, red with its
       `usePageTitleOnMount` removed; a navigation to `/nope` from a signed-in page is a document load
       the announcer never reads, and a first visit to `/` announces nothing; the per-page announcement
       test starts every visit on the not-found page, which loads no signed-in view, so no page's chunk
       is loaded before its own visit.
-- [ ] The `next/navigation` stand-in models the document load as a tenth behaviour, with a test of
+- [x] The `next/navigation` stand-in models the document load as a tenth behaviour, with a test of
       its own, on for `renderApp` only, whose resolver selects pages rather than params.
-- [ ] `next start` answers `/` with 200 and `/no-such-page` and `/files/extra` with 404, each
+- [x] `next start` answers `/` with 200 and `/no-such-page` and `/files/extra` with 404, each
       carrying the not-found page and the request's CSP nonce. Measured while authoring on a
       harness with no catch-all and a nonce-setting proxy: both paths, `/Files` and `/nope.svg`
       answered 404 with the not-found page outside the shell, signed in and out, every script
       carried the response's nonce, and a client-side `not-found.tsx` loading its page through
       `next/dynamic` rendered without error.
-- [ ] 255's image matrix asserts 404 for a removed root-level file and for `/files/alice/reports`,
+- [x] 255's image matrix asserts 404 for a removed root-level file and for `/files/alice/reports`,
       its "deep link" row fetches `/data-quality/alice/r1` (a page 261 serves) and asserts 200 with
       the page's cache class, and the matrix passes against the image.
 
@@ -162,18 +162,18 @@ user to `/`, since the gate still matches the decoded path.
 
 #### Acceptance Criteria:
 
-- [ ] None of the deleted files exist, `npm ls react-router` reports nothing, and the source sweep
+- [x] None of the deleted files exist, `npm ls react-router` reports nothing, and the source sweep
       finds no module specifier beginning `react-router` under `src/`, its own file included.
-- [ ] Adding `react-router` or `react-router-dom` to `package.json` fails the manifest check, and
+- [x] Adding `react-router` or `react-router-dom` to `package.json` fails the manifest check, and
       adding an import of `react-router` or `react-router/dom`, a dynamic import or a `vi.mock` of
       it to any file fails the sweep, each observed.
-- [ ] `eslintConfigShape.test.ts` passes with the react-router pattern gone from every clause and
+- [x] `eslintConfigShape.test.ts` passes with the react-router pattern gone from every clause and
       every other group intact, and fails if an exemption clause 256 added survives.
-- [ ] The production build's `.next/static` contains no react-router `Router`: a string only it
+- [x] The production build's `.next/static` contains no react-router `Router`: a string only it
       ships ("You cannot render a <Router> inside another <Router>") is found in a build made before
       the package is removed and in none after. A one-off check by the builder, not a standing
       rule: the manifest check and the sweep are what hold the removal.
-- [ ] `/Files` renders the not-found page signed in and signed out, the signed-out one staying at
+- [x] `/Files` renders the not-found page signed in and signed out, the signed-out one staying at
       `/Files`, and `/fil%65s` sends a signed-out user to `/`, through `renderApp` on the App Router;
       each turns red with the gate matching case-insensitively or on the undecoded path.
 
@@ -210,18 +210,18 @@ they read does not change. The area records keep `area` and `paths` and lose
 
 #### Acceptance Criteria:
 
-- [ ] `matchPath` agrees with every case `linkFlags.ts`'s tests and the gate exercise, and with a
+- [x] `matchPath` agrees with every case `linkFlags.ts`'s tests and the gate exercise, and with a
       fixture corpus of static, parameterized, encoded (`%40`, `%2F`), mis-cased and prefix patterns,
       asserted on the params it returns as well as on whether it matched; the corpus is run once
       against react-router's `matchPath` with `caseSensitive: true` before the package goes, and
       every row agrees.
-- [ ] A navigation between two pages calls `router.push`; a search-only, hash-only or same-address
+- [x] A navigation between two pages calls `router.push`; a search-only, hash-only or same-address
       one calls neither `router.push` nor `router.replace`, each asserted on the call made.
-- [ ] From the not-found page, a link to `/` shows the landing page, and Back loads the not-found
+- [x] From the not-found page, a link to `/` shows the landing page, and Back loads the not-found
       page's document again; with both public paths written natively instead, the landing page never renders,
       observed red, which `renderApp` can show only because it selects the page from the stand-in's
       router state as 256 requires.
-- [ ] The seam's tests from 256 that do not mention the catch-all pass unchanged in what they
+- [x] The seam's tests from 256 that do not mention the catch-all pass unchanged in what they
       assert: the committed address as source, keys, navigation types, state, traversals, the
       anchor, normalization, decoding, case-sensitive matching and in-app targets. Three of them
       mix the two routers and are retargeted to App Router pages, each still red under its mutant:
@@ -230,7 +230,7 @@ they read does not change. The area records keep `area` and `paths` and lose
       and the in-flight push, whose second navigation becomes a search-only change to the pending
       target, so a seam that took the pending navigation rather than the committed address as its
       source would write it natively and leave the first page on screen.
-- [ ] The record-and-page guard fails for a record path with no page and for a page no record
+- [x] The record-and-page guard fails for a record path with no page and for a page no record
       claims, each against a fixture, and passes on the tree.
 
 ### FR-004: The test harness has one router
@@ -253,14 +253,14 @@ sweep now covers whole. The `ROUTERS` rows of the seam's `it.each` tests keep th
 
 #### Acceptance Criteria:
 
-- [ ] A test using `path: '/data-quality/:space/:requestId'` at `/data-quality/50%2525/r1` reads
+- [x] A test using `path: '/data-quality/:space/:requestId'` at `/data-quality/50%2525/r1` reads
       `{space: '50%25', requestId: 'r1'}` through the seam's `useParams`, decoded once and without a
       `URIError`, and one using `routes` sees the destination element after a navigation, with no
       react-router in `src/test/`.
-- [ ] `renderApp` at an address no page serves renders the not-found page.
-- [ ] The test names collected from the runner before and after this spec differ by exactly the
+- [x] `renderApp` at an address no page serves renders the not-found page.
+- [x] The test names collected from the runner before and after this spec differ by exactly the
       removals, moves and additions the plan lists, diffed from a JSON run on both refs.
-- [ ] `vite.config.ts`, `src/test/` and the split test files name no `[[...slug]]`,
+- [x] `vite.config.ts`, `src/test/` and the split test files name no `[[...slug]]`,
       `CatchAllRouter`, `CatchAllMount` or `routers` option, and the test-utilities inventory no
       longer offers `routers`.
 
@@ -323,23 +323,23 @@ runs.
 
 #### Acceptance Criteria:
 
-- [ ] A unit test of the guard's check passes `/`, `/files`, `/data-quality/a%40b/r1`, `/files/a%2Fb`,
+- [x] A unit test of the guard's check passes `/`, `/files`, `/data-quality/a%40b/r1`, `/files/a%2Fb`,
       `/%2e`, `/query?x=%E0` and `/files#%E0`, refuses `/%ZZ`, `/files%`, `/%E0`, `/nope/%E0%A4`,
       `/_next/%E0` and `/data-quality/%E0/r1` as malformed and an absolute-form target, `javascript://…`
       and `*` as not a path, and goes red with the check removed, with the query decoded as part of the
       path, or with the path ending only at `?`.
-- [ ] A unit test shows a server made after the guard is installed answers a refused request and an
+- [x] A unit test shows a server made after the guard is installed answers a refused request and an
       upgrade itself and passes every other request to its listener.
-- [ ] A unit test asserts that the guard's copy of the headers equals `SECURITY_HEADERS` and
+- [x] A unit test asserts that the guard's copy of the headers equals `SECURITY_HEADERS` and
       `LOCKDOWN_POLICY` as they stand in `securityHeaders.ts`, that its 400 carries every one, and that
       its log line names the method and contains no part of the path; changing a header in either
       place turns it red, and importing the guard starts no server.
-- [ ] 255's image matrix row for `/%zz` asserts 400, the lockdown policy and `nosniff`, with rows for
+- [x] 255's image matrix row for `/%zz` asserts 400, the lockdown policy and `nosniff`, with rows for
       `/data-quality/%E0/r1`, `/_next/%E0`, an absolute-form target, `OPTIONS *` and a POST with a body
       to `/api/%E0`, a row that `/data-quality/a%40b/r1` still answers 200, and a row that a WebSocket
       upgrade to `/files/` is answered 400 within two seconds. The matrix goes red against an image built with the
       `CMD` back on `server.js`, observed once.
-- [ ] The image matrix's bodied-request section gains a row in which a request declaring a large body
+- [x] The image matrix's bodied-request section gains a row in which a request declaring a large body
       to a malformed path and sending one byte is answered 400 at once, while the health probe
       answers.
 
@@ -353,14 +353,14 @@ another session's live checks may overlap.
 
 #### Acceptance Criteria:
 
-- [ ] Signed out, `/` offers sign-in; signing in from a deep link to a Files folder returns to that
+- [x] Signed out, `/` offers sign-in; signing in from a deep link to a Files folder returns to that
       folder; a cancelled sign-in comes back to `/` with "Sign-in failed or was cancelled.".
-- [ ] `/no-such-page` shows the not-found page with status 404, outside the shell, signed in and
+- [x] `/no-such-page` shows the not-found page with status 404, outside the shell, signed in and
       out.
-- [ ] `/data-quality/%E0/r1` answers 400 with the lockdown policy, and its log line reaches the web
+- [x] `/data-quality/%E0/r1` answers 400 with the lockdown policy, and its log line reaches the web
       tier's log group. The policy or the log line, not the status alone: the load balancer answers
       `/%zz` 400 itself, with no policy, so a status-only probe would pass with the guard absent.
-- [ ] Every area opens from the header, Back and Forward move between them without a document
+- [x] Every area opens from the header, Back and Forward move between them without a document
       reload, and each page keeps its own tab title.
 
 ---

@@ -231,8 +231,8 @@ built into the image.
 
 Each failure they guard **applies green somewhere and fails somewhere else**:
 
-- a health path the module does not probe makes the balancer read the catch-all's 200 and call
-  every container healthy;
+- a health path the module does not probe makes the balancer read some page's answer for health,
+  where `/healthz`'s asserted `ok` body is the one a broken server cannot give;
 - a writable set the task does not mount produces a container that never starts, reported as a
   generic essential-container exit — and `ResourceInitializationError` is indistinguishable from
   the `CannotPullContainerError` task startup is tested by;

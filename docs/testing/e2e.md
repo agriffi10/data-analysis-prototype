@@ -390,11 +390,11 @@ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$APP_URL/api/x"       
 ```
 
 **The shell and the navigation seam (SPEC-256).** Every signed-in page sits inside one shell in the
-root layout, whichever router serves it, and every navigation goes through one seam. Drive these with
-real clicks in a signed-in tab: Chrome shows the leave prompt only after a real gesture, and an
-automation layer that handles page dialogs itself cannot show it at all. Until an area moves onto the
-App Router every page is the catch-all's; each move adds its cross-router rows to its own area's
-section below, under an **On the App Router** paragraph.
+root layout, and every navigation goes through one seam. Drive these with real clicks in a signed-in
+tab: Chrome shows the leave prompt only after a real gesture, and an automation layer that handles
+page dialogs itself cannot show it at all. Every page is an App Router page since SPEC-263, the
+landing page and the 404 included; each area's page rows sit in its own section below, under an
+**On the App Router** paragraph.
 
 | Do | Expect |
 |---|---|
@@ -533,7 +533,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 **On the App Router (SPEC-258).** Files is served by its own App Router page. Its cross-router rows
 are §4.1's shell table, which starts on Files: the space switch that fetches no page, the skip link
 then Query then Back, the space-named folder from Query, and the upload that outlives a page change.
-Run them there. With every area moved, only the landing page and the 404 are still the catch-all's.
+Run them there. Since SPEC-263 the landing page and the 404 are App Router pages too.
 
 ### 4.3 Query workspace
 
@@ -594,8 +594,8 @@ central claim.
 
 **On the App Router (SPEC-259).** Query is served by an App Router page, and since SPEC-258 to 261 so
 is every other signed-in area, so a navigation between Query and another area no longer crosses the
-two routers; only the landing page and the 404 are still the catch-all's, until SPEC-263. These rows
-check Query's own page. Drive them with real clicks in a signed-in tab.
+two routers; since SPEC-263 the landing page and the 404 are App Router pages too. These rows check
+Query's own page. Drive them with real clicks in a signed-in tab.
 
 | Do | Expect |
 |---|---|
@@ -822,10 +822,11 @@ statement that begins `SELECT "<column>" AS "value"`.
 | AA | On a filtered tab, **Filter rows…** → a condition with **is one of** → **Pick values** | **Zero** listings until the press, then **1**, and its statement has **no** `WHERE` — the builder does not narrow. Tick a value → **Apply**: **1** execution. |
 
 **On the App Router (SPEC-260).** The Explorer is served by its own App Router page, so every way in
-or out of it that changes the path goes through Next's router, from or to a catch-all page alike.
+or out of it that changes the path goes through Next's router (written when other pages were still
+the catch-all's; since SPEC-263 every page is the App Router's).
 After the first row's reload, set a property on `window` and on every ancestor of `#main`, and read
 them back after each later step: the window's and the shell's (the `div.flex.flex-1` that holds each
-page) must survive every one, with one `/config.json` fetch, whichever router served the page. Query's
+page) must survive every one, with one `/config.json` fetch, whichever page it was. Query's
 own workspace element is new on each visit; that is not the shell.
 
 | Do | Expect |
@@ -857,8 +858,8 @@ own workspace element is new on each visit; that is not the shell.
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 | Take the request id of a check **run after the claim deployed** from its report link — an older one holds no claim, and re-sending it overwrites that check's report — and, more than five minutes later, send it again with `POST /v1/enqueue/dataQuality` naming a different folder | **No notification arrives**, and the link still reports the first folder. From a read-only CLI, the second execution failed at `InspectSource` with `request_id_reused`. The same id in **upper case** is instead refused by notification as malformed. |
 
-**On the App Router (SPEC-261).** Both pages are App Router pages and every other area may not be,
-so these cross the two routers. Use real clicks in a signed-in tab, never the AppleScript Chrome tools
+**On the App Router (SPEC-261).** Both pages are App Router pages; these rows were written when
+other areas might not be, and since SPEC-263 every page is. Use real clicks in a signed-in tab, never the AppleScript Chrome tools
 (their clicks carry no user activation; see the SPEC-255 checks). Set `window.__m = 1` in the console
 first. After each row, `window.__m` must still read 1 and `performance.getEntriesByType('navigation').length`
 must read 1; either one changing means a document load. Rows 1 and 2 need a finished check on the
@@ -1539,9 +1540,11 @@ record is **unaffected**. Leaving one unclassified is how a discharged check sil
   next check.
 - `curl -sS --http1.1 -o /dev/null -D - --request-target 'http://elsewhere.test/files/' "$APP_URL/"`
   answers `308` with `location: /files`. That proves the balancer turned the absolute-form line into
-  origin form, which is the only thing keeping Next's off-site redirect from a client
-  (`docs/security-baseline.md`, "Responses answered before routing"). `location:
-  http://elsewhere.test/files/` means it no longer does. Keep `--http1.1`, because over HTTP/2 curl
+  origin form (`docs/security-baseline.md`, "Responses answered before routing"). Since SPEC-263 the
+  image's guard answers an absolute-form target 400 itself, so the balancer is no longer the only
+  thing keeping Next's off-site redirect away; a `400` with the lockdown policy here means the
+  balancer passed the line on and the guard caught it, and `location: http://elsewhere.test/files/`
+  means neither did. Keep `--http1.1`, because over HTTP/2 curl
   rewrites the target itself and the check proves nothing.
 
 **The CSP is enforcing, proved by a positive violation and a negative control.** Paste into the
@@ -1624,7 +1627,7 @@ leak** — `error.stack` carries source lines, and `botocore/auth.py` contains a
 read the record: a leak carries a signature *value*, a traceback carries the parameter *name*.
 
 **The Next.js server's own checks** (SPEC-255, first run 2026-11-13). Run them on any change to
-the boot, the catch-all, the request proxy or the image.
+the boot, the pages, the request proxy, the guard or the image.
 
 - **Deep links and reloads stay put.** Load `$APP_URL/files` cold: the app boots signed in on Files.
   Reload on `/query`: it stays on `/query`.
@@ -1643,6 +1646,21 @@ the boot, the catch-all, the request proxy or the image.
   reload: `<html data-theme="dark">`, `color-scheme: dark`, and `theme-init.js` is a blocking
   `<script>` in `<head>` carrying the page's nonce. `document.fonts` reports Inter loaded. The first
   painted frame cannot be captured; the blocking, nonced head script is the evidence.
+- **The public pages (SPEC-263, first run 2026-11-16 on `724c2713`).** Signed out, `/` offers
+  **Sign in**. Open a deep link to a Files folder (`/files?prefix=<you>/<folder>/`): you land on `/`
+  with `sessionStorage['portal.returnPath']` holding it. Open
+  `$APP_URL/auth/callback?error=access_denied`, which is what the provider sends on a cancel: you land
+  on `/` reading *"Sign-in failed or was cancelled."*, the `?signin=failed` gone and the return path
+  kept. Sign in: you land in that folder and the return path is cleared. `/no-such-page` signed in
+  and out shows **Page not found** under a 404 (`curl -s -o /dev/null -w '%{http_code}'`), outside
+  the shell (`main`'s parent is not the shell's `div.flex.flex-1`). A move onto an address no page
+  serves is a document load in any tab, Back onto one included: Next answers its fetch 404.
+- **The guard ahead of Next (SPEC-263).** `curl -sS -D - -o /dev/null "$APP_URL/data-quality/%E0/r1"`
+  answers `400` with `content-security-policy: default-src 'none'; …` and `x-content-type-options:
+  nosniff`, and one line `request: refused a path with a malformed percent-escape (GET)` reaches
+  `/ecs/<prefix>-spa` (`aws logs filter-log-events --filter-pattern '"request: refused"'`). Read the
+  policy or the log line, **never the status alone**: `/%zz` and `OPTIONS *` get the balancer's own
+  400 with no policy, so a status check passes with the guard absent.
 - **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the four keys
   (`userSpaceBucket`, `sharedSpaceBucket`, `maxUploadBytes`, `environment`), and nothing else.
 - **`npm run dev` signs in.** Run `npm run dev:session-env`, which writes the dev client's session

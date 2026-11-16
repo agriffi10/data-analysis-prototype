@@ -52,9 +52,10 @@ Guarding it is not enough: `readEnv`'s table and the key-to-variable map are tab
 that directory is missing or holds no JavaScript, because "did not run" is never "clean". It detects
 the *table*, not an unported call site, so a source sweep pins separately which files may call it.
 
-**A 200 carrying HTML is `unparseable`, not a success.** The optional catch-all answers any path no
-route matched with the app shell under a 200, so a server that lost its `/config.json` route would
-hand the loader a successful response full of markup. A loader keyed on `response.ok` passes every
+**A 200 carrying HTML is `unparseable`, not a success.** Until SPEC-263 the optional catch-all
+answered any path no route matched with the app shell under a 200, so a server that lost its
+`/config.json` route handed the loader a successful response full of markup; it now answers the
+not-found page under a 404, and the loader still refuses markup whatever the status. A loader keyed on `response.ok` passes every
 other test and fails that one; the fixture is a markup string.
 
 **The document and the feature-flag document look alike and their failure semantics are OPPOSITE.**
@@ -89,6 +90,8 @@ Detail: `spec-delivery/SPEC-192` and `spec-delivery/SPEC-255`.
 
 ### 2026-11-15
 
+- **Changed (SPEC-263):** the optional catch-all retired, so a lost `/config.json` route answers the
+  not-found page under a 404 rather than the shell under a 200; the loader's refusal of markup stays.
 - **Changed:** SPEC-262 removed `apiBaseUrl`, `appUrl`, `awsRegion`, `cognitoUserPoolId`,
   `cognitoUserPoolClientId` and `cognitoDomain` from the classification, the test fallback,
   `.env.example`, Terraform's runtime map, `.github/config-outputs.json` and the image matrix at once.

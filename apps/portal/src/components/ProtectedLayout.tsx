@@ -70,7 +70,7 @@ function AppShell({children, resetKey, username}: {children: ReactNode; resetKey
  * Auth gate for a signed-in page. Inside RootLayout, so the shared Header is
  * already rendered — this only decides whether the page mounts, and holds the
  * signed-in shell around it. `AppChrome` renders it for every path an area
- * claims, whichever router serves that path. It is a UX gate, not a security
+ * claims. It is a UX gate, not a security
  * boundary; IAM enforces real access via scoped credentials.
  *
  * @param props.children - The signed-in page.
