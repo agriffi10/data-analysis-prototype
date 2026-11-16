@@ -31,7 +31,12 @@ excludes any request with a `Content-Length` or `Transfer-Encoding` header, and 
 base-uri 'none'; form-action 'none'; frame-ancestors 'none'`), since no page takes a body. The
 residual is a body-less GET sent with `Content-Length: 0`: it gets the lockdown policy and a page that
 cannot boot, which no browser does on its own. Responses Next answers before routing carry no policy
-at all, which `the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md` records.
+at all, which `the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md` records; since
+SPEC-263 that class is only same-origin redirects, because a guard the image starts ahead of Next
+(`apps/portal/server-guard.cjs`) answers a malformed percent-escape, a target that is not a path and
+every WebSocket upgrade with 400, the seven headers and the lockdown policy, from its own copy of
+`SECURITY_HEADERS` and `LOCKDOWN_POLICY`, which `src/server/serverGuard.test.ts` holds equal to
+`src/lib/securityHeaders.ts`. It reads no body, so it holds nothing.
 
 **(3) `connect-src` is enumerated from the hosts the app actually fetches, not the AWS services it
 uses.** The Hosted UI domain was once missing from it, and that broke sign-in outright when the policy
@@ -62,6 +67,11 @@ says; `script-src` carries no such allowance, which is the one that matters.
 untouched, and ZAP went 20 to 13 while gaining a Medium. Diff **per check ID and per resource**.
 
 ## History
+
+### 2026-11-15
+
+- **Changed (SPEC-263):** a guard ahead of Next answers a malformed escape, a target that is not a path
+  and every upgrade with 400, the headers and the lockdown policy, from a copy a unit test holds equal.
 
 ### 2026-11-13
 

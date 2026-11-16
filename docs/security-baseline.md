@@ -86,7 +86,8 @@ Notes that change the priority order:
   `encodeURIComponent` on the variable part, so no external value can control the leading
   characters. The bump is still worth doing — a defence that depends on one function staying
   correct is thinner than one that also has a patched router — but this is not an open hole.
-- **Four of the five `react-router` advisories do not apply**: they are RSC- and SSR-mode issues,
+- *(Superseded by SPEC-263: react-router is removed; the seam's in-app rule is the open-redirect
+  protection.)* **Four of the five `react-router` advisories do not apply**: they are RSC- and SSR-mode issues,
   and this is a client-only SPA. `react-router` and `react-router-dom` have a non-breaking fix
   available, so the bump is cheap regardless.
 
@@ -417,7 +418,7 @@ these.
 |---|---|
 | **`Server` banner** | **CLOSED.** The Node server sends no `Server` header, so the divergence `Server: nginx` was recorded as is gone, and `X-Powered-By` is switched off. |
 | **CSP `script-src`** | **Tightened.** Scripts run from this origin or with a per-request nonce; `style-src` keeps `'unsafe-inline'` for Monaco and so carries no nonce. |
-| **Responses answered before routing carry no policy** | **ACCEPT, low.** Next answers some requests before the proxy or `next.config.ts`'s `headers()` run, so those responses carry no CSP and none of the seven headers. A trailing-slash path gets a 308 to the bare path. A `//host` path and a `/\host` path get a 308 to a same-origin path: Next collapses the slashes and the backslash to one, so `//elsewhere/files` goes to `/elsewhere/files` and never to a protocol-relative `//host`. An absolute-form request line, `GET http://elsewhere/files`, gets a 308 to the URL it names, **off-site**, in the client's own scheme as well as host (`javascript:` included), with a `Refresh` header naming it too. A malformed escape (`/%zz`, `/%E0`) or `OPTIONS *` gets a plain-text 500. **The off-site 308 is unreachable through the load balancer**, measured with raw request lines through this balancer (`desync_mitigation_mode` defensive) in front of `5408a55e`. An HTTP/1.1 absolute-form line reaches the container in origin form or gets the balancer's own 400 (`http://elsewhere/files/` came back as a 308 to `/files`), and an HTTP/2 `:path` that does not start with `/` gets the balancer's 400. The container has no public address, and its security group admits only the balancer. No browser sends either form. It is a raw client asking to be sent to a URL it named, which the balancer's port-80 redirect already grants for a forged `Host`. The balancer also answers `/%zz` (a `%` without two hex digits) and `OPTIONS *` with its own 400, so behind it neither reaches Next, while `/%E0` does. Each body is fixed text and the next response carries the full set. The off-site redirect is safe only because no browser can be made to receive it, not because it is inert, so nothing in this class can be framed or run **behind this balancer**. **Re-measure if anything but this balancer ever fronts the container, or its listeners or HTTP attributes change**, a shared cache above all, since it could store the off-site or `javascript:` redirect for a browser to follow. `docs/testing/e2e.md` §4.18 carries the one-line re-check. The image's behaviour matrix pins `/files/`, `//host`, `/\host`, the absolute-form 308's `Location` and `Refresh`, `/%zz` and `/%E0`, so a change to the class is visible. A scanner alert for a missing header on one of these URLs is this row. |
+| **Responses answered before routing carry no policy** | **ACCEPT, low.** Next answers some requests before the proxy or `next.config.ts`'s `headers()` run, so those responses carry no CSP and none of the seven headers. A trailing-slash path gets a 308 to the bare path. A `//host` path and a `/\host` path get a 308 to a same-origin path: Next collapses the slashes and the backslash to one, so `//elsewhere/files` goes to `/elsewhere/files` and never to a protocol-relative `//host`. Each body is fixed text, each redirect is same-origin, and the next response carries the full set. **The rest of the class is the guard's since SPEC-263.** Next answered a malformed escape (`/%zz`, `/%E0`) or `OPTIONS *` with a plain-text 500, and an absolute-form request line (`GET http://elsewhere/files`, `javascript:` included) with a 308 to the URL it names, **off-site**, which only the load balancer kept from a client (it turns an HTTP/1.1 absolute-form line into origin form or refuses it, and refuses an HTTP/2 `:path` not starting with `/`). The image now starts a guard ahead of Next's standalone server (`apps/portal/server-guard.cjs`) that answers all of these, and every WebSocket upgrade, with 400, the seven headers and the lockdown policy, so the image no longer depends on the balancer for that redirect. Behind the balancer `/%zz` and `OPTIONS *` still get the balancer's own 400 with no policy, and `/%E0` reaches the guard. **A refused request that declared a body is reset unread rather than drained** (measured: a refused 1 GB POST was cut off after about 0.7 MB), so behind the balancer a crafted one may see the balancer's 502 instead of the guard's 400; accepted, since draining a body the caller chose the size of is worse, and no browser sends one. The image's behaviour matrix pins the 308s and the guard's rows (red with the image's `CMD` back on `server.js`), and `docs/testing/e2e.md` carries the live re-check. A scanner alert for a missing header on one of these URLs is this row. |
 
 
 ### The Next.js server's first scan (2026-11-13)
@@ -439,8 +440,9 @@ Diffed per alert ID against the addendum above and the post-SPEC-140 table; noth
 **Closed by the server:** 10036 (HTTP Server Response Header) and 10037 (`X-Powered-By`) pass, so the
 `Server` banner row above is confirmed closed. 10096 (Timestamp Disclosure) and 10094 (Base64
 Disclosure), accepted before as bundle noise, also pass. The spider's `/robots.txt` and `/sitemap.xml`
-answered 200 with the app shell, the optional catch-all's preserved trap; they appear only as instances
-of the alerts above and raised no alert of their own.
+answered 200 with the app shell, the optional catch-all's preserved trap (since SPEC-263 they answer the
+not-found page under a 404); they appear only as instances of the alerts above and raised no alert of
+their own.
 With the tier off, run 43516167248 skipped the scan with its warning and summary, as designed.
 
 ### Enforce-list removal — CKV_AWS_366, with the Identity Pool (2026-08-30)
@@ -688,6 +690,12 @@ classes where a first finding should never be merged.
 The rest remain `report` pending the fixes named above.
 
 ## `react-router` 7.17.0 → 7.18.2
+
+> **Superseded by SPEC-263 (2026-11-15):** react-router is no longer a dependency of the portal. Its
+> open-redirect fix is replaced by the navigation seam's own in-app rule, which refuses any target
+> that leaves the portal's origin as written or once resolved
+> (`docs/decisions/browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`).
+> The advisories below are history.
 
 **Four of the five advisories cleared.** The declared floor in `apps/portal/package.json` moved to
 `^7.18.2` so a lockfile regeneration cannot resolve back below the fix.

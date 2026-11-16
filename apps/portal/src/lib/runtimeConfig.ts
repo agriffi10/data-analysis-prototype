@@ -107,10 +107,9 @@ async function readDocument(): Promise<RuntimeConfigLoad> {
   try {
     body = await response.json();
   } catch {
-    // A 2xx whose body does not parse, or is cut off mid-read. This container's own fallback
-    // answers unknown paths with the app shell under a 200, and only its exact-match
-    // `/config.json` location keeps the document off that path; a loader keyed on the status
-    // alone would take the shell for configuration.
+    // A 2xx whose body does not parse, or is cut off mid-read. A server that lost its route
+    // answers the not-found page under a 404, which the status check refuses; this refuses
+    // markup under a 2xx, so a page is never taken for configuration whatever its status.
     return {ok: false, reason: 'unparseable'};
   }
   return install(body);

@@ -1,25 +1,26 @@
 ---
 type: Decision
-title: "react-router inside the catch-all is a matcher the navigation seam feeds (SPEC-256)"
-description: "**Every navigation goes through one seam, `lib/navigation/`, and react-router inside the catch-all is a `<Router>` it feeds, never a router owning its own history.** A `BrowserRouter` there renders the 404 on every return from an App Router page once its chunk is cached, because Next renders a page before it writes the address. The seam decides by the COMMITTED address (`window.location`), never its own render; writes same-page and catch-all-to-catch-all navigations with `history.pushState` and the rest with Next's router; classifies a traversal while rendering, never in a popstate listener; holds state in memory, never in history; refuses an off-site target; and matches paths case-sensitively. Each rule rests on a Next 16.4.6 behaviour the Vitest stand-in (`src/test/nextNavigation.ts`) models with a test of its own; re-measure them on a Next upgrade."
+title: "Navigation goes through one seam on Next's App Router, which fed react-router inside the catch-all until it retired (SPEC-256, SPEC-263)"
+description: "**Every navigation goes through one seam, `lib/navigation/`, on Next's App Router alone: a navigation that keeps the committed pathname is written with `history.pushState`, every other one is Next's `router.push`, and one to a path no page serves Next turns into a document load.** Written natively, a move between two pages leaves the first on screen under the second's address. The seam decides by the COMMITTED address (`window.location`), never its own render; classifies a traversal while rendering, never in a popstate listener; holds state in memory, never in history; refuses an off-site target; and matches paths case-sensitively with its own `matchPath`. Each rule rests on a Next 16.4.6 behaviour the Vitest stand-in (`src/test/nextNavigation.ts`) models with a test of its own; re-measure them on a Next upgrade."
 ---
 
-During the move to the App Router, two routers serve the portal's pages: react-router inside the
-optional catch-all (`src/app/[[...slug]]/`) for every area not yet moved, and the App Router for the
-rest. Three features depend on what only react-router provides (history state, the navigation type and
-a per-entry key: `lib/routeHandoff.ts`'s receivers and `useSpaceLinkPending`), and `linkFlags.ts` and
-the gate need its path matcher. So `src/lib/navigation/` is the one navigation surface every feature
-imports, with the whole of react-router's that the app uses — `useNavigate`, `Link`, `NavLink`,
-`useLocation`, `useSearchParams`, `useParams`, `useNavigationType`, `Navigate`, `matchPath` — and one
-adapter, `NavigationProvider`, over Next's `usePathname`, `useSearchParams` and `useRouter`. A lint
-rule and a source sweep hold react-router to the seam, the route table and the test harness.
+Three features depend on what the App Router lacks: history state, the navigation type and a per-entry
+key (`lib/routeHandoff.ts`'s receivers and `useSpaceLinkPending`), and `linkFlags.ts` and the gate
+need a path matcher. So `src/lib/navigation/` is the one navigation surface every feature imports —
+`useNavigate`, `Link`, `NavLink`, `useLocation`, `useSearchParams`, `useParams`, `useNavigationType`,
+`Navigate`, `matchPath` — with one adapter, `NavigationProvider`, over Next's `usePathname`,
+`useSearchParams` and `useRouter`. Its `matchPath` is its own: static segments, `:name` parameters and
+prefix matching, case-sensitive, decoding nothing but `%2F`, matched as react-router's did on a corpus
+and on generated paths before the package went (SPEC-263, #1018). A source sweep and a manifest
+check (`src/test/reactRouterSweep.test.ts`) keep react-router out of `src/` and the manifests.
 
-**react-router is fed, not free.** The migration guide's `BrowserRouter` inside the catch-all reads
-`window.location` as it mounts. Next renders a new page before its `HistoryUpdater` writes the address,
-so once the catch-all's chunk is cached, every navigation from an App Router page back to a catch-all
-page rendered react-router's 404 under an address bar showing the right page (measured). The catch-all
-renders `CatchAllRouter`: react-router's `<Router>` with the seam's location and navigation type, and a
-navigator that sends every push and replace back through the seam.
+**Until SPEC-263, react-router was a matcher the seam fed** (history). During the move, react-router
+inside the optional catch-all (`src/app/[[...slug]]/`) served every area not yet moved. The migration
+guide's `BrowserRouter` there read `window.location` as it mounted, and Next renders a new page before
+its `HistoryUpdater` writes the address, so once the catch-all's chunk was cached every return from an
+App Router page rendered react-router's 404 under the right address (measured); the catch-all rendered
+a `<Router>` fed the seam's location instead. SPEC-263 moved the landing page and the 404 onto the App
+Router and deleted the catch-all, react-router, the route table and the harness's choice of router.
 
 **What the seam rests on, each measured on Next 16.4.6 while SPEC-256 was authored:**
 
@@ -35,15 +36,19 @@ navigator that sends every push and replace back through the seam.
    supersedes it, and an outside `pushState` or `replaceState` without `__NA`, or a traversal,
    discards it.
 8. `useParams` returns values percent-encoded.
+9. A router navigation or a traversal to a path no page serves is a document load: the page's fetch
+   answers 404 and Next loads the document there instead (measured with SPEC-263).
 
 **The rules, and the behaviour each answers.**
 
-- **Which router performs a navigation.** A target that keeps the committed path (hash-only, search-only,
-  the same address), and one whose source and target the catch-all both serve, is written natively:
-  Next syncs `usePathname` and `useSearchParams` without fetching or rendering a segment (3), so the
+- **Which navigations are native.** A target that keeps the committed path (hash-only, search-only,
+  the same address) is written natively: Next syncs `usePathname` and `useSearchParams` without fetching or rendering a segment (3), so the
   page stays mounted and keeps its scroll. Measured, the same search-only change through `router.push`
   fetched the page, scrolled to the top, and with the server down raised the leave prompt instead of
-  navigating. Everything else is `router.push`/`replace`. Because a native navigation leaves a page's
+  navigating. Everything else is `router.push`/`replace`, which renders the page the new path selects.
+  The coexistence also wrote a navigation between two paths the catch-all served natively, which was
+  right while one catch-all page rendered both; with the landing page and the 404 separate pages,
+  that rule left the 404 on screen under `/` (measured), so SPEC-263 narrowed it to the pathname. Because a native navigation leaves a page's
   `params` and `searchParams` props as they were, no page reads them; pages read the seam, and the page
   sweep holds that.
 - **The source is the committed address.** A second click during a slow push (7) must not read the
@@ -94,37 +99,45 @@ navigator that sends every push and replace back through the seam.
   or traversal delivers none. **Every push or replace gets a fresh key**, a link to the address shown
   included (a replace, as react-router's `Link` makes it), stamped beside Next's state so a traversal
   reads it again; an entry with none reads `'default'`.
-- **`useParams` is react-router's inside the catch-all and Next's decoded elsewhere** (8), so a page
-  reads `a@b c` under either router.
+- **`useParams` is Next's, decoded once** (8), so a page reads `a@b c`, and `a%2541` reads `a%41`.
 - **Off-site targets are refused**: `navigate` and `Link` refuse any `to` whose
   `new URL(to, location.href).origin` is not the portal's, as written or once resolved, logging once,
   and `Link` renders no `href`. Both, because a dot segment before a doubled slash (`/.//host/x`) is a
   path as written and protocol-relative once the URL parser resolves it; the resolution collapses
-  doubled slashes as react-router's does, so it stays in the portal.
+  doubled slashes, as react-router's did, so it stays in the portal.
   `router.push` sends every off-site form but `javascript:` and `data:` to a document navigation on the
-  other site (measured), and react-router 7.18.2's open-redirect fix would otherwise have left with
-  react-router. A link to another site is a plain `<a>`.
-- **Paths match case-sensitively**, as Next routes: the seam's `matchPath`, the chrome's reading of the
-  area records and the table's routes all treat `/Files` as no area, a 404 outside the shell. Kept
-  case-insensitive, a moved area would have shown a 404 inside the shell at `/Files`. The chrome reads
-  the records against the decoded path, as the table matches it, so `/fil%65s` is Files to both and
-  never Files outside the gate.
+  other site (measured). This rule is the portal's open-redirect protection now that react-router,
+  whose 7.18.2 fix it replaced, is gone. A link to another site is a plain `<a>`.
+- **Paths match case-sensitively**, as Next routes: the seam's `matchPath` and the chrome's reading of
+  the area records treat `/Files` as no area, a 404 outside the shell. Kept case-insensitive, a moved
+  area would have shown a 404 inside the shell at `/Files`. The chrome reads the records against the
+  path decoded segment by segment, so `/fil%65s` is Files to the gate and never anything outside it,
+  although Next answers that spelling with the not-found page (a static segment is not decoded): a
+  gate that claims more than Next serves costs a 404 inside the shell for a spelling nobody builds,
+  and one that claimed less would render a page outside the gate.
 
 **How it is proved.** `src/test/nextNavigation.ts` replaces `next/navigation` in Vitest (an alias in
-`vite.config.ts`) and models all eight behaviours on jsdom's own history, one test each; `renderApp`
-renders the real chrome around the page its router state selects. `lib/navigation/navigation.test.tsx`
-runs every rule above through it, under both routers wherever the router decides the outcome, and a
-planted defect for each (a listener
-classifier, no stamping, a raw comparison, the source read from the pending push, a `BrowserRouter`,
-no origin check, case-insensitive matching) turns its test red. The cross-router scenarios are live
-checks for each area move, since until one lands there is no App Router page to drive.
+`vite.config.ts`) and models every behaviour above on jsdom's own history, one test each; `renderApp`
+renders the real chrome around the page its router state selects, or the root not-found page at an
+address no page serves. `lib/navigation/navigation.test.tsx` runs every rule above through it, and a
+planted defect for each (a listener classifier, no stamping, a raw comparison, the source read from
+the pending push or from the last render, every navigation written natively, no origin check,
+case-insensitive matching) turns its test red.
 
-**Do NOT build:** a `BrowserRouter`, `MemoryRouter` or `HashRouter` anywhere under `src/` (a sweep
-fails one); a navigation type read from a popstate listener; `router.push` for a same-page change; a
+**Do NOT build:** react-router, or any router that owns a history, anywhere under `src/` (the sweep
+and the manifest check fail one); a navigation type read from a popstate listener; `router.push` for a same-page change; a
 page that reads `params` or `searchParams` props; Next's `<Link>` or prefetching (the seam's links are
 plain anchors); history state as a carrier.
 
 ## History
+
+### 2026-11-15
+
+- **Changed (SPEC-263):** react-router retired with the catch-all. The seam runs on Next's App Router
+  alone, a navigation is native only when it keeps the committed pathname, `useParams` is Next's, and
+  `matchPath` is the seam's own; a navigation to a path no page serves is a document load, measured,
+  and modelled as the stand-in's tenth behaviour. Rewritten in place under this file's name,
+  whose title still records where the seam began.
 
 ### 2026-11-14
 

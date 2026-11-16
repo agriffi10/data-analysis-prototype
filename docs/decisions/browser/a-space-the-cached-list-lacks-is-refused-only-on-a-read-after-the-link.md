@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "A `?space=` the cached list lacks is refused only on a read after the link (2026-09-15)"
-description: "A space link the cached list lacks waits, through `useSpaceLinkPending`, for one read settled after the link before it is refused; presence is trusted at once, and a POP is not a follow, read from the navigation seam's `useNavigationType()` under either router. **The refusal is a verdict on a read after the link, never on `isLoading`**, which clears on any cached list, however old — every cold-load test passes while a just-joined space is refused; a link consumer calls `useSpaceLinkPending`."
+description: "A space link the cached list lacks waits, through `useSpaceLinkPending`, for one read settled after the link before it is refused; presence is trusted at once, and a POP is not a follow, read from the navigation seam's `useNavigationType()` on the App Router. **The refusal is a verdict on a read after the link, never on `isLoading`**, which clears on any cached list, however old — every cold-load test passes while a just-joined space is refused; a link consumer calls `useSpaceLinkPending`."
 ---
 
 A Files link naming a space missing from the cached connections list fell back at once, under
@@ -54,6 +54,11 @@ until the next read, the same staleness the Files sidebar and the Query rail hav
 would spend a read on every visit.
 
 ## History
+
+### 2026-11-15
+
+- **Changed (SPEC-263):** react-router retired; the seam supplies the navigation type on the App
+  Router alone, and the rule is unchanged.
 
 ### 2026-11-13
 

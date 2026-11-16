@@ -23,7 +23,7 @@ describe('HELP_SURFACES', () => {
     // is a route, because the header renders the same either way. So a row left behind by a
     // route rename would silently revert that page's control to plain navigation, which is the
     // failure a registry with a walking test exists to stop. The area records name every
-    // signed-in path, whichever router serves it.
+    // signed-in path.
     const routed = new Set(AREAS.flatMap((record) => record.paths));
     expect(routed.size, 'no area paths were read').toBeGreaterThan(5);
 

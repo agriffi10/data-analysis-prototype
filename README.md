@@ -70,10 +70,10 @@ This is an **npm workspaces monorepo**.
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19 on Next.js (App Router, a Node server); the existing app mounts client-only in one catch-all route |
+| Frontend | React 19 on Next.js (App Router, a Node server); every page reaches its view client-only through `next/dynamic` |
 | Language | TypeScript (strict mode) |
 | Styling | TailwindCSS v4 (`@theme` design tokens — no `tailwind.config`) |
-| Routing | `react-router` v8 (library mode) inside the catch-all, moving onto the App Router area by area |
+| Routing | The App Router, through one navigation seam (`apps/portal/src/lib/navigation/`) |
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
 | AWS SDK | **None** — no `@aws-sdk/*` package may be added (an ESLint rule and a `package.json` test forbid it): objects, the catalog and the queues go through the API, and file bytes through presigned URLs |
