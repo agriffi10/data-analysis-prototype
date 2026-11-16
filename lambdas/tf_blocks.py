@@ -14,6 +14,8 @@ Attributes:
 """
 
 import re
+from collections.abc import Iterator
+from itertools import chain
 
 
 def _declarations(text: str, blanked: str, original: str) -> dict[str, str]:
@@ -153,40 +155,114 @@ def data_sources(text: str) -> dict[str, str]:
     )
 
 
+_BRACES = {"{": 1, "}": -1}
+_HEREDOC_OPENER = re.compile(r"<<-?([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\r?\n")
+
+
+def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]]:
+    """Yields every comment, quoted string and heredoc in ``text``, left to right, from ``index``.
+
+    **One lexer, and every reader in this module skips noise through it.** The forms are recognised
+    in one left-to-right pass because each one hides the others: ``/*`` inside a string is not a
+    comment, ``"`` inside a heredoc is not a string, ``<<EOT`` inside a comment opens nothing. A
+    scanner per reader, each taught the forms it happened to need, is how ``/* */`` and heredocs
+    came to be invisible to all of them at once: a client commented out with ``/* */`` was read as
+    deployed, and a header quoted in a variable's heredoc description was read as a resource.
+
+    A heredoc's closing marker is accepted with leading whitespace in both forms, which is what
+    HCL's own scanner does; an unterminated form runs to the end of the text.
+
+    Args:
+      text: The Terraform source to read.
+      index: Where to start, which must be outside any comment, string or heredoc.
+
+    Returns:
+      An iterator of ``(start, end, inner_start, inner_end, kind)``: the span the form occupies,
+      the part a blanker replaces, and ``"comment"``, ``"string"`` or ``"heredoc"``. A string's
+      inner part excludes its quotes; a heredoc's runs from just after its opening marker to the
+      start of its closing one, so both markers survive and the value is still recognisably one.
+
+    Raises:
+      None.
+    """
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "#" or text.startswith("//", index):
+            end = text.find("\n", index)
+            end = length if end == -1 else end
+            yield index, end, index, end, "comment"
+        elif text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            end = length if end == -1 else end + 2
+            yield index, end, index, end, "comment"
+        elif char == '"':
+            inner = index + 1
+            while inner < length and text[inner] != '"':
+                inner += 2 if text[inner] == "\\" else 1
+            inner = min(inner, length)
+            end = min(inner + 1, length)
+            yield index, end, index + 1, inner, "string"
+        elif opener := _HEREDOC_OPENER.match(text, index):
+            marker = opener.group(1)
+            closing = re.compile(rf"(?m)^[ \t]*({re.escape(marker)})[ \t]*\r?$").search(text, opener.end())
+            inner_end, end = (closing.start(1), closing.end(1)) if closing else (length, length)
+            yield index, end, opener.end(1), inner_end, "heredoc"
+        else:
+            index += 1
+            continue
+        index = end
+
+
+def _blank(out: list[str], start: int, end: int, keep_newlines: bool) -> None:
+    """Replaces ``out[start:end]`` with spaces, in place.
+
+    Args:
+      out: The text being blanked, one character per element.
+      start: The first offset to blank.
+      end: The offset just past the last.
+      keep_newlines: Whether line breaks survive, so a line-anchored pattern still sees the
+        lines either side of a multi-line comment.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    for position in range(start, end):
+        if not (keep_newlines and out[position] == "\n"):
+            out[position] = " "
+
+
 def _close(text: str, index: int) -> int:
     """Scans from just inside an open brace to just past the one that closes it.
 
-    Strings and comments are skipped here rather than by each caller, which is the whole reason
-    this is one function: a naive count ends a block at the ``}`` inside ``tags = { Name =
-    "closes early }" }``, and an unbalanced brace inside a ``#`` comment swallows whatever
-    follows.
+    Comments, strings and heredocs are skipped here rather than by each caller, which is the whole
+    reason this is one function: a naive count ends a block at the ``}`` inside ``tags = { Name =
+    "closes early }" }``, and an unbalanced brace inside a comment or a heredoc swallows whatever
+    follows. The skipping is ``_noise``'s, so this counter and the blankers cannot disagree about
+    where a comment ends.
 
     Args:
       text: The Terraform source being read.
       index: The offset immediately after the opening brace.
 
     Returns:
-      The offset immediately after the matching closing brace, or the end of an unterminated
-      comment, matching what the block scan has always done with malformed input.
+      The offset immediately after the matching closing brace, or the end of the text when the
+      block, or a comment, string or heredoc inside it, never closes.
 
     Raises:
       None.
     """
-    depth = 1
-    while depth and index < len(text):
-        char = text[index]
-        if char == "#" or text[index : index + 2] == "//":
-            index = text.find("\n", index)
-            if index == -1:
-                break
-        elif char == '"':
-            index += 1
-            while index < len(text) and text[index] != '"':
-                index += 2 if text[index] == "\\" else 1
-        else:
-            depth += {"{": 1, "}": -1}.get(char, 0)
-        index += 1
-    return index
+    depth, cursor = 1, index
+    for start, end, _inner_start, _inner_end, _kind in chain(_noise(text, index), [(len(text),) * 4 + ("",)]):
+        for position in range(cursor, start):
+            depth += _BRACES.get(text[position], 0)
+            if depth == 0:
+                return position + 1
+        cursor = end
+    return len(text)
 
 
 def span(text: str, start: int) -> str:
@@ -269,7 +345,8 @@ def strip_comments(text: str) -> str:
     constructed ARN, a resource name, a log-group path: every one of those lives inside quotes,
     and ``strip_noise`` blanks exactly that, so a sweep for one over its output finds nothing and
     reports the tree clean. Measured: a sweep for ``arn:aws:lambda:`` over stripped source found
-    zero occurrences in a module that had one.
+    zero occurrences in a module that had one. A heredoc is a string for this purpose, so its body
+    survives whole, a ``#`` inside it included.
 
     Comments still have to go, for ``strip_noise``'s own reason: a comment explaining why a
     pattern is forbidden reads, to a bare regex, exactly like the file doing it.
@@ -278,27 +355,16 @@ def strip_comments(text: str) -> str:
       text: The Terraform fragment to blank.
 
     Returns:
-      The fragment, same length, with comment bodies replaced by spaces.
+      The fragment, same length, with ``#``, ``//`` and ``/* */`` comment bodies replaced by
+      spaces and the line breaks inside a block comment kept.
 
     Raises:
       None.
     """
     out = list(text)
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char == "#" or text[index : index + 2] == "//":
-            end = text.find("\n", index)
-            end = len(text) if end == -1 else end
-            out[index:end] = " " * (end - index)
-            index = end
-        elif char == '"':
-            index += 1
-            while index < len(text) and text[index] != '"':
-                index += 2 if text[index] == "\\" else 1
-            index += 1
-        else:
-            index += 1
+    for _start, _end, inner_start, inner_end, kind in _noise(text):
+        if kind == "comment":
+            _blank(out, inner_start, inner_end, keep_newlines=True)
     return "".join(out)
 
 
@@ -311,35 +377,23 @@ def strip_noise(text: str) -> str:
     file does not do. Length is preserved so an offset taken here still points into the original.
 
     Quotes are kept and their contents blanked, so a string remains recognisably a string while
-    nothing inside it can match.
+    nothing inside it can match. A heredoc keeps its two markers and loses everything between
+    them, line breaks included: its body is one string value, so a line in it that looks like an
+    assignment or a resource header must not start a line a pattern can anchor to, and
+    ``argument`` then reads the whole heredoc as the value rather than stopping at its opener.
 
     Args:
       text: The Terraform fragment to blank.
 
     Returns:
-      The fragment, same length, with comment and string bodies replaced by spaces.
+      The fragment, same length, with comment, string and heredoc bodies replaced by spaces.
 
     Raises:
       None.
     """
     out = list(text)
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char == "#" or text[index : index + 2] == "//":
-            end = text.find("\n", index)
-            end = len(text) if end == -1 else end
-            out[index:end] = " " * (end - index)
-            index = end
-        elif char == '"':
-            index += 1
-            while index < len(text) and text[index] != '"':
-                step = 2 if text[index] == "\\" else 1
-                out[index : index + step] = " " * step
-                index += step
-            index += 1
-        else:
-            index += 1
+    for _start, _end, inner_start, inner_end, kind in _noise(text):
+        _blank(out, inner_start, inner_end, keep_newlines=kind == "comment")
     return "".join(out)
 
 
@@ -350,6 +404,8 @@ def map_entries(body: str) -> dict[str, str]:
     start of a line misses a map written on one line; not anchoring at all reads a key out of a
     nested map — a ``tags`` block inside one entry becomes an entry of its own, and downstream
     that is a Lambda directory nobody can find. Neither is a judgement call once depth is known.
+    Keys are the quoted strings ``_noise`` finds, so a quoted key inside a comment or a heredoc
+    is never one.
 
     Args:
       body: A map's braced body, outer braces included.
@@ -362,35 +418,25 @@ def map_entries(body: str) -> dict[str, str]:
       None.
     """
     entries: dict[str, str] = {}
-    depth, index = 0, 0
-    while index < len(body):
-        char = body[index]
-        if char == "#" or body[index : index + 2] == "//":
-            end = body.find("\n", index)
-            index = len(body) if end == -1 else end
+    depth, cursor = 0, 0
+    for start, end, inner_start, inner_end, kind in _noise(body):
+        depth += sum(_BRACES.get(char, 0) for char in body[cursor:start])
+        cursor = end
+        if kind != "string" or depth != 1:
             continue
-        if char == '"':
-            start = index
-            index += 1
-            while index < len(body) and body[index] != '"':
-                index += 2 if body[index] == "\\" else 1
-            index += 1
-            key = body[start + 1 : index - 1]
-            rest = index
-            while rest < len(body) and body[rest] in " \t":
-                rest += 1
-            if depth == 1 and body[rest : rest + 1] == "=" and body[rest + 1 : rest + 2] != "=":
-                value = rest + 1
-                while value < len(body) and body[value] in " \t":
-                    value += 1
-                if body[value : value + 1] == "{":
-                    entries[key] = span(body, value)
-                else:
-                    end = body.find("\n", value)
-                    entries[key] = body[value : len(body) if end == -1 else end]
+        rest = end
+        while rest < len(body) and body[rest] in " \t":
+            rest += 1
+        if body[rest : rest + 1] != "=" or body[rest + 1 : rest + 2] == "=":
             continue
-        depth += {"{": 1, "}": -1}.get(char, 0)
-        index += 1
+        value = rest + 1
+        while value < len(body) and body[value] in " \t":
+            value += 1
+        if body[value : value + 1] == "{":
+            entries[body[inner_start:inner_end]] = span(body, value)
+        else:
+            line_end = body.find("\n", value)
+            entries[body[inner_start:inner_end]] = body[value : len(body) if line_end == -1 else line_end]
     return entries
 
 

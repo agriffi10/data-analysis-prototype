@@ -708,9 +708,9 @@ ACCOUNT_LIMIT_CORPUS = (
         [],
     ),
     (
-        "a BLOCK comment is not stripped, so one reads as live — refusing, not ignoring",
+        "a BLOCK comment is silent too, since the shared parser blanks it like the other two",
         '/* memory = 10240 */\n"a" = { memory = 256 }',
-        ["memory = 10240, over this account's 3008"],
+        [],
     ),
     (
         "two offenders of the SAME dimension are both named, not just the first",

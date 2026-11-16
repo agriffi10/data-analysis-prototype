@@ -14,7 +14,17 @@ here verbatim, including the two hazards that are the point — a comment closin
 opened, and a string containing one. A fixture and an implementation written from each other
 agree with nothing.
 
+The block-comment and heredoc fixtures are written for the test, since the tree has no block
+comment and one heredoc, but each was put through `tofu fmt -check` before it was pasted, so a
+parser that agrees with them agrees with HCL.
+
 Attributes:
+  BLOCK_COMMENTED: A client retired with `/* */` and a live one whose revocation line is commented
+    out the same way, with a brace the comment never opened.
+  CLIENT: The client every silence case ends with; it must come back whole and switched on.
+  HEREDOC_SOURCES: The variable from `infra/modules/auth/variables.tf` whose description is a
+    heredoc, with a client header and an unbalanced brace added to the description, then a client
+    whose own heredoc carries an assignment line and a closing brace.
   MODULE_CALL: The validated module call, verbatim.
   RESOURCE: The zip-packaged shape, lifted verbatim from what was then
     `infra/modules/observability/lambda.tf`, at the commit that branch left. It is the log sweep because that is a function declaring
@@ -25,11 +35,15 @@ Attributes:
 import pytest
 from tf_blocks import (
     argument,
+    blocks,
     lambda_declaration,
     lambda_environment,
     lambda_input,
+    map_entries,
     module_calls,
+    span,
     strip_comments,
+    strip_noise,
 )
 
 MODULE_CALL = '''module "functions" {
@@ -230,3 +244,137 @@ def test_blanking_comments_alone_leaves_the_string_a_sweep_is_looking_for() -> N
     assert len(blanked) == len(source), "offsets taken here must still point into the original"
     assert "arn:aws:lambda:us-east-1:1:function:x" in blanked
     assert blanked.count("arn:aws:lambda:") == 1, "the comment's copy survived the blanking"
+
+
+BLOCK_COMMENTED = '''/*
+resource "aws_cognito_user_pool_client" "retired" {
+  enable_token_revocation = false
+}
+*/
+
+resource "aws_cognito_user_pool_client" "live" {
+  name = "live"
+  /* enable_token_revocation = true
+     closes a brace it never opened } */
+  allowed_oauth_flows = ["code"]
+}
+'''
+
+HEREDOC_SOURCES = '''variable "logs_queue_url" {
+  description = <<-EOT
+    Structured-logging queue URL, set as LOGS_QUEUE_URL on both triggers.
+
+    resource "aws_cognito_user_pool_client" "quoted" {
+      enable_token_revocation = true
+  EOT
+  type        = string
+}
+
+resource "aws_cognito_user_pool_client" "real" {
+  name                = "real"
+  explanation         = <<EOT
+enable_token_revocation = true
+}
+EOT
+  allowed_oauth_flows = ["code"]
+}
+'''
+
+CLIENT = '''
+resource "aws_cognito_user_pool_client" "after" {
+  enable_token_revocation = true
+}
+'''
+
+
+def test_a_block_comment_hides_a_retired_client_and_a_commented_out_argument() -> None:
+    """Both directions the revocation sweep was measured failing in before this parser knew `/* */`.
+
+    The retired client was read as deployed and failed the sweep on a `false` nobody applies; the
+    live client's commented-out `true` satisfied it while the client deploys with revocation off.
+    The unbalanced brace inside the comment is the third failure: counted, it ends the live block
+    before its last argument.
+    """
+    clients = blocks(BLOCK_COMMENTED, "aws_cognito_user_pool_client")
+
+    assert set(clients) == {"live"}, "a client inside a block comment was read as declared"
+    with pytest.raises(ValueError, match=r"no top-level .enable_token_revocation = ."):
+        argument(clients["live"], "enable_token_revocation")
+    assert argument(clients["live"], "allowed_oauth_flows") == '["code"]', (
+        "a brace inside the block comment ended the block before its last argument"
+    )
+
+
+def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> None:
+    """The heredoc form the tree already uses, carrying the three lines that misread it.
+
+    A header quoted in a description became a client, an assignment line in a client's heredoc
+    satisfied `argument`, and a `}` in one closed the block early. The value itself must come back
+    whole, both markers included, not cut at the opener's line break.
+    """
+    clients = blocks(HEREDOC_SOURCES, "aws_cognito_user_pool_client")
+
+    assert set(clients) == {"real"}, "a header quoted in a heredoc was read as a resource"
+    with pytest.raises(ValueError, match=r"no top-level .enable_token_revocation = ."):
+        argument(clients["real"], "enable_token_revocation")
+    assert argument(clients["real"], "allowed_oauth_flows") == '["code"]'
+    assert argument(clients["real"], "explanation") == "<<EOT\nenable_token_revocation = true\n}\nEOT"
+
+
+@pytest.mark.parametrize(
+    "lookalike",
+    [
+        'locals {\n  arn = "arn:aws:glue:us-east-1:1:database/*"\n}\n',
+        "# scoped to logs/* and never the bucket\n",
+        "# an example: description = <<EOT\n",
+        'locals {\n  note = <<-EOT\n    a line ending in EOT\n    EOTX\n    a " quote, a /* and a # that do nothing\n  EOT\n}\n',
+    ],
+    ids=["comment-opener-in-a-string", "comment-opener-in-a-comment", "heredoc-opener-in-a-comment", "noise-in-a-heredoc"],
+)
+def test_a_lookalike_opener_opens_nothing_and_the_next_client_is_read_whole(lookalike: str) -> None:
+    """The silence cases, and the half a new lexer form gets wrong: an opener that is not one.
+
+    Each lookalike, taken as real, runs to the end of the file and swallows the client after it.
+    The first two are shapes the tree carries today, an ARN wildcard and a comment naming one. In
+    the heredoc, the lines that merely contain its marker come BEFORE the quote and the `/*`, so a
+    marker matched mid-line closes the heredoc early and exposes them as code.
+    """
+    source = lookalike + CLIENT
+
+    clients = blocks(source, "aws_cognito_user_pool_client")
+
+    assert set(clients) == {"after"}
+    assert argument(clients["after"], "enable_token_revocation") == "true"
+
+
+def test_the_blankers_keep_length_and_disagree_only_about_strings() -> None:
+    """Offsets taken from either blanker must slice the original, and each blanks its own forms.
+
+    `strip_comments` keeps a heredoc body, since a sweep for a literal must still find it there;
+    `strip_noise` keeps only the markers. Both keep a block comment's line breaks, so a pattern
+    anchored to a line still sees the line after the comment as a line.
+    """
+    source = BLOCK_COMMENTED + HEREDOC_SOURCES
+
+    comments_gone = strip_comments(source)
+    noise_gone = strip_noise(source)
+
+    assert len(comments_gone) == len(noise_gone) == len(source)
+    assert comments_gone.count("\n") == noise_gone[: len(BLOCK_COMMENTED)].count("\n") + HEREDOC_SOURCES.count("\n")
+    assert "retired" not in comments_gone and "closes a brace" not in comments_gone
+    assert "Structured-logging queue URL" in comments_gone, "strip_comments blanked a heredoc body"
+    assert "Structured-logging" not in noise_gone and "quoted" not in noise_gone
+    assert "<<-EOT" in noise_gone and "<<EOT" in noise_gone and noise_gone.count("EOT") == 4
+
+
+def test_a_quoted_key_in_a_heredoc_or_a_block_comment_is_not_a_map_entry() -> None:
+    """The map reader keys on quoted strings, so it is the reader a quoted lookalike reaches first."""
+    body = span(
+        '{\n  "real" = 1\n  /* "ghost" = 2 } */\n  "note" = <<-EOT\n    "fake" = 3\n  EOT\n  "last" = 4\n}\n',
+        0,
+    )
+
+    entries = map_entries(body)
+
+    assert set(entries) == {"real", "note", "last"}
+    assert entries["last"] == "4"
