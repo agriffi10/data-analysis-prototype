@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Live checks for the file-operations control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
-# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Since SPEC-262 the browser holds no token, so
-# USAGE step 2 finds nothing in the page. The plane's front door is the API: a signed-in
-# `POST /api/v1/enqueue/file-ops` from the portal's own page, naming the signed-in user in
-# `x-dq-user`, stamps the actor from the session's token and refuses a body that carries `actor`
-# itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
-# from the signed-in page — the 2026-09-10 section of docs/testing/sessions.md ran every section it
-# reached that way. The sections' EXPECT / PASS text still holds, and so does their DO text except
-# §6's single send-message-batch, which the route cannot express: two POSTs in one Promise.all
-# stand in for it.
+# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Since SPEC-262 the browser holds no token and the
+# portal server keeps it, so there is no token to give this script. The plane's front door is the
+# API: a signed-in `POST /api/v1/enqueue/file-ops` from the portal's own page, naming the signed-in
+# user in `x-dq-user`, stamps the actor from the session's token and refuses a body that carries
+# `actor` itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
+# from the signed-in page, as USAGE step 2 shows — the 2026-09-10 section of
+# docs/testing/sessions.md ran every section it reached that way. The sections' EXPECT / PASS text
+# still holds, and so does their DO text except §6's single send-message-batch, which the route
+# cannot express: two POSTs in one Promise.all stand in for it.
 #
 # It is named for the plane deliberately. Four specs build this thing, and a script per spec would
 # be four files that share a token, a queue URL, a group digest and an envelope builder — the same
@@ -18,9 +18,9 @@
 # scripts/validate_docs.py refuses a spec-numbered name in this directory so the next session
 # cannot re-derive the other answer.
 #
-# WHY A SCRIPT AND NOT STEPS IN e2e.md: nothing in the browser reaches this plane yet. The enqueue
-# service exists and no gesture calls it, so every check here is a hand-crafted envelope on the
-# CLI. Each one is also an `owed.md` row; running this is what discharges them.
+# WHY A SCRIPT AND NOT STEPS IN e2e.md: it was written when no gesture reached this plane, so every
+# check here is a hand-crafted envelope. Each one is also an `owed.md` row; running it is what
+# discharges them.
 #
 # WHEN IT GOES AWAY: the spec that gives the browser its async model makes most of this reachable
 # from a signed-in session. At that point the checks that can be driven from the UI move into
@@ -32,21 +32,26 @@
 #
 # USAGE
 #   1. Sign in to the portal in a browser as the account you want to act as.
-#   2. Copy its ID token into /tmp/idtoken (no trailing newline). Since SPEC-262 the browser holds no
-#      token: the portal server keeps it in the session store. Load any portal page first, so the
-#      server refreshes a token near expiry, copy the __Host-dq_session cookie's value from the
-#      browser's developer tools, and read the item it names. The cookie is a 30-day credential, so
-#      read it without echo or history, and sign out of the portal once the check is done:
-#        read -rs COOKIE
-#        PK="session#$(printf %s "$COOKIE" | shasum -a 256 | cut -d' ' -f1)"
-#        aws dynamodb get-item --table-name dat-prod-sessions --consistent-read \
-#          --key "{\"pk\":{\"S\":\"$PK\"}}" --projection-expression idToken \
-#          --query Item.idToken.S --output text | tr -d '\n' > /tmp/idtoken
-#   3. USERNAME=alice ./file-ops-plane.sh
+#   2. For each section, build its body as written but without `actor`, and send it from the
+#      developer console of a signed-in portal page, which supplies the `Origin` the route checks.
+#      §1's, for example, for the account alice:
+#        await fetch('/api/v1/enqueue/file-ops', {method: 'POST',
+#          headers: {'content-type': 'application/json', 'x-dq-user': 'alice'},
+#          body: JSON.stringify({requestId: crypto.randomUUID(), operation: 'delete',
+#            source: {space: {kind: 'personal', name: 'alice'},
+#                     items: [{kind: 'folder', key: 'alice/fileops-check/nested/'}]}}),
+#        }).then((r) => r.json())
+#      Do not copy a token out of the session store to run the script instead: that puts a live
+#      credential in a shell, and the page sends the same envelope without one.
+#   3. Run each section's AWS CLI steps (§7's lock staging, the executions table, the log reads)
+#      with your usual AWS CLI credentials (the rows role 3 names need an operator's), in bash
+#      rather than zsh, where USERNAME is a special parameter and assigning it changes nothing. Set
+#      USERNAME, then paste the preamble below from REGION through LOCK_KEY, `now_iso` and
+#      `executions_since`, skipping `set -euo pipefail` and the token check. Read each section's
+#      PASS text against the file browser and the inbox.
 #
-# The token is read, never minted: the plane verifies it offline against the pool's JWKS, and a
-# token this script forged would be refused at the front door in a way that reads exactly like the
-# check failing.
+# The API verifies the bearer and stamps the username it verified into the envelope's `identity`
+# block, the only identity the plane reads; a forged bearer gets a 401 from the API.
 #
 # WHO YOU ARE WHEN YOU RUN EACH PART, AND IT IS NOT ONE ANSWER. There are three roles here and
 # conflating them is how a session stalls halfway through:
@@ -55,13 +60,13 @@
 #      created and inspected THROUGH THE PORTAL UI as this person: upload, new folder, delete. A
 #      laptop IAM user cannot read or write dat-prod-user-space, and the verification role this
 #      would otherwise want is deliberately not created. Do not reach for "an assumed role".
-#   2. THE REQUEST SENDER — the same person, whose ID token this script reads from /tmp/idtoken and
-#      puts in an envelope. The plane verifies it offline against the pool's JWKS, so the token is
-#      READ, never minted.
+#   2. THE REQUEST SENDER — the same person, sending from the signed-in page. The portal server
+#      attaches the session's token, the API verifies it and stamps the username into the
+#      envelope's `identity` block, and the plane reads that block.
 #   3. AN OPERATOR — credentials that can write an arbitrary object and call DeleteObjects
-#      directly. ONLY §11 and §14 need this, and only because they probe what S3 itself answers.
-#      Without operator credentials those two rows stay OWED; every other section is runnable
-#      without them.
+#      directly. ONLY §11 and §14 need this, because they probe what S3 itself answers, and §13's
+#      fixture, which writes straight to the user-space bucket. Without operator credentials those
+#      rows stay OWED; every other section is runnable without them.
 #
 # EXPECTED FIXTURES in the acting user's own space, created through the browser beforehand:
 #   {USERNAME}/fileops-check/one.csv      any small file
@@ -76,11 +81,12 @@ set -euo pipefail
 
 : "${USERNAME:?set USERNAME to the signed-in account}"
 TOKEN_FILE="${TOKEN_FILE:-/tmp/idtoken}"
-[ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — see USAGE" >&2; exit 1; }
+[ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — not runnable as written; see USAGE step 2" >&2; exit 1; }
 
 REGION="${AWS_REGION:-us-east-1}"
 USER_BUCKET="${USER_BUCKET:-dat-prod-user-space}"
 ADMIN_BUCKET="${ADMIN_BUCKET:-dat-prod-athena-admin}"
+SHARED_SPACE_BUCKET="${SHARED_SPACE_BUCKET:-dat-prod-shared-space}"
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-file-ops-requests.fifo --query QueueUrl --output text)
 MACHINE="arn:aws:states:${REGION}:$(aws sts get-caller-identity --query Account --output text):stateMachine:dat-prod-file-ops-orchestrator"
 
@@ -276,10 +282,10 @@ echo "     (b) the ALREADY-GONE code, for a key a previous attempt already remov
 echo "   (b) matters as much as (a): a retried delete-source meets keys its predecessor deleted, and"
 echo "   reading those as failures reports correctly-moved items to the user as 'duplicate'."
 echo "   RECIPE (run as an operator, not as the plane):"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt"
-echo "     ETAG=\$(aws s3api head-object --bucket $USER_SPACE_BUCKET --key $USERNAME/probe.txt --query ETag --output text)"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt   # change it"
-echo "     aws s3api delete-objects --bucket $USER_SPACE_BUCKET \\"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/probe.txt"
+echo "     ETAG=\$(aws s3api head-object --bucket $USER_BUCKET --key $USERNAME/probe.txt --query ETag --output text)"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/probe.txt   # change it"
+echo "     aws s3api delete-objects --bucket $USER_BUCKET \\"
 echo "       --delete \"{\\\"Objects\\\":[{\\\"Key\\\":\\\"$USERNAME/probe.txt\\\",\\\"ETag\\\":\\\$ETAG}],\\\"Quiet\\\":false}\""
 echo "     # then repeat against a key that is ALREADY DELETED for (b)."
 echo "   PASS: both codes are members of focommon/delete.py's _PRECONDITION_CODES and _ALREADY_GONE."
@@ -305,8 +311,8 @@ echo "   keep, so the outcome has to say so."
 echo
 echo "== 13. A delete of a folder holding a NESTED DO_NOT_DELETE.txt =="
 echo "   FIXTURE:"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/keep/DO_NOT_DELETE.txt"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/ordinary.txt"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/fileops-marked/keep/DO_NOT_DELETE.txt"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/fileops-marked/ordinary.txt"
 echo "   Send a delete of \$USERNAME/fileops-marked/."
 echo "   PASS: the marker SURVIVES and ordinary.txt is GONE. Only true because assert_item_deletable"
 echo "   is scoped per item — a whole-list refusal would leave the whole folder untouched, and no"
@@ -328,11 +334,11 @@ echo "   Against the DEPLOYED role, because a rendered policy is not the role th
 echo "   ROLE=arn:aws:iam::<account>:role/<project>-<env>-file-ops-execution-role"
 echo "   Each denial below must be run beside an ALLOWED control on the same action — an implicitDeny"
 echo "   alone cannot tell an ungranted action from a wrong resource ARN."
-echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/athenaresults/r.csv"
-echo "     ALLOW: s3:DeleteObject on $USER_SPACE_BUCKET/alice/reports/r.csv"
-echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/anything/DO_NOT_DELETE.txt"
-echo "     DENY:  s3:PutObject   on $USER_SPACE_BUCKET/alice/user_settings/s.json"
-echo "     ALLOW: s3:PutObject   on $USER_SPACE_BUCKET/alice/out/r.csv"
+echo "     DENY:  s3:DeleteObject on $USER_BUCKET/alice/athenaresults/r.csv"
+echo "     ALLOW: s3:DeleteObject on $USER_BUCKET/alice/reports/r.csv"
+echo "     DENY:  s3:DeleteObject on $USER_BUCKET/alice/anything/DO_NOT_DELETE.txt"
+echo "     DENY:  s3:PutObject   on $USER_BUCKET/alice/user_settings/s.json"
+echo "     ALLOW: s3:PutObject   on $USER_BUCKET/alice/out/r.csv"
 echo "   Repeat every row against $SHARED_SPACE_BUCKET — the two buckets' Denies are written"
 echo "   separately and a folder present in one and missing from the other is exactly the shape"
 echo "   this catches."
