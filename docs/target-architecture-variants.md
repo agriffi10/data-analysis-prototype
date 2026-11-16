@@ -73,7 +73,9 @@ Below the API the drawing splits into **two lanes**, because two different crede
 
 Keeping them apart is the point. The allow-list that denies plain S3 on lane B denies SQS and Step
 Functions too, so the control planes could never have ridden the user's credential even if someone
-wanted them to. They cross this revision untouched for the separate reason §3.4 gives: their
+wanted them to. *(As the policy reads. Phase 0 measured on 2026-11-15 that its Deny was not in
+effect on an identity-enhanced session, for plain S3 at least, so this is the policy's intent, not a
+measured fence — `transition_plan.md` §3.6's amendment.)* They cross this revision untouched for the separate reason §3.4 gives: their
 execution roles are ordinary IAM roles and are *not* identity-enhanced, so lane B's restrictions
 never applied to them.
 
@@ -308,7 +310,10 @@ Read 2026-08-19. Confirmed as drawn:
   only `s3:` actions are `GetAccessGrantsInstanceForPrefix`, `GetDataAccess` and
   `ListCallerAccessGrants`; `athena:StartQueryExecution`, the Glue catalog actions,
   `lakeformation:GetDataAccess` and `sts:SetContext` are present. **No `sqs:` and no `states:`** —
-  which is what makes the two-lane split a fact rather than an inference.
+  which is what makes the two-lane split a fact rather than an inference. *Re-read 2026-11-15: the
+  policy text is unchanged, but Phase 0 found its Deny not in effect on an identity-enhanced
+  session (`transition_plan.md` §3.6), so the split rests on the roles' own policies, not on this
+  one. The red DENY node above shows the policy's intent.*
 - **`ProvidedContexts`** — `ProviderArn` is exactly `arn:aws:iam::aws:contextProvider/IdentityCenter`,
   max 5 items.
 - **`CreateTokenWithIAM`** — SigV4 required; `urn:ietf:params:oauth:grant-type:jwt-bearer`; returns

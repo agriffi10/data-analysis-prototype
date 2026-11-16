@@ -2101,7 +2101,11 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
   trusted-identity-propagation receiving service, and `AWSIAMIdentityCenterAllowListForIdentityContext`
   — which STS attaches to every identity-enhanced session and which denies everything not on its
   list — carries no `states:` actions. So an identity-enhanced session **cannot start an execution**,
-  and even if it could, a ~1-hour session is shorter than the work. This is the strongest
+  and even if it could, a ~1-hour session is shorter than the work. *(Phase 0 measured on
+  2026-11-15 that the allow-list's Deny was not in effect on an identity-enhanced session: plain S3
+  succeeded, and Step Functions and SQS were not tried. So the "cannot start an execution" half is
+  unproven, while the other two reasons stand: Step Functions is not a receiving service, and a
+  context lives one hour. `transition_plan.md` §3.6.)* This is the strongest
   justification the `{actor, delegated_by, assurance}` contract has, and it is external to us: the
   user identity is for **authorization and attribution**, never for data-plane enforcement inside a
   plane. SPEC-200 records it.
@@ -2145,7 +2149,8 @@ TTL is storage hygiene rather than the security boundary.
 
 > **AMENDED 2026-08-18 — this section describes the INTERIM plane, and it is right about it.**
 > `transition_plan.md` §3.4 collapses the target's two credential planes into one, and the
-> identity-enhanced session's allow-list denies plain S3 — so in the **end state there are no
+> identity-enhanced session's allow-list denies plain S3 *(not as measured 2026-11-15 —
+> `transition_plan.md` §3.6's amendment)* — so in the **end state there are no
 > principal tags at all**, and a member's access to a shared space becomes an **S3 Access Grant on
 > its prefix plus a Lake Formation grant on its database**, issued per (member, space) by the
 > shared-space control plane (§3.9).
@@ -2277,7 +2282,9 @@ Three facts fence that off, each confirmed against the live AWS docs:
   Grants must be configured to use Trusted identity propagation identities."* Access Grants is nowhere
   in this architecture today. It also explains `transition_plan.md` §3.6: the
   `AWSIAMIdentityCenterAllowListForIdentityContext` policy permits only the three S3 Access Grants
-  operations, which is why plain `GetObject` is denied on that plane.
+  operations, which is why plain `GetObject` is denied on that plane. *(That is the policy's text;
+  Phase 0 measured on 2026-11-15 that it was not in effect on an identity-enhanced session —
+  `transition_plan.md` §3.6's amendment.)*
 
 **And the same page reaches our own Path B. It is AMBIGUOUS, and both confident readings are wrong.**
 The considerations list names *"Federated access to the Athena API"* among the features TIP is **not
