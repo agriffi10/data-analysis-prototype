@@ -2,7 +2,7 @@
 # Live checks for the results-conversion control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
 # NOT RUNNABLE AS WRITTEN (found 2026-09-10, banner added 2026-09-22 after a session followed
-# USAGE step 2 into nothing). Since SPEC-262 the browser holds no token at all and the portal server
+# the old USAGE step 2 into nothing). Since SPEC-262 the browser holds no token at all and the portal server
 # keeps it, so there is no token to give this script. Send each section's body from the signed-in
 # page instead, as USAGE step 2 shows, which is how the SPEC-239 section ran on 2026-09-22 (see
 # docs/testing/sessions.md). Every section's EXPECT text still holds.
@@ -47,8 +47,9 @@
 #      saved files; §3's workbook check is plain Python, run by hand over the downloaded
 #      live.xlsx, and §4 reads the converter's log in CloudWatch.
 #
-# It prints one PASS/FAIL per machine-checkable assertion and lists the observations that need a
-# pair of eyes (the notifications, the table builder, the workbook).
+# Each section's `check` line is the machine-checkable assertion its response must meet, and the
+# BY EYE text lists the observations that need a pair of eyes (the notifications, the table
+# builder, the workbook).
 
 set -uo pipefail
 
@@ -118,8 +119,8 @@ cat <<'EYES'
   and their column names and types must match the query's. That round trip is the reason this
   arc exists; a conversion that cannot be read back has not converted anything useful.
 
-  THEN: download all three into $OUT and run §3's Python by hand over live.xlsx — re-running
-  this script stops at its token check.
+  THEN: download all three and run §3's Python by hand over live.xlsx — re-running this script
+  stops at its token check.
 EYES
 
 # ── SPEC-222 §2 · the conditional write ──────────────────────────────────────

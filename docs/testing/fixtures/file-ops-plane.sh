@@ -44,14 +44,14 @@
 #      Do not copy a token out of the session store to run the script instead: that puts a live
 #      credential in a shell, and the page sends the same envelope without one.
 #   3. Run each section's AWS CLI steps (§7's lock staging, the executions table, the log reads)
-#      with your usual AWS CLI credentials, in bash rather than zsh, where USERNAME is a special
-#      parameter and assigning it changes nothing. Set USERNAME, then paste the preamble below
-#      from REGION through LOCK_KEY, and `now_iso`, skipping `set -euo pipefail` and the token
-#      check. Read each section's PASS text against the file browser and the inbox.
+#      with your usual AWS CLI credentials (the rows role 3 names need an operator's), in bash
+#      rather than zsh, where USERNAME is a special parameter and assigning it changes nothing. Set
+#      USERNAME, then paste the preamble below from REGION through LOCK_KEY, `now_iso` and
+#      `executions_since`, skipping `set -euo pipefail` and the token check. Read each section's
+#      PASS text against the file browser and the inbox.
 #
-# Never mint a token for a check either. The API verifies the bearer and stamps the username it
-# verified into the envelope's `identity` block, which is all the plane reads, so a forged token is
-# refused at the API in a way that reads exactly like the check failing.
+# The API verifies the bearer and stamps the username it verified into the envelope's `identity`
+# block, the only identity the plane reads; a forged bearer gets a 401 from the API.
 #
 # WHO YOU ARE WHEN YOU RUN EACH PART, AND IT IS NOT ONE ANSWER. There are three roles here and
 # conflating them is how a session stalls halfway through:
@@ -64,9 +64,9 @@
 #      attaches the session's token, the API verifies it and stamps the username into the
 #      envelope's `identity` block, and the plane reads that block.
 #   3. AN OPERATOR — credentials that can write an arbitrary object and call DeleteObjects
-#      directly. ONLY §11 and §14 need this, and only because they probe what S3 itself answers.
-#      Without operator credentials those two rows stay OWED; every other section is runnable
-#      without them.
+#      directly. ONLY §11 and §14 need this, because they probe what S3 itself answers, and §13's
+#      fixture, which writes straight to the user-space bucket. Without operator credentials those
+#      rows stay OWED; every other section is runnable without them.
 #
 # EXPECTED FIXTURES in the acting user's own space, created through the browser beforehand:
 #   {USERNAME}/fileops-check/one.csv      any small file
@@ -86,6 +86,7 @@ TOKEN_FILE="${TOKEN_FILE:-/tmp/idtoken}"
 REGION="${AWS_REGION:-us-east-1}"
 USER_BUCKET="${USER_BUCKET:-dat-prod-user-space}"
 ADMIN_BUCKET="${ADMIN_BUCKET:-dat-prod-athena-admin}"
+SHARED_SPACE_BUCKET="${SHARED_SPACE_BUCKET:-dat-prod-shared-space}"
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-file-ops-requests.fifo --query QueueUrl --output text)
 MACHINE="arn:aws:states:${REGION}:$(aws sts get-caller-identity --query Account --output text):stateMachine:dat-prod-file-ops-orchestrator"
 
@@ -281,10 +282,10 @@ echo "     (b) the ALREADY-GONE code, for a key a previous attempt already remov
 echo "   (b) matters as much as (a): a retried delete-source meets keys its predecessor deleted, and"
 echo "   reading those as failures reports correctly-moved items to the user as 'duplicate'."
 echo "   RECIPE (run as an operator, not as the plane):"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt"
-echo "     ETAG=\$(aws s3api head-object --bucket $USER_SPACE_BUCKET --key $USERNAME/probe.txt --query ETag --output text)"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt   # change it"
-echo "     aws s3api delete-objects --bucket $USER_SPACE_BUCKET \\"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/probe.txt"
+echo "     ETAG=\$(aws s3api head-object --bucket $USER_BUCKET --key $USERNAME/probe.txt --query ETag --output text)"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/probe.txt   # change it"
+echo "     aws s3api delete-objects --bucket $USER_BUCKET \\"
 echo "       --delete \"{\\\"Objects\\\":[{\\\"Key\\\":\\\"$USERNAME/probe.txt\\\",\\\"ETag\\\":\\\$ETAG}],\\\"Quiet\\\":false}\""
 echo "     # then repeat against a key that is ALREADY DELETED for (b)."
 echo "   PASS: both codes are members of focommon/delete.py's _PRECONDITION_CODES and _ALREADY_GONE."
@@ -310,8 +311,8 @@ echo "   keep, so the outcome has to say so."
 echo
 echo "== 13. A delete of a folder holding a NESTED DO_NOT_DELETE.txt =="
 echo "   FIXTURE:"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/keep/DO_NOT_DELETE.txt"
-echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/ordinary.txt"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/fileops-marked/keep/DO_NOT_DELETE.txt"
+echo "     aws s3 cp /dev/null s3://$USER_BUCKET/$USERNAME/fileops-marked/ordinary.txt"
 echo "   Send a delete of \$USERNAME/fileops-marked/."
 echo "   PASS: the marker SURVIVES and ordinary.txt is GONE. Only true because assert_item_deletable"
 echo "   is scoped per item — a whole-list refusal would leave the whole folder untouched, and no"
@@ -333,11 +334,11 @@ echo "   Against the DEPLOYED role, because a rendered policy is not the role th
 echo "   ROLE=arn:aws:iam::<account>:role/<project>-<env>-file-ops-execution-role"
 echo "   Each denial below must be run beside an ALLOWED control on the same action — an implicitDeny"
 echo "   alone cannot tell an ungranted action from a wrong resource ARN."
-echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/athenaresults/r.csv"
-echo "     ALLOW: s3:DeleteObject on $USER_SPACE_BUCKET/alice/reports/r.csv"
-echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/anything/DO_NOT_DELETE.txt"
-echo "     DENY:  s3:PutObject   on $USER_SPACE_BUCKET/alice/user_settings/s.json"
-echo "     ALLOW: s3:PutObject   on $USER_SPACE_BUCKET/alice/out/r.csv"
+echo "     DENY:  s3:DeleteObject on $USER_BUCKET/alice/athenaresults/r.csv"
+echo "     ALLOW: s3:DeleteObject on $USER_BUCKET/alice/reports/r.csv"
+echo "     DENY:  s3:DeleteObject on $USER_BUCKET/alice/anything/DO_NOT_DELETE.txt"
+echo "     DENY:  s3:PutObject   on $USER_BUCKET/alice/user_settings/s.json"
+echo "     ALLOW: s3:PutObject   on $USER_BUCKET/alice/out/r.csv"
 echo "   Repeat every row against $SHARED_SPACE_BUCKET — the two buckets' Denies are written"
 echo "   separately and a folder present in one and missing from the other is exactly the shape"
 echo "   this catches."
