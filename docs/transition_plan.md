@@ -204,13 +204,13 @@ disagree, §7 is right and this table is stale.
 | 5 | Identity Center identities in Lake Formation | G7 and G9 have passed, G10 has decided the exchange's split (§4.7), G11 has shown it crosses accounts, and SCIM is live; the Identity Center administrators have created the customer-managed application, its trusted token issuer, grants, scopes and actor policy, and handed over the four values the IaC consumes (§4.4, §4.5) — ~~the customer-managed application is this phase's own first work item, not a precondition~~ *(it is theirs to build, 2026-11-16)* | The interim plane, kept running alongside until the last step |
 | 6 | Cutover and decommission | Nothing, for the delta syncs — but **the freeze cannot be called** until the driver desktop fleet has migrated off the old account's SAML path (§6.5) | Point users back at the old account and lift the freeze — until decommission, and no further |
 
-**Five items are not this project's to execute, and every one of them has a lead time.** They are
+**Six items are not this project's to execute, and every one of them has a lead time.** They are
 listed here because a plan that only tracks its own work discovers these late.
 
 | What | Whose | Needed by | If it is late |
 |---|---|---|---|
 | **G8** — the Entra side of the Cognito federation for this application, on the client's established pattern: the Entra application the pool federates to, and the claims it releases (email, and whatever carries the username, §6.1) | The Entra tenant owner | Phase 1's whole auth configuration | Nobody can sign in; and the **desktop fleet**, which under [B] points at the Cognito bridge too (§3.10), has nowhere to authenticate |
-| **SCIM** provisioning from Entra into Identity Center | The client's platform team | Phase 5 — grants target Identity Center principals, and there is no just-in-time provisioning | Nobody can be granted anything, and §3.12's identity-shaped pass cannot run |
+| **SCIM** provisioning from Entra into Identity Center | The client's Identity Center administrators, with the Entra tenant owner (§4.5) | Phase 5 — grants target Identity Center principals, and there is no just-in-time provisioning | Nobody can be granted anything, and §3.12's identity-shaped pass cannot run |
 | A **customer-managed application** in Identity Center (at least two — the portal's and the driver path's), with its trusted token issuer pointing at our Cognito pool, its grants and scopes, the actor policy naming our task role, and the four values our IaC consumes (§4.4) | The client's Identity Center administrators, in the management or delegated-admin account, through their LZA change process (§4.5) | Phase 5, and G11 in Phase 0 | Phase 5 does not start; this is the relationship most often discovered late (§4.5) |
 | The **successor account's** existence, organization membership and tenancy order | The client's platform team | Phase 1 | Every identity assumption in §3 is re-opened (§4.5), and §6.2's surgery reactivates |
 | The **desktop migration** — DSN shape, the ODBC 2.1.0.0 / JDBC 3.7.0 floor, the rollout | The client's endpoint owners | Phase 6's write freeze | The freeze strands them, or the dual-key fallback has to be costed first (§3.10) |
@@ -1852,7 +1852,12 @@ IaC's whole Identity Center surface is four inputs and one flag.
   **identity store id**, the **application ARN** of the portal's customer-managed application, and
   the **audience** the trusted token issuer is configured with. The instance ARN is what the Access
   Grants association, the Lake Formation configuration and the workgroup each name; the application
-  ARN is what the task role's `sso-oauth:CreateTokenWithIAM` allow is scoped to (§4.7). The four
+  ARN is what the task role's `sso-oauth:CreateTokenWithIAM` allow is scoped to (§4.7); the identity
+  store id is what the reconciler (§3.8) and the shared-space projection (§3.11) resolve users
+  through.
+  The audience is a value we originate, our Cognito app client id **[B]**: we send it with the
+  request, the administrators set it on the application's grant for our issuer, and it comes back as
+  configured. The four
   are the portal's. The driver path's own application (§3.10) is the administrators' on the same
   terms, and its ARN arrives as a fifth value when Phase 5 stands that path up.
 - **The member-account consumers, created only behind the flag**, so an environment with no
@@ -1861,6 +1866,10 @@ IaC's whole Identity Center surface is four inputs and one flag.
   - the Lake Formation Identity Center configuration;
   - the IdC-enabled Athena workgroup;
   - the carrier role (§3.6) and the key that seals the forwarded context (§4.7).
+
+  The driver path's second workgroup and its Application and Access roles (§3.10) are member-account
+  resources of the same kind; Phase 5 decides whether they share this flag when it stands that path
+  up.
 
 The IaC creates no instance, application, trusted token issuer, application grant, scope or actor
 policy, so nothing in this repository can drift those out from under the administrators. It needs
@@ -1884,8 +1893,13 @@ managed through its Landing Zone Accelerator. Its Identity Center administrators
 - the customer-managed application, the portal's and the driver path's (§3.10), which lives in the
   management or delegated-admin account;
 - the trusted token issuer pointing at our Cognito pool **[B]**;
-- the application's grants and scopes (Phase 5 asks for AWS's documented set);
-- the actor policy naming our task role (§4.7).
+- the application's grants: the `jwt-bearer` grant authorizing our issuer with our Cognito app
+  client id as its audience, and the `refresh_token` grant §3.5's refresh depends on;
+- the application's scopes (Phase 5 asks for AWS's documented set);
+- the actor policy naming our task role (§4.7);
+- the `AthenaDriverOidcAppArn` tag on the driver path's application, valued with our Access Role's
+  ARN (§3.10);
+- the permission sets that P1 to P3 need (§5.4), and assigning them.
 
 **We build none of it** (§2 item 16). Our IaC takes four values from the administrators and creates
 only the member-account consumers, behind a flag (§4.4). Every item above reaches them as a request
@@ -1900,6 +1914,12 @@ well. What the 2026-11-15 run showed carries over in part. The token flow, the t
 contexts and refresh, replay, scopes, G7 and G9 carry over. The allow-list finding does not, and is
 re-run on the organization instance. The exchange crossing from our member account into the
 application's account was never tried, so it is a new premise, gate G11 (§5.5, Phase 0).
+
+**G11 needs its own request, because it runs before Phase 1 has built what the list above names.**
+In Phase 0 there is no bridge pool and no task role yet, so the administrators set up the
+application with a test issuer (a throwaway Cognito pool of ours), an actor policy naming the
+member-account role that stands in for the task role, and a test user. Once Phase 1 has created the
+real pool and task role, they re-point the issuer and the actor policy at those.
 
 The customer-managed application still cannot be created from the data account. An organization
 instance of Identity Center lives in the AWS Organizations **management account**, and only
@@ -2422,7 +2442,7 @@ inherited from the spike; it was added on 2026-11-15 with §4.7's split. Nor is 
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5). **PASSED 2026-11-15** — enforcement shown per grant on one user; measured below the table | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
 | **G8** | **The Entra side of the Cognito federation for this application** — on the client's established pattern: the Entra application the bridge pool federates to (SAML or OIDC), and the claims it releases, **email** for the Identity Center claim mapping and whatever can carry the username (§6.1) | **No longer the variant decider: [B] was chosen on 2026-11-15** on the client's established pattern. Without it nobody signs in, and under [B] the **desktop fleet** authenticates through the same bridge (§3.10), so ask it with the drivers in the question. A conversation with the tenant owner, in **Phase 0**, with a long lead time. *It used to ask whether Entra could issue OIDC for the portal on the default signing key: pass meant [A], fail meant [B]* |
 | **G10** | **PASSED 2026-11-15, both arms — measured below the table.** **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
-| **G11** | **NOT RUN — needs the client's environment.** **The cross-account exchange.** A role in a member account, standing in for the task role (which does not exist until Phase 1), calls `CreateTokenWithIAM` on the portal's customer-managed application, which the client's administrators own in the management or delegated-admin account, with the actor policy naming that role (§4.5); a second member-account role then assumes the carrier role with the returned context and runs G7's query, as in G10. G10 put both principals and the application in one account, so it never tested the call crossing accounts | **If the exchange cannot cross accounts as drawn,** the exchange itself (§3.5 step 1) reopens, under §4.7's split and its fallback alike, since both put the caller in our account. Nothing designed covers that case, and whatever would fix it runs through the administrators, so it has their lead time. Run it in Phase 0 with the administrators (§4.5) |
+| **G11** | **NOT RUN — needs the client's environment.** **The cross-account exchange.** A role in a member account, standing in for the task role (which does not exist until Phase 1), calls `CreateTokenWithIAM` on the portal's customer-managed application, which the client's administrators own in the management or delegated-admin account, with the actor policy naming that role and a test issuer and user (§4.5's G11 request); a second member-account role then assumes a role standing in for the carrier role with the returned context and runs G7's query, as in G10. Run it in a member account of the client's organization, the successor account if it exists by then. **It passes** when the exchange returns an identity context and the query runs on the assumed session. G10 put both principals and the application in one account, so it never tested the call crossing accounts | **If the exchange cannot cross accounts as drawn,** the exchange itself (§3.5 step 1) reopens, under §4.7's split and its fallback alike, since both put the caller in our account. Nothing designed covers that case and any fix runs through the administrators, so Phase 5's exchange specs wait while the finding goes to the client relationship's owner. **If the workgroup or the Lake Formation configuration cannot be created in the member account**, that is §4.4's unconfirmed service-control-policy question failing, not G11, and it blocks Phase 5's consumers as well |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9). **PASSED 2026-11-15** — measured below the table | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 **G7, G9 and G10 RAN on 2026-11-15, and all three passed (results below).** The identity design in
@@ -2949,9 +2969,11 @@ they already were.
   agreed and written into the contract.
 - Call `DescribeLakeFormationIdentityCenterConfiguration` in the successor account (§4.4).
 - Identify the Identity Center administrators, their LZA change process and its lead time, and
-  ask them for everything §4.5 lists as theirs: the customer-managed application, the trusted token
-  issuer pointing at our Cognito pool, the grants and scopes, the actor policy naming our task role,
-  and the four values our IaC consumes (§4.4). Ask too whether their service control policies let
+  ask them for everything §4.5 lists as theirs, that list being the complete request: the
+  customer-managed applications, the trusted token issuer pointing at our Cognito pool, the
+  `jwt-bearer` and `refresh_token` grants, the scopes, the actor policy naming our task role, the
+  driver application's tag and the permission sets P1 to P3 need. Ask separately for G11's test
+  setup (§4.5), which comes first, and get back the four values our IaC consumes (§4.4). Ask too whether their service control policies let
   our member account register the AWS-managed applications that the Lake Formation configuration,
   the workgroup and the Access Grants association create (§4.4). Their cooperation is also what the
   client-environment items above need.
@@ -3221,9 +3243,9 @@ destructive, and the interim plane still carries the file browser.
 on any IAM role. The design is §3; the work items are here.
 
 > **Since 2026-11-16 the first two items below are the client's Identity Center administrators'
-> work, not ours** (§2 item 16, §4.5). Our part is the request — the pool's issuer URL, the claim,
-> the scopes, and the task role's ARN for the actor policy — and the four values that come back
-> (§4.4). They keep their detail because it is what the request has to say.
+> work, not ours** (§2 item 16, §4.5). Our part is the request — the pool's issuer URL, the app
+> client id for the grant's audience, the claim, the scopes, and the task role's ARN for the actor
+> policy — and the four values that come back (§4.4). §4.5's list is the complete request. They keep their detail because it is what the request has to say.
 
 - ~~Register~~ *Have the administrators register* the trusted token issuer in Identity Center — the bridge User Pool
   (`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`), [B] being chosen. Confirm the `aud`
