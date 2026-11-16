@@ -182,7 +182,7 @@ tree also pins its own membership to spelled-out literals (`test_config_focommon
 uniquely catches is a change made CONSISTENTLY within one tree.
 
 **The ARCHIVE WRITE-LOCK rule is held to the POLICY, never to another copy.** It exists in three
-implementations of the bucket policies' asymmetric Deny — root-anchored in a personal space,
+implementations of the portal role's asymmetric Deny — root-anchored in a personal space,
 any-depth in a shared one: `isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`,
 and this package's `protected._is_at_or_below`. Each is run against a matcher built from the Deny it
 mirrors, and none is compared to another, which is deliberately the stronger claim: two copies can
