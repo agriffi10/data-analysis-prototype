@@ -269,7 +269,7 @@ def session(profile: str | None = None, creds: dict[str, str] | None = None) -> 
       The session.
 
     Raises:
-      None.
+      SystemExit: When the named profile does not exist.
     """
     import boto3
 
@@ -281,7 +281,12 @@ def session(profile: str | None = None, creds: dict[str, str] | None = None) -> 
             aws_session_token=creds["SessionToken"],
             region_name=region,
         )
-    return boto3.Session(profile_name=profile, region_name=region)
+    from botocore.exceptions import ProfileNotFound
+
+    try:
+        return boto3.Session(profile_name=profile, region_name=region)
+    except ProfileNotFound as err:
+        raise SystemExit(f"{err}; check the profile names in config.env") from err
 
 
 def principal_of(arn: str | None) -> str | None:

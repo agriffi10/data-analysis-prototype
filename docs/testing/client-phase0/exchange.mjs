@@ -51,7 +51,9 @@ export async function runExchange({ oidc, sts, commands, evidence, mode, appArn,
   try {
     caller = await sts.send(new commands.GetCallerIdentityCommand({}));
   } catch (err) {
-    evidence.record(`${label}.caller`, errorOutcome(err));
+    const outcome = errorOutcome(err);
+    evidence.record(`${label}.caller`, outcome);
+    evidence.record(label, { ...outcome, data: { ...outcome.data, mode, appArn, appAccount: applicationAccount(appArn), caller: null } });
     return null;
   }
   const callerData = { account: caller.Account, arn: caller.Arn };

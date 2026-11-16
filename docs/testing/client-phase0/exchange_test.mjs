@@ -111,3 +111,13 @@ test('the log refuses a JWT and a path inside a checkout', () => {
   assert.throws(() => new Evidence(join(repo, 'e.jsonl')), /inside the git checkout/);
   assert.equal(applicationAccount('arn:aws:iam::1:role/x'), null);
 });
+
+test('a caller lookup that fails still records the exchange label, so the verdict says why', async () => {
+  const { evidence, lines } = freshLog();
+  const noCreds = { send: async () => { throw Object.assign(new Error('Could not load credentials'), { name: 'CredentialsProviderError' }); } };
+  const kept = await runExchange({ oidc: noCreds, sts: noCreds, commands, evidence, mode: 'jwt', appArn: APP, credential: 'x'.repeat(20), label: 'C1.exchange' });
+  assert.equal(kept, null);
+  const exchange = lines().find((l) => l.label === 'C1.exchange');
+  assert.equal(exchange.code, 'Local:CredentialsProviderError');
+  assert.equal(exchange.data.appAccount, '111111111111');
+});
