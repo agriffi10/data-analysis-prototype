@@ -136,9 +136,11 @@ While it is set:
   exist. The client also has `explicit_auth_flows = ["ALLOW_REFRESH_TOKEN_AUTH"]` and
   `allowed_oauth_scopes = ["openid", "email", "profile"]`, and keeps token revocation on.
 - The development client (`aws_cognito_user_pool_client.dev`) and the development session parameter
-  are not created (`count` on the flag). Their outputs become nullable: the module's `dev_client_id`,
-  root's `cognito_dev_client_id`, and the branding loop in `deploy-infra.yml`, which skips an output
-  that is null.
+  are not created (`count` on the flag). Their outputs become nullable: the module's `dev_client_id`
+  and root's `cognito_dev_client_id`. A null root output is dropped from state, so
+  `tofu output -raw` errors on it rather than printing null. The branding loop in `deploy-infra.yml`
+  therefore reads `tofu output -json` and skips a missing key. `test_session_infrastructure.py`'s pin
+  on that loop moves with it.
 
 **All three trigger functions are created in both modes**, with their roles, keep-warm targets and
 invoke permissions. Only the pool's `lambda_config` changes with the flag. An unwired trigger cannot
@@ -150,9 +152,14 @@ latter two gets a `moved` block whose `from` is the address the current state ho
 
 **The shape the tests read.** Each client argument that differs by mode indexes one of two literal
 objects, `local.client_settings.cognito` (today's values) and `local.client_settings.bridge`, by
-`local.identity_mode` (`"cognito"` or `"bridge"`, from the flag). The pool's differing arguments
-follow the same pattern. No argument is a ternary written inline, so a test reads each branch as a
-literal.
+`local.identity_mode` (`"cognito"` or `"bridge"`, from the flag). No client argument is a ternary
+written inline, so a test reads each branch as a literal. The pool selects by mode per block:
+`lambda_config`'s `pre_sign_up` and `post_confirmation` are each
+`local.identity_mode == "cognito" ? module.<trigger>.function_arn : null`, which keeps the literal
+`module.X.function_arn` that `test_keep_warm.py`'s population match reads.
+`pre_token_generation_config` is a `dynamic` block over `local.identity_mode == "bridge" ? [1] : []`,
+and the `shared_space` `schema` block's `for_each` is `range(...)` in `cognito` mode and `[]` in
+`bridge` mode. FR-002 reads those three forms by name.
 
 #### Acceptance Criteria:
 
@@ -162,8 +169,13 @@ literal.
 - [ ] With it set (a test fixture's values), `tofu validate` passes, and a plan in a scratch root
       shows one SAML identity provider, a `lambda_config` with only `pre_token_generation_config`, no
       `custom:shared_space_*` schema, one app client, and no development session parameter.
-- [ ] Every `moved` block's `from` matches an address `tofu state list` reports today. The build
-      checks this against the current state, not against the configuration.
+- [ ] Every `moved` block's `from`, prefixed with `module.auth.`, matches an address
+      `tofu state list` reports today. The build checks this against the current state, not against
+      the configuration. Adding `count` already moves the address implicitly, so the blocks make the
+      move explicit; they do not carry it.
+- [ ] In the scratch root, a second plan straight after the first apply is empty. A SAML provider
+      with a `MetadataURL` can read back extra `provider_details` keys and show a permanent diff,
+      and the build ignores or states those keys until the second plan is empty.
 - [ ] FR-002's test asserts that `client_settings.bridge.supported_identity_providers` references
       `aws_cognito_identity_provider.entra`, not `var.entra_federation`, so the dependency edge that
       orders the apply cannot be lost.
@@ -248,8 +260,14 @@ It fails closed in two ways, chosen by whether retrying could help:
   answers.
 
 It is declared like the other Cognito triggers in `infra/modules/auth/lambda.tf`: a `docker-lambda`
-module call, its own execution role, `s3:GetObject` on `{admin bucket}/identity-index/*` and nothing
-else in S3, logs, and an invoke permission for the pool. It has `timeout_seconds = 5`, which matches
+module call, its own execution role, logs, and an invoke permission for the pool. In S3 it holds
+exactly two grants: `s3:GetObject` on `{admin bucket}/identity-index/*`, and `s3:ListBucket` on the
+admin bucket, conditioned on `s3:prefix` = `identity-index/*`, in the shape
+`infra/planes/shared-spaces/execution.json.tftpl` uses for `memberships/`. S3 answers `NoSuchKey`
+only to a caller that may list the bucket, and `AccessDenied` otherwise
+(`docs/decisions/infrastructure/`, *A role that cannot list a bucket cannot be told an object is
+absent*). Without the list grant, every user missing from the index would raise as a fault instead
+of being refused. It has `timeout_seconds = 5`, which matches
 Cognito's wait, and `memory_mb = 512`, which buys CPU for the image's cold start inside that wait. It
 joins `keep-warm.tf`'s daily invoke. `keep-warm.json` carries no `cognito:user_status`, so it is a
 no-op by rule 1 and reads nothing.
@@ -268,12 +286,16 @@ no-op by rule 1 and reads nothing.
 - [ ] `keep-warm.json` run through the handler returns the event unchanged and makes no S3 call.
 - [ ] The function is in `fleet.py`'s inventory and the cold-start probe set, carries the
       Google-style docstrings and no inline comments, and passes the layer import-safety test.
-- [ ] The execution role's policy allows `s3:GetObject` on `identity-index/*` only, asserted over
-      the template.
-- [ ] After deploy in this account, where the function exists but is unwired, a cold invoke with a
-      synthetic `EXTERNAL_PROVIDER` event, `userName` `unwired_{guid}`, for a subject with no entry, returns within 5 seconds,
-      measured from the function's own `REPORT` line (`Init Duration` plus `Duration`), and logs
-      `not_on_index`. This is a read-only half of the live check, runnable here.
+- [ ] The execution role's policy allows exactly `s3:GetObject` on `identity-index/*` and
+      `s3:ListBucket` conditioned on that prefix, asserted over the template, and
+      `lambdas/test_absence_is_answerable.py` covers the trigger's `NoSuchKey` branch.
+- [ ] After deploy in this account, where the function exists but is unwired, a **cold** invoke
+      with a synthetic `EXTERNAL_PROVIDER` event (`userName` `unwired_{guid}`, a subject with no
+      entry) logs `not_on_index` and returns within 5 seconds. The invoke is forced cold by a
+      configuration touch first, because the deploy's own probe leaves the function warm. Its
+      `REPORT` line must carry an `Init Duration`, or the check is void and is re-run. The record
+      gives `Init Duration`, `Duration` and the client-side round trip, which is what Cognito waits
+      on. This is the read-only half of the live check, runnable here.
 
 ### FR-004: The server and the API read the trigger's claim, and the redirect names Entra
 
@@ -289,9 +311,13 @@ no-op by rule 1 and reads nothing.
   promotion merges.
 - `session_environment` becomes `merge(local.session_environment_base,
   local.session_environment_bridge)`. The base keeps today's literal block. The bridge part is
-  `{ OIDC_IDENTITY_PROVIDER = one(aws_cognito_identity_provider.entra[*].provider_name) }` under the
-  flag and `{}` otherwise. Referencing the provider resource ties the setting to the apply that
-  creates the provider, because Cognito rejects an `identity_provider` the client does not list.
+  `{ cognito = {}, bridge = { OIDC_IDENTITY_PROVIDER = module.auth.entra_provider_name } }[local.identity_mode]`,
+  the same map-index pattern as FR-001. A ternary between `{}` and a one-key object is rejected as
+  inconsistent types. `module.auth` gains a nullable output, `entra_provider_name`, read from
+  `one(aws_cognito_identity_provider.entra[*].provider_name)`. The provider lives in the module, so
+  root reaches it only through an output. Taking the value from the resource ties the setting to the
+  apply that creates the provider, because Cognito rejects an `identity_provider` the client does not
+  list.
 - The verifier's `oidc_audience` is the server's client alone under the flag, since there is no
   development client to name, and unchanged otherwise.
 
@@ -322,10 +348,15 @@ all of them.
   `ListUsers` on `userpool/*`). The statement moves out of
   `infra/planes/shared-spaces/execution.json.tftpl` into a separate policy whose attachment exists
   only while `entra_federation` is `null`.
-- A new test, `lambdas/test_portal_roles_cannot_rewrite_identity.py`, reads every IAM policy
-  template in the infra tree attached to a portal role: every plane's execution role, the API's, the
-  server's task role, the shared portal role and the triggers'. The deploy role is not a portal role
-  and is excluded by name, because it builds all of this. Matching is case-insensitive and
+- A new test, `lambdas/test_portal_roles_cannot_rewrite_identity.py`, takes its population from the
+  tree, not from a list. Every `templatefile("...json.tftpl")` bound to a role-policy argument
+  (`policy`, `role_policy`, `role_policies`, `execution_policy`) is in it. A named exclusion set
+  holds what is not a portal role's identity policy: the deploy role's templates (it builds all of
+  this), bucket policies, flow logs and the Lake Formation registration role. Every `.json.tftpl` in
+  `infra/` must be in the population or the exclusion set, so a template bound some new way fails
+  the test instead of escaping it. Placeholders such as `${logs_prefix}` and `${manifest_prefix}` are
+  rendered from the root locals that bind them, never as `*`, so the feedback writer, the log sweep,
+  the control-plane manifests and the DLQ drain are judged on the prefixes they really write. Matching is case-insensitive and
   wildcard-aware in both directions: a granted pattern like `cognito-idp:*`, `s3:Put*`, `*` or a
   resource like `{admin}/*` counts. A `NotAction` or `NotResource` Allow counts as matching. The test
   asserts that, under the flag, no `Allow` statement grants:
@@ -341,16 +372,16 @@ all of them.
 
 - [ ] Under the flag, the shared-spaces role has no Cognito statement. Without it, the role's
       effective actions are unchanged from today, asserted over the rendered statements.
-- [ ] The test passes on the FR-005 tree. Today's `{admin}/*` statements are Denies
-      (`file-ops`, `archive`), and the test does not count a Deny as a grant.
+- [ ] The test passes on the FR-005 tree. Five templates hold `{admin}/*` statements today
+      (archive, file-ops, file-send, table-share, table-builder), all of them Denies, and the test
+      does not count a Deny as a grant.
 - [ ] The test fails on each planted violation, with a message naming the template and the grant.
       The plants are: `cognito-idp:Admin*` added to a plane's template,
       `cognito-idp:UpdateIdentityProvider`, `cognito-idp:*`, a `NotAction` Allow, `s3:PutObject` on
       `{admin}/*`, `lambda:UpdateFunctionConfiguration` on `*`, and the moved policy's attachment
       losing its flag condition.
-- [ ] The test's template count is compared with a raw count of `.json.tftpl` files under the policy
-      directories it sweeps, so a template the sweep misses fails the test rather than passing over
-      it.
+- [ ] A new `.json.tftpl` added anywhere under `infra/`, bound to neither the population nor the
+      exclusion set, fails the test. This is planted once and reverted.
 
 ---
 
@@ -408,7 +439,7 @@ infra/
 │   ├── lambda.tf                      # the trigger, created in both modes
 │   ├── keep-warm.tf, outputs.tf, variables.tf
 │   └── policies/pre-token-generation-*.json.tftpl
-├── modules/base/policies/github-actions-deploy.json.tftpl   # PR 1
+├── modules/base/iam.tf, policies/deploy-bridge.json.tftpl   # PR 1, a managed policy
 └── planes/shared-spaces/                                    # the grant moved out, attached when flag off
 .github/workflows/deploy-infra.yml     # branding loop skips a null dev client output
 lambdas/
@@ -424,16 +455,23 @@ apps/portal/src/server/session/config.ts (+ test), apps/portal/.env.example   # 
 ### Phase 1: Deploy-role IAM (its own PR, first)
 
 - Read `infra/info/deploy-role-iam.md`. The deploy role scopes each trigger by name, so the new
-  function needs the same statements `-pre-signup` has: the function, `-pre-token-generation-role`,
-  its log group, and the probe invoke. Add those, and add `cognito-idp:CreateIdentityProvider`,
-  `DescribeIdentityProvider`, `UpdateIdentityProvider`, `DeleteIdentityProvider` and
-  `ListIdentityProviders` on `userpool/*`.
+  function needs the statements `-pre-signup` has, minus the probe invoke: the function,
+  `-pre-token-generation-role` and its log group. Add those, and add
+  `cognito-idp:CreateIdentityProvider`, `DescribeIdentityProvider`, `UpdateIdentityProvider`,
+  `DeleteIdentityProvider` and `ListIdentityProviders` on `userpool/*`. **They go in a new
+  customer-managed policy** (`deploy_bridge` in `infra/modules/base/iam.tf`), not the inline deploy
+  policy. Its aggregate is near IAM's 10,240-character limit, and `iam.tf` says every new grant is a
+  managed policy. `test_deploy_platform_policies.py` measures both budgets.
 
 ### Phase 2: The trigger (FR-003)
 
-- The function, its tests, its role and template, the keep-warm target and probe, created in both
-  modes and wired nowhere yet. It needs no `requirements.txt`, because boto3 is in the image. Deploy
-  it and run FR-003's cold-invoke check here.
+- The function, its tests, its role and template, the keep-warm target, created in both modes and
+  wired nowhere yet. Its probe-invoke grant and its `.github/lambda-probes.json` entry land here
+  too, with the function, because `test_cold_start_probe.py` fails an invoke grant or probe entry
+  naming a function Terraform does not declare. `USERNAME_CLAIM` is rendered here from
+  `local.oidc_username_claim`, still `cognito:username`, so the handler's configuration is complete
+  from its first deploy. It needs no `requirements.txt`, because boto3 is in the image. Deploy it and
+  run FR-003's cold-invoke check here.
 
 ### Phase 3: The flag, the pool and the guardrail test (FR-001, FR-002)
 
@@ -444,7 +482,7 @@ apps/portal/src/server/session/config.ts (+ test), apps/portal/.env.example   # 
 ### Phase 4: The readers and the roles (FR-004, FR-005)
 
 - Promote `OIDC_USERNAME_CLAIM` after confirming the live task definition carries it. Then add the
-  conditional local, the trigger's `USERNAME_CLAIM`, the provider name and the audience. Move the
+  conditional local, the provider name output and the audience. Move the
   shared-spaces grant and add the role test.
 
 ### Phase 5: Close-out
