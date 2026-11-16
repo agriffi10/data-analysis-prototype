@@ -59,7 +59,8 @@ from Access-Grants credentials redeem from a browser, and one role's exchange is
 so the Next.js server exchanges as drawn. A refresh returns a new identity context, so §3.5's
 refresh strategy stands, and §6.1's open scope question closed clean. **One finding cuts the other
 way**: the allow-list policy §3.6 relies on to deny plain S3 was not in effect on the
-identity-enhanced session, so the carrier role's own policy is the only control there, and Phase 0
+identity-enhanced session, so the carrier role's own policy and the bucket policies are the only
+controls there, and Phase 0
 re-runs that check on the successor account's organization instance. P1 to P3 need that instance too
 and are still owed. §5.5 carries the measurements.
 
@@ -499,9 +500,10 @@ and `ListObjectsV2` are denied (§3.6). A file browser cannot run on that plane 
 directly, so storage moves to Access Grants, and once it has there is no second plane left to keep.
 *(Phase 0 measured on 2026-11-15 that the allow-list's Deny was not in effect on an
 identity-enhanced session, and plain S3 worked on the carrier role's own grant (§3.6's amendment).
-So this paragraph's reason is unproven. Access Grants is still required for the IdC workgroup, but
-whether per-user storage could run on plain S3 narrowed by a policy variable such as
-`${identitystore:UserId}` is now an open question, untested and not re-decided here.)*
+So this paragraph's reason was contradicted on an account instance, pending the re-run. Access
+Grants is still required for the IdC workgroup, but whether per-user storage could run on plain S3
+narrowed by a policy variable such as `${identitystore:UserId}` is now an open question, untested
+and not re-decided here.)*
 
 Running both anyway was the previous design, and it was the more expensive answer to the same
 problem: two credential paths, two isolation mechanisms for one product, and a hard wall between them.
@@ -545,9 +547,9 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
                     (AWS permits an ID token OR an access token — "the token can be an
                      identity token or an access token". This plan assumes the ID token,
                      the shape AWS's own Entra walkthrough uses. Verified 2026-08-19)
-                    — at sign-in, the one the callback's code exchange just returned; a
-                      later, refreshed Cognito ID token also exchanges (measured 2026-11-15),
-                      which is the recovery when step 1r is refused (§4.7)
+                    — the one the callback's code exchange just returned. Each assertion
+                      exchanges once; a later, refreshed Cognito ID token also exchanges
+                      (measured 2026-11-15), which matters only to §4.7's open question
    → IdC validates the signature against the TTI's JWKS, checks the audience,
      maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns accessToken, refreshToken (when the grant is enabled), idToken, and
@@ -832,10 +834,11 @@ says. It is NOT what Phase 0 measured on 2026-11-15; see the amendment below.)*
 > **subset of the allow-list's own list**, an allow set rather than named absences, which `s3:Get*`
 > would slip past. The second half-exists. The user-space bucket's policy already denies direct
 > object access to every principal it does not name (§3.12 item 5), so the obligation there is to
-> keep the carrier role off that list. The shared-space bucket has no such policy, and whether it
-> gains one is that spec's call. This also unsettles the reason §3.4 and §3.9 give for Access Grants,
-> the P1-implies-P3 tension in §5, and the allow-list's role in the actor contract
-> (`docs/specs/ARCS.md`). Neither is decided here.
+> keep the carrier role off that list, and to put the Access Grants location role on it, because
+> vended credentials act as that role (Phase 5's Access Grants item). The shared-space bucket has no
+> such policy, and whether it gains one is that spec's call. This also unsettles the reason §3.4 and
+> §3.9 give for Access Grants, the P1-implies-P3 tension in §5, and the allow-list's role in the
+> actor contract (`docs/specs/ARCS.md`). Neither is decided here.
 
 ### 3.7 How Lake Formation enforces
 
@@ -2089,14 +2092,23 @@ less.**
   The refusal is `InvalidContextAssertion` (*"Provided context has expired"*, measured
   2026-11-15). **The margin also bounds the carrier session**, because STS ends that session when
   its context expires: a context forwarded with five minutes left yields a session of at most five
-  minutes. The margin is the server's, so the Phase 5 server spec sizes it against the API's longest
-  call, not only against the provider's clock.
-- **A refused Identity Center refresh is recovered by re-exchanging, not by ending anything.** The
-  refresh token was not rotated and lived at least three hours in Phase 0, but a session lasts up to
-  30 days, and nothing measured says one Identity Center refresh token survives that long. When
-  step 1r is refused, the server runs step 1 again with the provider's freshly refreshed Cognito ID
-  token, which Phase 0 measured exchanging normally. If that fails too, the context is marked
-  absent, by the same rule as a failed sign-in exchange (above).
+  minutes. That is enough for every call made on a carrier session, since API Gateway caps an
+  integration at about 30 seconds, and asynchronous work such as an Athena query or a presigned
+  URL's redemption does not ride the session. So the 300-second margin stands; a spec that raises
+  it raises the provider's with it.
+- **What a refused Identity Center refresh does is OPEN, for the Phase 5 server spec.** Phase 0
+  saw the refresh token last at least three hours without rotating, but a session lasts up to 30
+  days, and nothing measured says one refresh token lasts that long. Phase 0 also measured that a
+  refreshed Cognito ID token exchanges, so re-running step 1 is available as a recovery. As a rule,
+  though, it carries three hazards. First, it would mint a new Identity Center session past any
+  session revocation or duration the Identity Center administrators set (§4.5), so de-provisioning
+  would have to go through SCIM or unassignment. Second, it spends the 10-per-second JWT-bearer
+  quota, which the Phase 0 sizing counts only at sign-in, and refresh tokens issued in a login
+  storm would expire together. Third, two containers re-exchanging at once would collide, and the
+  loser's replay refusal looks exactly like a real refusal, so it needs the session item's
+  compare-and-set. The alternative is marking the context absent until the next sign-in. That spec
+  decides, after Phase 0 probes whether deleting a user's Identity Center session refuses a
+  refresh.
 - **Ordering invariant:** step 1r runs, and a context is forwarded, only while the provider's token
   is valid. A context refreshed on its own clock would extend data access past the provider's.
 - **The API's credential cache is keyed on the context, not the claims.** It already caches an
@@ -2806,7 +2818,10 @@ they already were.
   an identity-enhanced session reached plain S3 although the allow-list policy would deny it
   (§3.6's amendment). That was one run on an account instance, so repeat it where the portal will
   live, together with the two G10 inputs that run could not exercise: Entra upstream of Cognito,
-  and the Identity Center mapping on `externalId` rather than `email` (§6.1).
+  and the Identity Center mapping on `externalId` rather than `email` (§6.1). Probe one action off
+  the list too (an `sqs:SendMessage` to a scratch queue), to tell a Deny absent entirely from an
+  S3-only gap. While the instance is up, delete a user's Identity Center session and see whether a
+  refresh and a re-exchange still succeed (§4.7's open question).
 - **Check the Region against the list, before anything else is stood up.** Trusted identity
   propagation with Athena is available in an **enumerated set of Regions** — `us-east-1` is on it;
   `eu-south-2`, `ap-south-2`, `il-central-1`, `me-central-1` and `ca-west-1` are not. The Identity
@@ -3111,10 +3126,9 @@ on any IAM role. The design is §3; the work items are here.
   the workgroup refuses a session without (§5.5).
 - **The server exchanges** (§3.5 steps 1 and 1r, §4.7) — a spec of its own, on the Next.js server:
   `CreateTokenWithIAM` in the callback, the Identity Center tokens in the existing session item
-  under its compare-and-set, the refresh on a margin sized against the API's longest call (§4.7)
-  and only while the provider's token is valid, a refused Identity Center refresh recovered by
-  re-exchanging a fresh Cognito ID token (§4.7), a failed exchange leaving a session without a
-  context rather than no session, the
+  under its compare-and-set, the refresh on the provider token's margin and only while that token
+  is valid, the decision on what a refused Identity Center refresh does (§4.7 leaves it open), a
+  failed exchange leaving a session without a context rather than no session, the
   table of Identity Center refusals and faults, and the context sealed to the bearer's subject and
   forwarded on the `/api/` pass-through. Deploy-role IAM
   first, then the task role's `sso-oauth:CreateTokenWithIAM` and the application's actor policy
@@ -3126,7 +3140,11 @@ on any IAM role. The design is §3; the work items are here.
   with a code other than 401, and the header kept out of every log. It can land before the first,
   inert while no request carries the header. Both specs are written **after G10**, which ran on
   2026-11-15 and kept `CreateTokenWithIAM` on the server, so §4.7's fallback is not needed.
-- Create the catalog carrier role (§3.6).
+- Create the catalog carrier role (§3.6), with the IAM test §3.6's amendment owes. Its allowed
+  actions, across every inline and attached policy, must be a subset of a vendored copy of the
+  allow-list (v12, re-vendored on purpose). Wildcards are forbidden in the role, and so are Allow
+  statements with `NotAction`. The test bounds identity policies only; a resource policy naming the
+  role would grant around it.
 - Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
   likely a create, not a join.
 - Create an Identity Center enabled Athena workgroup **for the portal**, and — having decided its
@@ -3153,7 +3171,11 @@ on any IAM role. The design is §3; the work items are here.
   prerequisite it was previously described as: it is what replaces `${aws:PrincipalTag/username}`
   when the interim plane retires. Instance, Identity Center association, registered locations,
   `sts:SetContext` on the location role, and the per-user grants in whichever prefix form Phase 0
-  decided. **Gate G9 (§5.5) must have passed** before the API presigns from these credentials.
+  decided. **The location role joins the user-space bucket policy's principal list
+  (`user-space-bucket-policy.json.tftpl`) in the same PR**, or every presign from vended
+  credentials on that bucket is denied. G9 passed on a throwaway bucket with no such policy, so it
+  could not catch this (§3.12 item 5's trap). **Gate G9 (§5.5) must have passed** before the API
+  presigns from these credentials; it did, on 2026-11-15.
 - **Run the provisioner's identity-shaped pass** (§3.12) — the per-user Access Grant, if Phase 0
   chose the literal form. It could not run in Phase 2 because a grant binds an Identity Center user
   rather than a string, so it waits on SCIM. An unresolvable user is a **refusal naming the user**,
@@ -3238,7 +3260,8 @@ freeze. This is the whole reason the old account survives the quiet period.
 - **Does the allow-list apply on the organization instance?** It was not in effect on the account
   instance Phase 0 used (§3.6's amendment). If it is not there either, could per-user storage run
   on plain S3 narrowed by `${identitystore:UserId}` instead of a grant per user? That is untested,
-  and it would revisit §3.4 and §3.9.
+  and it would revisit §3.4 and §3.9. It would also rest on behaviour that contradicts AWS's
+  published policy, which AWS could start enforcing without notice.
 - Does the successor account exist yet, and is it in the **same organization** — the same
   Identity Center organization instance? §3 and §4.1 assume yes (§4.5).
 - Who else lands in the successor account, when, and is the portal's first-tenant ownership of
@@ -3311,13 +3334,13 @@ freeze. This is the whole reason the old account survives the quiet period.
 - Who owns TLS and DNS for the new origin, and what is the turnaround on getting a certificate?
   The origin must be settled before Phase 1's provider callback URLs are finalised.
 - What is the session's lifetime relative to the provider session and the Identity Center refresh
-  token — the three clocks in §4.7? **Partly answered 2026-11-15:** the provider's hourly refresh
-  is the master clock (§4.7), and SPEC-257 caps the session at the provider refresh token's life.
-  The Identity Center refresh token's lifetime is still undocumented. G10 measured at least
-  three hours and four minutes, with no rotation on use. That is far short of a 30-day session, so
-  the server recovers a refused refresh by re-exchanging (§4.7) rather than relying on the token
-  lasting. (Bucket CORS is now this repo's own configuration — §4.6 — so the old change-request
-  dependency is gone.)
+  token — the three clocks in §4.7? **Partly answered 2026-11-15:** the provider's hourly refresh is
+  the master clock (§4.7), and SPEC-257 caps the session at the provider refresh token's life. The
+  Identity Center refresh token's lifetime is still undocumented. G10 measured at least three hours
+  and four minutes, with no rotation on use. That is a lower bound, not the lifetime, so whether one
+  token lasts a 30-day session is unknown, and what a refused refresh does is open for the Phase 5
+  server spec (§4.7). (Bucket CORS is now this repo's own configuration — §4.6 — so the old
+  change-request dependency is gone.)
 
 **Gating Phase 5:**
 
