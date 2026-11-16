@@ -234,7 +234,7 @@ def test_a_derived_key_is_refused_where_the_prefix_rule_refuses_and_names_the_fo
     ``finance/projects/system_settings/`` holds no ``system_settings/archive`` pair, so only the
     derived key does. The ``None`` rows are what keeps it from refusing a user's own folder, or a file
     that only shares a folder's name. The personal archive row was accepted while the rule followed
-    the bucket policies rather than the execution role that does the write.
+    the portal role's policies rather than the execution role that does the write.
     """
     refusal = derived_destination_refusal(root, key)
 
@@ -301,9 +301,9 @@ def test_a_destination_under_one_of_the_roles_folders_is_refused_below_the_root_
     """The execution role denies these writes at any depth, so the prefix is refused before a run.
 
     Every refused row but the shared archive row and the last was accepted while this rule followed
-    the picker and the bucket policies, and failed at the write with ``AccessDenied``. The reason is the any-depth arm's own, not the locked folder's,
-    except on the last row: ``system_settings/`` at the root is picker-locked in its own right, and
-    that rule answers first.
+    the picker and the portal role's policies, and failed at the write with ``AccessDenied``.
+    The reason is the any-depth arm's own, not the locked folder's, except on the last row:
+    ``system_settings/`` at the root is picker-locked in its own right, and that rule answers first.
     """
     root = prefix.split("/", 1)[0] + "/"
 

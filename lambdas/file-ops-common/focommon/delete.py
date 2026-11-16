@@ -64,7 +64,8 @@ Attributes:
     is NOT a precondition mismatch — it is retryable, where a mismatch is terminal for that object.
   _ALREADY_GONE: The object is not there. On the unconditional path S3 never says this; on the
     conditional path it is what a replayed batch answers, and it means the deletion succeeded.
-  _DENIED_CODES: The bucket policy or the role's own Deny refused it.
+  _DENIED_CODES: The execution role's own Deny refused it, or the user-space bucket policy's
+    principal allowlist did.
 """
 
 import logging
@@ -176,14 +177,14 @@ def assert_item_deletable(keys: list, allowed_prefix: str) -> None:
     and nothing deleted: a full duplicate of the entire selection. An item containing a denied key
     fails alone; its siblings are deleted.
 
-    Four rules, and the ordering is the point of the function. The bucket policies deny
-    ``s3:DeleteObject`` on the marker at any depth and the execution role denies the portal's own
-    folders, so a list carrying one of those does not fail as a whole — it fails PART WAY THROUGH,
-    after some of the user's data is already gone. Checking up front turns that into a refusal that
-    has moved nothing. The folders are ``protected.role_denied_folder``'s reading of the role's
-    Deny, the one every write rule on this plane reads too — the plane's own scan once counted a
-    key's first segment, and refused every delete a user literally named ``user_settings`` asked
-    for, which the role permits.
+    Four rules, and the ordering is the point of the function. The execution role denies
+    ``s3:DeleteObject`` on the marker at any depth and on the portal's own folders, so a list
+    carrying one of those does not fail as a whole — it fails PART WAY THROUGH, after some of the
+    user's data is already gone. Checking up front turns that into a refusal that has moved
+    nothing. The folders are ``protected.role_denied_folder``'s reading of the role's Deny, the one
+    every write rule on this plane reads too — the plane's own scan once counted a key's first
+    segment, and refused every delete a user literally named ``user_settings`` asked for, which the
+    role permits.
 
     **Containment is BOTH rules, not just the prefix one.** A key is rebuilt from a root and a
     stored relative key, and ``"alice/../bob/secrets.csv"`` starts with ``"alice/"`` — so a prefix

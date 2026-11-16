@@ -182,7 +182,7 @@ tree also pins its own membership to spelled-out literals (`test_config_focommon
 uniquely catches is a change made CONSISTENTLY within one tree.
 
 **The ARCHIVE WRITE-LOCK rule is held to the POLICY, never to another copy.** It exists in three
-implementations of the bucket policies' asymmetric Deny — root-anchored in a personal space,
+implementations of the portal role's asymmetric Deny — root-anchored in a personal space,
 any-depth in a shared one: `isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`,
 and this package's `protected._is_at_or_below`. Each is run against a matcher built from the Deny it
 mirrors, and none is compared to another, which is deliberately the stronger claim: two copies can
@@ -230,7 +230,8 @@ opening — but a guard that reads statements can never see any of them, and say
 of this table.
 
 The `Action` sets, by contrast, ARE covered — both surviving statements, by two guards.
-`test_archive_bucket_isolation.py` pins the exact set on each bucket's receipt Deny.
+`test_archive_bucket_isolation.py` pins the exact set on the portal role's receipt Deny for each
+bucket.
 `test_portal_role_preservation.py` reaches the same two from the other side, comparing each against
 the depth-one statement it replaced, read from the baseline commit. So the set cannot be narrowed in
 one place and left alone in the other, and dropping `s3:PutObject` from either Deny reddens both

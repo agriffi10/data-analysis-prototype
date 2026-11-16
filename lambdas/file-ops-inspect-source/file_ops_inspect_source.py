@@ -115,9 +115,10 @@ def _excluder(root: str, item_key: str):
     **A closed enumeration of four rules, two of which the shared helper would otherwise decide by
     default.** Every omission here is silent, so they are stated rather than inherited:
 
-      - the undeletable marker, at any depth, is EXCLUDED rather than refused. Both bucket policies
-        deny deleting it and ``saved_queries/`` ships one, so failing a whole folder on a nested
-        marker would refuse everything in it for the sake of the one file nobody can remove;
+      - the undeletable marker, at any depth, is EXCLUDED rather than refused. The portal role and
+        this plane's execution role both deny deleting it and ``saved_queries/`` ships one, so
+        failing a whole folder on a nested marker would refuse everything in it for the sake of the
+        one file the user cannot remove;
       - the portal-managed folders at the SPACE ROOT are excluded, so an expansion reaching them
         from above does not sweep the notification inbox and the connections cache into a move;
       - **zero-byte folder placeholders are KEPT**, so an empty subfolder survives an operation
