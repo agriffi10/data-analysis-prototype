@@ -170,6 +170,9 @@ outside this project, and the four orderings that have a wrong answer in both di
   four-leg argument (§3.3 below carries a precis, not a substitute), the two-lane framing, and the
   `AWSIAMIdentityCenterAllowListForIdentityContext` v12 evidence. This document stays authoritative;
   where they disagree, read here.
+- **Asking the client's Identity Center administrators for something** →
+  `docs/identity-center-admin-requests.md`, the request list sent to them, written for that audience
+  and derived from this plan; change it in the same pull request as anything here it restates.
 
 ---
 
