@@ -30,15 +30,15 @@ So the rule is stated per (side x operation), enumerated against the real consta
   - for EVERY operation INCLUDING COPY, the marker file by basename — see below;
   - as a COPY SOURCE, no FOLDER rule at all. There is deliberately none, and a test says so.
 
-**Two policies are mirrored here, and they differ.** The source rules mirror the PORTAL ROLE's
-policy for each bucket — identity policies on the role every signed-in user's object requests run
-under, not bucket policies — whose asymmetry is kept rather than averaged: in the personal bucket
-the prefix IS the principal tag, so the Deny names the caller's own root and
-``alice/backups/system_settings/archive/x`` is outside it, while the shared bucket's Deny puts a
-wildcard where the space name goes, and an S3 resource wildcard matches ``/`` too, so it reaches
-the folder at ANY depth below the space root. ``test_archive_write_lock_mirrors_iam.py`` builds a
-key matcher out of each of those policies and runs ``_is_at_or_below`` against it, so that half is
-asserted rather than described.
+**Two roles' policies are mirrored here, and they differ.** The source rules mirror the PORTAL
+ROLE's identity policy for each bucket, the role every signed-in user's object requests run under;
+no bucket policy carries these Denies. Its asymmetry is kept rather than averaged: in the personal
+bucket the prefix IS the principal tag, so the Deny names the caller's own root and
+``alice/backups/system_settings/archive/x`` is outside it, while the portal role's shared-bucket
+Deny puts a wildcard where the space name goes, and an S3 resource wildcard matches ``/`` too, so
+it reaches the folder at ANY depth below the space root. ``test_archive_write_lock_mirrors_iam.py``
+builds a key matcher out of each of those policies and runs ``_is_at_or_below`` against it, so that
+half is asserted rather than described.
 
 But the plane WRITES and DELETES under its own execution role, which carries no principal tag, so
 that role's Denies reach ``ANY_DEPTH_DENIED_FOLDERS`` at any depth in BOTH buckets. A rule anchored
@@ -81,9 +81,9 @@ def _is_root_folder(key: str, root: str, name: str) -> bool:
     """Reports whether a key names one folder at the space root, and not below it.
 
     **A file whose name happens to match is NOT that folder.** ``alice/archive`` — an
-    extension-less file — is matched by no bucket Deny and the browser's own rule only ever asks
-    this of a folder, so treating it as one would refuse a delete both the browser and IAM permit.
-    A folder's key carries its trailing slash by the time it reaches here; validate-authorize
+    extension-less file — is matched by no portal-role Deny and the browser's own rule only ever
+    asks this of a folder, so treating it as one would refuse a delete both the browser and IAM
+    permit. A folder's key carries its trailing slash by the time it reaches here; validate-authorize
     normalises it.
 
     Args:
@@ -123,7 +123,7 @@ def _is_under_root_folder(key: str, root: str, name: str) -> bool:
 
 
 def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
-    """Reports whether a key is the named folder or anything inside it, as the portal role rules.
+    """Reports whether a key is the named folder or anything inside it, per the portal role's Deny.
 
     Root-anchored in a personal space and any-depth in a shared one, mirroring the portal role's
     Deny in each bucket rather than averaging the two.
@@ -147,7 +147,7 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
       space_kind: ``personal`` or ``shared``, which is what selects the rule.
 
     Returns:
-      True when writes or deletes at this key are denied by the bucket's policy.
+      True when writes or deletes at this key are denied by the portal role's Deny for that bucket.
 
     Raises:
       None.
@@ -320,8 +320,8 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
 
     The undeletable rule matches the folder ITSELF at the space root. Its contents are ordinary for
     ``saved_queries/`` — visible, deletable, a valid destination — but NOT for the other two: the
-    role policy denies ``s3:DeleteObject`` beneath ``athenaresults/``, and IAM denies writes and
-    deletes beneath ``archive/``. Without those two depth rules this plane would accept requests its
+    portal role denies ``s3:DeleteObject`` beneath ``athenaresults/``, and writes and deletes
+    beneath ``archive/``. Without those two depth rules this plane would accept requests its
     own IAM refuses mid-operation, which is the mismatch the deletability assertion exists to
     prevent.
 
@@ -421,8 +421,7 @@ def marker_refusal(key: str) -> Refusal | None:
     wherever it lands — litter no user can remove, nor this plane, nor the archive plane, whose
     role denies the same basename. Only an operator, the deploy role, or the teardown that deletes a
     whole shared space can clear one. So the refusal says the marker cannot be copied as well as
-    moved or deleted, rather than talking about deletion alone, which would be false under the copy
-    prefix.
+    moved or deleted, since a message about deletion alone would not explain a refused copy.
 
     **This is about a SELECTED item only.** A marker discovered inside a folder being expanded is
     excluded from the plan rather than refused — ``saved_queries/`` ships its own marker, and

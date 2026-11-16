@@ -230,7 +230,8 @@ opening — but a guard that reads statements can never see any of them, and say
 of this table.
 
 The `Action` sets, by contrast, ARE covered — both surviving statements, by two guards.
-`test_archive_bucket_isolation.py` pins the exact set on each bucket's receipt Deny.
+`test_archive_bucket_isolation.py` pins the exact set on the portal role's receipt Deny for each
+bucket.
 `test_portal_role_preservation.py` reaches the same two from the other side, comparing each against
 the depth-one statement it replaced, read from the baseline commit. So the set cannot be narrowed in
 one place and left alone in the other, and dropping `s3:PutObject` from either Deny reddens both

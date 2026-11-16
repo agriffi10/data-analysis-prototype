@@ -15,12 +15,13 @@ The protected-folder names are duplicated from the browser's ``protectedFolders.
 Python and TypeScript cannot share a list. ``protectedFoldersMirror.test.ts`` reads THIS file as
 text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_FOLDERS``,
 ``UNDELETABLE_ROOT_FOLDERS`` and ``ANY_DEPTH_DENIED_FOLDERS`` equal as sets against the browser's.
-**It covers those three lists and nothing else** — in particular not the archive write-lock rule, which is a different shape and is
-guarded differently: ``test_archive_write_lock_mirrors_iam.py`` runs this package's predicate and
-the API's against a matcher built from the portal role's policies themselves, rather than
-against each other, and ``test_file_ops_rules_mirror_execution_role.py`` holds ``ANY_DEPTH_DENIED_FOLDERS``'s
-rule against this plane's own execution role. ``lambdas/info/planes/file-ops.md`` carries which guard reads what, and what each is still
-blind to.
+**It covers those three lists and nothing else** — in particular not the archive write-lock rule,
+which is a different shape and is guarded differently: ``test_archive_write_lock_mirrors_iam.py``
+runs this package's predicate and the API's against a matcher built from the portal role's
+policies themselves, rather than against each other, and
+``test_file_ops_rules_mirror_execution_role.py`` holds ``ANY_DEPTH_DENIED_FOLDERS``'s rule against
+this plane's own execution role. ``lambdas/info/planes/file-ops.md`` carries which guard reads
+what, and what each is still blind to.
 
 Attributes:
   OPERATIONS: The three operations one plane serves. Validated rather than inferred, because the
@@ -142,9 +143,9 @@ Attributes:
     it is hidden from the browser and locked out of the picker, but deliberately not undeletable,
     so no root-anchored list reaches it. Hiding is not enforcement, and this plane accepts a
     hand-crafted envelope. Below the root it is one of ``ANY_DEPTH_DENIED_FOLDERS``.
-  ARCHIVE_FOLDER: The archive receipts folder. Refused as a delete or move source under the bucket
-    asymmetry ``writeLockedPrefix.ts`` mirrors from IAM, and as a destination at any depth, as one
-    of ``ANY_DEPTH_DENIED_FOLDERS``.
+  ARCHIVE_FOLDER: The archive receipts folder. Refused as a delete or move source under the portal
+    role's per-bucket asymmetry ``writeLockedPrefix.ts`` mirrors from IAM, and as a destination at
+    any depth, as one of ``ANY_DEPTH_DENIED_FOLDERS``.
   REPORTS_FOLDER: The data-quality reports folder, an alias of the name ``cpcommon.app_managed``
     declares. Refused as a destination, like every picker-locked folder, and as a delete or move
     source at or beneath it. Root-anchored in both buckets, because the data-quality plane writes

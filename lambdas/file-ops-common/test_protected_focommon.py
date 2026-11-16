@@ -301,9 +301,9 @@ def test_a_destination_under_one_of_the_roles_folders_is_refused_below_the_root_
     """The execution role denies these writes at any depth, so the prefix is refused before a run.
 
     Every refused row but the shared archive row and the last was accepted while this rule followed
-    the picker and the portal role's policies, and failed at the write with ``AccessDenied``. The reason is the any-depth arm's own, not the locked folder's,
-    except on the last row: ``system_settings/`` at the root is picker-locked in its own right, and
-    that rule answers first.
+    the picker and the portal role's policies, and failed at the write with ``AccessDenied``.
+    The reason is the any-depth arm's own, not the locked folder's, except on the last row:
+    ``system_settings/`` at the root is picker-locked in its own right, and that rule answers first.
     """
     root = prefix.split("/", 1)[0] + "/"
 

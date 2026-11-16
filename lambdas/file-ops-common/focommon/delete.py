@@ -64,7 +64,8 @@ Attributes:
     is NOT a precondition mismatch — it is retryable, where a mismatch is terminal for that object.
   _ALREADY_GONE: The object is not there. On the unconditional path S3 never says this; on the
     conditional path it is what a replayed batch answers, and it means the deletion succeeded.
-  _DENIED_CODES: The bucket policy or the role's own Deny refused it.
+  _DENIED_CODES: The execution role's own Deny refused it, or the user-space bucket policy's
+    principal allowlist did.
 """
 
 import logging

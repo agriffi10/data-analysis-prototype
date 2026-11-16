@@ -251,8 +251,8 @@ def test_the_derived_rule_refuses_a_nested_role_folder_in_a_PERSONAL_space_too()
     """A rename into a nested ``system_settings/`` lands in the execution role's ``archive`` pair.
 
     Accepted while the rule followed the portal role's personal-bucket Deny, which is root-anchored,
-    and then refused at the write by the role, whose Deny reaches the pair at any depth in either
-    bucket.
+    and then refused at the write by the execution role, whose Deny reaches the pair at any depth in
+    either bucket.
     """
     result = _run(
         items=[{"kind": "folder", "key": "alice/stage/", "targetName": "archive"}],
